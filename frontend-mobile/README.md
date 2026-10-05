@@ -153,7 +153,7 @@ EXPO_PUBLIC_API_URL=http://192.168.1.100:8081
 
 ### Authentication Flow
 
-1. User registers or logs in via the OAuth 2.0 password grant, asking for `offline_access`
+1. User registers or logs in via the OAuth 2.0 password grant as `client_id=dravr-mobile` (the grant serves Dravr's own apps only), asking for `offline_access`
 2. JWT and refresh token stored in the device keychain (expo-secure-store); user profile in AsyncStorage
 3. CSRF token included for state-changing requests
 4. A still-valid JWT is renewed on launch and foreground; a lapsed one is replaced by exchanging the refresh token on the first 401, single-flight, then the request is retried

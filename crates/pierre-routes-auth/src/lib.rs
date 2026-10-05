@@ -70,6 +70,7 @@ mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
 mod email_verification;
+mod first_party_client;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
 mod intervals_icu;

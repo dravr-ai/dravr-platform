@@ -17,6 +17,7 @@ use tracing::{debug, error, field, field::Empty, info, warn, Span};
 use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
+use crate::first_party_client::refuse_unbound_client;
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
 use pierre_auth::password::verify_password;
@@ -804,15 +805,19 @@ pub async fn handle_user_stats(
 
 /// Handle the first-party `OAuth2` token request.
 ///
-/// Two grants. RFC 6749 §4.3, the password grant, is how every first-party
-/// client and any MCP or CLI caller without a browser logs in; adding
+/// Two grants. RFC 6749 §4.3, the password grant, is how Dravr's own web and
+/// mobile apps sign in, and only them: the request must name one of them as
+/// `client_id` (`dravr-web`, `dravr-mobile`), or it is refused with
+/// `invalid_client` before the password is checked. Adding
 /// `scope=offline_access` asks for a refresh token alongside the JWT. RFC
 /// 6749 §6, the refresh grant, exchanges that token for a fresh JWT and a
-/// successor token once the JWT has lapsed.
+/// successor token once the JWT has lapsed. It names no client: a refresh
+/// token is only ever issued by a password grant, so it is already bound to
+/// a first-party client by the grant that issued it.
 ///
 /// Request format: `application/x-www-form-urlencoded`
 /// ```text
-/// grant_type=password&username=user@example.com&password=secret&scope=offline_access
+/// grant_type=password&client_id=dravr-mobile&username=user@example.com&password=secret&scope=offline_access
 /// grant_type=refresh_token&refresh_token=...
 /// ```
 ///
@@ -868,6 +873,10 @@ pub async fn handle_oauth2_token(
     // an RFC 6749 §5.2 error body.
     let outcome = match request.grant_type.as_str() {
         "password" => {
+            // Checked before the password is (carnet#768).
+            if let Some(refusal) = refuse_unbound_client(request.client_id.as_deref()) {
+                return Ok(refusal);
+            }
             let (Some(email), Some(password)) = (request.username, request.password) else {
                 return Ok(oauth2_error(
                     "invalid_request",
@@ -877,10 +886,7 @@ pub async fn handle_oauth2_token(
             let login_request = LoginRequest {
                 email,
                 password,
-                // OAuth2 ROPC bridge does not carry a timezone — the
-                // password-flow client (web/mobile) sends it on its own
-                // /auth/login call; ROPC callers are server-to-server and
-                // typically agnostic.
+                // The password grant's form carries no timezone field.
                 timezone: None,
             };
             match auth_service.login(login_request).await {

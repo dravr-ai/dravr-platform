@@ -19,6 +19,22 @@ import { ENDPOINTS } from '../core/endpoints';
  */
 const OFFLINE_ACCESS_SCOPE = 'offline_access';
 
+/**
+ * The `client_id` each first-party app names on the password grant.
+ *
+ * The server serves the password grant to Dravr's own apps only: a sign-in
+ * session is accepted by chat and every REST route as the app itself, so a
+ * request naming no first-party client is refused with `invalid_client`
+ * before the password is checked. The identifiers are public, as every
+ * browser and native app's is; they declare the client, they do not
+ * authenticate it. Mirrors `FIRST_PARTY_CLIENT_IDS` in
+ * `crates/pierre-routes-auth/src/first_party_client.rs`.
+ */
+const FIRST_PARTY_CLIENT_IDS = {
+  web: 'dravr-web',
+  mobile: 'dravr-mobile',
+} as const satisfies Record<PlatformAdapter['platform'], string>;
+
 export interface LoginCredentials {
   email: string;
   password: string;
@@ -52,6 +68,7 @@ export function createAuthApi(
     async login(credentials: LoginCredentials): Promise<LoginResponse> {
       const formData = new URLSearchParams();
       formData.append('grant_type', 'password');
+      formData.append('client_id', FIRST_PARTY_CLIENT_IDS[platform]);
       formData.append('username', credentials.email);
       formData.append('password', credentials.password);
       if (platform === 'mobile') {

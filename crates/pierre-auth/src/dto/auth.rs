@@ -268,7 +268,8 @@ pub struct OAuth2TokenRequest {
     pub password: Option<String>,
     /// The refresh token to exchange, for the `refresh_token` grant
     pub refresh_token: Option<String>,
-    /// `OAuth2` client identifier (optional for first-party clients)
+    /// `OAuth2` client identifier. The password grant requires one of Dravr's
+    /// own app identifiers (carnet#768); the refresh grant reads none.
     pub client_id: Option<String>,
     /// `OAuth2` client secret (optional for public clients)
     pub client_secret: Option<String>,

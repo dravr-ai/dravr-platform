@@ -258,7 +258,7 @@ async fn test_a2a_jsonrpc_version_negotiated_dispatch() {
 #[tokio::test]
 async fn test_extended_agent_card_lists_live_tools() {
     let resources = create_a2a_test_resources().await;
-    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-extcard@example.com")
+    let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-extcard@example.com")
         .await
         .expect("seed user + tenant + JWT with active_tenant_id");
     let routes = a2a_router_from(&resources);
@@ -338,6 +338,58 @@ async fn test_a2a_jsonrpc_send_message_requires_auth() {
     );
 }
 
+/// A first-party session token is Dravr's own app signed in, not an agent's
+/// credential: the A2A protocol surface refuses it as unauthenticated
+/// (carnet#768), while the same user's delegated grant is served.
+#[tokio::test]
+async fn test_a2a_refuses_a_first_party_session_token() {
+    let resources = create_a2a_test_resources().await;
+    let (user, session) = common::create_test_tenant(&resources, "a2a-session@example.com")
+        .await
+        .expect("seed user + tenant + session JWT");
+    let grant = common::generate_delegated_test_token(&resources, &user).await;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "GetExtendedAgentCard",
+        "id": 9
+    });
+
+    let refused = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {session}"))
+        .json(&body)
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a session token must not authenticate A2A"
+    );
+    let envelope: serde_json::Value = refused.json();
+    assert!(envelope["result"].is_null(), "{envelope:?}");
+    assert_eq!(
+        envelope["error"]["data"][0]["reason"], "AUTHENTICATION_REQUIRED",
+        "{envelope:?}"
+    );
+
+    let served = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {grant}"))
+        .json(&body)
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(served.status(), 200);
+    let envelope: serde_json::Value = served.json();
+    assert!(envelope["error"].is_null(), "{envelope:?}");
+
+    // The HTTP+JSON binding takes the same principal, so it refuses the same way.
+    let rest = AxumTestRequest::get("/a2a/extendedAgentCard?A2A-Version=1.0")
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(a2a_router_from(&resources))
+        .await;
+    assert_eq!(rest.status(), 401);
+}
+
 #[tokio::test]
 async fn test_a2a_jsonrpc_send_message_plain_text_is_refused_not_echoed() {
     // SendMessage executes registered tools addressed by a `data` part. A
@@ -345,7 +397,7 @@ async fn test_a2a_jsonrpc_send_message_plain_text_is_refused_not_echoed() {
     // ContentTypeNotSupported error — never answered by handing the caller
     // its own sentence back as the agent's reply.
     let resources = create_a2a_test_resources().await;
-    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-auth@example.com")
+    let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-auth@example.com")
         .await
         .expect("seed user + tenant + JWT with active_tenant_id");
     let routes = a2a_router_from(&resources);
@@ -433,7 +485,7 @@ async fn test_rest_binding_auth_maps_to_401() {
 #[tokio::test]
 async fn test_rest_message_send_plain_text_is_refused_not_echoed() {
     let resources = create_a2a_test_resources().await;
-    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-rest@example.com")
+    let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-rest@example.com")
         .await
         .expect("seed user + tenant + JWT with active_tenant_id");
     let routes = a2a_router_from(&resources);
@@ -471,7 +523,7 @@ async fn test_rest_message_send_plain_text_is_refused_not_echoed() {
 #[tokio::test]
 async fn test_rest_get_task_not_found_is_404() {
     let resources = create_a2a_test_resources().await;
-    let (_user, jwt) = common::create_test_tenant(&resources, "a2a-404@example.com")
+    let (_user, jwt) = common::create_test_mcp_tenant(&resources, "a2a-404@example.com")
         .await
         .expect("seed user + tenant + JWT with active_tenant_id");
     let routes = a2a_router_from(&resources);

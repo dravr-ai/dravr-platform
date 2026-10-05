@@ -53,18 +53,10 @@ use sync_verdict::{
 use write_through::{write_through_activity_cache, write_through_served_window, WriteThrough};
 
 /// Read limit for the single deterministic durable-cache read on the historical
-/// backfill path.
-///
-/// Decoupled from the user's display limit so the cache read
-/// returns the COMPLETE window (the display limit caps only the returned list
-/// afterwards). Generous enough to cover a dense season (>=2 activities/day for
-/// a year) without truncating the window read; the durable table is already
-/// retention-bounded, so this only guards against an unbounded read. When a
-/// window fills this cap the served `window_total` is only a lower bound, so
-/// `activity_coverage_note` frames the count as "at least {total}". `pub` so the
-/// cap boundary is exercisable by the coverage-note tests (re-exported through
-/// `implementations::data`, its original home).
-pub const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
+/// backfill path. Defined beside the training-history read, which reads the
+/// same windows; `pub` so the cap boundary is exercisable by the coverage-note
+/// tests (re-exported through `implementations::data`, its original home).
+pub use pierre_services::training_history_read::HISTORICAL_WINDOW_READ_LIMIT;
 
 /// Cache fallback window when the request carries no `after` lower bound.
 const STALE_FALLBACK_WINDOW_DAYS: i64 = 90;

@@ -630,7 +630,8 @@ impl ToolHandlers {
             // Route through the unified executor so every registry tool call
             // passes the Guardian chokepoint and resolves identity/admin/tenant
             // consistently via `build_tool_context`.
-            // Guardian turn key only — a `/mcp` caller has no chat turn.
+            // No Guardian turn key: a `/mcp` caller has no chat turn, so each
+            // call is keyed on its own.
             // The caller's grant is already bound as a task-local by
             // `run_dispatch`, so `UniversalToolExecutor::new` inherits it — one
             // carrier, set once at the authenticated dispatch boundary.
@@ -638,14 +639,7 @@ impl ToolHandlers {
             // Whatever credential reached `/mcp`, its caller is an MCP client
             // outside Dravr's own surfaces: the route decides, never the token
             // (carnet#724).
-            let executor = ctx
-                .tenant_context
-                .session_id
-                .clone()
-                .map_or_else(
-                    || UniversalToolExecutor::new(ctx.resources.clone()),
-                    |turn| UniversalToolExecutor::new(ctx.resources.clone()).with_turn_token(turn),
-                )
+            let executor = UniversalToolExecutor::new(ctx.resources.clone())
                 .with_transport(Transport::McpHttp);
             let request = UniversalRequest {
                 tool_name: tool_name.to_owned(),

@@ -120,6 +120,16 @@ async fn active_user(resources: &Arc<ServerContext>, tier: UserTier, role: UserR
     user
 }
 
+/// The delegated grant an MCP or A2A client holds for `athlete`, naming the
+/// same tenant as its session token.
+fn mcp_grant(resources: &Arc<ServerContext>, athlete: &Athlete) -> String {
+    common::delegated_test_token_for_tenant(
+        resources,
+        athlete.user.id,
+        Some(athlete.tenant_id.to_string()),
+    )
+}
+
 /// `user` with a JWT naming `tenant_id`.
 fn signed_in(resources: &Arc<ServerContext>, user: User, tenant_id: TenantId) -> Athlete {
     let token = resources
@@ -1533,9 +1543,12 @@ async fn test_database_failure_during_mcp_auth_is_500_not_invalid_token() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
     let athlete = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    // An MCP client's delegated grant: `/mcp` refuses a session token
+    // (carnet#768), and the grant reads the same JWT budget.
+    let token = mcp_grant(&resources, &athlete);
     drop_jwt_usage(&resources).await;
 
-    let post = send(&app, mcp_ping(Some(&athlete.token))).await;
+    let post = send(&app, mcp_ping(Some(&token))).await;
     assert_eq!(
         post.status,
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -1550,7 +1563,7 @@ async fn test_database_failure_during_mcp_auth_is_500_not_invalid_token() {
     );
     post.assert_no_budget_headers("a request whose budget could not be read");
 
-    let bearer = format!("Bearer {}", athlete.token);
+    let bearer = format!("Bearer {token}");
     let tools = send(&app, get_with("/mcp/tools", &[("authorization", &bearer)])).await;
     assert_eq!(
         tools.status,
@@ -1569,7 +1582,12 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
 
     let admitted = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, admitted.user.id, 3).await;
-    let card = send(&app, a2a_request(&admitted.token, "GetExtendedAgentCard")).await;
+    // An agent's delegated grant: A2A refuses a session token (carnet#768).
+    let card = send(
+        &app,
+        a2a_request(&mcp_grant(&resources, &admitted), "GetExtendedAgentCard"),
+    )
+    .await;
     assert_eq!(card.status, StatusCode::OK, "{}", card.body);
     assert!(card.body["error"].is_null(), "{}", card.body);
     assert_eq!(card.header("x-ratelimit-limit"), Some("10000"));
@@ -1589,7 +1607,11 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
 
     let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
-    let refused = send(&app, a2a_request(&exhausted.token, "GetExtendedAgentCard")).await;
+    let refused = send(
+        &app,
+        a2a_request(&mcp_grant(&resources, &exhausted), "GetExtendedAgentCard"),
+    )
+    .await;
     let to_reset = (next_utc_month_start(Utc::now()) - Utc::now()).num_seconds();
     assert_eq!(
         refused.status,
@@ -1615,7 +1637,7 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
     assert_eq!(refused.header("x-ratelimit-remaining"), Some("0"));
 
     // The HTTP+JSON binding maps the same refusal to RESOURCE_EXHAUSTED.
-    let bearer = format!("Bearer {}", exhausted.token);
+    let bearer = format!("Bearer {}", mcp_grant(&resources, &exhausted));
     let rest = send(
         &app,
         get_with("/a2a/tasks?A2A-Version=1.0", &[("authorization", &bearer)]),

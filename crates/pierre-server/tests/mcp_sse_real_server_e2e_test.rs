@@ -20,6 +20,7 @@ use pierre_config::environment::{
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::{
@@ -228,10 +229,20 @@ impl TestServer {
         repos.tenants.create(&tenant).await?;
         repos.users.update_tenant_id(user_id, tenant_id).await?;
 
-        // Generate JWT token
-        let jwt_token = self
-            .auth_manager
-            .generate_token(&user, &common::get_shared_test_jwks())?;
+        // An MCP client's delegated grant: `/mcp` refuses a first-party
+        // session token (carnet#768).
+        let scopes: Vec<String> = OAuthScope::delegable_as_str()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let jwt_token = self.auth_manager.generate_oauth_access_token(
+            &common::get_shared_test_jwks(),
+            &user.id,
+            &scopes,
+            &[],
+            None,
+            None,
+        )?;
 
         Ok((user_id, jwt_token))
     }

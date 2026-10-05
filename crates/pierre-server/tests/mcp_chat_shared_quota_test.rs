@@ -183,7 +183,7 @@ mod shared_quota_tests {
             .await
             .unwrap()
             .expect("the athlete exists");
-        let token = common::generate_test_token(resources, &user).await;
+        let token = common::generate_delegated_test_token(resources, &user).await;
         let request = Request::post("/mcp")
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, format!("Bearer {token}"))

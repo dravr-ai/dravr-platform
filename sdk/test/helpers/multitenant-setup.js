@@ -9,6 +9,7 @@
 
 const { generateTestToken } = require('./token-generator');
 const crypto = require('crypto');
+const { issueApiKey } = require('./server');
 
 /**
  * Setup multiple MCP clients for multi-tenant testing
@@ -40,19 +41,22 @@ async function setupMultiTenantClients(numTenants = 2, serverConfig = {}) {
         const loginResponse = await fetch(`${serverUrl}/oauth/token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ grant_type: 'password', username: email, password }).toString(),
+            body: new URLSearchParams({ grant_type: 'password', client_id: 'dravr-web', username: email, password }).toString(),
         });
         if (!loginResponse.ok) {
             const text = await loginResponse.text();
             throw new Error(`Tenant ${i + 1} login failed (${loginResponse.status}): ${text}`);
         }
         const tokenData = await loginResponse.json();
+        // /mcp refuses the session token itself (carnet#768): each tenant's
+        // client presents the API key its athlete issued from that session.
+        const apiKey = await issueApiKey(serverUrl, tokenData.access_token);
 
         clients.push({
             tenantId: i + 1,
             userId: tokenData.user_id || email,
             email,
-            token: tokenData.access_token,
+            token: apiKey,
             tokenData,
             serverUrl,
         });

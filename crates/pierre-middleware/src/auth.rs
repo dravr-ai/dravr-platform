@@ -57,7 +57,9 @@ enum GrantPolicy<'a> {
     /// The athlete's own credential only: a session, an API key. A delegated
     /// grant is refused with 403.
     DirectOnly,
-    /// A delegated grant too, because the caller enforces its scopes.
+    /// A delegated grant, because the caller enforces its scopes — and never
+    /// a first-party session token, which is the app's credential, not an
+    /// integration's (carnet#768).
     ScopesEnforced {
         /// Identifiers of the protected resource the request is addressed to;
         /// a token audience-bound to any other resource is refused.
@@ -74,6 +76,23 @@ fn delegated_grant_refused() -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
         "This access token was delegated to an application and is accepted only by the MCP and A2A endpoints",
+    )
+}
+
+/// The refusal a first-party session token meets on a path that takes
+/// delegated grants: the MCP transport and A2A.
+///
+/// A session — the self grant, which no authorization server ever mints for
+/// an integration, since `admin` is never delegable — is how Dravr's own web
+/// and mobile apps are signed in. It is not an integration's credential, so
+/// it is refused as one: `AuthInvalid`, which `/mcp` answers with a 401
+/// `invalid_token` challenge, sending a spec-following client into the OAuth
+/// flow that mints the delegated grant it should hold. The athlete's API key
+/// stays accepted, because it is their own credential handed out on purpose.
+fn session_token_refused() -> AppError {
+    AppError::auth_invalid(
+        "A Dravr sign-in session is not accepted by the MCP and A2A endpoints; \
+         authorize this client with OAuth or use an API key",
     )
 }
 
@@ -282,12 +301,14 @@ impl McpAuthMiddleware {
     }
 
     /// Authenticate a request on a path that enforces the credential's scopes
-    /// itself — the MCP transport, whose tool dispatch refuses any tool the
-    /// grant does not cover.
+    /// itself — the MCP transport and A2A, whose tool dispatch refuses any
+    /// tool the grant does not cover.
     ///
-    /// Accepts everything [`Self::authenticate_request`] does, plus a delegated
-    /// OAuth grant, whose narrowed scopes ride out on [`AuthResult::scopes`].
-    /// A caller that does not read those scopes must not use this.
+    /// Accepts a delegated OAuth grant, whose narrowed scopes ride out on
+    /// [`AuthResult::scopes`], and the athlete's API key. A caller that does
+    /// not read those scopes must not use this. A first-party session token is
+    /// refused: it is Dravr's own app signed in, not an integration's
+    /// credential (carnet#768).
     ///
     /// `resources` are the identifiers of the protected resource the request is
     /// addressed to. An access token audience-bound to one of them (RFC 8707)
@@ -296,7 +317,8 @@ impl McpAuthMiddleware {
     /// # Errors
     ///
     /// As [`Self::authenticate_request`], less the delegated-grant refusal,
-    /// plus a token audience-bound to another resource.
+    /// plus a token audience-bound to another resource and a first-party
+    /// session token (`AuthInvalid`).
     pub async fn authenticate_scoped_request(
         &self,
         auth_header: Option<&str>,
@@ -488,7 +510,6 @@ impl McpAuthMiddleware {
                 // them, so the credential is not a narrowed delegation. The
                 // role gate still decides admin independently.
                 scopes: OAuthScope::self_grant(),
-                session_id: None,
             },
             budget,
         })
@@ -621,7 +642,6 @@ impl McpAuthMiddleware {
             // so the credential is not a narrowed delegation. The role gate
             // still decides admin independently.
             scopes: OAuthScope::self_grant(),
-            session_id: None,
         })
     }
 
@@ -662,13 +682,29 @@ impl McpAuthMiddleware {
         // reads or writes — deliberate, and the reason this shipped with a
         // re-authentication rather than a compatibility path.
         let scopes = OAuthScope::parse_granted(&claims.scope);
-        if policy == GrantPolicy::DirectOnly && !OAuthScope::is_self_grant(&scopes) {
-            warn!(
-                user_id = %user_id,
-                granted = %OAuthScope::render_granted(&scopes),
-                "Delegated OAuth grant refused on a path that does not enforce scopes"
-            );
-            return Err(Refused::Failed(delegated_grant_refused()));
+        let is_session = OAuthScope::is_self_grant(&scopes);
+        match policy {
+            GrantPolicy::DirectOnly if !is_session => {
+                warn!(
+                    user_id = %user_id,
+                    granted = %OAuthScope::render_granted(&scopes),
+                    "Delegated OAuth grant refused on a path that does not enforce scopes"
+                );
+                return Err(Refused::Failed(delegated_grant_refused()));
+            }
+            // The mirror image (carnet#768): a first-party session token is
+            // Dravr's own app signed in, never an integration's credential.
+            // An MCP or A2A client authorizes through OAuth, or presents the
+            // athlete's API key, so a session token arriving here was lifted
+            // from the app — refused before it reads or writes anything.
+            GrantPolicy::ScopesEnforced { .. } if is_session => {
+                warn!(
+                    user_id = %user_id,
+                    "First-party session token refused on a delegated-access endpoint"
+                );
+                return Err(Refused::Failed(session_token_refused()));
+            }
+            GrantPolicy::DirectOnly | GrantPolicy::ScopesEnforced { .. } => {}
         }
 
         // Extract active_tenant_id from JWT claims (multi-tenant user tenant selection)
@@ -732,10 +768,6 @@ impl McpAuthMiddleware {
                 },
                 active_tenant_id,
                 scopes,
-                // The Guardian turn token: the `jti` only for a per-turn (ACP)
-                // token; `None` for a reused session token so a stateless MCP
-                // client is keyed per-call, not across its whole session (#2).
-                session_id: claims.guardian_turn_token(),
             },
             budget,
         })

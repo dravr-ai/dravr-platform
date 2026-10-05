@@ -176,6 +176,7 @@ async fn register_pending_then_approve_then_login_then_onboarding() {
     let login_resp = AxumTestRequest::post("/oauth/token")
         .form(&[
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", email),
             ("password", password),
         ])

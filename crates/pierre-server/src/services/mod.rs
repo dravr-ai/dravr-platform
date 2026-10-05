@@ -74,6 +74,11 @@ pub mod backfill_reentry;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod backfill_delivery;
 
+/// The activity window a backfill-completion notice lists, read under each
+/// provider's terms as a model may see it.
+#[cfg(feature = "client-messaging")]
+pub(crate) mod backfill_window;
+
 /// Spawns the coaching background workers (outcome evaluator, archetype
 /// aggregation, commitment sweep).
 pub mod coaching_workers;

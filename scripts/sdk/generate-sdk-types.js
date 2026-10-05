@@ -59,6 +59,7 @@ function httpRequest({ method, requestPath, headers = {}, body }) {
 async function loginAsAdmin(email, password) {
   const form = new URLSearchParams({
     grant_type: 'password',
+    client_id: 'dravr-web',
     username: email,
     password
   }).toString();
@@ -84,19 +85,86 @@ async function loginAsAdmin(email, password) {
   return token;
 }
 
+/** Whether `token` is a Pierre API key rather than a session JWT. */
+function isApiKey(token) {
+  return token.startsWith('pk_live_') || token.startsWith('pk_trial_');
+}
+
 /**
- * Resolve a bearer token for a global admin.
+ * Exchange an admin's session token for an API key of the same admin.
+ *
+ * `/mcp/tools` is the MCP surface, which refuses a first-party session token
+ * (carnet#768): it takes the athlete's own API key or a delegated OAuth grant.
+ * An API key carries the self grant, so the global admin it belongs to still
+ * sees the complete registry.
+ */
+async function exchangeSessionForApiKey(sessionToken) {
+  const body = JSON.stringify({ name: 'SDK type generation' });
+  const { statusCode, body: responseBody } = await httpRequest({
+    method: 'POST',
+    requestPath: '/api/keys',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      Authorization: `Bearer ${sessionToken}`
+    },
+    body
+  });
+
+  if (statusCode !== 201) {
+    throw new Error(`API key creation failed (${statusCode}): ${responseBody}`);
+  }
+  const created = JSON.parse(responseBody);
+  if (!created.api_key || !created.key_info?.id) {
+    throw new Error('API key response carried no api_key or key id');
+  }
+  return {
+    token: created.api_key,
+    revoke: () => revokeApiKey(sessionToken, created.key_info.id)
+  };
+}
+
+/** Revoke the key `exchangeSessionForApiKey` minted, so runs leave no keys behind. */
+async function revokeApiKey(sessionToken, keyId) {
+  const { statusCode, body } = await httpRequest({
+    method: 'DELETE',
+    requestPath: `/api/keys/${encodeURIComponent(keyId)}`,
+    headers: { Authorization: `Bearer ${sessionToken}` }
+  });
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error(`API key revocation failed (${statusCode}): ${body}`);
+  }
+}
+
+/**
+ * Resolve a bearer token for a global admin, as `{ token, revoke }`: `revoke`
+ * deletes the API key this run minted from a session, and is a no-op for a
+ * configured API key.
  *
  * `GET /mcp/tools` is tiered exactly like JSON-RPC `tools/list`, so only a
  * global admin (`User.is_admin`) sees the complete registry — which is what the
  * generated types must describe. Resolution order, most explicit first:
  *
- *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token.
+ *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token (an API
+ *      key, or an admin session JWT this exchanges for one).
  *   2. `ADMIN_EMAIL` + `ADMIN_PASSWORD` — a fresh password-grant login (both
  *      are exported by `.envrc` on a dev machine).
  *   3. `logs/admin-token.txt` — written by the dev-stack setup script.
  */
 async function resolveAdminToken() {
+  const token = await resolveAdminSessionOrKey();
+  if (isApiKey(token)) {
+    return { token, revoke: async () => {} };
+  }
+  console.log('🔑 Exchanging the admin session for an API key (/mcp refuses sessions)');
+  return exchangeSessionForApiKey(token);
+}
+
+/**
+ * The admin credential as configured: an API key, or a session JWT that
+ * [`resolveAdminToken`] exchanges for one.
+ */
+async function resolveAdminSessionOrKey() {
   if (process.env.PIERRE_ADMIN_TOKEN) {
     console.log('🔑 Using PIERRE_ADMIN_TOKEN from the environment');
     return process.env.PIERRE_ADMIN_TOKEN;
@@ -559,11 +627,16 @@ async function main() {
   console.log('==============================\n');
 
   try {
-    const token = await resolveAdminToken();
+    const credential = await resolveAdminToken();
 
     console.log(`📡 Fetching tool schemas from ${SERVER_URL}:${SERVER_PORT}/mcp/tools...`);
 
-    const tools = await fetchToolSchemas(token);
+    let tools;
+    try {
+      tools = await fetchToolSchemas(credential.token);
+    } finally {
+      await credential.revoke();
+    }
     console.log(`✅ Fetched ${tools.length} tool schemas\n`);
 
     // Ensure output directory exists
@@ -599,7 +672,8 @@ async function main() {
     console.error('   2. Verify the discovery endpoint is reachable at', `${SERVER_URL}:${SERVER_PORT}/mcp/tools`);
     console.error('   3. The endpoint is admin-gated: supply PIERRE_ADMIN_TOKEN, or');
     console.error('      ADMIN_EMAIL + ADMIN_PASSWORD, or run the dev-stack setup script');
-    console.error('      so logs/admin-token.txt holds a fresh global-admin JWT');
+    console.error('      so logs/admin-token.txt holds a fresh global-admin JWT (exchanged');
+    console.error('      for an API key, since /mcp refuses session tokens)');
     console.error('\n💡 Start the full dev stack with: ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh');
     process.exit(1);
   }

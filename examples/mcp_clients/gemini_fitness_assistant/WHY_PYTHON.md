@@ -42,7 +42,7 @@ pip install google-generativeai  # Official, maintained by Google
 **Beginner-Friendly:**
 ```python
 # Python - immediately readable
-client = PierreMCPClient(server_url, jwt_token)
+client = PierreMCPClient(server_url, api_key)
 tools = client.fetch_tools()
 ```
 
@@ -50,7 +50,7 @@ vs
 
 ```rust
 // Rust - requires understanding ownership, lifetimes, async
-let client = PierreMCPClient::new(server_url, jwt_token).await?;
+let client = PierreMCPClient::new(server_url, api_key).await?;
 let tools = client.fetch_tools().await?;
 ```
 

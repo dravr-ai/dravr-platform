@@ -105,9 +105,12 @@ fn a2a_router_from(resources: &Arc<ServerContext>) -> axum::Router {
     A2ARoutes::routes(state)
 }
 
-/// One seeded A2A user: a JWT plus the id of the client its tasks key to.
+/// One seeded A2A user: a session JWT for the client-management routes, the
+/// delegated grant an agent presents on the protocol surface (which refuses a
+/// session token, carnet#768), and the id of the client its tasks key to.
 struct A2AUser {
     jwt: String,
+    grant: String,
     client_id: String,
 }
 
@@ -131,6 +134,7 @@ async fn seed_a2a_user(resources: &Arc<ServerContext>, email: &str) -> A2AUser {
         .expect("register A2A client");
 
     A2AUser {
+        grant: common::generate_delegated_test_token(resources, &user).await,
         jwt,
         client_id: credentials.client_id,
     }
@@ -201,16 +205,22 @@ async fn test_task_paths_deny_a_second_user() {
     let task_id = seed_task(&resources, &owner.client_id, "ctx-owner").await;
 
     // GetTask: the owner reads the task, the stranger is told it is absent.
-    let envelope = rpc(&routes, &owner.jwt, "GetTask", json!({ "id": task_id })).await;
+    let envelope = rpc(&routes, &owner.grant, "GetTask", json!({ "id": task_id })).await;
     assert_eq!(
         envelope["result"]["id"], task_id,
         "the owner must be able to read their own task: {envelope:?}"
     );
-    let envelope = rpc(&routes, &stranger.jwt, "GetTask", json!({ "id": task_id })).await;
+    let envelope = rpc(
+        &routes,
+        &stranger.grant,
+        "GetTask",
+        json!({ "id": task_id }),
+    )
+    .await;
     assert_denied(&envelope, "GetTask");
 
     // ListTasks is scoped to the caller's own clients.
-    let envelope = rpc(&routes, &stranger.jwt, "ListTasks", json!({})).await;
+    let envelope = rpc(&routes, &stranger.grant, "ListTasks", json!({})).await;
     let listed = envelope["result"]["tasks"]
         .as_array()
         .expect("ListTasks returns an array");
@@ -222,7 +232,7 @@ async fn test_task_paths_deny_a_second_user() {
     // Push-notification config CRUD: all four verbs gate on task ownership.
     let envelope = rpc(
         &routes,
-        &stranger.jwt,
+        &stranger.grant,
         "CreateTaskPushNotificationConfig",
         json!({ "taskId": task_id, "config": { "url": "https://example.com/hook" } }),
     )
@@ -231,7 +241,7 @@ async fn test_task_paths_deny_a_second_user() {
 
     let envelope = rpc(
         &routes,
-        &stranger.jwt,
+        &stranger.grant,
         "ListTaskPushNotificationConfigs",
         json!({ "taskId": task_id }),
     )
@@ -240,7 +250,7 @@ async fn test_task_paths_deny_a_second_user() {
 
     let envelope = rpc(
         &routes,
-        &stranger.jwt,
+        &stranger.grant,
         "GetTaskPushNotificationConfig",
         json!({ "taskId": task_id, "configId": "cfg-absent" }),
     )
@@ -249,7 +259,7 @@ async fn test_task_paths_deny_a_second_user() {
 
     let envelope = rpc(
         &routes,
-        &stranger.jwt,
+        &stranger.grant,
         "DeleteTaskPushNotificationConfig",
         json!({ "taskId": task_id, "configId": "cfg-absent" }),
     )
@@ -261,7 +271,7 @@ async fn test_task_paths_deny_a_second_user() {
     // missing rather than the task missing.
     let envelope = rpc(
         &routes,
-        &owner.jwt,
+        &owner.grant,
         "ListTaskPushNotificationConfigs",
         json!({ "taskId": task_id }),
     )
@@ -276,7 +286,7 @@ async fn test_task_paths_deny_a_second_user() {
 
     let envelope = rpc(
         &routes,
-        &owner.jwt,
+        &owner.grant,
         "GetTaskPushNotificationConfig",
         json!({ "taskId": task_id, "configId": "cfg-absent" }),
     )
@@ -290,14 +300,20 @@ async fn test_task_paths_deny_a_second_user() {
     // the stranger first proves the task was still cancelable at the time.
     let envelope = rpc(
         &routes,
-        &stranger.jwt,
+        &stranger.grant,
         "CancelTask",
         json!({ "id": task_id }),
     )
     .await;
     assert_denied(&envelope, "CancelTask");
 
-    let envelope = rpc(&routes, &owner.jwt, "CancelTask", json!({ "id": task_id })).await;
+    let envelope = rpc(
+        &routes,
+        &owner.grant,
+        "CancelTask",
+        json!({ "id": task_id }),
+    )
+    .await;
     assert_eq!(
         envelope["result"]["status"]["state"], "TASK_STATE_CANCELED",
         "the owner must be able to cancel their own task: {envelope:?}"
@@ -325,7 +341,7 @@ async fn test_rest_task_paths_deny_a_second_user() {
     let task_id = seed_task(&resources, &owner.client_id, "ctx-rest").await;
 
     let response = AxumTestRequest::get(&format!("/a2a/tasks/{task_id}?A2A-Version=1.0"))
-        .header("Authorization", &format!("Bearer {}", owner.jwt))
+        .header("Authorization", &format!("Bearer {}", owner.grant))
         .send(routes.clone())
         .await;
     assert_eq!(response.status(), 200);
@@ -333,7 +349,7 @@ async fn test_rest_task_paths_deny_a_second_user() {
     assert_eq!(body["id"], task_id);
 
     let response = AxumTestRequest::get(&format!("/a2a/tasks/{task_id}?A2A-Version=1.0"))
-        .header("Authorization", &format!("Bearer {}", stranger.jwt))
+        .header("Authorization", &format!("Bearer {}", stranger.grant))
         .send(routes.clone())
         .await;
     assert_eq!(response.status(), 404);
@@ -344,7 +360,7 @@ async fn test_rest_task_paths_deny_a_second_user() {
     let response = AxumTestRequest::get(&format!(
         "/a2a/tasks/{task_id}/pushNotificationConfigs?A2A-Version=1.0"
     ))
-    .header("Authorization", &format!("Bearer {}", stranger.jwt))
+    .header("Authorization", &format!("Bearer {}", stranger.grant))
     .send(routes.clone())
     .await;
     assert_eq!(response.status(), 404);
@@ -354,7 +370,7 @@ async fn test_rest_task_paths_deny_a_second_user() {
     let response = AxumTestRequest::delete(&format!(
         "/a2a/tasks/{task_id}/pushNotificationConfigs/cfg-absent?A2A-Version=1.0"
     ))
-    .header("Authorization", &format!("Bearer {}", stranger.jwt))
+    .header("Authorization", &format!("Bearer {}", stranger.grant))
     .send(routes)
     .await;
     assert_eq!(response.status(), 404);
@@ -455,7 +471,7 @@ async fn test_extended_agent_card_requires_authentication() {
     assert_eq!(body["error"]["status"], "UNAUTHENTICATED");
 
     let response = AxumTestRequest::get("/a2a/extendedAgentCard?A2A-Version=1.0")
-        .header("Authorization", &format!("Bearer {}", user.jwt))
+        .header("Authorization", &format!("Bearer {}", user.grant))
         .send(routes)
         .await;
     assert_eq!(response.status(), 200);

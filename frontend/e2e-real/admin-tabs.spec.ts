@@ -28,6 +28,7 @@ async function loginAndAuthedRequest(): Promise<{
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: {
       grant_type: 'password',
+      client_id: 'dravr-web',
       username: ADMIN_EMAIL,
       password: ADMIN_PASSWORD,
     },
@@ -170,6 +171,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       form: {
         grant_type: 'password',
+        client_id: 'dravr-web',
         username: 'alice@acme.com',
         password: 'DemoUser123!',
       },

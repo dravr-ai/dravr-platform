@@ -481,11 +481,21 @@ async fn mcp_serves_a_delegated_grant_within_its_scopes() {
         "the challenge names the missing grant: {challenge}"
     );
 
+    // The athlete's own session is the app signed in, not an integration's
+    // credential: `/mcp` refuses it as an invalid token (carnet#768).
     let response = call_get_training_plan(&resources, &athlete.session).await;
     assert_eq!(
         response.status(),
-        200,
-        "the athlete's own session is unchanged on /mcp"
+        401,
+        "a first-party session token is refused on /mcp"
+    );
+    let challenge = response
+        .header("www-authenticate")
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "the refusal sends the client to authorize: {challenge}"
     );
 }
 

@@ -11,7 +11,8 @@
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, Method, Request};
+use axum::http::header::COOKIE;
+use axum::http::{HeaderMap, HeaderValue, Method, Request};
 use axum::middleware::Next;
 use axum::response::Response;
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
@@ -118,7 +119,7 @@ pub fn validate_csrf_token(
 /// X-CSRF-Token header.
 pub async fn csrf_protection_layer<C: MiddlewareCtx>(
     State(resources): State<Arc<C>>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, AppError> {
     let method = request.method().clone();
@@ -147,6 +148,11 @@ pub async fn csrf_protection_layer<C: MiddlewareCtx>(
         .is_some_and(|v| v.starts_with("Bearer ") || v.starts_with("Api-Key "));
 
     if has_bearer_or_api_key {
+        // The header authenticates this request, never an ambient cookie
+        // riding beside it: the auth middleware tries the cookie first, so a
+        // cookie left on a request that skipped the check would authenticate
+        // it unchecked (carnet#768).
+        strip_cookie(request.headers_mut(), &auth_cookie_name());
         return Ok(next.run(request).await);
     }
 
@@ -156,14 +162,20 @@ pub async fn csrf_protection_layer<C: MiddlewareCtx>(
     };
 
     // Extract user_id from the cookie JWT to validate CSRF token ownership.
-    // If the cookie JWT is invalid (expired, stale RSA key, etc.), treat the
-    // request as unauthenticated — there is no valid session to protect with
-    // CSRF. The actual endpoint handler will perform its own authentication.
+    // A cookie this check cannot read (expired, a retired signing key, an
+    // audience it does not take) is removed before the request goes on, so
+    // the request IS unauthenticated rather than merely treated as such: no
+    // handler behind this layer can authenticate with a cookie whose CSRF
+    // token was never checked, whatever its own validation would make of it.
+    // Refusing outright instead would lock a browser holding a stale cookie
+    // out of the unauthenticated forms (forgot-password, register) until the
+    // cookie expired (carnet#768).
     let Ok(claims) = resources
         .auth_manager()
         .validate_token(&auth_token, resources.jwks_manager())
     else {
-        debug!("Stale or invalid auth cookie in CSRF check, treating as unauthenticated");
+        debug!("Stale or invalid auth cookie in CSRF check, removed from the request");
+        strip_cookie(request.headers_mut(), &auth_cookie_name());
         return Ok(next.run(request).await);
     };
 
@@ -173,4 +185,74 @@ pub async fn csrf_protection_layer<C: MiddlewareCtx>(
     validate_csrf_token(&headers, &method, user_id, resources.csrf_manager())?;
 
     Ok(next.run(request).await)
+}
+
+/// Remove every cookie named `name` from the request's `Cookie` headers,
+/// keeping the others. A header left with no cookie is dropped.
+fn strip_cookie(headers: &mut HeaderMap, name: &str) {
+    let kept: Vec<String> = headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .filter(|pair| {
+            !pair.is_empty() && pair.split_once('=').map_or(*pair, |(key, _)| key.trim()) != name
+        })
+        .map(str::to_owned)
+        .collect();
+    headers.remove(COOKIE);
+    if kept.is_empty() {
+        return;
+    }
+    if let Ok(value) = HeaderValue::from_str(&kept.join("; ")) {
+        headers.insert(COOKIE, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cookies(headers: &HeaderMap) -> Vec<&str> {
+        headers
+            .get_all(COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect()
+    }
+
+    #[test]
+    fn strip_cookie_removes_only_the_named_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_static("theme=dark; auth_token=abc; csrf=x"),
+        );
+        strip_cookie(&mut headers, "auth_token");
+        assert_eq!(cookies(&headers), vec!["theme=dark; csrf=x"]);
+    }
+
+    #[test]
+    fn strip_cookie_drops_the_header_when_nothing_is_left() {
+        let mut headers = HeaderMap::new();
+        headers.append(COOKIE, HeaderValue::from_static("auth_token=abc"));
+        headers.append(COOKIE, HeaderValue::from_static(" auth_token=def "));
+        strip_cookie(&mut headers, "auth_token");
+        assert!(headers.get(COOKIE).is_none());
+    }
+
+    #[test]
+    fn strip_cookie_does_not_match_a_name_prefix() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_static("auth_token_hint=1; __Host-auth_token=abc"),
+        );
+        strip_cookie(&mut headers, "auth_token");
+        assert_eq!(
+            cookies(&headers),
+            vec!["auth_token_hint=1; __Host-auth_token=abc"]
+        );
+    }
 }

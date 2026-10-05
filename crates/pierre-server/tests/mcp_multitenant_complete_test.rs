@@ -174,6 +174,9 @@ struct MultiTenantMcpClient {
     base_url: String,
     jwt_token: Option<String>,
     csrf_token: Option<String>,
+    /// What this client presents on `/mcp`: the API key the athlete issued
+    /// from the app. `/mcp` refuses the session token itself (carnet#768).
+    mcp_credential: Option<String>,
 }
 
 impl MultiTenantMcpClient {
@@ -183,6 +186,7 @@ impl MultiTenantMcpClient {
             base_url: format!("http://127.0.0.1:{port}"),
             jwt_token: None,
             csrf_token: None,
+            mcp_credential: None,
         }
     }
 
@@ -268,6 +272,7 @@ impl MultiTenantMcpClient {
                 .post(format!("{}/oauth/token", self.base_url))
                 .form(&[
                     ("grant_type", "password"),
+                    ("client_id", "dravr-web"),
                     ("username", email),
                     ("password", password),
                 ])
@@ -306,10 +311,38 @@ impl MultiTenantMcpClient {
 
             self.csrf_token = Some(csrf_token);
             self.jwt_token = jwt_token;
+            self.mcp_credential = Some(self.issue_api_key().await?);
             Ok(())
         } else {
             Err(anyhow::anyhow!("Login failed: {}", response.status()))
         }
+    }
+
+    /// Issue an API key from the signed-in session, as the athlete does in
+    /// the app to hand an MCP client a credential of its own.
+    async fn issue_api_key(&self) -> Result<String> {
+        let jwt = self
+            .jwt_token
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("a session is required to issue an API key"))?;
+        let response = self
+            .http_client
+            .post(format!("{}/api/keys", self.base_url))
+            .header("Authorization", format!("Bearer {jwt}"))
+            .json(&json!({ "name": "multitenant MCP client" }))
+            .send()
+            .await?;
+        if response.status() != 201 {
+            return Err(anyhow::anyhow!(
+                "API key creation failed: {}",
+                response.status()
+            ));
+        }
+        let data: Value = response.json().await?;
+        data["api_key"]
+            .as_str()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| anyhow::anyhow!("API key response carried no key"))
     }
 
     /// Get Strava OAuth URL (requires authentication)
@@ -359,8 +392,8 @@ impl MultiTenantMcpClient {
             .header("Content-Type", "application/json")
             .header("Origin", "http://localhost");
 
-        // Add JWT authentication in Authorization header
-        if let Some(token) = &self.jwt_token {
+        // The client's own credential: the API key, never the session.
+        if let Some(token) = &self.mcp_credential {
             request_builder = request_builder.header("Authorization", format!("Bearer {token}"));
         }
 
@@ -1095,6 +1128,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
             base_url: client.base_url.clone(),
             jwt_token: client.jwt_token.clone(),
             csrf_token: client.csrf_token.clone(),
+            mcp_credential: client.mcp_credential.clone(),
         };
 
         let handle = tokio::spawn(async move {

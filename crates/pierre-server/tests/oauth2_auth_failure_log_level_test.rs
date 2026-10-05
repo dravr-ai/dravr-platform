@@ -830,6 +830,7 @@ async fn an_unknown_email_at_the_password_grant_is_refused_without_paging() {
     let response = AxumTestRequest::post("/oauth/token")
         .form(&[
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", "nobody@example.com"),
             ("password", "any password"),
         ])
@@ -850,6 +851,7 @@ async fn a_database_failure_at_the_password_grant_answers_server_error_and_pages
     let response = AxumTestRequest::post("/oauth/token")
         .form(&[
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", "athlete@example.com"),
             ("password", "any password"),
         ])

@@ -247,6 +247,31 @@ async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryption
 }
 
 /**
+ * Issue an API key for the signed-in user behind `sessionToken`.
+ *
+ * `/mcp` takes the athlete's API key or a delegated OAuth grant, never the
+ * app's own session token (carnet#768).
+ */
+async function issueApiKey(baseUrl, sessionToken) {
+  const response = await fetch(`${baseUrl}/api/keys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${sessionToken}`
+    },
+    body: JSON.stringify({ name: 'SDK test bridge' })
+  });
+  if (response.status !== 201) {
+    throw new Error(`API key creation failed (${response.status}): ${await response.text()}`);
+  }
+  const { api_key: apiKey } = await response.json();
+  if (!apiKey) {
+    throw new Error('API key response carried no key');
+  }
+  return apiKey;
+}
+
+/**
  * Register a test user, promote it to a global admin, and login to get a real
  * RS256 JWT token. The server uses RS256 (RSA) JWT validation, so test tokens
  * must come from the actual server login endpoint rather than being locally
@@ -291,6 +316,7 @@ async function registerAndGetToken(port, databaseUrl, encryptionKey) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'password',
+        client_id: 'dravr-web',
         username: testEmail,
         password: testPassword
       }).toString()
@@ -299,8 +325,12 @@ async function registerAndGetToken(port, databaseUrl, encryptionKey) {
     if (loginResponse.ok) {
       const tokenData = await loginResponse.json();
       console.log('✅ Test user authenticated with RS256 JWT');
+      // /mcp refuses a first-party session token (carnet#768), so the bridge
+      // is handed the athlete's own API key, issued from that session — the
+      // credential a user pastes into an MCP client.
+      const apiKey = await issueApiKey(baseUrl, tokenData.access_token);
       return {
-        access_token: tokenData.access_token,
+        access_token: apiKey,
         token_type: tokenData.token_type || 'Bearer',
         expires_in: tokenData.expires_in || 86400,
         scope: tokenData.scope || 'read:fitness write:fitness',
@@ -359,6 +389,7 @@ module.exports = {
   ensureServerRunning,
   startServer,
   registerAndGetToken,
+  issueApiKey,
   promoteUserToGlobalAdmin,
   waitForHealth,
   sleep

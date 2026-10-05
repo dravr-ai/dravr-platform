@@ -127,7 +127,7 @@ jobs:
 
           PIERRE_ADMIN_TOKEN="$(curl -s -X POST http://localhost:8081/oauth/token \
             -H 'Content-Type: application/x-www-form-urlencoded' \
-            -d "grant_type=password&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
+            -d "grant_type=password&client_id=dravr-web&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
             | jq -r '.access_token // empty')"
           if [ -z "$PIERRE_ADMIN_TOKEN" ]; then
             echo "::error::Failed to mint an admin token for SDK type generation"

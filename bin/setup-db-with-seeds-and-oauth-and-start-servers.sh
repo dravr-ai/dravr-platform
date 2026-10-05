@@ -536,7 +536,7 @@ fi
 print_step 9 "Generating admin API token..."
 ADMIN_LOGIN=$(curl -s -X POST "http://127.0.0.1:$SERVER_PORT/oauth/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=password&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD")
+    -d "grant_type=password&client_id=dravr-web&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD")
 ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | jq -r '.access_token // empty')
 
 if [ -n "$ADMIN_TOKEN" ]; then

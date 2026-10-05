@@ -26,6 +26,7 @@ async function loginAsWebtest(): Promise<SessionBundle> {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: {
       grant_type: 'password',
+      client_id: 'dravr-web',
       username: TEST_EMAIL,
       password: TEST_PASSWORD,
     },

@@ -16,10 +16,10 @@
 //! share one date-range + format argument shape, built by
 //! [`date_range_properties`] and parsed by [`parse_date_range`] /
 //! [`apply_format`].
-
-// LIMITATION(registre#771): the sleep, recovery and health records these tools serve pass no
-// provider-terms filter (AI policy or transport gate): they carry `source_name`, never `provider`,
-// and are merged across sources before any filter could drop one.
+//!
+//! The sleep, recovery and snapshot rows are read through
+//! `pierre_services::stored_health`, which applies each row's provider terms before
+//! the per-night or per-day merge here (carnet#771).
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -46,6 +46,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::stored_health;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -237,12 +238,15 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match context
-                .resources
-                .repos()
-                .sleep
-                .get_sleep_sessions(context.user_id, &tenant_id, start, end)
-                .await
+            match stored_health::sleep_sessions(
+                context.resources.repos(),
+                context.resources.provider_registry().as_ref(),
+                context.user_id,
+                &tenant_id,
+                start,
+                end,
+            )
+            .await
             {
                 Ok(sessions) => {
                     let sessions = merge_sleep_sessions(sessions);
@@ -330,12 +334,15 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match context
-                .resources
-                .repos()
-                .recovery
-                .get_recovery_metrics(context.user_id, &tenant_id, start, end)
-                .await
+            match stored_health::recovery_metrics(
+                context.resources.repos(),
+                context.resources.provider_registry().as_ref(),
+                context.user_id,
+                &tenant_id,
+                start,
+                end,
+            )
+            .await
             {
                 Ok(metrics) => {
                     let metrics = fence_athlete_notes(merge_recovery_metrics(metrics));
@@ -400,12 +407,15 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match context
-                .resources
-                .repos()
-                .health_snapshots
-                .get_health_snapshots(context.user_id, &tenant_id, start, end)
-                .await
+            match stored_health::health_snapshots(
+                context.resources.repos(),
+                context.resources.provider_registry().as_ref(),
+                context.user_id,
+                &tenant_id,
+                start,
+                end,
+            )
+            .await
             {
                 Ok(snapshots) => {
                     let snapshots = merge_health_metrics(snapshots);

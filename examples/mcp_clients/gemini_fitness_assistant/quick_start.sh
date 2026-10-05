@@ -80,12 +80,8 @@ if [ -z "$GEMINI_API_KEY" ] || [ "$GEMINI_API_KEY" == "your-gemini-api-key-here"
     MISSING_VARS+=("GEMINI_API_KEY")
 fi
 
-if [ -z "$PIERRE_EMAIL" ] || [ "$PIERRE_EMAIL" == "user@example.com" ]; then
-    MISSING_VARS+=("PIERRE_EMAIL")
-fi
-
-if [ -z "$PIERRE_PASSWORD" ] || [ "$PIERRE_PASSWORD" == "SecurePass123!" ]; then
-    MISSING_VARS+=("PIERRE_PASSWORD")
+if [ -z "$PIERRE_API_KEY" ] || [ "$PIERRE_API_KEY" == "your-pierre-api-key-here" ]; then
+    MISSING_VARS+=("PIERRE_API_KEY")
 fi
 
 if [ ${#MISSING_VARS[@]} -gt 0 ]; then
@@ -106,15 +102,10 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
         echo ""
     fi
 
-    if [[ " ${MISSING_VARS[@]} " =~ " PIERRE_EMAIL " ]] || [[ " ${MISSING_VARS[@]} " =~ " PIERRE_PASSWORD " ]]; then
-        echo -e "${BLUE}Create a Pierre user account:${NC}"
-        echo "  curl -X POST http://localhost:8081/admin/setup \\"
-        echo "    -H 'Content-Type: application/json' \\"
-        echo "    -d '{"
-        echo "      \"email\": \"user@example.com\","
-        echo "      \"password\": \"SecurePass123!\","
-        echo "      \"display_name\": \"Test User\""
-        echo "    }'"
+    if [[ " ${MISSING_VARS[@]} " =~ " PIERRE_API_KEY " ]]; then
+        echo -e "${BLUE}Create a Pierre API key:${NC}"
+        echo "  Sign in to the Pierre web app and open Settings → API keys,"
+        echo "  then copy the key into .env as PIERRE_API_KEY."
         echo ""
     fi
 
@@ -127,20 +118,18 @@ echo ""
 
 # Test authentication
 echo -e "${YELLOW}Testing Pierre authentication...${NC}"
-LOGIN_RESPONSE=$(curl -s -X POST http://localhost:8081/oauth/token \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=password&username=$PIERRE_EMAIL&password=$PIERRE_PASSWORD" \
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8081/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $PIERRE_API_KEY" \
+    -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' \
     || echo "error")
 
-if echo "$LOGIN_RESPONSE" | grep -q "token"; then
+if [ "$STATUS" == "200" ]; then
     echo -e "${GREEN}✅ Authentication successful${NC}"
 else
-    echo -e "${RED}❌ Authentication failed${NC}"
+    echo -e "${RED}❌ Authentication failed (HTTP $STATUS)${NC}"
     echo ""
-    echo "Make sure you have created a user account:"
-    echo "  curl -X POST http://localhost:8081/admin/setup \\"
-    echo "    -H 'Content-Type: application/json' \\"
-    echo "    -d '{\"email\": \"$PIERRE_EMAIL\", \"password\": \"$PIERRE_PASSWORD\", \"display_name\": \"User\"}'"
+    echo "Check that PIERRE_API_KEY is a live key from Settings → API keys."
     echo ""
     exit 1
 fi

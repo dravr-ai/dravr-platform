@@ -273,12 +273,26 @@ async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Re
     let metrics = metrics.result.unwrap();
     assert_eq!(metrics["count"], 1, "{metrics:#}");
     let day = &metrics["metrics"][0];
-    // WHOOP's recovery score stands over Garmin's Body Battery proxy.
-    assert_eq!(day["recovery_score"], 71);
+    // WHOOP's own recovery score never reaches a model (its terms, carnet#771:
+    // applied to each row before the merge), so the merged morning keeps
+    // WHOOP's measurements and takes the scores from Garmin.
+    assert_eq!(day["source_name"], "whoop");
     assert_eq!(day["hrv_rmssd"], 62.0);
+    assert_eq!(day["recovery_score"], 40, "Garmin's score, not WHOOP's 71");
     assert_eq!(day["body_battery"], 40);
-    assert_eq!(day["filled"][0]["metric"], "body_battery");
-    assert_eq!(day["filled"][0]["source"], "garmin");
+    let filled = day["filled"].as_array().unwrap();
+    for metric in ["recovery_score", "body_battery"] {
+        assert!(
+            filled
+                .iter()
+                .any(|f| f["metric"] == metric && f["source"] == "garmin"),
+            "{metric} filled from garmin: {day:#}"
+        );
+    }
+    assert!(
+        night.get("sleep_score").is_none_or(Value::is_null),
+        "WHOOP's sleep score never reaches a model: {night:#}"
+    );
 
     // The scoring tools read the same merged night: WHOOP's duration and
     // efficiency, Garmin's deep sleep, and HRV from the morning's recovery.

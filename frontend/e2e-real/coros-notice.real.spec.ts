@@ -27,7 +27,7 @@ async function signedIn(email = EMAIL, password = PASSWORD): Promise<APIRequestC
   const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
   const token = await bootstrap.post('/oauth/token', {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username: email, password },
+    form: { grant_type: 'password', client_id: 'dravr-web', username: email, password },
   });
   expect(token.ok(), `seeded login failed: ${token.status()} — re-run the setup script`).toBeTruthy();
   const { access_token: accessToken } = await token.json();

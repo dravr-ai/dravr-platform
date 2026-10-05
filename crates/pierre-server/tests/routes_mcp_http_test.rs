@@ -37,6 +37,8 @@ struct McpTestSetup {
     resources: Arc<ServerContext>,
     user_id: uuid::Uuid,
     jwt_token: String,
+    /// The same user's first-party session token, which `/mcp` refuses.
+    session_token: String,
 }
 
 impl McpTestSetup {
@@ -107,8 +109,10 @@ impl McpTestSetup {
             .unwrap(),
         );
 
-        // Generate JWT token for the user
-        let jwt_token = auth_manager
+        // The credential an MCP client holds: a delegated OAuth grant. A
+        // first-party session token is refused on `/mcp` (carnet#768).
+        let jwt_token = common::generate_delegated_test_token(&resources, &user).await;
+        let session_token = auth_manager
             .generate_token(&user, &resources.auth.jwks_manager)
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
@@ -116,6 +120,7 @@ impl McpTestSetup {
             resources,
             user_id,
             jwt_token,
+            session_token,
         })
     }
 
@@ -948,7 +953,7 @@ async fn test_tools_list_params_token_in_body_is_not_an_auth_path() {
 // ============================================================================
 
 /// Build a `ServerContext` and create a tenant-owning user with an explicit
-/// global-admin flag, returning a tenant-scoped JWT for the wire.
+/// global-admin flag, returning the user's API key for the wire.
 ///
 /// `global_admin` controls only `User.is_admin`; the user is always created as
 /// the **owner** of its own tenant. This separates the two privilege axes the
@@ -1040,15 +1045,12 @@ async fn setup_with_admin_flag(
     repos.tenants.create(&tenant).await?;
     repos.users.update_tenant_id(user_id, tenant_id).await?;
 
-    let jwt_token = auth_manager
-        .generate_token_with_tenant(
-            &user,
-            &resources.auth.jwks_manager,
-            Some(tenant_id.to_string()),
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
+    // The user's own API key: the self grant, so `admin` is in scope and the
+    // role gate alone decides. A delegated OAuth grant never carries `admin`,
+    // and `/mcp` refuses a first-party session token (carnet#768).
+    let api_key = common::issue_test_api_key(&database, user_id, "wire admin test").await?;
 
-    Ok((resources, jwt_token))
+    Ok((resources, api_key))
 }
 
 /// Issue a `tools/call` for an `ADMIN_ONLY` tool over the `/mcp` wire and return
@@ -1269,4 +1271,59 @@ async fn test_mcp_tools_carries_and_honours_a_cache_validator() {
     assert_eq!(stale.status(), 200);
     let body: serde_json::Value = stale.json();
     assert!(body["tools"].is_array());
+}
+
+// ============================================================================
+// First-party session tokens are refused (carnet#768)
+// ============================================================================
+
+/// A first-party session token is Dravr's own app signed in, not an MCP
+/// client's credential: `POST /mcp` refuses it with the 401 `invalid_token`
+/// challenge that sends a spec-following client into the OAuth flow, while
+/// the same user's delegated grant is served.
+#[tokio::test]
+async fn test_mcp_refuses_a_first_party_session_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {}", setup.session_token))
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a session token must not authenticate /mcp"
+    );
+    let challenge = refused
+        .header("www-authenticate")
+        .expect("the refusal must carry a WWW-Authenticate challenge");
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "a session token is an invalid token for /mcp: {challenge}"
+    );
+
+    let served = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(served.status(), 200, "the delegated grant is still served");
+    assert!(served.json::<serde_json::Value>()["result"]["tools"].is_array());
+}
+
+/// `GET /mcp/tools`, the REST twin of `tools/list`, refuses the session token
+/// the same way.
+#[tokio::test]
+async fn test_mcp_tools_refuses_a_first_party_session_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &format!("Bearer {}", setup.session_token))
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 401);
+    assert!(response.header("www-authenticate").is_some());
 }

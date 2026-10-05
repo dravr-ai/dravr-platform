@@ -41,8 +41,10 @@ async fn test_oauth_connection_isolation_via_sdk() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create 2 tenants
-    let (user1, token1) = common::create_test_tenant(&resources, "oauth-t1@example.com").await?;
-    let (user2, token2) = common::create_test_tenant(&resources, "oauth-t2@example.com").await?;
+    let (user1, token1) =
+        common::create_test_mcp_tenant(&resources, "oauth-t1@example.com").await?;
+    let (user2, token2) =
+        common::create_test_mcp_tenant(&resources, "oauth-t2@example.com").await?;
 
     println!("✓ Created 2 test tenants:");
     println!("  - Tenant 1: {} (user_id: {})", user1.email, user1.id);
@@ -126,9 +128,9 @@ async fn test_oauth_token_retrieval_isolation_via_mcp() -> Result<()> {
 
     // Create 2 tenants
     let (user1, token1) =
-        common::create_test_tenant(&resources, "oauth-store-t1@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "oauth-store-t1@example.com").await?;
     let (user2, token2) =
-        common::create_test_tenant(&resources, "oauth-store-t2@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "oauth-store-t2@example.com").await?;
 
     println!("✓ Created 2 test tenants for OAuth token testing:");
     println!("  - Tenant 1: {} (user_id: {})", user1.email, user1.id);
@@ -211,11 +213,11 @@ async fn test_concurrent_oauth_operations_via_sdk() -> Result<()> {
 
     // Create 3 tenants
     let (user1, token1) =
-        common::create_test_tenant(&resources, "concurrent-oauth-t1@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "concurrent-oauth-t1@example.com").await?;
     let (user2, token2) =
-        common::create_test_tenant(&resources, "concurrent-oauth-t2@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "concurrent-oauth-t2@example.com").await?;
     let (user3, token3) =
-        common::create_test_tenant(&resources, "concurrent-oauth-t3@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "concurrent-oauth-t3@example.com").await?;
 
     println!("✓ Created 3 test tenants for concurrent OAuth testing");
 

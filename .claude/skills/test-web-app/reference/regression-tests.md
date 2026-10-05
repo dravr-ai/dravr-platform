@@ -158,7 +158,7 @@ test('disconnecting a provider clears the connection for real', async () => {
 
   const login = await ctx.post('/oauth/token', {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username: USER_EMAIL, password: USER_PASSWORD },
+    form: { grant_type: 'password', client_id: 'dravr-web', username: USER_EMAIL, password: USER_PASSWORD },
   });
   expect(login.ok(), `login failed: ${login.status()}`).toBe(true);
   const { access_token } = await login.json();

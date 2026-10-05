@@ -33,13 +33,21 @@
 //! lookup for the *old* conversation id returns `None` and the notice is
 //! dropped — the user has moved on and a stale "your history is ready" ping
 //! against an archived thread would be noise.
+//!
+//! ## What a model may read of the notice
+//!
+//! The list is persisted in the conversation the model reads back, so the
+//! warmed window is read as a read for a model ([`ai_scope::ai_read`]): each
+//! provider's terms decide which sessions, and which of their fields, the
+//! notice may carry (carnet#734). The athlete still sees every session in the
+//! app's own activity views.
 
 use std::fmt::Write as _;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, Utc};
 use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::factory::create_adapter_from_config;
@@ -47,9 +55,11 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::format_local_day;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
+use pierre_core::transport::Transport;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
@@ -73,6 +83,7 @@ use pierre_notifications::NotificationService;
 
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
 use crate::services::backfill_reentry::{ChatReentry, ReentryReply, ReentryRequest};
+use crate::services::backfill_window::read_warmed_window;
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
 use crate::services::messaging_ingress::outbound_retry::{
@@ -86,16 +97,6 @@ use pierre_services::messaging_broadcast::{
 /// Max activities rendered inline in the completion notice; the rest collapse
 /// into a "… and N more" footer so a deep backfill can't flood the channel.
 const BACKFILL_LIST_MAX: usize = 15;
-
-/// Read limit for the warmed window — covers a deep backfill while staying well
-/// above [`BACKFILL_LIST_MAX`] so the rendered list and the "and N more" count
-/// reflect the true window size, not a truncated read.
-const BACKFILL_WINDOW_READ_LIMIT: i64 = 500;
-
-/// Lower bound (days) used when the job carries no `after` timestamp, so the
-/// window read still has a finite floor. The backfill always passes the job's
-/// `after`, so this is only a defensive fallback.
-const BACKFILL_FALLBACK_WINDOW_DAYS: i64 = 90;
 
 /// How many recent messages to scan when recovering the user's question for the
 /// chat re-entry. The triggering question is the latest `user`-role turn; a
@@ -235,6 +236,9 @@ pub struct ServerBackfillNotifier {
     admin_jwt_secret: Arc<str>,
     /// Server root URL for building the hosted-login link in the reauth nudge.
     base_url: String,
+    /// Each provider's terms: what of the warmed window the notice, which a
+    /// model reads back, may carry.
+    terms: Arc<dyn ProviderTerms>,
     /// App-push service, used only for the in-app arm: the persisted turn is
     /// the delivery, this is the ping that tells the athlete it landed. `None`
     /// in tests and when push is not configured — the turn is written either
@@ -268,6 +272,7 @@ impl ServerBackfillNotifier {
             reentry,
             admin_jwt_secret,
             base_url,
+            terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications,
         })
@@ -290,6 +295,7 @@ impl ServerBackfillNotifier {
             reentry: Arc::new(OnceLock::new()),
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
+            terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
@@ -316,6 +322,7 @@ impl ServerBackfillNotifier {
             reentry: slot,
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
+            terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
@@ -665,47 +672,6 @@ impl ServerBackfillNotifier {
             .unwrap_or(session_tenant)
     }
 
-    /// Read the warmed window's cached activities straight from the durable
-    /// activity cache the backfill just populated.
-    ///
-    /// Reads through the [`ActivityCacheRepository`] the notifier already holds
-    /// on `repos` — no `ToolRuntime` dependency is pulled into the notifier. The
-    /// window mirrors the job: `[after_ts, now]`, newest first, capped at
-    /// [`BACKFILL_WINDOW_READ_LIMIT`]. Returns `None`/empty (then the caller
-    /// falls back to the templated nudge) when the cache read misses or fails.
-    async fn read_warmed_window(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        after_ts: i64,
-    ) -> Vec<Activity> {
-        let now = Utc::now();
-        let start = Utc
-            .timestamp_opt(after_ts, 0)
-            .single()
-            .unwrap_or_else(|| now - Duration::days(BACKFILL_FALLBACK_WINDOW_DAYS));
-        match self
-            .repos
-            .activity_cache
-            .get_cached_activities(
-                user_id,
-                &tenant_id,
-                Some(provider),
-                start,
-                now,
-                BACKFILL_WINDOW_READ_LIMIT,
-            )
-            .await
-        {
-            Ok(activities) => activities,
-            Err(e) => {
-                warn!(error = %e, provider = %provider, "Backfill push: warmed-window cache read failed");
-                Vec::new()
-            }
-        }
-    }
-
     /// Compose the completion-notice body: a localized header followed by a
     /// compact, Rust-rendered list of up to [`BACKFILL_LIST_MAX`] activities,
     /// then a localized "… and N more" footer when the window is larger.
@@ -891,14 +857,32 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // Read the warmed window straight from the durable cache the backfill
         // just populated. Used both to confirm the data landed (empty => the
         // "ask me again" nudge) and to render the templated-list fallback.
-        let warmed = self
-            .read_warmed_window(user_id, tenant_id, provider, after_ts)
-            .await;
+        let transport = match &destination {
+            Destination::Channel(_) => Transport::Messaging,
+            Destination::InApp => Transport::PlatformJob,
+        };
+        let (warmed, withheld) = read_warmed_window(
+            &self.repos,
+            self.terms.as_ref(),
+            user_id,
+            tenant_id,
+            provider,
+            after_ts,
+            transport,
+        )
+        .await;
         let reply = if warmed.is_empty() {
             // Cache read came back empty (it shouldn't, post-backfill): fall back
             // to the templated "your history is ready, ask again" nudge so the
-            // user still hears that their history loaded.
-            let count = activity_count.to_string();
+            // user still hears that their history loaded. The backfill's own
+            // count includes sessions the terms withhold from a model, so it is
+            // only quoted when nothing was withheld.
+            let count = if withheld.is_empty() {
+                activity_count
+            } else {
+                warmed.len()
+            }
+            .to_string();
             RenderedReply::plain(self.strings.render(KEY_BACKFILL_READY, &locale, &[&count]))
         } else if let Destination::Channel(route) = &destination {
             // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,

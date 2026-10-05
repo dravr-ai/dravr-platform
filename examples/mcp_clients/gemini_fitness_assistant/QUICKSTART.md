@@ -62,7 +62,8 @@ curl -X POST http://localhost:8081/admin/setup \
   }'
 ```
 
-Use this email/password when the quick_start.sh script asks for credentials.
+Then sign in to the Pierre web app with that account, open Settings → API keys,
+and create a key for this assistant: quick_start.sh reads it as `PIERRE_API_KEY`.
 
 ---
 
@@ -76,8 +77,7 @@ pip install -r requirements.txt
 
 # Configure environment
 export GEMINI_API_KEY='AIza...'
-export PIERRE_EMAIL='your-email@example.com'
-export PIERRE_PASSWORD='YourPassword123!'
+export PIERRE_API_KEY='pk_live_...'   # Pierre web app → Settings → API keys
 
 # Run the assistant
 python gemini_fitness_assistant.py

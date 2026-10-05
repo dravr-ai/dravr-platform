@@ -26,6 +26,7 @@ async function loginWithCredentials(email, password) {
       },
       body: new URLSearchParams({
         grant_type: 'password',
+        client_id: 'dravr-mobile',
         username: email,
         password: password,
       }).toString(),

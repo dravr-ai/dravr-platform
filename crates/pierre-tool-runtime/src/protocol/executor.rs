@@ -190,8 +190,8 @@ pub struct UniversalExecutor {
     /// Per-**utterance** token used solely as the Guardian's turn key so taint
     /// and per-turn budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
-    /// used for routing): the chat pipeline sets this to `TurnInput.turn_id`, the
-    /// headless loopback to the per-turn ACP `jti`. `None` (MCP-direct / A2A)
+    /// used for routing): the chat pipeline and an ACP agent's tool-host session
+    /// both set this to `TurnInput.turn_id`. `None` (MCP-direct / A2A)
     /// falls back to a per-call nonce, so those independent calls accumulate
     /// nothing — see [`crate::guardian::TurnKey`].
     turn_token: Option<String>,
@@ -281,8 +281,8 @@ impl UniversalExecutor {
         self
     }
 
-    /// Bind the per-utterance Guardian turn token (chat: `TurnInput.turn_id`;
-    /// headless loopback: the per-turn ACP `jti`). Keeps taint/budget scoped to
+    /// Bind the per-utterance Guardian turn token (`TurnInput.turn_id`, for the
+    /// chat loop and an ACP agent's tool-host session). Keeps taint/budget scoped to
     /// one user message rather than the whole conversation. See the field docs.
     #[must_use]
     pub fn with_turn_token(mut self, turn_token: String) -> Self {
@@ -570,8 +570,8 @@ impl UniversalExecutor {
 
         // ── Guardian: dispatch-time taint/budget/egress + tenant allowlist ──
         // Every transport funnels through here, so this single check covers the
-        // chat ReAct loop, MCP-direct, A2A, and the per-request Copilot-headless
-        // `/mcp` executors with no bypass.
+        // chat ReAct loop, MCP-direct, A2A, and an ACP agent's tool-host session
+        // with no bypass.
         let labels = tool.security_class();
         let writes_data = tool.capabilities().contains(ToolCapabilities::WRITES_DATA);
         let tenant_uuid = request
@@ -630,8 +630,8 @@ impl UniversalExecutor {
             return Ok(refusal);
         }
 
-        // Turn token: the per-utterance `turn_id` (chat) or per-turn ACP `jti`
-        // (headless loopback), so taint + budgets accumulate across ONE user
+        // Turn token: the per-utterance `turn_id` (the chat loop and an ACP
+        // agent's tool-host session), so taint + budgets accumulate across ONE user
         // message's tool calls and reset on the next — NOT across the whole
         // conversation. A fresh nonce for one-shot MCP-direct / A2A calls makes
         // each its own bucket (no cross-call accumulation — correct).
@@ -644,7 +644,7 @@ impl UniversalExecutor {
         // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
         // The decision + atomic budget-reserve is the shared `guardian_gate`
         // so no dispatch path can bypass it. decide + reserve run under one store lock so
-        // concurrent same-turn dispatch (headless loopback / A2A pipelining
+        // concurrent same-turn dispatch (an ACP tool-host session / A2A pipelining
         // sharing one turn token) cannot both read a pre-state and both pass a
         // cap (the E2 TOCTOU fix).
         let (outcome, reserved) = guardian::guardian_gate(
@@ -661,8 +661,8 @@ impl UniversalExecutor {
             GateOutcome::Blocked(reason) => {
                 // #10: record the block under the (tenant, user) headless key so
                 // the Copilot-headless loop surfaces a deterministic refusal for a
-                // block that fired inside its ACP subprocess loopback (a separate
-                // HTTP task that can't return this out-of-band). Harmless for
+                // block that fired inside its ACP subprocess's tool-host session (a
+                // separate task that can't return this out-of-band). Harmless for
                 // other transports — only the headless loop consumes it, and it
                 // clears the key first.
                 self.resources.guardian_turns().record_block(
@@ -785,12 +785,12 @@ impl UniversalExecutor {
         // A window the athlete's healthy connections served without the elected
         // provider carries the dead backend's slug in its own payload. The
         // Copilot-headless loop never sees that payload — its tools run inside
-        // an ACP subprocess whose `/mcp` calls land here, on a separate HTTP
-        // task that returns to the subprocess — so the slug is recorded under
-        // the (tenant, user) headless key for the loop to take at the end of the
-        // turn, exactly as a Guardian block above it is. Harmless for the other
-        // transports: only the headless loop consumes it, and it clears the key
-        // before its subprocess starts.
+        // an ACP subprocess whose calls reach here through the embacle tool
+        // host, on a separate task that returns to the subprocess — so the
+        // slug is recorded under the (tenant, user) headless key for the loop
+        // to take at the end of the turn, exactly as a Guardian block above it
+        // is. Harmless for the other transports: only the headless loop
+        // consumes it, and it clears the key before its subprocess starts.
         if let Some(slug) = universal
             .result
             .as_ref()
@@ -816,10 +816,10 @@ impl UniversalExecutor {
     /// Charge the athlete's tool budget and tell operators a tool ran.
     ///
     /// Both belong HERE and nowhere else. Every transport funnels through
-    /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and the
-    /// per-request Copilot-headless `/mcp` executors — so a charge levied here
+    /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and an ACP
+    /// agent's tool-host session — so a charge levied here
     /// is levied exactly once per real dispatch. Levied at the turn's end
-    /// instead, an ACP turn paid twice for one tool (once at the loopback, once
+    /// instead, an ACP turn paid twice for one tool (once at the tool host, once
     /// for the turn) and paid again for tools that were never ours: Copilot's
     /// own `noop` and shell calls are counted in the ACP-reported total but
     /// never reach this function, so they now cost nothing.
@@ -969,8 +969,8 @@ impl UniversalExecutor {
             pending_id = %pending_id,
             "guardian confirm: parked tool call pending user confirmation"
         );
-        // #10 analog: a park that fires inside the ACP subprocess loopback
-        // surfaces through the headless block channel so the ask is rendered
+        // #10 analog: a park that fires inside the ACP subprocess's tool-host
+        // session surfaces through the headless block channel so the ask is rendered
         // deterministically, never paraphrased by the model.
         self.resources.guardian_turns().record_block(
             &headless_key,

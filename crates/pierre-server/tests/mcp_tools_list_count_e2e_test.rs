@@ -252,7 +252,7 @@ async fn test_tools_list_invalid_token_returns_401() -> Result<()> {
 async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_user, token) =
-        common::create_test_tenant(&resources, "owner-tools-list@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "owner-tools-list@example.com").await?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
 
@@ -370,11 +370,15 @@ async fn test_discovery_endpoint_unauthenticated_returns_401() -> Result<()> {
 #[tokio::test]
 async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (user, token) = common::create_test_tenant(&resources, "parity-admin@example.com").await?;
+    let (user, _session) =
+        common::create_test_tenant(&resources, "parity-admin@example.com").await?;
     // Both surfaces return the unfiltered registry only for a genuine GLOBAL admin
     // (`User.is_admin`) — not just a tenant owner — so parity is asserted at that tier.
     // The wire gate resolves the flag from the DB at request time, so flipping it here
-    // makes the already-issued token an admin caller.
+    // makes the admin's API key an admin caller. An API key, because `admin` is never
+    // delegated and `/mcp` refuses a first-party session token (carnet#768).
+    let token =
+        common::issue_test_api_key(&resources.agent.database, user.id, "parity admin").await?;
     resources
         .agent
         .database
@@ -434,11 +438,14 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
 #[tokio::test]
 async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let (user, token) =
+    let (user, _session) =
         common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
     // The wire response must match the FULL in-process registry, which only a global admin
     // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. Flipping
-    // the flag in the DB makes the already-issued token authenticate as an admin.
+    // the flag in the DB makes the admin's API key authenticate as an admin — an API key,
+    // because `admin` is never delegated and `/mcp` refuses a session token (carnet#768).
+    let token =
+        common::issue_test_api_key(&resources.agent.database, user.id, "wire parity admin").await?;
     resources
         .agent
         .database
@@ -523,17 +530,13 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
     // Add M to T_owner with role='member'.
     add_user_to_tenant_as_member(&resources, &owner_tenant_id, member.id).await?;
 
-    // Mint a JWT for M with T_owner as active_tenant_id. The request's
+    // Mint M's MCP grant with T_owner as active_tenant_id. The request's
     // TenantContext will resolve to TenantRole::Member → is_admin()==false.
-    let token = resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(
-            &member,
-            &resources.auth.jwks_manager,
-            Some(owner_tenant_id.clone()),
-        )
-        .map_err(|e| anyhow::anyhow!("generate_token_with_tenant failed: {e}"))?;
+    let token = common::delegated_test_token_for_tenant(
+        &resources,
+        member.id,
+        Some(owner_tenant_id.clone()),
+    );
 
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
@@ -603,7 +606,7 @@ const PLAN_GATED_TOOLS: [&str; 8] = [
 async fn test_plan_gated_tools_are_listed_and_refused_at_call_time() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_user, token) =
-        common::create_test_tenant(&resources, "starter-plan-listing@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "starter-plan-listing@example.com").await?;
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();
     let bearer = format!("Bearer {token}");

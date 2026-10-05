@@ -163,6 +163,7 @@ async fn test_change_password_can_login_with_new_password() {
     // Login with new password should succeed
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "NewSecurePass456"),
     ];
@@ -181,6 +182,7 @@ async fn test_change_password_can_login_with_new_password() {
     // Login with old password should fail
     let old_login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "password123"),
     ];
@@ -209,6 +211,7 @@ async fn test_change_password_revokes_every_refresh_token() {
     // A phone logged in under the old password holds a refresh token.
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "password123"),
         ("scope", "offline_access"),

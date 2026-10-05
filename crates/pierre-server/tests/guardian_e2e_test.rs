@@ -24,7 +24,7 @@ use std::env;
 use axum::body::{to_bytes, Body};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{Request, StatusCode};
-use common::{create_test_server_resources, create_test_user, generate_test_token};
+use common::{create_test_server_resources, create_test_user, generate_delegated_test_token};
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -165,7 +165,7 @@ async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
     //     result (the official TypeScript SDK does) would reject the refusal
     //     instead of reading it. A `/mcp` call is its own Guardian turn, so the
     //     zero budget denies it on the first call.
-    let token = generate_test_token(&resources, &user).await;
+    let token = generate_delegated_test_token(&resources, &user).await;
     let body = tools_call_over_http(
         &resources,
         &token,

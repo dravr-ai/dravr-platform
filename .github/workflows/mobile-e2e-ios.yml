@@ -607,7 +607,7 @@ jobs:
           echo "=== Login API test (OAuth token endpoint) ==="
           LOGIN_RESPONSE=$(curl -sf -X POST http://127.0.0.1:8081/oauth/token \
             -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1) || true
+            -d "grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1) || true
           if echo "$LOGIN_RESPONSE" | grep -q "access_token"; then
             echo "Login API: SUCCESS (got access_token)"
           else
@@ -854,7 +854,7 @@ jobs:
           echo "=== Post-login API test (verify JWT works for subsequent calls) ==="
           JWT=$(curl -sf -X POST http://127.0.0.1:8081/oauth/token \
             -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1 | jq -r '.access_token // empty') || true
+            -d "grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1 | jq -r '.access_token // empty') || true
           if [ -n "$JWT" ]; then
             echo "Got JWT token (length: ${#JWT})"
             echo "Testing GET /api/agents with JWT:"

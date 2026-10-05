@@ -27,7 +27,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
 async function adminToken(ctx: APIRequestContext): Promise<string> {
   const resp = await ctx.post('/oauth/token', {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    form: { grant_type: 'password', client_id: 'dravr-web', username: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
   expect(
     resp.ok(),

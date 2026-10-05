@@ -24,7 +24,6 @@ mod common;
 
 fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
     AuthResult {
-        session_id: None,
         // This fixture is about tenant resolution, not the scope gate; a
         // first-party credential's grant keeps it representative.
         scopes: OAuthScope::self_grant(),

@@ -48,6 +48,7 @@ async fn sign_in(res: &Arc<ServerContext>, email: &str) -> (u16, Value) {
     let resp = AxumTestRequest::post("/oauth/token")
         .form(&[
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", email),
             ("password", PASSWORD),
         ])

@@ -53,7 +53,7 @@ const SEEDED_ACCOUNTS = [
 async function login(ctx: APIRequestContext, username: string, password: string) {
   return ctx.post('/oauth/token', {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username, password },
+    form: { grant_type: 'password', client_id: 'dravr-web', username, password },
   });
 }
 

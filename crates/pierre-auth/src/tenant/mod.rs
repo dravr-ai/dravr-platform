@@ -74,14 +74,6 @@ pub struct TenantContext {
     /// established one. Private so it cannot be filled in with a placeholder;
     /// read it through [`TenantContext::role`].
     user_role: Option<TenantRole>,
-    /// The Guardian per-turn token for the MCP/headless path — the JWT `jti`, but
-    /// ONLY when the token is minted per turn (the ACP bridge mints one `jti` per
-    /// chat turn, so every native tool call in that turn shares it). `None` for a
-    /// reused session token (a stateless MCP client) so the Guardian keys each of
-    /// its calls independently rather than accumulating budget/taint across the
-    /// whole session (#2). Not an identity/audit field — its sole consumer is the
-    /// Guardian turn key.
-    pub session_id: Option<String>,
 }
 
 impl TenantContext {
@@ -103,7 +95,6 @@ impl TenantContext {
             tenant_name,
             user_id,
             user_role: Some(user_role),
-            session_id: None,
         }
     }
 
@@ -126,16 +117,7 @@ impl TenantContext {
             tenant_name,
             user_id,
             user_role: None,
-            session_id: None,
         }
-    }
-
-    /// Attach the originating session/token id (the JWT `jti`) used by the
-    /// Guardian as the turn token for taint accumulation on the MCP path.
-    #[must_use]
-    pub fn with_session_id(mut self, session_id: Option<String>) -> Self {
-        self.session_id = session_id;
-        self
     }
 
     /// The user's role in this tenant, or `None` if no membership lookup

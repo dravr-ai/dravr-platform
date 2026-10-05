@@ -69,9 +69,9 @@ async fn test_concurrent_multitenant_get_activities() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create 3 tenants with separate users
-    let (user1, token1) = common::create_test_tenant(&resources, "tenant1@example.com").await?;
-    let (user2, token2) = common::create_test_tenant(&resources, "tenant2@example.com").await?;
-    let (user3, token3) = common::create_test_tenant(&resources, "tenant3@example.com").await?;
+    let (user1, token1) = common::create_test_mcp_tenant(&resources, "tenant1@example.com").await?;
+    let (user2, token2) = common::create_test_mcp_tenant(&resources, "tenant2@example.com").await?;
+    let (user3, token3) = common::create_test_mcp_tenant(&resources, "tenant3@example.com").await?;
 
     println!("✓ Created 3 test tenants:");
     println!("  - Tenant 1: {} ({})", user1.email, user1.id);
@@ -173,7 +173,7 @@ async fn test_http_transport_tools_list_parity() -> Result<()> {
 
     // Create single tenant
     let (user, token) =
-        common::create_test_tenant(&resources, "transport-test@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "transport-test@example.com").await?;
 
     println!("✓ Created test tenant: {} ({})", user.email, user.id);
 
@@ -325,8 +325,10 @@ async fn test_tenant_isolation_protocol_level() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create 2 separate tenants
-    let (user1, token1) = common::create_test_tenant(&resources, "tenant-a@example.com").await?;
-    let (user2, token2) = common::create_test_tenant(&resources, "tenant-b@example.com").await?;
+    let (user1, token1) =
+        common::create_test_mcp_tenant(&resources, "tenant-a@example.com").await?;
+    let (user2, token2) =
+        common::create_test_mcp_tenant(&resources, "tenant-b@example.com").await?;
 
     println!("✓ Created 2 test tenants:");
     println!("  - Tenant A: {} ({})", user1.email, user1.id);
@@ -457,9 +459,9 @@ async fn test_rate_limiting_per_tenant_isolation() -> Result<()> {
 
     let resources = common::create_test_server_resources().await?;
     let (user1, token1) =
-        common::create_test_tenant(&resources, "rate-limit-a@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "rate-limit-a@example.com").await?;
     let (user2, token2) =
-        common::create_test_tenant(&resources, "rate-limit-b@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "rate-limit-b@example.com").await?;
     let monthly_limit = user1
         .tier
         .monthly_limit()

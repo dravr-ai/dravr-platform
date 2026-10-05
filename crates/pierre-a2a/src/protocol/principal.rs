@@ -37,7 +37,9 @@ impl A2AServer {
     /// registering user, with the client identity kept on the principal for
     /// task keying and scoping.
     ///
-    /// A user JWT is admitted through
+    /// A user JWT is a delegated OAuth grant — a first-party session token is
+    /// refused, since it is Dravr's own app signed in rather than an agent's
+    /// credential — admitted through
     /// [`McpAuthMiddleware`](pierre_middleware::McpAuthMiddleware), the pipeline
     /// every other route uses: the account-status gate, the monthly request
     /// budget, the usage row the budget counts, and the report the
@@ -79,11 +81,17 @@ impl A2AServer {
                 ))
             })?;
 
-        // User JWT: subject is the user UUID.
+        // User JWT: subject is the user UUID. Admitted on the scoped entry
+        // point, as `/mcp` is: the task runs under the token's own grant (the
+        // executor is bound to `scopes` below), so a delegated OAuth grant is
+        // what an agent holds here — and a first-party session token, which
+        // is Dravr's own app signed in rather than an agent's credential, is
+        // refused (carnet#768). No resource identifiers: A2A takes the
+        // platform audience only, as the signature check above does.
         if Uuid::parse_str(&claims.sub).is_ok() {
             let admitted = resources
                 .auth_middleware
-                .authenticate_request(Some(&format!("Bearer {auth_token}")))
+                .authenticate_scoped_request(Some(&format!("Bearer {auth_token}")), &[])
                 .await
                 .map_err(|e| Box::new(Self::auth_refusal(&e, request_id)))?;
             return Ok(AuthPrincipal {

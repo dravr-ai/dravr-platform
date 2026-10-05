@@ -104,8 +104,7 @@ pip install -r requirements.txt
 **Set Environment Variables:**
 ```bash
 export GEMINI_API_KEY='your-gemini-api-key-here'
-export PIERRE_EMAIL='user@example.com'
-export PIERRE_PASSWORD='SecurePass123!'
+export PIERRE_API_KEY='pk_live_...'   # Pierre web app → Settings → API keys
 export PIERRE_SERVER_URL='http://localhost:8081'
 ```
 
@@ -268,7 +267,7 @@ You: Calculate my daily nutrition needs for marathon training
 **Tools List Request:**
 ```json
 POST http://localhost:8081/mcp
-Authorization: Bearer <jwt_token>
+Authorization: Bearer <pierre_api_key>
 
 {
   "jsonrpc": "2.0",
@@ -281,7 +280,7 @@ Authorization: Bearer <jwt_token>
 **Tool Call Request:**
 ```json
 POST http://localhost:8081/mcp
-Authorization: Bearer <jwt_token>
+Authorization: Bearer <pierre_api_key>
 
 {
   "jsonrpc": "2.0",
@@ -336,8 +335,7 @@ FunctionDeclaration(
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GEMINI_API_KEY` | ✅ Yes | - | Google Gemini API key |
-| `PIERRE_EMAIL` | ✅ Yes | - | Pierre user email |
-| `PIERRE_PASSWORD` | ✅ Yes | - | Pierre user password |
+| `PIERRE_API_KEY` | ✅ Yes | - | Pierre API key (web app → Settings → API keys) |
 | `PIERRE_SERVER_URL` | No | `http://localhost:8081` | Pierre server URL |
 
 ### Command Line Arguments
@@ -408,12 +406,10 @@ curl -H "Content-Type: application/json" \
 
 ### Pierre Authentication Issues
 
-```bash
-# Test login (OAuth2 ROPC flow)
-curl -X POST http://localhost:8081/oauth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=password&username=user@example.com&password=SecurePass123!"
-```
+Pierre's password sign-in (`POST /oauth/token`) serves Pierre's own web and
+mobile apps only, and `/mcp` does not accept the session it mints. This client
+authenticates with an API key: create one in the Pierre web app under
+Settings → API keys and set it as `PIERRE_API_KEY`.
 
 ### MCP Connection Issues
 
@@ -421,7 +417,7 @@ curl -X POST http://localhost:8081/oauth/token \
 # Test MCP endpoint
 curl -X POST http://localhost:8081/mcp \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Authorization: Bearer YOUR_PIERRE_API_KEY" \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1}'
 ```
 
@@ -440,7 +436,7 @@ pip install google-generativeai
 - Wait or upgrade to paid tier
 
 **"No tools available"**
-- Check JWT token is valid
+- Check the API key is live (not revoked or expired)
 - Ensure user has proper permissions
 - Verify MCP endpoint is accessible
 

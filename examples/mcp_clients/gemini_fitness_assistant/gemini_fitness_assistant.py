@@ -50,15 +50,15 @@ class MCPTool:
 class PierreMCPClient:
     """Client for interacting with Pierre MCP Server via HTTP"""
 
-    def __init__(self, server_url: str, jwt_token: Optional[str] = None):
+    def __init__(self, server_url: str, api_key: Optional[str] = None):
         self.server_url = server_url.rstrip('/')
         self.mcp_endpoint = f"{self.server_url}/mcp"
-        self.jwt_token = jwt_token
+        self.api_key = api_key
         self.tools: List[MCPTool] = []
 
-    def set_token(self, token: str):
-        """Set JWT token for authentication"""
-        self.jwt_token = token
+    def set_api_key(self, api_key: str):
+        """Set the Pierre API key this client authenticates with"""
+        self.api_key = api_key
 
     def _make_mcp_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """Make an MCP JSON-RPC request"""
@@ -66,8 +66,8 @@ class PierreMCPClient:
             "Content-Type": "application/json"
         }
 
-        if self.jwt_token:
-            headers["Authorization"] = f"Bearer {self.jwt_token}"
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         payload = {
             "jsonrpc": "2.0",
@@ -284,31 +284,6 @@ class GeminiFitnessAssistant:
             return error_msg
 
 
-def get_jwt_token(server_url: str, email: str, password: str) -> str:
-    """Get JWT token via OAuth2 ROPC flow"""
-    # OAuth2 Resource Owner Password Credentials (ROPC) flow
-    token_url = f"{server_url}/oauth/token"
-
-    try:
-        response = requests.post(
-            token_url,
-            data={
-                "grant_type": "password",
-                "username": email,
-                "password": password
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10
-        )
-        response.raise_for_status()
-        result = response.json()
-        return result.get("jwt_token") or result.get("access_token")
-    except Exception as e:
-        print(f"❌ Login failed: {e}")
-        print("   Make sure you have created a user account on Pierre server")
-        sys.exit(1)
-
-
 def run_interactive_mode(assistant: GeminiFitnessAssistant):
     """Run the assistant in interactive mode"""
     print("\n" + "="*60)
@@ -376,14 +351,9 @@ def main():
         help="Google Gemini API key (or set GEMINI_API_KEY env var)"
     )
     parser.add_argument(
-        "--email",
-        default=os.getenv("PIERRE_EMAIL"),
-        help="Pierre user email for authentication"
-    )
-    parser.add_argument(
-        "--password",
-        default=os.getenv("PIERRE_PASSWORD"),
-        help="Pierre user password for authentication"
+        "--api-key",
+        default=os.getenv("PIERRE_API_KEY"),
+        help="Pierre API key (or set PIERRE_API_KEY env var)"
     )
     parser.add_argument(
         "--demo",
@@ -402,26 +372,20 @@ def main():
         print("  or use --gemini-key flag")
         sys.exit(1)
 
-    # Validate Pierre credentials
-    if not args.email or not args.password:
-        print("❌ Error: Pierre credentials are required")
-        print("\nSet credentials via:")
-        print("  export PIERRE_EMAIL='your-email'")
-        print("  export PIERRE_PASSWORD='your-password'")
-        print("  or use --email and --password flags")
+    # Validate the Pierre API key. Pierre signs its own apps in with your
+    # password; an MCP client like this one gets an API key of its own.
+    if not args.api_key:
+        print("❌ Error: a Pierre API key is required")
+        print("\nCreate one in the Pierre web app (Settings → API keys), then set it via:")
+        print("  export PIERRE_API_KEY='pk_live_...'")
+        print("  or use the --api-key flag")
         sys.exit(1)
 
     print("🚀 Initializing Gemini Fitness Assistant...")
     print(f"   Pierre Server: {args.server}")
-    print(f"   User: {args.email}")
-
-    # Authenticate with Pierre
-    print("\n🔐 Authenticating with Pierre server...")
-    jwt_token = get_jwt_token(args.server, args.email, args.password)
-    print("✅ Authentication successful")
 
     # Initialize MCP client
-    pierre_client = PierreMCPClient(args.server, jwt_token)
+    pierre_client = PierreMCPClient(args.server, args.api_key)
 
     # Initialize Gemini assistant
     assistant = GeminiFitnessAssistant(args.gemini_key, pierre_client)

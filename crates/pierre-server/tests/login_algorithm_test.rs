@@ -148,6 +148,7 @@ async fn test_login_active_user_succeeds() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -187,6 +188,7 @@ async fn test_login_pending_user_succeeds_with_status_in_response() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -236,6 +238,7 @@ async fn test_login_suspended_user_is_rejected() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -285,6 +288,7 @@ async fn test_login_correct_password_succeeds() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -314,6 +318,7 @@ async fn test_login_wrong_password_fails() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", wrong_password),
     ];
@@ -347,6 +352,7 @@ async fn test_login_empty_password_fails() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", ""),
     ];
@@ -377,6 +383,7 @@ async fn test_login_case_sensitive_password() {
     // Try with wrong case
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", wrong_case_password),
     ];
@@ -409,6 +416,7 @@ async fn test_login_unicode_password() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -452,6 +460,7 @@ async fn test_login_updates_last_active_timestamp() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -512,6 +521,7 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Attempt login with wrong password
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", "wrongPassword"),
     ];
@@ -562,6 +572,7 @@ async fn test_nonexistent_user_error_matches_wrong_password_error() {
     // Try login with nonexistent user
     let nonexistent_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", nonexistent_email),
         ("password", password),
     ];
@@ -574,6 +585,7 @@ async fn test_nonexistent_user_error_matches_wrong_password_error() {
     // Try login with existing user but wrong password
     let wrong_pw_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", existing_email),
         ("password", "wrongPassword"),
     ];
@@ -643,6 +655,7 @@ async fn test_error_does_not_reveal_user_exists() {
     // Try login with wrong password
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", "wrongPassword"),
     ];
@@ -694,6 +707,7 @@ async fn test_login_with_whitespace_in_email() {
     // Try login with leading/trailing whitespace in email
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", " whitespace@example.com "),
         ("password", password),
     ];
@@ -727,6 +741,7 @@ async fn test_login_case_insensitive_email() {
     // Try login with different case
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", "casemixed@example.com"),
         ("password", password),
     ];
@@ -762,6 +777,7 @@ async fn test_multiple_failed_logins_same_user() {
     for i in 0..5 {
         let login_request = [
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", email),
             ("password", "wrongPassword"),
         ];
@@ -783,6 +799,7 @@ async fn test_multiple_failed_logins_same_user() {
     // (unless rate limiting kicks in, which is a separate concern)
     let correct_login = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];
@@ -816,6 +833,7 @@ async fn test_login_response_contains_required_fields() {
 
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email),
         ("password", password),
     ];

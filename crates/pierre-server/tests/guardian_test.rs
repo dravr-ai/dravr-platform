@@ -399,37 +399,6 @@ fn guardian_gate_observe_reports_but_proceeds() {
     assert!(reserved);
 }
 
-// #2: a per-turn (ACP) token yields a Guardian turn key (its jti); a reused
-// session token yields None, so a stateless MCP client is keyed per-call and does
-// not accumulate budget/taint across its whole session.
-#[test]
-fn turn_scoped_claim_gates_the_guardian_turn_token() {
-    use pierre_auth::auth::Claims;
-    let session_token = Claims {
-        sub: "user".to_owned(),
-        email: "u@example.com".to_owned(),
-        iat: 0,
-        exp: 0,
-        iss: "pierre".to_owned(),
-        jti: "the-jti".to_owned(),
-        providers: Vec::new(),
-        aud: "mcp".to_owned(),
-        active_tenant_id: None,
-        impersonator_id: None,
-        impersonation_session_id: None,
-        turn_scoped: None,
-        scope: String::new(),
-    };
-    // A reused session token → no per-turn key (each call keyed independently).
-    assert_eq!(session_token.guardian_turn_token(), None);
-    // A per-turn ACP token → its jti is the turn key.
-    let acp_token = Claims {
-        turn_scoped: Some(true),
-        ..session_token
-    };
-    assert_eq!(acp_token.guardian_turn_token(), Some("the-jti".to_owned()));
-}
-
 // #10: the denial flag the chokepoint sets and the Copilot-headless loop consumes
 // so a block that fired inside the ACP subprocess loopback surfaces as a
 // deterministic refusal. Recorded under the headless key, taken exactly once,

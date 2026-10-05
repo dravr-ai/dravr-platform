@@ -265,6 +265,7 @@ async fn test_forgot_password_full_flow() {
     // Step 3: Verify login with new password works
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "NewSecurePassword123"),
     ];
@@ -283,6 +284,7 @@ async fn test_forgot_password_full_flow() {
     // Step 4: Verify old password no longer works
     let old_login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "password123"),
     ];

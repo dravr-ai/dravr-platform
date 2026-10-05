@@ -160,7 +160,7 @@ what a screen *should* be showing:
 ```bash
 curl -s -X POST http://localhost:8081/oauth/token \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'grant_type=password&username=mobiletest@pierre.dev&password=MobileTest1234' | jq -r .access_token
+  -d 'grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234' | jq -r .access_token
 ```
 
 Open a working ledger in the scratchpad and append to it as you go — never hold findings only in

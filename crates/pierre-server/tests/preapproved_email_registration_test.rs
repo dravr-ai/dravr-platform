@@ -300,6 +300,7 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
     let login_resp = AxumTestRequest::post("/oauth/token")
         .form(&[
             ("grant_type", "password"),
+            ("client_id", "dravr-web"),
             ("username", email),
             ("password", password),
         ])

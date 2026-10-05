@@ -127,15 +127,9 @@ async fn one_dispatch_over_mcp_charges_exactly_once() {
         .await
         .unwrap();
 
-    let jwt = resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(
-            &user,
-            &resources.auth.jwks_manager,
-            Some(tenant.to_string()),
-        )
-        .expect("jwt mints");
+    // An MCP client's delegated grant: `/mcp` refuses a session token (carnet#768).
+    let jwt =
+        common::delegated_test_token_for_tenant(&resources, user.id, Some(tenant.to_string()));
 
     assert_eq!(
         charged(&resources, tenant, user_id).await,

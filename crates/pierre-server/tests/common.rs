@@ -31,6 +31,7 @@ use pierre_config::environment::{HttpClientConfig, ServerConfig};
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_llm::ChatProvider;
@@ -339,6 +340,62 @@ pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) ->
         .auth_manager
         .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
+}
+
+/// Mint the credential an MCP or A2A client holds for a test user: an OAuth
+/// access token carrying every delegable scope, with the user's tenant active.
+///
+/// `/mcp` and A2A refuse a first-party session token (carnet#768), so a test
+/// that drives them as an integration authenticates with this instead of
+/// [`generate_test_token`]. It never carries `admin`, which is not delegable:
+/// a test that needs admin tools over `/mcp` uses [`issue_test_api_key`].
+pub async fn generate_delegated_test_token(resources: &ServerContext, user: &User) -> String {
+    let repos = resources.agent.database.repositories();
+    let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
+    let tenant_id = tenants.first().map(|t| t.id.to_string());
+    delegated_test_token_for_tenant(resources, user.id, tenant_id)
+}
+
+/// [`generate_delegated_test_token`] with an explicit active tenant (`None`
+/// leaves the user's default tenant to be resolved per request).
+pub fn delegated_test_token_for_tenant(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: Option<String>,
+) -> String {
+    let scopes: Vec<String> = OAuthScope::delegable_as_str()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    resources
+        .auth
+        .auth_manager
+        .generate_oauth_access_token(
+            &resources.auth.jwks_manager,
+            &user_id,
+            &scopes,
+            &[],
+            tenant_id,
+            None,
+        )
+        .unwrap()
+}
+
+/// Store a fresh API key for `user_id` and return the full key a client sends.
+///
+/// The athlete's own credential, so it carries the self grant: the one way a
+/// test reaches an admin tool over `/mcp` for a global admin.
+pub async fn issue_test_api_key(database: &Database, user_id: Uuid, name: &str) -> Result<String> {
+    let request = CreateApiKeyRequest {
+        name: name.to_owned(),
+        description: Some("Test API key".to_owned()),
+        tier: ApiKeyTier::Professional,
+        rate_limit_requests: Some(100_000),
+        expires_in_days: None,
+    };
+    let (api_key, full_key) = ApiKeyManager::new().create_api_key(user_id, request)?;
+    database.repositories().api_keys.create(&api_key).await?;
+    Ok(full_key)
 }
 
 /// Create a test API key for a user (returns API key string)
@@ -1121,6 +1178,22 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
         .generate_token_with_tenant(&user, &resources.auth.jwks_manager, tenant_id)
         .map_err(|e| anyhow::Error::msg(format!("Failed to generate JWT: {e}")))?;
 
+    Ok((user, token))
+}
+
+/// [`create_test_tenant`] with an integration's token instead of a session.
+///
+/// The token is [`generate_delegated_test_token`]'s delegated grant, since
+/// `/mcp` and A2A both refuse a first-party session token (carnet#768).
+///
+/// # Errors
+/// Returns error if user creation fails
+pub async fn create_test_mcp_tenant(
+    resources: &ServerContext,
+    email: &str,
+) -> Result<(User, String)> {
+    let (user, _session_token) = create_test_tenant(resources, email).await?;
+    let token = generate_delegated_test_token(resources, &user).await;
     Ok((user, token))
 }
 

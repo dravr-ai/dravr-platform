@@ -16,19 +16,38 @@
 //! Three outcomes per advice: `Labeled` (recorded + advice marked labeled),
 //! `Expire` (window closed with no usable data — never reinforces), and `Retry`
 //! (a transient read error — left pending for the next tick).
+//!
+//! ## What the judge may see
+//!
+//! The judge is a model, so every read an evaluation makes runs as a read for
+//! a model ([`ai_scope::for_model`]) on a platform job: the activities are
+//! filtered by each provider's terms, each recovery reading by its data
+//! source's terms before readings are merged per day, and the training
+//! history is the series recomputed from the permitted activities whenever
+//! anything in the window is withheld ([`history_rows_for_model`]) — never
+//! the persisted rollup, which sums every stored session (carnet#734).
 
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
+use crate::stored_health;
+use crate::training_history_read::{history_rows_for_model, HistorySources};
 use chrono::Utc;
+use dravr_cageux::config::intelligence::AlgorithmConfig;
+use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::registry::PromptRegistry;
-use pierre_core::models::{merge_recovery_metrics, SportType, TenantId};
+use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::models::{
+    merge_recovery_metrics, Activity, SportType, StoredRecoveryMetrics, TenantId,
+};
+use pierre_core::transport::Transport;
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{judge, ChatProvider, LlmProvider};
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
+use pierre_providers::ai_scope;
 use serde::Deserialize;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -171,19 +190,30 @@ pub fn consistency_label(session_count: u32, expected: u32) -> DeltaVerdict {
 
 // ---- Async evaluation (reads the data layer; may call the LLM judge) ----
 
-/// Everything one advice evaluation needs, bundled so each per-metric helper
-/// takes a single argument (and keeps argument counts in check). `tenant_id` is
-/// `Copy`, so the training read can take it by value.
-struct EvalCtx<'a> {
+/// What one sweep evaluates with: the data, the judge, and what governs what
+/// the judge may see.
+#[derive(Clone, Copy)]
+struct SweepInputs<'a> {
     repos: &'a RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    advice: &'a PendingAdvice,
     chat_provider: Option<&'a ChatProvider>,
     /// Instructions for the LLM judge — the `outcome_judge` system prompt,
     /// invoked only for ambiguous (near-threshold) cases, with a short data
     /// summary as the user message.
     judge_prompt: &'a str,
+    /// Each provider's terms: what of the athlete's data the judge may see.
+    terms: &'a dyn ProviderTerms,
+    /// The training-load configuration a recomputed history is scored by.
+    algorithms: &'a AlgorithmConfig,
+}
+
+/// Everything one advice evaluation needs, bundled so each per-metric helper
+/// takes a single argument (and keeps argument counts in check). `tenant_id` is
+/// `Copy`, so the training read can take it by value.
+struct EvalCtx<'a> {
+    inputs: SweepInputs<'a>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    advice: &'a PendingAdvice,
 }
 
 impl EvalCtx<'_> {
@@ -192,6 +222,51 @@ impl EvalCtx<'_> {
     }
     fn end(&self) -> chrono::DateTime<Utc> {
         self.advice.due_by
+    }
+    fn repos(&self) -> &RepositoryRegistry {
+        self.inputs.repos
+    }
+
+    /// The athlete's stored activities over the window, as the judge may see
+    /// them. `None` on a read failure.
+    async fn window_activities(&self) -> Option<Vec<Activity>> {
+        match self
+            .repos()
+            .activity_cache
+            .get_cached_activities(
+                self.user_id,
+                &self.tenant_id,
+                None,
+                self.start(),
+                self.end(),
+                ACTIVITY_SCAN_LIMIT,
+            )
+            .await
+        {
+            Ok(acts) => Some(ai_scope::filter_activities(self.inputs.terms, acts)),
+            Err(e) => {
+                warn!(error = %e, "activity read failed; will retry");
+                None
+            }
+        }
+    }
+
+    /// The athlete's stored recovery readings over the window, each governed
+    /// by its data source's provider terms, not yet merged. `None` when the
+    /// readings or the athlete's data sources cannot be read: a reading whose
+    /// provider cannot be named never reaches the judge.
+    async fn window_recovery(&self) -> Option<Vec<StoredRecoveryMetrics>> {
+        stored_health::recovery_metrics(
+            self.repos(),
+            self.inputs.terms,
+            self.user_id,
+            &self.tenant_id,
+            self.start(),
+            self.end(),
+        )
+        .await
+        .inspect_err(|e| warn!(error = %e, "recovery read failed; will retry"))
+        .ok()
     }
 }
 
@@ -211,55 +286,46 @@ fn parse_advice_ids(advice: &PendingAdvice) -> Option<(Uuid, TenantId)> {
 
 /// Evaluate one piece of due advice against the athlete's data, dispatching on
 /// the outcome metric.
-async fn evaluate_advice(
-    advice: &PendingAdvice,
-    repos: &RepositoryRegistry,
-    chat_provider: Option<&ChatProvider>,
-    judge_prompt: &str,
-) -> AdviceResolution {
+///
+/// Every read runs as a read for a model on a platform job: the judge is a
+/// model, and its verdict only reaches the athlete's own surfaces.
+async fn evaluate_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> AdviceResolution {
     let Some((user_id, tenant_id)) = parse_advice_ids(advice) else {
         return AdviceResolution::Expire;
     };
     let ctx = EvalCtx {
-        repos,
+        inputs,
         user_id,
         tenant_id,
         advice,
-        chat_provider,
-        judge_prompt,
     };
-    match &advice.outcome_metric {
+    // Boxed: the history recompute makes the evaluation future large, and
+    // every caller up to the scheduler would otherwise carry it inline.
+    Box::pin(ai_scope::serve_over(
+        Transport::PlatformJob,
+        ai_scope::for_model(evaluate_metric(&ctx)),
+    ))
+    .await
+}
+
+/// Dispatch one evaluation on its outcome metric.
+async fn evaluate_metric(ctx: &EvalCtx<'_>) -> AdviceResolution {
+    match &ctx.advice.outcome_metric {
         OutcomeMetric::ActivityCompleted { sport, .. } => {
-            eval_activity_completed(&ctx, sport.as_deref()).await
+            eval_activity_completed(ctx, sport.as_deref()).await
         }
-        OutcomeMetric::HrvDelta { .. } => eval_hrv(&ctx).await,
+        OutcomeMetric::HrvDelta { .. } => eval_hrv(ctx).await,
         OutcomeMetric::TsbDelta { .. } | OutcomeMetric::RampRateWithin { .. } => {
-            eval_training(&ctx).await
+            eval_training(ctx).await
         }
-        OutcomeMetric::Consistency { window_days } => eval_consistency(&ctx, *window_days).await,
+        OutcomeMetric::Consistency { window_days } => eval_consistency(ctx, *window_days).await,
     }
 }
 
 /// Adherence: did a matching activity land in the window?
 async fn eval_activity_completed(ctx: &EvalCtx<'_>, sport: Option<&str>) -> AdviceResolution {
-    let acts = match ctx
-        .repos
-        .activity_cache
-        .get_cached_activities(
-            ctx.user_id,
-            &ctx.tenant_id,
-            None,
-            ctx.start(),
-            ctx.end(),
-            ACTIVITY_SCAN_LIMIT,
-        )
-        .await
-    {
-        Ok(a) => a,
-        Err(e) => {
-            warn!(error = %e, "activity read failed; will retry");
-            return AdviceResolution::Retry;
-        }
+    let Some(acts) = ctx.window_activities().await else {
+        return AdviceResolution::Retry;
     };
     let any = !acts.is_empty();
     let matched = sport.map_or(any, |slug| {
@@ -271,20 +337,13 @@ async fn eval_activity_completed(ctx: &EvalCtx<'_>, sport: Option<&str>) -> Advi
 
 /// Recovery: did HRV improve over the window?
 async fn eval_hrv(ctx: &EvalCtx<'_>) -> AdviceResolution {
-    // One row per date across the athlete's sources, ordered by date, so a
-    // day two providers both reported counts once.
-    let recs = match ctx
-        .repos
-        .recovery
-        .get_recovery_metrics(ctx.user_id, &ctx.tenant_id, ctx.start(), ctx.end())
-        .await
-    {
-        Ok(r) => merge_recovery_metrics(r),
-        Err(e) => {
-            warn!(error = %e, "recovery read failed; will retry");
-            return AdviceResolution::Retry;
-        }
+    let Some(rows) = ctx.window_recovery().await else {
+        return AdviceResolution::Retry;
     };
+    // One row per date across the athlete's sources, ordered by date, so a
+    // day two providers both reported counts once. Filtered first: a merge
+    // folds one source's HRV into another's row, past any later filter.
+    let recs = merge_recovery_metrics(rows);
     // HRV is captured sporadically, so the earliest/latest record in the window
     // may carry no HRV. Take the first and last records that actually have a
     // value so a boundary `None` cannot discard a computable mid-window delta.
@@ -296,24 +355,8 @@ async fn eval_hrv(ctx: &EvalCtx<'_>) -> AdviceResolution {
 
 /// Consistency: did the athlete hold a reasonable session cadence?
 async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolution {
-    let acts = match ctx
-        .repos
-        .activity_cache
-        .get_cached_activities(
-            ctx.user_id,
-            &ctx.tenant_id,
-            None,
-            ctx.start(),
-            ctx.end(),
-            ACTIVITY_SCAN_LIMIT,
-        )
-        .await
-    {
-        Ok(a) => a,
-        Err(e) => {
-            warn!(error = %e, "activity read failed; will retry");
-            return AdviceResolution::Retry;
-        }
+    let Some(acts) = ctx.window_activities().await else {
+        return AdviceResolution::Retry;
     };
     // ~2 sessions per week target over the window.
     let expected = ((f64::from(window_days) / 7.0) * 2.0).round();
@@ -330,15 +373,18 @@ async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolutio
 }
 
 /// TSB / ramp-rate: read training-history endpoints over the window.
+///
+/// The rows the judge may read: the persisted rollup when nothing in the
+/// window is withheld, else the series recomputed from the permitted sessions.
 async fn eval_training(ctx: &EvalCtx<'_>) -> AdviceResolution {
     let from = ctx.start().date_naive();
     let to = ctx.end().date_naive();
-    let hist = match ctx
-        .repos
-        .training_history
-        .get_training_history(ctx.tenant_id, ctx.user_id, from, to)
-        .await
-    {
+    let sources = HistorySources {
+        repos: ctx.repos(),
+        terms: ctx.inputs.terms,
+        algorithms: ctx.inputs.algorithms,
+    };
+    let hist = match history_rows_for_model(sources, ctx.tenant_id, ctx.user_id, from, to).await {
         Ok(h) => h,
         Err(e) => {
             warn!(error = %e, "training-history read failed; will retry");
@@ -410,7 +456,7 @@ async fn run_judge(
     before: Option<f64>,
     after: Option<f64>,
 ) -> Option<OutcomeLabel> {
-    let provider = ctx.chat_provider?;
+    let provider = ctx.inputs.chat_provider?;
     let summary = format!(
         "Recommendation: a '{}' intervention for a '{}' trigger. Observed {metric_label}: {} -> {} over the window. Did it work?",
         ctx.advice.intervention.kind.as_str(),
@@ -420,7 +466,7 @@ async fn run_judge(
     );
     match judge::ask_for_json::<JudgeVerdict>(
         provider as &dyn LlmProvider,
-        ctx.judge_prompt,
+        ctx.inputs.judge_prompt,
         &summary,
         0.0,
     )
@@ -443,10 +489,14 @@ async fn run_judge(
 /// advice, evaluates it, and records the outcome. Best-effort — every error
 /// is logged, never propagated. Needs the shared [`ChatProvider`] singleton for
 /// the LLM judge; without it, ambiguous cases fall back to the data heuristic.
+/// `provider_terms` (the provider registry) governs what the judge may see,
+/// and `cageux` scores a history recomputed without withheld sessions.
 pub fn spawn_outcome_evaluator(
     repos: Arc<RepositoryRegistry>,
     chat_provider: Option<Arc<ChatProvider>>,
     prompt_registry: Arc<PromptRegistry>,
+    provider_terms: Arc<dyn ProviderTerms>,
+    cageux: Arc<CageuxConfigRegistry>,
 ) {
     let interval_secs = env::var(OUTCOME_EVAL_INTERVAL_ENV_VAR)
         .ok()
@@ -463,8 +513,17 @@ pub fn spawn_outcome_evaluator(
             // Read per sweep, not once at spawn: the judge instructions
             // hot-reload from the catalogue like every other system prompt.
             let judge_prompt = prompt_registry.outcome_judge_prompt();
+            let provider_terms = Arc::clone(&provider_terms);
+            let config = cageux.current();
             async move {
-                run_one_sweep(&repos, chat_provider.as_deref(), judge_prompt.trim()).await;
+                run_one_sweep(SweepInputs {
+                    repos: &repos,
+                    chat_provider: chat_provider.as_deref(),
+                    judge_prompt: judge_prompt.trim(),
+                    terms: provider_terms.as_ref(),
+                    algorithms: &config.algorithms,
+                })
+                .await;
                 Ok(())
             }
         },
@@ -472,13 +531,10 @@ pub fn spawn_outcome_evaluator(
 }
 
 /// One scan-and-label sweep over the currently-due advice.
-async fn run_one_sweep(
-    repos: &RepositoryRegistry,
-    chat_provider: Option<&ChatProvider>,
-    judge_prompt: &str,
-) {
+async fn run_one_sweep(inputs: SweepInputs<'_>) {
     let now = Utc::now().timestamp();
-    let due = match repos
+    let due = match inputs
+        .repos
         .playbooks
         .due_pending_advice(now, EVAL_BATCH_SIZE)
         .await
@@ -491,7 +547,7 @@ async fn run_one_sweep(
     };
     let mut labeled = 0_usize;
     for advice in &due {
-        if process_one_advice(advice, repos, chat_provider, judge_prompt).await {
+        if process_one_advice(advice, inputs).await {
             labeled += 1;
         }
     }
@@ -505,13 +561,9 @@ async fn run_one_sweep(
 }
 
 /// Resolve and persist one piece of advice. Returns `true` when it was labeled.
-async fn process_one_advice(
-    advice: &PendingAdvice,
-    repos: &RepositoryRegistry,
-    chat_provider: Option<&ChatProvider>,
-    judge_prompt: &str,
-) -> bool {
-    match evaluate_advice(advice, repos, chat_provider, judge_prompt).await {
+async fn process_one_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> bool {
+    let repos = inputs.repos;
+    match evaluate_advice(advice, inputs).await {
         AdviceResolution::Labeled(label, source) => {
             record_and_mark(repos, advice, label, source).await
         }
@@ -585,5 +637,264 @@ async fn record_and_mark(
             error!(error = %e, "failed to record and label playbook outcome");
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use chrono::Duration as ChronoDuration;
+    use pierre_core::errors::AppError;
+    use pierre_llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities};
+    use pierre_memory::playbooks::{
+        AdviceStatus, Band, Intervention, InterventionKind, MetricBaseline, TriggerKind,
+        TriggerPattern,
+    };
+
+    use super::*;
+    use crate::training_history_read::tests::{athlete, noon, relayed, Athlete, NolioTerms, RELAY};
+    use pierre_core::models::{DataSource, DeviceType};
+
+    /// A judge that records every user message it is asked about.
+    struct RecordingJudge {
+        asked: Arc<Mutex<Vec<String>>>,
+        models: Vec<String>,
+    }
+
+    impl RecordingJudge {
+        fn wired() -> (ChatProvider, Arc<Mutex<Vec<String>>>) {
+            let asked = Arc::new(Mutex::new(Vec::new()));
+            let judge = Self {
+                asked: Arc::clone(&asked),
+                models: vec!["recording-judge".to_owned()],
+            };
+            (ChatProvider::Custom(Arc::new(judge)), asked)
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for RecordingJudge {
+        fn name(&self) -> &'static str {
+            "recording-judge"
+        }
+        fn display_name(&self) -> &'static str {
+            "Recording Judge"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "recording-judge"
+        }
+        fn available_models(&self) -> &[String] {
+            &self.models
+        }
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let mut asked = self.asked.lock().unwrap();
+            asked.extend(request.messages.iter().map(|m| m.content.clone()));
+            Ok(ChatResponse {
+                content: r#"{"verdict":"neutral"}"#.to_owned(),
+                model: "recording-judge".to_owned(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("the outcome judge never streams"))
+        }
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Advice given seven days ago whose window closes now.
+    fn advice(fx: &Athlete, outcome_metric: OutcomeMetric) -> PendingAdvice {
+        let now = Utc::now();
+        PendingAdvice {
+            id: Uuid::new_v4().to_string(),
+            tenant_id: fx.tenant.to_string(),
+            user_id: fx.user_id.to_string(),
+            agent_slug: None,
+            playbook_id: None,
+            trigger: TriggerPattern {
+                kind: TriggerKind::LoadRamp,
+                sport: None,
+                magnitude: Band::Moderate,
+            },
+            intervention: Intervention {
+                kind: InterventionKind::EasyBlock,
+                magnitude: Some(3),
+            },
+            outcome_metric,
+            baseline: MetricBaseline {
+                captured_at: now - ChronoDuration::days(7),
+            },
+            due_by: now,
+            status: AdviceStatus::Pending,
+            label: None,
+            label_source: None,
+            source_msg_id: None,
+            created_at: now - ChronoDuration::days(7),
+        }
+    }
+
+    /// Evaluate `advice` under the Nolio terms, returning what the judge read.
+    async fn judge_reads(fx: &Athlete, advice: &PendingAdvice) -> (AdviceResolution, Vec<String>) {
+        let (judge, asked) = RecordingJudge::wired();
+        let algorithms = AlgorithmConfig::default();
+        let inputs = SweepInputs {
+            repos: fx.db.repositories(),
+            chat_provider: Some(&judge),
+            judge_prompt: "Label the outcome.",
+            terms: &NolioTerms,
+            algorithms: &algorithms,
+        };
+        let resolution = evaluate_advice(advice, inputs).await;
+        let asked = asked.lock().unwrap().clone();
+        (resolution, asked)
+    }
+
+    #[tokio::test]
+    async fn the_judge_never_counts_a_session_the_terms_withhold() {
+        let fx = athlete().await;
+        fx.cache(&[
+            relayed("g", "Garmin tempo", "garmin", noon(3)),
+            relayed("z", "Secret zepp ride", "zepp", noon(2)),
+        ])
+        .await;
+
+        let advice = advice(&fx, OutcomeMetric::Consistency { window_days: 7 });
+        let (resolution, asked) = judge_reads(&fx, &advice).await;
+
+        // Two sessions meet the two-a-week target outright; the one the judge
+        // may see is short of it, so the case is ambiguous and reaches it.
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::LlmJudge)
+        );
+        let summary = asked.last().expect("the judge was asked");
+        assert!(
+            summary.contains("sessions: 1.0 -> 2.0"),
+            "only the permitted session is counted: {summary}"
+        );
+        assert!(asked.iter().all(|m| !m.contains("zepp")));
+    }
+
+    #[tokio::test]
+    async fn the_judge_never_reads_a_rollup_that_summed_a_withheld_session() {
+        let control = athlete().await;
+        control.cache_garmin_history(200).await;
+        let to = Utc::now().date_naive();
+        control
+            .persist_rollup(to - ChronoDuration::days(7), to, 42.0)
+            .await;
+        let advice_for = |fx: &Athlete| advice(fx, OutcomeMetric::TsbDelta { window_days: 7 });
+        let (_, asked) = judge_reads(&control, &advice_for(&control)).await;
+        assert!(
+            asked.iter().any(|m| m.contains("TSB: 42.0 -> 42.0")),
+            "with nothing withheld the judge reads the stored rollup: {asked:?}"
+        );
+
+        let fx = athlete().await;
+        fx.cache_garmin_history(200).await;
+        fx.persist_rollup(to - ChronoDuration::days(7), to, 42.0)
+            .await;
+        fx.cache(&[relayed("z", "Secret zepp ride", "zepp", noon(2))])
+            .await;
+        let (_, asked) = judge_reads(&fx, &advice_for(&fx)).await;
+        assert!(
+            asked.iter().all(|m| !m.contains("42.0")),
+            "the stored rollup counted the zepp session; the judge must not read it: {asked:?}"
+        );
+    }
+
+    impl Athlete {
+        /// A data source relaying `source` through the Nolio account.
+        async fn relay_source(&self, source: &str) -> String {
+            self.db
+                .repositories()
+                .data_sources
+                .upsert_data_source(
+                    &self.tenant,
+                    &DataSource {
+                        id: String::new(),
+                        user_id: self.user_id.to_string(),
+                        provider: RELAY.to_owned(),
+                        device_model: None,
+                        software_version: None,
+                        source: Some(source.to_owned()),
+                        device_type: DeviceType::Watch,
+                        original_source_name: None,
+                    },
+                )
+                .await
+                .unwrap()
+        }
+
+        /// A recovery reading `days_ago` from `data_source_id` carrying `hrv_ms`.
+        async fn recovery(&self, data_source_id: &str, days_ago: i64, hrv_ms: f64) {
+            let at = noon(days_ago);
+            let reading = StoredRecoveryMetrics {
+                id: Uuid::new_v4().to_string(),
+                user_id: self.user_id.to_string(),
+                data_source_id: data_source_id.to_owned(),
+                date: at.date_naive(),
+                recovery_score: None,
+                readiness_score: None,
+                hrv_ms: Some(hrv_ms),
+                hrv_rmssd: None,
+                resting_heart_rate: None,
+                stress_score: None,
+                body_battery: None,
+                spo2: None,
+                respiratory_rate: None,
+                skin_temp_deviation: None,
+                daily_strain: None,
+                athlete_note: None,
+                source_name: RELAY.to_owned(),
+                recorded_at: at,
+            };
+            self.db
+                .repositories()
+                .recovery
+                .upsert_recovery_metrics(&self.tenant, &reading)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn the_judge_never_reads_hrv_from_a_source_the_terms_withhold() {
+        let fx = athlete().await;
+        let garmin = fx.relay_source("garmin").await;
+        let zepp = fx.relay_source("zepp").await;
+        // The zepp readings bracket the window, so a merge of every source
+        // would take its first and last HRV for the delta.
+        fx.recovery(&zepp, 6, 91.0).await;
+        fx.recovery(&garmin, 5, 60.0).await;
+        fx.recovery(&garmin, 2, 61.0).await;
+        fx.recovery(&zepp, 1, 92.0).await;
+
+        let advice = advice(&fx, OutcomeMetric::HrvDelta { window_days: 7 });
+        let (resolution, asked) = judge_reads(&fx, &advice).await;
+
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::LlmJudge)
+        );
+        assert!(
+            asked.iter().any(|m| m.contains("HRV (ms): 60.0 -> 61.0")),
+            "the judge reads the permitted source's HRV: {asked:?}"
+        );
+        assert!(
+            asked
+                .iter()
+                .all(|m| !m.contains("91.0") && !m.contains("92.0")),
+            "a zepp reading never reaches the judge: {asked:?}"
+        );
     }
 }

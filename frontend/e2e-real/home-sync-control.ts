@@ -76,7 +76,7 @@ async function signIn(): Promise<string> {
   const response = await api('/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'password', username: ATHLETE_EMAIL, password: ATHLETE_PASSWORD }),
+    body: new URLSearchParams({ grant_type: 'password', client_id: 'dravr-web', username: ATHLETE_EMAIL, password: ATHLETE_PASSWORD }),
   });
   if (!response.ok) {
     throw new Error(`login of ${ATHLETE_EMAIL} failed: ${response.status} ${await response.text()}`);

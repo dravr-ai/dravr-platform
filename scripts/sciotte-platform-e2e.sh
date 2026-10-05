@@ -47,6 +47,7 @@ mint_jwt() {
   resp=$(curl -s -X POST "$PLATFORM/oauth/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     --data-urlencode "grant_type=password" \
+    --data-urlencode "client_id=dravr-web" \
     --data-urlencode "username=$E2E_USER" \
     --data-urlencode "password=$E2E_PASS")
   local tok

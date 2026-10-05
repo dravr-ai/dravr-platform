@@ -123,7 +123,7 @@ client runs, and they persist in shell history and in the MCP host's configurati
 
 | Variable | Effect |
 |----------|--------|
-| `PIERRE_JWT_TOKEN` | Authenticates with a pre-issued JWT; selects JWT auth mode |
+| `PIERRE_JWT_TOKEN` | Authenticates with a pre-issued OAuth access token; selects JWT auth mode. A Dravr sign-in session (the web or mobile app's token) is refused by `/mcp` |
 | `PIERRE_API_KEY` | Authenticates with a Dravr API key (`POST /api/keys`); selects API key mode |
 | `PIERRE_OAUTH_CLIENT_SECRET` | Client secret for the `--oauth-client-id` given; selects OAuth auth mode |
 
@@ -142,7 +142,7 @@ In an MCP host, set them in the server entry's `env` block:
     "pierre": {
       "command": "npx",
       "args": ["-y", "pierre-mcp-client@next", "--server", "http://localhost:8081"],
-      "env": { "PIERRE_JWT_TOKEN": "<jwt>" }
+      "env": { "PIERRE_API_KEY": "<api key>" }
     }
   }
 }

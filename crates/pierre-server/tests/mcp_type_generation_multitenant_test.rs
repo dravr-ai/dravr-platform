@@ -35,11 +35,11 @@ async fn test_type_schemas_identical_across_tenants() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create 5 tenants with different email domains
-    let (user1, token1) = common::create_test_tenant(&resources, "tenant1@example.com").await?;
-    let (user2, token2) = common::create_test_tenant(&resources, "tenant2@example.org").await?;
-    let (user3, token3) = common::create_test_tenant(&resources, "tenant3@example.net").await?;
-    let (user4, token4) = common::create_test_tenant(&resources, "tenant4@example.io").await?;
-    let (user5, token5) = common::create_test_tenant(&resources, "tenant5@example.co").await?;
+    let (user1, token1) = common::create_test_mcp_tenant(&resources, "tenant1@example.com").await?;
+    let (user2, token2) = common::create_test_mcp_tenant(&resources, "tenant2@example.org").await?;
+    let (user3, token3) = common::create_test_mcp_tenant(&resources, "tenant3@example.net").await?;
+    let (user4, token4) = common::create_test_mcp_tenant(&resources, "tenant4@example.io").await?;
+    let (user5, token5) = common::create_test_mcp_tenant(&resources, "tenant5@example.co").await?;
 
     println!("✓ Created 5 test tenants:");
     println!("  - Tenant 1: {}", user1.email);
@@ -155,7 +155,8 @@ async fn test_generated_types_match_schemas() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create single tenant for schema validation
-    let (user, token) = common::create_test_tenant(&resources, "type-gen-test@example.com").await?;
+    let (user, token) =
+        common::create_test_mcp_tenant(&resources, "type-gen-test@example.com").await?;
 
     println!("✓ Created test tenant: {}", user.email);
 
@@ -273,11 +274,12 @@ async fn test_schema_consistency_across_tiers() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create 3 tenants (would have different tiers in real scenario)
-    let (user1, token1) = common::create_test_tenant(&resources, "free-tier@example.com").await?;
+    let (user1, token1) =
+        common::create_test_mcp_tenant(&resources, "free-tier@example.com").await?;
     let (user2, token2) =
-        common::create_test_tenant(&resources, "professional-tier@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "professional-tier@example.com").await?;
     let (user3, token3) =
-        common::create_test_tenant(&resources, "enterprise-tier@example.com").await?;
+        common::create_test_mcp_tenant(&resources, "enterprise-tier@example.com").await?;
 
     println!("✓ Created 3 tenants with different configurations:");
     println!("  - Tenant 1: {} (free tier)", user1.email);

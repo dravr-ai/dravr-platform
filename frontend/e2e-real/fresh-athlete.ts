@@ -22,7 +22,7 @@ const ONBOARDING_STEPS = [
 export async function accessToken(ctx: APIRequestContext, email: string, password: string): Promise<string> {
   const response = await ctx.post('/oauth/token', {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', username: email, password },
+    form: { grant_type: 'password', client_id: 'dravr-web', username: email, password },
   });
   expect(response.ok(), `login of ${email} failed: ${response.status()} — re-run the setup script`).toBeTruthy();
   const { access_token: token } = await response.json();

@@ -128,24 +128,10 @@ async fn test_user_disabled_tool_absent_from_wire_tools_list_and_reset_restores(
     add_user_to_tenant_as_member(&resources, &tenant_id, member_a.id).await?;
     add_user_to_tenant_as_member(&resources, &tenant_id, member_b.id).await?;
 
-    let token_a = resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(
-            &member_a,
-            &resources.auth.jwks_manager,
-            Some(tenant_id.clone()),
-        )
-        .map_err(|e| anyhow::anyhow!("token for member A failed: {e}"))?;
-    let token_b = resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(
-            &member_b,
-            &resources.auth.jwks_manager,
-            Some(tenant_id.clone()),
-        )
-        .map_err(|e| anyhow::anyhow!("token for member B failed: {e}"))?;
+    let token_a =
+        common::delegated_test_token_for_tenant(&resources, member_a.id, Some(tenant_id.clone()));
+    let token_b =
+        common::delegated_test_token_for_tenant(&resources, member_b.id, Some(tenant_id.clone()));
 
     let server = common::spawn_http_mcp_server(&resources).await?;
     let client = Client::new();

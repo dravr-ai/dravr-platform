@@ -149,6 +149,7 @@ async fn test_complete_reset_success() {
     // Verify user can now log in with the new password
     let login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "BrandNewPassword789"),
     ];
@@ -167,6 +168,7 @@ async fn test_complete_reset_success() {
     // Verify old password no longer works
     let old_login_request = [
         ("grant_type", "password"),
+        ("client_id", "dravr-web"),
         ("username", email.as_str()),
         ("password", "password123"),
     ];

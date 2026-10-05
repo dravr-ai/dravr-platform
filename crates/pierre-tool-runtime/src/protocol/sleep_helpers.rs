@@ -17,6 +17,8 @@
 //!
 //! A caller naming a source (the tools' `sleep_provider` argument) narrows the
 //! rows to that source before merging; otherwise every source contributes.
+//! Either way only the rows each source's provider terms let the reader see
+//! reach the merge (`pierre_services::stored_health`).
 
 use std::collections::HashMap;
 
@@ -30,6 +32,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
+use pierre_services::stored_health;
 
 /// Extra days read before the requested window, so a night that began the
 /// evening before the window's first day still falls inside it.
@@ -73,18 +76,21 @@ pub async fn stored_sleep_nights(
     let tenant = tenant_of(tenant_id).ok_or_else(|| Box::new(missing_tenant()))?;
     let end = Utc::now();
     let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
-    let mut sessions = executor
-        .resources
-        .repos()
-        .sleep
-        .get_sleep_sessions(user_uuid, &tenant, start, end)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "stored sleep sessions unreadable");
-            Box::new(failure(
-                "Sleep data could not be read right now.".to_owned(),
-            ))
-        })?;
+    let mut sessions = stored_health::sleep_sessions(
+        executor.resources.repos(),
+        executor.resources.provider_registry().as_ref(),
+        user_uuid,
+        &tenant,
+        start,
+        end,
+    )
+    .await
+    .map_err(|e| {
+        warn!(error = %e, "stored sleep sessions unreadable");
+        Box::new(failure(
+            "Sleep data could not be read right now.".to_owned(),
+        ))
+    })?;
     if let Some(source) = source {
         sessions.retain(|s| s.source_name.eq_ignore_ascii_case(source));
     }
@@ -173,12 +179,15 @@ async fn recovery_by_date(
     };
     let end = Utc::now();
     let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
-    match executor
-        .resources
-        .repos()
-        .recovery
-        .get_recovery_metrics(user_uuid, &tenant, start, end)
-        .await
+    match stored_health::recovery_metrics(
+        executor.resources.repos(),
+        executor.resources.provider_registry().as_ref(),
+        user_uuid,
+        &tenant,
+        start,
+        end,
+    )
+    .await
     {
         Ok(rows) => merge_recovery_metrics(rows)
             .into_iter()

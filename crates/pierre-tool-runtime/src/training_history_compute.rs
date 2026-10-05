@@ -34,56 +34,46 @@
 use std::future::{ready, Ready};
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, TimeZone, Utc};
+use chrono::{Duration, NaiveDate, Utc};
+use dravr_cageux::config::intelligence::IntelligenceConfig;
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use pierre_config::environment::default_provider;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, DailyTrainingState, TenantId};
-use pierre_fitness_compute::training_history_compute::{
-    compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
-};
+use pierre_core::models::{DailyTrainingState, TenantId};
+use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver;
 #[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
+use pierre_services::training_history_read::{
+    self as history_read, compute_states, first_vouched_day, load_stored_window,
+    resolve_compute_backend, user_timezone, validate_window, ComputeBackend, HistorySources,
+};
+pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
 #[cfg(feature = "tools-data")]
 use crate::activity_backfill::{
     provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob,
 };
-use crate::activity_fetch::HISTORICAL_WINDOW_READ_LIMIT;
 use crate::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
 pub const DEFAULT_BACKFILL_DAYS: i64 = 90;
 
-/// Slack (days) added to each end of the cache read.
-///
-/// An activity whose local date sits inside the window must not be missed
-/// because its UTC instant falls outside it, and zone offsets reach ±14h. The
-/// pure compute re-filters on the athlete's civil date, so reading wide is free
-/// and reading tight loses rows.
-const CACHE_READ_EDGE_SLACK_DAYS: i64 = 2;
-
-/// How much of the requested window the stored activities could stand behind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HistoryCoverage {
-    /// Stored history warms the whole requested window.
-    Complete,
-    /// Stored history begins too late to warm the whole ask; only
-    /// `[trustworthy_from, to]` was computed.
-    Partial {
-        /// First day whose CTL/ATL/TSB the stored history can stand behind.
-        trustworthy_from: NaiveDate,
-    },
-    /// No stored activities in the read window at all. Nothing was computed —
-    /// a zero-seeded series would read as a real chronic load.
-    NoStoredActivities,
+/// The runtime's handles a history read needs, borrowed from `resources` and
+/// the configuration snapshot `config` the caller holds for the read.
+fn history_sources<'a>(
+    resources: &'a Arc<dyn ToolRuntime>,
+    config: &'a IntelligenceConfig<true>,
+) -> HistorySources<'a> {
+    HistorySources {
+        repos: resources.repos(),
+        terms: resources.provider_registry().as_ref(),
+        algorithms: &config.algorithms,
+    }
 }
 
 /// What a compute-and-persist run actually did.
@@ -135,22 +125,9 @@ pub async fn default_window(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
 ) -> AppResult<(NaiveDate, NaiveDate)> {
-    let zone = resolve_zone(user_timezone(resources, user_id).await?.as_deref());
+    let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
     let to = clock_date(Utc::now(), zone);
     Ok((to - Duration::days(DEFAULT_BACKFILL_DAYS), to))
-}
-
-/// Read the athlete's configured timezone, if any.
-async fn user_timezone(
-    resources: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-) -> AppResult<Option<String>> {
-    Ok(resources
-        .repos()
-        .users
-        .get_global(user_id)
-        .await?
-        .and_then(|u| u.timezone))
 }
 
 /// Compute and persist daily training-history rows for `[from, to]` from the
@@ -189,10 +166,12 @@ async fn compute_and_persist_unfiltered(
 ) -> AppResult<TrainingHistoryComputed> {
     validate_window(from, to)?;
 
-    let backend = resolve_compute_backend(resources, tenant_id, user_id)
+    let config = resources.cageux_config();
+    let sources = history_sources(resources, &config);
+    let backend = resolve_compute_backend(resources.repos(), tenant_id, user_id)
         .await?
         .ok_or_else(AppError::no_provider_connected)?;
-    let window = load_stored_window(resources, tenant_id, user_id, backend, from, to).await?;
+    let window = load_stored_window(sources, tenant_id, user_id, backend, from, to).await?;
     let backend = &window.backend;
     let warmup = window.warmup;
 
@@ -248,8 +227,7 @@ async fn compute_and_persist_unfiltered(
         });
     }
 
-    let states =
-        compute_states(resources, tenant_id, user_id, &window, trustworthy_from, to).await?;
+    let states = compute_states(sources, tenant_id, user_id, &window, trustworthy_from, to).await?;
     let rows_upserted = states.len();
     if rows_upserted > 0 {
         resources
@@ -289,28 +267,9 @@ async fn compute_and_persist_unfiltered(
     })
 }
 
-/// Daily rows computed from the durable cache for a read that stores nothing.
-#[derive(Debug, Clone)]
-pub struct TrainingHistoryRead {
-    /// One row per day of `[coverage's first vouched day, to]`, oldest first.
-    /// Empty when the stored history warms no day of the ask.
-    pub states: Vec<DailyTrainingState>,
-    /// How much of the ask the stored history supported.
-    pub coverage: HistoryCoverage,
-}
-
 /// Compute daily training-history rows for `[from, to]` from the durable
-/// activity cache, and nothing else.
-///
-/// The read a page makes: the same stored activities, thresholds, civil days
-/// and warm-up rule as [`compute_and_persist_history`], so the page and the
-/// agent read one series — but it writes no row, clears none, and asks the
-/// capture rail for nothing. A page is opened many times a day by an athlete
-/// who asked for no history; a capture per visit would page a scrape backend
-/// again every time a thin history was looked at.
-///
-/// An athlete with no connected provider has no stored activities, and is
-/// answered [`HistoryCoverage::NoStoredActivities`] rather than refused.
+/// activity cache, and nothing else: the runtime's binding of
+/// [`history_read::read_history_from_cache`], which documents the read.
 ///
 /// # Errors
 ///
@@ -322,136 +281,15 @@ pub async fn read_history_from_cache(
     from: NaiveDate,
     to: NaiveDate,
 ) -> AppResult<TrainingHistoryRead> {
-    validate_window(from, to)?;
-    let nothing_stored = TrainingHistoryRead {
-        states: Vec::new(),
-        coverage: HistoryCoverage::NoStoredActivities,
-    };
-    let Some(backend) = resolve_compute_backend(resources, tenant_id, user_id).await? else {
-        return Ok(nothing_stored);
-    };
-    let window = load_stored_window(resources, tenant_id, user_id, backend, from, to).await?;
-    let Some(oldest_stored) = window.oldest_stored else {
-        return Ok(nothing_stored);
-    };
-    let trustworthy_from = first_vouched_day(from, oldest_stored, window.warmup);
-    if trustworthy_from > to {
-        return Ok(TrainingHistoryRead {
-            states: Vec::new(),
-            coverage: HistoryCoverage::Partial { trustworthy_from },
-        });
-    }
-    let states =
-        compute_states(resources, tenant_id, user_id, &window, trustworthy_from, to).await?;
-    Ok(TrainingHistoryRead {
-        states,
-        coverage: if trustworthy_from <= from {
-            HistoryCoverage::Complete
-        } else {
-            HistoryCoverage::Partial { trustworthy_from }
-        },
-    })
-}
-
-/// Refuse a window that is inverted or longer than the compute is bounded to.
-fn validate_window(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
-    if to < from {
-        return Err(AppError::invalid_input("from > to"));
-    }
-    if (to - from).num_days() > MAX_BACKFILL_DAYS {
-        return Err(AppError::invalid_input(format!(
-            "backfill window exceeds the maximum of {MAX_BACKFILL_DAYS} days"
-        )));
-    }
-    Ok(())
-}
-
-/// The athlete's stored activities behind a window, with what computing from
-/// them needs.
-struct StoredWindow {
-    /// The backend whose cached rows were read.
-    backend: ComputeBackend,
-    /// The athlete's configured timezone, if any.
-    timezone: Option<String>,
-    /// Days of history a day needs behind it, at the configured chronic window.
-    warmup: i64,
-    /// Stored activities covering the window and its warm-up.
-    activities: Vec<Activity>,
-    /// The athlete's civil date of the oldest of them; `None` when the read
-    /// held nothing.
-    oldest_stored: Option<NaiveDate>,
-}
-
-/// Read the stored activities behind `[from, to]` and its warm-up.
-async fn load_stored_window(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    backend: ComputeBackend,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> AppResult<StoredWindow> {
-    // The rollup buckets on the athlete's civil day. Persisting UTC-day buckets
-    // shifted the whole CTL/ATL/TSB series against their own calendar for
-    // anyone training in the evening (registre#200).
-    let timezone = user_timezone(resources, user_id).await?;
-    let zone = resolve_zone(timezone.as_deref());
-
-    let warmup = warmup_days(
-        resources
-            .cageux_config()
-            .algorithms
-            .params
-            .training_load_ctl_days,
-    );
-    let activities = read_cached_window(
-        resources,
+    let config = resources.cageux_config();
+    history_read::read_history_from_cache(
+        history_sources(resources, &config),
         tenant_id,
         user_id,
-        &backend.slug,
-        from - Duration::days(warmup),
-        to,
-    )
-    .await?;
-    let oldest_stored = activities
-        .iter()
-        .map(|a: &Activity| local_date(a.start_date(), zone))
-        .min();
-    Ok(StoredWindow {
-        backend,
-        timezone,
-        warmup,
-        activities,
-        oldest_stored,
-    })
-}
-
-/// The first day the stored history can stand behind: anything earlier would
-/// be computed against a partly-empty warm-up and read as a real, low CTL.
-fn first_vouched_day(from: NaiveDate, oldest_stored: NaiveDate, warmup: i64) -> NaiveDate {
-    from.max(oldest_stored + Duration::days(warmup))
-}
-
-/// The daily rows of `[from, to]` from a stored window, each session scored
-/// against the athlete's saved thresholds.
-async fn compute_states(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    window: &StoredWindow,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> AppResult<Vec<DailyTrainingState>> {
-    let inputs = athlete_inputs(resources, tenant_id, user_id).await?;
-    compute_training_history(
-        &window.activities,
-        inputs,
         from,
         to,
-        &resources.cageux_config().algorithms,
-        window.timezone.as_deref(),
     )
-    .map_err(|e| AppError::internal(format!("training-load series: {e}")))
+    .await
 }
 
 /// The outcome when the durable cache holds nothing for the read window.
@@ -532,91 +370,6 @@ async fn clear_unvouched_span(
         .await
 }
 
-/// The backend this compute reads, and whether its connection is still live.
-struct ComputeBackend {
-    /// Canonical slug the cached rows are keyed by.
-    slug: String,
-    /// Whether the athlete must reconnect before any new history can arrive.
-    requires_reauth: bool,
-}
-
-/// Resolve the backend slug whose cached rows this compute reads, or `None`
-/// when the athlete has no provider connected.
-///
-/// Canonicalised through [`backend_resolver::resolve_backend`] because that is
-/// what the write side keys on: a Garmin athlete's rows are written under
-/// `sciotte_garmin` while the connection says `garmin`, and reading the raw
-/// connection slug would miss every row it wrote.
-async fn resolve_compute_backend(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> AppResult<Option<ComputeBackend>> {
-    let (requested, requires_reauth) = if let Some(p) = default_provider() {
-        (p, false)
-    } else if let Some(conn) = resources
-        .repos()
-        .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
-        .await?
-    {
-        let requires_reauth = conn.status.requires_reauth();
-        (conn.provider, requires_reauth)
-    } else {
-        return Ok(None);
-    };
-    Ok(Some(ComputeBackend {
-        slug: backend_resolver::resolve_backend(
-            &resources.repos().auth_repos(),
-            user_id,
-            Some(tenant_id),
-            &requested,
-        )
-        .await,
-        requires_reauth,
-    }))
-}
-
-/// Read the athlete's stored activities covering `[start, to]`, newest first.
-async fn read_cached_window(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    backend: &str,
-    start: NaiveDate,
-    to: NaiveDate,
-) -> AppResult<Vec<Activity>> {
-    let slack = Duration::days(CACHE_READ_EDGE_SLACK_DAYS);
-    let start_ts = Utc.from_utc_datetime(&(start - slack).and_hms_opt(0, 0, 0).unwrap_or_default());
-    let end_ts = Utc.from_utc_datetime(&(to + slack).and_hms_opt(0, 0, 0).unwrap_or_default());
-    let limit = i64::try_from(HISTORICAL_WINDOW_READ_LIMIT).unwrap_or(i64::MAX);
-    let rows = resources
-        .repos()
-        .activity_cache
-        .get_cached_activities(user_id, &tenant_id, Some(backend), start_ts, end_ts, limit)
-        .await?;
-    // A history computed for a model sums only what it may see; the persisted
-    // rollup is computed unfiltered (`compute_and_persist_history`).
-    Ok(ai_scope::filter_activities(
-        resources.provider_registry().as_ref(),
-        rows,
-    ))
-}
-
-/// Per-user physiology, absent where the profile is silent.
-async fn athlete_inputs(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> AppResult<AthleteInputs> {
-    let profile = resources
-        .repos()
-        .user_physiological_profile
-        .get_user_physiological_profile(tenant_id, user_id)
-        .await?;
-    Ok(AthleteInputs::from_profile(profile.as_ref()))
-}
-
 /// Ask the capture rail to page the provider back to `floor`.
 ///
 /// Rides the rail `get_activities` already uses, so a capture for this
@@ -640,7 +393,7 @@ async fn request_capture(
 ) -> bool {
     let after = floor
         .and_hms_opt(0, 0, 0)
-        .map(|dt| Utc.from_utc_datetime(&dt).timestamp());
+        .map(|dt| dt.and_utc().timestamp());
     spawn_activity_backfill(ActivityBackfillJob {
         resources: resources.clone(),
         user_id,
@@ -690,24 +443,12 @@ pub async fn fetch_history_rows(
     from: NaiveDate,
     to: NaiveDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
-    if to < from {
-        return Err(AppError::invalid_input("from > to"));
-    }
-    data.repos()
-        .training_history
-        .get_training_history(tenant_id, user_id, from, to)
-        .await
+    history_read::fetch_history_rows(data.repos(), tenant_id, user_id, from, to).await
 }
 
 /// The history rows a model, or a caller over an external transport, may read
-/// for `[from, to]`.
-///
-/// The persisted rollup sums every stored activity. Under a gate whose window
-/// holds activities a provider's terms withhold — from AI (carnet#723) or from
-/// this transport (carnet#724) — the rows are computed on the fly from the
-/// permitted activities instead, under the same gates: the same warm-up rule
-/// as the rollup, so the two agree when nothing is withheld, and then the
-/// stored rows are served.
+/// for `[from, to]`: the runtime's binding of
+/// [`history_read::history_rows_for_model`], which holds the rule.
 ///
 /// # Errors
 ///
@@ -719,17 +460,15 @@ pub async fn history_rows_for_model(
     from: NaiveDate,
     to: NaiveDate,
 ) -> AppResult<Vec<DailyTrainingState>> {
-    if ai_scope::policies_apply() {
-        let (computed, withheld) = ai_scope::tallied(read_history_from_cache(
-            resources, tenant_id, user_id, from, to,
-        ))
-        .await;
-        if !withheld.is_empty() {
-            ai_scope::record_withheld(withheld);
-            return Ok(computed?.states);
-        }
-    }
-    fetch_history_rows(&resources.data(), tenant_id, user_id, from, to).await
+    let config = resources.cageux_config();
+    history_read::history_rows_for_model(
+        history_sources(resources, &config),
+        tenant_id,
+        user_id,
+        from,
+        to,
+    )
+    .await
 }
 
 /// What happened to the athlete's stored daily rollup when the thresholds it

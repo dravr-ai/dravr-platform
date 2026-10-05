@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::periodization::alerts::BASELINE_DAYS;
 use pierre_core::models::periodization::{
     alerts, ladder, readiness_level, substitute, AlertInput, DayReadinessInput, DaySubstitution,
@@ -46,6 +47,7 @@ use crate::implementations::training_plans_output::{
 };
 use crate::runtime::ToolRuntime;
 use crate::training_history_compute::history_rows_for_model;
+use pierre_services::stored_health;
 
 /// Seconds in an hour, for the nightly sleep total.
 const SECONDS_PER_HOUR: f64 = 3600.0;
@@ -372,7 +374,15 @@ async fn gather(
             .collect()
     });
 
-    let recovery = recovery_series(repos, tenant, user_id, today, from).await;
+    let recovery = recovery_series(
+        repos,
+        state.provider_registry().as_ref(),
+        tenant,
+        user_id,
+        today,
+        from,
+    )
+    .await;
 
     Gathered {
         alert_input: AlertInput {
@@ -396,9 +406,10 @@ fn days_ago(judged: NaiveDate, date: NaiveDate) -> Option<u32> {
 }
 
 /// The recovery readings behind the three corroborating signals, one per
-/// date.
+/// date, from the rows each source's provider terms let the rail read.
 async fn recovery_series(
     repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
     today: NaiveDate,
@@ -410,10 +421,8 @@ async fn recovery_series(
     ) else {
         return Vec::new();
     };
-    let sleep = sleep_by_night(repos, tenant, user_id, start, end).await;
-    let metrics = repos
-        .recovery
-        .get_recovery_metrics(user_id, &tenant, start, end)
+    let sleep = sleep_by_night(repos, terms, tenant, user_id, start, end).await;
+    let metrics = stored_health::recovery_metrics(repos, terms, user_id, &tenant, start, end)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "week readiness: recovery metrics unreadable");
@@ -459,14 +468,13 @@ async fn recovery_series(
 /// athlete slept perfectly well.
 async fn sleep_by_night(
     repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> HashMap<NaiveDate, f64> {
-    let sessions = repos
-        .sleep
-        .get_sleep_sessions(user_id, &tenant, start, end)
+    let sessions = stored_health::sleep_sessions(repos, terms, user_id, &tenant, start, end)
         .await
         .unwrap_or_else(|e| {
             warn!(error = %e, "week readiness: sleep sessions unreadable");

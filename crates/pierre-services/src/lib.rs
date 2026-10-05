@@ -263,6 +263,10 @@ pub mod onboarding_reset;
 pub mod outcome_evaluator;
 /// Render a user's proven coaching playbooks into a system-prompt block
 pub mod playbook_render;
+/// Stored sleep, recovery and health-snapshot reads under each row's provider terms.
+pub mod stored_health;
+/// The daily training-load series read from stored activities, and the rows a model may read of it.
+pub mod training_history_read;
 /// Training-plan prompt-block renderer.
 pub mod training_plan_render;
 

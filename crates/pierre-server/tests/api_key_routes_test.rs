@@ -38,7 +38,6 @@ use uuid::Uuid;
 fn create_test_auth_result(user_id: Uuid) -> AuthResult {
     AuthResult {
         scopes: OAuthScope::self_grant(),
-        session_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "free".to_owned(),

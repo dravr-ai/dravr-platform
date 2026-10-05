@@ -584,18 +584,12 @@ async fn an_api_key_reads_home_without_the_relay_and_a_session_reads_all_of_it()
     assert!(shown.to_string().contains("Relay Recovery Spin"), "{shown}");
 }
 
-#[tokio::test]
-async fn mcp_over_http_is_external_whatever_credential_reaches_it() {
-    let resources = server_with_relay().await;
-    let rider = athlete_with_relay(&resources).await;
-    let app = ProviderToolRouter::build_http_app(&resources);
-    // The athlete's own session token, pasted into an MCP client: the route
-    // decides, never the token.
-    let session = common::generate_test_token(&resources, &rider.user).await;
-    let request = Request::post("/mcp")
+/// One `get_activities` call for the relay's rows over `POST /mcp`.
+fn mcp_relay_call(authorization: &str) -> Request<Body> {
+    Request::post("/mcp")
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
-        .header("authorization", format!("Bearer {session}"))
+        .header("authorization", authorization)
         .body(Body::from(
             serde_json::json!({
                 "jsonrpc": "2.0",
@@ -608,14 +602,46 @@ async fn mcp_over_http_is_external_whatever_credential_reaches_it() {
             })
             .to_string(),
         ))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn mcp_over_http_is_external_whatever_credential_reaches_it() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+
+    // The athlete's own session token, pasted into an MCP client, is not an
+    // MCP credential at all: refused before any tool runs (carnet#768).
+    let session = common::generate_test_token(&resources, &rider.user).await;
+    let refused = app
+        .clone()
+        .oneshot(mcp_relay_call(&format!("Bearer {session}")))
+        .await
         .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body = String::from_utf8_lossy(&bytes);
-    assert!(body.contains("\"result\""), "{body}");
-    assert!(!body.contains("Garmin Hills"), "{body}");
-    assert!(body.contains(UNAVAILABLE_HERE), "{body}");
+    assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+
+    // Every credential `/mcp` does take is served as external: the route
+    // decides, never the token. The athlete's API key carries the self grant
+    // and a delegated grant does not; neither reads the relay's rows.
+    let key = format!("Bearer {}", api_key(&resources, rider.user_id).await);
+    let delegated = format!(
+        "Bearer {}",
+        common::generate_delegated_test_token(&resources, &rider.user).await
+    );
+    for authorization in [key.as_str(), delegated.as_str()] {
+        let response = app
+            .clone()
+            .oneshot(mcp_relay_call(authorization))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(body.contains("\"result\""), "{body}");
+        assert!(!body.contains("Garmin Hills"), "{body}");
+        assert!(body.contains(UNAVAILABLE_HERE), "{body}");
+    }
 }
 
 /// The Copilot tool loop: its surface is built in the turn's task and called

@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_services::archetype_aggregation::spawn_archetype_aggregation;
 use pierre_services::commitment_sweep::{
     spawn_commitment_sweep, ActivityRefresher, CommitmentReporter,
@@ -44,11 +45,14 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
 
     // Labels due advice from the athlete's real activity/health data and
     // reinforces the matching playbooks. Its hybrid labeler can invoke the LLM
-    // judge for ambiguous cases, hence the in-memory skip above.
+    // judge for ambiguous cases, hence the in-memory skip above. The judge
+    // sees only what each provider's terms let a model see (carnet#734).
     spawn_outcome_evaluator(
         Arc::clone(&resources.common.repos),
         resources.common.chat_provider.as_ref().map(Arc::clone),
         Arc::clone(&resources.mcp.prompt_registry),
+        Arc::clone(&resources.fitness.provider_registry) as Arc<dyn ProviderTerms>,
+        Arc::clone(&resources.fitness.cageux_config_registry),
     );
 
     // Daily archetype aggregation: rolls per-user playbooks into k-anonymous
