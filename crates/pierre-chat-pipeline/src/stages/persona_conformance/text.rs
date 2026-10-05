@@ -370,10 +370,29 @@ pub(super) fn truncate_for_log(sentence: &str) -> String {
 /// Units that mark a number as a measurement rather than a date, a count or an
 /// ordinal. Lowercase; compared against the letters that follow a number,
 /// attached (`42km`, `88%`) or as the next word (`42 km`).
+///
+/// A bare hour (`h`) is deliberately absent: `entre 7 h et 9 h` is a clock
+/// time, and French writes a duration the same way, so the hour alone cannot
+/// say whether anything was measured. A duration still counts through its
+/// minutes (`1 h 12 min`).
 const MEASUREMENT_UNITS: &[&str] = &[
-    "km", "m", "mi", "ft", "h", "min", "mn", "s", "sec", "ms", "bpm", "w", "watts", "kj", "kcal",
-    "cal", "%", "rpm", "spm", "kg", "lb", "lbs", "km/h", "mph", "/km", "/mi",
+    "km", "m", "mi", "ft", "min", "mn", "s", "sec", "ms", "bpm", "w", "watts", "kj", "kcal", "cal",
+    "%", "rpm", "spm", "kg", "lb", "lbs", "km/h", "mph", "/km", "/mi",
 ];
+
+/// Period words, every locale: a number followed by one within
+/// [`WINDOW_LOOKAHEAD_TOKENS`] words is a lookback window (`12 dernières
+/// semaines`, `last 6 weeks`), not a measured value.
+const WINDOW_WORDS: &[&str] = &[
+    "day", "days", "week", "weeks", "month", "months", "year", "years", "jour", "jours", "semaine",
+    "semaines", "mois", "an", "ans", "année", "années", "día", "días", "semana", "semanas", "mes",
+    "meses", "año", "años", "tag", "tage", "tagen", "woche", "wochen", "monat", "monate",
+    "monaten", "jahr", "jahre", "jahren", "dia", "dias", "ano", "anos",
+];
+
+/// Words a period may sit behind its number: `12 semaines`, `12 dernières
+/// semaines`, `6 previous weeks`.
+const WINDOW_LOOKAHEAD_TOKENS: usize = 2;
 
 /// Words a metric's value may sit behind its name: `CTL 62`, `TSB: -8`,
 /// `CTL est à 62`, `TSB sits at -8`.
@@ -381,7 +400,7 @@ const METRIC_LOOKBACK_TOKENS: usize = 3;
 
 /// Measured values in `text`: a number carrying a [`MEASUREMENT_UNITS`] unit,
 /// or a number within [`METRIC_LOOKBACK_TOKENS`] words after one of
-/// `metric_acronyms`.
+/// `metric_acronyms` — unless a period word follows, which makes it a window.
 /// A date (`3 octobre`), a window (`12 semaines`) or an ordinal counts as
 /// none — they are what a reply with no data yet still says.
 pub(super) fn measured_value_count(text: &str, metric_acronyms: &[&str]) -> usize {
@@ -405,7 +424,16 @@ pub(super) fn measured_value_count(text: &str, metric_acronyms: &[&str]) -> usiz
             .iter()
             .map(|prev| prev.trim_matches(|c: char| !c.is_alphanumeric()))
             .any(|prev| metric_acronyms.contains(&prev));
-        if is_measurement_unit(unit_source) || after_metric {
+        let is_window = tokens
+            .iter()
+            .skip(idx + 1)
+            .take(WINDOW_LOOKAHEAD_TOKENS)
+            .map(|next| {
+                next.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+            })
+            .any(|next| WINDOW_WORDS.contains(&next.as_str()));
+        if !is_window && (is_measurement_unit(unit_source) || after_metric) {
             count += 1;
         }
     }

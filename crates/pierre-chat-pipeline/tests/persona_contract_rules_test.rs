@@ -306,12 +306,26 @@ fn prose_still_misses_the_required_block() {
     let found = rules(
         REQUIRE_BLOCK,
         CoachingPersona::PowerAthlete,
-        "Samedi tu as couru 42 km en 3 h 30 à 142 bpm de moyenne.\nOn garde le plan.",
+        "Ta sortie de samedi était régulière : 42 km en 3 h 30 à 142 bpm de moyenne.\nOn garde le plan.",
         None,
     );
     assert!(
         found.contains(&"require_line_by_line_block".to_owned()),
-        "a report of measured values in prose must still ask for a block, got {found:?}"
+        "a report in prose, one sentence with a colon, still asks for a block, got {found:?}"
+    );
+}
+
+#[test]
+fn one_figure_in_passing_is_not_a_report() {
+    let found = rules(
+        REQUIRE_BLOCK,
+        CoachingPersona::PowerAthlete,
+        "Tu as couru 42 km samedi ; je regarde le reste dès que c'est synchronisé.",
+        None,
+    );
+    assert!(
+        found.is_empty(),
+        "a single measured value is prose, got {found:?}"
     );
 }
 
@@ -323,6 +337,9 @@ fn a_reply_with_no_measured_data_needs_no_block() {
     for reply in [
         "Une fois qu'il est accessible, je regarde ses 12 dernières semaines.",
         "Je regarde ta sortie du samedi 3 octobre dès qu'elle est synchronisée.",
+        "Je regarde ta séance demain entre 7 h et 9 h.",
+        "Ta CTL des 12 dernières semaines et ton ATL des 7 derniers jours arrivent.",
+        "Je regarde ta 2e sortie de la semaine dès qu'elle est synchronisée.",
     ] {
         let found = rules(REQUIRE_BLOCK, CoachingPersona::PowerAthlete, reply, None);
         assert!(found.is_empty(), "{reply:?} reports no data, got {found:?}");

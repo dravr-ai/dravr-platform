@@ -155,13 +155,25 @@ async fn the_rewrite_is_rechecked_against_the_contract() {
         fixed.contains("0 of 1 violation(s) remain"),
         "a rewrite inside the 20-word cap leaves nothing, got: {fixed}"
     );
+    assert_no_second_alert(&fixed);
 
     let still_long = "Run five kilometres easy today and keep it conversational the \
                       whole way, then drink plenty of water afterwards and eat a \
                       proper meal within the hour.";
     let residual = repair_log(still_long).await;
     assert!(
-        residual.contains("1 of 1 violation(s) remain") && residual.contains("max_words"),
+        residual.contains("1 of 1 violation(s) remain")
+            && residual.contains("residual_rules=max_words"),
         "a rewrite still over the cap must report the residual rule, got: {residual}"
+    );
+    assert_no_second_alert(&residual);
+}
+
+/// WARN and ERROR are forwarded to Slack; the turn's violations already
+/// alerted once, so the re-check's measurement must stay below both.
+fn assert_no_second_alert(log: &str) {
+    assert!(
+        !log.contains("WARN") && !log.contains("ERROR"),
+        "the re-check must not raise a second alert, got: {log}"
     );
 }
