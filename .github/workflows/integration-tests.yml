@@ -70,7 +70,7 @@ jobs:
           bun-version: "1.3.4"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.98.1
+        uses: dtolnay/rust-toolchain@1.120.0
 
       # Restore only. The build below is the one mobile-e2e-android.yml's server
       # job runs (`cargo build --release`, CARGO_INCREMENTAL=0, the same env), so

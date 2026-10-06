@@ -92,7 +92,7 @@ jobs:
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
 
@@ -176,7 +176,7 @@ jobs:
       - name: Configure git auth for private dravr-* deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.120.0
 
       - uses: Swatinem/rust-cache@v2
         with:
