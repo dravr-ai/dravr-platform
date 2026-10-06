@@ -155,12 +155,12 @@ describe('RecentActivities', () => {
 
   it('shows the Garmin attribution beside a Garmin-recorded activity, and only there', async () => {
     const response = recentResponse();
-    response.activities[1] = { ...response.activities[1], provider: 'intervals_icu', attribution: 'Garmin' };
+    response.activities[1] = { ...response.activities[1], provider: 'intervals_icu', attribution: 'Garmin Forerunner 965' };
     api.getRecentActivities.mockResolvedValue(response);
     renderSection();
 
     const rows = await screen.findAllByTestId('home-activity-row');
-    expect(within(rows[0]).getByTestId('activity-attribution')).toHaveTextContent('Garmin');
+    expect(within(rows[0]).getByTestId('activity-attribution')).toHaveTextContent('Garmin Forerunner 965');
     expect(screen.getAllByTestId('activity-attribution')).toHaveLength(1);
   });
 

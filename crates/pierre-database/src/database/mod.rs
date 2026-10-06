@@ -44,6 +44,8 @@ pub mod errors;
 pub mod feature_flags;
 /// The external sign-in identities (a Google account id) each account is reached by (`SQLite`)
 pub mod federated_identities;
+/// Firebase identity deletion outbox (`SQLite`) backing `FirebaseIdentityDeletionRepository`.
+pub mod firebase_identity_deletions;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
 /// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.

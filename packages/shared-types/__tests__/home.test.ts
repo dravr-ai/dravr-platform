@@ -202,10 +202,10 @@ describe('parseRecentActivitiesResponse', () => {
   });
 
   it('keeps the Garmin attribution a row carries, and reads an omitted one as null', () => {
-    const garmin = { ...outdoorRide, provider: 'intervals_icu', attribution: 'Garmin' };
+    const garmin = { ...outdoorRide, provider: 'intervals_icu', attribution: 'Garmin Forerunner 965' };
     const { attribution: _omitted, ...older } = indoorRide;
     const parsed = parseRecentActivitiesResponse({ activities: [garmin, older], as_of: null, stale: false });
-    expect(parsed?.activities.map((row) => row.attribution)).toEqual(['Garmin', null]);
+    expect(parsed?.activities.map((row) => row.attribution)).toEqual(['Garmin Forerunner 965', null]);
   });
 
   it('refuses a body that is not the response at all', () => {

@@ -21,6 +21,8 @@ pub mod drained_turn;
 pub mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.
 pub mod google_token;
+/// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
+pub mod identity_toolkit_stub;
 pub mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_webhooks;

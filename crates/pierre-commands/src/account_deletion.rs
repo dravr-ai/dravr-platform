@@ -21,6 +21,7 @@
 
 use async_trait::async_trait;
 use dravr_canot::commands::CommandResponse;
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_DELETE_ACCOUNT_BLOCKED,
     KEY_DELETE_ACCOUNT_BLOCKER_ADMIN_CONFIG_AUDIT,
@@ -83,11 +84,9 @@ fn blocked_text(
     reg.render(KEY_DELETE_ACCOUNT_BLOCKED, locale, &[&lines.join("\n")])
 }
 
-/// Handler for `/deleteaccount` — warn, then delete on the typed email.
-///
-/// LIMITATION(registre#798): `DeleteAccountHandler` leaves the Firebase identity
-/// (`users.firebase_uid`) at Google; the server holds no Firebase Admin credential and a
-/// chat channel has no Firebase session to delete it with.
+/// Handler for `/deleteaccount` — warn, then delete on the typed email. The
+/// account's Firebase identity goes with it, deleted server-side, since a chat
+/// channel holds no Firebase session.
 pub struct DeleteAccountHandler;
 
 #[async_trait]
@@ -151,9 +150,11 @@ impl CommandHandler for DeleteAccountHandler {
 
         let runtime = &ctx.tool_runtime;
         let disconnector = OAuthService::new(runtime.data(), runtime.config().clone());
+        let firebase = FirebaseIdentityDeleter::from_config(&runtime.config().firebase);
         let outcome = user_removal::remove_user(
             repos,
             Some(&disconnector),
+            firebase.as_ref(),
             user.id,
             DisconnectReason::Athlete,
         )

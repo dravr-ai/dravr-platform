@@ -332,6 +332,7 @@ pub async fn handle_delete_user(
     let outcome = user_removal::remove_user(
         &ctx.repos,
         ctx.provider_disconnector.as_deref(),
+        ctx.firebase_identity.as_deref(),
         user_uuid,
         DisconnectReason::Operator,
     )
@@ -377,6 +378,7 @@ pub async fn handle_delete_user(
                 "not_revocable": report.not_revocable,
                 "memberships_removed": report.memberships_removed,
                 "rows_removed": report.rows_removed,
+                "firebase_identity": report.firebase_identity,
                 "reason": reason,
             }))
             .ok(),

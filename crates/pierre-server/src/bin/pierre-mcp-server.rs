@@ -19,6 +19,7 @@
 use clap::{error::ErrorKind, Parser};
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
 use pierre_config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig};
@@ -973,6 +974,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_provider_cache_sweeper(
             Arc::clone(&resources.common.repos.provider_data),
             resources.data().provider_registry().cache_ttls(),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
+    }
+
+    // Start the Firebase identity deletion sweeper (carnet#798): retries, with
+    // backoff, every deleted account's Firebase identity that Google did not
+    // confirm deleting right after the account delete, and raises one stuck
+    // past its alert threshold. Not started when Firebase is not configured.
+    {
+        use pierre_mcp_server::start_firebase_identity_sweeper;
+        start_firebase_identity_sweeper(
+            Arc::clone(&resources.common.repos.firebase_identity_deletions),
+            FirebaseIdentityDeleter::from_config(&resources.common.config.firebase).map(Arc::new),
             Arc::clone(&resources.common.repos.worker_runs),
         );
     }

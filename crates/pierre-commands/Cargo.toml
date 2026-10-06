@@ -18,6 +18,7 @@ default = []
 tools-groups = []
 
 [dependencies]
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }

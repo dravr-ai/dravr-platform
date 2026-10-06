@@ -34,6 +34,7 @@
 //!     project_id: Some("my-project".to_string()),
 //!     api_key: None,
 //!     enabled: true,
+//!     ..FirebaseConfig::default()
 //! };
 //! let firebase = FirebaseAuth::new(config);
 //!

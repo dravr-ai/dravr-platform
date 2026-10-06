@@ -87,7 +87,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
-use pierre_core::constants::oauth_providers::source_attribution;
+use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
@@ -214,9 +214,10 @@ pub struct HomeActivity {
     /// is none, it does not decode, or too little of it survives the trim.
     pub summary_polyline: Option<String>,
     /// The attribution the activity must be shown with, beside its title:
-    /// `"Garmin"` when a Garmin device recorded it (intervals.icu's API terms,
-    /// carnet#521), `null` otherwise.
-    pub attribution: Option<&'static str>,
+    /// `"Garmin Forerunner 965"` when a Garmin device recorded it and its
+    /// model is known, `"Garmin"` when only its Garmin origin is
+    /// (intervals.icu's API terms, carnet#521), `null` otherwise.
+    pub attribution: Option<String>,
 }
 
 impl HomeActivity {
@@ -243,8 +244,9 @@ impl HomeActivity {
             summary_polyline: overview.and_then(trimmed_overview_polyline),
             // The merged session's figures may come from either copy, so a
             // Garmin-sourced copy on either side carries the attribution.
-            attribution: source_attribution(activity.source())
-                .or_else(|| source_attribution(row.activity.source())),
+            attribution: activity_attribution(activity.source(), activity.device_name()).or_else(
+                || activity_attribution(row.activity.source(), row.activity.device_name()),
+            ),
         }
     }
 }

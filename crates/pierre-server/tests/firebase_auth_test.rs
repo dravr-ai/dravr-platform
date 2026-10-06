@@ -28,6 +28,7 @@ fn test_firebase_config_is_configured() {
         project_id: Some("test-project".to_owned()),
         api_key: None,
         enabled: true,
+        ..FirebaseConfig::default()
     };
     assert!(config.is_configured());
 
@@ -35,6 +36,7 @@ fn test_firebase_config_is_configured() {
         project_id: Some("test-project".to_owned()),
         api_key: None,
         enabled: false,
+        ..FirebaseConfig::default()
     };
     assert!(!disabled.is_configured());
 
@@ -42,6 +44,7 @@ fn test_firebase_config_is_configured() {
         project_id: None,
         api_key: None,
         enabled: true,
+        ..FirebaseConfig::default()
     };
     assert!(!no_project.is_configured());
 }
@@ -101,6 +104,7 @@ fn firebase_reading(jwks_url: &str) -> FirebaseAuth {
             project_id: Some(PROJECT.to_owned()),
             api_key: None,
             enabled: true,
+            ..FirebaseConfig::default()
         },
         GoogleKeySet::new(jwks_url, reqwest::Client::new()),
     )

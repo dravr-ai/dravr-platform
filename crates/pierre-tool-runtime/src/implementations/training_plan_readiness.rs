@@ -424,10 +424,13 @@ async fn recovery_series(
     let sleep = sleep_by_night(repos, terms, tenant, user_id, start, end).await;
     let metrics = stored_health::recovery_metrics(repos, terms, user_id, &tenant, start, end)
         .await
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "week readiness: recovery metrics unreadable");
-            Vec::new()
-        });
+        .map_or_else(
+            |e| {
+                warn!(error = %e, "week readiness: recovery metrics unreadable");
+                Vec::new()
+            },
+            |read| read.records,
+        );
     // One day per date: two providers reporting the same morning are one
     // reading, not two days of evidence.
     let mut days: BTreeMap<NaiveDate, RecoveryDay> = BTreeMap::new();
@@ -476,10 +479,13 @@ async fn sleep_by_night(
 ) -> HashMap<NaiveDate, f64> {
     let sessions = stored_health::sleep_sessions(repos, terms, user_id, &tenant, start, end)
         .await
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "week readiness: sleep sessions unreadable");
-            Vec::new()
-        });
+        .map_or_else(
+            |e| {
+                warn!(error = %e, "week readiness: sleep sessions unreadable");
+                Vec::new()
+            },
+            |read| read.records,
+        );
     // Merged first, so one night two wearables both recorded counts once
     // instead of being summed into a double night.
     let mut by_night: HashMap<NaiveDate, f64> = HashMap::new();

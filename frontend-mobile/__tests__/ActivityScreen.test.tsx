@@ -189,11 +189,11 @@ describe('ActivityScreen', () => {
   it('shows the Garmin attribution a Garmin-recorded activity carries, and none otherwise', async () => {
     mockGetActivityDetail.mockResolvedValue({
       ...TEMPO_DETAIL_RESPONSE,
-      activity: { ...TEMPO_DETAIL_RESPONSE.activity, provider: 'intervals_icu', attribution: 'Garmin' },
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, provider: 'intervals_icu', attribution: 'Garmin Forerunner 965' },
     });
     const screen = renderScreen();
-    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('· Garmin');
-    expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Run · Garmin$/);
+    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('· Garmin Forerunner 965');
+    expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Run · Garmin Forerunner 965$/);
   });
 
   it('shows no attribution when the activity carries none', async () => {

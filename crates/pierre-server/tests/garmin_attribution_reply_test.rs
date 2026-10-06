@@ -134,10 +134,12 @@ impl LlmProvider for ActivitiesThenAnswer {
 }
 
 /// An athlete whose Strava connection holds a long ride in the durable cache,
-/// recorded by a Garmin watch (`source: garmin`) or by nothing named.
+/// relayed from Garmin (`source: garmin`), recorded on a named `device`, or
+/// by nothing named.
 async fn athlete_with_a_ride(
     resources: &Arc<ServerContext>,
     source: Option<&str>,
+    device: Option<&str>,
     sibling_serves: bool,
 ) -> (Uuid, TenantId) {
     let (user_id, user) = create_test_user(&resources.agent.database)
@@ -171,6 +173,7 @@ async fn athlete_with_a_ride(
     )
     .distance_meters(200_000.0)
     .source_opt(source.map(str::to_owned))
+    .device_name_opt(device.map(str::to_owned))
     .build();
     resources
         .common
@@ -206,12 +209,16 @@ fn web_profile() -> SurfaceProfile {
 }
 
 /// The reply `pierre_chat_pipeline::run` delivers for one turn.
-async fn delivered_reply(source: Option<&str>, sibling_serves: bool) -> String {
+async fn delivered_reply(
+    source: Option<&str>,
+    device: Option<&str>,
+    sibling_serves: bool,
+) -> String {
     let provider: Arc<dyn LlmProvider> = Arc::new(ActivitiesThenAnswer::new());
     let resources = create_test_server_resources_with_chat_provider(provider)
         .await
         .unwrap();
-    let (user_id, tenant) = athlete_with_a_ride(&resources, source, sibling_serves).await;
+    let (user_id, tenant) = athlete_with_a_ride(&resources, source, device, sibling_serves).await;
     let conversation = resources
         .common
         .repos
@@ -272,7 +279,7 @@ fn garmin_line(locale: &str) -> String {
 
 #[tokio::test]
 async fn a_reply_derived_from_garmin_data_carries_the_attribution_line() {
-    let reply = delivered_reply(Some("garmin"), true).await;
+    let reply = delivered_reply(Some("garmin"), None, true).await;
     let line = garmin_line("fr");
     assert!(!line.is_empty(), "the string exists");
     assert!(
@@ -288,7 +295,7 @@ async fn a_reply_derived_from_garmin_data_carries_the_attribution_line() {
 
 #[tokio::test]
 async fn a_reply_with_no_garmin_data_carries_no_attribution_line() {
-    let reply = delivered_reply(None, true).await;
+    let reply = delivered_reply(None, None, true).await;
     assert!(reply.contains("200 km"), "{reply}");
     for locale in ["fr", "en"] {
         assert!(
@@ -298,11 +305,32 @@ async fn a_reply_with_no_garmin_data_carries_no_attribution_line() {
     }
 }
 
+/// A Garmin watch's ride Strava relayed names Strava as its `source`, and is
+/// Garmin device-sourced data all the same: its device says so (carnet#521).
+#[tokio::test]
+async fn a_reply_derived_from_a_relayed_garmin_recording_carries_the_attribution_line() {
+    let reply = delivered_reply(None, Some("Garmin Edge 840"), true).await;
+    let line = garmin_line("fr");
+    assert!(reply.contains("200 km"), "{reply}");
+    assert!(reply.trim_end().ends_with(&line), "{reply}");
+    assert_eq!(reply.matches(&line).count(), 1, "{reply}");
+}
+
+/// Another maker's device owes Garmin nothing.
+#[tokio::test]
+async fn a_reply_derived_from_another_devices_recording_carries_no_attribution_line() {
+    let reply = delivered_reply(None, Some("Wahoo ELEMNT BOLT"), true).await;
+    assert!(reply.contains("200 km"), "{reply}");
+    for locale in ["fr", "en"] {
+        assert!(!reply.contains(&garmin_line(locale)), "{reply}");
+    }
+}
+
 /// The platform's own reconnect message answers nothing from the athlete's
 /// data, so it owes no attribution even though the turn read a Garmin ride.
 #[tokio::test]
 async fn the_platforms_reconnect_message_carries_no_attribution_line() {
-    let reply = delivered_reply(Some("garmin"), false).await;
+    let reply = delivered_reply(Some("garmin"), None, false).await;
     assert!(!reply.contains("200 km"), "the turn blanked: {reply}");
     for locale in ["fr", "en"] {
         assert!(!reply.contains(&garmin_line(locale)), "{reply}");
@@ -318,7 +346,7 @@ async fn a_loopback_tool_read_attributes_the_turn_that_built_its_executor() {
     let resources = create_test_server_resources_with_chat_provider(provider)
         .await
         .unwrap();
-    let (user_id, tenant) = athlete_with_a_ride(&resources, Some("garmin"), true).await;
+    let (user_id, tenant) = athlete_with_a_ride(&resources, Some("garmin"), None, true).await;
     let turn = Provenance::new();
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();

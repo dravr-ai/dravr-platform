@@ -658,7 +658,7 @@ async fn test_pg_delete_user_cascades_to_messaging_rows() {
     // Delete the user — CASCADE should wipe both channel_link and session
     db.repositories()
         .users
-        .delete(user_uuid)
+        .delete(user_uuid, None)
         .await
         .expect("user delete should succeed");
 

@@ -43,7 +43,7 @@ use pierre_core::civil_time::{
     clock_date, format_civil_day, format_local_stamp, local_date, relative_day, relative_day_label,
     resolve_zone,
 };
-use pierre_core::constants::oauth_providers::source_attribution;
+use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_providers::deduplication::{FilledField, FragmentReport};
@@ -251,7 +251,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
         // The attribution a Garmin-recorded row must carry beside its title,
         // here as on the athlete's screens: this list is shown to them as a
         // reply block, and the agent quotes it (carnet#521).
-        let attribution = source_attribution(activity.source())
+        let attribution = activity_attribution(activity.source(), activity.device_name())
             .map_or_else(String::new, |label| format!(" ({label})"));
         lines.push(format!(
             "{}. [{}] {}{} - {}{} - {:.2} km - {}{}",
@@ -339,5 +339,33 @@ mod tests {
             "{rendered}"
         );
         assert_eq!(rendered.matches("(Garmin)").count(), 1, "{rendered}");
+    }
+
+    #[test]
+    fn a_garmin_device_row_names_its_model_whichever_service_relayed_it() {
+        let relayed = ActivityBuilder::new(
+            "s",
+            "Ride s",
+            SportType::Ride,
+            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            3_600,
+            "intervals_icu",
+        )
+        .source("strava")
+        .device_name("Garmin Edge 840")
+        .build();
+        let rendered = format_activities_as_list(
+            &[relayed, ride("w", None)],
+            &HashMap::new(),
+            None,
+            "en",
+            Some("America/Toronto"),
+            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+        );
+        assert!(
+            rendered.contains("] Ride s (Garmin Edge 840) - 2026-09-20"),
+            "{rendered}"
+        );
+        assert_eq!(rendered.matches("(Garmin").count(), 1, "{rendered}");
     }
 }

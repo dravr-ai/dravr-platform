@@ -601,7 +601,7 @@ async fn test_delete_user() -> Result<()> {
     assert!(user_before.is_some(), "User should exist before deletion");
 
     // Delete the user
-    database.repositories().users.delete(user_id).await?;
+    database.repositories().users.delete(user_id, None).await?;
 
     // Verify user no longer exists
     let user_after = database.repositories().users.get_global(user_id).await?;
@@ -620,7 +620,11 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
 
     // Try to delete a user that doesn't exist
     let nonexistent_id = Uuid::new_v4();
-    let result = database.repositories().users.delete(nonexistent_id).await;
+    let result = database
+        .repositories()
+        .users
+        .delete(nonexistent_id, None)
+        .await;
 
     // Should return an error
     assert!(

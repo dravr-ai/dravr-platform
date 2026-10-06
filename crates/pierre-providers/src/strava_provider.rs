@@ -342,6 +342,14 @@ impl StravaProvider {
             .splits_opt(splits)
             .laps_opt(laps)
             .description_opt(detailed.description.filter(|d| !d.trim().is_empty()))
+            // The recording device, which names the Garmin model a
+            // Garmin-recorded activity is attributed to (carnet#521).
+            .device_name_opt(
+                detailed
+                    .device_name
+                    .map(|name| name.trim().to_owned())
+                    .filter(|name| !name.is_empty()),
+            )
             .time_series_data_opt(streams)
             .build())
     }

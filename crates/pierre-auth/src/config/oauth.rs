@@ -7,6 +7,7 @@
 use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
 use pierre_core::constants::{oauth2_client_retention, oauth_providers};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::gcp_token::METADATA_TOKEN_URL;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
@@ -521,8 +522,11 @@ impl OAuth2ServerConfig {
     }
 }
 
+/// Identity Toolkit, the API behind Firebase Authentication's user records.
+const IDENTITY_TOOLKIT_URL: &str = "https://identitytoolkit.googleapis.com";
+
 /// Firebase Authentication configuration for social logins
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirebaseConfig {
     /// Firebase project ID (required for token validation)
     pub project_id: Option<String>,
@@ -530,6 +534,27 @@ pub struct FirebaseConfig {
     pub api_key: Option<String>,
     /// Whether Firebase authentication is enabled
     pub enabled: bool,
+    /// Base URL of the Identity Toolkit API the account delete removes the
+    /// Firebase user through; Google's public endpoint unless
+    /// `FIREBASE_IDENTITY_TOOLKIT_URL` points it at the Auth emulator or a
+    /// test stub.
+    pub identity_toolkit_url: String,
+    /// Where the Google access token for Identity Toolkit is minted: the
+    /// Cloud Run metadata server, whose service account holds
+    /// `roles/firebaseauth.admin` on the Firebase project.
+    pub access_token_url: String,
+}
+
+impl Default for FirebaseConfig {
+    fn default() -> Self {
+        Self {
+            project_id: None,
+            api_key: None,
+            enabled: false,
+            identity_toolkit_url: IDENTITY_TOOLKIT_URL.to_owned(),
+            access_token_url: METADATA_TOKEN_URL.to_owned(),
+        }
+    }
 }
 
 impl FirebaseConfig {
@@ -546,6 +571,8 @@ impl FirebaseConfig {
     /// - `FIREBASE_PROJECT_ID` - Firebase project ID (required for token validation)
     /// - `FIREBASE_API_KEY` - Firebase API key (optional, for client-side SDK)
     /// - `FIREBASE_ENABLED` - Enable Firebase authentication (default: false)
+    /// - `FIREBASE_IDENTITY_TOOLKIT_URL` - Identity Toolkit base URL (default:
+    ///   Google's public endpoint)
     #[must_use]
     pub fn from_env() -> Self {
         let project_id = env::var("FIREBASE_PROJECT_ID").ok();
@@ -568,6 +595,8 @@ impl FirebaseConfig {
             project_id,
             api_key,
             enabled,
+            identity_toolkit_url: env_var_or("FIREBASE_IDENTITY_TOOLKIT_URL", IDENTITY_TOOLKIT_URL),
+            access_token_url: METADATA_TOKEN_URL.to_owned(),
         }
     }
 }

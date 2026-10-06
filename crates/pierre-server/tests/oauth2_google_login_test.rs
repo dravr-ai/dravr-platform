@@ -1381,7 +1381,7 @@ async fn an_address_now_held_by_another_google_account_is_not_attached() {
         .common
         .repos
         .users
-        .delete(account.id)
+        .delete(account.id, None)
         .await
         .unwrap();
     assert_eq!(

@@ -75,8 +75,8 @@ pub(super) struct IntervalsIcuActivity {
     source: Option<String>,
     /// The device that recorded the activity, as intervals.icu names it
     /// (`Garmin Forerunner 965`, …): its API terms identify Garmin-sourced
-    /// data by this name containing "garmin". Read only through
-    /// [`upstream_source`].
+    /// data by this name containing "garmin". Read through
+    /// [`upstream_source`] and carried on the activity.
     #[serde(default)]
     device_name: Option<String>,
     /// The athlete the activity belongs to: what keeps a delegated detail
@@ -85,10 +85,9 @@ pub(super) struct IntervalsIcuActivity {
     pub(super) icu_athlete_id: Option<String>,
 }
 
-/// LIMITATION(registre#521): the canonical `Activity` (dravr-cageux) has no device field, so
-/// `device_name` only marks a directly-put-in activity `source: garmin`: the Garmin attribution
-/// cannot name the device model, and a Garmin-recorded activity another service relayed (its
-/// `source`) carries no Garmin attribution.
+/// The activity carries intervals.icu's `device_name`, which names the
+/// Garmin device model its attribution shows, whichever service relayed it
+/// (carnet#521).
 pub(super) fn map_activity(
     raw: IntervalsIcuActivity,
     streams: Option<TimeSeriesData>,
@@ -108,7 +107,12 @@ pub(super) fn map_activity(
         raw.elapsed_time.unwrap_or(0),
         "intervals_icu".to_owned(),
     )
-    .source_opt(source);
+    .source_opt(source)
+    .device_name_opt(
+        raw.device_name
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty()),
+    );
     if let Some(d) = raw.distance {
         builder = builder.distance_meters(d);
     }

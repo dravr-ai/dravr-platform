@@ -16,7 +16,6 @@ import {
 import { Button, Input, Section, Sheet } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { deleteFirebaseAccount } from '../../firebase';
 
 const PREVIEW_QUERY_KEY = ['account-deletion-preview'] as const;
 
@@ -51,12 +50,8 @@ export function AccountDeletionSection(): React.JSX.Element {
         password: preview.data?.requires_password ? password : undefined,
       }),
     onSuccess: async () => {
-      // The Dravr account is gone; the Google identity behind a Firebase
-      // sign-in goes too while Firebase still holds a recent session. The app
-      // signs out whatever Firebase answers, since the account no longer
-      // exists: a Firebase failure is the identity staying, never a failed
-      // delete.
-      await deleteFirebaseAccount().catch(() => false);
+      // The server deleted the account and its Firebase identity; logging
+      // out also ends the local Firebase session.
       await logout();
     },
     onError: (err: unknown) => {

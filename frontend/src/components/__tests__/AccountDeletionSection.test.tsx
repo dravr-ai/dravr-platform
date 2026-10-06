@@ -13,7 +13,7 @@ import AccountDeletionSection from '../AccountDeletionSection';
 const getAccountDeletionPreview = vi.fn();
 const deleteAccount = vi.fn();
 const logout = vi.fn();
-const deleteFirebaseAccount = vi.fn();
+const signOutFromFirebase = vi.fn();
 
 vi.mock('../../services/api', () => ({
   userApi: {
@@ -23,7 +23,7 @@ vi.mock('../../services/api', () => ({
 }));
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ logout }) }));
 vi.mock('../../firebase/firebase', () => ({
-  deleteFirebaseAccount: () => deleteFirebaseAccount(),
+  signOutFromFirebase: () => signOutFromFirebase(),
 }));
 
 function renderSection() {
@@ -49,7 +49,7 @@ describe('AccountDeletionSection', () => {
       blockers: [],
     });
     deleteAccount.mockResolvedValue({ message: 'ok', disconnected_providers: ['strava'] });
-    deleteFirebaseAccount.mockResolvedValue(false);
+    signOutFromFirebase.mockResolvedValue(undefined);
     renderSection();
 
     fireEvent.click(screen.getByTestId('account-deletion-open'));
@@ -73,10 +73,10 @@ describe('AccountDeletionSection', () => {
       confirm_email: 'Athlete@Example.com',
       password: 'secret',
     });
-    expect(deleteFirebaseAccount).toHaveBeenCalledTimes(1);
+    expect(signOutFromFirebase).toHaveBeenCalledTimes(1);
   });
 
-  it('signs out after the delete even when Firebase fails to delete the identity', async () => {
+  it('signs out after the delete even when the Firebase sign-out fails', async () => {
     getAccountDeletionPreview.mockResolvedValue({
       email: 'athlete@example.com',
       requires_password: false,
@@ -84,7 +84,7 @@ describe('AccountDeletionSection', () => {
       blockers: [],
     });
     deleteAccount.mockResolvedValue({ message: 'ok', disconnected_providers: [] });
-    deleteFirebaseAccount.mockRejectedValue(new Error('auth/network-request-failed'));
+    signOutFromFirebase.mockRejectedValue(new Error('auth/network-request-failed'));
     renderSection();
 
     fireEvent.click(screen.getByTestId('account-deletion-open'));
@@ -94,7 +94,7 @@ describe('AccountDeletionSection', () => {
     fireEvent.click(screen.getByTestId('account-deletion-confirm'));
 
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
-    expect(deleteFirebaseAccount).toHaveBeenCalledTimes(1);
+    expect(signOutFromFirebase).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('account-deletion-error')).toBeNull();
   });
 

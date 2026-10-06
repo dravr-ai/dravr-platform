@@ -464,12 +464,12 @@ describe('recent activities', () => {
   });
 
   it('shows the Garmin attribution beside a Garmin-recorded activity, and only there', async () => {
-    const garmin = { ...ACTIVITIES[1], provider: 'intervals_icu', id: 'g1', attribution: 'Garmin' };
+    const garmin = { ...ACTIVITIES[1], provider: 'intervals_icu', id: 'g1', attribution: 'Garmin Forerunner 965' };
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[0], garmin] }));
     const screen = renderHome();
 
     const row = await screen.findByTestId('home-activity-intervals_icu-g1');
-    expect(within(row).getByTestId('activity-attribution')).toHaveTextContent('· Garmin');
+    expect(within(row).getByTestId('activity-attribution')).toHaveTextContent('· Garmin Forerunner 965');
     expect(screen.getAllByTestId('activity-attribution')).toHaveLength(1);
   });
 

@@ -918,6 +918,10 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // sleep (duration), recovery (HRV, resting HR, the athlete's note) and
         // body (weight) rows. The cheap-detail flag is named because detail is
         // one more HTTP GET, not a browser page load.
+        //
+        // `Wellness` rows name no source or device, so their Garmin attribution is
+        // inferred from the athlete's most recent intervals.icu activity device
+        // (pierre-services `stored_health`, carnet#521).
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)

@@ -16,7 +16,7 @@ mod delete_account {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use chrono::Utc;
+    use chrono::{TimeDelta, Utc};
     use pierre_contremaitre::messaging_strings::{
         DEFAULT_LOCALE, KEY_DELETE_ACCOUNT_DM_ONLY, KEY_DELETE_ACCOUNT_DONE,
         KEY_DELETE_ACCOUNT_EMAIL_MISMATCH,
@@ -32,8 +32,12 @@ mod delete_account {
     use serial_test::serial;
     use uuid::Uuid;
 
-    use crate::common::create_test_server_resources_with_chat_provider;
+    use crate::common::{
+        create_test_server_resources_with_chat_provider,
+        create_test_server_resources_with_chat_provider_and_config, test_server_config,
+    };
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
+    use crate::helpers::identity_toolkit_stub::{Answer, IdentityToolkitStub, PROJECT};
 
     /// The account row, its tenant memberships and its channel links: the
     /// rows the account delete's foreign keys take along rather than clear
@@ -51,6 +55,38 @@ mod delete_account {
             .await
             .unwrap();
         CommandE2e::start(resources, llm).await
+    }
+
+    /// A server whose Identity Toolkit is a stub answering every delete with
+    /// `answer`.
+    async fn e2e_with_firebase(answer: Answer) -> (Arc<CommandE2e>, Arc<IdentityToolkitStub>) {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let firebase = IdentityToolkitStub::answering(answer);
+        let mut config = test_server_config();
+        config.firebase = firebase.serve().await;
+        let resources = create_test_server_resources_with_chat_provider_and_config(
+            Arc::clone(&llm) as _,
+            config,
+        )
+        .await
+        .unwrap();
+        (CommandE2e::start(resources, llm).await, firebase)
+    }
+
+    /// Give `member` the Firebase user a Google sign-in would have created.
+    async fn link_firebase(e2e: &CommandE2e, member: &Member) -> String {
+        let repos = &e2e.resources.common.repos;
+        let mut user = repos
+            .users
+            .get_global(member.user_id)
+            .await
+            .unwrap()
+            .expect("the member exists");
+        let uid = format!("firebase-{}", Uuid::new_v4().simple());
+        user.firebase_uid = Some(uid.clone());
+        repos.users.update(&user).await.unwrap();
+        uid
     }
 
     async fn email_of(e2e: &CommandE2e, member: &Member) -> String {
@@ -207,6 +243,73 @@ mod delete_account {
         let (survivors, cascaded) = surviving(&e2e, member.user_id).await;
         assert!(survivors.is_empty(), "the goodbye left rows: {survivors:?}");
         assert_eq!(cascaded, 0, "the goodbye recreated a session or link");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn the_typed_email_deletes_the_firebase_identity_too() {
+        let (e2e, firebase) = e2e_with_firebase(Answer::Deleted).await;
+        let member = e2e.linked_member(false).await;
+        let uid = link_firebase(&e2e, &member).await;
+        let email = email_of(&e2e, &member).await;
+
+        e2e.send_dm(&member, &format!("/deleteaccount {email}"))
+            .await;
+
+        assert!(e2e
+            .resources
+            .common
+            .repos
+            .users
+            .get_global(member.user_id)
+            .await
+            .unwrap()
+            .is_none());
+        let calls = firebase.calls();
+        assert_eq!(calls.len(), 1, "one accounts:delete: {calls:?}");
+        assert_eq!(calls[0].local_id, uid);
+        assert_eq!(calls[0].project, PROJECT);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn a_firebase_outage_never_keeps_or_resurrects_the_account() {
+        let (e2e, firebase) = e2e_with_firebase(Answer::Unavailable).await;
+        let member = e2e.linked_member(false).await;
+        let uid = link_firebase(&e2e, &member).await;
+        let email = email_of(&e2e, &member).await;
+
+        e2e.send_dm(&member, &format!("/deleteaccount {email}"))
+            .await;
+
+        let repos = &e2e.resources.common.repos;
+        assert_eq!(firebase.calls().len(), 3, "a 503 is retried twice");
+        assert!(repos
+            .users
+            .get_global(member.user_id)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(
+            repos
+                .users
+                .get_by_firebase_uid(&uid)
+                .await
+                .unwrap()
+                .is_none(),
+            "nothing resurrected under the Firebase uid"
+        );
+        let (survivors, cascaded) = surviving(&e2e, member.user_id).await;
+        assert!(survivors.is_empty(), "{survivors:?}");
+        assert_eq!(cascaded, 0);
+        let queued = repos
+            .firebase_identity_deletions
+            .due(Utc::now() + TimeDelta::days(365), 10)
+            .await
+            .unwrap();
+        assert_eq!(queued.len(), 1, "the identity stays queued: {queued:?}");
+        assert_eq!(queued[0].firebase_uid, uid);
+        assert_eq!(queued[0].attempts, 1);
     }
 
     #[tokio::test(flavor = "multi_thread")]

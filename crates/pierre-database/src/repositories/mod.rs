@@ -51,6 +51,8 @@ pub mod email_verification_tokens;
 pub mod feature_flags;
 /// Repository trait, statements and body for the external sign-in identities each account is reached by.
 pub mod federated_identities;
+/// The outbox of Firebase identities still to delete at Google after their account went.
+pub mod firebase_identity_deletions;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
 /// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
@@ -205,6 +207,9 @@ pub use data_source::*;
 pub use delegated_connections::*;
 pub use feature_flags::*;
 pub use federated_identities::FederatedIdentityRepository;
+pub use firebase_identity_deletions::{
+    FirebaseIdentityDeletionRepository, PendingFirebaseDeletion,
+};
 pub use fitness_config::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;

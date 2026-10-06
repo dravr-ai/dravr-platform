@@ -43,6 +43,9 @@ pub mod dto;
 /// Firebase Authentication ID-token validation (social login providers via Firebase)
 pub mod firebase;
 
+/// Deleting a Firebase Authentication user through Identity Toolkit when its account is deleted
+pub mod firebase_identity;
+
 /// Decoding a JWT signed by one of Google's published keys (Firebase and Google sign-in)
 mod google_jwt;
 

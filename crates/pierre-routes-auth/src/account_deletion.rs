@@ -40,6 +40,7 @@ use tracing::{field::Empty, info, warn, Span};
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthMethod;
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::clear_auth_cookie;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -180,10 +181,8 @@ pub async fn handle_account_deletion_preview(
 /// is touched then. Otherwise every provider is disconnected (revoked at the
 /// provider) and the account is deleted with every row it owns; the auth
 /// cookie is cleared and every device session ends with the account row.
-///
-/// LIMITATION(registre#798): `handle_delete_account` leaves the Firebase identity
-/// (`users.firebase_uid`) at Google; the server holds no Firebase Admin credential, so
-/// only the client deletes it, and only while its Firebase session is recent.
+/// The account's Firebase identity is deleted at Google after the account;
+/// Firebase failing never fails or undoes the delete.
 ///
 /// # Errors
 ///
@@ -241,9 +240,11 @@ pub async fn handle_delete_account(
     }
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
+    let firebase = FirebaseIdentityDeleter::from_config(&resources.config.firebase);
     let outcome = user_removal::remove_user(
         &resources.repos,
         Some(&oauth_service),
+        firebase.as_ref(),
         user_id,
         DisconnectReason::Athlete,
     )

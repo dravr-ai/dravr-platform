@@ -17,6 +17,8 @@
 //! uploaded from a Garmin watch is Garmin-sourced, and is shown with the
 //! Garmin attribution (carnet#521).
 
+use pierre_core::constants::oauth_providers::{garmin_device, GARMIN};
+
 /// The service or device that recorded an activity, named as Dravr names
 /// providers, or `None` when nothing but the athlete stands behind it.
 ///
@@ -30,17 +32,11 @@ pub fn upstream_source(raw: Option<&str>, device_name: Option<&str>) -> Option<S
     let raw = raw.map(str::trim).unwrap_or_default();
     match raw.to_ascii_uppercase().as_str() {
         "" | "UPLOAD" | "MANUAL" | "OAUTH_CLIENT" | "DROPBOX" => {
-            recorded_by_garmin(device_name).then(|| "garmin".to_owned())
+            garmin_device(device_name).then(|| GARMIN.to_owned())
         }
-        "GARMIN_CONNECT" | "GARMIN" => Some("garmin".to_owned()),
+        "GARMIN_CONNECT" | "GARMIN" => Some(GARMIN.to_owned()),
         _ => Some(raw.to_ascii_lowercase()),
     }
-}
-
-/// Whether intervals.icu's `device_name` names a Garmin device, as its API
-/// terms identify one: the name contains "garmin", in any case.
-fn recorded_by_garmin(device_name: Option<&str>) -> bool {
-    device_name.is_some_and(|name| name.to_ascii_lowercase().contains("garmin"))
 }
 
 #[cfg(test)]

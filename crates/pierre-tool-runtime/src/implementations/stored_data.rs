@@ -159,6 +159,12 @@ pub struct SleepSessionsResult {
     pub count: usize,
     /// One entry per sleep, merged across sources.
     pub sessions: Vec<Merged<StoredSleepSession>>,
+    /// The attribution these readings must be shown and quoted with: the
+    /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
+    /// wellness is among them and the athlete's intervals.icu activities were
+    /// recorded on it (carnet#521); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -170,6 +176,12 @@ pub struct RecoveryMetricsResult {
     pub count: usize,
     /// One reading per day, merged across sources.
     pub metrics: Vec<Merged<StoredRecoveryMetrics>>,
+    /// The attribution these readings must be shown and quoted with: the
+    /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
+    /// wellness is among them and the athlete's intervals.icu activities were
+    /// recorded on it (carnet#521); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -181,6 +193,12 @@ pub struct HealthSnapshotsResult {
     pub count: usize,
     /// One snapshot per day, merged across sources.
     pub snapshots: Vec<Merged<StoredHealthMetrics>>,
+    /// The attribution these readings must be shown and quoted with: the
+    /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
+    /// wellness is among them and the athlete's intervals.icu activities were
+    /// recorded on it (carnet#521); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -248,11 +266,12 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             )
             .await
             {
-                Ok(sessions) => {
-                    let sessions = merge_sleep_sessions(sessions);
+                Ok(read) => {
+                    let sessions = merge_sleep_sessions(read.records);
                     let payload = SleepSessionsResult {
                         count: sessions.len(),
                         sessions,
+                        attribution: read.attribution,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -344,11 +363,12 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             )
             .await
             {
-                Ok(metrics) => {
-                    let metrics = fence_athlete_notes(merge_recovery_metrics(metrics));
+                Ok(read) => {
+                    let metrics = fence_athlete_notes(merge_recovery_metrics(read.records));
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
                         metrics,
+                        attribution: read.attribution,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -417,11 +437,12 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             )
             .await
             {
-                Ok(snapshots) => {
-                    let snapshots = merge_health_metrics(snapshots);
+                Ok(read) => {
+                    let snapshots = merge_health_metrics(read.records);
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),
                         snapshots,
+                        attribution: read.attribution,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),

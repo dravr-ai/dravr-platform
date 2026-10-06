@@ -120,6 +120,7 @@ pub use crate::services::coaching_workers::start_coaching_workers;
 pub use crate::services::personal_best_seed::start_personal_best_seed;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
 pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;
+pub use pierre_services::firebase_identity_outbox::start_firebase_identity_sweeper;
 pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;
 #[cfg(feature = "client-messaging")]
 pub use pierre_services::messaging_outbound::start_outbound_worker;

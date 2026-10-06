@@ -6,6 +6,12 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
+// The port this suite's own E2E-mode Vite listens on. A second checkout, or
+// any other Vite on the machine, already holding 5174 fails the run before a
+// spec starts; E2E_PORT moves this one without touching the other.
+const E2E_PORT = process.env.E2E_PORT ?? '5174';
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -45,7 +51,7 @@ export default defineConfig({
     // Owning a separate port means the dev stack and this suite coexist, so
     // that failure mode cannot happen. PLAYWRIGHT_BASE_URL still overrides for
     // a worktree that deliberately targets an already-running E2E-mode server.
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174',
+    baseURL: BASE_URL,
     // The product default is French. This suite asserts English copy in well
     // over a thousand places, so it states the language it is testing rather
     // than depending on the chrome being untranslated.
@@ -59,7 +65,18 @@ export default defineConfig({
     //
     // `locale-default.spec.ts` overrides it with an init script to cover the
     // unpinned French path that real users get.
-    storageState: 'e2e/storage-state.json',
+    //
+    // localStorage is per origin, so the pin names the origin this run serves
+    // rather than a fixed 5174 that any other port would silently miss.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: new URL(BASE_URL).origin,
+          localStorage: [{ name: 'pierre_app_language', value: 'en' }],
+        },
+      ],
+    },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -106,8 +123,8 @@ export default defineConfig({
           // --strictPort so Vite fails loudly instead of silently sliding to
           // the next free port, which would leave `url` below pointing at
           // nothing and time out for a reason that reads as unrelated.
-          command: 'bun run dev -- --port 5174 --strictPort',
-          url: 'http://localhost:5174',
+          command: `bun run dev -- --port ${E2E_PORT} --strictPort`,
+          url: `http://localhost:${E2E_PORT}`,
           // Never reuse. Reuse is what let a proxy-mode dev server masquerade
           // as this one; on a dedicated port there is nothing legitimate to
           // reuse anyway, and always launching guarantees E2E_TEST=true.

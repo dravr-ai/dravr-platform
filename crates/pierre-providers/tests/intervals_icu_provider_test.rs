@@ -17,6 +17,7 @@ use base64::Engine;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
 };
@@ -1234,4 +1235,61 @@ async fn list_read_marks_garmin_recorded_activities_garmin_sourced() {
     assert_eq!(source("g-connect").as_deref(), Some("garmin"));
     assert_eq!(source("wahoo"), None);
     assert_eq!(source("manual"), None);
+}
+
+/// The activity carries intervals.icu's `device_name`, so the Garmin
+/// attribution names the model, and a Garmin recording another service
+/// relayed keeps its relay as `source` while its device still says Garmin
+/// (carnet#521).
+#[tokio::test]
+async fn list_read_carries_the_recording_device() {
+    let started = (Utc::now() - Duration::days(1))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let body = serde_json::json!([
+        { "id": "via-strava", "start_date_local": started, "source": "STRAVA",
+          "device_name": "Garmin Edge 840" },
+        { "id": "upload", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "  Garmin Forerunner 965 " },
+        { "id": "blank", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "  " },
+        { "id": "none", "start_date_local": started, "source": "MANUAL" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let find = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+    };
+    let relayed = find("via-strava");
+    assert_eq!(
+        relayed.source(),
+        Some("strava"),
+        "the relay keeps its terms"
+    );
+    assert_eq!(relayed.device_name(), Some("Garmin Edge 840"));
+    assert_eq!(
+        activity_attribution(relayed.source(), relayed.device_name()).as_deref(),
+        Some("Garmin Edge 840")
+    );
+    assert_eq!(find("upload").device_name(), Some("Garmin Forerunner 965"));
+    assert_eq!(
+        find("blank").device_name(),
+        None,
+        "a blank name is no device"
+    );
+    assert_eq!(find("none").device_name(), None);
 }

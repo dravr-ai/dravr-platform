@@ -9,7 +9,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AccountDeletionSection } from '../AccountDeletionSection';
 import { userApi } from '../../../services/api';
-import { deleteFirebaseAccount } from '../../../firebase';
 
 const mockLogout = jest.fn();
 
@@ -22,13 +21,9 @@ jest.mock('../../../services/api', () => ({
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ logout: mockLogout }),
 }));
-jest.mock('../../../firebase', () => ({
-  deleteFirebaseAccount: jest.fn(),
-}));
 
 const getPreview = userApi.getAccountDeletionPreview as jest.Mock;
 const deleteAccount = userApi.deleteAccount as jest.Mock;
-const deleteFirebase = deleteFirebaseAccount as jest.Mock;
 
 function renderSection() {
   const client = new QueryClient({
@@ -49,7 +44,6 @@ describe('AccountDeletionSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLogout.mockResolvedValue(undefined);
-    deleteFirebase.mockResolvedValue(false);
   });
 
   it('deletes once the email matches and the password is given, then signs out', async () => {
@@ -77,10 +71,9 @@ describe('AccountDeletionSection', () => {
       confirm_email: ' ATHLETE@example.com',
       password: 'secret',
     });
-    expect(deleteFirebase).toHaveBeenCalledTimes(1);
   });
 
-  it('signs out after the delete even when Firebase fails to delete the identity', async () => {
+  it('deletes a federated account with its email alone, then signs out', async () => {
     getPreview.mockResolvedValue({
       email: 'athlete@example.com',
       requires_password: false,
@@ -88,7 +81,6 @@ describe('AccountDeletionSection', () => {
       blockers: [],
     });
     deleteAccount.mockResolvedValue({ message: 'ok', disconnected_providers: [] });
-    deleteFirebase.mockRejectedValue(new Error('auth/network-request-failed'));
     renderSection();
 
     fireEvent.press(screen.getByTestId('account-deletion-open'));
@@ -96,7 +88,10 @@ describe('AccountDeletionSection', () => {
     fireEvent.press(screen.getByTestId('account-deletion-confirm'));
 
     await waitFor(() => expect(mockLogout).toHaveBeenCalledTimes(1));
-    expect(deleteFirebase).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith({
+      confirm_email: 'athlete@example.com',
+      password: undefined,
+    });
     expect(screen.queryByTestId('account-deletion-error')).toBeNull();
   });
 

@@ -101,6 +101,7 @@ impl World {
                 project_id: Some(PROJECT.to_owned()),
                 api_key: None,
                 enabled: true,
+                ..FirebaseConfig::default()
             },
             GoogleKeySet::new(&jwks.url, reqwest::Client::new()),
         )));

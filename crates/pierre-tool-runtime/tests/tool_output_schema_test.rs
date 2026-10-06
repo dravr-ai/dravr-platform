@@ -1124,6 +1124,7 @@ fn get_sleep_sessions_declares_a_schema_that_accepts_an_empty_window() {
     let sample = Formatted::Json(SleepSessionsResult {
         count: 0,
         sessions: vec![],
+        attribution: None,
         range: DateRange {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
@@ -1143,6 +1144,7 @@ fn get_recovery_metrics_declares_a_schema_that_accepts_its_payload() {
     let sample = Formatted::Json(RecoveryMetricsResult {
         count: 0,
         metrics: vec![],
+        attribution: Some("Garmin Fenix 8".to_owned()),
         range: DateRange {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),
@@ -1162,6 +1164,7 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
         snapshots: vec![],
+        attribution: None,
         range: DateRange {
             start: "2026-08-06T00:00:00+00:00".to_owned(),
             end: "2026-09-05T00:00:00+00:00".to_owned(),

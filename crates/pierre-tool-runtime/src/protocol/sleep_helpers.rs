@@ -85,6 +85,7 @@ pub async fn stored_sleep_nights(
         end,
     )
     .await
+    .map(|read| read.records)
     .map_err(|e| {
         warn!(error = %e, "stored sleep sessions unreadable");
         Box::new(failure(
@@ -189,7 +190,7 @@ async fn recovery_by_date(
     )
     .await
     {
-        Ok(rows) => merge_recovery_metrics(rows)
+        Ok(read) => merge_recovery_metrics(read.records)
             .into_iter()
             .map(|day| (day.record.date, day.record))
             .collect(),

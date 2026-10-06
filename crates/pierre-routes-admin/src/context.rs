@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::rate_limit::RateLimitConfig;
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_config::environment::DEFAULT_WEBSITE_BASE_URL;
 use pierre_config::mcp::AppBehaviorConfig;
@@ -78,6 +79,10 @@ pub struct AdminApiContext {
     /// (carnet#804). A process-local limiter until the composition root
     /// injects the server's shared one, so the page is never unmetered.
     pub sign_in_limiter: Arc<OAuth2RateLimiter>,
+    /// Deletes a removed user's Firebase identity at Google (injected by the
+    /// composition root when Firebase is configured; `None` leaves it there
+    /// and the delete reports so).
+    pub firebase_identity: Option<Arc<FirebaseIdentityDeleter>>,
     /// Shared coaching harness config registry, mutated by the
     /// `PUT /admin/settings/harness` handler so subsequent chat turns
     /// pick up the new compaction / Tier 6 guardrail values without a
@@ -178,6 +183,7 @@ impl AdminApiContext {
                 OAuth2RateLimiter::local_window_store(),
                 &RateLimitConfig::default(),
             )),
+            firebase_identity: None,
             harness_config_registry: init.harness_config_registry,
             guardian_config_registry: init.guardian_config_registry,
             prompt_registry: init.prompt_registry,

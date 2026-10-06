@@ -268,6 +268,7 @@ impl EvalCtx<'_> {
         .await
         .inspect_err(|e| warn!(error = %e, "recovery read failed; will retry"))
         .ok()
+        .map(|read| read.records)
     }
 }
 

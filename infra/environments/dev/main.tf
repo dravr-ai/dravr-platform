@@ -1204,8 +1204,10 @@ module "storage" {
 module "firebase" {
   source = "../../modules/firebase"
 
-  project_id          = var.project_id
-  firebase_project_id = var.firebase_project_id
+  project_id                             = var.project_id
+  firebase_project_id                    = var.firebase_project_id
+  runtime_service_account_email          = module.service_accounts.app_service_account_email
+  terraform_runner_service_account_email = module.service_accounts.terraform_runner_service_account_email
 
   depends_on = [module.project, module.secrets]
 }

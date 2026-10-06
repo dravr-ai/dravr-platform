@@ -32,6 +32,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
+use chrono::Utc;
+use pierre_auth::firebase_identity::{FirebaseIdentityDeleter, FirebaseIdentityRemoval};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserReference};
 use pierre_database::RepositoryRegistry;
@@ -40,6 +42,7 @@ use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::firebase_identity_outbox;
 use crate::oauth_flow::OAuthService;
 use crate::provider_revocation::{DisconnectReason, RevocationOutcome};
 
@@ -156,6 +159,9 @@ pub struct RemovalReport {
     /// Every row the account delete removed itself, by table: the tables no
     /// foreign key cascades to on both engines.
     pub rows_removed: BTreeMap<String, u64>,
+    /// What became of the account's Firebase identity at Google, deleted
+    /// after the account itself.
+    pub firebase_identity: FirebaseIdentityRemoval,
 }
 
 /// A removal that failed part-way.
@@ -383,6 +389,16 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 /// `ErrorCode::ResourceLocked`, after the grants were already withdrawn,
 /// which the [`Interruption`] reports.
 ///
+/// The account's Firebase identity (`users.firebase_uid`, the Google or Apple
+/// sign-in record at Google) is queued in `firebase_identity_deletions` by
+/// the delete's own transaction, then deleted through `firebase` right after
+/// the commit, so Firebase being unreachable can never keep or resurrect an
+/// account the user asked to delete, and never loses the identity either: a
+/// failure stays queued for the retry sweep
+/// ([`crate::firebase_identity_outbox`]) and is reported in
+/// [`RemovalReport::firebase_identity`]. `firebase` is `None` when this server
+/// has no Firebase project configured; nothing is queued then.
+///
 /// # Errors
 ///
 /// Returns a database error from the reads, and a `ResourceUnavailable`
@@ -393,6 +409,7 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 pub async fn remove_user(
     repos: &RepositoryRegistry,
     disconnector: Option<&dyn ProviderDisconnector>,
+    firebase: Option<&FirebaseIdentityDeleter>,
     user_id: Uuid,
     reason: DisconnectReason,
 ) -> AppResult<UserRemoval> {
@@ -400,6 +417,11 @@ pub async fn remove_user(
     if !blockers.is_empty() {
         return Ok(UserRemoval::Blocked(blockers));
     }
+    let firebase_uid = repos
+        .users
+        .get_global(user_id)
+        .await?
+        .and_then(|user| user.firebase_uid);
 
     let held = held_providers(repos, user_id).await?;
     let mut report = RemovalReport::default();
@@ -428,7 +450,8 @@ pub async fn remove_user(
         };
     }
 
-    let deletion = match repos.users.delete(user_id).await {
+    let firebase_project = firebase.map(FirebaseIdentityDeleter::project_id);
+    let deletion = match repos.users.delete(user_id, firebase_project).await {
         Ok(deletion) => deletion,
         Err(error) => {
             return Ok(UserRemoval::Interrupted(Interruption {
@@ -440,6 +463,9 @@ pub async fn remove_user(
     };
     report.memberships_removed = deletion.removed_from("coaching_group_members");
     report.rows_removed = deletion.rows_removed;
+    if let Some(uid) = firebase_uid {
+        report.firebase_identity = delete_firebase_identity(repos, firebase, user_id, &uid).await;
+    }
 
     info!(
         user_id = %user_id,
@@ -447,10 +473,51 @@ pub async fn remove_user(
         not_revocable = report.not_revocable.len(),
         memberships_removed = report.memberships_removed,
         tables_cleared = report.rows_removed.len(),
+        firebase_identity = ?report.firebase_identity,
         reason = reason.as_str(),
         "User removed completely"
     );
     Ok(UserRemoval::Removed(report))
+}
+
+/// Delete the Firebase identity of the just-deleted account `user_id`, the
+/// first attempt on the row its delete queued, and settle that row. Never an
+/// error: the account is already gone, and a row that cannot be settled
+/// stays due for the sweep.
+async fn delete_firebase_identity(
+    repos: &RepositoryRegistry,
+    firebase: Option<&FirebaseIdentityDeleter>,
+    user_id: Uuid,
+    firebase_uid: &str,
+) -> FirebaseIdentityRemoval {
+    let Some(deleter) = firebase else {
+        warn!(
+            user_id = %user_id,
+            firebase_uid = %firebase_uid,
+            "Firebase is not configured; the deleted account's Firebase identity was left at Google"
+        );
+        return FirebaseIdentityRemoval::NotConfigured;
+    };
+    let project = deleter.project_id();
+    let removal = deleter.delete_user(project, firebase_uid).await;
+    if let Err(error) = firebase_identity_outbox::settle(
+        repos.firebase_identity_deletions.as_ref(),
+        project,
+        firebase_uid,
+        &removal,
+        0,
+        Utc::now(),
+    )
+    .await
+    {
+        warn!(
+            user_id = %user_id,
+            firebase_uid = %firebase_uid,
+            error = %error,
+            "Could not settle the queued Firebase identity deletion; the sweep retries it"
+        );
+    }
+    removal
 }
 
 /// The operator-facing refusal naming each blocking reference, capped at

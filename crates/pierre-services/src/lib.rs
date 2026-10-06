@@ -248,6 +248,9 @@ pub mod provider_revocation;
 /// Cache TTL sweep: evicts provider data held past the cap its terms declare
 pub mod provider_cache_sweeper;
 
+/// The Firebase identity deletion outbox: settles each attempt, sweeps the rest
+pub mod firebase_identity_outbox;
+
 /// What a Strava reconnect owes the grants it replaces: a guarded store, then revocation
 pub mod strava_reconnect;
 

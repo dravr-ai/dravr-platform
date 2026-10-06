@@ -53,8 +53,10 @@ export interface HomeActivity {
   summary_polyline: string | null;
   /**
    * The attribution the activity must be shown with, beside its title:
-   * `"Garmin"` when a Garmin device recorded it (intervals.icu's API terms
-   * require it in the form Garmin's brand guidelines set), null otherwise.
+   * `"Garmin Forerunner 965"` when a Garmin device recorded it and its model
+   * is known, `"Garmin"` when only its Garmin origin is (intervals.icu's API
+   * terms require it in the form Garmin's brand guidelines set), null
+   * otherwise.
    * Show it as served; no client composes an attribution of its own.
    */
   attribution: string | null;

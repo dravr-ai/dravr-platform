@@ -50,14 +50,12 @@ export default function AccountDeletionSection() {
         password: preview.data?.requires_password ? password : undefined,
       }),
     onSuccess: async () => {
-      // The Dravr account is gone; the Google identity behind a Firebase
-      // sign-in goes too when Firebase still holds a recent session. The
-      // browser signs out whatever Firebase answers, since the account no
-      // longer exists: a Firebase failure is the identity staying, never a
-      // failed delete.
+      // The server deleted the account and its Firebase identity; the
+      // browser only ends its local Firebase session. A failure there never
+      // undoes a delete that already happened.
       await import('../firebase/firebase')
-        .then(({ deleteFirebaseAccount }) => deleteFirebaseAccount())
-        .catch(() => false);
+        .then(({ signOutFromFirebase }) => signOutFromFirebase())
+        .catch(() => undefined);
       logout();
     },
     onError: (err: unknown) => {

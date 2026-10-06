@@ -208,6 +208,74 @@ pub fn source_attribution(source: Option<&str>) -> Option<&'static str> {
         .map(|_| GARMIN_ATTRIBUTION)
 }
 
+/// The longest device model an attribution carries; a provider's device name
+/// is free text, and the attribution is shown beside a title.
+const DEVICE_MODEL_MAX_CHARS: usize = 40;
+
+/// Whether a recording device's name names a Garmin device, as intervals.icu's
+/// API terms identify one: the name contains "garmin", in any case.
+#[must_use]
+pub fn garmin_device(device_name: Option<&str>) -> bool {
+    device_name.is_some_and(|name| name.to_ascii_lowercase().contains(GARMIN))
+}
+
+/// Whether an activity holds Garmin-sourced data: relayed from Garmin
+/// (`source`), or recorded on a Garmin device whichever service relayed it
+/// (`device_name`).
+#[must_use]
+fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool {
+    source_attribution(source).is_some() || garmin_device(device_name)
+}
+
+/// The attribution an activity must be shown with, beside its title.
+///
+/// Garmin's brand guidelines name the device: `Garmin Forerunner 965` when
+/// `device_name` names a Garmin device and its model; plain
+/// [`GARMIN_ATTRIBUTION`] for Garmin-sourced data whose device is unknown;
+/// `None` for anything else.
+#[must_use]
+pub fn activity_attribution(source: Option<&str>, device_name: Option<&str>) -> Option<String> {
+    if !garmin_recorded(source, device_name) {
+        return None;
+    }
+    let model = device_name
+        .filter(|name| garmin_device(Some(name)))
+        .map(garmin_device_model)
+        .unwrap_or_default();
+    Some(if model.is_empty() {
+        GARMIN_ATTRIBUTION.to_owned()
+    } else {
+        format!("{GARMIN_ATTRIBUTION} {model}")
+    })
+}
+
+/// The model a Garmin device name carries: the name without the brand, the
+/// punctuation left around it, control characters or redundant spacing, at most
+/// [`DEVICE_MODEL_MAX_CHARS`] characters. Empty when nothing but the brand
+/// is named.
+fn garmin_device_model(device_name: &str) -> String {
+    let lower = device_name.to_ascii_lowercase();
+    let mut rest = String::with_capacity(device_name.len());
+    let mut cursor = 0;
+    while let Some(found) = lower[cursor..].find(GARMIN) {
+        rest.push_str(&device_name[cursor..cursor + found]);
+        rest.push(' ');
+        cursor += found + GARMIN.len();
+    }
+    rest.push_str(&device_name[cursor..]);
+    let words: Vec<&str> = rest
+        .split(|c: char| c.is_whitespace() || c.is_control() || c == '_')
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .collect();
+    words
+        .join(" ")
+        .chars()
+        .take(DEVICE_MODEL_MAX_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
 /// The backends whose notice is a consent to AI use
 /// ([`NoticeKind::AiConsent`]): while an account has not given it, or once it
 /// withdrew it, no model reads that backend's data.
@@ -354,3 +422,65 @@ pub const WHOOP_DEFAULT_SCOPES: &str =
 ///
 /// Known data types from Terra integration: activities, sleep, daily summaries.
 pub const COROS_DEFAULT_SCOPES: &str = "read:workouts read:sleep read:daily";
+
+#[cfg(test)]
+mod tests {
+    use super::{activity_attribution, garmin_recorded};
+
+    #[test]
+    fn a_garmin_device_is_named_by_its_model() {
+        for (device, expected) in [
+            ("Garmin Forerunner 965", "Garmin Forerunner 965"),
+            ("GARMIN EDGE 1050", "Garmin EDGE 1050"),
+            ("garmin_fenix_8", "Garmin fenix 8"),
+            ("Edge 840 (Garmin)", "Garmin Edge 840"),
+            ("  Garmin   Venu\t3 ", "Garmin Venu 3"),
+        ] {
+            assert_eq!(
+                activity_attribution(None, Some(device)).as_deref(),
+                Some(expected),
+                "{device}"
+            );
+        }
+    }
+
+    #[test]
+    fn garmin_data_without_a_named_model_carries_the_brand_alone() {
+        assert_eq!(
+            activity_attribution(Some("garmin"), None).as_deref(),
+            Some("Garmin")
+        );
+        assert_eq!(
+            activity_attribution(None, Some("Garmin")).as_deref(),
+            Some("Garmin")
+        );
+        assert_eq!(
+            activity_attribution(Some("garmin"), Some("Wahoo ELEMNT BOLT")).as_deref(),
+            Some("Garmin"),
+            "a device that is not Garmin's is never named as one"
+        );
+    }
+
+    #[test]
+    fn a_garmin_recording_another_service_relayed_is_attributed() {
+        assert!(garmin_recorded(Some("strava"), Some("Garmin Edge 840")));
+        assert_eq!(
+            activity_attribution(Some("strava"), Some("Garmin Edge 840")).as_deref(),
+            Some("Garmin Edge 840")
+        );
+    }
+
+    #[test]
+    fn anything_else_carries_no_attribution() {
+        assert!(!garmin_recorded(None, None));
+        assert_eq!(activity_attribution(Some("strava"), None), None);
+        assert_eq!(activity_attribution(None, Some("COROS PACE 4")), None);
+    }
+
+    #[test]
+    fn a_long_device_name_is_capped() {
+        let long = format!("Garmin {}", "X".repeat(200));
+        let attribution = activity_attribution(None, Some(&long)).unwrap_or_default();
+        assert_eq!(attribution.chars().count(), "Garmin ".len() + 40);
+    }
+}

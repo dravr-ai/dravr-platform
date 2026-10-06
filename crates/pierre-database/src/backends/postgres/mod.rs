@@ -48,6 +48,8 @@ pub mod encryption;
 pub mod feature_flags;
 /// The external sign-in identities (a Google account id) each account is reached by (Postgres)
 pub mod federated_identities;
+/// Firebase identity deletion outbox (`Postgres`) backing `FirebaseIdentityDeletionRepository`.
+pub mod firebase_identity_deletions;
 /// Fitness configuration — tenant- and user-scoped training settings
 pub mod fitness_config;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.

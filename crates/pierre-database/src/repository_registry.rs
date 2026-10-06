@@ -16,16 +16,17 @@ use crate::repositories::{
     AgentsRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
     CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FederatedIdentityRepository, FitnessConfigRepository,
-    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
-    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
-    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
-    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    FeatureFlagsRepository, FederatedIdentityRepository, FirebaseIdentityDeletionRepository,
+    FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
+    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
+    McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository, MobilityRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
+    PersonalBestRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
+    ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
@@ -196,6 +197,10 @@ pub struct RepositoryRegistry {
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
+    /// Firebase identities still to delete at Google after their account
+    /// went: written by the account delete, drained by its post-commit call
+    /// and the retry sweep.
+    pub firebase_identity_deletions: Arc<dyn FirebaseIdentityDeletionRepository>,
     /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
     /// claimed single-use by the `/confirm` and `/deny` slash commands.
     pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
@@ -296,6 +301,7 @@ impl RepositoryRegistry {
             activity_conversations: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
+            firebase_identity_deletions: db.clone(),
             guardian_actions: db,
         }
     }
@@ -379,6 +385,7 @@ impl RepositoryRegistry {
             activity_conversations: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
+            firebase_identity_deletions: db.clone(),
             guardian_actions: db,
         }
     }

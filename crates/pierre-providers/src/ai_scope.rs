@@ -56,7 +56,9 @@ use chrono::NaiveDate;
 use pierre_core::ai_policy::{
     filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
 };
-use pierre_core::constants::oauth_providers::source_attribution;
+use pierre_core::constants::oauth_providers::{
+    garmin_device, source_attribution, GARMIN_ATTRIBUTION,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
@@ -205,8 +207,17 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
         mark_first_party_only_served();
     }
     // What it was recorded by, for the attribution its derivation owes
-    // (carnet#521). Not under `unfiltered`, for the reason marking is not.
-    if let Some(attribution) = source_attribution(source) {
+    // (carnet#521).
+    note_attribution(source_attribution(source));
+}
+
+/// Record `attribution` on the running derivation.
+///
+/// For a reader that knows what served data owes beyond its item's own
+/// `source` (an athlete's wellness rows, by the device their activities
+/// name). Not under `unfiltered`, for the reason marking is not.
+pub fn note_attribution(attribution: Option<&'static str>) {
+    if let Some(attribution) = attribution {
         if !flag(&UNFILTERED) {
             let _ = PROVENANCE.try_with(|provenance| provenance.attribute(attribution));
         }
@@ -440,12 +451,20 @@ where
 /// them; unchanged when no gate applies.
 #[must_use]
 pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) -> Vec<Activity> {
-    filter_typed(
+    let kept = filter_typed(
         lookup,
         activities,
         |a| (a.provider().to_owned(), a.source().map(str::to_owned)),
         &["name"],
-    )
+    );
+    // A Garmin device's recording owes the attribution whichever service
+    // relayed it; its `source` names only the relay (carnet#521).
+    for activity in &kept {
+        if garmin_device(activity.device_name()) {
+            note_attribution(Some(GARMIN_ATTRIBUTION));
+        }
+    }
+    kept
 }
 
 /// Planned workouts as a model, or a caller over an external transport, may

@@ -454,6 +454,65 @@ async fn a_garmin_sourced_row_carries_the_garmin_attribution() {
     assert!(body["activities"][1]["attribution"].is_null(), "{body}");
 }
 
+/// Garmin's brand guidelines name the device: a row whose device names a
+/// Garmin model shows it, and a Garmin recording another service relayed is
+/// attributed by its device although its `source` names the relay
+/// (carnet#521).
+#[tokio::test]
+async fn a_garmin_device_row_names_its_model_whichever_service_relayed_it() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-garmin-model").await;
+    let uploaded = ActivityBuilder::new(
+        "m1",
+        "Run m1",
+        SportType::Run,
+        days_ago(1),
+        2_400,
+        "intervals_icu",
+    )
+    .source("garmin")
+    .device_name("Garmin Forerunner 965")
+    .build();
+    let relayed = ActivityBuilder::new(
+        "m2",
+        "Run m2",
+        SportType::Run,
+        days_ago(2),
+        2_400,
+        "intervals_icu",
+    )
+    .source("strava")
+    .device_name("Garmin Edge 840")
+    .build();
+    let other_device = ActivityBuilder::new(
+        "m3",
+        "Run m3",
+        SportType::Run,
+        days_ago(3),
+        2_400,
+        "intervals_icu",
+    )
+    .source("strava")
+    .device_name("Wahoo ELEMNT BOLT")
+    .build();
+    cache(
+        &resources,
+        &athlete,
+        "intervals_icu",
+        &[uploaded, relayed, other_device],
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(ids(&body), ["m1", "m2", "m3"]);
+    assert_eq!(
+        body["activities"][0]["attribution"],
+        "Garmin Forerunner 965"
+    );
+    assert_eq!(body["activities"][1]["attribution"], "Garmin Edge 840");
+    assert!(body["activities"][2]["attribution"].is_null(), "{body}");
+}
+
 // ---------------------------------------------------------------------------
 // One row per workout: copies across providers merge as chat merges them
 // ---------------------------------------------------------------------------

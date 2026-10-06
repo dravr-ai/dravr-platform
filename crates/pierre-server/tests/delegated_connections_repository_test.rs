@@ -808,7 +808,7 @@ async fn deleting_the_member_takes_their_links_with_them() {
     let (member, tenant) = f.member("gone@delegation.test", group).await;
     let link = f.confirmed(group, member, tenant, "900001").await;
 
-    f.repos.users.delete(member).await.unwrap();
+    f.repos.users.delete(member, None).await.unwrap();
 
     assert!(repo
         .get_for_participant(link.id, group, f.coach)

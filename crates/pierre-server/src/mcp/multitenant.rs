@@ -14,6 +14,8 @@
 
 use super::resources::ServerContext;
 use pierre_auth::auth::AuthManager;
+#[cfg(feature = "client-admin-api")]
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_config::environment::log_effective_base_url;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
@@ -423,6 +425,9 @@ impl ProviderToolRouter {
                 resources.data(),
                 resources.common.config.clone(),
             )));
+            admin_context.firebase_identity =
+                FirebaseIdentityDeleter::from_config(&resources.common.config.firebase)
+                    .map(Arc::new);
 
             // Tool-selection and diagnostic sub-routes use pierre-server-internal
             // types (`ToolSelectionService`, `ToolRegistry`) and so are

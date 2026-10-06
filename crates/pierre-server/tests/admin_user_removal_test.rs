@@ -20,6 +20,7 @@
 #![allow(missing_docs)]
 
 mod common;
+mod helpers;
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::{BTreeMap, BTreeSet};
@@ -86,6 +87,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::common::create_test_server_resources;
+use crate::helpers::identity_toolkit_stub::{Answer, IdentityToolkitStub};
+use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 
 /// The refresh token every seeded Strava grant carries; a revocation spends it.
 const REFRESH_TOKEN: &str = "refresh-material-do-not-log";
@@ -803,6 +806,38 @@ async fn delete_of_a_plain_member_removes_the_membership_and_the_user() {
 }
 
 #[tokio::test]
+async fn an_operator_delete_removes_the_firebase_identity_and_reports_it() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let firebase = IdentityToolkitStub::answering(Answer::Deleted);
+    let firebase_config = firebase.serve().await;
+    let mut context = AdminApiContext::clone(&admin_context(&resources, &stub.url));
+    context.firebase_identity =
+        FirebaseIdentityDeleter::from_config(&firebase_config).map(Arc::new);
+    let (user_id, _, _) = seed_user(repos, "google").await;
+    let mut user = repos.users.get_global(user_id).await.unwrap().unwrap();
+    user.firebase_uid = Some(format!("firebase-{}", user_id.simple()));
+    repos.users.update(&user).await.unwrap();
+
+    let response = handle_delete_user(
+        State(Arc::new(context)),
+        Extension(manage_users_token()),
+        Path(user_id.to_string()),
+        delete_request(),
+    )
+    .await
+    .expect("delete handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["data"]["firebase_identity"]["status"], "deleted");
+    let calls = firebase.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(Some(calls[0].local_id.clone()), user.firebase_uid);
+    assert!(repos.users.get_global(user_id).await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn a_residual_foreign_key_on_delete_is_a_conflict_not_a_database_error() {
     let resources = resources().await;
     let repos = &resources.common.repos;
@@ -813,7 +848,7 @@ async fn a_residual_foreign_key_on_delete_is_a_conflict_not_a_database_error() {
     // refuses, and the refusal must say "still referenced", not "failed".
     let error = repos
         .users
-        .delete(owner_id)
+        .delete(owner_id, None)
         .await
         .expect_err("the group's owner_id must block the delete");
     assert_eq!(error.code, ErrorCode::ResourceLocked);

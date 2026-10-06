@@ -23,6 +23,7 @@ use super::user_preferences as preferences;
 use crate::backends::shared::enums::user_status_to_str;
 use crate::backends::shared::transactions::TransactionGuard;
 use crate::database::Database;
+use crate::repositories::firebase_identity_deletions::QUEUE_FIREBASE_DELETION_SQL;
 use crate::repositories::user_profiles::{
     impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL, GET_USER_GOALS_SQL,
     GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL, UPSERT_USER_PROFILE_SQL,

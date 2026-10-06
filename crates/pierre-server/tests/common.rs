@@ -522,6 +522,29 @@ pub async fn create_test_server_resources_with_config(
     create_test_server_resources_inner(None, Vec::new(), Some(config)).await
 }
 
+/// The config every test server runs with unless the test supplies its own.
+#[must_use]
+pub fn test_server_config() -> ServerConfig {
+    ServerConfig {
+        usda_api_key: env::var("USDA_API_KEY").ok(),
+        // ServerConfig::default() leaves this at 0 (the derived usize default);
+        // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
+        // every activity-fetch path (group snapshots, AllProvidersMerge) read
+        // LIMIT 0 and return nothing, so give tests a realistic value.
+        activity_fetch_limit: 100,
+        ..ServerConfig::default()
+    }
+}
+
+/// [`create_test_server_resources_with_chat_provider`] over a caller-supplied
+/// config, for a chat-driven test that points an outbound API at a stub.
+pub async fn create_test_server_resources_with_chat_provider_and_config(
+    provider: Arc<dyn LlmProvider + 'static>,
+    config: ServerConfig,
+) -> Result<Arc<ServerContext>> {
+    create_test_server_resources_inner_full(None, Vec::new(), Some(config), Some(provider)).await
+}
+
 /// Wire the mock the way PRODUCTION wires a provider: `chat_provider` set,
 /// `llm_provider` left `None`.
 ///
@@ -693,15 +716,7 @@ async fn create_test_server_resources_over(
     let auth_manager = AuthManager::new(24);
 
     let admin_jwt_secret = "test_admin_secret";
-    let config = Arc::new(config_override.unwrap_or_else(|| ServerConfig {
-        usda_api_key: env::var("USDA_API_KEY").ok(),
-        // ServerConfig::default() leaves this at 0 (the derived usize default);
-        // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
-        // every activity-fetch path (group snapshots, AllProvidersMerge) read
-        // LIMIT 0 and return nothing, so give tests a realistic value.
-        activity_fetch_limit: 100,
-        ..ServerConfig::default()
-    }));
+    let config = Arc::new(config_override.unwrap_or_else(test_server_config));
 
     // Create test cache with background cleanup disabled for tests
     let cache_config = CacheConfig {

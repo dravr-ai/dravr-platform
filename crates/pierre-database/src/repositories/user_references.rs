@@ -245,8 +245,9 @@ user_owned_tables!(
 /// foreign-key violation anywhere is the conflict [`delete_user_error`]
 /// builds.
 macro_rules! delete_user_completely {
-    ($repo:expr, $ids:ident, $user_id:expr, $purge:ident) => {{
+    ($repo:expr, $ids:ident, $user_id:expr, $purge:ident, $firebase_project:expr) => {{
         let user_id: Uuid = $user_id;
+        let firebase_project: Option<&str> = $firebase_project;
         let owner = user_id.to_string();
         let tx = $repo
             .pool()
@@ -265,6 +266,15 @@ macro_rules! delete_user_completely {
             if removed > 0 {
                 rows_removed.insert((*table).to_owned(), removed);
             }
+        }
+        if let Some(project) = firebase_project {
+            sqlx::query(QUEUE_FIREBASE_DELETION_SQL)
+                .bind($ids::bind(user_id))
+                .bind(project)
+                .bind(Utc::now())
+                .execute(guard.executor()?)
+                .await
+                .map_err(|e| delete_user_error(user_id, &e))?;
         }
         let deleted = sqlx::query(DELETE_USER_SQL)
             .bind($ids::bind(user_id))
