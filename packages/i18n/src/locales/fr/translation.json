@@ -1873,7 +1873,11 @@
     "tabStats": "Stats",
     "thisWeek": "Cette semaine",
     "weeklyReport": "Rapport hebdomadaire",
-    "youSuffix": "(toi)"
+    "youSuffix": "(toi)",
+    "emptyBody": "Invite ton club ou un partenaire d’entraînement : Dravr répond quand vous le mentionnez. Tes échanges avec Dravr restent sur l’Accueil.",
+    "createCta": "Créer un groupe",
+    "pickOne": "Choisis un groupe pour l’ouvrir.",
+    "searchPlaceholder": "Rechercher un groupe"
   },
   "home": {
     "plan": {
@@ -1976,6 +1980,14 @@
       "recoveryMany": "Ta forme appelle {{count}} jours allégés.",
       "empty": "Pas encore assez d’historique d’entraînement pour lire ta forme. Elle s’affichera ici quand tes activités remonteront assez loin.",
       "loadFailed": "Impossible de charger ton état d’entraînement."
+    },
+    "personal": {
+      "history": "Historique",
+      "historySearch": "Rechercher dans nos échanges",
+      "historyEmpty": "Aucune autre discussion pour l’instant.",
+      "todayShow": "Afficher Aujourd’hui",
+      "todayHide": "Masquer Aujourd’hui",
+      "todayOpen": "Ouvrir Aujourd’hui"
     }
   },
   "hosted": {

@@ -1873,7 +1873,11 @@
     "tabStats": "Estatísticas",
     "thisWeek": "Esta semana",
     "weeklyReport": "Relatório semanal",
-    "youSuffix": "(tu)"
+    "youSuffix": "(tu)",
+    "emptyBody": "Convida o teu clube ou um parceiro de treino: o Dravr responde quando o mencionam. As tuas conversas com o Dravr ficam no Início.",
+    "createCta": "Criar um grupo",
+    "pickOne": "Escolhe um grupo para o abrires.",
+    "searchPlaceholder": "Pesquisar um grupo"
   },
   "home": {
     "plan": {
@@ -1976,6 +1980,14 @@
       "recoveryMany": "A tua forma pede {{count}} dias leves.",
       "empty": "Ainda não há histórico de treino suficiente para ler a tua forma. Aparece aqui quando as tuas atividades recuarem o suficiente.",
       "loadFailed": "Não foi possível carregar o teu estado de treino."
+    },
+    "personal": {
+      "history": "Histórico",
+      "historySearch": "Pesquisar nas nossas conversas",
+      "historyEmpty": "Ainda não há outras conversas.",
+      "todayShow": "Mostrar Hoje",
+      "todayHide": "Ocultar Hoje",
+      "todayOpen": "Abrir Hoje"
     }
   },
   "hosted": {

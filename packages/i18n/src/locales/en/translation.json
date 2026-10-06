@@ -1873,7 +1873,11 @@
     "tabStats": "Stats",
     "thisWeek": "This week",
     "weeklyReport": "Weekly report",
-    "youSuffix": "(you)"
+    "youSuffix": "(you)",
+    "emptyBody": "Invite your club or a training partner: Dravr answers when you mention it. Your own conversations with Dravr stay on Home.",
+    "createCta": "Create a group",
+    "pickOne": "Pick a group to open it.",
+    "searchPlaceholder": "Search groups"
   },
   "home": {
     "plan": {
@@ -1976,6 +1980,14 @@
       "recoveryMany": "Your form calls for {{count}} lighter days.",
       "empty": "Not enough training history yet to read your form. It shows up here once your activities go back far enough.",
       "loadFailed": "Your training status couldn't be loaded."
+    },
+    "personal": {
+      "history": "History",
+      "historySearch": "Search our conversations",
+      "historyEmpty": "No other conversations yet.",
+      "todayShow": "Show Today",
+      "todayHide": "Hide Today",
+      "todayOpen": "Open Today"
     }
   },
   "hosted": {
