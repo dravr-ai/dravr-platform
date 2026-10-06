@@ -348,6 +348,12 @@ export function describeLoginFailure(
   if (kind === 'credentials' || kind === 'unauthorized' || kind === 'validation') {
     return opts.t('auth.invalidCredentials');
   }
+  if (kind === 'quota') {
+    // The sign-in limiter's 429: too many refused passwords from this address
+    // or at this account, so retrying at once is refused again (carnet#804).
+    // Account deletion's sentence is the same limit, already in every locale.
+    return opts.t('accountDeletion.tooManyAttempts');
+  }
   if (kind === 'offline') {
     return opts.t('errors.offline');
   }

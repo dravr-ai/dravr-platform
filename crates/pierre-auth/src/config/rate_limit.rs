@@ -1,5 +1,5 @@
 // ABOUTME: Rate limiting configuration for the OAuth endpoint limiter and admin-provisioned API keys
-// ABOUTME: Per-minute OAuth endpoint and password re-confirmation limits, window, trusted proxies, key defaults, from env
+// ABOUTME: Per-minute OAuth endpoint, password sign-in and re-confirmation limits, window, trusted proxies, key defaults, from env
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,6 +23,10 @@ pub struct RateLimitConfig {
     pub oauth_register_rpm: u32,
     /// Password re-confirmations a signed-in account may attempt per window
     pub password_confirm_rpm: u32,
+    /// Refused password sign-ins one client address may make per window
+    pub password_login_rpm: u32,
+    /// Refused password sign-ins naming one account per window, from any address
+    pub password_login_account_rpm: u32,
     /// Rate limit window duration in seconds
     pub rate_limit_window_secs: u64,
     /// The proxies whose `X-Forwarded-For` entries the OAuth endpoint limiter
@@ -40,6 +44,8 @@ impl Default for RateLimitConfig {
             oauth_token_rpm: oauth_rate_limiting::TOKEN_RPM,
             oauth_register_rpm: oauth_rate_limiting::REGISTER_RPM,
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
+            password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
+            password_login_account_rpm: oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM,
             rate_limit_window_secs: oauth_rate_limiting::WINDOW_SECS,
             trusted_proxies: TrustedProxies::internal(),
             admin_provisioned_api_key_monthly_limit: system_config::STARTER_MONTHLY_LIMIT,
@@ -68,6 +74,14 @@ impl RateLimitConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(oauth_rate_limiting::PASSWORD_CONFIRM_RPM),
+            password_login_rpm: env::var("PASSWORD_LOGIN_RATE_LIMIT_RPM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(oauth_rate_limiting::PASSWORD_LOGIN_RPM),
+            password_login_account_rpm: env::var("PASSWORD_LOGIN_ACCOUNT_RATE_LIMIT_RPM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM),
             rate_limit_window_secs: env::var("OAUTH2_RATE_LIMIT_WINDOW_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())

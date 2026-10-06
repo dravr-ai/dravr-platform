@@ -5,7 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Per-client rate-limit decisions for `/oauth2/authorize`,
-//! `/oauth2/register` and `/oauth2/token`, and their refusals.
+//! `/oauth2/register`, `/oauth2/token` and the `/oauth2/login` sign-in, and
+//! their refusals.
 //!
 //! The client is the address the trusted proxies recorded in front of the
 //! TCP peer ([`OAuth2RateLimiter::client_address`]), so clients behind one
@@ -14,7 +15,7 @@
 //! rather than by `impl IntoResponse for AppError`: one owner per wire
 //! contract.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::http::header::RETRY_AFTER;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -23,7 +24,7 @@ use axum::Json;
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::rate_limiting::{OAuth2Endpoint, OAuth2RateLimitStatus};
-use tracing::error;
+use tracing::{error, warn};
 
 /// The `error_description` of a request refused because the limiter could not
 /// count it.
@@ -113,6 +114,39 @@ pub async fn page_refusal(
         Admission::Unavailable => Some(render(&OAuth2Error::temporarily_unavailable(
             LIMITER_UNAVAILABLE,
         ))),
+    }
+}
+
+/// Decide whether a password sign-in on the hosted login form, from `client`
+/// naming `email`, may be tried, before the password is checked
+/// (carnet#804): `None` admits it; `Some` is the page `render` draws —
+/// `too_many_requests` with its `Retry-After` when the address's or the
+/// account's window of refused passwords is full, `temporarily_unavailable`
+/// when the limiter could not read them.
+pub async fn sign_in_page_refusal(
+    limiter: &OAuth2RateLimiter,
+    client: Option<IpAddr>,
+    email: &str,
+    render: impl FnOnce(&OAuth2Error) -> Response,
+) -> Option<Response> {
+    match limiter.sign_in_wait(client, email).await {
+        Ok(None) => None,
+        Ok(Some(retry_after)) => {
+            warn!(retry_after, "Hosted sign-in refused: too many attempts");
+            let mut response = render(&OAuth2Error::too_many_requests(
+                "Too many sign-in attempts. Wait a minute, then try again.",
+            ));
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(retry_after));
+            Some(response)
+        }
+        Err(failure) => {
+            error!(error = %failure, "Hosted sign-in limiter could not read its windows");
+            Some(render(&OAuth2Error::temporarily_unavailable(
+                LIMITER_UNAVAILABLE,
+            )))
+        }
     }
 }
 

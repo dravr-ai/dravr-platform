@@ -22,6 +22,7 @@ mod helpers;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::constants::oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::{CreateLinkStateParams, MessagingRepository};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -303,6 +304,52 @@ async fn test_link_auth_wrong_password() {
         "Should show login error, got: {}",
         body.split("</head>").last().unwrap_or(&body)
     );
+}
+
+/// The link page is a password sign-in too, so its refused passwords count in
+/// the sign-in windows (carnet#804): past the account's, even the right
+/// password is refused before it is checked, and no link is made.
+#[tokio::test]
+async fn test_link_auth_guesses_past_the_window_are_refused() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+    let code =
+        create_channel_initiated_link_state(db, tenant_id, "telegram", "tg-guesser", None, false)
+            .await;
+    let user_id =
+        create_test_user_with_password(&resources, "guessed@example.com", "CorrectPassword123!")
+            .await;
+    add_user_to_tenant(&resources, user_id, tenant_id).await;
+
+    let app = MessagingRoutes::routes(resources);
+    let sign_in = |password: String| {
+        let form_data = [
+            ("code", code.clone()),
+            ("email", "guessed@example.com".to_owned()),
+            ("password", password),
+            ("action", "login".to_owned()),
+        ];
+        AxumTestRequest::post("/messaging/link/auth")
+            .form(&form_data)
+            .send(app.clone())
+    };
+
+    for attempt in 0..PASSWORD_LOGIN_ACCOUNT_RPM {
+        let body = sign_in(format!("guess-{attempt}")).await.text();
+        assert!(
+            body.contains("Invalid email or password"),
+            "guess {attempt} is checked"
+        );
+    }
+
+    let body = sign_in("CorrectPassword123!".to_owned()).await.text();
+    assert!(
+        body.contains("Too many sign-in attempts"),
+        "the right password is refused past the window, got: {}",
+        body.split("</head>").last().unwrap_or(&body)
+    );
+    assert!(!body.contains("<h1>Account Linked!</h1>"));
 }
 
 // ════════════════════════════════════════════════════════════════

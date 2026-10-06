@@ -600,6 +600,13 @@ pub mod oauth_rate_limiting {
     /// (`change-password`, account deletion), counted per account: a stolen
     /// session cannot be turned into a password-guessing oracle
     pub const PASSWORD_CONFIRM_RPM: u32 = 5;
+    /// Refused password sign-ins (every password sign-in surface) one client
+    /// address may make per window before its next attempt is refused
+    /// unchecked: credential stuffing from one address stops here
+    pub const PASSWORD_LOGIN_RPM: u32 = 20;
+    /// Refused password sign-ins naming one account per window, from any
+    /// address: guessing one athlete's password from many addresses stops here
+    pub const PASSWORD_LOGIN_ACCOUNT_RPM: u32 = 10;
     /// Rate limit window duration in seconds
     pub const WINDOW_SECS: u64 = 60;
 }

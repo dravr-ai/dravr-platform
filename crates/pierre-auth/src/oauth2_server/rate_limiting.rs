@@ -13,7 +13,8 @@ use pierre_cache::memory::InMemoryCache;
 use pierre_cache::{Cache, CacheConfig, CacheKey, CacheProvider, CacheResource, WindowCount};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use tracing::warn;
+use sha2::{Digest, Sha256};
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::client_address::{metering_key, TrustedProxies};
@@ -126,6 +127,127 @@ impl OAuth2RateLimiter {
         self.status(endpoint, &key).await
     }
 
+    /// Whether a password sign-in from `client` naming `email` may be tried:
+    /// `None` when the address's window and the account's both have room,
+    /// `Some(seconds)` — the `Retry-After` — when either is full.
+    ///
+    /// Reads the windows without counting: only a refused password counts
+    /// ([`Self::count_failed_sign_in`]), so athletes signing in successfully
+    /// from one shared address never fill its window. Checked before the
+    /// password, so past a full window every attempt is refused alike and a
+    /// refusal never says whether a guess was right. `client` is `None` only
+    /// on a router served without `ConnectInfo`; the account's window still
+    /// applies.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the process's own store holds something other
+    /// than a count at a window's key: the caller refuses the attempt rather
+    /// than let an unmetered guess through.
+    pub async fn sign_in_wait(
+        &self,
+        client: Option<IpAddr>,
+        email: &str,
+    ) -> AppResult<Option<u32>> {
+        let mut wait = None;
+        for (endpoint, key) in Self::sign_in_windows(client, email) {
+            let status = self.peek(endpoint, &key).await?;
+            if status.is_limited {
+                let retry_after = status.retry_after_seconds.unwrap_or(1);
+                wait = Some(wait.map_or(retry_after, |longest: u32| longest.max(retry_after)));
+            }
+        }
+        Ok(wait)
+    }
+
+    /// Count one refused password sign-in from `client` naming `email` in the
+    /// address's window and the account's.
+    ///
+    /// Every window is counted even when another could not be. The sign-in is
+    /// already answered, so a window neither store can count is logged here
+    /// rather than returned.
+    pub async fn count_failed_sign_in(&self, client: Option<IpAddr>, email: &str) {
+        for (endpoint, key) in Self::sign_in_windows(client, email) {
+            if let Err(failure) = self.count(endpoint, &key).await {
+                error!(
+                    endpoint = endpoint.as_str(),
+                    error = %failure,
+                    "OAuth2 rate limiter could not count a refused password sign-in"
+                );
+            }
+        }
+    }
+
+    /// The windows a password sign-in is metered in: the client address's,
+    /// when there is one, and the account's, keyed by a digest of the
+    /// normalised email so an address with no account is metered exactly like
+    /// one with an account and no email lands in the store.
+    fn sign_in_windows(client: Option<IpAddr>, email: &str) -> Vec<(OAuth2Endpoint, CacheKey)> {
+        let by_account = OAuth2Endpoint::PasswordLoginAccount;
+        let account_key = Self::window_key(by_account, &format!("email:{}", email_digest(email)));
+        let by_address = client.map(|client| {
+            let endpoint = OAuth2Endpoint::PasswordLogin;
+            (
+                endpoint,
+                Self::window_key(endpoint, &metering_key(client).to_string()),
+            )
+        });
+        by_address
+            .into_iter()
+            .chain([(by_account, account_key)])
+            .collect()
+    }
+
+    /// Report `endpoint`'s window at `key` without counting a hit in it.
+    ///
+    /// Reads the shared store and this process's, and reports the fuller: a
+    /// hit the shared store could not count was counted here instead.
+    async fn peek(
+        &self,
+        endpoint: OAuth2Endpoint,
+        key: &CacheKey,
+    ) -> AppResult<OAuth2RateLimitStatus> {
+        let mut hits: u64 = 0;
+        let mut resets_in = None;
+        if let Some(shared) = &self.shared {
+            match shared.get::<u64>(key).await {
+                Ok(Some(counted)) => {
+                    hits = counted;
+                    resets_in = shared.ttl(key).await.ok().flatten();
+                }
+                Ok(None) => {}
+                Err(failure) => warn!(
+                    endpoint = endpoint.as_str(),
+                    error = %failure,
+                    "OAuth2 rate limiter's shared store could not read a window; \
+                     reading this process's"
+                ),
+            }
+        }
+        if let Some(counted) = self.local.get::<u64>(key).await? {
+            if counted > hits {
+                hits = counted;
+                resets_in = self.local.ttl(key).await?;
+            }
+        }
+
+        let limit = self.limits.get_limit(endpoint);
+        let counted = u32::try_from(hits).unwrap_or(u32::MAX);
+        let reset_at = (SystemTime::now() + resets_in.unwrap_or_default())
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since_epoch| {
+                i64::try_from(since_epoch.as_secs()).unwrap_or(i64::MAX)
+            });
+        Ok(OAuth2RateLimitStatus {
+            is_limited: counted >= limit,
+            limit,
+            remaining: limit.saturating_sub(counted),
+            reset_at,
+            retry_after_seconds: None,
+        }
+        .with_retry_after())
+    }
+
     /// Count one hit in `endpoint`'s window at `key` and report the window.
     async fn status(
         &self,
@@ -171,7 +293,8 @@ impl OAuth2RateLimiter {
     }
 
     /// The cache key of `endpoint`'s window for `subject` (a metered client
-    /// address, or `user:<id>` for an account's own window)
+    /// address, `user:<id>` for an account's own window, or `email:<digest>`
+    /// for the account a sign-in names)
     fn window_key(endpoint: OAuth2Endpoint, subject: &str) -> CacheKey {
         CacheKey::new(
             TenantId::nil(),
@@ -180,4 +303,14 @@ impl OAuth2RateLimiter {
             CacheResource::Custom(format!("{}:{subject}", endpoint.as_str())),
         )
     }
+}
+
+/// The SHA-256 of `email` trimmed and lowercased, in hex: the subject of the
+/// window a password sign-in naming it counts in. Spelling variants of one
+/// address share a window, and the address itself never reaches the store.
+fn email_digest(email: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(email.trim().to_lowercase().as_bytes())
+    )
 }

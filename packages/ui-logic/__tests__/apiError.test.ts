@@ -292,6 +292,14 @@ describe('describeLoginFailure', () => {
     expect(describeLoginFailure({ code: 'ECONNABORTED' }, { t })).toBe('errors.network');
   });
 
+  it('names a refused burst of attempts as one, never as a wrong password', () => {
+    // The sign-in limiter's 429 (carnet#804): telling the athlete to retype
+    // the password would only spend the window again.
+    expect(describeLoginFailure(responded(429, { error: 'too_many_requests' }), { t })).toBe(
+      'accountDeletion.tooManyAttempts',
+    );
+  });
+
   it('names a server failure as the server’s, and anything else as a failed sign-in', () => {
     expect(describeLoginFailure(responded(503), { t })).toBe('errors.serverError');
     expect(describeLoginFailure(responded(418), { t })).toBe('auth.loginFailed');

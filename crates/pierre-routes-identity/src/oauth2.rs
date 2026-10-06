@@ -19,7 +19,7 @@ use axum::{
 use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::oauth::OAuth2ServerConfig;
-use pierre_auth::dto::auth::{LoginRequest, LoginResponse};
+use pierre_auth::dto::auth::LoginResponse;
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     endpoints::OAuth2AuthorizationServer,
@@ -37,7 +37,6 @@ use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
-use pierre_middleware::redaction::mask_email;
 use pierre_services::auth::AuthService;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
@@ -51,6 +50,8 @@ use crate::oauth2_rate_limited::{page_refusal, refusal};
 mod consent;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
+/// The hosted login form's submission: a metered password sign-in
+mod login_form;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
 /// The RFC 8414 and RFC 9728 discovery documents
@@ -706,54 +707,6 @@ impl OAuth2Routes {
         Html(html)
     }
 
-    /// Handle OAuth login form submission (POST /oauth2/login)
-    async fn handle_oauth_login_submit(
-        State(context): State<OAuth2Context>,
-        Form(form): Form<HashMap<String, String>>,
-    ) -> Response {
-        // Extract credentials from form
-        let Some(email) = form.get("email") else {
-            return (StatusCode::BAD_REQUEST, "Missing email").into_response();
-        };
-
-        let Some(password) = form.get("password") else {
-            return (StatusCode::BAD_REQUEST, "Missing password").into_response();
-        };
-
-        // The account rules every password login follows: a suspended account
-        // is refused here, and the login is recorded as the web app's is
-        match Self::password_sign_in(&context, email, password).await {
-            Ok(token) => {
-                // Continue the authorization flow with the OAuth parameters the
-                // form carried (PKCE and the RFC 8707 resource included)
-                let auth_url = Self::build_authorization_url_from_form(&form);
-
-                info!(
-                    "User {} authenticated successfully for OAuth, redirecting to authorization",
-                    mask_email(email)
-                );
-
-                (
-                    StatusCode::FOUND,
-                    [
-                        (header::LOCATION, auth_url),
-                        (header::SET_COOKIE, Self::session_cookie(&context, &token)),
-                    ],
-                )
-                    .into_response()
-            }
-            Err(e) => {
-                if e.is_server_fault() {
-                    error!("OAuth login could not complete: {}", e);
-                } else {
-                    warn!("Authentication failed for OAuth login: {}", e);
-                }
-
-                Self::login_failure_response(&form)
-            }
-        }
-    }
-
     /// Handle JWKS endpoint (GET /oauth2/jwks or GET /.well-known/jwks.json)
     async fn handle_jwks(State(context): State<OAuth2Context>, headers: HeaderMap) -> Response {
         // Return JWKS with RS256 public keys for token validation
@@ -1099,33 +1052,6 @@ impl OAuth2Routes {
     /// set one, and `pierre_session` over plain HTTP.
     fn session_cookie_name(context: &OAuth2Context) -> String {
         host_cookie_name(SESSION_COOKIE, Self::cookies_secure(context))
-    }
-
-    /// Sign a password in by the account rules every password login follows —
-    /// a suspended account is refused, the login is recorded as the web app's
-    /// is — and return the authorization server's sign-in token for it.
-    async fn password_sign_in(
-        context: &OAuth2Context,
-        email: &str,
-        password: &str,
-    ) -> AppResult<String> {
-        let login = context
-            .accounts
-            .login(LoginRequest {
-                email: email.to_owned(),
-                password: password.to_owned(),
-                timezone: None,
-            })
-            .await?;
-        // Every successful sign-in raises user.login, as the web app's does
-        info!(
-            target: "notify",
-            event = "user.login",
-            user_id = %login.user.user_id,
-            tenant_id = %login.user.tenant_id.as_deref().unwrap_or_default(),
-            "user authenticated"
-        );
-        Self::authorization_session(context, &login).await
     }
 
     /// The authorization server's own sign-in for an account the login rules

@@ -33,7 +33,7 @@ pub use destination::can_complete_a_link;
 use link_account::resolve_user_from_form;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
-use pierre_middleware::extract_auth_from_headers;
+use pierre_middleware::{extract_auth_from_headers, PeerAddress};
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
 /// Length of the cryptographically random linking code
@@ -484,6 +484,8 @@ pub async fn channel_link_page(
 /// On failure, re-renders the login page with an error message.
 pub async fn channel_link_auth(
     State(resources): State<Arc<ServerContext>>,
+    peer: PeerAddress,
+    headers: HeaderMap,
     Form(form): Form<ChannelLinkAuthForm>,
 ) -> impl IntoResponse {
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
@@ -513,7 +515,9 @@ pub async fn channel_link_auth(
     };
 
     // Authenticate or register
-    let resolved = resolve_user_from_form(&resources, &form).await;
+    let limiter = &resources.auth.oauth2_rate_limiter;
+    let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
+    let resolved = resolve_user_from_form(&resources, &form, client).await;
     let (user_id, user_status) = match resolved {
         Ok(resolved) => resolved,
         Err(msg) => {

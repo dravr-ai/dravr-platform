@@ -96,6 +96,8 @@ mod sciotte_session_reuse;
 mod short_link;
 /// The RFC 6749 §5.2 error bodies of the password and refresh-token grant.
 mod token_errors;
+/// The first-party `OAuth2` token endpoint: the password and refresh grants
+mod token_grant;
 #[cfg(feature = "provider-sciotte")]
 mod trainingpeaks_account;
 
@@ -257,7 +259,7 @@ impl AuthRoutes {
                 put(login::handle_update_coaching_persona),
             )
             // OAuth2 ROPC endpoint (RFC 6749 Section 4.3) — unified login for all clients
-            .route("/oauth/token", post(login::handle_oauth2_token))
+            .route("/oauth/token", post(token_grant::handle_oauth2_token))
             .route(
                 "/api/oauth/callback/{provider}",
                 get(oauth::handle_oauth_callback),

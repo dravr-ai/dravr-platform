@@ -18,18 +18,22 @@
 //! /admin/device/approve-web` is CSRF-exempt (see `CSRF_EXEMPT_PATHS`) and needs
 //! no session cookie, CSRF header, or JavaScript.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
-use axum::response::Html;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
 use chrono::Utc;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use pierre_auth::password::verify_password;
 use pierre_core::html::{escape_html_attribute, HOSTED_PAGE_CSS};
 use pierre_core::models::User;
+use pierre_middleware::PeerAddress;
 
 use crate::context::AdminApiContext;
 
@@ -56,20 +60,38 @@ pub struct DeviceApproveForm {
 /// Verify email + password, returning the [`User`] if the credentials are valid.
 ///
 /// Every failure reads as "not recognized" on the page, so the log is where a
-/// lookup that failed is told apart from credentials that did not match.
-async fn authenticate(context: &AdminApiContext, email: &str, password: &str) -> Option<User> {
+/// lookup that failed is told apart from credentials that did not match. An
+/// unknown address or a wrong password is counted in the sign-in windows of
+/// `client` and `email` (carnet#804); a failed lookup is not the caller's
+/// guess, so it is not.
+async fn authenticate(
+    context: &AdminApiContext,
+    client: Option<IpAddr>,
+    email: &str,
+    password: &str,
+) -> Option<User> {
     let user = match context.repos.users.get_by_email(email).await {
-        Ok(user) => user?,
+        Ok(user) => user,
         Err(e) => {
             error!(error = %e, "Device approval sign-in could not complete: user lookup failed");
             return None;
         }
     };
     // A fault inside the verifier is logged there; it answers false here.
-    let verified = verify_password(password.to_owned(), user.password_hash.clone())
-        .await
-        .unwrap_or(false);
-    verified.then_some(user)
+    let verified = match user {
+        Some(user) => verify_password(password.to_owned(), user.password_hash.clone())
+            .await
+            .unwrap_or(false)
+            .then_some(user),
+        None => None,
+    };
+    if verified.is_none() {
+        context
+            .sign_in_limiter
+            .count_failed_sign_in(client, email)
+            .await;
+    }
+    verified
 }
 
 /// Keep only the device `user_code` alphabet so it is safe in HTML and queries.
@@ -90,19 +112,66 @@ pub async fn handle_device_page(Query(query): Query<DevicePageQuery>) -> Html<St
 /// `POST /admin/device/approve-web` — sign in as a super-admin and approve/deny.
 pub async fn handle_device_approve_web(
     State(context): State<Arc<AdminApiContext>>,
+    peer: PeerAddress,
+    headers: HeaderMap,
     Form(form): Form<DeviceApproveForm>,
-) -> Html<String> {
+) -> Response {
     let user_code = sanitize_user_code(&form.user_code);
 
-    let Some(user) = authenticate(&context, &form.email, &form.password).await else {
+    // The sign-in windows are read before the password is checked
+    // (carnet#804): this page signs in a super-admin, the account most worth
+    // guessing.
+    let limiter = &context.sign_in_limiter;
+    let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
+    match limiter.sign_in_wait(client, &form.email).await {
+        Ok(None) => {}
+        Ok(Some(retry_after)) => {
+            warn!(
+                retry_after,
+                "Device approval sign-in refused: too many attempts"
+            );
+            let page = render_form(
+                &user_code,
+                Some("Too many sign-in attempts. Wait a minute, then try again."),
+            );
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(RETRY_AFTER, retry_after.to_string())],
+                Html(page),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            error!(error = %e, "Device approval sign-in limiter could not read its windows");
+            let page = render_form(
+                &user_code,
+                Some("Sign-in is temporarily unavailable. Try again in a minute."),
+            );
+            return (StatusCode::SERVICE_UNAVAILABLE, Html(page)).into_response();
+        }
+    }
+    resolve_approval(&context, client, &user_code, &form)
+        .await
+        .into_response()
+}
+
+/// Sign the operator in and approve or deny `user_code`, once the sign-in
+/// was admitted by its windows.
+async fn resolve_approval(
+    context: &AdminApiContext,
+    client: Option<IpAddr>,
+    user_code: &str,
+    form: &DeviceApproveForm,
+) -> Html<String> {
+    let Some(user) = authenticate(context, client, &form.email, &form.password).await else {
         return Html(render_form(
-            &user_code,
+            user_code,
             Some("That email or password was not recognized."),
         ));
     };
     if !user.role.is_super_admin() {
         return Html(render_form(
-            &user_code,
+            user_code,
             Some(&format!(
                 "{} is not a super-admin. Approving a CLI login requires a super-admin account.",
                 user.email
@@ -111,7 +180,7 @@ pub async fn handle_device_approve_web(
     }
 
     let repo = context.repos.oauth2_server.as_ref();
-    let Ok(Some(record)) = repo.get_device_authorization_by_user_code(&user_code).await else {
+    let Ok(Some(record)) = repo.get_device_authorization_by_user_code(user_code).await else {
         return Html(render_message(
             "Login request not found",
             "That code is unknown or has already been used. Start a new login from the CLI.",
@@ -132,9 +201,9 @@ pub async fn handle_device_approve_web(
 
     let deny = form.action.as_deref() == Some("deny");
     let outcome = if deny {
-        repo.deny_device_authorization(&user_code).await
+        repo.deny_device_authorization(user_code).await
     } else {
-        repo.approve_device_authorization(&user_code, &user.id.to_string())
+        repo.approve_device_authorization(user_code, &user.id.to_string())
             .await
     };
 

@@ -14,6 +14,8 @@
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
+use pierre_auth::config::rate_limit::RateLimitConfig;
+use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_config::environment::DEFAULT_WEBSITE_BASE_URL;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -72,6 +74,10 @@ pub struct AdminApiContext {
     /// deleting one (injected by the composition root; `None` until wired, in
     /// which case those routes refuse rather than strand a grant upstream).
     pub provider_disconnector: Option<Arc<dyn ProviderDisconnector>>,
+    /// Meters the device-approval sign-in per client address and account
+    /// (carnet#804). A process-local limiter until the composition root
+    /// injects the server's shared one, so the page is never unmetered.
+    pub sign_in_limiter: Arc<OAuth2RateLimiter>,
     /// Shared coaching harness config registry, mutated by the
     /// `PUT /admin/settings/harness` handler so subsequent chat turns
     /// pick up the new compaction / Tier 6 guardrail values without a
@@ -167,6 +173,11 @@ impl AdminApiContext {
             website_base_url: DEFAULT_WEBSITE_BASE_URL.to_owned(),
             approval_notifier: None,
             provider_disconnector: None,
+            sign_in_limiter: Arc::new(OAuth2RateLimiter::new(
+                None,
+                OAuth2RateLimiter::local_window_store(),
+                &RateLimitConfig::default(),
+            )),
             harness_config_registry: init.harness_config_registry,
             guardian_config_registry: init.guardian_config_registry,
             prompt_registry: init.prompt_registry,

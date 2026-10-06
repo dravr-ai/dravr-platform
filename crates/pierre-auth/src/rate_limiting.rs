@@ -201,6 +201,13 @@ pub enum OAuth2Endpoint {
     /// A signed-in account re-confirming its password (`change-password`,
     /// account deletion), metered per account rather than per address
     PasswordConfirm,
+    /// A refused password sign-in (the `POST /oauth/token` password grant,
+    /// `POST /oauth2/login`, the messaging link page, the device approval
+    /// page), metered per client address
+    PasswordLogin,
+    /// A refused password sign-in, metered per account named rather than per
+    /// address
+    PasswordLoginAccount,
 }
 
 impl OAuth2Endpoint {
@@ -212,6 +219,8 @@ impl OAuth2Endpoint {
             Self::Token => "token",
             Self::Register => "register",
             Self::PasswordConfirm => "password_confirm",
+            Self::PasswordLogin => "password_login",
+            Self::PasswordLoginAccount => "password_login_account",
         }
     }
 }
@@ -227,6 +236,10 @@ pub struct OAuth2RateLimitConfig {
     pub register_rpm: u32,
     /// Password re-confirmations per account per window
     pub password_confirm_rpm: u32,
+    /// Refused password sign-ins per client address per window
+    pub password_login_rpm: u32,
+    /// Refused password sign-ins per account named per window
+    pub password_login_account_rpm: u32,
 }
 
 impl OAuth2RateLimitConfig {
@@ -239,6 +252,8 @@ impl OAuth2RateLimitConfig {
             token_rpm: oauth_rate_limiting::TOKEN_RPM,         // 1 per 2 seconds
             register_rpm: oauth_rate_limiting::REGISTER_RPM,   // 1 per 6 seconds
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
+            password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
+            password_login_account_rpm: oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM,
         }
     }
 
@@ -250,6 +265,8 @@ impl OAuth2RateLimitConfig {
             token_rpm: config.oauth_token_rpm,
             register_rpm: config.oauth_register_rpm,
             password_confirm_rpm: config.password_confirm_rpm,
+            password_login_rpm: config.password_login_rpm,
+            password_login_account_rpm: config.password_login_account_rpm,
         }
     }
 
@@ -260,12 +277,16 @@ impl OAuth2RateLimitConfig {
         token_rpm: u32,
         register_rpm: u32,
         password_confirm_rpm: u32,
+        password_login_rpm: u32,
+        password_login_account_rpm: u32,
     ) -> Self {
         Self {
             authorize_rpm,
             token_rpm,
             register_rpm,
             password_confirm_rpm,
+            password_login_rpm,
+            password_login_account_rpm,
         }
     }
 
@@ -277,6 +298,8 @@ impl OAuth2RateLimitConfig {
             OAuth2Endpoint::Token => self.token_rpm,
             OAuth2Endpoint::Register => self.register_rpm,
             OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
+            OAuth2Endpoint::PasswordLogin => self.password_login_rpm,
+            OAuth2Endpoint::PasswordLoginAccount => self.password_login_account_rpm,
         }
     }
 }

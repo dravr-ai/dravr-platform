@@ -405,6 +405,9 @@ impl ProviderToolRouter {
                 .email_service
                 .clone_from(&resources.common.email_service);
             admin_context
+                .sign_in_limiter
+                .clone_from(&resources.auth.oauth2_rate_limiter);
+            admin_context
                 .frontend_url
                 .clone_from(&resources.common.config.frontend_url);
             admin_context

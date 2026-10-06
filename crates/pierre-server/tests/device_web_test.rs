@@ -14,15 +14,19 @@ use std::sync::Arc;
 
 use axum::body::to_bytes;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::{Form, Json};
 use chrono::Utc;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::constants::oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM;
 use pierre_core::models::{DeviceAuthorization, User};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
+use pierre_middleware::PeerAddress;
 use pierre_routes_admin::handlers::device_auth::handle_device_token;
 use pierre_routes_admin::handlers::device_web::{
     handle_device_approve_web, handle_device_page, DeviceApproveForm, DevicePageQuery,
@@ -108,6 +112,29 @@ fn approve_form(email: &str, password: &str, action: &str) -> Form<DeviceApprove
     })
 }
 
+/// Sign in on the approval page from 198.51.100.4.
+async fn approve_web(context: &Arc<AdminApiContext>, form: Form<DeviceApproveForm>) -> Response {
+    handle_device_approve_web(
+        State(Arc::clone(context)),
+        PeerAddress(Some([198, 51, 100, 4].into())),
+        HeaderMap::new(),
+        form,
+    )
+    .await
+}
+
+/// The page the approval answers with, as HTML.
+async fn approve_web_html(context: &Arc<AdminApiContext>, form: Form<DeviceApproveForm>) -> String {
+    let response = approve_web(context, form).await;
+    String::from_utf8(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
 async fn status_of(context: &AdminApiContext) -> String {
     context
         .repos
@@ -149,12 +176,11 @@ async fn super_admin_credentials_approve() {
     let operator = make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
     create_pending(&context).await;
 
-    let html = handle_device_approve_web(
-        State(context.clone()),
+    let html = approve_web_html(
+        &context,
         approve_form("admin@dravr.ai", TEST_PASSWORD, "approve"),
     )
-    .await
-    .0;
+    .await;
     assert!(html.contains("Login approved"), "success page: {html}");
 
     let record = context
@@ -206,12 +232,11 @@ async fn deny_marks_denied() {
     make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
     create_pending(&context).await;
 
-    let html = handle_device_approve_web(
-        State(context.clone()),
+    let html = approve_web_html(
+        &context,
         approve_form("admin@dravr.ai", TEST_PASSWORD, "deny"),
     )
-    .await
-    .0;
+    .await;
     assert!(html.contains("denied"), "denied page: {html}");
     assert_eq!(status_of(&context).await, "denied");
 }
@@ -222,12 +247,11 @@ async fn non_super_admin_credentials_cannot_approve() {
     make_user(&context, "jf@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
-    let html = handle_device_approve_web(
-        State(context.clone()),
+    let html = approve_web_html(
+        &context,
         approve_form("jf@dravr.ai", TEST_PASSWORD, "approve"),
     )
-    .await
-    .0;
+    .await;
     assert!(
         html.contains("not a super-admin"),
         "rejection message: {html}"
@@ -241,15 +265,43 @@ async fn wrong_password_cannot_approve() {
     make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
     create_pending(&context).await;
 
-    let html = handle_device_approve_web(
-        State(context.clone()),
+    let html = approve_web_html(
+        &context,
         approve_form("admin@dravr.ai", "not-the-password", "approve"),
     )
-    .await
-    .0;
+    .await;
     assert!(
         html.contains("was not recognized"),
         "bad-credential message: {html}"
     );
     assert_eq!(status_of(&context).await, "pending", "still pending");
+}
+
+/// The approval page signs in a super-admin, so its refused passwords count
+/// in the sign-in windows (carnet#804): past the account's, even the right
+/// password is refused with 429 before it is checked, and nothing is approved.
+#[tokio::test]
+async fn guesses_past_the_window_are_refused_with_429() {
+    let context = build_context().await;
+    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    create_pending(&context).await;
+
+    for attempt in 0..PASSWORD_LOGIN_ACCOUNT_RPM {
+        let guess = format!("guess-{attempt}");
+        let html =
+            approve_web_html(&context, approve_form("admin@dravr.ai", &guess, "approve")).await;
+        assert!(
+            html.contains("not recognized"),
+            "guess {attempt} is checked: {html}"
+        );
+    }
+
+    let refused = approve_web(
+        &context,
+        approve_form("admin@dravr.ai", TEST_PASSWORD, "approve"),
+    )
+    .await;
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(refused.headers().get(RETRY_AFTER).is_some());
+    assert_eq!(status_of(&context).await, "pending");
 }
