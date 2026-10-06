@@ -43,6 +43,7 @@ use pierre_core::civil_time::{
     clock_date, format_civil_day, format_local_stamp, local_date, relative_day, relative_day_label,
     resolve_zone,
 };
+use pierre_core::constants::oauth_providers::source_attribution;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_providers::deduplication::{FilledField, FragmentReport};
@@ -247,11 +248,17 @@ pub fn format_activities_as_list<S: BuildHasher>(
             let _ = write!(extras, " - {}", localized_feel(feel, locale));
         }
 
+        // The attribution a Garmin-recorded row must carry beside its title,
+        // here as on the athlete's screens: this list is shown to them as a
+        // reply block, and the agent quotes it (carnet#521).
+        let attribution = source_attribution(activity.source())
+            .map_or_else(String::new, |label| format!(" ({label})"));
         lines.push(format!(
-            "{}. [{}] {} - {}{} - {:.2} km - {}{}",
+            "{}. [{}] {}{} - {}{} - {:.2} km - {}{}",
             i + 1,
             sport,
             display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
+            attribution,
             date,
             day_tag,
             distance_km,
@@ -292,4 +299,45 @@ fn filled_note(filled: &[FilledField]) -> String {
         }
     }
     format!("; took {} from {}", fields.join(", "), providers.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    fn ride(id: &str, source: Option<&str>) -> Activity {
+        ActivityBuilder::new(
+            id,
+            format!("Ride {id}"),
+            SportType::Ride,
+            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            3_600,
+            "intervals_icu",
+        )
+        .source_opt(source.map(str::to_owned))
+        .build()
+    }
+
+    #[test]
+    fn a_garmin_sourced_row_names_garmin_beside_its_title_and_no_other_row_does() {
+        let rendered = format_activities_as_list(
+            &[
+                ride("g", Some("garmin")),
+                ride("u", None),
+                ride("s", Some("strava")),
+            ],
+            &HashMap::new(),
+            None,
+            "en",
+            Some("America/Toronto"),
+            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+        );
+        assert!(
+            rendered.contains("] Ride g (Garmin) - 2026-09-20"),
+            "{rendered}"
+        );
+        assert_eq!(rendered.matches("(Garmin)").count(), 1, "{rendered}");
+    }
 }

@@ -309,7 +309,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     flag: null,
   },
   {
-    // LIMITATION(registre#482): the `privacy` pane has no account-deletion action on either client; deletion is by request to privacy@dravr.ai, as the published policy says.
+    // The `privacy` pane holds analytics consent and self-serve account deletion on both clients.
     id: 'privacy',
     nameKey: 'settingsTabs.privacy',
     hintKey: 'settingsTabs.privacyHint',

@@ -186,6 +186,22 @@ describe('ActivityScreen', () => {
     expect(screen.getByTestId('message-input')).toBeTruthy();
   });
 
+  it('shows the Garmin attribution a Garmin-recorded activity carries, and none otherwise', async () => {
+    mockGetActivityDetail.mockResolvedValue({
+      ...TEMPO_DETAIL_RESPONSE,
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, provider: 'intervals_icu', attribution: 'Garmin' },
+    });
+    const screen = renderScreen();
+    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('· Garmin');
+    expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Run · Garmin$/);
+  });
+
+  it('shows no attribution when the activity carries none', async () => {
+    const screen = renderScreen();
+    await screen.findByTestId('activity-figures');
+    expect(screen.queryByTestId('activity-attribution')).toBeNull();
+  });
+
   // "50:12" beside a distance reads as hours as easily as minutes, and French
   // writes neither "50m 12s" nor a bare clock: the figure is in the athlete's
   // words, while the splits stay a clock column, alike in every language.

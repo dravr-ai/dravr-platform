@@ -245,23 +245,20 @@ pub enum ProviderDisconnection {
     Interrupted(Interruption),
 }
 
-/// Disconnect each target in turn through the chokepoint. The first failure
-/// stops the walk and comes back as an [`Interruption`] naming what was
-/// disconnected before it, since the failed one may have revoked upstream.
+/// Disconnect each target in turn through the chokepoint, `reason` naming who
+/// asked on each `provider.disconnected` event. The first failure stops the
+/// walk and comes back as an [`Interruption`] naming what was disconnected
+/// before it, since the failed one may have revoked upstream.
 pub(crate) async fn disconnect_each(
     disconnector: &dyn ProviderDisconnector,
     user_id: Uuid,
     targets: Vec<HeldProvider>,
+    reason: DisconnectReason,
 ) -> Result<Vec<DisconnectedProvider>, Box<Interruption>> {
     let mut disconnected = Vec::with_capacity(targets.len());
     for target in targets {
         match disconnector
-            .disconnect(
-                user_id,
-                &target.provider,
-                target.tenant_id,
-                DisconnectReason::Operator,
-            )
+            .disconnect(user_id, &target.provider, target.tenant_id, reason)
             .await
         {
             Ok(revocation) => {
@@ -270,7 +267,8 @@ pub(crate) async fn disconnect_each(
                     tenant_id = %target.tenant_id,
                     provider = %target.provider,
                     revocation = ?revocation,
-                    "Operator disconnected a user's provider"
+                    reason = reason.as_str(),
+                    "Disconnected a provider before removing the user"
                 );
                 disconnected.push(DisconnectedProvider {
                     tenant_id: target.tenant_id,
@@ -360,7 +358,7 @@ pub async fn disconnect_user_provider(
     {
         return ProviderDisconnection::NotRevocable(targets);
     }
-    match disconnect_each(disconnector, user_id, targets).await {
+    match disconnect_each(disconnector, user_id, targets, DisconnectReason::Operator).await {
         Ok(disconnected) => ProviderDisconnection::Disconnected(disconnected),
         Err(interruption) => ProviderDisconnection::Interrupted(*interruption),
     }
@@ -373,7 +371,8 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
     held.into_iter().filter(|h| h.provider == wanted).collect()
 }
 
-/// Remove a user completely.
+/// Remove a user completely, on an operator's request or the user's own
+/// (`reason` names which on every `provider.disconnected` event).
 ///
 /// In order: refuse while any row references the user without cascading
 /// (nothing touched), disconnect every held provider through the chokepoint
@@ -395,6 +394,7 @@ pub async fn remove_user(
     repos: &RepositoryRegistry,
     disconnector: Option<&dyn ProviderDisconnector>,
     user_id: Uuid,
+    reason: DisconnectReason,
 ) -> AppResult<UserRemoval> {
     let blockers = repos.users.deletion_blockers(user_id).await?;
     if !blockers.is_empty() {
@@ -421,7 +421,8 @@ pub async fn remove_user(
             );
         }
         report.not_revocable = not_revocable;
-        report.disconnected = match disconnect_each(disconnector, user_id, revocable).await {
+        report.disconnected = match disconnect_each(disconnector, user_id, revocable, reason).await
+        {
             Ok(disconnected) => disconnected,
             Err(interruption) => return Ok(UserRemoval::Interrupted(*interruption)),
         };
@@ -446,6 +447,7 @@ pub async fn remove_user(
         not_revocable = report.not_revocable.len(),
         memberships_removed = report.memberships_removed,
         tables_cleared = report.rows_removed.len(),
+        reason = reason.as_str(),
         "User removed completely"
     );
     Ok(UserRemoval::Removed(report))

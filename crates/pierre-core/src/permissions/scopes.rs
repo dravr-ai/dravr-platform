@@ -106,6 +106,22 @@ impl OAuthScope {
         vec![Self::FitnessRead, Self::ProfileRead]
     }
 
+    /// The widest grant a third party can hold: every delegable scope, never
+    /// `admin`.
+    ///
+    /// What a personal MCP token carries (carnet#788). The athlete minted it
+    /// for one MCP client on purpose, so it reaches everything they can do
+    /// over MCP, but it stays a delegation: strictly narrower than
+    /// [`Self::self_grant`], so a route that reads no scope tells it apart from
+    /// the athlete's own session and refuses it.
+    #[must_use]
+    pub fn delegable_grant() -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|scope| scope.is_delegable())
+            .collect()
+    }
+
     /// Whether a third party may be granted this scope.
     ///
     /// Everything but `admin`. Operating the server stays on the operator's
@@ -202,10 +218,9 @@ impl OAuthScope {
     /// authorization server refuses would fail every such client's connection.
     #[must_use]
     pub fn delegable_as_str() -> Vec<&'static str> {
-        Self::ALL
-            .iter()
-            .filter(|scope| scope.is_delegable())
-            .map(|scope| scope.as_str())
+        Self::delegable_grant()
+            .into_iter()
+            .map(Self::as_str)
             .collect()
     }
 

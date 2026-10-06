@@ -10,7 +10,13 @@ import fr from '../../i18n/src/locales/fr/translation.json';
 import es from '../../i18n/src/locales/es/translation.json';
 import de from '../../i18n/src/locales/de/translation.json';
 import pt from '../../i18n/src/locales/pt/translation.json';
-import { PROVIDER_NOTICES, noticeRequired, syncAuthorizationOwed } from '../src/providers';
+import {
+  AI_CONSENT_KEYS,
+  PROVIDER_NOTICES,
+  aiConsentCards,
+  noticeRequired,
+  syncAuthorizationOwed,
+} from '../src/providers';
 
 function lookup(catalogue: unknown, key: string): unknown {
   return key.split('.').reduce<unknown>(
@@ -64,5 +70,32 @@ describe('provider notices', () => {
       expect(lookup(catalogue, 'providers.authorizeToKeepSyncing')).toContain('{{provider}}');
       expect(typeof lookup(catalogue, 'providers.authorizeAction')).toBe('string');
     }
+  });
+
+  it('reads every AI-consent control as text in all five locales', () => {
+    const interpolated = new Set<string>([
+      AI_CONSENT_KEYS.label,
+      AI_CONSENT_KEYS.withdrawn,
+      AI_CONSENT_KEYS.allowed,
+    ]);
+    for (const [locale, catalogue] of Object.entries({ en, fr, es, de, pt })) {
+      for (const key of Object.values(AI_CONSENT_KEYS)) {
+        const text = lookup(catalogue, key);
+        expect(typeof text, `${locale} ${key}`).toBe('string');
+        if (interpolated.has(key)) {
+          expect(text as string, `${locale} ${key}`).toContain('{{provider}}');
+        }
+      }
+    }
+  });
+
+  it('lists only connected providers whose card carries an AI consent', () => {
+    const cards = [
+      { provider: 'whoop', connected: true, ai_consent: true },
+      { provider: 'whoop_withdrawn', connected: true, ai_consent: false },
+      { provider: 'whoop_disconnected', connected: false, ai_consent: true },
+      { provider: 'strava', connected: true },
+    ];
+    expect(aiConsentCards(cards).map((card) => card.provider)).toEqual(['whoop', 'whoop_withdrawn']);
   });
 });

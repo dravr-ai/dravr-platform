@@ -66,6 +66,12 @@ export type {
   ThemePreference,
   UpdateThemeRequest,
   SciotteLoginResponse,
+  AccountDeletionBlockerKind,
+  AccountDeletionBlocker,
+  AccountDeletionPreview,
+  DeleteAccountRequest,
+  DeleteAccountResponse,
+  AccountDeletionRefusal,
 } from './auth.js';
 
 // API types (chat, prompts, common patterns)

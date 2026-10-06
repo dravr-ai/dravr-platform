@@ -616,8 +616,10 @@ impl OAuthService {
         let mut outcomes = Vec::with_capacity(backends.len());
         for backend in &backends {
             outcomes.push(
-                provider_revocation::clear_backend(self, &self.data, user_id, tenant_id, backend)
-                    .await?,
+                provider_revocation::clear_backend(
+                    self, &self.data, user_id, tenant_id, backend, reason,
+                )
+                .await?,
             );
         }
 

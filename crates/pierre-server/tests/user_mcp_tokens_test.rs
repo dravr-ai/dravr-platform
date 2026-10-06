@@ -405,7 +405,7 @@ async fn test_database_validate_user_mcp_token() {
         .validate_token(&created.token_value)
         .await;
     assert!(validated_user_id.is_ok());
-    assert_eq!(validated_user_id.unwrap(), user_id);
+    assert_eq!(validated_user_id.unwrap().user_id, user_id);
 }
 
 #[tokio::test]

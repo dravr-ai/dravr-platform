@@ -251,18 +251,48 @@ jobs:
               # jobs, not events, so the coverage objection above still holds:
               # a dispatch that skipped the failing job answers nothing, and a
               # red with no failed job to compare (a startup failure, a run
-              # cancelled before any job) is never answered this way. It never
-              # applies to a cron red.
+              # cancelled before it created any job) is never answered, by this
+              # rule or the next. It never applies to a cron red.
+              #
+              # A preempted run is the one shape that needs no job comparison: a
+              # non-cron run whose every unhealthy job was cancelled before a
+              # runner ever picked it up (no runner, no step). It tested nothing
+              # and failed nothing, and it cannot be a job timeout — a timeout
+              # needs a job that started. bump-canot's 10-02 dispatch is the case
+              # (carnet#759): "Bump the pins" sat 13 min queued for a runner and
+              # was cancelled, every downstream job cancelled with it, and the
+              # release's repository_dispatch 33 min later integrated the same
+              # pin green. Job comparison could not see that answer, because the
+              # stall job — cancelled in the preempted run — is correctly skipped
+              # in any green one. So a LATER successful run of the lane answers a
+              # preempted run; with no later success it still alarms.
               cron = latest.get("schedule")
               cron_ok = cron is not None and cron["conclusion"] in HEALTHY
               cron_started = when(cron["run_started_at"]) if cron else None
 
+              def never_ran(job):
+                  return not job.get("runner_name") and not job.get("steps")
+
               def answered_by(red_run):
                   red_started = when(red_run["run_started_at"])
-                  failed = {
-                      j["name"] for j in jobs(red_run) if j["conclusion"] not in HEALTHY
-                  }
+                  unhealthy = [
+                      j for j in jobs(red_run) if j["conclusion"] not in HEALTHY
+                  ]
+                  failed = {j["name"] for j in unhealthy}
                   if not failed:
+                      return None
+                  preempted = all(
+                      j["conclusion"] == "cancelled" and never_ran(j) for j in unhealthy
+                  )
+                  if preempted:
+                      for later in latest.values():
+                          if (
+                              later["conclusion"] == "success"
+                              and when(later["run_started_at"]) > red_started
+                          ):
+                              return later, (
+                                  "succeeded; the red run was preempted before any job ran"
+                              )
                       return None
                   for later in latest.values():
                       if (
@@ -274,7 +304,7 @@ jobs:
                           j["name"] for j in jobs(later) if j["conclusion"] == "success"
                       }
                       if failed <= passed:
-                          return later
+                          return later, "passed every job it failed"
                   return None
 
               verdicts = []
@@ -290,11 +320,12 @@ jobs:
                       )
                       continue
                   if event != "schedule":
-                      later = answered_by(run)
-                      if later is not None:
+                      answer = answered_by(run)
+                      if answer is not None:
+                          later, how = answer
                           superseded.append(
                               f"{event} ({run['conclusion']}) superseded by a later "
-                              f"{later['event']} run that passed every job it failed"
+                              f"{later['event']} run that {how}"
                           )
                           continue
                   verdicts.append(f"red on {event} ({run['conclusion']})")

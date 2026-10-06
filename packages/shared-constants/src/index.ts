@@ -162,18 +162,20 @@ export {
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
+  AI_CONSENT_KEYS,
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
   SCIOTTE_CODE_REJECTED,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  aiConsentCards,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
 } from './providers';
-export type { ProviderNoticeKeys, ProviderScope, SciotteLoginPreset } from './providers';
+export type { AiConsentCard, ProviderNoticeKeys, ProviderScope, SciotteLoginPreset } from './providers';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

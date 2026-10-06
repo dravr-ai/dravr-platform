@@ -153,6 +153,17 @@ describe('RecentActivities', () => {
     expect(within(rows[2]).getByText(/^Indoor ride/)).toBeInTheDocument();
   });
 
+  it('shows the Garmin attribution beside a Garmin-recorded activity, and only there', async () => {
+    const response = recentResponse();
+    response.activities[1] = { ...response.activities[1], provider: 'intervals_icu', attribution: 'Garmin' };
+    api.getRecentActivities.mockResolvedValue(response);
+    renderSection();
+
+    const rows = await screen.findAllByTestId('home-activity-row');
+    expect(within(rows[0]).getByTestId('activity-attribution')).toHaveTextContent('Garmin');
+    expect(screen.getAllByTestId('activity-attribution')).toHaveLength(1);
+  });
+
   it('sketches from the route coordinates when the activity carries no polyline', async () => {
     api.getRecentActivities.mockResolvedValue(recentResponse());
     renderSection();
@@ -201,6 +212,7 @@ describe('RecentActivities', () => {
             sport_type: 'ride',
             has_gps: true,
             summary_polyline: null,
+            attribution: null,
             start_date: '2026-09-21T13:00:00Z',
           }),
           activity({
@@ -209,6 +221,7 @@ describe('RecentActivities', () => {
             name: 'Lake loop',
             has_gps: true,
             summary_polyline: null,
+            attribution: null,
             start_date: '2026-09-19T11:00:00Z',
           }),
         ],
@@ -247,6 +260,7 @@ describe('RecentActivities', () => {
             name: 'Track session',
             has_gps: true,
             summary_polyline: null,
+            attribution: null,
             start_date: '2026-09-19T11:00:00Z',
           }),
         ],

@@ -17,6 +17,7 @@ const body = {
     elevation_gain_meters: 64,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   },
   average_heart_rate: 158,
   max_heart_rate: 176,

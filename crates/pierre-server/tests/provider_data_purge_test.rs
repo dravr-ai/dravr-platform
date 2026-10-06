@@ -1,5 +1,5 @@
-// ABOUTME: carnet#539 — a disconnect deletes every row the provider contributed for that user in that tenant
-// ABOUTME: The super-admin termination purge deletes a provider's rows in every tenant, audited, refused to anyone else
+// ABOUTME: carnet#539/#725 — a disconnect deletes every row the provider contributed for that user in that tenant
+// ABOUTME: The termination purge spans tenants; every purge leaves an attestation row; a cache TTL evicts old copies
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,6 +30,7 @@ mod common;
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 use axum::body::to_bytes;
 use axum::extract::{Path, State};
@@ -58,18 +59,24 @@ use pierre_core::models::{
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage,
-    PersonalBest, PersonalBestSeed, ProviderDataPurge, StoredRouteTrack, SyncCursorRow,
+    PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason, StoredRouteTrack,
+    SyncCursorRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_admin::handlers::provider_data::handle_purge_provider_data;
+use pierre_providers::provider_terms::NOLIO_CACHE_TTL;
+use pierre_routes_admin::handlers::provider_data::{
+    handle_list_provider_data_purges, handle_purge_provider_data,
+};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
 use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::provider_cache_sweeper::sweep_provider_caches;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::Value;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::common::create_test_server_resources;
@@ -580,14 +587,14 @@ async fn a_users_provider_purge_takes_exactly_their_rows_in_that_tenant() {
 
     let purge = repos
         .provider_data
-        .purge_user_provider_data(athlete, &tenant, "whoop")
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
     assert_removed(&purge, 1, 1);
 
     let again = repos
         .provider_data
-        .purge_user_provider_data(athlete, &tenant, "whoop")
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
     assert_eq!(again.total(), 0, "nothing of that scope is left to purge");
@@ -963,4 +970,245 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
         Some("provider:whoop")
     );
     assert!(audited[0].success);
+}
+
+/// Tables a cache expiry evicts one row from per seeded scope, the sync state
+/// describing them included. `activity_backfill_jobs` is apart, as above.
+const ONE_ROW_EXPIRED_TABLES: [&str; 9] = [
+    "sleep_sessions",
+    "recovery_metrics",
+    "health_snapshots",
+    "cached_activities",
+    "activity_route_tracks",
+    "sync_state",
+    "activity_fetch_freshness",
+    "activity_fetch_failures",
+    "activity_backfill_coverage",
+];
+
+/// The declared Nolio cap, applied to the fixture's WHOOP rows: the sweep
+/// reads a provider's cap from the registry in production, and no shipped
+/// provider declares one.
+fn whoop_under_nolio_cap() -> [(&'static str, StdDuration); 1] {
+    [("whoop", NOLIO_CACHE_TTL)]
+}
+
+#[tokio::test]
+async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
+    let world = world().await;
+    let repos = world.repos();
+
+    let swept = sweep_provider_caches(
+        repos.provider_data.as_ref(),
+        &whoop_under_nolio_cap(),
+        Utc::now() + Duration::days(6),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(swept.len(), 1);
+    assert_eq!(swept[0].0, "whoop");
+    assert_eq!(swept[0].1.scopes, 0, "{:?}", swept[0].1);
+    assert_eq!(swept[0].1.evicted.total(), 0, "{:?}", swept[0].1);
+    assert_eq!(
+        sleep_sources(&world, world.athlete).await,
+        ["garmin", "whoop"]
+    );
+    assert!(repos
+        .provider_data
+        .list_provider_data_purges("whoop", 10)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+
+    let swept = sweep_provider_caches(
+        repos.provider_data.as_ref(),
+        &whoop_under_nolio_cap(),
+        Utc::now() + Duration::days(8),
+    )
+    .await
+    .unwrap();
+
+    let expiry = &swept[0].1;
+    assert_eq!(expiry.scopes, 4, "every WHOOP scope held an expired copy");
+    for table in ONE_ROW_EXPIRED_TABLES {
+        assert_eq!(expiry.evicted.removed_from(table), 4, "{table}: {expiry:?}");
+    }
+    assert_eq!(expiry.evicted.removed_from("data_point_series"), 8);
+    assert_eq!(expiry.evicted.removed_from("activity_backfill_jobs"), 3);
+
+    // The athlete's Garmin copies carry no cap and stay.
+    assert_eq!(sleep_sources(&world, world.athlete).await, ["garmin"]);
+    for other in [world.teammate, world.stranger, world.athlete_elsewhere] {
+        assert!(sleep_sources(&world, other).await.is_empty());
+    }
+    assert!(repos
+        .sync_cursors
+        .get_sync_cursor(&athlete.to_string(), &tenant, "whoop", "sleep")
+        .await
+        .unwrap()
+        .is_none());
+
+    // What the expiry leaves is derived or descriptive, not a copy: the
+    // device row, the daily rollup, the activity thread link and the
+    // personal-best rows. A disconnect still takes them.
+    let rest = repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        rest.rows_removed
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "activity_conversations",
+            "best_effort_scans",
+            "data_point_series_archive",
+            "data_sources",
+            "personal_best_efforts",
+            "personal_best_seeds",
+        ],
+        "{rest:?}"
+    );
+    assert_eq!(rest.total(), 6);
+
+    let recorded = repos
+        .provider_data
+        .list_provider_data_purges("whoop", 10)
+        .await
+        .unwrap();
+    let expired = recorded
+        .iter()
+        .filter(|record| record.reason == "cache_expired")
+        .count();
+    assert_eq!(
+        expired, 4,
+        "one attestation row per evicted scope: {recorded:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_copy_re_synced_inside_the_window_stays() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+
+    let between = Utc::now() + Duration::milliseconds(10);
+    sleep(StdDuration::from_millis(25)).await;
+    // The athlete's WHOOP night is written again, as a re-sync does.
+    repos
+        .sleep
+        .upsert_sleep_session(
+            &tenant,
+            &StoredSleepSession {
+                id: format!("whoop-sleep-{}", Uuid::new_v4()),
+                user_id: athlete.to_string(),
+                data_source_id: world.whoop_ds.clone(),
+                is_nap: false,
+                start_datetime: night_start(),
+                end_datetime: night_start() + Duration::hours(8),
+                total_sleep_seconds: Some(25_200),
+                deep_sleep_seconds: Some(5_400),
+                light_sleep_seconds: None,
+                rem_sleep_seconds: None,
+                awake_seconds: Some(1_800),
+                sleep_efficiency: Some(93.75),
+                avg_heart_rate: None,
+                min_heart_rate: Some(46),
+                avg_hrv: Some(71.0),
+                sleep_score: None,
+                stages: Vec::new(),
+                source_name: "whoop".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let expiry = repos
+        .provider_data
+        .expire_provider_cache("whoop", between)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        expiry.evicted.removed_from("sleep_sessions"),
+        3,
+        "{expiry:?}"
+    );
+    assert_eq!(
+        sleep_sources(&world, world.athlete).await,
+        ["garmin", "whoop"],
+        "the re-synced night carries its new sync time"
+    );
+    assert!(sleep_sources(&world, world.teammate).await.is_empty());
+}
+
+#[tokio::test]
+async fn every_purge_leaves_an_attestation_row_the_operator_can_read() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+    let service = OAuthService::new(
+        world.resources.data(),
+        Arc::new((*world.resources.common.config).clone()),
+    );
+    service
+        .disconnect_provider(
+            athlete,
+            "whoop",
+            Some(tenant.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_provider_data("whoop")
+        .await
+        .unwrap();
+
+    let refused = handle_list_provider_data_purges(
+        State(admin_context(&world.resources)),
+        Extension(admin_token(&world, false).await),
+        Path("whoop".to_owned()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+
+    let response = handle_list_provider_data_purges(
+        State(admin_context(&world.resources)),
+        Extension(admin_token(&world, true).await),
+        Path("whoop".to_owned()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let purges = body["data"]["purges"].as_array().expect("purges");
+    assert_eq!(purges.len(), 2, "{body}");
+
+    // Newest first: the termination purge, across every tenant, names no one.
+    assert_eq!(purges[0]["reason"], "termination", "{body}");
+    assert!(purges[0]["user_id"].is_null(), "{body}");
+    assert!(purges[0]["tenant_id"].is_null(), "{body}");
+    assert_eq!(purges[0]["rows_removed"], 3 * 15 + 3 * 2 + 2, "{body}");
+
+    assert_eq!(purges[1]["reason"], "athlete_disconnect", "{body}");
+    assert_eq!(purges[1]["user_id"], athlete.to_string(), "{body}");
+    assert_eq!(purges[1]["tenant_id"], tenant.to_string(), "{body}");
+    assert_eq!(purges[1]["rows_removed"], 15 + 2 + 1, "{body}");
+    assert!(
+        !body.to_string().contains("next-page"),
+        "an attestation row carries no provider data: {body}"
+    );
 }

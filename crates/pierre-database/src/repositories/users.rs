@@ -123,24 +123,28 @@ pub trait UserRepository: Send + Sync {
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
     /// Update user's analytics consent preference
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
-    /// The exposure-notice version this user accepted for `provider` (the
-    /// backend the notice guards, e.g. `sciotte_coros`), or `None` when they
-    /// have accepted none. A login to that backend is refused until it matches
-    /// the current notice.
+    /// The notice version this user accepted for `provider` (the backend the
+    /// notice guards, e.g. `sciotte_coros`) and has not withdrawn, or `None`
+    /// when no acceptance stands. A login to that backend is refused until it
+    /// matches the current notice.
     async fn provider_terms_version(
         &self,
         user_id: Uuid,
         provider: &str,
     ) -> AppResult<Option<String>>;
-    /// Record that this user accepted `provider`'s exposure notice `version`,
-    /// stamping the time. Kept across disconnects: it is the account's answer
-    /// to the notice, not part of any session.
+    /// Record that this user accepted `provider`'s notice `version`, stamping
+    /// the time and clearing any earlier withdrawal. Kept across disconnects:
+    /// it is the account's answer to the notice, not part of any session.
     async fn record_provider_terms(
         &self,
         user_id: Uuid,
         provider: &str,
         version: &str,
     ) -> AppResult<()>;
+    /// Withdraw this user's standing acceptance of `provider`'s notice,
+    /// stamping the time; it reads as none until accepted again. Returns
+    /// whether an acceptance was standing.
+    async fn withdraw_provider_terms(&self, user_id: Uuid, provider: &str) -> AppResult<bool>;
     /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).
     ///
     /// Called by the user-profile PATCH endpoint. The column has `NOT NULL
@@ -1110,6 +1114,14 @@ macro_rules! impl_user_repository {
                 version: &str,
             ) -> AppResult<()> {
                 preferences::record_provider_terms(self.pool(), user_id, provider, version).await
+            }
+
+            async fn withdraw_provider_terms(
+                &self,
+                user_id: Uuid,
+                provider: &str,
+            ) -> AppResult<bool> {
+                preferences::withdraw_provider_terms(self.pool(), user_id, provider).await
             }
 
             async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {

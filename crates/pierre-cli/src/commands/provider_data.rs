@@ -1,4 +1,4 @@
-// ABOUTME: `pierre-cli provider purge` — the super-admin termination purge over /admin/providers/{provider}/data
+// ABOUTME: `pierre-cli provider purge` — the termination purge; `provider purges` — the recorded deletions, for attestation
 // ABOUTME: Deletes every row one provider contributed in every tenant, and refuses to run without --yes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -42,6 +42,19 @@ pub enum ProviderCommand {
         #[arg(long)]
         token: Option<String>,
     },
+    /// List the recorded deletions of a provider's data, newest first, for an attestation (super-admin)
+    Purges {
+        /// Provider name as the rows store it (for example `nolio`)
+        provider: String,
+
+        /// Server base URL (defaults to the cached login)
+        #[arg(long)]
+        server: Option<String>,
+
+        /// Super-admin token (defaults to the cached login)
+        #[arg(long)]
+        token: Option<String>,
+    },
 }
 
 /// Run one `provider` verb.
@@ -73,7 +86,53 @@ pub async fn dispatch(command: ProviderCommand) -> AppResult<()> {
             let client = admin_client(server, token)?;
             purge(&client, &provider).await
         }
+        ProviderCommand::Purges {
+            provider,
+            server,
+            token,
+        } => {
+            let client = admin_client(server, token)?;
+            list_purges(&client, &provider).await
+        }
     }
+}
+
+/// Print the recorded deletions of `provider`'s data, one line each: when,
+/// why, how many rows, and the user and tenant (`all` for a whole-provider
+/// purge).
+///
+/// # Errors
+///
+/// Returns the client's error when the call fails.
+pub async fn list_purges(client: &RemoteClient, provider: &str) -> AppResult<()> {
+    let encoded = urlencoding::encode(provider);
+    let body: Value = client
+        .get_json(&format!("/admin/providers/{encoded}/purges"))
+        .await?;
+    let purges = body
+        .get("data")
+        .and_then(|data| data.get("purges"))
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    if purges.is_empty() {
+        println!("No deletion of {provider} data is recorded.");
+        return Ok(());
+    }
+    for purge in purges {
+        let field = |name: &str| purge.get(name).and_then(Value::as_str).unwrap_or("all");
+        let rows = purge
+            .get("rows_removed")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        println!(
+            "{}  {:<20}  {rows:>7} rows  user {}  tenant {}",
+            field("purged_at"),
+            field("reason"),
+            field("user_id"),
+            field("tenant_id"),
+        );
+    }
+    Ok(())
 }
 
 /// Purge `provider` over the admin API and print what was removed.

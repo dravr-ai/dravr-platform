@@ -1,4 +1,4 @@
-// ABOUTME: The one place a delegated connection ends: the link row, then the member's delegated connection and cache
+// ABOUTME: The one place a delegated connection ends: the link row, then the member's delegated connection and data
 // ABOUTME: Every lifecycle event (leave, removal, archive, detach, disconnect, own login) ends links through DelegationStore
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,12 +8,14 @@
 //!
 //! A confirmed delegated connection has two traces besides its row: the
 //! member's `delegated` provider connection, which makes the provider card
-//! read as connected and lets the read path elect the provider, and the
-//! activities read through the coach's session, cached under the member. A
-//! link that ends must take both with it, exactly as a disconnect takes a
-//! member's own connection and cache, or the card keeps saying "connected"
-//! for a read that no longer happens and the member keeps workouts they
-//! withdrew consent to.
+//! read as connected and lets the read path elect the provider, and the data
+//! read through the coach's session, filed under the member. A link that ends
+//! must take both with it, exactly as a disconnect takes a member's own
+//! connection and data, or the card keeps saying "connected" for a read that
+//! no longer happens and the member keeps workouts they withdrew consent to.
+//! The data goes through the same provider data purge as a disconnect, with
+//! its attestation row: a coach platform's terms count the end of the
+//! coach–athlete link as a deletion trigger (Nolio API terms §7.2).
 //!
 //! Every way a link ends goes through [`DelegationStore`], so the release
 //! cannot be forgotten at one of them: the member leaving or being removed,
@@ -32,12 +34,12 @@ use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
 use pierre_database::repositories::{
-    ActivityCacheRepository, CoachingGroupRepository, DelegatedConnectionRepository,
-    ProviderConnectionRepository,
+    CoachingGroupRepository, DelegatedConnectionRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PurgeReason,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::user_facing_name;
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 /// Ends delegated connections and releases what a confirmed one left behind.
@@ -47,9 +49,9 @@ pub struct DelegationStore {
     /// Holds the member's `delegated` provider connection a confirmed link
     /// registered.
     connections: Arc<dyn ProviderConnectionRepository>,
-    /// Holds the activities read through the coach's session, filed under the
-    /// member.
-    activity_cache: Arc<dyn ActivityCacheRepository>,
+    /// Deletes what was read through the coach's session and filed under the
+    /// member: activities, health rows and the sync state describing them.
+    provider_data: Arc<dyn ProviderDataRepository>,
     /// The groups and memberships a link's standing is read from.
     groups: Arc<dyn CoachingGroupRepository>,
 }
@@ -74,7 +76,7 @@ impl DelegationStore {
         Self {
             links: Arc::clone(&repos.delegated_connections),
             connections: Arc::clone(&repos.provider_connections),
-            activity_cache: Arc::clone(&repos.activity_cache),
+            provider_data: Arc::clone(&repos.provider_data),
             groups: Arc::clone(&repos.groups),
         }
     }
@@ -326,13 +328,13 @@ impl DelegationStore {
     }
 
     /// Release what each ended link that had been confirmed left behind: the
-    /// member's delegated provider connection and the activities read through
-    /// the coach's session. A link only ever proposed left nothing.
+    /// member's delegated provider connection and every row read through the
+    /// coach's session. A link only ever proposed left nothing.
     ///
-    /// The connection removal is the step that stops the card reading as
-    /// connected, so its failure is returned; the cache purge is best-effort,
-    /// as on a disconnect, since an undeleted row still ages out through
-    /// retention pruning.
+    /// Both failures are returned, as on a disconnect: the connection removal
+    /// is what stops the card reading as connected, and the purge is the
+    /// deletion the end of the link owes. No retention pruning would delete
+    /// those rows later.
     async fn release(
         &self,
         ended: &[DelegatedConnection],
@@ -347,18 +349,18 @@ impl DelegationStore {
             self.connections
                 .remove_delegated_connection(member, member_tenant, provider)
                 .await?;
-            if let Err(e) = self
-                .activity_cache
-                .delete_provider_activities(member, &member_tenant, provider)
-                .await
-            {
-                warn!(
-                    user_id = %member,
-                    backend = %provider,
-                    error = %e,
-                    "Failed to delete activities read through an ended delegated connection; rows age out via retention pruning"
-                );
-            }
+            let purge = self
+                .provider_data
+                .purge_user_provider_data(member, &member_tenant, provider, PurgeReason::LinkEnded)
+                .await?;
+            info!(
+                user_id = %member,
+                tenant_id = %member_tenant,
+                backend = %provider,
+                removed = purge.total(),
+                rows_removed = ?purge.rows_removed,
+                "Deleted the data read through an ended delegated connection"
+            );
             info!(
                 target: "notify",
                 event = "provider.disconnected",

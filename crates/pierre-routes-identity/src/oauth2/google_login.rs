@@ -338,7 +338,7 @@ impl OAuth2Routes {
     }
 
     /// Sign the proven Google identity in by the account rules the web app
-    /// follows, and return its session JWT.
+    /// follows, and return the authorization server's sign-in token for it.
     async fn google_session(
         context: &OAuth2Context,
         identity: &GoogleIdentity,
@@ -355,9 +355,7 @@ impl OAuth2Routes {
                 signup_source: SignupSource::Google,
             })
             .await?;
-        login
-            .jwt_token
-            .ok_or_else(|| AppError::internal("Google sign-in minted no session token"))
+        Self::authorization_session(context, &login).await
     }
 
     /// Exchange the code over the back channel and verify the ID token it

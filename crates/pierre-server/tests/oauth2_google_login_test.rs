@@ -25,6 +25,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
+use axum::http::header::COOKIE;
+use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use common::{create_test_server_resources_with_config, create_test_user_with_email};
@@ -43,6 +45,7 @@ use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
     ApiKey, ApiKeyTier, CreateUserMcpTokenRequest, OAuth2RefreshToken, User, UserStatus,
     FEDERATED_ONLY_PASSWORD_HASH,
@@ -495,9 +498,17 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
         .resources
         .auth
         .auth_manager
-        .validate_session_token(&jwt, &f.resources.auth.jwks_manager)
+        .validate_authorization_session_token(&jwt, &f.resources.auth.jwks_manager)
         .unwrap();
     assert_eq!(claims.sub, user.id.to_string());
+    assert!(
+        f.resources
+            .auth
+            .auth_manager
+            .validate_session_token(&jwt, &f.resources.auth.jwks_manager)
+            .is_err(),
+        "the Google sign-in cookie is no first-party session (carnet#787)"
+    );
 
     // Consent, naming the client, where it returns, and the account.
     let consent = authorize_page(&f, &location, &jwt).await;
@@ -1335,7 +1346,7 @@ async fn a_linked_google_account_is_found_by_its_sub_even_after_its_email_change
         .resources
         .auth
         .auth_manager
-        .validate_session_token(&jwt, &f.resources.auth.jwks_manager)
+        .validate_authorization_session_token(&jwt, &f.resources.auth.jwks_manager)
         .unwrap();
     assert_eq!(claims.sub, account.id.to_string());
     assert!(
@@ -1683,7 +1694,7 @@ async fn a_session_cookie_without_its_host_prefix_is_not_the_servers_on_https() 
         .resources
         .auth
         .auth_manager
-        .generate_token_with_tenant(&user, &f.resources.auth.jwks_manager, None)
+        .generate_authorization_session_token(&user, &f.resources.auth.jwks_manager, None)
         .unwrap();
 
     let tossed = AxumTestRequest::get(&expected_authorize(&f.client_id))
@@ -1720,4 +1731,85 @@ async fn over_plain_http_the_session_cookie_keeps_its_bare_name() {
         attributes,
         ["HttpOnly", "Max-Age=86400", "Path=/", "SameSite=Lax"]
     );
+}
+
+/// The hosted login form is a page any script holding the password can post
+/// to and read the cookie off, so the token it sets is no first-party session
+/// (carnet#787): REST refuses it as a bearer and as the web app's cookie, the
+/// MCP and A2A entry point refuses it, while `/oauth2/authorize` accepts it.
+#[tokio::test]
+async fn the_hosted_login_cookie_signs_in_the_authorize_flow_only() {
+    let resources = resources_with(OAuth2ServerConfig::default()).await;
+    let (_, user) = create_test_user_with_email(&resources.agent.database, "lifted@example.test")
+        .await
+        .unwrap();
+
+    let signed_in = AxumTestRequest::post("/oauth2/login")
+        .form(&[
+            ("email", "lifted@example.test"),
+            ("password", "password123"),
+        ])
+        .send(oauth2_routes(&resources))
+        .await;
+    assert_eq!(signed_in.status(), 302);
+    let lifted = signed_in
+        .header("set-cookie")
+        .and_then(|c| c.strip_prefix("pierre_session="))
+        .map(|rest| rest.split(';').next().unwrap().to_owned())
+        .expect("the login sets the authorization server's cookie");
+
+    let middleware = &resources.auth.auth_middleware;
+    let bearer = format!("Bearer {lifted}");
+    let rest = middleware
+        .authenticate_request(Some(&bearer))
+        .await
+        .expect_err("REST must refuse the hosted login's token as a bearer");
+    assert_eq!(rest.code, ErrorCode::AuthInvalid, "{rest}");
+
+    let mut cookie_headers = HeaderMap::new();
+    cookie_headers.insert(
+        COOKIE,
+        format!("{}={lifted}", auth_cookie_name()).parse().unwrap(),
+    );
+    assert!(
+        middleware
+            .authenticate_request_with_headers(&cookie_headers)
+            .await
+            .is_err(),
+        "REST must refuse it planted as the web app's session cookie"
+    );
+
+    let mcp_resources = resources.common.config.oauth2_server.mcp_resources();
+    assert!(
+        middleware
+            .authenticate_scoped_request(Some(&bearer), &mcp_resources)
+            .await
+            .is_err(),
+        "MCP and A2A must refuse it"
+    );
+
+    // Where it belongs, it signs the athlete in: the consent screen renders.
+    let client_id = register(&resources, vec![REDIRECT.to_owned()]).await;
+    let consent = AxumTestRequest::get(&expected_authorize(&client_id))
+        .header("cookie", &format!("pierre_session={lifted}"))
+        .send(oauth2_routes(&resources))
+        .await;
+    assert_eq!(consent.status(), 200, "{}", consent.body_text());
+
+    // And the reverse: a first-party session token is not the server's
+    // sign-in, so the server's own cookie carrying one starts a login.
+    let app_session = resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &resources.auth.jwks_manager)
+        .unwrap();
+    let refused = AxumTestRequest::get(&expected_authorize(&client_id))
+        .header("cookie", &format!("pierre_session={app_session}"))
+        .send(oauth2_routes(&resources))
+        .await;
+    assert_eq!(refused.status(), 303);
+    assert!(refused
+        .header("location")
+        .unwrap()
+        .starts_with("/oauth2/login?"));
 }

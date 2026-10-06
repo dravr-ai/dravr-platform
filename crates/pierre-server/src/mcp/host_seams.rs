@@ -106,6 +106,7 @@ fn build_context(
         AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
         AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
         AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
+        AuthResultMethod::McpToken { .. } => AuthMethod::McpClient,
     };
 
     let mut ctx = ToolContext::new()

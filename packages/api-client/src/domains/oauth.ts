@@ -161,6 +161,23 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
+     * Give the account's consent to AI use of `provider`'s data (the card's
+     * `ai_consent`), in the current version of its notice.
+     */
+    async grantAiConsent(provider: string): Promise<void> {
+      await axios.put(ENDPOINTS.PROVIDERS.AI_CONSENT(provider));
+    },
+
+    /**
+     * Withdraw the account's consent to AI use of `provider`'s data. No model
+     * reads that provider's data afterwards; the data stays visible and the
+     * connection stays active.
+     */
+    async withdrawAiConsent(provider: string): Promise<void> {
+      await axios.delete(ENDPOINTS.PROVIDERS.AI_CONSENT(provider));
+    },
+
+    /**
      * List the caller's connected MCP OAuth apps (external clients they approved
      * on the OAuth consent screen), most recent first.
      */

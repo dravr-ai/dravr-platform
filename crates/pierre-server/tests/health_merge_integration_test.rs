@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
@@ -221,6 +222,16 @@ async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Re
     let whoop_ds = data_source(&executor, user_id, &tenant, "whoop").await?;
     let garmin_ds = data_source(&executor, user_id, &tenant, "garmin").await?;
     let repos = executor.resources.repos();
+    // Health sync keeps WHOOP records only under WHOOP's owner authorization,
+    // which is also the consent to hand them to a model (carnet#726).
+    repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "whoop",
+            provider_terms_version("whoop").expect("WHOOP carries a notice"),
+        )
+        .await?;
 
     let mut whoop_night = sleep(user_id, "whoop", &whoop_ds, 10, 8);
     whoop_night.total_sleep_seconds = Some(26_000);

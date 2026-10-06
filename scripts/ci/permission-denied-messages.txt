@@ -28,6 +28,7 @@
 # Refresh the scanned body:  ./scripts/ci/check-permission-denied-messages.sh --list
 # Regenerating is not reviewing — read every line the refresh adds.
 crates/pierre-auth/src/auth.rs:An API key cannot be exchanged for a session; sign in to obtain one
+crates/pierre-auth/src/auth.rs:An MCP token cannot be exchanged for a session; sign in to obtain one
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
 crates/pierre-core/src/admin/models.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/models.rs:Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}
@@ -39,6 +40,7 @@ crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for yo
 crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
 crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
 crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
+crates/pierre-middleware/src/auth.rs:A personal MCP token is accepted only by the MCP endpoint
 crates/pierre-middleware/src/auth.rs:This access token was delegated to an application and is accepted only by the MCP and A2A endpoints
 crates/pierre-providers/src/delegation.rs:That athlete no longer shares their {brand} account with this coach
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
@@ -51,6 +53,8 @@ crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnectin
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
+crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted from a signed-in session
+crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed by another operator
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link

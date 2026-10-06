@@ -22,14 +22,25 @@
 //! leaves the server. [`outstanding_notice`] is the read the connect cards and
 //! health sync share, so what a surface shows, what a connect refuses and what
 //! sync keeps cannot disagree.
+//!
+//! A notice that is a consent to AI use (WHOOP's) can be withdrawn as simply
+//! as it was given ([`withdraw_ai_consent`], [`grant_ai_consent`]); while it is
+//! not given, [`under_ai_consent`] keeps every model read on the athlete's
+//! behalf away from that provider's data (carnet#726).
 
-use pierre_core::constants::oauth_providers::{self, provider_notice, NoticeAudience};
+use std::collections::BTreeSet;
+use std::future::Future;
+
+use pierre_core::constants::oauth_providers::{
+    self, ai_consent_backends, provider_notice, NoticeAudience, ProviderNotice,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use serde_json::json;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// `details.action` on the precondition's refusal, which a caller matches to
@@ -181,4 +192,139 @@ pub async fn require_notice_accepted(
         );
     }
     Ok(())
+}
+
+/// Whether `backend`'s notice is a consent to AI use, which can be withdrawn.
+fn is_ai_consent(backend: &str) -> bool {
+    provider_notice(backend).is_some_and(ProviderNotice::withdrawable)
+}
+
+/// The providers whose data this account has not consented to hand to AI.
+///
+/// Every backend whose notice is a consent to AI use
+/// ([`NoticeKind::AiConsent`](pierre_core::constants::oauth_providers::NoticeKind::AiConsent)),
+/// in force for this account, that the account has not accepted in its current
+/// version or has withdrawn (carnet#726).
+///
+/// An acceptance that cannot be read counts as withheld: a model then reads
+/// less than it may, never more.
+pub async fn ai_consent_withheld(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> BTreeSet<String> {
+    let mut withheld = BTreeSet::new();
+    for backend in ai_consent_backends() {
+        match outstanding_notice(repos, tenant_id, user_id, backend).await {
+            Ok(None) => {}
+            Ok(Some(_)) => {
+                withheld.insert(backend.to_owned());
+            }
+            Err(e) => {
+                warn!(%user_id, backend, error = %e, "AI consent unreadable; withheld");
+                withheld.insert(backend.to_owned());
+            }
+        }
+    }
+    withheld
+}
+
+/// Run `fut` under the athlete's AI consents.
+///
+/// `fut` is reads made for a model on this athlete's behalf; under
+/// [`ai_consent_withheld`], no model reads a provider's data the athlete has
+/// not consented to hand to AI.
+pub async fn under_ai_consent<F: Future>(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    fut: F,
+) -> F::Output {
+    let withheld = ai_consent_withheld(repos, tenant_id, user_id).await;
+    ai_scope::with_ai_consent(withheld, fut).await
+}
+
+/// Withdraw this account's consent to AI use of `backend`'s data.
+///
+/// As simply as it was given (carnet#726). From then on no model reads that
+/// provider's data; the athlete still sees what is stored and the connection
+/// stays live. Accepting the notice again
+/// — from the same setting, or on the next connect — gives it back. `brand`
+/// is the provider as a refusal names it.
+///
+/// Returns whether a consent was standing; withdrawing one already withdrawn
+/// is not an error.
+///
+/// # Errors
+/// Returns [`AppError::invalid_input`] when `backend` carries no notice, or a
+/// notice that is not a consent to AI use (a terms-of-use exposure notice has
+/// nothing to withdraw); or the store's error.
+pub async fn withdraw_ai_consent(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    backend: &str,
+    brand: &str,
+) -> AppResult<bool> {
+    if !is_ai_consent(backend) {
+        return Err(AppError::invalid_input(format!(
+            "{brand} has no consent to AI use to withdraw"
+        )));
+    }
+    let withdrawn = repos
+        .users
+        .withdraw_provider_terms(user_id, backend)
+        .await?;
+    info!(
+        %user_id,
+        backend,
+        withdrawn,
+        "AI consent withdrawn; no model reads this provider's data"
+    );
+    Ok(withdrawn)
+}
+
+/// Give this account's consent to AI use of `backend`'s data.
+///
+/// The current version of its notice, from a settings toggle rather than a
+/// connect: the same acceptance a connect records ([`require_notice_accepted`]),
+/// including WHOOP's sync-cursor reset, so the two paths cannot disagree.
+///
+/// # Errors
+/// Returns [`AppError::invalid_input`] when `backend`'s notice is not a
+/// consent to AI use; or the store's error.
+pub async fn grant_ai_consent(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    backend: &str,
+    brand: &str,
+) -> AppResult<()> {
+    if !is_ai_consent(backend) {
+        return Err(AppError::invalid_input(format!(
+            "{brand} has no consent to AI use to give"
+        )));
+    }
+    require_notice_accepted(repos, tenant_id, user_id, backend, brand, true).await
+}
+
+/// This account's answer to `backend`'s consent to AI use.
+///
+/// `Some(true)` while it is given in the current version, `Some(false)` while
+/// it is not (never given, outdated, or withdrawn), `None` when `backend`
+/// asks no such consent of this account. An unreadable acceptance reads as
+/// not given.
+pub async fn ai_consent_state(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    backend: &str,
+) -> Option<bool> {
+    if !is_ai_consent(backend) {
+        return None;
+    }
+    notice_in_force(repos, tenant_id, user_id, backend).await?;
+    Some(matches!(
+        outstanding_notice(repos, tenant_id, user_id, backend).await,
+        Ok(None)
+    ))
 }

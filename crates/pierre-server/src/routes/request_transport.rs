@@ -13,7 +13,8 @@
 //! [`is_api_key_format`] test REST authentication applies first, and serves
 //! the rest of the request over the transport it names:
 //!
-//! - an API key in `Authorization` → [`Transport::ApiKey`], external: a
+//! - an API key in `Authorization` (or a personal MCP token, which REST
+//!   refuses anyway) → [`Transport::ApiKey`], external: a
 //!   first-party-only provider's data is withheld from every read the
 //!   handler makes, whether a model reads it or not;
 //! - a session (a bearer token or the web session cookie) → the athlete's own
@@ -36,7 +37,7 @@ use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
-use pierre_core::auth_header::{extract_bearer_token, is_api_key_format};
+use pierre_core::auth_header::{extract_bearer_token, is_api_key_format, is_user_mcp_token_format};
 use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_providers::ai_scope;
 
@@ -70,10 +71,13 @@ fn request_transport(headers: &HeaderMap) -> Option<Transport> {
 }
 
 /// Whether an `Authorization` value is an API key, raw or behind a `Bearer`
-/// scheme.
+/// scheme, or a personal MCP token. Authentication refuses the MCP token on
+/// every REST route (carnet#788); classifying it as external anyway keeps a
+/// credential no app holds off the first-party side whatever happens next.
 fn presents_api_key(authorization: &str) -> bool {
     is_api_key_format(authorization)
-        || extract_bearer_token(authorization).is_ok_and(is_api_key_format)
+        || extract_bearer_token(authorization)
+            .is_ok_and(|token| is_api_key_format(token) || is_user_mcp_token_format(token))
 }
 
 #[cfg(test)]
@@ -106,6 +110,14 @@ mod tests {
             ])),
             Some(Transport::ApiKey),
             "the client header never turns a key into an app"
+        );
+        assert_eq!(
+            request_transport(&headers(&[
+                ("authorization", "Bearer pmcp_abc"),
+                ("x-client-platform", "mobile"),
+            ])),
+            Some(Transport::ApiKey),
+            "a personal MCP token is never an app session"
         );
     }
 

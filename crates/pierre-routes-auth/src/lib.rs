@@ -12,7 +12,8 @@
 //! - User-lifecycle endpoints (`/api/auth/*`, `/api/user/*`) — registration,
 //!   credential login, Firebase SSO, session restore, profile update,
 //!   password change, password reset, analytics consent, locale, coaching
-//!   persona, plus the unified `OAuth2` ROPC token endpoint at `/oauth/token`.
+//!   persona, self-serve account deletion, plus the unified `OAuth2` ROPC
+//!   token endpoint at `/oauth/token`.
 //! - OAuth callback + provider connect/disconnect endpoints
 //!   (`/api/oauth/*`, `/api/providers/*`) — handles fitness provider OAuth
 //!   flows (Strava, Garmin, WHOOP, …) including mobile in-app browser
@@ -48,6 +49,7 @@ use axum::{
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
@@ -63,6 +65,7 @@ use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
+mod account_deletion;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
 #[cfg(feature = "provider-sciotte")]
@@ -76,6 +79,8 @@ mod hosted_page;
 mod intervals_icu;
 mod login;
 mod oauth;
+mod password_attempts;
+mod provider_ai_consent;
 #[cfg(feature = "provider-sciotte")]
 mod provider_link_webhook;
 #[cfg(feature = "provider-sciotte")]
@@ -181,6 +186,10 @@ pub struct AuthRoutesContext {
     /// renders server-side text; resolves each provider's description in the
     /// reader's locale.
     pub messaging_strings: Arc<MessagingStringsRegistry>,
+    /// The `OAuth2` endpoint limiter, shared with `/oauth2/*`; meters each
+    /// account's password re-confirmations (`change-password`, account
+    /// deletion) in a window of its own.
+    pub rate_limiter: Arc<OAuth2RateLimiter>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
@@ -234,6 +243,13 @@ impl AuthRoutes {
                 "/api/user/analytics-consent",
                 put(login::handle_analytics_consent),
             )
+            // Self-serve account deletion: preview what it asks for and what
+            // blocks it, then delete with the confirmation.
+            .route(
+                "/api/user/account-deletion",
+                get(account_deletion::handle_account_deletion_preview)
+                    .post(account_deletion::handle_delete_account),
+            )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))
             .route(
@@ -270,6 +286,13 @@ impl AuthRoutes {
             .route(
                 "/api/providers/{provider}/sync",
                 post(oauth::handle_sync_provider),
+            )
+            // Give or withdraw the consent to AI use of a provider's data
+            // (requires auth; carnet#726)
+            .route(
+                "/api/providers/{provider}/ai-consent",
+                put(provider_ai_consent::handle_grant_ai_consent)
+                    .delete(provider_ai_consent::handle_withdraw_ai_consent),
             )
             // Intervals.icu API-key linking (non-OAuth; validates the key live
             // before persisting). Always registered — the handler degrades to a

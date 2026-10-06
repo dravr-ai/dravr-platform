@@ -46,6 +46,7 @@ const LATEST = {
   elevation_gain_meters: 240,
   has_gps: true,
   summary_polyline: null,
+  attribution: null,
 };
 
 /** The Home reads the latest card needs, answered like the server answers them. */

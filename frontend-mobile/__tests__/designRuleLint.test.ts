@@ -101,3 +101,18 @@ export const Fill = () => { const colors = useThemeColors(); return <LinearGradi
     expect(await restrictionHits(SCREEN, source)).toEqual([]);
   });
 });
+
+describe('no deprecated core SafeAreaView (carnet#356)', () => {
+  it("refuses React Native's own SafeAreaView", async () => {
+    const source = `import { SafeAreaView, View } from 'react-native';\nexport const S = () => <SafeAreaView><View /></SafeAreaView>;`;
+    const found = await restrictionHits(SCREEN, source);
+    expect(rulesFired(found)).toEqual([IMPORTS]);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain("React Native's SafeAreaView is deprecated");
+  });
+
+  it('accepts the safe-area-context one, and the rest of react-native', async () => {
+    const source = `import { View } from 'react-native';\nimport { SafeAreaView } from 'react-native-safe-area-context';\nexport const S = () => <SafeAreaView><View /></SafeAreaView>;`;
+    expect(await restrictionHits(SCREEN, source)).toEqual([]);
+  });
+});

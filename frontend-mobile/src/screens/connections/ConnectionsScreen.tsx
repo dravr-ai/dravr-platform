@@ -28,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import {
+  AI_CONSENT_KEYS,
   coachPlatformName,
   delegationRefusalKey,
   noticeRequired,
@@ -218,6 +219,22 @@ export function ConnectionsScreen() {
   };
 
   /**
+   * Withdraw the consent to AI use of a provider's data in one call
+   * (carnet#726). The connection stays; the row then asks for the
+   * authorization again, which gives it back.
+   */
+  const handleWithdrawAiConsent = async (providerId: string, providerName: string) => {
+    try {
+      await oauthApi.withdrawAiConsent(providerId);
+      await loadConnectionStatus();
+      Alert.alert(t('common.success'), t(AI_CONSENT_KEYS.withdrawn, { provider: providerName }));
+    } catch (err) {
+      console.error('Failed to withdraw AI consent:', err);
+      Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed));
+    }
+  };
+
+  /**
    * The connect flow a provider row starts, for a first connection and for a
    * reconnect alike. The `sciotte` row is the user-facing Strava row: OAuth is
    * the default while shared-app seats remain (the server recommends `oauth`);
@@ -370,6 +387,10 @@ export function ConnectionsScreen() {
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
+                    onWithdrawAiConsent:
+                      provider.ai_consent === true
+                        ? () => handleWithdrawAiConsent(id, provider.display_name)
+                        : undefined,
                   },
                   t,
                 )

@@ -54,6 +54,12 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
       </span>
       <span className="mt-0.5 block truncate text-xs text-on-surface-variant">
         {sport}
+        {activity.attribution && (
+          <span data-testid="activity-attribution">
+            {' · '}
+            {activity.attribution}
+          </span>
+        )}
         {activityFigures(t, activity, language).map((figure) => (
           <span key={figure}>
             {' · '}

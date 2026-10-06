@@ -13,6 +13,7 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signOut,
+  deleteUser,
   type Auth,
   type User,
 } from 'firebase/auth';
@@ -133,6 +134,31 @@ export async function signOutFromFirebase(): Promise<void> {
     return;
   }
   await signOut(firebaseAuth);
+}
+
+/**
+ * Delete the signed-in Firebase identity, after the Dravr account it backed
+ * was deleted, so no Google sign-in record of the athlete outlives the
+ * account. Firebase only lets a recently signed-in user delete themselves; a
+ * stale session (`auth/requires-recent-login`) or no Firebase session at all
+ * leaves the identity in place, and the caller has already deleted every
+ * Dravr row, so the result is reported rather than thrown.
+ *
+ * Returns true when an identity was deleted.
+ */
+export async function deleteFirebaseAccount(): Promise<boolean> {
+  const firebaseAuth = getFirebaseAuth();
+  const current = firebaseAuth?.currentUser;
+  if (!firebaseAuth || !current) {
+    return false;
+  }
+  try {
+    await deleteUser(current);
+    return true;
+  } catch {
+    await signOut(firebaseAuth);
+    return false;
+  }
 }
 
 /**

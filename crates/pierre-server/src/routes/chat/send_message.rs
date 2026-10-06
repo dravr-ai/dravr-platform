@@ -89,6 +89,9 @@ fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
 fn turn_transport(auth_method: &AuthMethod, surface: pipeline::SurfaceId) -> Transport {
     match auth_method {
         AuthMethod::ApiKey { .. } => Transport::ApiKey,
+        // Refused on every REST route before a turn starts; external were
+        // one ever to reach here, as the MCP client it belongs to is.
+        AuthMethod::McpToken { .. } => Transport::McpHttp,
         AuthMethod::ChannelLink { .. } => Transport::Messaging,
         AuthMethod::JwtToken { .. } => match surface {
             pipeline::SurfaceId::Mobile => Transport::MobileApp,
@@ -730,5 +733,13 @@ mod tests {
         assert!(!turn_transport(&jwt(), pipeline::SurfaceId::Web)
             .narrowed_by(turn_transport(&api_key, pipeline::SurfaceId::Web))
             .is_first_party());
+        let mcp_token = AuthMethod::McpToken {
+            token_id: "tok".to_owned(),
+            tier: "starter".to_owned(),
+        };
+        assert!(
+            !turn_transport(&mcp_token, pipeline::SurfaceId::Mobile).is_first_party(),
+            "a personal MCP token is an MCP client's credential, never an app"
+        );
     }
 }

@@ -36,6 +36,7 @@ jest.mock('../../../services/api', () => ({
     initMobileOAuth: jest.fn(),
     disconnectProvider: jest.fn(),
     disconnectIntervalsIcu: jest.fn(),
+    withdrawAiConsent: jest.fn(),
   },
 }));
 jest.mock('../../../components/SciotteLoginModal', () => ({ SciotteLoginModal: () => null }));
@@ -207,6 +208,23 @@ describe('ConnectionsScreen rows', () => {
     fireEvent(screen.getByTestId('provider-row-garmin'), 'longPress');
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy.mock.calls[1][0]).toMatchObject({ title: 'Garmin', options: ['Reconnect', 'Disconnect', 'Cancel'] });
+  });
+
+  it('a row whose AI consent is given offers its withdrawal, which keeps the connection', async () => {
+    (Platform as { OS: string }).OS = 'ios';
+    (oauthApi.withdrawAiConsent as jest.Mock).mockResolvedValue(undefined);
+    await renderWith([{ ...connectedWhoop, ai_consent: true }]);
+
+    fireEvent(screen.getByTestId('provider-row-whoop'), 'longPress');
+    const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
+    expect(spy.mock.calls[0][0]).toMatchObject({
+      title: 'WHOOP',
+      options: ['Withdraw AI use', 'Disconnect', 'Cancel'],
+    });
+    const choose = spy.mock.calls[0][1] as (index: number) => void;
+    choose(0);
+    await waitFor(() => expect(oauthApi.withdrawAiConsent).toHaveBeenCalledWith('whoop'));
+    expect(oauthApi.disconnectProvider).not.toHaveBeenCalled();
   });
 
   it('a disconnected row has no menu to long-press', async () => {

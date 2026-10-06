@@ -72,10 +72,17 @@ use crate::whoop_terms;
 /// how many it withheld. WHOOP exposes no continuous series, so the
 /// time-series store receives none of its data.
 ///
+/// Every row it writes carries its sync time, refreshed on each re-sync, so
+/// a provider whose terms cap how long a copy is held has its copies evicted
+/// past that cap by the cache TTL sweep (`provider_cache_sweeper`). Athletes
+/// connected to WHOOP are left out of the cross-athlete archetype priors
+/// (`archetype_aggregation`).
+///
 /// LIMITATION(registre#539): `PierreSyncStorage` persists WHOOP-classified physiology (HRV rMSSD, sleep
-/// stage durations) instead of holding it in memory within the cache header, and applies no AI-clause
-/// hygiene (WHOOP-derived turns kept out of evals, tuning sets and cross-athlete analytics); derived rows
-/// with no provider column (`training_history`, `user_facts`) cannot be attributed to WHOOP by a purge.
+/// stage durations) instead of holding it in memory within WHOOP's cache header: what that header allows
+/// awaits WHOOP's answer (W1) and the lawyer's read of HRV (W8), so WHOOP declares no cache TTL. Derived
+/// rows with no provider column (`training_history`, `user_facts`, playbooks) cannot be attributed to
+/// WHOOP, by a purge or by the cross-athlete exclusion, which goes by current connection (carnet#769).
 pub struct PierreSyncStorage {
     /// Fitness-domain stores backing enforme's sleep / recovery / health /
     /// data-source / sync-cursor / time-series trait impls.

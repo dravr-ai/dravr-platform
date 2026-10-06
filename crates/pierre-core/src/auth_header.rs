@@ -56,3 +56,13 @@ pub fn extract_bearer_token_owned(auth_header: &str) -> AppResult<String> {
 pub fn is_api_key_format(auth_header: &str) -> bool {
     auth_header.starts_with(key_prefixes::LIVE) || auth_header.starts_with(key_prefixes::TRIAL)
 }
+
+/// Whether a bearer token is a personal MCP token (`pmcp_`), the credential
+/// an athlete mints in Settings for an MCP client (carnet#788).
+///
+/// The one classifier the auth middleware and the REST transport layer share,
+/// so both recognise a personal MCP token by its shape before any lookup.
+#[must_use]
+pub fn is_user_mcp_token_format(token: &str) -> bool {
+    token.starts_with(key_prefixes::USER_MCP_TOKEN)
+}

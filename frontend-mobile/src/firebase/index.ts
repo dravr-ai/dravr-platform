@@ -10,6 +10,7 @@ export {
   getFirebaseAuth,
   signInWithGoogle,
   signOutFromFirebase,
+  deleteFirebaseAccount,
   subscribeToAuthState,
   getCurrentFirebaseUser,
   getFirebaseIdToken,

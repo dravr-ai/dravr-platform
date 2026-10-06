@@ -34,7 +34,9 @@ use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
 use pierre_services::oauth_redirects;
-use pierre_services::provider_notice::{asks_for_notice, require_notice_accepted};
+use pierre_services::provider_notice::{
+    ai_consent_state, asks_for_notice, require_notice_accepted,
+};
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::token_tenant;
 use pierre_services::provider_refresh::RefreshService;
@@ -378,6 +380,19 @@ async fn notice_outstanding(
     }
 }
 
+/// The card's answer to `provider`'s consent to AI use (carnet#726).
+///
+/// [`ai_consent_state`] for the session's tenant; a session with no active
+/// tenant shows none.
+async fn card_ai_consent(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+    provider: &str,
+) -> Option<bool> {
+    ai_consent_state(&resources.repos, tenant_id?, user_id, provider).await
+}
+
 /// Compute the provider catalogue + connection status for a user.
 ///
 /// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
@@ -575,6 +590,7 @@ pub async fn compute_providers_status(
                 seats_left,
                 consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
                     .await,
+                ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),
             });

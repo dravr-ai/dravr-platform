@@ -164,9 +164,26 @@ fn param<'a>(query: &'a [(String, String)], name: &str) -> Option<&'a str> {
         .map(|(_, value)| value.as_str())
 }
 
-/// A tenant member with a first-party session, as the athlete who consents.
+/// A tenant member signed in to the authorization server, as the athlete who
+/// consents: the `/oauth2/login` cookie's token, which only the authorize flow
+/// accepts (carnet#787).
 async fn athlete(resources: &Arc<ServerContext>, email: &str) -> (User, String) {
-    create_test_tenant(resources, email).await.unwrap()
+    let (user, _app_session) = create_test_tenant(resources, email).await.unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .first()
+        .map(|tenant| tenant.id.to_string());
+    let session = resources
+        .auth
+        .auth_manager
+        .generate_authorization_session_token(&user, &resources.auth.jwks_manager, tenant_id)
+        .unwrap();
+    (user, session)
 }
 
 /// Walk the athlete through authorize and consent; the authorization code.

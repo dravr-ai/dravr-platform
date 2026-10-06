@@ -19,7 +19,7 @@ use axum::{
 use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::oauth::OAuth2ServerConfig;
-use pierre_auth::dto::auth::LoginRequest;
+use pierre_auth::dto::auth::{LoginRequest, LoginResponse};
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     endpoints::OAuth2AuthorizationServer,
@@ -34,7 +34,7 @@ use pierre_auth::security::cookies::{
     auth_cookie_name_on, host_cookie_name, SameSitePolicy, SecureCookieConfig,
 };
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_middleware::redaction::mask_email;
@@ -65,6 +65,18 @@ const SESSION_COOKIE: &str = "pierre_session";
 
 /// Lifetime of the session cookie: the 24 hours of the JWT it carries
 const SESSION_COOKIE_MAX_AGE_SECS: i64 = 86_400;
+
+/// Which cookie signed the athlete in at `/oauth2/authorize`, which decides
+/// the audience its token must carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SignInCookie {
+    /// The authorization server's own `pierre_session`, set by the hosted
+    /// login: the authorize-flow audience only (carnet#787).
+    AuthorizationServer,
+    /// The web app's session cookie, bridged so a signed-in athlete is not
+    /// asked to log in twice: the platform audience.
+    WebApp,
+}
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -235,20 +247,28 @@ impl OAuth2Routes {
                         &Self::session_cookie_name(context),
                         &auth_cookie_name_on(Self::cookies_secure(context)),
                     )
-                    .and_then(|token| Self::validate_session_token(&token, context))
+                    .and_then(|(cookie, token)| {
+                        Self::validate_session_token(cookie, &token, context)
+                    })
                 })
             })
             .map_or((None, None), |(uid, tid)| (Some(uid), tid))
     }
 
     fn validate_session_token(
+        cookie: SignInCookie,
         token: &str,
         context: &OAuth2Context,
     ) -> Option<(uuid::Uuid, Option<String>)> {
-        match context
-            .auth_manager
-            .validate_session_token(token, &context.jwks_manager)
-        {
+        let validated = match cookie {
+            SignInCookie::AuthorizationServer => context
+                .auth_manager
+                .validate_authorization_session_token(token, &context.jwks_manager),
+            SignInCookie::WebApp => context
+                .auth_manager
+                .validate_session_token(token, &context.jwks_manager),
+        };
+        match validated {
             Ok(claims) => {
                 info!(
                     "OAuth authorization for authenticated user_id: {}",
@@ -702,29 +722,7 @@ impl OAuth2Routes {
 
         // The account rules every password login follows: a suspended account
         // is refused here, and the login is recorded as the web app's is
-        let login = context
-            .accounts
-            .login(LoginRequest {
-                email: email.clone(),
-                password: password.clone(),
-                timezone: None,
-            })
-            .await
-            .and_then(|login| {
-                // Every successful sign-in raises user.login, as the web app's does
-                info!(
-                    target: "notify",
-                    event = "user.login",
-                    user_id = %login.user.user_id,
-                    tenant_id = %login.user.tenant_id.as_deref().unwrap_or_default(),
-                    "user authenticated"
-                );
-                login
-                    .jwt_token
-                    .ok_or_else(|| AppError::internal("Login minted no session token"))
-            });
-
-        match login {
+        match Self::password_sign_in(&context, email, password).await {
             Ok(token) => {
                 // Continue the authorization flow with the OAuth parameters the
                 // form carried (PKCE and the RFC 8707 resource included)
@@ -1103,10 +1101,64 @@ impl OAuth2Routes {
         host_cookie_name(SESSION_COOKIE, Self::cookies_secure(context))
     }
 
-    /// The `Set-Cookie` value carrying a session JWT, the same for the
-    /// password and the Google sign-in: `HttpOnly`, `Secure` on an HTTPS
-    /// issuer, `SameSite=Lax` so the redirect into `/oauth2/authorize` sends
-    /// it, and the JWT's own 24-hour lifetime.
+    /// Sign a password in by the account rules every password login follows —
+    /// a suspended account is refused, the login is recorded as the web app's
+    /// is — and return the authorization server's sign-in token for it.
+    async fn password_sign_in(
+        context: &OAuth2Context,
+        email: &str,
+        password: &str,
+    ) -> AppResult<String> {
+        let login = context
+            .accounts
+            .login(LoginRequest {
+                email: email.to_owned(),
+                password: password.to_owned(),
+                timezone: None,
+            })
+            .await?;
+        // Every successful sign-in raises user.login, as the web app's does
+        info!(
+            target: "notify",
+            event = "user.login",
+            user_id = %login.user.user_id,
+            tenant_id = %login.user.tenant_id.as_deref().unwrap_or_default(),
+            "user authenticated"
+        );
+        Self::authorization_session(context, &login).await
+    }
+
+    /// The authorization server's own sign-in for an account the login rules
+    /// just admitted (carnet#787).
+    ///
+    /// Never the first-party session the login minted for the web app: the
+    /// hosted login form is a page any script can post a password to and read
+    /// the cookie off, so what it hands back is a token whose audience only
+    /// `/oauth2/authorize` and its consent form accept. Chat, REST, MCP and A2A
+    /// refuse it.
+    async fn authorization_session(
+        context: &OAuth2Context,
+        login: &LoginResponse,
+    ) -> AppResult<String> {
+        let user_id = uuid::Uuid::parse_str(&login.user.user_id)
+            .map_err(|e| AppError::internal(format!("Login named a malformed user id: {e}")))?;
+        // SECURITY: Global lookup — the account the login rules just admitted.
+        let user = context
+            .users
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+        context.auth_manager.generate_authorization_session_token(
+            &user,
+            &context.jwks_manager,
+            login.user.tenant_id.clone(),
+        )
+    }
+
+    /// The `Set-Cookie` value carrying the authorization server's sign-in
+    /// token, the same for the password and the Google sign-in: `HttpOnly`,
+    /// `Secure` on an HTTPS issuer, `SameSite=Lax` so the redirect into
+    /// `/oauth2/authorize` sends it, and the JWT's own 24-hour lifetime.
     fn session_cookie(context: &OAuth2Context, token: &str) -> String {
         SecureCookieConfig {
             name: Self::session_cookie_name(context),
@@ -1120,16 +1172,19 @@ impl OAuth2Routes {
         .build()
     }
 
-    /// Extract session token from cookie header
+    /// Extract the sign-in token from the cookie header, with the cookie it
+    /// came from
     fn extract_session_token(
         cookie_header: &str,
         session_cookie: &str,
         app_cookie: &str,
-    ) -> Option<String> {
+    ) -> Option<(SignInCookie, String)> {
         // Accept the authorization server's own session cookie and, as a
-        // bridge, the first-party web app's session cookie — both are the same
-        // RS256 JWT type validated by the auth manager. This lets a user already
-        // logged into the web app authorize an MCP client without a second login.
+        // bridge, the first-party web app's session cookie. This lets a user
+        // already logged into the web app authorize an MCP client without a
+        // second login. Each carries its own audience (carnet#787): the
+        // server's cookie the authorize-flow audience, the app's the platform
+        // one, and each is validated for exactly that.
         // `app_cookie` is `auth_cookie_name_on(issuer is HTTPS)`: `__Host-auth_token`
         // when either the issuer or `BASE_URL` is HTTPS, so a plain `auth_token`
         // planted by a sibling host is never read here, and `auth_token` only
@@ -1140,10 +1195,10 @@ impl OAuth2Routes {
                 continue;
             };
             if name == session_cookie {
-                return Some(value.to_owned());
+                return Some((SignInCookie::AuthorizationServer, value.to_owned()));
             }
             if name == app_cookie {
-                app_token = Some(value.to_owned());
+                app_token = Some((SignInCookie::WebApp, value.to_owned()));
             }
         }
         app_token

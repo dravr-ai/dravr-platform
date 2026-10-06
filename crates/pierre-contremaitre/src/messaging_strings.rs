@@ -124,6 +124,10 @@ pub const KEY_REPLY_STOP_TRUNCATED: &str = "messaging.reply_stop.truncated";
 /// Key: caveat appended to a reply a provider-side content filter trimmed.
 /// No format placeholders.
 pub const KEY_REPLY_STOP_FILTERED: &str = "messaging.reply_stop.filtered";
+/// Key: the line appended to a reply derived in part from Garmin
+/// device-sourced data, as Garmin's API brand guidelines require.
+/// No format placeholders.
+pub const KEY_REPLY_GARMIN_ATTRIBUTION: &str = "messaging.attribution.garmin";
 /// Key: text-guardrails rejected an over-long response.
 pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
 /// Key: text-guardrails rejected a blocked-topic response.
@@ -534,6 +538,66 @@ pub const KEY_PRIVACY_STATUS_DISABLED: &str = "commands.privacy.status.disabled"
 pub const KEY_PRIVACY_ON_CONFIRMATION: &str = "commands.privacy.on_confirmation";
 /// Key: `/privacy off` confirmation message.
 pub const KEY_PRIVACY_OFF_CONFIRMATION: &str = "commands.privacy.off_confirmation";
+
+// ── /deleteaccount command keys ───────────────────────────────────────────
+
+/// Key: `/deleteaccount` with no argument — what deleting erases, and the
+/// exact confirmation to send. `{0}` = the account's email.
+pub const KEY_DELETE_ACCOUNT_WARNING: &str = "commands.delete-account.warning";
+/// Key: the providers a delete disconnects, appended to the warning. `{0}` =
+/// the comma-separated provider names.
+pub const KEY_DELETE_ACCOUNT_PROVIDERS: &str = "commands.delete-account.providers";
+/// Key: the typed confirmation is not the account's email.
+pub const KEY_DELETE_ACCOUNT_EMAIL_MISMATCH: &str = "commands.delete-account.email_mismatch";
+/// Key: the confirmation was typed in a shared room, where the email would be
+/// read by everyone in it.
+pub const KEY_DELETE_ACCOUNT_DM_ONLY: &str = "commands.delete-account.dm_only";
+/// Key: an operator account cannot delete itself.
+pub const KEY_DELETE_ACCOUNT_OPERATOR: &str = "commands.delete-account.operator";
+/// Key: the delete is refused over rows other people rely on. `{0}` = one
+/// line per blocker.
+pub const KEY_DELETE_ACCOUNT_BLOCKED: &str = "commands.delete-account.blocked";
+/// Key: the account and its data were deleted.
+pub const KEY_DELETE_ACCOUNT_DONE: &str = "commands.delete-account.done";
+/// Key: a disconnect or the account delete failed part-way.
+pub const KEY_DELETE_ACCOUNT_FAILED: &str = "commands.delete-account.failed";
+/// Key: blocker line — the athlete owns a coaching group. `{0}` = its name.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_OWNS_COACHING_GROUP: &str =
+    "commands.delete-account.blocker.owns_coaching_group";
+/// Key: blocker line — the athlete coaches a group. `{0}` = its name.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_COACHES_COACHING_GROUP: &str =
+    "commands.delete-account.blocker.coaches_coaching_group";
+/// Key: blocker line — the athlete created a group invite. `{0}` = the group.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_CREATED_GROUP_INVITE: &str =
+    "commands.delete-account.blocker.created_group_invite";
+/// Key: blocker line — the athlete wrote a config override. `{0}` = the key.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_ADMIN_CONFIG_OVERRIDE: &str =
+    "commands.delete-account.blocker.admin_config_override";
+/// Key: blocker line — the athlete is on a config audit entry. `{0}` = the key.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_ADMIN_CONFIG_AUDIT: &str =
+    "commands.delete-account.blocker.admin_config_audit";
+/// Key: blocker line — the athlete configured a tenant's provider app. `{0}` =
+/// the provider and tenant.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_TENANT_OAUTH_CREDENTIALS: &str =
+    "commands.delete-account.blocker.tenant_oauth_credentials";
+/// Key: blocker line — the athlete created someone else's AI credentials.
+/// `{0}` = the provider and tenant.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_LLM_CREDENTIALS: &str =
+    "commands.delete-account.blocker.llm_credentials";
+/// Key: blocker line — the athlete approved another account. `{0}` = its email.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_APPROVED_USER: &str =
+    "commands.delete-account.blocker.approved_user";
+/// Key: blocker line — the athlete is the only owner of a shared workspace.
+/// `{0}` = its name.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_OWNS_TENANT: &str =
+    "commands.delete-account.blocker.owns_tenant";
+/// Key: blocker line — others use a coach the athlete authored. `{0}` = its title.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_AUTHORED_AGENT: &str =
+    "commands.delete-account.blocker.authored_agent";
+/// Key: blocker line — a subscription the provider may still charge. `{0}` =
+/// the plan.
+pub const KEY_DELETE_ACCOUNT_BLOCKER_BILLING_SUBSCRIPTION: &str =
+    "commands.delete-account.blocker.billing_subscription";
 
 // ── /timezone command keys ────────────────────────────────────────────────
 

@@ -194,3 +194,33 @@ export function syncAuthorizationOwed(
 ): boolean {
   return connected && Boolean(consentRequired) && SYNC_GATING_NOTICES.has(provider);
 }
+
+/**
+ * The catalogue keys of the consent-to-AI-use controls both clients show in
+ * the privacy settings and on the connection card (carnet#726).
+ */
+export const AI_CONSENT_KEYS = {
+  title: 'providers.aiConsent.title',
+  blurb: 'providers.aiConsent.blurb',
+  label: 'providers.aiConsent.label',
+  withdraw: 'providers.aiConsent.withdraw',
+  withdrawn: 'providers.aiConsent.withdrawn',
+  allowed: 'providers.aiConsent.allowed',
+  failed: 'providers.aiConsent.failed',
+} as const;
+
+/** The fields of a provider card the AI-consent controls read. */
+export interface AiConsentCard {
+  provider: string;
+  connected: boolean;
+  ai_consent?: boolean;
+}
+
+/**
+ * The cards whose consent to AI use the athlete can give or withdraw: the
+ * connected providers whose card carries `ai_consent` (WHOOP's owner
+ * authorization). A provider asking no such consent is never listed.
+ */
+export function aiConsentCards<T extends AiConsentCard>(cards: readonly T[]): T[] {
+  return cards.filter((card) => card.connected && typeof card.ai_consent === 'boolean');
+}

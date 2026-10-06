@@ -103,12 +103,13 @@ pub fn filter_stored_health<T: StoredHealthRecord>(
 mod tests {
     use super::*;
     use crate::ai_scope::tests::first_party;
-    use crate::ai_scope::{ai_read, serve_over, unfiltered};
+    use crate::ai_scope::{ai_read, serve_over, unfiltered, with_ai_consent};
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP};
     use chrono::{Duration, NaiveDate, TimeZone, Utc};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, DeviceType};
     use pierre_core::transport::{Transport, TransportPolicy};
+    use std::collections::BTreeSet;
 
     /// Nolio first-party only with its connector rules, WHOOP scores kept
     /// from models, Garmin unrestricted.
@@ -226,7 +227,11 @@ mod tests {
     async fn an_external_call_gets_no_first_party_only_health_record_and_the_rest_still_merge() {
         let (kept, withheld) = serve_over(
             Transport::McpHttp,
-            ai_read(async { filter_stored_health(&HealthTerms, nights(), &sources()) }),
+            // An athlete who consented to AI use of WHOOP data (carnet#726).
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(async { filter_stored_health(&HealthTerms, nights(), &sources()) }),
+            ),
         )
         .await;
         assert_eq!(data_source_ids(&kept), vec!["ds-garmin", "ds-whoop"]);

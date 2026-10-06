@@ -153,12 +153,15 @@ pub mod system_config {
     pub const TRIAL_PERIOD_DAYS: i64 = 14;
 }
 
-/// API key prefixes
+/// Credential prefixes: the tag that names a raw credential's kind
 pub mod key_prefixes {
     /// Live API key prefix
     pub const LIVE: &str = "pk_live_";
     /// Trial API key prefix
     pub const TRIAL: &str = "pk_trial_";
+    /// Personal MCP token prefix: the credential an athlete pastes into an
+    /// MCP client (Claude Desktop, Cursor), accepted by `/mcp` only
+    pub const USER_MCP_TOKEN: &str = "pmcp_";
 }
 
 /// API key tiers
@@ -294,6 +297,10 @@ pub mod json_fields {
 pub mod service_names {
     /// MCP service
     pub const MCP: &str = "mcp";
+    /// Audience of the authorization server's own sign-in (the
+    /// `/oauth2/login` cookie): accepted by `/oauth2/authorize` and its
+    /// consent form only, never by chat, REST, MCP or A2A (carnet#787)
+    pub const OAUTH2_AUTHORIZE: &str = "oauth2-authorize";
     /// Auth service
     pub const AUTH: &str = "auth";
     /// OAuth service
@@ -589,6 +596,10 @@ pub mod oauth_rate_limiting {
     pub const TOKEN_RPM: u32 = 30;
     /// Registration endpoint rate limit (requests per minute)
     pub const REGISTER_RPM: u32 = 10;
+    /// Password re-confirmations a signed-in account may attempt per window
+    /// (`change-password`, account deletion), counted per account: a stolen
+    /// session cannot be turned into a password-guessing oracle
+    pub const PASSWORD_CONFIRM_RPM: u32 = 5;
     /// Rate limit window duration in seconds
     pub const WINDOW_SECS: u64 = 60;
 }

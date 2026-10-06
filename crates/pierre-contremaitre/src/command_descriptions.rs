@@ -18,6 +18,8 @@ use crate::messaging_strings::MessagingStringsRegistry;
 
 /// Key: one-line description of the `logout` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_LOGOUT: &str = "commands.logout.description";
+/// Key: one-line description of the `delete-account` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_DELETE_ACCOUNT: &str = "commands.delete-account.description";
 /// Key: one-line description of the `pillars` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_PILLARS: &str = "commands.pillars.description";
 /// Key: one-line description of the `privacy-off` catalogue command — `/help`, the command palette and the Telegram menu.

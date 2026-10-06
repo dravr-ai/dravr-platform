@@ -42,6 +42,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_chat_pipeline::stages::prefetch::{
     agentless_activity_window, inject_activity_refresh, prefetch_activity_context,
 };
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::time::TOKEN_REFRESH_WINDOW_MINUTES;
 use pierre_core::errors::ErrorCode;
 use pierre_core::http_client::api_client;
@@ -605,6 +606,26 @@ async fn a_token_in_another_tenant_names_the_app_a_new_tenant_connects_on() {
         "access-of-the-replaced-grant",
         "the other tenant's token is untouched"
     );
+}
+
+/// A WHOOP connection made the only way an athlete can make one: after
+/// accepting WHOOP's owner authorization, which is also the consent to hand
+/// WHOOP data to a model (carnet#726).
+async fn connect_whoop(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "whoop",
+            provider_terms_version("whoop").expect("WHOOP carries a notice"),
+        )
+        .await
+        .unwrap();
 }
 
 /// A Strava token the env app or pool app `app` issued that expired an hour
@@ -1670,11 +1691,7 @@ async fn a_rate_limited_primary_serves_the_window_its_sibling_holds() {
     let (resources, _service, _env) = service_pointed_at(&base).await;
     let repos = &resources.common.repos;
     let (user_id, tenant) = athlete(&resources, "rate-limited-primary").await;
-    repos
-        .provider_connections
-        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
-        .await
-        .unwrap();
+    connect_whoop(repos, user_id, tenant).await;
     let ride = ActivityBuilder::new(
         "whoop-ride-1".to_owned(),
         "Sortie".to_owned(),
@@ -1751,11 +1768,7 @@ async fn a_rate_limited_primary_is_named_in_the_prefetched_window() {
     let (resources, _service, _env) = service_pointed_at(&base).await;
     let repos = &resources.common.repos;
     let (user_id, tenant) = athlete(&resources, "rate-limited-prefetch").await;
-    repos
-        .provider_connections
-        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
-        .await
-        .unwrap();
+    connect_whoop(repos, user_id, tenant).await;
     let ride = ActivityBuilder::new(
         "whoop-ride-2".to_owned(),
         "Sortie du matin".to_owned(),

@@ -45,14 +45,18 @@
 //! own flag from there.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
-use pierre_core::ai_policy::{filter_items, first_party_only, Exposure, ProviderTerms, Withheld};
+use pierre_core::ai_policy::{
+    filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
+};
+use pierre_core::constants::oauth_providers::source_attribution;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
@@ -67,9 +71,12 @@ use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 
+/// The athlete's withdrawable consent to AI use of each provider's data.
+mod consent;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
+pub use consent::{ai_consent_withheld, consented_read, with_ai_consent};
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
 tokio::task_local! {
@@ -98,6 +105,10 @@ pub struct Provenance {
     /// Set once anything first-party-only was served. Shared between the turn
     /// and every executor and nested derivation it hands a clone to.
     served_first_party_only: Arc<AtomicBool>,
+    /// The attributions of what was served (`"Garmin"` for Garmin
+    /// device-sourced data): what a reply derived from it must say it drew on
+    /// (carnet#521). Shared the same way as the flag.
+    attributions: Arc<Mutex<BTreeSet<&'static str>>>,
 }
 
 impl Provenance {
@@ -110,6 +121,22 @@ impl Provenance {
     /// Record that first-party-only data was served.
     pub fn mark(&self) {
         self.served_first_party_only.store(true, Ordering::Release);
+    }
+
+    /// Record that data carrying `attribution` was served.
+    pub fn attribute(&self, attribution: &'static str) {
+        if let Ok(mut attributions) = self.attributions.lock() {
+            attributions.insert(attribution);
+        }
+    }
+
+    /// The attributions of everything served so far.
+    #[must_use]
+    pub fn attributions(&self) -> BTreeSet<&'static str> {
+        self.attributions
+            .lock()
+            .map(|attributions| attributions.clone())
+            .unwrap_or_default()
     }
 
     /// The policy a row derived from what was served so far is stamped with.
@@ -130,6 +157,9 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
     if let Some(enclosing) = enclosing {
         if provenance.policy().is_first_party_only() {
             enclosing.mark();
+        }
+        for attribution in provenance.attributions() {
+            enclosing.attribute(attribution);
         }
     }
     output
@@ -173,6 +203,13 @@ pub fn mark_first_party_only_served() {
 fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) {
     if PROVENANCE.try_with(|_| ()).is_ok() && first_party_only(lookup, provider, source) {
         mark_first_party_only_served();
+    }
+    // What it was recorded by, for the attribution its derivation owes
+    // (carnet#521). Not under `unfiltered`, for the reason marking is not.
+    if let Some(attribution) = source_attribution(source) {
+        if !flag(&UNFILTERED) {
+            let _ = PROVENANCE.try_with(|provenance| provenance.attribute(attribution));
+        }
     }
 }
 
@@ -351,7 +388,13 @@ where
     let kept = match exposure() {
         None => items,
         Some(exposure) => {
-            let (kept, withheld) = filter_items(lookup, items, &origin, required, exposure);
+            // The athlete's AI consents ride on the provider terms (carnet#726).
+            let consent = ai_consent_withheld();
+            let terms = WithConsent {
+                terms: lookup,
+                withheld: &consent,
+            };
+            let (kept, withheld) = filter_items(&terms, items, &origin, required, exposure);
             record_withheld(withheld);
             kept
         }
@@ -493,7 +536,8 @@ impl AiGovernedProvider {
     }
 
     fn untagged_read(&self) -> AppResult<()> {
-        first_party_only_read(self.lookup(), self.inner.name(), None)
+        first_party_only_read(self.lookup(), self.inner.name(), None)?;
+        consented_read(self.inner.name())
     }
 }
 
@@ -652,9 +696,10 @@ mod tests {
         }
     }
 
-    /// A read made from Dravr's web app.
+    /// A read made from Dravr's web app, for an athlete who consented to AI
+    /// use of every provider's data (carnet#726).
     pub(super) fn first_party<F: Future>(fut: F) -> impl Future<Output = F::Output> {
-        serve_over(Transport::WebApp, fut)
+        serve_over(Transport::WebApp, with_ai_consent(BTreeSet::new(), fut))
     }
 
     fn activity(id: &str, source: &str) -> Activity {
@@ -1024,6 +1069,38 @@ mod tests {
             derived_policy(),
             TransportPolicy::AnyTransport,
             "outside any derivation nothing is stamped"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_derivation_notes_the_garmin_attribution_of_what_it_served() {
+        let provider = Relay::governed();
+        let outer = Provenance::new();
+        tracking(outer.clone(), async {
+            let inner = Provenance::new();
+            let _ = tracking(
+                inner.clone(),
+                first_party(ai_read(provider.get_activities(None, None))),
+            )
+            .await;
+            assert_eq!(inner.attributions(), BTreeSet::from(["Garmin"]));
+        })
+        .await;
+        assert_eq!(
+            outer.attributions(),
+            BTreeSet::from(["Garmin"]),
+            "a nested derivation's attributions reach its parent"
+        );
+
+        let cache_write = Provenance::new();
+        let _ = tracking(
+            cache_write.clone(),
+            unfiltered(provider.get_activities(None, None)),
+        )
+        .await;
+        assert!(
+            cache_write.attributions().is_empty(),
+            "a cache write serves no one"
         );
     }
 }

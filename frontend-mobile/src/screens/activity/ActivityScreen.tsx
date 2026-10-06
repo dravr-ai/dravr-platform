@@ -149,6 +149,10 @@ function ActivityHeader({
           <Text className="font-mono tabular-nums">{instantShortDate(detail.activity.start_date, language)}</Text>
           {' · '}
           {sport}
+          {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
+          {detail.activity.attribution && (
+            <Text testID="activity-attribution">{` · ${detail.activity.attribution}`}</Text>
+          )}
         </Text>
         <ActivityMap activity={detail.activity} testIDPrefix="activity" />
       </View>

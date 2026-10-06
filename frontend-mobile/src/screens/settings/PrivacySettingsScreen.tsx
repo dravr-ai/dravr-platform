@@ -1,4 +1,4 @@
-// ABOUTME: Privacy settings screen — the app's analytics-consent (GDPR) control, mirroring the web Privacy & Data tab
+// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent and account deletion, as on web
 // ABOUTME: Optimistic switch that writes through userApi.updateAnalyticsConsent and reverts when the write fails
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,6 +13,8 @@ import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
+import { AccountDeletionSection } from './AccountDeletionSection';
+import { AiConsentSection } from './AiConsentSection';
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
 // promise different things about what leaves the device.
@@ -29,9 +31,9 @@ const NEVER_COLLECTED_KEYS = [
 ] as const;
 
 /**
- * Three sections separated by space, not by cards: the consent switch as the
- * first section's action, then the two promise lists as glyph-led lines
- * (DESIGN.md §10).
+ * Four sections separated by space, not by cards: the consent switch as the
+ * first section's action, the two promise lists as glyph-led lines
+ * (DESIGN.md §10), then account deletion last.
  */
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
@@ -93,6 +95,8 @@ export function PrivacySettingsScreen(): React.JSX.Element {
             }
           />
 
+          <AiConsentSection />
+
           {/* Plain lines, not rows: they pay the pane's inset themselves. */}
           <Section title={t('app.whatWeCollect')} testID="privacy-section-collected">
             <View className="gap-2 px-4">
@@ -115,6 +119,8 @@ export function PrivacySettingsScreen(): React.JSX.Element {
               ))}
             </View>
           </Section>
+
+          <AccountDeletionSection />
         </View>
       </PaneScrollView>
     </View>

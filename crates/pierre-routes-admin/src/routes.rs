@@ -619,12 +619,18 @@ impl AdminRoutes {
     }
 
     /// The super-admin termination purge `pierre-cli provider purge` drives:
-    /// every row one provider contributed, deleted in every tenant.
+    /// every row one provider contributed, deleted in every tenant; and the
+    /// attestation rows every purge writes, which `pierre-cli provider
+    /// purges` reads.
     fn provider_data_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/admin/providers/{provider}/data",
                 delete(provider_data::handle_purge_provider_data),
+            )
+            .route(
+                "/admin/providers/{provider}/purges",
+                get(provider_data::handle_list_provider_data_purges),
             )
             .with_state(context)
     }

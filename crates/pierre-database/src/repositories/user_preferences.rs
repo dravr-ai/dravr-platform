@@ -29,20 +29,32 @@ pub(crate) const SET_ANALYTICS_CONSENT_SQL: &str = r"
         ";
 
 /// Record which exposure notice of a provider the user accepted, and when. A
-/// later acceptance of a newer version replaces the row. `excluded` and
-/// `CURRENT_TIMESTAMP` are spellings both engines accept.
+/// later acceptance of a newer version replaces the row, and an acceptance
+/// clears an earlier withdrawal. `excluded` and `CURRENT_TIMESTAMP` are
+/// spellings both engines accept.
 pub(crate) const SET_PROVIDER_TERMS_SQL: &str = r"
         INSERT INTO provider_terms_consents (user_id, provider, version, consented_at)
         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
         ON CONFLICT (user_id, provider) DO UPDATE SET
             version = excluded.version,
-            consented_at = excluded.consented_at
+            consented_at = excluded.consented_at,
+            withdrawn_at = NULL
         ";
 
-/// Read the exposure-notice version the user accepted for a provider; there is
-/// no row until they accept one.
-pub(crate) const GET_PROVIDER_TERMS_SQL: &str =
-    "SELECT version FROM provider_terms_consents WHERE user_id = $1 AND provider = $2";
+/// Read the notice version the user accepted for a provider and has not
+/// withdrawn; there is no row until they accept one, and a withdrawn row
+/// reads as none.
+pub(crate) const GET_PROVIDER_TERMS_SQL: &str = r"
+        SELECT version FROM provider_terms_consents
+        WHERE user_id = $1 AND provider = $2 AND withdrawn_at IS NULL
+        ";
+
+/// Stamp the user's standing acceptance of a provider's notice as withdrawn.
+/// Touches nothing when there is none: a withdrawal is never re-dated.
+pub(crate) const WITHDRAW_PROVIDER_TERMS_SQL: &str = r"
+        UPDATE provider_terms_consents SET withdrawn_at = CURRENT_TIMESTAMP
+        WHERE user_id = $1 AND provider = $2 AND withdrawn_at IS NULL
+        ";
 
 /// Set the user's preferred locale.
 pub(crate) const SET_LOCALE_SQL: &str = "UPDATE users SET locale = $1 WHERE id = $2";
@@ -155,8 +167,37 @@ macro_rules! impl_user_preferences {
             Ok(())
         }
 
-        /// The exposure-notice version the user accepted for `provider`, or
-        /// `None` when they have accepted none.
+        /// Withdraw the user's standing acceptance of `provider`'s notice.
+        ///
+        /// The row stays, with the version last accepted and the time of the
+        /// withdrawal; the acceptance reads as none from then on, until the
+        /// user accepts again.
+        ///
+        /// Returns whether an acceptance was standing.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the database write fails.
+        pub async fn withdraw_provider_terms(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+            provider: &str,
+        ) -> AppResult<bool> {
+            let result = sqlx::query(WITHDRAW_PROVIDER_TERMS_SQL)
+                .bind($ids::bind(user_id))
+                .bind(provider)
+                .execute(pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!(
+                        "Failed to withdraw the {provider} notice consent: {e}"
+                    ))
+                })?;
+            Ok(result.rows_affected() > 0)
+        }
+
+        /// The notice version the user accepted for `provider` and has not
+        /// withdrawn, or `None` when no acceptance stands.
         ///
         /// # Errors
         ///

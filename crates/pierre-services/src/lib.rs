@@ -245,6 +245,9 @@ mod oauth_state_redeem;
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
+/// Cache TTL sweep: evicts provider data held past the cap its terms declare
+pub mod provider_cache_sweeper;
+
 /// What a Strava reconnect owes the grants it replaces: a guarded store, then revocation
 pub mod strava_reconnect;
 

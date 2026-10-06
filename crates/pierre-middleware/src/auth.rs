@@ -15,7 +15,7 @@ use pierre_auth::rate_limiting::{
 };
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_auth::user_status::enforce_user_status;
-use pierre_core::auth_header::is_api_key_format;
+use pierre_core::auth_header::{is_api_key_format, is_user_mcp_token_format};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::{TenantId, User};
@@ -93,6 +93,18 @@ fn session_token_refused() -> AppError {
     AppError::auth_invalid(
         "A Dravr sign-in session is not accepted by the MCP and A2A endpoints; \
          authorize this client with OAuth or use an API key",
+    )
+}
+
+/// The refusal a personal MCP token (`pmcp_`) meets anywhere but `/mcp`.
+///
+/// `PermissionDenied`, as for a delegated grant: the token is genuine, it is
+/// an MCP client's credential, and the caller is told where it is accepted
+/// rather than being sent back to re-authenticate by a 401.
+fn mcp_token_refused() -> AppError {
+    AppError::new(
+        ErrorCode::PermissionDenied,
+        "A personal MCP token is accepted only by the MCP endpoint",
     )
 }
 
@@ -390,6 +402,35 @@ impl McpAuthMiddleware {
                 }
             }
         }
+        // Then a personal MCP token, which an MCP client sends as a bearer
+        // token but which is no JWT: it resolves through its own table
+        else if let Some(token) = auth_str
+            .strip_prefix("Bearer ")
+            .filter(|token| is_user_mcp_token_format(token))
+        {
+            tracing::Span::current().record("auth_method", "MCP_TOKEN");
+            debug!("Attempting personal MCP token authentication");
+            match settle(self.authenticate_user_mcp_token(token, policy).await) {
+                Ok(result) => {
+                    let span = tracing::Span::current();
+                    span.record("user_id", result.user_id.to_string())
+                        .record("success", true);
+                    if let Some(tid) = result.active_tenant_id {
+                        span.record("tenant_id", tid.to_string());
+                    }
+                    info!(
+                        "MCP token authentication successful for user: {}",
+                        result.user_id
+                    );
+                    Ok(result)
+                }
+                Err(e) => {
+                    tracing::Span::current().record("success", false);
+                    warn!("MCP token authentication failed: {}", e);
+                    Err(e)
+                }
+            }
+        }
         // Then try Bearer token authentication
         else if let Some(token) = auth_str.strip_prefix("Bearer ") {
             tracing::Span::current().record("auth_method", "JWT_TOKEN");
@@ -510,6 +551,80 @@ impl McpAuthMiddleware {
                 // them, so the credential is not a narrowed delegation. The
                 // role gate still decides admin independently.
                 scopes: OAuthScope::self_grant(),
+            },
+            budget,
+        })
+    }
+
+    /// Authenticate a personal MCP token (`pmcp_`, carnet#788).
+    ///
+    /// The token an athlete mints in Settings for an MCP client. It is that
+    /// client's credential, so it carries [`OAuthScope::delegable_grant`] —
+    /// everything but `admin` — and is accepted only where the caller enforces
+    /// scopes. Under [`GrantPolicy::DirectOnly`] it is refused before anything
+    /// is read or written for it, as a delegated OAuth grant is. It spends the
+    /// owner's monthly request budget, as their sessions do, and passes the
+    /// same account-status gate.
+    ///
+    /// A2A never reaches here with one: it checks a JWT's signature before
+    /// calling the scoped entry point, and a personal MCP token is no JWT.
+    async fn authenticate_user_mcp_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
+        if policy == GrantPolicy::DirectOnly {
+            warn!("Personal MCP token refused on a path that does not enforce scopes");
+            return Err(Refused::Failed(mcp_token_refused()));
+        }
+
+        // Unknown, revoked and expired tokens are refused as invalid here.
+        let validated = self.repos.user_mcp_tokens.validate_token(token).await?;
+        let user_id = validated.user_id;
+
+        // SECURITY: Global lookup — token validation, no tenant context yet.
+        let user = self
+            .repos
+            .users
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User {user_id} for MCP token")))?;
+        enforce_user_status(user.user_status).inspect_err(|e| {
+            warn!(
+                user_id = %user_id,
+                status = ?user.user_status,
+                error = %e,
+                "MCP token access denied by user-status gate"
+            );
+        })?;
+
+        let now = Utc::now();
+        let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let budget = calculate_jwt_rate_limit(&user, usage, now);
+        enforce_request_budget(budget, now)
+            .map_err(|error| Refused::OverBudget { budget, error })?;
+        record_jwt_usage_for_request(&self.repos, user_id, "mcp:token", "AUTH").await;
+        self.note_activity(&user).await;
+
+        // Like an API key, the token names no tenant: the owner's first one.
+        let active_tenant_id = self
+            .repos
+            .tenants
+            .list_for_user(user_id)
+            .await
+            .map_err(|e| {
+                AppError::database(format!(
+                    "Failed to resolve tenant for MCP token user {user_id}: {e}"
+                ))
+            })?
+            .first()
+            .map(|t| t.id.as_uuid());
+
+        Ok(Admitted {
+            auth: AuthResult {
+                user_id,
+                auth_method: AuthMethod::McpToken {
+                    token_id: validated.token_id,
+                    tier: format!("{:?}", user.tier).to_lowercase(),
+                },
+                active_tenant_id,
+                scopes: OAuthScope::delegable_grant(),
             },
             budget,
         })

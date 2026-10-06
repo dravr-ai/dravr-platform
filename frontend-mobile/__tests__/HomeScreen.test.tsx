@@ -463,6 +463,16 @@ describe('recent activities', () => {
     expect(mockPush).toHaveBeenCalledTimes(2);
   });
 
+  it('shows the Garmin attribution beside a Garmin-recorded activity, and only there', async () => {
+    const garmin = { ...ACTIVITIES[1], provider: 'intervals_icu', id: 'g1', attribution: 'Garmin' };
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[0], garmin] }));
+    const screen = renderHome();
+
+    const row = await screen.findByTestId('home-activity-intervals_icu-g1');
+    expect(within(row).getByTestId('activity-attribution')).toHaveTextContent('· Garmin');
+    expect(screen.getAllByTestId('activity-attribution')).toHaveLength(1);
+  });
+
   it('says a latest activity whose route read held no GPS recorded no track, without asking again', async () => {
     expect(ACTIVITIES[3].has_gps).toBe(false);
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[3]] }));

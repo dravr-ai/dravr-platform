@@ -1,4 +1,4 @@
-// ABOUTME: OAuth2 endpoint rate limiting: one window per endpoint per client address, shared across replicas on Redis
+// ABOUTME: OAuth2 endpoint rate limiting: one window per endpoint per client address (or per account), shared on Redis
 // ABOUTME: Reports each window's limit, remaining allowance and reset for the 429 refusal and its Retry-After
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -106,10 +106,34 @@ impl OAuth2RateLimiter {
         endpoint: OAuth2Endpoint,
         client_ip: IpAddr,
     ) -> AppResult<OAuth2RateLimitStatus> {
+        let key = Self::window_key(endpoint, &metering_key(client_ip).to_string());
+        self.status(endpoint, &key).await
+    }
+
+    /// Count one attempt at `endpoint` by the signed-in account `user_id` and
+    /// report its window: a window per account, wherever the requests come
+    /// from, for the checks a session makes on its own account's password.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when neither store can count the attempt.
+    pub async fn check_account_rate_limit(
+        &self,
+        endpoint: OAuth2Endpoint,
+        user_id: Uuid,
+    ) -> AppResult<OAuth2RateLimitStatus> {
+        let key = Self::window_key(endpoint, &format!("user:{user_id}"));
+        self.status(endpoint, &key).await
+    }
+
+    /// Count one hit in `endpoint`'s window at `key` and report the window.
+    async fn status(
+        &self,
+        endpoint: OAuth2Endpoint,
+        key: &CacheKey,
+    ) -> AppResult<OAuth2RateLimitStatus> {
         let limit = self.limits.get_limit(endpoint);
-        let counted = self
-            .count(endpoint, &Self::window_key(endpoint, client_ip))
-            .await?;
+        let counted = self.count(endpoint, key).await?;
 
         // Requests the window counted before this one.
         let before = u32::try_from(counted.hits.saturating_sub(1)).unwrap_or(u32::MAX);
@@ -146,13 +170,14 @@ impl OAuth2RateLimiter {
         self.local.count_in_window(key, self.window).await
     }
 
-    /// The cache key of `endpoint`'s window for `client_ip`
-    fn window_key(endpoint: OAuth2Endpoint, client_ip: IpAddr) -> CacheKey {
+    /// The cache key of `endpoint`'s window for `subject` (a metered client
+    /// address, or `user:<id>` for an account's own window)
+    fn window_key(endpoint: OAuth2Endpoint, subject: &str) -> CacheKey {
         CacheKey::new(
             TenantId::nil(),
             Uuid::nil(),
             WINDOW_KEY_NAMESPACE.to_owned(),
-            CacheResource::Custom(format!("{}:{}", endpoint.as_str(), metering_key(client_ip))),
+            CacheResource::Custom(format!("{}:{subject}", endpoint.as_str())),
         )
     }
 }

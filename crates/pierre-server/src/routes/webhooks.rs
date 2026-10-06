@@ -1,5 +1,5 @@
 // ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava) — validate, resolve the owner, sync
-// ABOUTME: A Strava write fetches the owner's recent activities and scans new runs; a delete evicts the cached row; WHOOP runs the health sync
+// ABOUTME: Strava: a write fetches and scans new runs, a delete evicts the row, a deauthorization disconnects; WHOOP syncs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,9 @@ use uuid::Uuid;
 use pierre_core::constant_time::{configured_secret, matches_configured_secret};
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner};
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
@@ -215,7 +217,10 @@ impl WebhookRoutes {
     /// the drain-tracked spawner (see [`sync_strava_owner`]); the fetch writes
     /// through to the activity cache with the freshness mark. A delete
     /// evicts the activity's cached row on the same spawner
-    /// ([`evict_deleted_strava_activity`]) and fetches nothing; athlete
+    /// ([`evict_deleted_strava_activity`]) and fetches nothing. An athlete
+    /// event whose `updates` carry `"authorized": "false"` means the athlete
+    /// revoked Dravr on Strava's side: they are disconnected and their Strava
+    /// data purged ([`disconnect_deauthorized_strava_owner`]). Other athlete
     /// events are acknowledged and left alone.
     ///
     /// An event whose `subscription_id` is not one this deployment
@@ -246,6 +251,13 @@ impl WebhookRoutes {
             return refusal;
         }
 
+        if event.is_deauthorization() {
+            let resources = Arc::clone(resources);
+            resources.common.turns.clone().spawn(Box::pin(async move {
+                disconnect_deauthorized_strava_owner(&resources, &event).await;
+            }));
+            return StatusCode::OK;
+        }
         if event.is_activity_delete() {
             let resources = Arc::clone(resources);
             resources.common.turns.clone().spawn(Box::pin(async move {
@@ -529,6 +541,58 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
     }
 }
 
+/// Withdraw an athlete who revoked Dravr's access on Strava's side.
+///
+/// Strava's API agreement makes the athlete's consent withdrawal a deletion
+/// obligation, and the deauthorization event is how Strava says it happened.
+/// The owner is disconnected through the same chokepoint as their own
+/// disconnect, with [`DisconnectReason::ProviderRevoked`]: the grant is
+/// already gone, so nothing is sent upstream, and the token, the connection
+/// and every row Strava contributed are deleted, with the purge's attestation
+/// row. A failure is logged at ERROR, since it leaves data the athlete
+/// withdrew.
+async fn disconnect_deauthorized_strava_owner(
+    resources: &Arc<ServerContext>,
+    event: &StravaWebhookEvent,
+) {
+    let owner_id = event.owner_id.to_string();
+    let Some(WebhookOwner {
+        user_id, tenant_id, ..
+    }) = resolve_owner(resources, "strava", &owner_id).await
+    else {
+        return;
+    };
+    let Ok(tenant) = TenantId::parse_str(&tenant_id) else {
+        error!(
+            user_id = %user_id,
+            "Strava deauthorization: the webhook owner carries an unparseable tenant id; nothing was deleted"
+        );
+        return;
+    };
+    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
+    match service
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.as_uuid()),
+            DisconnectReason::ProviderRevoked,
+        )
+        .await
+    {
+        Ok(_) => info!(
+            user_id = %user_id,
+            tenant_id = %tenant,
+            "Strava deauthorization: the athlete is disconnected and their Strava data deleted"
+        ),
+        Err(e) => error!(
+            user_id = %user_id,
+            tenant_id = %tenant,
+            error = %e,
+            "Strava deauthorization: the disconnect failed; the athlete's Strava data may remain"
+        ),
+    }
+}
+
 /// Record what a webhook-triggered Strava fetch landed: stamp `last_sync`,
 /// re-arm the sync-failure notice, tell the athlete's SSE stream when the
 /// window held activities, then scan the new runs for personal records.
@@ -697,6 +761,11 @@ struct StravaWebhookEvent {
     subscription_id: u64,
     /// Unix timestamp of the event
     event_time: u64,
+    /// What changed. Strava sends `{"authorized": "false"}` on an athlete
+    /// event when the athlete revokes the app; activity updates name the
+    /// fields that changed.
+    #[serde(default)]
+    updates: HashMap<String, serde_json::Value>,
 }
 
 impl StravaWebhookEvent {
@@ -708,6 +777,16 @@ impl StravaWebhookEvent {
     fn is_activity_write(&self) -> bool {
         self.object_type == "activity"
             && (self.aspect_type == "create" || self.aspect_type == "update")
+    }
+
+    /// Whether the event announces that the athlete revoked Dravr's access:
+    /// an athlete event whose `updates` set `authorized` to false, which
+    /// Strava sends as the string `"false"`.
+    fn is_deauthorization(&self) -> bool {
+        self.object_type == "athlete"
+            && self.updates.get("authorized").is_some_and(|authorized| {
+                authorized.as_str() == Some("false") || authorized.as_bool() == Some(false)
+            })
     }
 
     /// Whether the event announces an activity the athlete deleted on Strava.

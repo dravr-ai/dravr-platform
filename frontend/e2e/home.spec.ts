@@ -72,6 +72,7 @@ function activity(id: string, overrides: Record<string, unknown> = {}) {
     elevation_gain_meters: 85,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
     ...overrides,
   };
 }

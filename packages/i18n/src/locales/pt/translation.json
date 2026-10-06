@@ -84,6 +84,40 @@
     "signOutHint": "Termina a sessão da tua conta neste dispositivo.",
     "usageUnavailable": "Dados de utilização indisponíveis"
   },
+  "accountDeletion": {
+    "title": "Excluir conta",
+    "description": "Exclui para sempre sua conta Dravr e tudo o que ela contém: seu perfil, conversas, memória, planos e atividades sincronizadas. Os provedores conectados são desconectados e o acesso deles é revogado. Não dá para desfazer.",
+    "action": "Excluir conta",
+    "confirmTitle": "Excluir sua conta?",
+    "confirmBody": "Tudo é apagado na hora e não poderá ser recuperado.",
+    "providersLine": "Estes provedores serão desconectados: {{providers}}",
+    "emailLabel": "Digite seu e-mail para confirmar",
+    "emailHint": "Digite {{email}}",
+    "passwordLabel": "Senha",
+    "confirmAction": "Excluir minha conta",
+    "cancel": "Cancelar",
+    "loading": "Verificando sua conta…",
+    "blockedTitle": "Resolva isto primeiro",
+    "blockedBody": "Outras pessoas dependem disso. Transfira ou remova e depois volte.",
+    "emailMismatch": "Esse e-mail não corresponde à sua conta.",
+    "passwordRequired": "Digite sua senha.",
+    "passwordIncorrect": "Essa senha está incorreta.",
+    "tooManyAttempts": "Muitas tentativas de senha. Espere um minuto e tente de novo.",
+    "failed": "Não foi possível excluir sua conta. Tente de novo em instantes.",
+    "blocker": {
+      "owns_coaching_group": "Você é dono do grupo “{{detail}}”",
+      "coaches_coaching_group": "Você treina o grupo “{{detail}}”",
+      "created_group_invite": "Você criou um convite para “{{detail}}”",
+      "admin_config_override": "Você definiu a configuração {{detail}}",
+      "admin_config_audit": "Você alterou a configuração {{detail}}",
+      "tenant_oauth_credentials": "Você configurou {{detail}}",
+      "llm_credentials": "Você adicionou credenciais de IA para {{detail}}",
+      "approved_user": "Você aprovou {{detail}}",
+      "owns_tenant": "Você é o único dono do espaço “{{detail}}”",
+      "authored_agent": "Outras pessoas usam seu agente “{{detail}}”",
+      "billing_subscription": "Sua assinatura ainda está ativa: {{detail}}"
+    }
+  },
   "apiKeys": {
     "blurb": "As chaves que os teus próprios scripts e ferramentas usam para chamar a API do Dravr em teu nome. Cada uma funciona até a revogares ou expirar.",
     "copied": "Copiada",
@@ -1160,6 +1194,30 @@
     "confirm": {
       "description": "Aprovar uma ação que o guardião de segurança deixou em espera"
     },
+    "delete-account": {
+      "description": "Excluir para sempre sua conta e todos os dados dela",
+      "warning": "Isso exclui para sempre sua conta Dravr e tudo o que ela contém: seu perfil, conversas, memória, planos e atividades sincronizadas. Os provedores conectados são desconectados e o acesso deles é revogado. Não dá para desfazer.\n\nPara confirmar, envie `/deleteaccount {0}`",
+      "providers": "Estes provedores serão desconectados: {0}",
+      "email_mismatch": "Esse e-mail não corresponde à sua conta. Envie `/deleteaccount` para ver o que digitar.",
+      "dm_only": "Envie `/deleteaccount` para mim em mensagem direta, para que seu e-mail não seja publicado aqui.",
+      "operator": "Uma conta de operador é removida por outro operador.",
+      "blocked": "Sua conta ainda não pode ser excluída. Outras pessoas dependem disto:\n{0}\n\nTransfira ou remova e tente de novo.",
+      "done": "Sua conta e todos os dados dela foram excluídos. Obrigado por treinar com a Dravr.",
+      "failed": "Não foi possível excluir sua conta. Tente de novo em instantes.",
+      "blocker": {
+        "owns_coaching_group": "Você é dono do grupo “{0}”",
+        "coaches_coaching_group": "Você treina o grupo “{0}”",
+        "created_group_invite": "Você criou um convite para “{0}”",
+        "admin_config_override": "Você definiu a configuração {0}",
+        "admin_config_audit": "Você alterou a configuração {0}",
+        "tenant_oauth_credentials": "Você configurou {0}",
+        "llm_credentials": "Você adicionou credenciais de IA para {0}",
+        "approved_user": "Você aprovou {0}",
+        "owns_tenant": "Você é o único dono do espaço “{0}”",
+        "authored_agent": "Outras pessoas usam seu agente “{0}”",
+        "billing_subscription": "Sua assinatura ainda está ativa: {0}"
+      }
+    },
     "deny": {
       "description": "Cancelar uma ação que o guardião de segurança deixou em espera"
     },
@@ -2231,6 +2289,9 @@
     "verification": {
       "block_fallback": "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?",
       "warn_suffix": "⚠️ Algumas afirmações que não consegui sustentar formalmente — corrige-me se alguma estiver errada:"
+    },
+    "attribution": {
+      "garmin": "Análise derivada em parte de dados provenientes de dispositivos Garmin."
     }
   },
   "msgChan": {
@@ -2716,7 +2777,16 @@
       "consent": "Enquanto proprietário destes dados, autorizo o Dravr a guardar as minhas medições do WHOOP, a calcular métricas de treino a partir delas e a fornecê-las ao meu agente de IA. Posso revogar esta autorização a qualquer momento."
     },
     "authorizeToKeepSyncing": "Autoriza o {{provider}} para continuar a sincronizar",
-    "authorizeAction": "Autorizar"
+    "authorizeAction": "Autorizar",
+    "aiConsent": {
+      "title": "Uso dos seus dados pela IA",
+      "blurb": "Alguns serviços permitem que você escolha se o seu agente de IA pode ler os dados deles. Retirar o consentimento interrompe o uso pela IA na hora: seus dados continuam visíveis no app e a conexão continua ativa.",
+      "label": "Permitir que meu agente de IA leia os dados de {{provider}}",
+      "withdraw": "Retirar o uso pela IA",
+      "withdrawn": "Uso pela IA retirado. Seu agente não lê mais os dados de {{provider}}.",
+      "allowed": "Uso pela IA permitido. Seu agente volta a ler os dados de {{provider}}.",
+      "failed": "Não foi possível atualizar seu consentimento de IA. Tente novamente."
+    }
   },
   "settings": {
     "account": "Conta",

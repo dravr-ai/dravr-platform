@@ -86,6 +86,7 @@ use pierre_core::constants::oauth::{
 };
 use pierre_core::transport::TransportPolicy;
 use std::fmt;
+use std::time::Duration;
 
 #[cfg(feature = "provider-intervals-icu")]
 use crate::intervals_icu_provider::{
@@ -323,6 +324,22 @@ pub trait ProviderDescriptor: Send + Sync {
     /// policies live in [`crate::provider_terms`].
     fn transport_policy(&self) -> TransportPolicy {
         TransportPolicy::AnyTransport
+    }
+
+    /// How long a copy of this provider's data may be held before it must be
+    /// fetched again, or `None` when its terms set no cap (the default). The
+    /// cache TTL sweep evicts every copy older than this; the declared caps
+    /// live in [`crate::provider_terms`].
+    fn cache_ttl(&self) -> Option<Duration> {
+        None
+    }
+
+    /// Whether this provider's terms bar using its data to improve Dravr's AI
+    /// for other athletes: the cross-athlete priors the archetype aggregation
+    /// learns from every athlete's playbooks. `false` unless a provider's
+    /// terms say so.
+    fn bars_cross_athlete_learning(&self) -> bool {
+        false
     }
 
     /// Whether this provider requires OAuth authentication
@@ -612,6 +629,14 @@ impl ProviderDescriptor for WhoopDescriptor {
 
     fn ai_policy(&self) -> &'static SourcePolicy {
         &provider_terms::WHOOP
+    }
+
+    /// WHOOP's API Terms (§4, effective 2026-10-06) bar using WHOOP Data to
+    /// "create, develop, test, train, fine-tune or improve" an AI system.
+    /// Per-athlete coaching reads it; learning from it for other athletes
+    /// does not (carnet#539 point 5).
+    fn bars_cross_athlete_learning(&self) -> bool {
+        true
     }
 
     fn default_scopes(&self) -> &'static [&'static str] {

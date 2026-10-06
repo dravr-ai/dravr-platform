@@ -33,6 +33,15 @@ pub struct UserMcpToken {
     pub created_at: DateTime<Utc>,
 }
 
+/// A presented token that resolved to a live row: which token, and whose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedUserMcpToken {
+    /// The token's row id, which names it in the owner's token list
+    pub token_id: String,
+    /// Owner user ID
+    pub user_id: Uuid,
+}
+
 /// Response when creating a new token (includes the actual token value)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserMcpTokenCreated {

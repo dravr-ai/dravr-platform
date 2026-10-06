@@ -280,6 +280,13 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
                 <span className="font-mono">{formatInstant(data.activity.start_date, language, ROW_DATE)}</span>
                 {' · '}
                 {sport}
+                {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
+                {data.activity.attribution && (
+                  <span data-testid="activity-attribution">
+                    {' · '}
+                    {data.activity.attribution}
+                  </span>
+                )}
               </p>
               <ActivityMap activity={data.activity} />
             </div>

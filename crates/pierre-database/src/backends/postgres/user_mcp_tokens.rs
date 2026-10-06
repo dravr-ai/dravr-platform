@@ -8,6 +8,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
+    ValidatedUserMcpToken,
 };
 use sqlx::postgres::PgRow;
 use sqlx::Row;

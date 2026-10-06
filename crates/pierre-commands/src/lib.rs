@@ -26,6 +26,8 @@
 
 /// Account management commands (logout, profile)
 pub mod account;
+/// `/deleteaccount` — self-serve account deletion behind a typed-email confirmation
+pub mod account_deletion;
 /// The `/agent` command tree (list, add, remove, invite, assign)
 pub mod agent;
 /// `/agent create` — draft an agent from the conversation, confirm to create it.

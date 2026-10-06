@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     ConnectionType, DailyTrainingState, DataSource, DeviceType, StoredRecoveryMetrics,
     StoredSleepSession, TenantId,
@@ -60,6 +61,16 @@ async fn athlete_with_wearable(
     repos
         .provider_connections
         .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+        .await?;
+    // WHOOP connects, and health sync keeps its rows, only under its owner
+    // authorization — also the consent to hand them to a model (carnet#726).
+    repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "whoop",
+            provider_terms_version("whoop").expect("WHOOP carries a notice"),
+        )
         .await?;
     let data_source = repos
         .data_sources

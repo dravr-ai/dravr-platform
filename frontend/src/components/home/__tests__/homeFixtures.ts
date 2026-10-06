@@ -131,6 +131,7 @@ export function activity(overrides: Partial<HomeActivity> & Pick<HomeActivity, '
     elevation_gain_meters: 85,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
     ...overrides,
   };
 }
@@ -170,6 +171,7 @@ export function fiveActivities(): HomeActivity[] {
       name: 'Lake loop',
       start_date: '2026-09-14T11:00:00Z',
       summary_polyline: null,
+      attribution: null,
       has_gps: true,
     }),
   ];

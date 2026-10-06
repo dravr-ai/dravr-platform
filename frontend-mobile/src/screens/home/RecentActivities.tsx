@@ -25,6 +25,8 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
       <Text className="font-mono tabular-nums">{instantShortDate(activity.start_date, language)}</Text>
       {' · '}
       {sportLabel(t, activity.sport_type)}
+      {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
+      {activity.attribution && <Text testID="activity-attribution">{` · ${activity.attribution}`}</Text>}
       {activityFigures(t, activity, language).map((figure, index) => (
         // Positional: the figures are distance, time and climb, in that order.
         <Text key={index}>

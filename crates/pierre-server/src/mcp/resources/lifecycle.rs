@@ -33,6 +33,7 @@ use pierre_commands as commands;
 #[cfg(feature = "client-messaging")]
 use pierre_commands::{
     account::LogoutHandler,
+    account_deletion::DeleteAccountHandler,
     agent::{
         AgentAddHandler, AgentAssignHandler, AgentListHandler, AgentRemoveHandler,
         CoachInviteHandler,
@@ -708,6 +709,7 @@ impl ServerContext {
         let handlers: HashMap<String, Arc<dyn CommandHandler>> = [
             ("status", Arc::new(StatusHandler) as Arc<dyn CommandHandler>),
             ("logout", Arc::new(LogoutHandler)),
+            ("delete-account", Arc::new(DeleteAccountHandler)),
             ("group", Arc::new(GroupListHandler)),
             ("group-status", Arc::new(GroupStatusHandler)),
             ("group-members", Arc::new(GroupMembersHandler)),

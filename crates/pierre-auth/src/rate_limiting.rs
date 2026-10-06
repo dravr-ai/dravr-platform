@@ -198,6 +198,9 @@ pub enum OAuth2Endpoint {
     Token,
     /// `POST /oauth2/register`
     Register,
+    /// A signed-in account re-confirming its password (`change-password`,
+    /// account deletion), metered per account rather than per address
+    PasswordConfirm,
 }
 
 impl OAuth2Endpoint {
@@ -208,6 +211,7 @@ impl OAuth2Endpoint {
             Self::Authorize => "authorize",
             Self::Token => "token",
             Self::Register => "register",
+            Self::PasswordConfirm => "password_confirm",
         }
     }
 }
@@ -221,6 +225,8 @@ pub struct OAuth2RateLimitConfig {
     pub token_rpm: u32,
     /// Requests per minute for registration endpoint
     pub register_rpm: u32,
+    /// Password re-confirmations per account per window
+    pub password_confirm_rpm: u32,
 }
 
 impl OAuth2RateLimitConfig {
@@ -232,6 +238,7 @@ impl OAuth2RateLimitConfig {
             authorize_rpm: oauth_rate_limiting::AUTHORIZE_RPM, // 1 per second
             token_rpm: oauth_rate_limiting::TOKEN_RPM,         // 1 per 2 seconds
             register_rpm: oauth_rate_limiting::REGISTER_RPM,   // 1 per 6 seconds
+            password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
         }
     }
 
@@ -242,16 +249,23 @@ impl OAuth2RateLimitConfig {
             authorize_rpm: config.oauth_authorize_rpm,
             token_rpm: config.oauth_token_rpm,
             register_rpm: config.oauth_register_rpm,
+            password_confirm_rpm: config.password_confirm_rpm,
         }
     }
 
     /// Create custom `OAuth2` rate limit configuration
     #[must_use]
-    pub const fn custom(authorize_rpm: u32, token_rpm: u32, register_rpm: u32) -> Self {
+    pub const fn custom(
+        authorize_rpm: u32,
+        token_rpm: u32,
+        register_rpm: u32,
+        password_confirm_rpm: u32,
+    ) -> Self {
         Self {
             authorize_rpm,
             token_rpm,
             register_rpm,
+            password_confirm_rpm,
         }
     }
 
@@ -262,6 +276,7 @@ impl OAuth2RateLimitConfig {
             OAuth2Endpoint::Authorize => self.authorize_rpm,
             OAuth2Endpoint::Token => self.token_rpm,
             OAuth2Endpoint::Register => self.register_rpm,
+            OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
         }
     }
 }

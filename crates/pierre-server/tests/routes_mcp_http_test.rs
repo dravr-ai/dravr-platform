@@ -23,10 +23,10 @@ use pierre_config::environment::{
     SecurityHeadersConfig, ServerConfig,
 };
 use pierre_config::mcp::McpConfig;
-use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::models::{CreateUserMcpTokenRequest, Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
-    routes::mcp::McpRoutes,
+    routes::{mcp::McpRoutes, user_mcp_tokens::UserMcpTokenRoutes},
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -1326,4 +1326,170 @@ async fn test_mcp_tools_refuses_a_first_party_session_token() {
 
     assert_eq!(response.status(), 401);
     assert!(response.header("www-authenticate").is_some());
+}
+
+// ============================================================================
+// Personal MCP tokens (carnet#788)
+// ============================================================================
+
+/// Mint a personal MCP token for `user_id` through the repository the
+/// Settings pane and the approval flow use, and return its raw value.
+async fn mint_personal_mcp_token(resources: &Arc<ServerContext>, user_id: uuid::Uuid) -> String {
+    let created = resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .create_token(
+            user_id,
+            &CreateUserMcpTokenRequest {
+                name: "Claude Desktop".to_owned(),
+                expires_in_days: None,
+            },
+        )
+        .await
+        .expect("mint the personal MCP token");
+    assert!(created.token_value.starts_with("pmcp_"));
+    created.token_value
+}
+
+/// The token an athlete mints in Settings authenticates `POST /mcp` and the
+/// `GET /mcp/tools` twin, and each use is counted on the token's row.
+#[tokio::test]
+async fn test_mcp_serves_a_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    let served = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(served.status(), 200, "the personal MCP token is served");
+    assert!(served.json::<serde_json::Value>()["result"]["tools"].is_array());
+
+    let discovery = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(setup.routes())
+        .await;
+    assert_eq!(discovery.status(), 200);
+
+    let listed = setup
+        .resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed[0].usage_count, 2,
+        "each authenticated call is counted"
+    );
+    assert!(listed[0].last_used_at.is_some());
+}
+
+/// A revoked personal MCP token is an invalid token: the 401 `invalid_token`
+/// challenge, as for any credential the server no longer honours.
+#[tokio::test]
+async fn test_mcp_refuses_a_revoked_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+    let repos = &setup.resources.common.repos;
+    let token_id = repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap()[0]
+        .id
+        .clone();
+    repos
+        .user_mcp_tokens
+        .revoke_token(&token_id, setup.user_id)
+        .await
+        .unwrap();
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }))
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a revoked token authenticates nothing"
+    );
+    assert!(refused
+        .header("www-authenticate")
+        .is_some_and(|challenge| challenge.contains("error=\"invalid_token\"")));
+}
+
+/// A personal MCP token is an MCP client's credential, never the athlete's
+/// own: a REST route, which acts with the athlete's whole authority, refuses
+/// it with 403 — here, the route that would let it mint more tokens.
+#[tokio::test]
+async fn test_rest_refuses_a_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+
+    let refused = AxumTestRequest::get("/api/user/mcp-tokens")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(UserMcpTokenRoutes::routes(setup.resources.clone()))
+        .await;
+    assert_eq!(
+        refused.status(),
+        403,
+        "a personal MCP token must not reach a REST route"
+    );
+    let listed = setup
+        .resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed[0].usage_count, 0,
+        "the refusal reads and writes nothing for the token"
+    );
+}
+
+/// The grant a personal MCP token carries is every delegable scope and never
+/// `admin`: a global admin's token is refused an `ADMIN_ONLY` tool with the
+/// RFC 6750 `insufficient_scope` challenge, while the same admin's API key
+/// (the self grant) clears it in `test_global_admin_user_is_allowed_admin_tool`.
+#[tokio::test]
+async fn test_personal_mcp_token_never_carries_admin() {
+    let email = "pmcp_global_admin@example.com";
+    let (resources, _api_key) = setup_with_admin_flag(email, true)
+        .await
+        .expect("setup failed");
+    let admin = resources
+        .common
+        .repos
+        .users
+        .get_by_email_required(email)
+        .await
+        .unwrap();
+    let token = mint_personal_mcp_token(&resources, admin.id).await;
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "admin_list_system_agents", "arguments": {} }
+        }))
+        .send(McpRoutes::routes(resources.clone()))
+        .await;
+    assert_eq!(refused.status(), 403, "admin is never in a token's grant");
+    let challenge = refused
+        .header("www-authenticate")
+        .expect("the refusal must carry a WWW-Authenticate challenge");
+    assert!(
+        challenge.contains("insufficient_scope") && challenge.contains("admin"),
+        "the challenge names the missing scope: {challenge}"
+    );
 }

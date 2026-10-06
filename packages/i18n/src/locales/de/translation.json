@@ -84,6 +84,40 @@
     "signOutHint": "Melde dich auf diesem Gerät von deinem Konto ab.",
     "usageUnavailable": "Nutzungsdaten nicht verfügbar"
   },
+  "accountDeletion": {
+    "title": "Konto löschen",
+    "description": "Lösche dein Dravr-Konto und alles darin endgültig: dein Profil, deine Unterhaltungen, dein Gedächtnis, deine Pläne und synchronisierten Aktivitäten. Verbundene Anbieter werden getrennt und ihr Zugriff wird widerrufen. Das lässt sich nicht rückgängig machen.",
+    "action": "Konto löschen",
+    "confirmTitle": "Dein Konto löschen?",
+    "confirmBody": "Alles wird sofort gelöscht und kann nicht wiederhergestellt werden.",
+    "providersLine": "Diese Anbieter werden getrennt: {{providers}}",
+    "emailLabel": "Gib zur Bestätigung deine E-Mail ein",
+    "emailHint": "Gib {{email}} ein",
+    "passwordLabel": "Passwort",
+    "confirmAction": "Mein Konto löschen",
+    "cancel": "Abbrechen",
+    "loading": "Dein Konto wird geprüft…",
+    "blockedTitle": "Kläre zuerst diese Punkte",
+    "blockedBody": "Andere verlassen sich darauf. Übergib oder entferne sie und komm dann zurück.",
+    "emailMismatch": "Diese E-Mail passt nicht zu deinem Konto.",
+    "passwordRequired": "Gib dein Passwort ein.",
+    "passwordIncorrect": "Dieses Passwort ist falsch.",
+    "tooManyAttempts": "Zu viele Passwortversuche. Warte eine Minute und versuch es dann noch einmal.",
+    "failed": "Dein Konto konnte nicht gelöscht werden. Versuch es gleich noch einmal.",
+    "blocker": {
+      "owns_coaching_group": "Dir gehört die Gruppe „{{detail}}“",
+      "coaches_coaching_group": "Du trainierst die Gruppe „{{detail}}“",
+      "created_group_invite": "Du hast eine Einladung zu „{{detail}}“ erstellt",
+      "admin_config_override": "Du hast die Konfiguration {{detail}} gesetzt",
+      "admin_config_audit": "Du hast die Konfiguration {{detail}} geändert",
+      "tenant_oauth_credentials": "Du hast {{detail}} konfiguriert",
+      "llm_credentials": "Du hast KI-Zugangsdaten für {{detail}} hinzugefügt",
+      "approved_user": "Du hast {{detail}} freigegeben",
+      "owns_tenant": "Du bist der einzige Inhaber des Bereichs „{{detail}}“",
+      "authored_agent": "Andere nutzen deinen Agenten „{{detail}}“",
+      "billing_subscription": "Dein Abo ist noch aktiv: {{detail}}"
+    }
+  },
   "apiKeys": {
     "blurb": "Schlüssel, mit denen deine eigenen Skripte und Tools die Dravr-API in deinem Namen aufrufen. Jeder gilt, bis du ihn widerrufst oder er abläuft.",
     "copied": "Kopiert",
@@ -1160,6 +1194,30 @@
     "confirm": {
       "description": "Eine vom Sicherheitswächter zurückgehaltene Aktion freigeben"
     },
+    "delete-account": {
+      "description": "Dein Konto und alle seine Daten endgültig löschen",
+      "warning": "Damit löschst du dein Dravr-Konto und alles darin endgültig: dein Profil, deine Unterhaltungen, dein Gedächtnis, deine Pläne und synchronisierten Aktivitäten. Verbundene Anbieter werden getrennt und ihr Zugriff wird widerrufen. Das lässt sich nicht rückgängig machen.\n\nZur Bestätigung sende `/deleteaccount {0}`",
+      "providers": "Diese Anbieter werden getrennt: {0}",
+      "email_mismatch": "Diese E-Mail passt nicht zu deinem Konto. Sende `/deleteaccount`, um zu sehen, was du eingeben musst.",
+      "dm_only": "Sende mir `/deleteaccount` als Direktnachricht, damit deine E-Mail hier nicht gepostet wird.",
+      "operator": "Ein Betreiberkonto wird von einem anderen Betreiber entfernt.",
+      "blocked": "Dein Konto kann noch nicht gelöscht werden. Andere verlassen sich darauf:\n{0}\n\nÜbergib oder entferne sie und versuch es dann noch einmal.",
+      "done": "Dein Konto und alle seine Daten wurden gelöscht. Danke, dass du mit Dravr trainiert hast.",
+      "failed": "Dein Konto konnte nicht gelöscht werden. Versuch es gleich noch einmal.",
+      "blocker": {
+        "owns_coaching_group": "Dir gehört die Gruppe „{0}“",
+        "coaches_coaching_group": "Du trainierst die Gruppe „{0}“",
+        "created_group_invite": "Du hast eine Einladung zu „{0}“ erstellt",
+        "admin_config_override": "Du hast die Konfiguration {0} gesetzt",
+        "admin_config_audit": "Du hast die Konfiguration {0} geändert",
+        "tenant_oauth_credentials": "Du hast {0} konfiguriert",
+        "llm_credentials": "Du hast KI-Zugangsdaten für {0} hinzugefügt",
+        "approved_user": "Du hast {0} freigegeben",
+        "owns_tenant": "Du bist der einzige Inhaber des Bereichs „{0}“",
+        "authored_agent": "Andere nutzen deinen Agenten „{0}“",
+        "billing_subscription": "Dein Abo ist noch aktiv: {0}"
+      }
+    },
     "deny": {
       "description": "Eine vom Sicherheitswächter zurückgehaltene Aktion abbrechen"
     },
@@ -2231,6 +2289,9 @@
     "verification": {
       "block_fallback": "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?",
       "warn_suffix": "⚠️ Ein paar Aussagen, die ich nicht formell belegen konnte — korrigier mich, wenn etwas davon nicht stimmt:"
+    },
+    "attribution": {
+      "garmin": "Erkenntnisse teilweise aus Daten von Garmin-Geräten abgeleitet."
     }
   },
   "msgChan": {
@@ -2716,7 +2777,16 @@
       "consent": "Als Eigentümer dieser Daten autorisiere ich Dravr, meine WHOOP-Messwerte zu speichern, daraus Trainingskennzahlen zu berechnen und sie meinem KI-Agenten bereitzustellen. Ich kann dies jederzeit widerrufen."
     },
     "authorizeToKeepSyncing": "Autorisiere {{provider}}, damit die Synchronisierung weiterläuft",
-    "authorizeAction": "Autorisieren"
+    "authorizeAction": "Autorisieren",
+    "aiConsent": {
+      "title": "KI-Nutzung deiner Daten",
+      "blurb": "Bei manchen Diensten entscheidest du, ob dein KI-Agent ihre Daten lesen darf. Ein Widerruf beendet die KI-Nutzung sofort: Deine Daten bleiben in der App sichtbar und die Verbindung bleibt aktiv.",
+      "label": "Meinem KI-Agenten erlauben, {{provider}}-Daten zu lesen",
+      "withdraw": "KI-Nutzung widerrufen",
+      "withdrawn": "KI-Nutzung widerrufen. Dein Agent liest keine {{provider}}-Daten mehr.",
+      "allowed": "KI-Nutzung erlaubt. Dein Agent liest wieder {{provider}}-Daten.",
+      "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut."
+    }
   },
   "settings": {
     "account": "Konto",

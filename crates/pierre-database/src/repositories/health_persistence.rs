@@ -111,6 +111,7 @@ pub(crate) const UPSERT_SLEEP_SESSION_SQL: &str = r"
             INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at, deep_sleep_seconds, light_sleep_seconds, rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             ON CONFLICT(user_id, tenant_id, provider, start_time) DO UPDATE SET
+                synced_at = EXCLUDED.synced_at,
                 end_time = EXCLUDED.end_time,
                 time_in_bed = EXCLUDED.time_in_bed,
                 total_sleep_time = EXCLUDED.total_sleep_time,
@@ -173,6 +174,7 @@ pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
             INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_ms, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at, hrv_rmssd, body_battery, spo2, athlete_note, training_load)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
+                synced_at = EXCLUDED.synced_at,
                 recovery_score = EXCLUDED.recovery_score,
                 readiness_score = EXCLUDED.readiness_score,
                 hrv_ms = EXCLUDED.hrv_ms,
@@ -234,6 +236,7 @@ pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
             INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at, bmi, vo2_max)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
+                synced_at = EXCLUDED.synced_at,
                 weight = EXCLUDED.weight,
                 bmi = EXCLUDED.bmi,
                 body_fat_percentage = EXCLUDED.body_fat_percentage,

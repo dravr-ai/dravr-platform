@@ -389,6 +389,15 @@ pub struct ProviderStatus {
     /// the credentials and posts `tos_consent: true` with the login; the login
     /// is refused without it.
     pub consent_required: bool,
+    /// The account's consent to AI use of this provider's data, for a
+    /// provider whose notice is one (WHOOP's owner authorization): `true`
+    /// while it is given in the current version, `false` while it is not —
+    /// never given, outdated or withdrawn — and then no model reads this
+    /// provider's data. Withdrawn with `DELETE` and given again with `PUT` on
+    /// `/api/providers/{provider}/ai-consent`. Absent for every provider that
+    /// asks no such consent of this account.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_consent: Option<bool>,
     /// What kind of account the user's own connection signed in with, once
     /// the provider has reported it: `"coach"` for a TrainingPeaks coach
     /// account, which keeps no calendar of its own, so the card can say where

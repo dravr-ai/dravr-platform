@@ -227,6 +227,7 @@ pub use session_refresh_token::SessionRefreshToken;
 mod user_mcp_token;
 pub use user_mcp_token::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
+    ValidatedUserMcpToken,
 };
 
 // Chat conversation and message record types

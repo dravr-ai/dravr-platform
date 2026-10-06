@@ -26,6 +26,7 @@ function detail(conversationId: string | null): ActivityDetailResponse {
       elevation_gain_meters: null,
       has_gps: true,
       summary_polyline: null,
+      attribution: null,
     },
     average_heart_rate: null,
     max_heart_rate: null,

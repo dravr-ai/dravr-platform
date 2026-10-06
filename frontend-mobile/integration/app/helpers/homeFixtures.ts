@@ -138,6 +138,7 @@ export const ACTIVITIES: HomeActivity[] = [
     elevation_gain_meters: 850,
     has_gps: true,
     summary_polyline: SUMMARY_POLYLINE,
+    attribution: null,
   },
   {
     id: '9000',
@@ -150,6 +151,7 @@ export const ACTIVITIES: HomeActivity[] = [
     elevation_gain_meters: 45,
     has_gps: true,
     summary_polyline: SUMMARY_POLYLINE,
+    attribution: null,
   },
   {
     id: 'i77',
@@ -162,6 +164,7 @@ export const ACTIVITIES: HomeActivity[] = [
     elevation_gain_meters: 410,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   },
   {
     id: '8999',
@@ -174,6 +177,7 @@ export const ACTIVITIES: HomeActivity[] = [
     elevation_gain_meters: null,
     has_gps: false,
     summary_polyline: null,
+    attribution: null,
   },
   {
     id: '8998',
@@ -186,6 +190,7 @@ export const ACTIVITIES: HomeActivity[] = [
     elevation_gain_meters: null,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   },
 ];
 

@@ -25,6 +25,7 @@ use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -542,8 +543,15 @@ async fn fetch_single_member_snapshot(
         });
 
     let tenants = member_connection_tenants(user_id, &connections, fallback_tenant_id);
-    let (activities, served_stale) =
-        fetch_member_activities_across_tenants(runtime, user_id, &tenants).await;
+    // The member's data reaches the requester's model under the member's own
+    // AI consents, not the requester's (carnet#726).
+    let (activities, served_stale) = under_ai_consent(
+        data.repos(),
+        fallback_tenant_id.as_uuid(),
+        user_id,
+        fetch_member_activities_across_tenants(runtime, user_id, &tenants),
+    )
+    .await;
     // Emit one log line per fetched activity so an operator can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride

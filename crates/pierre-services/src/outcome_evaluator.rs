@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
+use crate::provider_notice::under_ai_consent;
 use crate::stored_health;
 use crate::training_history_read::{history_rows_for_model, HistorySources};
 use chrono::Utc;
@@ -301,9 +302,15 @@ async fn evaluate_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> Adv
     };
     // Boxed: the history recompute makes the evaluation future large, and
     // every caller up to the scheduler would otherwise carry it inline.
+    // The judge reads under the athlete's AI consents (carnet#726).
     Box::pin(ai_scope::serve_over(
         Transport::PlatformJob,
-        ai_scope::for_model(evaluate_metric(&ctx)),
+        ai_scope::for_model(under_ai_consent(
+            ctx.inputs.repos,
+            ctx.tenant_id.as_uuid(),
+            ctx.user_id,
+            evaluate_metric(&ctx),
+        )),
     ))
     .await
 }

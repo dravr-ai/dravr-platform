@@ -31,7 +31,7 @@ use uuid::Uuid;
 use crate::admin::jwks::JwksManager;
 use pierre_core::constants::{
     limits::{OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, USER_SESSION_EXPIRY_HOURS},
-    service_names::{MCP, PIERRE_MCP_SERVER},
+    service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -278,12 +278,25 @@ pub enum AuthMethod {
         /// user-tier policy uniformly).
         tier: String,
     },
+    /// Personal MCP token authentication (`pmcp_`, carnet#788)
+    ///
+    /// The token an athlete mints in Settings and pastes into an MCP client
+    /// (Claude Desktop, Cursor). It is that client's credential, not the
+    /// athlete's own: accepted by `/mcp` only, carrying every delegable scope
+    /// and never `admin`, and refused by every REST route, as a delegated
+    /// OAuth grant is.
+    McpToken {
+        /// The token's row id in the owner's token list
+        token_id: String,
+        /// User tier for rate limiting (the owner's, as on a `JWT`)
+        tier: String,
+    },
 }
 
 impl AuthMethod {
-    /// Refuse to mint a session from an API key.
+    /// Refuse to mint a session from an API key or a personal MCP token.
     ///
-    /// An API key is a caller outside Dravr's apps; a session token is the
+    /// Either is a caller outside Dravr's apps; a session token is the
     /// athlete in one of them. Exchanged for a session, a key would read as the
     /// athlete's own app on every chat and REST route, past the transport gate
     /// that keeps some providers' data off external callers (carnet#724).
@@ -291,12 +304,16 @@ impl AuthMethod {
     /// # Errors
     ///
     /// [`ErrorCode::PermissionDenied`](pierre_core::errors::ErrorCode::PermissionDenied)
-    /// when the request was authenticated with an API key.
+    /// when the request was authenticated with an API key or an MCP token.
     pub fn refuse_api_key_upgrade(&self) -> AppResult<()> {
         match self {
             Self::ApiKey { .. } => Err(AppError::new(
                 ErrorCode::PermissionDenied,
                 "An API key cannot be exchanged for a session; sign in to obtain one",
+            )),
+            Self::McpToken { .. } => Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "An MCP token cannot be exchanged for a session; sign in to obtain one",
             )),
             Self::JwtToken { .. } | Self::ChannelLink { .. } => Ok(()),
         }
@@ -309,6 +326,7 @@ impl AuthMethod {
             Self::JwtToken { .. } => "JWT Token",
             Self::ApiKey { .. } => "API Key",
             Self::ChannelLink { .. } => "Channel Link",
+            Self::McpToken { .. } => "MCP Token",
         }
     }
 
@@ -330,6 +348,9 @@ impl AuthMethod {
                 format!(
                     "Channel Link (channel: {channel}, sender: {channel_user_id}, tier: {tier})"
                 )
+            }
+            Self::McpToken { token_id, tier } => {
+                format!("MCP Token (tier: {tier}, id: {token_id})")
             }
         }
     }
@@ -402,6 +423,40 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
+        self.generate_session_for(user, jwks_manager, active_tenant_id, MCP)
+    }
+
+    /// Generate the authorization server's own sign-in token: the one the
+    /// `/oauth2/login` form and its Google sign-in set in the
+    /// `pierre_session` cookie (carnet#787).
+    ///
+    /// It carries the self grant, because the consent screen it signs in
+    /// approves new grants, but its audience is [`OAUTH2_AUTHORIZE`], which
+    /// only [`Self::validate_authorization_session_token`] accepts. A script
+    /// that signs in through the hosted login form and lifts the cookie
+    /// holds a token chat, REST, MCP and A2A all refuse, rather than a
+    /// first-party session.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::generate_token_with_tenant`].
+    pub fn generate_authorization_session_token(
+        &self,
+        user: &User,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+    ) -> AppResult<String> {
+        self.generate_session_for(user, jwks_manager, active_tenant_id, OAUTH2_AUTHORIZE)
+    }
+
+    /// Mint a self-grant session token for `user` addressed to `audience`.
+    fn generate_session_for(
+        &self,
+        user: &User,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+        audience: &str,
+    ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + Duration::hours(self.token_expiry_hours);
 
@@ -414,7 +469,7 @@ impl AuthManager {
             jti: Uuid::new_v4().to_string(),
             providers: user.available_providers(),
             scope: Self::session_scope(),
-            aud: MCP.to_owned(),
+            aud: audience.to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
@@ -502,7 +557,36 @@ impl AuthManager {
         token: &str,
         jwks_manager: &JwksManager,
     ) -> AppResult<Claims> {
-        let claims = self.validate_token(token, jwks_manager)?;
+        Self::require_self_grant(self.validate_token(token, jwks_manager)?)
+    }
+
+    /// Validate the authorization server's own sign-in token, minted by
+    /// [`Self::generate_authorization_session_token`]: audience
+    /// [`OAUTH2_AUTHORIZE`] and the whole self grant.
+    ///
+    /// A platform session token is refused here, as this token is refused
+    /// everywhere else: each cookie carries the one audience its reader takes.
+    ///
+    /// # Errors
+    ///
+    /// A token that fails signature, issuer or expiry checks, whose audience
+    /// is not [`OAUTH2_AUTHORIZE`], or whose grant is narrower than the self
+    /// grant.
+    pub fn validate_authorization_session_token(
+        &self,
+        token: &str,
+        jwks_manager: &JwksManager,
+    ) -> AppResult<Claims> {
+        Self::require_self_grant(Self::validate_token_for(
+            token,
+            jwks_manager,
+            &[OAUTH2_AUTHORIZE],
+        )?)
+    }
+
+    /// `claims` when they carry the whole self grant; a delegated grant is
+    /// not a session.
+    fn require_self_grant(claims: Claims) -> AppResult<Claims> {
         if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
             Ok(claims)
         } else {

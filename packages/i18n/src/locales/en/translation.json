@@ -84,6 +84,40 @@
     "signOutHint": "Sign out of your account on this device.",
     "usageUnavailable": "Usage data unavailable"
   },
+  "accountDeletion": {
+    "title": "Delete account",
+    "description": "Permanently delete your Dravr account and everything in it: your profile, conversations, memory, plans and synced activities. Connected providers are disconnected and their access is revoked. This cannot be undone.",
+    "action": "Delete account",
+    "confirmTitle": "Delete your account?",
+    "confirmBody": "Everything is erased right away and cannot be recovered.",
+    "providersLine": "These providers will be disconnected: {{providers}}",
+    "emailLabel": "Type your email to confirm",
+    "emailHint": "Type {{email}}",
+    "passwordLabel": "Password",
+    "confirmAction": "Delete my account",
+    "cancel": "Cancel",
+    "loading": "Checking your account…",
+    "blockedTitle": "Resolve these first",
+    "blockedBody": "Other people rely on these. Hand them over or remove them, then come back.",
+    "emailMismatch": "That email does not match your account.",
+    "passwordRequired": "Enter your password.",
+    "passwordIncorrect": "That password is incorrect.",
+    "tooManyAttempts": "Too many password attempts. Wait a minute, then try again.",
+    "failed": "Your account could not be deleted. Try again in a moment.",
+    "blocker": {
+      "owns_coaching_group": "You own the group “{{detail}}”",
+      "coaches_coaching_group": "You train the group “{{detail}}”",
+      "created_group_invite": "You created an invite to “{{detail}}”",
+      "admin_config_override": "You set the configuration {{detail}}",
+      "admin_config_audit": "You changed the configuration {{detail}}",
+      "tenant_oauth_credentials": "You configured {{detail}}",
+      "llm_credentials": "You added AI credentials for {{detail}}",
+      "approved_user": "You approved {{detail}}",
+      "owns_tenant": "You are the only owner of the workspace “{{detail}}”",
+      "authored_agent": "Others use your agent “{{detail}}”",
+      "billing_subscription": "Your subscription is still active: {{detail}}"
+    }
+  },
   "apiKeys": {
     "blurb": "Keys your own scripts and tools use to call the Dravr API as you. Each works until you revoke it or it expires.",
     "copied": "Copied",
@@ -1160,6 +1194,30 @@
     "confirm": {
       "description": "Approve an action the security guardian put on hold"
     },
+    "delete-account": {
+      "description": "Permanently delete your account and all its data",
+      "warning": "This permanently deletes your Dravr account and everything in it: your profile, conversations, memory, plans and synced activities. Connected providers are disconnected and their access is revoked. It cannot be undone.\n\nTo confirm, send `/deleteaccount {0}`",
+      "providers": "These providers will be disconnected: {0}",
+      "email_mismatch": "That email does not match your account. Send `/deleteaccount` to see what to type.",
+      "dm_only": "Send `/deleteaccount` to me in a direct message, so your email is not posted here.",
+      "operator": "An operator account is removed by another operator.",
+      "blocked": "Your account cannot be deleted yet. Other people rely on these:\n{0}\n\nHand them over or remove them, then try again.",
+      "done": "Your account and all its data were deleted. Thank you for training with Dravr.",
+      "failed": "Your account could not be deleted. Try again in a moment.",
+      "blocker": {
+        "owns_coaching_group": "You own the group “{0}”",
+        "coaches_coaching_group": "You train the group “{0}”",
+        "created_group_invite": "You created an invite to “{0}”",
+        "admin_config_override": "You set the configuration {0}",
+        "admin_config_audit": "You changed the configuration {0}",
+        "tenant_oauth_credentials": "You configured {0}",
+        "llm_credentials": "You added AI credentials for {0}",
+        "approved_user": "You approved {0}",
+        "owns_tenant": "You are the only owner of the workspace “{0}”",
+        "authored_agent": "Others use your agent “{0}”",
+        "billing_subscription": "Your subscription is still active: {0}"
+      }
+    },
     "deny": {
       "description": "Cancel an action the security guardian put on hold"
     },
@@ -2231,6 +2289,9 @@
     "verification": {
       "block_fallback": "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?",
       "warn_suffix": "⚠️ A few claims I couldn't formally back up — push back if any of these are off:"
+    },
+    "attribution": {
+      "garmin": "Insights derived in part from Garmin device-sourced data."
     }
   },
   "msgChan": {
@@ -2716,7 +2777,16 @@
       "consent": "As the owner of this data, I authorize Dravr to store my WHOOP measurements, compute training metrics from them, and provide them to my AI agent. I can revoke this at any time."
     },
     "authorizeToKeepSyncing": "Authorize {{provider}} to keep syncing",
-    "authorizeAction": "Authorize"
+    "authorizeAction": "Authorize",
+    "aiConsent": {
+      "title": "AI use of your data",
+      "blurb": "Some services let you choose whether your AI agent may read their data. Withdrawing stops AI use at once: your data stays visible in the app and the connection stays active.",
+      "label": "Let my AI agent read {{provider}} data",
+      "withdraw": "Withdraw AI use",
+      "withdrawn": "AI use withdrawn. Your agent no longer reads {{provider}} data.",
+      "allowed": "AI use allowed. Your agent reads {{provider}} data again.",
+      "failed": "Could not update your AI consent. Please try again."
+    }
   },
   "settings": {
     "account": "Account",

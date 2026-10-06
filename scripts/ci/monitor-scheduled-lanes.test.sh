@@ -13,7 +13,9 @@
 #      failure pins a lane red forever.
 #   3. A non-cron red is also answered by a LATER healthy run that re-ran and
 #      passed every job the red run failed — never by one that skipped them,
-#      never when the red run has no failed job to compare.
+#      never when the red run has no failed job to compare. A run preempted
+#      before any job got a runner (carnet#759) is answered by any LATER
+#      success instead; a cancel whose job started (a timeout) is not.
 #   4. The newest run ANY read returns wins: a lagging filtered index must not
 #      turn a daily cron into "stale" (carnet#544).
 #
@@ -62,12 +64,21 @@ from urllib.parse import parse_qs, urlparse
 NOW = dt.datetime.now(dt.timezone.utc)
 def ago(d): return (NOW - dt.timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# lane -> runs. `jobs` is what the run's jobs endpoint answers; `hidden` keeps a
-# run out of the status-filtered read, the way GitHub's lagging index did on
-# 2026-09-24; `branch` defaults to main.
+# lane -> runs. `jobs` is what the run's jobs endpoint answers — a conclusion
+# for a job that ran, or UNSTARTED for one cancelled before a runner took it;
+# `hidden` keeps a run out of the status-filtered read, the way GitHub's
+# lagging index did on 2026-09-24; `branch` defaults to main.
 def run(event, concl, days, jobs=None, hidden=False, branch="main"):
     return {"event": event, "concl": concl, "days": days, "hidden": hidden,
             "branch": branch, "jobs": jobs if jobs is not None else {"a": concl}}
+
+UNSTARTED = {"conclusion": "cancelled", "runner_name": "", "steps": []}
+# carnet#759's shape: resolve ran, "Bump the pins" never got a runner, and the
+# run's cancel took every downstream job with it.
+PREEMPTED = {"resolve": "success", "bump": UNSTARTED, "gate": UNSTARTED,
+             "stall": UNSTARTED, "merge": UNSTARTED, "ship": UNSTARTED}
+GREEN_BUMP = {"resolve": "success", "bump": "success", "gate": "success",
+              "stall": "skipped", "merge": "success", "ship": "success"}
 
 CASES = {
     "stale-dispatch.yml": [run("schedule", "success", 1), run("workflow_dispatch", "failure", 10)],
@@ -100,6 +111,22 @@ CASES = {
         run("repository_dispatch", "failure", 1, {"bump": "failure"}),
         run("workflow_dispatch", "success", 2, {"bump": "success"}),
     ],
+    "preempted-dispatch.yml": [
+        run("schedule", "success", 4),
+        run("workflow_dispatch", "cancelled", 3, PREEMPTED),
+        run("repository_dispatch", "success", 2, GREEN_BUMP),
+    ],
+    "preempted-alone.yml": [
+        run("schedule", "success", 4),
+        run("workflow_dispatch", "cancelled", 3, PREEMPTED),
+    ],
+    "timed-out-dispatch.yml": [
+        run("schedule", "success", 4),
+        run("workflow_dispatch", "cancelled", 3,
+            {"resolve": "success", "bump": "success", "gate": "cancelled",
+             "stall": UNSTARTED, "merge": UNSTARTED, "ship": UNSTARTED}),
+        run("repository_dispatch", "success", 2, dict(GREEN_BUMP, gate="skipped")),
+    ],
     "branch-red.yml": [run("schedule", "success", 1),
                        run("workflow_dispatch", "failure", 0, branch="feature/x")],
     "disabled.yml": [run("schedule", "failure", 1)],
@@ -117,6 +144,9 @@ EXPECT = {
     "uncovered-dispatch.yml": True, # the later run SKIPPED the failed job: nothing answered
     "jobless-red.yml":    True,   # no failed job to compare: never answered by coverage
     "earlier-green.yml":  True,   # a green that started BEFORE the red answers nothing
+    "preempted-dispatch.yml": False,  # preempted before a runner; a later run succeeded
+    "preempted-alone.yml": True,  # preempted, and nothing has run the lane green since
+    "timed-out-dispatch.yml": True, # its gate STARTED then cancelled: a timeout, not a preemption
     "branch-red.yml":     False,  # a feature-branch dispatch is never main's verdict
     "disabled.yml":       False,  # a disabled lane is listed, never alarmed
 }
@@ -129,7 +159,11 @@ for li, (n, runs) in enumerate(CASES.items()):
         "jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'true'\n")
     for ri, r in enumerate(runs):
         rid = li * 100 + ri + 1
-        JOBS[rid] = [{"name": k, "conclusion": v} for k, v in r["jobs"].items()]
+        JOBS[rid] = [
+            dict(v, name=k) if isinstance(v, dict) else
+            {"name": k, "conclusion": v, "runner_name": "GitHub Actions 1",
+             "steps": [{"name": "Set up job", "conclusion": v}]}
+            for k, v in r["jobs"].items()]
         RUNS.setdefault(n, []).append({
             "id": rid, "event": r["event"], "status": "completed", "conclusion": r["concl"],
             "head_branch": r["branch"], "created_at": ago(r["days"]),
@@ -191,12 +225,15 @@ if bad:
 
 note = {r[1].split("/")[-1]: str(r[3]) for r in rows}
 superseded = sorted(n for n, v in note.items() if "superseded" in v)
-want_superseded = ["covered-dispatch.yml", "repo-dispatch.yml", "stale-dispatch.yml"]
+want_superseded = ["covered-dispatch.yml", "preempted-dispatch.yml", "repo-dispatch.yml",
+                   "stale-dispatch.yml"]
 if superseded != want_superseded:
     sys.exit(f"FAIL: superseded lanes {superseded}, expected {want_superseded} — a suppressed "
              "verdict must stay visible in the step summary, never vanish")
 if "passed every job it failed" not in note["covered-dispatch.yml"]:
     sys.exit(f"FAIL: covered-dispatch should say what answered it, got: {note['covered-dispatch.yml']}")
+if "preempted before any job ran" not in note["preempted-dispatch.yml"]:
+    sys.exit(f"FAIL: preempted-dispatch should say what answered it, got: {note['preempted-dispatch.yml']}")
 if "index lag" not in note["lagged-index.yml"]:
     sys.exit(f"FAIL: a lagging filtered read must be printed, got: {note['lagged-index.yml']}")
 

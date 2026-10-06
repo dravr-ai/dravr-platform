@@ -70,6 +70,14 @@ impl SourcePolicy {
         other_sources: AiUse::Allow,
     };
 
+    /// Nothing reaches a model, recorded or relayed: the policy of a provider
+    /// whose data the athlete has not consented to hand to AI.
+    pub const DENY_ALL: Self = Self {
+        direct: AiUse::Deny,
+        by_source: &[],
+        other_sources: AiUse::Deny,
+    };
+
     /// The rule this policy sets for an item from `source`.
     #[must_use]
     pub fn rule_for(&self, provider: &str, source: Option<&str>) -> AiUse {
@@ -93,6 +101,32 @@ pub trait ProviderTerms: Send + Sync {
     /// Where `provider`'s terms let its data be served, or `None` when the
     /// provider is unknown.
     fn transport_policy(&self, provider: &str) -> Option<TransportPolicy>;
+}
+
+/// A provider's terms, with the athlete's AI consent on top.
+///
+/// A provider in `withheld` is one whose data the athlete has not consented
+/// to hand to AI (or withdrew that consent, carnet#726), so a model reads none
+/// of it — recorded by it, or relayed under its name by another service. Only
+/// the AI rules change; where the data may be served does not.
+pub struct WithConsent<'a> {
+    /// The providers' declared terms.
+    pub terms: &'a dyn ProviderTerms,
+    /// Lowercase names of the providers whose AI consent is withheld.
+    pub withheld: &'a BTreeSet<String>,
+}
+
+impl ProviderTerms for WithConsent<'_> {
+    fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
+        if self.withheld.contains(&provider.to_ascii_lowercase()) {
+            return Some(&SourcePolicy::DENY_ALL);
+        }
+        self.terms.ai_policy(provider)
+    }
+
+    fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+        self.terms.transport_policy(provider)
+    }
 }
 
 /// Which gates a read crosses: the AI rules when a model reads it, the
@@ -247,7 +281,7 @@ impl Withheld {
             "items_reduced": self.reduced,
             "sources": self.sources.iter().collect::<Vec<_>>(),
             "reason": "provider_terms",
-            "note": "Some of this athlete's data is withheld from AI by the terms of the service it came from. The athlete can still see it in the app; do not guess its contents.",
+            "note": "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. The athlete can still see it in the app; do not guess its contents.",
         })
     }
 
@@ -494,6 +528,38 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    #[test]
+    fn a_provider_without_ai_consent_reaches_no_model_recorded_or_relayed() {
+        let withheld = BTreeSet::from(["whoop".to_owned()]);
+        let terms = WithConsent {
+            terms: &Lookup,
+            withheld: &withheld,
+        };
+        let mut payload = json!([
+            {"provider": "whoop", "hrv_ms": 62.0},
+            {"provider": "WHOOP", "hrv_ms": 60.0},
+            {"provider": "nolio", "source": "whoop", "sport_type": "row"},
+            {"provider": "garmin", "name": "Hills"}
+        ]);
+        let outcome = filter_json(&terms, &mut payload, MODEL);
+        assert_eq!(payload, json!([{"provider": "garmin", "name": "Hills"}]));
+        assert_eq!(outcome.dropped, 3);
+        assert_eq!(
+            terms.transport_policy("whoop"),
+            Some(TransportPolicy::AnyTransport),
+            "consent changes what a model reads, never where data is served"
+        );
+
+        let mut unwithheld = json!([{"provider": "whoop", "hrv_ms": 62.0}]);
+        let none = BTreeSet::new();
+        let consented = WithConsent {
+            terms: &Lookup,
+            withheld: &none,
+        };
+        assert!(filter_json(&consented, &mut unwithheld, MODEL).is_empty());
+        assert_eq!(unwithheld, json!([{"provider": "whoop", "hrv_ms": 62.0}]));
     }
 
     #[test]

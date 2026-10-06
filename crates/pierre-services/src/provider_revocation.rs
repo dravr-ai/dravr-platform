@@ -30,6 +30,7 @@ use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{
     DelegationEndReason, ProviderAccountRole, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
+use pierre_database::repositories::PurgeReason;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
@@ -59,6 +60,10 @@ pub enum DisconnectReason {
     Operator,
     /// The seat-reclaim sweeper freed the Strava seat of an idle athlete.
     SeatReclaim,
+    /// The provider told us the athlete withdrew the grant on its side (a
+    /// deauthorization notice): there is nothing left to revoke upstream, and
+    /// what the provider contributed is deleted.
+    ProviderRevoked,
 }
 
 impl DisconnectReason {
@@ -69,6 +74,19 @@ impl DisconnectReason {
             Self::Athlete => "athlete",
             Self::Operator => "operator",
             Self::SeatReclaim => "seat_reclaim",
+            Self::ProviderRevoked => "provider_revoked",
+        }
+    }
+
+    /// Why the provider's data was deleted, as the purge's attestation row
+    /// records it.
+    #[must_use]
+    pub const fn purge_reason(self) -> PurgeReason {
+        match self {
+            Self::Athlete => PurgeReason::AthleteDisconnect,
+            Self::Operator => PurgeReason::OperatorDisconnect,
+            Self::SeatReclaim => PurgeReason::SeatReclaim,
+            Self::ProviderRevoked => PurgeReason::ProviderRevoked,
         }
     }
 }
@@ -501,7 +519,7 @@ async fn stored_session_id(
 /// fails is an error the disconnect reports rather than a warning it
 /// swallows. The token and connection rows are gone by then, and a retried
 /// disconnect runs the purge again: clearing a backend the user no longer
-/// holds still purges it.
+/// holds still purges it. The purge records `reason` on its attestation row.
 ///
 /// # Errors
 /// Returns a database error when the purge fails; nothing was deleted then.
@@ -510,16 +528,18 @@ pub async fn purge_provider_data(
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
+    reason: PurgeReason,
 ) -> AppResult<()> {
     let purge = data
         .repos()
         .provider_data
-        .purge_user_provider_data(user_id, &tenant_id, backend)
+        .purge_user_provider_data(user_id, &tenant_id, backend, reason)
         .await?;
     info!(
         user_id = %user_id,
         tenant_id = %tenant_id,
         backend = %backend,
+        reason = reason.as_str(),
         removed = purge.total(),
         rows_removed = ?purge.rows_removed,
         "Deleted the provider's data on disconnect"
@@ -761,7 +781,9 @@ pub async fn surviving_rows(
 ///
 /// Returns what the provider said about the grant. Upstream revocation never
 /// blocks local deletion; the outcome is how a caller learns the grant may
-/// still stand.
+/// still stand. When the provider itself reported the grant withdrawn
+/// ([`DisconnectReason::ProviderRevoked`]) nothing is sent upstream and the
+/// outcome is [`RevocationOutcome::NoGrant`].
 ///
 /// # Errors
 /// Returns a database error if either delete or the provider data purge
@@ -772,10 +794,15 @@ pub async fn clear_backend(
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
+    reason: DisconnectReason,
 ) -> AppResult<RevocationOutcome> {
     // Revoke BEFORE deleting — the stored token is the credential the
     // revocation call spends, and names the scrape session to drop.
-    let outcome = revoke_for_disconnect(service, user_id, tenant_id, backend).await;
+    let outcome = if reason == DisconnectReason::ProviderRevoked {
+        RevocationOutcome::NoGrant
+    } else {
+        revoke_for_disconnect(service, user_id, tenant_id, backend).await
+    };
     drop_scrape_session(data.repos(), user_id, tenant_id, backend).await;
 
     data.repos()
@@ -809,7 +836,7 @@ pub async fn clear_backend(
         forget_coach_roster(data.cache(), user_id, tenant_id, backend).await;
     }
 
-    purge_provider_data(data, user_id, tenant_id, backend).await?;
+    purge_provider_data(data, user_id, tenant_id, backend, reason.purge_reason()).await?;
     Ok(outcome)
 }
 

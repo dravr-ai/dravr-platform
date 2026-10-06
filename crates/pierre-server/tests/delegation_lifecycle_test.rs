@@ -33,8 +33,9 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
 };
 use pierre_core::models::{
-    ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection,
-    DelegationEndReason, DelegationStatus, RosterAthlete, SportType, TenantId, UserOAuthToken,
+    ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DataSource,
+    DelegatedConnection, DelegationEndReason, DelegationStatus, DeviceType, RosterAthlete,
+    SportType, StoredSleepSession, TenantId, UserOAuthToken,
 };
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -375,6 +376,105 @@ async fn a_member_leaving_ends_their_link_and_releases_what_it_read() {
     assert_eq!(w.cached_rows(leaver, leaver_tenant).await, 0);
     // Another member's link is not the leaver's to end.
     assert_eq!(w.reread(&staying).await.status, DelegationStatus::Proposed);
+}
+
+/// The end of a coach–athlete link is a deletion trigger in a coach
+/// platform's terms (Nolio API terms §7.2, carnet#725): every row read
+/// through it goes, not only the cached workouts, and the deletion is
+/// recorded for attestation.
+#[tokio::test]
+async fn an_ended_link_deletes_every_row_read_through_it_and_records_it() {
+    let w = world().await;
+    let repos = &w.res.common.repos;
+    let group = w.group("Squad").await;
+    let (member, member_tenant) = w.member("health@lifecycle.test", group).await;
+    w.confirmed(group, member, member_tenant, "900010").await;
+    let night = Utc::now() - Duration::days(1);
+    let source = repos
+        .data_sources
+        .upsert_data_source(
+            &member_tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: member.to_string(),
+                provider: PROVIDER.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Band,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    repos
+        .sleep
+        .upsert_sleep_session(
+            &member_tenant,
+            &StoredSleepSession {
+                id: format!("tp-sleep-{}", Uuid::new_v4()),
+                user_id: member.to_string(),
+                data_source_id: source,
+                is_nap: false,
+                start_datetime: night,
+                end_datetime: night + Duration::hours(8),
+                total_sleep_seconds: Some(25_200),
+                deep_sleep_seconds: None,
+                light_sleep_seconds: None,
+                rem_sleep_seconds: None,
+                awake_seconds: Some(1_800),
+                sleep_efficiency: Some(93.75),
+                avg_heart_rate: None,
+                min_heart_rate: None,
+                avg_hrv: None,
+                sleep_score: None,
+                stages: Vec::new(),
+                source_name: PROVIDER.to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let nights = || async {
+        repos
+            .sleep
+            .get_sleep_sessions(
+                member,
+                &member_tenant,
+                night - Duration::hours(1),
+                night + Duration::hours(1),
+            )
+            .await
+            .unwrap()
+            .len()
+    };
+    assert_eq!(nights().await, 1);
+
+    assert!(w
+        .res
+        .common
+        .group_service
+        .leave_group(&group.to_string(), member)
+        .await
+        .unwrap());
+
+    assert_eq!(w.cached_rows(member, member_tenant).await, 0);
+    assert_eq!(nights().await, 0, "the night read through the link is gone");
+    let recorded = repos
+        .provider_data
+        .list_provider_data_purges(PROVIDER, 10)
+        .await
+        .unwrap();
+    let ended: Vec<_> = recorded
+        .iter()
+        .filter(|record| record.user_id.as_deref() == Some(member.to_string().as_str()))
+        .collect();
+    assert_eq!(ended.len(), 1, "{recorded:?}");
+    assert_eq!(ended[0].reason, "link_ended");
+    assert_eq!(ended[0].tenant_id, Some(member_tenant.to_string()));
+    assert_eq!(
+        ended[0].rows_removed, 3,
+        "the workout, the night and the device row it named"
+    );
 }
 
 #[tokio::test]

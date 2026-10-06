@@ -54,7 +54,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 /// Every key a Home activity row carries, null or not.
-const HOME_ACTIVITY_KEYS: [&str; 10] = [
+const HOME_ACTIVITY_KEYS: [&str; 11] = [
     "id",
     "provider",
     "name",
@@ -65,6 +65,7 @@ const HOME_ACTIVITY_KEYS: [&str; 10] = [
     "elevation_gain_meters",
     "has_gps",
     "summary_polyline",
+    "attribution",
 ];
 
 /// One athlete: the account, the tenant they act in and a bearer for it.
@@ -421,6 +422,36 @@ async fn a_mirror_backend_row_reads_as_the_provider_it_mirrors() {
 
     let body = recent(&resources, &athlete.token, "").await;
     assert_eq!(body["activities"][0]["provider"], "strava");
+}
+
+/// intervals.icu's API terms require the Garmin attribution beside anything a
+/// Garmin device recorded (carnet#521): the row says so, and only that row.
+#[tokio::test]
+async fn a_garmin_sourced_row_carries_the_garmin_attribution() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-garmin-attribution").await;
+    let garmin_recorded = ActivityBuilder::new(
+        "g1",
+        "Run g1",
+        SportType::Run,
+        days_ago(1),
+        2_400,
+        "intervals_icu",
+    )
+    .source("garmin")
+    .build();
+    cache(
+        &resources,
+        &athlete,
+        "intervals_icu",
+        &[garmin_recorded, run("u2", "intervals_icu", days_ago(2))],
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(ids(&body), ["g1", "u2"]);
+    assert_eq!(body["activities"][0]["attribution"], "Garmin");
+    assert!(body["activities"][1]["attribution"].is_null(), "{body}");
 }
 
 // ---------------------------------------------------------------------------

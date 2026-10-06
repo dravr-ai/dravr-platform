@@ -30,6 +30,7 @@ use pierre_middleware::mask_email;
 use pierre_providers::ai_scope;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::locale::resolve_channel_locale;
+use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_admin as tenant_admin_service;
 
 /// Channel type key Slack channel links are stored under in
@@ -273,9 +274,15 @@ pub async fn execute_postback_command(
 
     // A button is a command typed on the athlete's own channel: its reads are
     // model input served there, as a typed command's are (`dispatch_slash`).
+    // The athlete's AI consents govern those reads too (carnet#726).
     let response = ai_scope::serve_over(
         Transport::Messaging,
-        ai_scope::for_model(handler.execute(&ctx)),
+        ai_scope::for_model(under_ai_consent(
+            &resources.common.repos,
+            user_tenant.as_uuid(),
+            user_id,
+            handler.execute(&ctx),
+        )),
     )
     .await?;
 

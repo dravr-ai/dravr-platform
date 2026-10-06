@@ -964,6 +964,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start the provider cache TTL sweeper (carnet#725): an hourly pass that
+    // evicts every copy of a provider's data held past the cap its terms
+    // declare on its descriptor (Nolio: seven days). Not started when no
+    // registered provider declares one.
+    {
+        use pierre_mcp_server::start_provider_cache_sweeper;
+        start_provider_cache_sweeper(
+            Arc::clone(&resources.common.repos.provider_data),
+            resources.data().provider_registry().cache_ttls(),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
+    }
+
     // Start the OAuth 2.0 client registration sweeper. `/oauth2/register` is
     // anonymous (RFC 7591) and every row it wrote used to be kept forever; this
     // deletes registrations past their expiry grace and the ones no user ever

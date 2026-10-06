@@ -116,6 +116,7 @@ use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
 use pierre_providers::ai_scope;
 use pierre_runtime_context::{AdminConfigLookup, CommandCtx, DataContext};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
+use pierre_services::provider_notice;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::derived_content;
@@ -477,8 +478,27 @@ pub async fn run(
     // A turn exists to feed a model, so every read its stages make is a read
     // for one: each provider's AI policy governs what the prompt builders see
     // (carnet#723). Tools scope themselves the same way in the executor; a
-    // chart drawn for the athlete lifts it (`ai_scope::for_display`).
-    let outcome = ai_scope::for_model(Box::pin(run_turn(ctx, input, profile, hooks))).await;
+    // chart drawn for the athlete lifts it (`ai_scope::for_display`). The
+    // athlete's AI consents govern them too (carnet#726): a provider whose
+    // data they have not consented to hand to AI reaches no prompt.
+    let consent_withheld = match parse_uuid(&input.user_id) {
+        Ok(user_id) => {
+            provider_notice::ai_consent_withheld(
+                &ctx.repos,
+                input.tool_tenant_id.as_uuid(),
+                user_id,
+            )
+            .await
+        }
+        // An unparseable user owns no consent: every AI-consent provider is
+        // withheld, as an undeclared read would withhold it.
+        Err(_) => ai_scope::ai_consent_withheld().as_ref().clone(),
+    };
+    let outcome = ai_scope::for_model(ai_scope::with_ai_consent(
+        consent_withheld,
+        Box::pin(run_turn(ctx, input, profile, hooks)),
+    ))
+    .await;
 
     if outcome.is_ok() {
         // A real served turn is the strongest proof the LLM provider is
@@ -738,6 +758,15 @@ async fn run_turn(
     .map_or_else(
         || (result.content.clone(), None),
         |(caveated, stamp)| (caveated, Some(stamp)),
+    );
+    // A reply derived in part from Garmin device-sourced data says so, in the
+    // platform's words on every surface (carnet#521).
+    let persisted_assistant_content = stages::source_attribution::attribute_reply(
+        ctx,
+        persisted_assistant_content,
+        &stages::source_attribution::owed_attributions(),
+        stages::source_attribution::model_answered(&result),
+        &profile.locale,
     );
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,

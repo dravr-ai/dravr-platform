@@ -84,6 +84,40 @@
     "signOutHint": "Déconnecte-toi de ton compte sur cet appareil.",
     "usageUnavailable": "Données d’utilisation indisponibles"
   },
+  "accountDeletion": {
+    "title": "Supprimer le compte",
+    "description": "Supprime définitivement ton compte Dravr et tout ce qu’il contient : ton profil, tes conversations, ta mémoire, tes plans et tes activités synchronisées. Tes fournisseurs connectés sont déconnectés et leur accès est révoqué. C’est irréversible.",
+    "action": "Supprimer le compte",
+    "confirmTitle": "Supprimer ton compte ?",
+    "confirmBody": "Tout est effacé immédiatement et ne pourra pas être récupéré.",
+    "providersLine": "Ces fournisseurs seront déconnectés : {{providers}}",
+    "emailLabel": "Saisis ton courriel pour confirmer",
+    "emailHint": "Saisis {{email}}",
+    "passwordLabel": "Mot de passe",
+    "confirmAction": "Supprimer mon compte",
+    "cancel": "Annuler",
+    "loading": "Vérification de ton compte…",
+    "blockedTitle": "Règle d’abord ces points",
+    "blockedBody": "D’autres personnes en dépendent. Transfère-les ou supprime-les, puis reviens.",
+    "emailMismatch": "Ce courriel ne correspond pas à ton compte.",
+    "passwordRequired": "Saisis ton mot de passe.",
+    "passwordIncorrect": "Ce mot de passe est incorrect.",
+    "tooManyAttempts": "Trop de tentatives de mot de passe. Attends une minute, puis réessaie.",
+    "failed": "Ton compte n’a pas pu être supprimé. Réessaie dans un instant.",
+    "blocker": {
+      "owns_coaching_group": "Tu es propriétaire du groupe « {{detail}} »",
+      "coaches_coaching_group": "Tu entraînes le groupe « {{detail}} »",
+      "created_group_invite": "Tu as créé une invitation pour « {{detail}} »",
+      "admin_config_override": "Tu as défini la configuration {{detail}}",
+      "admin_config_audit": "Tu as modifié la configuration {{detail}}",
+      "tenant_oauth_credentials": "Tu as configuré {{detail}}",
+      "llm_credentials": "Tu as ajouté des identifiants IA pour {{detail}}",
+      "approved_user": "Tu as approuvé {{detail}}",
+      "owns_tenant": "Tu es le seul propriétaire de l’espace « {{detail}} »",
+      "authored_agent": "D’autres utilisent ton agent « {{detail}} »",
+      "billing_subscription": "Ton abonnement est toujours actif : {{detail}}"
+    }
+  },
   "apiKeys": {
     "blurb": "Les clés que tes propres scripts et outils utilisent pour appeler l'API Dravr en ton nom. Chacune fonctionne jusqu'à ce que tu la révoques ou qu'elle expire.",
     "copied": "Copiée",
@@ -1160,6 +1194,30 @@
     "confirm": {
       "description": "Approuver une action mise en attente par le gardien de sécurité"
     },
+    "delete-account": {
+      "description": "Supprimer définitivement ton compte et toutes ses données",
+      "warning": "Ceci supprime définitivement ton compte Dravr et tout ce qu’il contient : ton profil, tes conversations, ta mémoire, tes plans et tes activités synchronisées. Tes fournisseurs connectés sont déconnectés et leur accès est révoqué. C’est irréversible.\n\nPour confirmer, envoie `/deleteaccount {0}`",
+      "providers": "Ces fournisseurs seront déconnectés : {0}",
+      "email_mismatch": "Ce courriel ne correspond pas à ton compte. Envoie `/deleteaccount` pour voir quoi saisir.",
+      "dm_only": "Envoie-moi `/deleteaccount` en message privé, pour que ton courriel ne soit pas publié ici.",
+      "operator": "Un compte d’opérateur est supprimé par un autre opérateur.",
+      "blocked": "Ton compte ne peut pas encore être supprimé. D’autres personnes dépendent de ceci :\n{0}\n\nTransfère-les ou supprime-les, puis réessaie.",
+      "done": "Ton compte et toutes ses données ont été supprimés. Merci de t’être entraîné avec Dravr.",
+      "failed": "Ton compte n’a pas pu être supprimé. Réessaie dans un instant.",
+      "blocker": {
+        "owns_coaching_group": "Tu es propriétaire du groupe « {0} »",
+        "coaches_coaching_group": "Tu entraînes le groupe « {0} »",
+        "created_group_invite": "Tu as créé une invitation pour « {0} »",
+        "admin_config_override": "Tu as défini la configuration {0}",
+        "admin_config_audit": "Tu as modifié la configuration {0}",
+        "tenant_oauth_credentials": "Tu as configuré {0}",
+        "llm_credentials": "Tu as ajouté des identifiants IA pour {0}",
+        "approved_user": "Tu as approuvé {0}",
+        "owns_tenant": "Tu es le seul propriétaire de l’espace « {0} »",
+        "authored_agent": "D’autres utilisent ton agent « {0} »",
+        "billing_subscription": "Ton abonnement est toujours actif : {0}"
+      }
+    },
     "deny": {
       "description": "Annuler une action mise en attente par le gardien de sécurité"
     },
@@ -2231,6 +2289,9 @@
     "verification": {
       "block_fallback": "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?",
       "warn_suffix": "⚠️ Quelques affirmations que je n'ai pas pu étayer formellement — corrige-moi si l'une d'elles est à côté :"
+    },
+    "attribution": {
+      "garmin": "Analyse issue en partie de données provenant d’appareils Garmin."
     }
   },
   "msgChan": {
@@ -2716,7 +2777,16 @@
       "consent": "En tant que propriétaire de ces données, j'autorise Dravr à conserver mes mesures WHOOP, à en calculer des indicateurs d'entraînement et à les transmettre à mon agent IA. Je peux révoquer cette autorisation à tout moment."
     },
     "authorizeToKeepSyncing": "Autorise {{provider}} pour que la synchronisation continue",
-    "authorizeAction": "Autoriser"
+    "authorizeAction": "Autoriser",
+    "aiConsent": {
+      "title": "Utilisation de vos données par l’IA",
+      "blurb": "Certains services vous laissent choisir si votre agent IA peut lire leurs données. Retirer votre consentement arrête l’utilisation par l’IA immédiatement : vos données restent visibles dans l’app et la connexion reste active.",
+      "label": "Autoriser mon agent IA à lire les données {{provider}}",
+      "withdraw": "Retirer l’accès de l’IA",
+      "withdrawn": "Accès de l’IA retiré. Votre agent ne lit plus les données {{provider}}.",
+      "allowed": "Accès de l’IA autorisé. Votre agent lit de nouveau les données {{provider}}.",
+      "failed": "Impossible de mettre à jour votre consentement IA. Veuillez réessayer."
+    }
   },
   "settings": {
     "account": "Compte",

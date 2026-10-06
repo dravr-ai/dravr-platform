@@ -38,6 +38,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::coach_platform::coach_platform;
+use crate::provider_revocation::DisconnectReason;
 use crate::user_removal::{
     disconnect_each, held_providers, DisconnectedProvider, HeldProvider, Interruption,
     ProviderDisconnector,
@@ -141,10 +142,13 @@ pub async fn reset_onboarding(
             .into_iter()
             .partition(|target| disconnector.supports(&target.provider));
         report.not_revocable = not_revocable;
-        report.disconnected = match disconnect_each(disconnector, user_id, revocable).await {
-            Ok(disconnected) => disconnected,
-            Err(interruption) => return Ok(OnboardingResetOutcome::Interrupted(*interruption)),
-        };
+        report.disconnected =
+            match disconnect_each(disconnector, user_id, revocable, DisconnectReason::Operator)
+                .await
+            {
+                Ok(disconnected) => disconnected,
+                Err(interruption) => return Ok(OnboardingResetOutcome::Interrupted(*interruption)),
+            };
     }
 
     let reset = match repos

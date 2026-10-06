@@ -1,5 +1,5 @@
 // ABOUTME: Operator route that deletes every row one provider contributed, in every tenant
-// ABOUTME: Super-admin only and audited: the termination purge a provider's API terms can require
+// ABOUTME: Super-admin only and audited: the termination purge, and the attestation rows every purge writes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,11 @@
 //! Every call writes an `admin_token_usage` row naming the token and the
 //! provider before anything is deleted, so no purge runs unrecorded; a purge
 //! that then fails adds a failure row.
+//!
+//! Every purge of a provider's data, this one and each disconnect, ended
+//! coach link, revocation notice and cache expiry, also writes a
+//! `provider_data_purges` row in its own transaction.
+//! [`handle_list_provider_data_purges`] reads them back for an attestation.
 //!
 //! [`ProviderDataRepository::purge_provider_data`]: pierre_database::repositories::ProviderDataRepository::purge_provider_data
 
@@ -45,6 +50,10 @@ use crate::context::AdminApiContext;
 
 /// The longest provider name the purge accepts.
 const MAX_PROVIDER_NAME_LEN: usize = 64;
+
+/// How many attestation rows one read of a provider's purges returns, newest
+/// first.
+const PURGE_RECORDS_LIMIT: i64 = 500;
 
 /// The provider name as stored in every `provider` column: lowercase ASCII
 /// letters, digits and `_`. Anything else cannot match a row, so it is
@@ -162,6 +171,47 @@ pub async fn handle_purge_provider_data(
                 "rows_removed": purge.rows_removed,
                 "total_removed": total,
                 "connections_remaining": connections_remaining,
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `GET /admin/providers/{provider}/purges` — the newest
+/// [`PURGE_RECORDS_LIMIT`] attestation rows for `provider`, across every
+/// tenant: each deletion of its data, for whom, why, how many rows and when.
+///
+/// This is what an attestation a provider's terms ask for is written from
+/// (Nolio API terms §7.3). The rows hold ids, counts and times, never
+/// provider data. Answers 403 for anything but a super-admin token and 400
+/// for a malformed provider name.
+///
+/// # Errors
+///
+/// Returns a database error when the rows cannot be read.
+pub async fn handle_list_provider_data_purges(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(provider): Path<String>,
+) -> AppResult<Response> {
+    if let Some(denied) = deny_if_not_super_admin(&admin_token) {
+        return Ok(denied);
+    }
+    let provider = provider_name(&provider)?;
+    let purges = context
+        .repos
+        .provider_data
+        .list_provider_data_purges(provider, PURGE_RECORDS_LIMIT)
+        .await?;
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!("{} {provider} data purges recorded", purges.len()),
+            data: to_value(json!({
+                "provider": provider,
+                "purges": purges,
             }))
             .ok(),
         },

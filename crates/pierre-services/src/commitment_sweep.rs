@@ -45,6 +45,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
+use crate::provider_notice::under_ai_consent;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
@@ -249,10 +250,16 @@ async fn sweep_due(
         };
         // The verdict is derived from the sessions its window holds: it is
         // stamped with what that count read (carnet#769).
+        // Under the athlete's AI consents (carnet#726).
         ai_scope::tracking(
             ai_scope::Provenance::new(),
-            sweep_one(
-                repos, refresher, commitment, user_id, &tenant_id, now, outcome,
+            under_ai_consent(
+                repos,
+                tenant_id.as_uuid(),
+                user_id,
+                sweep_one(
+                    repos, refresher, commitment, user_id, &tenant_id, now, outcome,
+                ),
             ),
         )
         .await;

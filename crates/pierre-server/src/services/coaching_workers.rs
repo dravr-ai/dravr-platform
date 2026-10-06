@@ -56,8 +56,15 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
     );
 
     // Daily archetype aggregation: rolls per-user playbooks into k-anonymous
-    // cross-user priors for cold-start. DB-only (no LLM).
-    spawn_archetype_aggregation(Arc::clone(&resources.common.repos));
+    // cross-user priors for cold-start. DB-only (no LLM). Athletes connected
+    // to a provider whose terms bar cross-athlete learning (WHOOP) stay out.
+    spawn_archetype_aggregation(
+        Arc::clone(&resources.common.repos),
+        resources
+            .data()
+            .provider_registry()
+            .cross_athlete_learning_barred(),
+    );
 
     // Re-runs the post-turn memory extractions an instance was taken down
     // while running; without it the facts a turn owed vanished with the

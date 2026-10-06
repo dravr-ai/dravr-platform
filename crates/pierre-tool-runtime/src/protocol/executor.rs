@@ -34,6 +34,7 @@ use dravr_cageux::physiological_constants::efficiency_defaults::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_config::environment::default_provider;
+use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -42,6 +43,7 @@ use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
 use pierre_providers::ai_scope;
 use pierre_services::onboarding_gate::user_has_connected_provider;
+use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -704,6 +706,16 @@ impl UniversalExecutor {
         // The transport is resolved once, here, and handed to the backstop
         // explicitly: the body's scope has closed by the time it runs.
         let transport = ai_scope::effective_transport(self.transport);
+        // The athlete's AI consents (carnet#726): a provider whose data they
+        // have not consented to hand to AI is denied to this tool's reads and
+        // to the backstop below alike. The tenant names whose feature flags
+        // arm a flag-gated notice; a call without one reads the defaults.
+        let consent_withheld = provider_notice::ai_consent_withheld(
+            self.resources.repos(),
+            tenant_uuid.unwrap_or_default(),
+            user_uuid,
+        )
+        .await;
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone(),
             CONVERSATION_TENANT.scope(
@@ -723,6 +735,9 @@ impl UniversalExecutor {
                 ),
             ),
         ));
+        // Boxed: the scopes around the tool body would otherwise ride inline in
+        // every caller's future.
+        let body = Box::pin(ai_scope::with_ai_consent(consent_withheld.clone(), body));
         let body = async {
             match transport {
                 Some(served) => ai_scope::serve_over(served, body).await,
@@ -790,7 +805,10 @@ impl UniversalExecutor {
         // (carnet#724) — the backstop for structured items a read path left,
         // plus the notes saying what was held back.
         ai_view::withhold_from_caller(
-            self.resources.provider_registry().as_ref(),
+            &WithConsent {
+                terms: self.resources.provider_registry().as_ref(),
+                withheld: &consent_withheld,
+            },
             &mut universal,
             held_back,
             ai_scope::result_exposure(transport),

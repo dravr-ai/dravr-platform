@@ -67,6 +67,7 @@ const ACTIVITIES = [
     elevation_gain_meters: null,
     has_gps: false,
     summary_polyline: null,
+    attribution: null,
   },
   {
     id: 'act-2',
@@ -79,6 +80,7 @@ const ACTIVITIES = [
     elevation_gain_meters: 85,
     has_gps: true,
     summary_polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+    attribution: null,
   },
   // Garmin's activity list carries no position and this route was never
   // read: the row says it may have one, and the route endpoint answers.
@@ -93,6 +95,7 @@ const ACTIVITIES = [
     elevation_gain_meters: 40,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   },
 ];
 

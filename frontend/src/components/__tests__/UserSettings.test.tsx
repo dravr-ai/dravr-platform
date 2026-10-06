@@ -95,6 +95,7 @@ vi.mock('../../hooks/useAuth', () => ({
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
 const disconnectProvider = vi.fn().mockResolvedValue(undefined);
+const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -122,6 +123,7 @@ vi.mock('../../services/api', () => ({
     getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args),
     authorizeUrl: (...args: unknown[]) => authorizeUrl(...args),
     disconnectProvider: (...args: unknown[]) => disconnectProvider(...args),
+    withdrawAiConsent: (...args: unknown[]) => withdrawAiConsent(...args),
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
   },
   pierreApi: {
@@ -754,6 +756,28 @@ describe('UserSettings Component', () => {
 
       expect(await screen.findByTestId('provider-disconnect-whoop')).toBeInTheDocument();
       expect(screen.queryByTestId('provider-authorization-owed-whoop')).not.toBeInTheDocument();
+    });
+
+    it('withdraws the consent to AI use in one tap and keeps the connection', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [{ ...whoopCard(false), ai_consent: true }] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-ai-consent-withdraw-whoop'));
+      expect(withdrawAiConsent).toHaveBeenCalledWith('whoop');
+      expect(disconnectProvider).not.toHaveBeenCalled();
+      expect(await screen.findByText('AI use withdrawn. Your agent no longer reads WHOOP data.')).toBeInTheDocument();
+    });
+
+    it('offers no withdrawal for a provider that asks no AI consent', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(false)] });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+      expect(await screen.findByTestId('provider-disconnect-whoop')).toBeInTheDocument();
+      expect(screen.queryByTestId('provider-ai-consent-withdraw-whoop')).not.toBeInTheDocument();
     });
   });
 

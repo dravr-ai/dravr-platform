@@ -1,5 +1,5 @@
 // ABOUTME: Pins that a Strava activity webhook fetches the owner's activities into the cache through the OAuth path
-// ABOUTME: and scans each new run for personal records; drives the real /webhooks/strava route against a Strava mock
+// ABOUTME: and scans new runs for records; a deauthorization disconnects and purges; drives /webhooks/strava against a mock
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -668,6 +668,95 @@ async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
         "the other rides stay"
     );
     assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 1);
+}
+
+/// The athlete event Strava sends when the athlete revokes the app on its
+/// side, or any other athlete update when `updates` says otherwise.
+fn athlete_update(updates: &Value) -> Value {
+    json!({
+        "object_type": "athlete",
+        "object_id": OWNER_ID,
+        "aspect_type": "update",
+        "updates": updates,
+        "owner_id": OWNER_ID,
+        "subscription_id": REGISTERED_SUBSCRIPTION_ID,
+        "event_time": Utc::now().timestamp()
+    })
+}
+
+/// A deauthorization is Strava telling us the athlete withdrew consent
+/// (carnet#725): the athlete is disconnected, everything Strava contributed
+/// is deleted with its attestation row, and nothing is sent to Strava — the
+/// grant is already gone there.
+#[tokio::test]
+#[serial]
+async fn deauthorization_disconnects_the_athlete_and_deletes_their_strava_data() {
+    let (api_base, mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    let repos = &resources.common.repos;
+    let ride = ActivityBuilder::new(
+        "9001",
+        "Morning ride",
+        SportType::Ride,
+        Utc::now() - chrono::Duration::hours(5),
+        3_600,
+        "strava",
+    )
+    .build();
+    repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, "strava", &[ride])
+        .await
+        .unwrap();
+
+    let status = post_event(
+        &resources,
+        &athlete_update(&json!({ "authorized": "false" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0, "nothing is fetched");
+    assert!(repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 0);
+    let recorded = repos
+        .provider_data
+        .list_provider_data_purges("strava", 10)
+        .await
+        .unwrap();
+    assert_eq!(recorded.len(), 1, "{recorded:?}");
+    assert_eq!(recorded[0].reason, "provider_revoked");
+    assert_eq!(recorded[0].user_id, Some(user_id.to_string()));
+    assert_eq!(recorded[0].tenant_id, Some(tenant_id.to_string()));
+}
+
+/// Any other athlete update leaves the athlete connected.
+#[tokio::test]
+#[serial]
+async fn another_athlete_update_leaves_the_athlete_connected() {
+    let (api_base, _mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+
+    let status = post_event(&resources, &athlete_update(&json!({ "title": "Tempo" }))).await;
+    assert_eq!(status, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    assert!(resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .is_some());
 }
 
 /// A body Strava would never send is refused rather than acknowledged.

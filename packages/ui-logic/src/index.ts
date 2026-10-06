@@ -72,6 +72,14 @@ export {
 } from './apiError';
 export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';
 
+// Self-serve account deletion: the confirmation rule and the refusal wording.
+export {
+  type AccountDeletionFailure,
+  emailConfirms,
+  describeAccountDeletionBlocker,
+  describeAccountDeletionFailure,
+} from './accountDeletion';
+
 // Server-state hooks both clients bind to their own API instance. Each client
 // keeps a thin `hooks/<name>` module that calls the factory once; only what is
 // genuinely platform-specific (the API instance, a freshness the two clients

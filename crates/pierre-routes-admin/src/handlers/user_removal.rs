@@ -40,6 +40,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
 };
@@ -328,9 +329,13 @@ pub async fn handle_delete_user(
     require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
 
-    let outcome =
-        user_removal::remove_user(&ctx.repos, ctx.provider_disconnector.as_deref(), user_uuid)
-            .await?;
+    let outcome = user_removal::remove_user(
+        &ctx.repos,
+        ctx.provider_disconnector.as_deref(),
+        user_uuid,
+        DisconnectReason::Operator,
+    )
+    .await?;
 
     let report = match outcome {
         UserRemoval::Blocked(blockers) => {

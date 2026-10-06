@@ -1,5 +1,5 @@
-// ABOUTME: Privacy settings tab for managing analytics consent
-// ABOUTME: Allows users to opt in/out of anonymized usage analytics tracking
+// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent and self-serve account deletion
+// ABOUTME: Allows users to opt in/out of anonymized usage analytics tracking, or delete their account
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { Section } from './ui';
+import AccountDeletionSection from './AccountDeletionSection';
+import AiConsentSettings from './settings/AiConsentSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
@@ -43,99 +45,105 @@ export default function PrivacySettingsTab() {
   };
 
   return (
-    <Section title={t('app.privacyAndData')}>
+    <div className="space-y-10">
+      <Section title={t('app.privacyAndData')}>
 
-      <div className="space-y-6">
-        {/* Analytics Consent Toggle */}
-        <div className="flex items-start justify-between gap-4 border-b ghost-border-faint pb-5">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h3 className="text-sm font-medium text-on-surface">{t('app.usageAnalytics')}</h3>
+        <div className="space-y-6">
+          {/* Consent to AI use of each provider's data that asks for one */}
+          <AiConsentSettings />
+
+          {/* Analytics Consent Toggle */}
+          <div className="flex items-start justify-between gap-4 border-b ghost-border-faint pb-5">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="text-sm font-medium text-on-surface">{t('app.usageAnalytics')}</h3>
+              </div>
+              <p className="text-sm text-on-surface-variant leading-relaxed">
+                {t('app.privacyAnalyticsBlurb')}
+              </p>
             </div>
-            <p className="text-sm text-on-surface-variant leading-relaxed">
-              {t('app.privacyAnalyticsBlurb')}
-            </p>
-          </div>
 
-          {/* Toggle Switch */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            onClick={handleToggle}
-            disabled={mutation.isPending}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50 ${
-              enabled ? 'bg-primary' : 'bg-surface-container-high'
-            }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                enabled ? 'translate-x-5' : 'translate-x-0'
+            {/* Toggle Switch */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              onClick={handleToggle}
+              disabled={mutation.isPending}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50 ${
+                enabled ? 'bg-primary' : 'bg-surface-container-high'
               }`}
-            />
-          </button>
-        </div>
-
-        {/* What We Track */}
-        <div className="">
-          <h3 className="text-sm font-medium text-on-surface mb-3">{t('app.whatWeCollect')}</h3>
-          <ul className="space-y-2 text-sm text-on-surface-variant">
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              {t('app.analyticsCollect0')}
-            </li>
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              {t('app.analyticsCollect1')}
-            </li>
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              {t('app.analyticsCollect2')}
-            </li>
-          </ul>
-
-          <h3 className="text-sm font-medium text-on-surface mt-4 mb-3">{t('app.whatWeNeverCollect')}</h3>
-          <ul className="space-y-2 text-sm text-on-surface-variant">
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              {t('app.analyticsNever0')}
-            </li>
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              {t('app.analyticsNever1')}
-            </li>
-            <li className="flex items-start gap-2">
-              <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              {t('app.analyticsNever2')}
-            </li>
-          </ul>
-        </div>
-
-        {/* Status Message */}
-        {message && (
-          <div
-            className={`p-3 rounded-lg text-sm ${
-              message.type === 'success'
-                ? 'bg-success/10 text-on-success-container border border-success/20'
-                : 'bg-error/10 text-error border border-error/20'
-            }`}
-          >
-            {message.text}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  enabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
-        )}
-      </div>
-    </Section>
+
+          {/* What We Track */}
+          <div className="">
+            <h3 className="text-sm font-medium text-on-surface mb-3">{t('app.whatWeCollect')}</h3>
+            <ul className="space-y-2 text-sm text-on-surface-variant">
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {t('app.analyticsCollect0')}
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {t('app.analyticsCollect1')}
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-success mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                {t('app.analyticsCollect2')}
+              </li>
+            </ul>
+
+            <h3 className="text-sm font-medium text-on-surface mt-4 mb-3">{t('app.whatWeNeverCollect')}</h3>
+            <ul className="space-y-2 text-sm text-on-surface-variant">
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                {t('app.analyticsNever0')}
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                {t('app.analyticsNever1')}
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-error mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                {t('app.analyticsNever2')}
+              </li>
+            </ul>
+          </div>
+
+          {/* Status Message */}
+          {message && (
+            <div
+              className={`p-3 rounded-lg text-sm ${
+                message.type === 'success'
+                  ? 'bg-success/10 text-on-success-container border border-success/20'
+                  : 'bg-error/10 text-error border border-error/20'
+              }`}
+            >
+              {message.text}
+            </div>
+          )}
+        </div>
+      </Section>
+      <AccountDeletionSection />
+    </div>
   );
 }

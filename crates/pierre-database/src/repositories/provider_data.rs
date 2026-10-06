@@ -1,5 +1,5 @@
 // ABOUTME: Deletes every row one provider contributed: for one user in one tenant, or across every tenant
-// ABOUTME: One transaction per purge over the health, time-series, activity-cache and sync-state tables
+// ABOUTME: One transaction per purge, each with its attestation row; a cache TTL evicts expired copies the same way
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -42,14 +42,26 @@
 //! compare `CAST(column AS TEXT)` against the hyphenated id, the same shape
 //! [`super::user_references`] uses, so one statement serves both engines.
 //!
+//! Every purge writes one `provider_data_purges` row in the same transaction:
+//! who, which provider, why ([`PurgeReason`]), how many rows and when, never
+//! the data itself. That is the record a provider's terms can ask Dravr to
+//! attest from (Nolio API terms §7.3).
+//!
+//! A provider whose terms cap how long a copy may be held declares a cache
+//! TTL on its descriptor, and [`ProviderDataRepository::expire_provider_cache`]
+//! evicts the copies written before it, with the sync state that described
+//! them, so the next read fetches them again rather than trusting a coverage
+//! mark over an emptied cache.
+//!
 //! Rows derived from a provider's data without naming it are out of reach
 //! here: `training_history` rollups and `user_facts` carry no provider column,
-//! so a purge cannot tell which of them a provider fed.
+//! so a purge cannot tell which of them a provider fed (carnet#769).
 
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use pierre_core::errors::AppResult;
+use chrono::{DateTime, Utc};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use serde::Serialize;
 use uuid::Uuid;
@@ -95,9 +107,10 @@ macro_rules! provider_sources {
     };
 }
 
-/// What a user's disconnect deletes, in order: `(table, statement)`, each
-/// statement binding `$1` user id, `$2` tenant id and `$3` provider.
-pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
+/// The rows a user's purge deletes, in order: `(table, statement)`, each
+/// statement binding `$1` user id, `$2` tenant id and `$3` provider. The sync
+/// state describing them, [`USER_SYNC_STATE_SQL`], goes after.
+pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 12] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -152,6 +165,14 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
         "personal_best_seeds",
         concat!("DELETE FROM personal_best_seeds WHERE ", user_rows_cast!()),
     ),
+];
+
+/// The sync state describing a user's provider rows, deleted after them by a
+/// purge and by a cache expiry, binding `$1` user id, `$2` tenant id and `$3`
+/// provider. Left behind, it would tell the next read that a cache emptied of
+/// those rows is fresh and fully backfilled, and nothing would read them
+/// again.
+pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
     (
         "sync_state",
         concat!("DELETE FROM sync_state WHERE ", user_rows!()),
@@ -186,8 +207,106 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
     ),
 ];
 
+/// A user's copies of a provider's data held past a cache TTL, in order:
+/// `(table, statement)`, each binding `$1` user id, `$2` tenant id, `$3`
+/// provider and `$4` the cutoff instant.
+///
+/// A copy's age is when it was last written from the provider: `synced_at`,
+/// which every writer refreshes on each re-sync, and `created_at` on a route,
+/// which its upsert refreshes the same way. A point stored before
+/// `data_point_series` had a sync time cannot show its age and counts as
+/// expired. Rows computed from the provider's data rather than copied from
+/// it (the daily `data_point_series_archive` rollups, personal bests, the
+/// record of which runs were measured) are derived content, not cached copies,
+/// and stay: a disconnect deletes them, and their provenance is carnet#769's.
+pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 6] = [
+    (
+        "data_point_series",
+        concat!(
+            "DELETE FROM data_point_series WHERE ",
+            user_sources!(),
+            " AND (synced_at IS NULL OR synced_at < $4)"
+        ),
+    ),
+    (
+        "sleep_sessions",
+        concat!(
+            "DELETE FROM sleep_sessions WHERE ",
+            user_rows!(),
+            " AND synced_at < $4"
+        ),
+    ),
+    (
+        "recovery_metrics",
+        concat!(
+            "DELETE FROM recovery_metrics WHERE ",
+            user_rows!(),
+            " AND synced_at < $4"
+        ),
+    ),
+    (
+        "health_snapshots",
+        concat!(
+            "DELETE FROM health_snapshots WHERE ",
+            user_rows!(),
+            " AND synced_at < $4"
+        ),
+    ),
+    (
+        "cached_activities",
+        concat!(
+            "DELETE FROM cached_activities WHERE ",
+            user_rows!(),
+            " AND synced_at < $4"
+        ),
+    ),
+    (
+        "activity_route_tracks",
+        concat!(
+            "DELETE FROM activity_route_tracks WHERE ",
+            user_rows!(),
+            " AND created_at < $4"
+        ),
+    ),
+];
+
+/// Every `(user_id, tenant_id)` holding a copy of `$1`'s data written before
+/// `$2`, across the tables [`USER_EXPIRED_ROWS_SQL`] expires from.
+///
+/// ISOLATION EXEMPTION: this read spans every tenant on purpose. It serves
+/// the cache TTL sweep, a system worker that enforces a provider's retention
+/// cap wherever its data is held, and returns only ids; every delete it leads
+/// to is scoped to one user in one tenant.
+pub(crate) const EXPIRED_SCOPES_SQL: &str = "\
+    SELECT user_id, tenant_id FROM sleep_sessions WHERE provider = $1 AND synced_at < $2 \
+    UNION SELECT user_id, tenant_id FROM recovery_metrics WHERE provider = $1 AND synced_at < $2 \
+    UNION SELECT user_id, tenant_id FROM health_snapshots WHERE provider = $1 AND synced_at < $2 \
+    UNION SELECT user_id, tenant_id FROM cached_activities WHERE provider = $1 AND synced_at < $2 \
+    UNION SELECT user_id, tenant_id FROM activity_route_tracks WHERE provider = $1 AND created_at < $2 \
+    UNION SELECT ds.user_id, ds.tenant_id FROM data_sources ds \
+        JOIN data_point_series p ON p.data_source_id = ds.id \
+        WHERE ds.provider = $1 AND (p.synced_at IS NULL OR p.synced_at < $2)";
+
+/// The attestation row every purge writes in its own transaction: `$1` id,
+/// `$2` tenant id and `$3` user id (both NULL on a whole-provider purge), `$4`
+/// provider, `$5` reason, `$6` rows removed, `$7` when.
+pub(crate) const INSERT_PURGE_RECORD_SQL: &str = "INSERT INTO provider_data_purges \
+     (id, tenant_id, user_id, provider, reason, rows_removed, purged_at) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7)";
+
+/// A provider's attestation rows, newest first: `$1` provider, `$2` limit.
+///
+/// ISOLATION EXEMPTION: the attestation a provider's terms ask for covers the
+/// whole platform, so this read spans every tenant. It is reachable only from
+/// the super-admin route, and the rows hold ids, counts and times, never
+/// provider data.
+pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, provider, \
+     reason, rows_removed, purged_at FROM provider_data_purges WHERE provider = $1 \
+     ORDER BY purged_at DESC LIMIT $2";
+
 /// What a whole-provider purge deletes, in the same order as
-/// [`USER_PROVIDER_PURGE_SQL`], each statement binding `$1` provider.
+/// [`USER_PROVIDER_ROWS_SQL`] then [`USER_SYNC_STATE_SQL`], each statement
+/// binding `$1` provider.
 ///
 /// ISOLATION EXEMPTION: these statements carry neither `tenant_id` nor
 /// `user_id` on purpose. They serve the operator's termination purge, which a
@@ -313,37 +432,187 @@ impl ProviderDataPurge {
     }
 }
 
+/// Why a provider's data was deleted, as its attestation row records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PurgeReason {
+    /// The athlete disconnected the provider.
+    AthleteDisconnect,
+    /// An operator disconnected it for them, or removed their account.
+    OperatorDisconnect,
+    /// The seat-reclaim sweeper freed an idle athlete's seat.
+    SeatReclaim,
+    /// The provider said the athlete withdrew the grant (a deauthorization
+    /// notice), so nothing was left to revoke here.
+    ProviderRevoked,
+    /// The coach–athlete link the data was read through ended.
+    LinkEnded,
+    /// The operator's whole-provider purge, on termination of access.
+    Termination,
+    /// The provider's cache TTL passed for those copies.
+    CacheExpired,
+}
+
+impl PurgeReason {
+    /// The `reason` value stored on the attestation row.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AthleteDisconnect => "athlete_disconnect",
+            Self::OperatorDisconnect => "operator_disconnect",
+            Self::SeatReclaim => "seat_reclaim",
+            Self::ProviderRevoked => "provider_revoked",
+            Self::LinkEnded => "link_ended",
+            Self::Termination => "termination",
+            Self::CacheExpired => "cache_expired",
+        }
+    }
+}
+
+/// One attestation row: that a provider's data was deleted, for whom, why,
+/// how much and when. It holds no provider data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderDataPurgeRecord {
+    /// Row id.
+    pub id: String,
+    /// The tenant purged, `None` for a whole-provider purge.
+    pub tenant_id: Option<String>,
+    /// The user purged, `None` for a whole-provider purge.
+    pub user_id: Option<String>,
+    /// The provider whose data was deleted.
+    pub provider: String,
+    /// Why, as [`PurgeReason::as_str`] wrote it.
+    pub reason: String,
+    /// Rows deleted across every table.
+    pub rows_removed: i64,
+    /// When the purge committed.
+    pub purged_at: DateTime<Utc>,
+}
+
+/// What one cache TTL sweep of a provider evicted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ProviderCacheExpiry {
+    /// How many `(user, tenant)` scopes held an expired copy.
+    pub scopes: u64,
+    /// Rows evicted per table across those scopes, sync state included.
+    pub evicted: ProviderDataPurge,
+}
+
 /// Deletes the rows a provider contributed.
 #[async_trait]
 pub trait ProviderDataRepository: Send + Sync {
     /// Delete every row `provider` contributed for `user_id` under
-    /// `tenant_id`, in one transaction: the disconnect purge.
+    /// `tenant_id`, in one transaction that also writes the attestation row
+    /// naming `reason`.
     ///
     /// # Errors
     /// Returns a database error when any statement fails; nothing is deleted
-    /// then.
+    /// and nothing recorded then.
     async fn purge_user_provider_data(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
+        reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge>;
 
     /// Delete every row `provider` contributed, for every user in every
-    /// tenant, in one transaction: the operator's termination purge.
+    /// tenant, in one transaction that also writes its attestation row: the
+    /// operator's termination purge.
     ///
     /// # Errors
     /// Returns a database error when any statement fails; nothing is deleted
     /// then.
     async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge>;
+
+    /// Evict every copy of `provider`'s data written before `cutoff`, scope
+    /// by scope: in each `(user, tenant)` holding one, the expired rows and
+    /// the sync state describing that provider go in one transaction with
+    /// its attestation row, so the next read fetches what was evicted again
+    /// instead of trusting a coverage mark over an emptied cache.
+    ///
+    /// # Errors
+    /// Returns a database error when the scopes cannot be read or a scope's
+    /// eviction fails; scopes already evicted stay evicted.
+    async fn expire_provider_cache(
+        &self,
+        provider: &str,
+        cutoff: DateTime<Utc>,
+    ) -> AppResult<ProviderCacheExpiry>;
+
+    /// The newest `limit` attestation rows for `provider`, across every
+    /// tenant.
+    ///
+    /// # Errors
+    /// Returns a database error when the rows cannot be read or decoded.
+    async fn list_provider_data_purges(
+        &self,
+        provider: &str,
+        limit: i64,
+    ) -> AppResult<Vec<ProviderDataPurgeRecord>>;
 }
+
+/// Decode one `provider_data_purges` row.
+///
+/// # Errors
+/// Returns a database error when a column is missing or does not decode.
+pub(crate) fn purge_record_from_row<R>(row: &R) -> AppResult<ProviderDataPurgeRecord>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column = |name: &str, e: sqlx::Error| {
+        AppError::database(format!("provider_data_purges col {name}: {e}"))
+    };
+    Ok(ProviderDataPurgeRecord {
+        id: row.try_get("id").map_err(|e| column("id", e))?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|e| column("tenant_id", e))?,
+        user_id: row.try_get("user_id").map_err(|e| column("user_id", e))?,
+        provider: row.try_get("provider").map_err(|e| column("provider", e))?,
+        reason: row.try_get("reason").map_err(|e| column("reason", e))?,
+        rows_removed: row
+            .try_get("rows_removed")
+            .map_err(|e| column("rows_removed", e))?,
+        purged_at: row
+            .try_get("purged_at")
+            .map_err(|e| column("purged_at", e))?,
+    })
+}
+
+/// Write one attestation row on `$tx`, mapping a failure to a database error.
+///
+/// The invoking shell must `use` [`INSERT_PURGE_RECORD_SQL`], `AppError`,
+/// `Utc` and `Uuid`.
+macro_rules! insert_purge_record {
+    ($tx:expr, $tenant:expr, $user:expr, $provider:expr, $reason:expr, $removed:expr) => {
+        sqlx::query(INSERT_PURGE_RECORD_SQL)
+            .bind(Uuid::new_v4().to_string())
+            .bind($tenant)
+            .bind($user)
+            .bind($provider)
+            .bind($reason.as_str())
+            .bind(i64::try_from($removed).unwrap_or(i64::MAX))
+            .bind(Utc::now())
+            .execute(&mut *$tx)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to record the provider data purge: {e}"))
+            })
+    };
+}
+pub(crate) use insert_purge_record;
 
 /// Emit the [`ProviderDataRepository`] implementation for one backend type.
 ///
 /// The statements are identical on both engines, so the shell passes only its
 /// type; sqlx resolves the driver from `self.pool()` per expansion. The body
-/// names its consts and types unqualified, so the invoking shell must `use`
-/// every one of them.
+/// names its consts, types and helpers unqualified, so the invoking shell must
+/// `use` every one of them.
 macro_rules! impl_provider_data_repository {
     ($ty:ty) => {
         #[async_trait::async_trait]
@@ -353,6 +622,7 @@ macro_rules! impl_provider_data_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
+                reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 let user = user_id.to_string();
                 let tenant = tenant_id.to_string();
@@ -360,7 +630,8 @@ macro_rules! impl_provider_data_repository {
                     AppError::database(format!("Failed to begin the provider data purge: {e}"))
                 })?;
                 let mut purge = ProviderDataPurge::default();
-                for (table, statement) in USER_PROVIDER_PURGE_SQL {
+                for (table, statement) in USER_PROVIDER_ROWS_SQL.iter().chain(&USER_SYNC_STATE_SQL)
+                {
                     let removed = sqlx::query(statement)
                         .bind(&user)
                         .bind(&tenant)
@@ -375,6 +646,14 @@ macro_rules! impl_provider_data_repository {
                         .rows_affected();
                     purge.record(table, removed);
                 }
+                insert_purge_record!(
+                    tx,
+                    Some(&tenant),
+                    Some(&user),
+                    provider,
+                    reason,
+                    purge.total()
+                )?;
                 tx.commit().await.map_err(|e| {
                     AppError::database(format!("Failed to commit the provider data purge: {e}"))
                 })?;
@@ -399,10 +678,113 @@ macro_rules! impl_provider_data_repository {
                         .rows_affected();
                     purge.record(table, removed);
                 }
+                insert_purge_record!(
+                    tx,
+                    None::<String>,
+                    None::<String>,
+                    provider,
+                    PurgeReason::Termination,
+                    purge.total()
+                )?;
                 tx.commit().await.map_err(|e| {
                     AppError::database(format!("Failed to commit the provider data purge: {e}"))
                 })?;
                 Ok(purge)
+            }
+
+            async fn expire_provider_cache(
+                &self,
+                provider: &str,
+                cutoff: DateTime<Utc>,
+            ) -> AppResult<ProviderCacheExpiry> {
+                let scopes = sqlx::query(EXPIRED_SCOPES_SQL)
+                    .bind(provider)
+                    .bind(cutoff)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to find expired {provider} cache copies: {e}"
+                        ))
+                    })?;
+                let mut expiry = ProviderCacheExpiry::default();
+                for row in scopes {
+                    let user: String = sqlx::Row::try_get(&row, "user_id").map_err(|e| {
+                        AppError::database(format!("expired scope col user_id: {e}"))
+                    })?;
+                    let tenant: String = sqlx::Row::try_get(&row, "tenant_id").map_err(|e| {
+                        AppError::database(format!("expired scope col tenant_id: {e}"))
+                    })?;
+                    let mut tx = self.pool().begin().await.map_err(|e| {
+                        AppError::database(format!("Failed to begin the cache expiry: {e}"))
+                    })?;
+                    let mut evicted = ProviderDataPurge::default();
+                    for (table, statement) in USER_EXPIRED_ROWS_SQL {
+                        let removed = sqlx::query(statement)
+                            .bind(&user)
+                            .bind(&tenant)
+                            .bind(provider)
+                            .bind(cutoff)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| {
+                                AppError::database(format!(
+                                    "Failed to expire {provider} rows from {table}: {e}"
+                                ))
+                            })?
+                            .rows_affected();
+                        evicted.record(table, removed);
+                    }
+                    for (table, statement) in USER_SYNC_STATE_SQL {
+                        let removed = sqlx::query(statement)
+                            .bind(&user)
+                            .bind(&tenant)
+                            .bind(provider)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| {
+                                AppError::database(format!(
+                                    "Failed to reset {provider} sync state in {table}: {e}"
+                                ))
+                            })?
+                            .rows_affected();
+                        evicted.record(table, removed);
+                    }
+                    insert_purge_record!(
+                        tx,
+                        Some(&tenant),
+                        Some(&user),
+                        provider,
+                        PurgeReason::CacheExpired,
+                        evicted.total()
+                    )?;
+                    tx.commit().await.map_err(|e| {
+                        AppError::database(format!("Failed to commit the cache expiry: {e}"))
+                    })?;
+                    expiry.scopes += 1;
+                    for (table, removed) in evicted.rows_removed {
+                        *expiry.evicted.rows_removed.entry(table).or_insert(0) += removed;
+                    }
+                }
+                Ok(expiry)
+            }
+
+            async fn list_provider_data_purges(
+                &self,
+                provider: &str,
+                limit: i64,
+            ) -> AppResult<Vec<ProviderDataPurgeRecord>> {
+                sqlx::query(LIST_PURGE_RECORDS_SQL)
+                    .bind(provider)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list {provider} purge records: {e}"))
+                    })?
+                    .iter()
+                    .map(purge_record_from_row)
+                    .collect()
             }
         }
     };

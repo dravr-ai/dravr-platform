@@ -9,9 +9,11 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
+    ValidatedUserMcpToken,
 };
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -31,8 +33,10 @@ pub trait UserMcpTokenRepository: Send + Sync {
         user_id: Uuid,
         request: &CreateUserMcpTokenRequest,
     ) -> AppResult<UserMcpTokenCreated>;
-    /// Validate a user MCP token and return the associated user ID
-    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid>;
+    /// Validate a presented raw token: refused when unknown, revoked or
+    /// expired; otherwise its use is counted and the token and its owner are
+    /// returned.
+    async fn validate_token(&self, token_value: &str) -> AppResult<ValidatedUserMcpToken>;
     /// List all MCP tokens for a user
     async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>>;
     /// Revoke a user MCP token
@@ -50,7 +54,11 @@ pub(crate) fn generate_mcp_token() -> String {
     let mut rng = rand::rng();
     let mut bytes = [0u8; 32];
     rng.fill_bytes(&mut bytes);
-    format!("pmcp_{}", URL_SAFE_NO_PAD.encode(bytes))
+    format!(
+        "{}{}",
+        key_prefixes::USER_MCP_TOKEN,
+        URL_SAFE_NO_PAD.encode(bytes)
+    )
 }
 
 /// The stored form of a raw token: its hex SHA-256.
@@ -258,7 +266,7 @@ macro_rules! impl_user_mcp_token_repository {
                 Ok(UserMcpTokenCreated { token, token_value })
             }
 
-            async fn validate_token(&self, token_value: &str) -> AppResult<Uuid> {
+            async fn validate_token(&self, token_value: &str) -> AppResult<ValidatedUserMcpToken> {
                 let row = sqlx::query(FIND_MCP_TOKEN_BY_VALUE_SQL)
                     .bind(mcp_token_prefix(token_value))
                     .bind(hash_mcp_token(token_value))
@@ -296,7 +304,10 @@ macro_rules! impl_user_mcp_token_repository {
                         AppError::database(format!("Failed to update user MCP token usage: {e}"))
                     })?;
 
-                $ids::read(&row, "user_id")
+                Ok(ValidatedUserMcpToken {
+                    token_id,
+                    user_id: $ids::read(&row, "user_id")?,
+                })
             }
 
             async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {

@@ -16,7 +16,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{CreateUserMcpTokenRequest, User};
+use pierre_core::models::{CreateUserMcpTokenRequest, User, ValidatedUserMcpToken};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -89,8 +89,11 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
             .validate_token(&created.token_value)
             .await
             .unwrap(),
-        owner,
-        "the raw token resolves to its owner"
+        ValidatedUserMcpToken {
+            token_id: created.token.id.clone(),
+            user_id: owner,
+        },
+        "the raw token resolves to itself and its owner"
     );
     let used = repos
         .user_mcp_tokens
@@ -230,7 +233,8 @@ async fn an_expired_token_is_refused_while_a_live_one_validates() {
             .user_mcp_tokens
             .validate_token(&live.token_value)
             .await
-            .unwrap(),
+            .unwrap()
+            .user_id,
         owner,
         "the live token still validates"
     );

@@ -61,6 +61,7 @@ function row(id: string, name: string, start_date: string): HomeActivity {
     elevation_gain_meters: 85,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   };
 }
 

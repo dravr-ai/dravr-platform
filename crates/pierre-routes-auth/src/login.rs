@@ -18,13 +18,14 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
 use crate::first_party_client::refuse_unbound_client;
+use crate::password_attempts::meter_password_attempt;
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
 use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
 
 use pierre_auth::dto::auth::{
@@ -537,6 +538,15 @@ pub async fn handle_change_password(
         .get_global(user_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+
+    // Every guess at the current password spends the account's window.
+    if let Some(retry_after) = meter_password_attempt(&resources.rate_limiter, user_id).await? {
+        return Err(AppError::new(
+            ErrorCode::RateLimitExceeded,
+            "Too many password attempts; retry later",
+        )
+        .with_retry_after(u64::from(retry_after)));
+    }
 
     // Verify current password using the service helper
     let is_valid = verify_password(

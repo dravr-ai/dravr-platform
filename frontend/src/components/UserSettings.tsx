@@ -14,6 +14,7 @@ import type { ProviderStatus } from '../services/api';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
+  AI_CONSENT_KEYS,
   ADMIN_HIDDEN_PANES,
   APP_VERSION,
   HELP_URL,
@@ -43,6 +44,7 @@ import {
 } from '@pierre/shared-constants';
 import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
+import { useAiConsent } from '../hooks/useAiConsent';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
@@ -95,6 +97,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const { t, language } = useTranslation();
   const showErrorToast = useErrorToast();
   const queryClient = useQueryClient();
+  const aiConsent = useAiConsent();
 
   // Flip the theme locally, then tell the server which scheme was pinned so
   // the preference follows the athlete to their other devices. The write is
@@ -495,6 +498,19 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     }
   };
 
+  // Withdraw the consent to AI use of a provider's data from its card
+  const handleWithdrawAiConsent = (providerId: string, displayName: string) => {
+    setProviderMessage(null);
+    aiConsent.mutate(
+      { provider: providerId, allow: false },
+      {
+        onSuccess: () =>
+          setProviderMessage({ type: 'success', text: t(AI_CONSENT_KEYS.withdrawn, { provider: displayName }) }),
+        onError: () => setProviderMessage({ type: 'error', text: t(AI_CONSENT_KEYS.failed) }),
+      },
+    );
+  };
+
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(true);
@@ -821,18 +837,34 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 the same way, to the connect button that shows the notice first. */}
                             {provider.connected && !provider.needs_reauth
                               && !syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
-                              (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
-                                <Button
-                                  variant="tertiary"
-                                  size="sm"
-                                  onClick={() => setProviderToDisconnect(provider.provider)}
-                                  className="text-error"
-                                  data-testid={`provider-disconnect-${provider.provider}`}
-                                >
-                                  {/* Disconnecting a delegated connection ends the coach's link. */}
-                                  {isDelegated ? t('delegation.unlink') : t('settingsUi.disconnect')}
-                                </Button>
-                              )
+                              <div className="flex flex-wrap items-center justify-end gap-1">
+                                {/* Withdrawing the consent to AI use is one tap; the
+                                    connection stays, and the card then asks for the
+                                    authorization again to give it back (carnet#726). */}
+                                {provider.ai_consent === true && (
+                                  <Button
+                                    variant="tertiary"
+                                    size="sm"
+                                    onClick={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
+                                    disabled={aiConsent.isPending}
+                                    data-testid={`provider-ai-consent-withdraw-${provider.provider}`}
+                                  >
+                                    {t(AI_CONSENT_KEYS.withdraw)}
+                                  </Button>
+                                )}
+                                {(provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
+                                  <Button
+                                    variant="tertiary"
+                                    size="sm"
+                                    onClick={() => setProviderToDisconnect(provider.provider)}
+                                    className="text-error"
+                                    data-testid={`provider-disconnect-${provider.provider}`}
+                                  >
+                                    {/* Disconnecting a delegated connection ends the coach's link. */}
+                                    {isDelegated ? t('delegation.unlink') : t('settingsUi.disconnect')}
+                                  </Button>
+                                )}
+                              </div>
                             ) : provider.provider === 'intervals_icu' ? (
                               <Button
                                 variant="outline"

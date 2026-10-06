@@ -1,25 +1,32 @@
-// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy and TransportPolicy per provider
-// ABOUTME: WHOOP keeps its scores out of prompts; Nolio restricts connector data by source and stays first-party (§6.9)
+// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy, TransportPolicy and cache TTL
+// ABOUTME: WHOOP keeps its scores out of prompts; Nolio restricts connector data by source, stays first-party, caches 7 days
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Declared provider terms.
 //!
-//! An AI policy for each provider whose terms restrict AI use, and a transport
-//! policy for each whose terms keep its data inside Dravr's own surfaces.
+//! An AI policy for each provider whose terms restrict AI use, a transport
+//! policy for each whose terms keep its data inside Dravr's own surfaces, and
+//! a cache TTL for each whose terms cap how long a copy may be held.
 //!
 //! A descriptor returns them from
-//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy)
+//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy),
+//! [`ProviderDescriptor::transport_policy`](crate::spi::ProviderDescriptor::transport_policy)
 //! and
-//! [`ProviderDescriptor::transport_policy`](crate::spi::ProviderDescriptor::transport_policy);
+//! [`ProviderDescriptor::cache_ttl`](crate::spi::ProviderDescriptor::cache_ttl);
 //! a provider absent here has no restriction. Adding a provider's terms is a
 //! policy here and one descriptor line — no tool changes.
 //!
 //! Strava's June 2026 terms bar AI use, but direct Strava data stays allowed
 //! by product decision (2026-10-02) until that question is settled on its own.
 //! No shipped provider's descriptor declares a transport policy, so each is
-//! served over every transport.
+//! served over every transport. No shipped provider's descriptor declares a
+//! cache TTL either: enforcing Strava's 7-day cache cap is a product decision
+//! not yet taken, and WHOOP's tier-1–2 measurements are kept under the athlete's
+//! owner authorization (carnet#539).
+
+use std::time::Duration;
 
 use pierre_core::ai_policy::{AiUse, SourcePolicy};
 use pierre_core::transport::TransportPolicy;
@@ -93,6 +100,14 @@ pub const NOLIO: SourcePolicy = SourcePolicy {
 // LIMITATION(registre#657): `NOLIO_TRANSPORT` is returned by no descriptor — no Nolio provider
 // exists, so only tests exercise this policy.
 pub const NOLIO_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
+
+/// Nolio API terms v1.0, §7.1: a transient copy of Nolio data, any cache
+/// included, is held at most seven days.
+///
+/// Read: the same terms read as [`NOLIO`], Part 3 E4.
+// LIMITATION(registre#657): `NOLIO_CACHE_TTL` is returned by no descriptor — no Nolio provider
+// exists, so only tests exercise this cap.
+pub const NOLIO_CACHE_TTL: Duration = Duration::from_hours(7 * 24);
 
 #[cfg(test)]
 mod tests {
@@ -206,6 +221,18 @@ mod tests {
             Some(TransportPolicy::AnyTransport)
         );
         assert_eq!(registry.transport_policy("not-a-provider"), None);
+        assert!(
+            registry.cache_ttls().is_empty(),
+            "no shipped provider caps how long a copy is held"
+        );
+        assert_eq!(registry.cross_athlete_learning_barred(), ["whoop"]);
+    }
+
+    /// Pinned on purpose: seven days is fixed by Nolio's API terms §7.1, a
+    /// value this codebase does not control.
+    #[test]
+    fn a_nolio_copy_is_held_at_most_seven_days() {
+        assert_eq!(NOLIO_CACHE_TTL.as_secs(), 7 * 86_400);
     }
 
     #[test]

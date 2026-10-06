@@ -1,5 +1,5 @@
 // ABOUTME: Archetype aggregation — rolls per-user playbooks into k-anonymous cross-user priors for cold-start
-// ABOUTME: Counts only, no identity stored; a row is materialized only above K distinct contributing athletes
+// ABOUTME: Counts only, above K distinct athletes; athletes on a provider whose terms bar cross-athlete learning stay out
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,12 +13,24 @@
 //! with at least `K` distinct athletes are written, and only counts are stored —
 //! never user or tenant identity. This is the privacy carve-out that lets a new
 //! athlete inherit "what works for athletes like you" without exposing anyone.
+//!
+//! A prior learned from one athlete's data improves the coaching of others,
+//! which some providers' terms forbid for their data (WHOOP API Terms §4,
+//! carnet#539 point 5). The playbooks of every athlete connected to such a
+//! provider ([`ProviderDescriptor::bars_cross_athlete_learning`]) are left out
+//! of each pass; a pass that cannot tell who they are aggregates nothing.
+//! Playbooks carry no provider provenance, so the exclusion is by connection,
+//! not by row, and an athlete who has since disconnected is no longer
+//! excluded (carnet#769 stamps provenance on playbooks).
+//!
+//! [`ProviderDescriptor::bars_cross_athlete_learning`]: pierre_providers::spi::ProviderDescriptor::bars_cross_athlete_learning
 
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
+use pierre_core::errors::AppResult;
 use pierre_database::repositories::{ArchetypePriorUpsert, PlaybookAggInput};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::TriggerPattern;
@@ -150,8 +162,55 @@ pub fn build_priors(rows: Vec<PlaybookAggInput>, k: usize) -> AggregationResult 
     result
 }
 
-/// Run one aggregation pass: scan playbooks, build k-anonymous priors, upsert.
-async fn run_aggregation(repos: &RepositoryRegistry, k: usize) {
+/// The playbook rows whose athlete is not in `excluded`.
+///
+/// `excluded` holds user ids as [`PlaybookAggInput::user_id`] spells them.
+fn without_contributors(
+    rows: Vec<PlaybookAggInput>,
+    excluded: &HashSet<String>,
+) -> Vec<PlaybookAggInput> {
+    rows.into_iter()
+        .filter(|row| !excluded.contains(&row.user_id))
+        .collect()
+}
+
+/// Every athlete connected, in any tenant, to one of `barred`: the providers
+/// whose terms bar learning from their data for other athletes.
+async fn barred_contributors(
+    repos: &RepositoryRegistry,
+    barred: &[&str],
+) -> AppResult<HashSet<String>> {
+    let mut excluded = HashSet::new();
+    for provider in barred {
+        for row in repos
+            .sync_cursors
+            .list_connected_provider_users(provider)
+            .await?
+        {
+            excluded.insert(row.user_id.to_string());
+        }
+    }
+    Ok(excluded)
+}
+
+/// The playbook rows one pass may learn from: every scanned row but those of
+/// the athletes on a `barred` provider, with how many were scanned. `None`,
+/// logged, when either read fails: a pass that cannot tell whom to leave out
+/// learns from no one.
+async fn eligible_rows(
+    repos: &RepositoryRegistry,
+    barred: &[&str],
+) -> Option<(usize, Vec<PlaybookAggInput>)> {
+    let excluded = match barred_contributors(repos, barred).await {
+        Ok(excluded) => excluded,
+        Err(e) => {
+            warn!(
+                error = %e,
+                "archetype aggregation skipped: could not read which athletes a provider's terms keep out of cross-athlete priors"
+            );
+            return None;
+        }
+    };
     let rows = match repos
         .playbooks
         .aggregate_playbook_rows(AGG_SCAN_LIMIT)
@@ -160,16 +219,26 @@ async fn run_aggregation(repos: &RepositoryRegistry, k: usize) {
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, "archetype aggregation scan failed");
-            return;
+            return None;
         }
     };
     let scanned = rows.len();
+    Some((scanned, without_contributors(rows, &excluded)))
+}
+
+/// Run one aggregation pass: scan playbooks, leave out the athletes on a
+/// `barred` provider, build k-anonymous priors, upsert.
+async fn run_aggregation(repos: &RepositoryRegistry, k: usize, barred: &[&str]) {
+    let Some((scanned, rows)) = eligible_rows(repos, barred).await else {
+        return;
+    };
+    let left_out = scanned - rows.len();
     let AggregationResult { priors, prune } = build_priors(rows, k);
     let materialized = upsert_priors(repos, &priors, k).await;
     let pruned = prune_priors(repos, &prune).await;
     debug!(
         scanned,
-        materialized, pruned, "archetype aggregation pass complete (k-anonymous)"
+        left_out, materialized, pruned, "archetype aggregation pass complete (k-anonymous)"
     );
 }
 
@@ -230,24 +299,71 @@ async fn prune_priors(repos: &RepositoryRegistry, prune: &[PriorKey]) -> usize {
 /// pass is due, so a fresh instance recomputes when a day has elapsed since
 /// the last pass anywhere — not a day after its own boot, which on a
 /// scale-to-zero service never came. A panicking pass is caught by the loop
-/// and the daemon keeps running.
-pub fn spawn_archetype_aggregation(repos: Arc<RepositoryRegistry>) {
+/// and the daemon keeps running. `barred` names the providers whose connected
+/// athletes each pass leaves out.
+pub fn spawn_archetype_aggregation(repos: Arc<RepositoryRegistry>, barred: Vec<&'static str>) {
     let interval_secs = env::var(AGG_INTERVAL_ENV_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_AGG_INTERVAL_SECS);
     debug!(interval_secs, "starting archetype aggregation worker");
     let ledger = Arc::clone(&repos.worker_runs);
+    let barred: Arc<[&'static str]> = barred.into();
     spawn_periodic(
         "archetype aggregation",
         Duration::from_secs(interval_secs),
         ledger,
         move || {
             let repos = Arc::clone(&repos);
+            let barred = Arc::clone(&barred);
             async move {
-                run_aggregation(&repos, K_ANONYMITY_MIN).await;
+                run_aggregation(&repos, K_ANONYMITY_MIN, &barred).await;
                 Ok(())
             }
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use pierre_database::repositories::PlaybookAggInput;
+
+    use super::{build_priors, without_contributors};
+
+    fn agg(user: &str, sport: &str, success: i64, failure: i64) -> PlaybookAggInput {
+        PlaybookAggInput {
+            user_id: user.to_owned(),
+            trigger_hash: format!("hrv_drop:{sport}:high"),
+            intervention_hash: "easy_block:*".to_owned(),
+            trigger_json: format!(r#"{{"kind":"hrv_drop","sport":"{sport}","magnitude":"high"}}"#),
+            intervention_json: r#"{"kind":"easy_block","magnitude":null}"#.to_owned(),
+            success_count: success,
+            failure_count: failure,
+        }
+    }
+
+    /// An athlete on a provider whose terms bar cross-athlete learning (WHOOP,
+    /// carnet#539 point 5) contributes nothing: their rows are dropped before
+    /// bucketing, so a bucket they alone kept at the floor is pruned instead of
+    /// recomputed with their outcomes.
+    #[test]
+    fn an_excluded_athlete_contributes_to_no_prior() {
+        let rows = vec![
+            agg("u1", "run", 4, 1),
+            agg("u2", "run", 3, 0),
+            agg("whoop-athlete", "run", 9, 0),
+            agg("whoop-athlete", "run", 1, 0),
+        ];
+        let excluded = HashSet::from(["whoop-athlete".to_owned()]);
+
+        let kept = without_contributors(rows, &excluded);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().all(|row| row.user_id != "whoop-athlete"));
+
+        let result = build_priors(kept, 3);
+        assert!(result.priors.is_empty(), "two athletes are below k=3");
+        assert_eq!(result.prune.len(), 1, "the bucket's stale prior is pruned");
+    }
 }

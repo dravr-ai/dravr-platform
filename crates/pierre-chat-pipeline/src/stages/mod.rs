@@ -81,6 +81,8 @@ pub(crate) mod provider_stop;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;
+/// The Garmin attribution line a reply derived from Garmin data carries.
+pub(crate) mod source_attribution;
 /// The turn subject's own athlete context (prompt stages 7d–7f.1).
 pub mod subject_context;
 /// Pre-dispatch prep + multi-turn tool execution loop.

@@ -34,6 +34,7 @@ use std::{
     collections::HashMap,
     convert::AsRef,
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -575,6 +576,35 @@ impl ProviderTerms for ProviderRegistry {
 }
 
 impl ProviderRegistry {
+    /// Every registered provider whose terms cap how long a copy of its data
+    /// may be held, with that cap, sorted by name: what the cache TTL sweep
+    /// enforces.
+    #[must_use]
+    pub fn cache_ttls(&self) -> Vec<(&'static str, Duration)> {
+        let mut ttls: Vec<(&'static str, Duration)> = self
+            .descriptors
+            .iter()
+            .filter_map(|(name, d)| d.cache_ttl().map(|ttl| (*name, ttl)))
+            .collect();
+        ttls.sort_unstable_by_key(|(name, _)| *name);
+        ttls
+    }
+
+    /// Every registered provider whose terms bar learning from its data for
+    /// other athletes, sorted: whose connected athletes the archetype
+    /// aggregation leaves out.
+    #[must_use]
+    pub fn cross_athlete_learning_barred(&self) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = self
+            .descriptors
+            .iter()
+            .filter(|(_, d)| d.bars_cross_athlete_learning())
+            .map(|(name, _)| *name)
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
     /// Get all providers that support OAuth
     #[must_use]
     pub fn oauth_providers(&self) -> Vec<&'static str> {

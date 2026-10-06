@@ -42,6 +42,7 @@ use pierre_core::transport::Transport;
 use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
+use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -481,26 +482,32 @@ pub async fn dispatch_slash(
     let agent_before = bound_agent(ctx, request, &user_id).await;
     // A command's replies and walk prompts are model input like a turn's, so
     // its reads are reads for a model (carnet#723), served over the transport
-    // its surface declared (carnet#724).
+    // its surface declared (carnet#724), under the athlete's AI consents
+    // (carnet#726).
     let outcome = Box::pin(ai_scope::serve_over(
         request.transport,
-        ai_scope::for_model(try_dispatch(DispatchRequest {
-            ctx: &ctx.command_ctx,
-            command_registry,
-            command_handler_registry: handler_registry,
-            user_id: request.user_id,
-            tenant_id: request.tenant_id,
-            channel_type: request.channel_type,
-            locale: request.locale,
-            is_direct_message: request.is_direct_message,
-            ambient_group_fallback: request.ambient_group_fallback,
-            conversation_id: Some(request.conversation_id),
-            conversation_tenant_id: request.conversation_tenant_id,
-            sender_id: request.sender_id,
-            text: request.text,
-            tool_runtime: &ctx.tool_runtime,
-            origin: request.origin,
-        })),
+        ai_scope::for_model(under_ai_consent(
+            &ctx.repos,
+            request.tenant_id.as_uuid(),
+            request.user_id,
+            try_dispatch(DispatchRequest {
+                ctx: &ctx.command_ctx,
+                command_registry,
+                command_handler_registry: handler_registry,
+                user_id: request.user_id,
+                tenant_id: request.tenant_id,
+                channel_type: request.channel_type,
+                locale: request.locale,
+                is_direct_message: request.is_direct_message,
+                ambient_group_fallback: request.ambient_group_fallback,
+                conversation_id: Some(request.conversation_id),
+                conversation_tenant_id: request.conversation_tenant_id,
+                sender_id: request.sender_id,
+                text: request.text,
+                tool_runtime: &ctx.tool_runtime,
+                origin: request.origin,
+            }),
+        )),
     ))
     .await?;
 

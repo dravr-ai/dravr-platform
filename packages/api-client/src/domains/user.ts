@@ -6,7 +6,10 @@
 
 import type { AxiosInstance } from 'axios';
 import type {
+  AccountDeletionPreview,
   CoachingPersona,
+  DeleteAccountRequest,
+  DeleteAccountResponse,
   McpToken,
   MemoryFactKind,
   OAuthApp,
@@ -179,6 +182,31 @@ export function createUserApi(axios: AxiosInstance) {
         current_password: currentPassword,
         new_password: newPassword,
       });
+      return response.data;
+    },
+
+    // ==================== ACCOUNT DELETION ====================
+
+    /**
+     * What deleting the signed-in account asks for (the email, and the
+     * password unless the account signs in only through Google or Apple),
+     * which providers it disconnects, and what blocks it.
+     */
+    async getAccountDeletionPreview(): Promise<AccountDeletionPreview> {
+      const response = await axios.get<AccountDeletionPreview>(ENDPOINTS.USER.ACCOUNT_DELETION);
+      return response.data;
+    },
+
+    /**
+     * Delete the signed-in account and every row it owns; each provider is
+     * disconnected and revoked at the provider first. A refusal rejects with
+     * the server's `error` code (`AccountDeletionRefusal`) in the body.
+     */
+    async deleteAccount(request: DeleteAccountRequest): Promise<DeleteAccountResponse> {
+      const response = await axios.post<DeleteAccountResponse>(
+        ENDPOINTS.USER.ACCOUNT_DELETION,
+        request
+      );
       return response.data;
     },
 

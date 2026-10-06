@@ -107,6 +107,8 @@ export const ENDPOINTS = {
     INTERVALS_ICU_LINK: '/api/providers/intervals_icu/link-credentials',
     /** Disconnect the linked Intervals.icu account */
     INTERVALS_ICU_DISCONNECT: '/api/providers/intervals_icu/disconnect',
+    /** Give (PUT) or withdraw (DELETE) the consent to AI use of a provider's data */
+    AI_CONSENT: (provider: string) => `/api/providers/${provider}/ai-consent`,
   },
 
   // ==================== STORE ====================
@@ -204,6 +206,11 @@ export const ENDPOINTS = {
     CHANGE_PASSWORD: '/api/user/change-password',
     /** Analytics consent */
     ANALYTICS_CONSENT: '/api/user/analytics-consent',
+    /**
+     * Self-serve account deletion: GET previews what it asks for and what
+     * blocks it, POST deletes the signed-in account.
+     */
+    ACCOUNT_DELETION: '/api/user/account-deletion',
     /**
      * Reply language (`users.locale`) — the language the coach answers in.
      * Clients PUT this whenever the viewer changes the app language, so the

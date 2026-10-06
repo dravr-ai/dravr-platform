@@ -17,6 +17,7 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
+use pierre_services::provider_notice::under_ai_consent;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -76,7 +77,9 @@ pub async fn read_warmed_window(
             }
         }
     };
-    ai_scope::serve_over(transport, ai_scope::ai_read(read)).await
+    // Under the athlete's AI consents (carnet#726).
+    let consented = under_ai_consent(repos, tenant_id.as_uuid(), user_id, ai_scope::ai_read(read));
+    ai_scope::serve_over(transport, consented).await
 }
 
 #[cfg(test)]

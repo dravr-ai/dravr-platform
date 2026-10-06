@@ -71,6 +71,7 @@ function detail(overrides: Partial<ActivityDetailResponse> = {}): ActivityDetail
       elevation_gain_meters: 214,
       has_gps: false,
       summary_polyline: null,
+      attribution: null,
     },
     average_heart_rate: 152,
     max_heart_rate: 171,
@@ -164,6 +165,22 @@ describe('ActivityView', () => {
     expect(rows[1]).toHaveTextContent('11.00 km4:284:28 /km148 bpm+12 m');
     expect(rows[2]).toHaveTextContent('21.00 km4:414:41 /km155 bpm-5 m');
     expect(screen.queryByTestId('activity-laps')).toBeNull();
+  });
+
+  it('shows the Garmin attribution a Garmin-recorded activity carries, and none otherwise', async () => {
+    api.getActivityDetail.mockResolvedValue(
+      detail({ activity: { ...detail().activity, provider: 'intervals_icu', attribution: 'Garmin' } }),
+    );
+    renderView();
+    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('Garmin');
+    expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Garmin$/);
+  });
+
+  it('shows no attribution for an activity that carries none', async () => {
+    api.getActivityDetail.mockResolvedValue(detail());
+    renderView();
+    await screen.findByTestId('activity-figures');
+    expect(screen.queryByTestId('activity-attribution')).toBeNull();
   });
 
   // A marathon is forty-two splits. Laid out in full between the map and the

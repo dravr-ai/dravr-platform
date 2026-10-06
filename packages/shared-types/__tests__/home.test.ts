@@ -28,6 +28,7 @@ const outdoorRide = {
   elevation_gain_meters: 811,
   has_gps: true,
   summary_polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+  attribution: null,
 };
 
 /** A trainer session: no position, no polyline, no distance the provider trusts. */
@@ -42,6 +43,7 @@ const indoorRide = {
   elevation_gain_meters: null,
   has_gps: false,
   summary_polyline: null,
+  attribution: null,
 };
 
 /** The plan card as `PlanCard` serializes it: optional fields skipped when absent. */
@@ -194,8 +196,16 @@ describe('parseRecentActivitiesResponse', () => {
     ['a negative duration', { ...outdoorRide, duration_seconds: -1 }],
     ['a has_gps that is not a boolean', { ...outdoorRide, has_gps: 'yes' }],
     ['a polyline that is not a string', { ...outdoorRide, summary_polyline: [[45.2, -72.4]] }],
+    ['an attribution that is not a string', { ...outdoorRide, attribution: true }],
   ])('refuses a row with %s', (_label, row) => {
     expect(parseRecentActivitiesResponse({ activities: [row], as_of: null, stale: false })).toBeNull();
+  });
+
+  it('keeps the Garmin attribution a row carries, and reads an omitted one as null', () => {
+    const garmin = { ...outdoorRide, provider: 'intervals_icu', attribution: 'Garmin' };
+    const { attribution: _omitted, ...older } = indoorRide;
+    const parsed = parseRecentActivitiesResponse({ activities: [garmin, older], as_of: null, stale: false });
+    expect(parsed?.activities.map((row) => row.attribution)).toEqual(['Garmin', null]);
   });
 
   it('refuses a body that is not the response at all', () => {

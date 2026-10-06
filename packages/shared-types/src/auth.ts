@@ -96,6 +96,63 @@ export interface UpdateThemeRequest {
   theme: ThemePreference;
 }
 
+// ========== ACCOUNT DELETION ==========
+
+/**
+ * What blocks a self-serve account delete: something another person relies
+ * on. The `kind` values are the server's `UserReferenceKind`; `detail` names
+ * the row (a group name, a tenant, an agent title, a plan).
+ */
+export type AccountDeletionBlockerKind =
+  | 'owns_coaching_group'
+  | 'coaches_coaching_group'
+  | 'created_group_invite'
+  | 'admin_config_override'
+  | 'admin_config_audit'
+  | 'tenant_oauth_credentials'
+  | 'llm_credentials'
+  | 'approved_user'
+  | 'owns_tenant'
+  | 'authored_agent'
+  | 'billing_subscription';
+
+export interface AccountDeletionBlocker {
+  kind: AccountDeletionBlockerKind;
+  detail: string;
+}
+
+/** Body of `GET /api/user/account-deletion`. */
+export interface AccountDeletionPreview {
+  /** The email the confirmation must match. */
+  email: string;
+  /** False for an account that signs in only through Google or Apple. */
+  requires_password: boolean;
+  /** Providers the delete disconnects (revoked at the provider). */
+  providers: string[];
+  /** Empty when the account can be deleted now. */
+  blockers: AccountDeletionBlocker[];
+}
+
+/** Body of `POST /api/user/account-deletion`. */
+export interface DeleteAccountRequest {
+  confirm_email: string;
+  password?: string;
+}
+
+/** Success body of `POST /api/user/account-deletion`. */
+export interface DeleteAccountResponse {
+  message: string;
+  disconnected_providers: string[];
+}
+
+/** The `error` code of a refused `POST /api/user/account-deletion`. */
+export type AccountDeletionRefusal =
+  | 'email_mismatch'
+  | 'password_required'
+  | 'password_incorrect'
+  | 'too_many_attempts'
+  | 'blocked';
+
 // ========== AUTH RESPONSE TYPES ==========
 
 /** Response from login endpoint */
@@ -193,6 +250,15 @@ export interface ExtendedProviderStatus {
    * `tos_consent=true` on it); either is refused without it.
    */
   consent_required: boolean;
+  /**
+   * The account's consent to AI use of this provider's data, for a provider
+   * whose notice is one (WHOOP's owner authorization): `true` while given,
+   * `false` while not given or withdrawn — then no model reads this
+   * provider's data, though the athlete still sees it. Withdraw it with
+   * `oauthApi.withdrawAiConsent`, give it back with `grantAiConsent`. Absent
+   * for every provider that asks no such consent.
+   */
+  ai_consent?: boolean;
   /**
    * What kind of account the user's own connection signed in with, once the
    * provider has reported it: `"coach"` for a TrainingPeaks coach account,

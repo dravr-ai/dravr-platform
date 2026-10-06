@@ -203,7 +203,7 @@ impl ServerContext {
     /// needs (auth manager, JWKS, CSRF, repos, config, data, optional
     /// Firebase / Resend, OAuth notification sender, tenant OAuth client,
     /// provider registry, sync notifier, optional sync orchestrator,
-    /// cache, string catalogue, admin JWT secret, and — under `provider-sciotte` — the
+    /// cache, string catalogue, admin JWT secret, the `OAuth2` rate limiter, and — under `provider-sciotte` — the
     /// hosted-login rate limiter and nonce store).
     #[must_use]
     pub fn auth_routes_context(&self) -> pierre_routes_auth::AuthRoutesContext {
@@ -226,6 +226,7 @@ impl ServerContext {
             cache: self.common.cache.clone(),
             messaging_strings: self.mcp.messaging_strings_registry.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
+            rate_limiter: self.auth.oauth2_rate_limiter.clone(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }

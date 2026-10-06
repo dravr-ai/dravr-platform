@@ -112,6 +112,32 @@ pub struct ProviderNotice {
     pub version: &'static str,
     /// Which accounts are asked for it.
     pub audience: NoticeAudience,
+    /// What accepting it gives Dravr, and so whether it can be withdrawn.
+    pub kind: NoticeKind,
+}
+
+/// What accepting a provider's notice gives Dravr.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeKind {
+    /// An acknowledgement of a risk the provider's terms of use create. It
+    /// gates the connect and nothing after it, so there is nothing to
+    /// withdraw: a disconnect ends the exposure.
+    TermsExposure,
+    /// Consent to hand the provider's data to an AI model, which the
+    /// provider's terms let the athlete withdraw at any time, as simply as it
+    /// was given. While it is not given, or once it is withdrawn, no model
+    /// reads that provider's data; the athlete still sees what is stored and
+    /// the connection stays live.
+    AiConsent,
+}
+
+impl ProviderNotice {
+    /// Whether the account can withdraw its acceptance once given: only a
+    /// consent to AI use can be.
+    #[must_use]
+    pub const fn withdrawable(&self) -> bool {
+        matches!(self.kind, NoticeKind::AiConsent)
+    }
 }
 
 /// Every notice a provider requires the account to accept before connecting,
@@ -125,14 +151,18 @@ pub struct ProviderNotice {
 ///   the credentials: TrainingPeaks (Terms of Use section 13) and COROS (Terms
 ///   of Service sections 4 and 7). Asked of the accounts the
 ///   `provider_exposure_notice` flag arms
-///   ([`NoticeAudience::FlagArmedAccounts`]).
+///   ([`NoticeAudience::FlagArmedAccounts`]). A [`NoticeKind::TermsExposure`]:
+///   nothing to withdraw.
 /// - **Owner authorization.** WHOOP's API Terms of Use (section 4, effective
 ///   2026-10-06) let Dravr store WHOOP Data, compute from it and hand it to
 ///   the coach only as the data's owner expressly authorizes; the athlete
 ///   gives that authorization before the WHOOP OAuth flow begins, and health
 ///   sync keeps no WHOOP record for an account that has not. The terms bind
 ///   every WHOOP connection, so it is asked of every account
-///   ([`NoticeAudience::EveryAccount`]).
+///   ([`NoticeAudience::EveryAccount`]). A [`NoticeKind::AiConsent`]: the
+///   athlete withdraws it from the privacy settings or the connection card,
+///   after which no model reads WHOOP data and health sync keeps no new WHOOP
+///   record until it is given again (carnet#726).
 ///
 /// A connect to one of these backends — a credential login or the start of an
 /// OAuth flow — is refused until an account asked for the notice accepts its
@@ -145,18 +175,48 @@ pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
         backend: SCIOTTE_TRAININGPEAKS,
         version: "2026-09-24",
         audience: NoticeAudience::FlagArmedAccounts,
+        kind: NoticeKind::TermsExposure,
     },
     ProviderNotice {
         backend: SCIOTTE_COROS,
         version: "2026-09-24",
         audience: NoticeAudience::FlagArmedAccounts,
+        kind: NoticeKind::TermsExposure,
     },
     ProviderNotice {
         backend: WHOOP,
         version: "2026-09-25",
         audience: NoticeAudience::EveryAccount,
+        kind: NoticeKind::AiConsent,
     },
 ];
+
+/// The attribution shown beside data a Garmin device recorded.
+///
+/// intervals.icu's API terms (effective 2025-10-23) require it "in the form
+/// and manner required by Garmin's brand guidelines" wherever information
+/// derived from Garmin-sourced data is displayed (carnet#521); Nolio's terms
+/// carry the same duty for `source=garmin`.
+pub const GARMIN_ATTRIBUTION: &str = "Garmin";
+
+/// The attribution an activity must be shown with, by its upstream `source`:
+/// [`GARMIN_ATTRIBUTION`] for Garmin-sourced data, `None` otherwise.
+#[must_use]
+pub fn source_attribution(source: Option<&str>) -> Option<&'static str> {
+    source
+        .filter(|source| source.eq_ignore_ascii_case(GARMIN))
+        .map(|_| GARMIN_ATTRIBUTION)
+}
+
+/// The backends whose notice is a consent to AI use
+/// ([`NoticeKind::AiConsent`]): while an account has not given it, or once it
+/// withdrew it, no model reads that backend's data.
+pub fn ai_consent_backends() -> impl Iterator<Item = &'static str> {
+    PROVIDER_NOTICES
+        .iter()
+        .filter(|notice| notice.kind == NoticeKind::AiConsent)
+        .map(|notice| notice.backend)
+}
 
 /// The notice `backend` requires, or `None` when the provider asks for none.
 #[must_use]

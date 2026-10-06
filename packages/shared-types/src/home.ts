@@ -51,6 +51,13 @@ export interface HomeActivity {
    * Decode with `decodePolyline` from `@pierre/domain-utils`.
    */
   summary_polyline: string | null;
+  /**
+   * The attribution the activity must be shown with, beside its title:
+   * `"Garmin"` when a Garmin device recorded it (intervals.icu's API terms
+   * require it in the form Garmin's brand guidelines set), null otherwise.
+   * Show it as served; no client composes an attribution of its own.
+   */
+  attribution: string | null;
 }
 
 /** `GET /api/me/activities/recent?limit=N` — `limit` is clamped to 1..=20 and defaults to 5. */
@@ -347,6 +354,7 @@ function parseHomeActivity(value: unknown): HomeActivity | null {
   const distance = nullable(value.distance_meters, isFiniteNumber);
   const elevation = nullable(value.elevation_gain_meters, isFiniteNumber);
   const polyline = nullable(value.summary_polyline, isString);
+  const attribution = nullable(value.attribution, isString);
   if (
     typeof value.id !== 'string' ||
     value.id === '' ||
@@ -360,7 +368,8 @@ function parseHomeActivity(value: unknown): HomeActivity | null {
     typeof value.has_gps !== 'boolean' ||
     distance === undefined ||
     elevation === undefined ||
-    polyline === undefined
+    polyline === undefined ||
+    attribution === undefined
   ) {
     return null;
   }
@@ -375,6 +384,7 @@ function parseHomeActivity(value: unknown): HomeActivity | null {
     elevation_gain_meters: elevation,
     has_gps: value.has_gps,
     summary_polyline: polyline,
+    attribution,
   };
 }
 

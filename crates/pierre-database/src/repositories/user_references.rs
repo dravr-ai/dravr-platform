@@ -178,6 +178,7 @@ user_owned_tables!(
     "coaching_group_members",
     "user_oauth_tokens",
     "provider_connections",
+    "provider_data_purges",
     "oauth_client_states",
     "oauth_client_grants",
     "oauth2_auth_codes",

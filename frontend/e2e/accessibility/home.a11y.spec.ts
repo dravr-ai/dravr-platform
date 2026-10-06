@@ -52,6 +52,7 @@ const ACTIVITIES = [
     elevation_gain_meters: 820,
     has_gps: true,
     summary_polyline: null,
+    attribution: null,
   },
   {
     id: 'act-1',
@@ -64,6 +65,7 @@ const ACTIVITIES = [
     elevation_gain_meters: 85,
     has_gps: true,
     summary_polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+    attribution: null,
   },
 ];
 

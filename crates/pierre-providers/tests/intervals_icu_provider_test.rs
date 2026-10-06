@@ -1191,3 +1191,47 @@ async fn list_read_maps_the_whole_inverted_feel_scale() {
         "the list never fetches threads"
     );
 }
+
+/// intervals.icu's API terms identify Garmin-sourced data by `device_name`
+/// containing "garmin" (carnet#521): a FIT upload from a Garmin watch is
+/// `source: garmin`, as a Garmin Connect relay is, and so carries the Garmin
+/// attribution wherever it is shown; another device's upload has no upstream.
+#[tokio::test]
+async fn list_read_marks_garmin_recorded_activities_garmin_sourced() {
+    let started = (Utc::now() - Duration::days(1))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let body = serde_json::json!([
+        { "id": "g-upload", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "Garmin Forerunner 965" },
+        { "id": "g-connect", "start_date_local": started, "source": "GARMIN_CONNECT" },
+        { "id": "wahoo", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "Wahoo ELEMNT BOLT" },
+        { "id": "manual", "start_date_local": started, "source": "MANUAL" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let source = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+            .source()
+            .map(str::to_owned)
+    };
+    assert_eq!(source("g-upload").as_deref(), Some("garmin"));
+    assert_eq!(source("g-connect").as_deref(), Some("garmin"));
+    assert_eq!(source("wahoo"), None);
+    assert_eq!(source("manual"), None);
+}
