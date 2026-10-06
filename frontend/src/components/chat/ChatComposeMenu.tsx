@@ -12,8 +12,11 @@ import { Button, Input, Modal, ModalActions } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 export interface ChatComposeMenuProps {
-  /** Start a fresh one-to-one conversation. */
-  onNewChat: () => void;
+  /**
+   * Start a fresh one-to-one conversation. Undefined in the Groups tab, which
+   * holds rooms only: a one-to-one thread is started from Home.
+   */
+  onNewChat?: () => void;
   /**
    * Start a fresh conversation that sends this `/group create <name>` command.
    * The command creates the group and binds the thread to it, so there is one
@@ -47,7 +50,6 @@ export default function ChatComposeMenu({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [namingGroup, setNamingGroup] = useState(false);
-  const [groupName, setGroupName] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,18 +73,6 @@ export default function ChatComposeMenu({
   const choose = (action: () => void) => {
     setOpen(false);
     action();
-  };
-
-  const closeNaming = () => {
-    setNamingGroup(false);
-    setGroupName('');
-  };
-
-  const submitGroupName = () => {
-    const trimmed = groupName.trim();
-    if (!trimmed) return;
-    closeNaming();
-    onNewGroupChat(COMMAND_DRAFTS.groupCreate(trimmed));
   };
 
   const itemClass =
@@ -110,10 +100,12 @@ export default function ChatComposeMenu({
           data-testid="chat-compose-menu"
           className="absolute right-0 z-30 mt-2 w-72 max-w-[90vw] rounded-xl border ghost-border bg-surface p-1.5"
         >
-          <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>
-            <MessageSquarePlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>{t('chat.newChat')}</span>
-          </button>
+          {onNewChat && (
+            <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>
+              <MessageSquarePlus className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
+              <span>{t('chat.newChat')}</span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -137,43 +129,78 @@ export default function ChatComposeMenu({
         </div>
       )}
 
-      <Modal
-        isOpen={namingGroup}
-        onClose={closeNaming}
-        title={t('chat.newGroupChat')}
-        size="sm"
-        footer={
-          <ModalActions>
-            <Button variant="secondary" onClick={closeNaming}>
-              {t('chat.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={submitGroupName}
-              disabled={!groupName.trim()}
-              data-testid="group-name-submit"
-            >
-              {t('groups.inviteCreate')}
-            </Button>
-          </ModalActions>
-        }
-      >
-        <Input
-          label={t('chat.groupNameLabel')}
-          value={groupName}
-          onChange={(e) => setGroupName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              submitGroupName();
-            }
-          }}
-          placeholder={t('groups.namePlaceholder')}
-          maxLength={100}
-          autoFocus
-          data-testid="group-name-input"
-        />
-      </Modal>
+      <NewGroupDialog open={namingGroup} onClose={() => setNamingGroup(false)} onNewGroupChat={onNewGroupChat} />
     </div>
+  );
+}
+
+/**
+ * The name a new group asks for before `/group create` runs — the "+" menu's
+ * "New group chat" and the empty Groups tab's "Create a group" open the same
+ * dialog, so there is one way to word and send the command.
+ */
+export function NewGroupDialog({
+  open,
+  onClose,
+  onNewGroupChat,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Receives the `/group create <name>` command to send in a fresh conversation. */
+  onNewGroupChat: (command: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [groupName, setGroupName] = useState('');
+
+  const close = () => {
+    setGroupName('');
+    onClose();
+  };
+
+  const submitGroupName = () => {
+    const trimmed = groupName.trim();
+    if (!trimmed) return;
+    close();
+    onNewGroupChat(COMMAND_DRAFTS.groupCreate(trimmed));
+  };
+
+  return (
+    <Modal
+      isOpen={open}
+      onClose={close}
+      title={t('chat.newGroupChat')}
+      size="sm"
+      footer={
+        <ModalActions>
+          <Button variant="secondary" onClick={close}>
+            {t('chat.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            onClick={submitGroupName}
+            disabled={!groupName.trim()}
+            data-testid="group-name-submit"
+          >
+            {t('groups.inviteCreate')}
+          </Button>
+        </ModalActions>
+      }
+    >
+      <Input
+        label={t('chat.groupNameLabel')}
+        value={groupName}
+        onChange={(e) => setGroupName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitGroupName();
+          }
+        }}
+        placeholder={t('groups.namePlaceholder')}
+        maxLength={100}
+        autoFocus
+        data-testid="group-name-input"
+      />
+    </Modal>
   );
 }

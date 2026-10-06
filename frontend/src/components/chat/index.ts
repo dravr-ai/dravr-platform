@@ -15,7 +15,7 @@ export { default as MessageList } from './MessageList';
 export { default as VerdictDrawer } from './VerdictDrawer';
 export { default as MessageInput } from './MessageInput';
 export { default as ConversationParticipants } from './ConversationParticipants';
-export { default as ChatComposeMenu } from './ChatComposeMenu';
+export { default as ChatComposeMenu, NewGroupDialog } from './ChatComposeMenu';
 export { default as ChatEmptyState } from './ChatEmptyState';
 export { default as ConversationInfoPanel } from './ConversationInfoPanel';
 export { default as CoachInfoPanel } from './CoachInfoPanel';

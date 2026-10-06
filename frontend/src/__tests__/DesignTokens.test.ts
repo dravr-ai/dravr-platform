@@ -163,7 +163,7 @@ describe('DESIGN.md states the shipped token values', () => {
 
 describe('DESIGN.md §5 states one shell rule per client', () => {
   const regionTable = DESIGN_MD.slice(
-    DESIGN_MD.indexOf('### Chat surfaces — the messenger layout'),
+    DESIGN_MD.indexOf("### Chat surfaces — Home's conversation and the Groups messenger"),
     DESIGN_MD.indexOf('### Focus rings'),
   );
 

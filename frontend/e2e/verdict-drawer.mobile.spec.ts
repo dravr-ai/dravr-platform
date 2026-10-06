@@ -5,7 +5,7 @@
 // ABOUTME: A touch screen has no hover, so a tap must pin the source preview open and a second tap close it
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openPersonalConversation } from './test-helpers';
 
 const CONVERSATION_ID = 'conv-mobile-verdict';
 // Long enough that the pill has to truncate at 393px rather than overflow.
@@ -100,10 +100,9 @@ async function setupMocks(page: Page) {
   });
 }
 
-/** Open the conversation from the list and the drawer from its reply's chip. */
+/** Open the athlete's own conversation from Home's History, and the drawer from its reply's chip. */
 async function openDrawer(page: Page): Promise<Locator> {
-  await openChat(page);
-  await page.getByText(CONVERSATION_TITLE).first().tap();
+  await openPersonalConversation(page, CONVERSATION_TITLE);
   await expect(page.getByText('Comment était ma sortie ?')).toBeVisible({ timeout: 10000 });
   await page.getByRole('button', { name: /1 verdict · supported/ }).tap();
   const drawer = page.getByTestId('verdict-drawer');

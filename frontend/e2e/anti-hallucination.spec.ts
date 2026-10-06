@@ -97,7 +97,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
   test.describe('Chat - No Hallucinated Elements', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await waitForNetworkIdle(page);
     });
 
@@ -274,7 +274,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
     }) => {
       const releaseProviders = await routeProviders(page, []);
       await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await expect(chatPane(page)).toBeVisible();
 
       releaseProviders();
@@ -297,7 +297,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
         { provider: 'strava', connected: true },
       ]);
       await loginAsUser(page, 'webtest', { skipProvidersRoute: true });
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await expect(chatPane(page)).toBeVisible();
 
       const banner = page.getByTestId('connect-provider-banner');

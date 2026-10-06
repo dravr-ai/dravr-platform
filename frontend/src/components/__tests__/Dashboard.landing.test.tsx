@@ -20,16 +20,27 @@ vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
 
+// Home is ChatTab's personal layout; the Groups tab is its shell.
 vi.mock('../ChatTab', () => ({
-  default: () => <div data-testid="chat-tab">Chat surface</div>,
+  default: ({ layout }: { layout?: string }) =>
+    layout === 'personal' ? (
+      <div data-testid="home-tab">Home surface</div>
+    ) : (
+      <div data-testid="chat-tab">Groups surface</div>
+    ),
 }));
 
 vi.mock('../StoreScreen', () => ({
   default: () => <div data-testid="discover-tab">Discover surface</div>,
 }));
 
-vi.mock('../home/Home', () => ({
-  default: () => <div data-testid="home-tab">Home surface</div>,
+vi.mock('../home/Home', () => ({ HomeBriefing: () => null }));
+vi.mock('../home/TodayPeek', () => ({ TodayPeek: () => null }));
+// Home opens on the latest personal thread; these specs assert nothing about
+// which one, and no #chat link here names a thread the list knows.
+vi.mock('../../hooks/useConversationList', () => ({
+  useLatestPersonalConversation: () => ({ id: null, isLoading: false }),
+  useConversationScope: () => null,
 }));
 
 vi.mock('../ConnectProviderBanner', () => ({
@@ -135,7 +146,7 @@ describe('Dashboard landing — regular user', () => {
     await waitFor(() => expect(window.location.hash).toBe('#home'));
   });
 
-  it('offers exactly Home, Chat, Discover and Notifications in the rail — providers live under Settings', async () => {
+  it('offers exactly Home, Groups, Discover and Notifications in the rail — providers live under Settings', async () => {
     await act(async () => {
       renderDashboard();
     });
@@ -144,7 +155,7 @@ describe('Dashboard landing — regular user', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(['Home', 'Chat', 'Discover', 'Notifications']);
+    expect(labels).toEqual(['Home', 'Groups', 'Discover', 'Notifications']);
   });
 
   it('resolves a stale #groups hash typed after load to Home', async () => {

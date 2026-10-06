@@ -491,14 +491,45 @@ export async function loginToDashboard(page: Page, credentials?: { email?: strin
 }
 
 /**
- * Opens Chat the way a signed-in athlete does: sign-in lands on Home, and the
- * primary navigation's Chat entry — the rail on a wide screen, the bottom bar
- * on a phone — is the way in. Only the visible one of the two is clicked.
+ * Opens the athlete's own conversation the way a signed-in athlete does: it
+ * is Home, where sign-in lands, so this waits for Home's personal surface —
+ * pressing Home in the primary navigation first when another tab is open.
+ * Only the visible one of the rail and the bottom bar is clicked.
  */
-export async function openChat(page: Page) {
+export async function openHome(page: Page) {
+  if (!/#home(\/|$)/.test(new URL(page.url()).hash)) {
+    await page
+      .getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('button', { name: 'Home', exact: true })
+      .filter({ visible: true })
+      .first()
+      .click();
+  }
+  await page.waitForURL(/#home(\/|$)/, { timeout: APP_SHELL_TIMEOUT_MS });
+  await page.getByTestId('home-page').waitFor({ timeout: APP_SHELL_TIMEOUT_MS });
+}
+
+/**
+ * Opens one of the athlete's own conversations by title, the way an athlete
+ * does on Home: the History sheet lists them, and picking a row opens it and
+ * closes the sheet. Works whichever thread Home opened on.
+ */
+export async function openPersonalConversation(page: Page, title: string) {
+  await openHome(page);
+  await page.getByTestId('home-history-button').click();
+  const history = page.getByRole('dialog', { name: 'History' });
+  await history.getByTestId('conversation-row').filter({ hasText: title }).first().click();
+  await history.waitFor({ state: 'hidden', timeout: APP_SHELL_TIMEOUT_MS });
+}
+
+/**
+ * Opens the Groups tab — the rooms the athlete shares with other people — from
+ * the primary navigation. The tab keeps the `chat` route.
+ */
+export async function openGroups(page: Page) {
   await page
     .getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('button', { name: 'Chat', exact: true })
+    .getByRole('button', { name: 'Groups', exact: true })
     .filter({ visible: true })
     .first()
     .click();

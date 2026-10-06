@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The chat surface: one open thread, its header info drawer, and the composer — or that thread alone, embedded in a view
+// ABOUTME: The chat surface: the Groups tab's rooms beside their thread, Home's own conversation beside Today, or a thread embedded in a view
 // ABOUTME: Agents and groups are commands here — no agent CRUD, no group picker, no welcome grid
 
-import { useState, useEffect, useRef, useCallback, useMemo, useReducer, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useReducer, type ReactNode, type UIEvent } from 'react';
+import { History, PanelRightClose, PanelRightOpen, Plus, Users } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, groupsApi, providersApi } from '../services/api';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
   COMMAND_FINISH_REASON,
+  deriveKind,
+  scopeOfKind,
   composeRoomThread,
   initialsFor,
   providerStatusLine,
@@ -34,13 +37,15 @@ import {
   ChatComposeMenu,
   ChatEmptyState,
   ConversationInfoPanel,
+  NewGroupDialog,
 } from './chat';
 import VerdictDrawer from './chat/VerdictDrawer';
 import type { VerdictSource } from './chat/VerdictDrawer';
 import ChatShell from './chat/ChatShell';
 import ThreadHeader from './chat/ThreadHeader';
 import ConversationList from './dashboard/ConversationList';
-import { useIsDesktop } from '../hooks/useBreakpoint';
+import { useIsDesktop, useIsMobile } from '../hooks/useBreakpoint';
+import { useComposerFocused } from '../hooks/useComposerFocused';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { ConnectProviderBanner } from './ConnectProviderBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
@@ -53,7 +58,7 @@ import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
 import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
 import { useTodayRouteDraft } from '../hooks/useHome';
-import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
+import { Button, Sheet, useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
@@ -106,6 +111,46 @@ export interface PendingComposerAction {
   text: string;
 }
 
+/**
+ * Home's Today, as the host draws it: the whole of it for the panel, the
+ * drawer or the sheet, and the one line that stands for it above the thread
+ * on a narrow screen. The chat surface only places them.
+ */
+export interface PersonalToday {
+  /**
+   * The panel's content. `onOpenChatDraft` puts text in this thread's
+   * composer; `compact` is the docked side panel, as opposed to a drawer or a
+   * sheet.
+   */
+  panel: (onOpenChatDraft: (text: string) => void, compact: boolean) => ReactNode;
+  /** The folded line; `hidden` while the athlete reads back up the thread or types. */
+  peek: (onOpen: () => void, hidden: boolean) => ReactNode;
+}
+
+/** Where the docked Today panel's open or closed state is kept, per browser. */
+const TODAY_PANEL_STORAGE_KEY = 'dravr.home.todayPanel';
+
+/** How close to the end of the transcript still counts as reading the latest message, in px. */
+const LATEST_MESSAGE_SLACK_PX = 64;
+
+function readTodayDocked(): boolean {
+  try {
+    return localStorage.getItem(TODAY_PANEL_STORAGE_KEY) !== 'closed';
+  } catch {
+    // Storage can be refused (a private window, blocked site data): the
+    // panel then opens, as it does for everyone the first time.
+    return true;
+  }
+}
+
+function writeTodayDocked(open: boolean): void {
+  try {
+    localStorage.setItem(TODAY_PANEL_STORAGE_KEY, open ? 'open' : 'closed');
+  } catch {
+    // Nothing to keep it in; the choice holds for this page only.
+  }
+}
+
 interface ChatTabProps {
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
@@ -119,14 +164,19 @@ interface ChatTabProps {
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
   /**
-   * Where the surface sits. `shell`, the chat tab: the conversation list
-   * beside the thread, its header and info drawer. `embedded`: the thread's
-   * transcript and composer alone, inside another view — an activity's —
-   * which owns the way into it.
+   * Where the surface sits. `shell`, the Groups tab: the list of rooms beside
+   * the open one, its header and info drawer. `personal`, Home: the athlete's
+   * own conversation with Today beside it and the other threads behind a
+   * history button. `embedded`: the thread's transcript and composer alone,
+   * inside another view — an activity's — which owns the way into it.
    */
-  layout?: 'shell' | 'embedded';
+  layout?: 'shell' | 'personal' | 'embedded';
   /** What an embedded surface shows while no thread is open: the host view's own way in. */
   embeddedEmptyState?: ReactNode;
+  /** `personal` only: Home's Today, drawn by the host. */
+  today?: PersonalToday;
+  /** `personal` only: the host is still working out which conversation Home opens on. */
+  resolving?: boolean;
 }
 
 export default function ChatTab({
@@ -137,6 +187,8 @@ export default function ChatTab({
   onPendingComposerActionConsumed,
   layout = 'shell',
   embeddedEmptyState,
+  today,
+  resolving = false,
 }: ChatTabProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -179,6 +231,19 @@ export default function ChatTab({
   // participants control already expanded.
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoOpensParticipants, setInfoOpensParticipants] = useState(false);
+  // Home's sheets and its docked Today panel. The panel's open state is the
+  // athlete's choice and outlives the page; the sheets close with it.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [todaySheetOpen, setTodaySheetOpen] = useState(false);
+  const [todayDocked, setTodayDocked] = useState(readTodayDocked);
+  // Whether the transcript is scrolled to its latest message. Home's folded
+  // Today line steps aside while the athlete reads back up the thread and
+  // returns once they are at the end of it again (Phil, 2026-10-05).
+  const [atLatest, setAtLatest] = useState(true);
+  // Where the transcript was at its last scroll event, for the direction.
+  const lastScrollTopRef = useRef(0);
+  // The empty Groups tab's own way to start a room.
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -278,7 +343,12 @@ export default function ChatTab({
   // The list is the one source for the open thread's row: its title, the
   // agent it is bound to and the group it is scoped to all come from there,
   // so the header and the info drawer read the same record the sidebar draws.
-  const { conversations } = useConversationList();
+  const {
+    conversations,
+    isLoading: conversationsLoading,
+    isError: conversationsFailed,
+    hasMore: moreConversations,
+  } = useConversationList();
   const { rename, remove } = useConversationMutations();
   const activeConversation = useMemo(
     () => conversations.find(c => c.id === selectedConversation) ?? null,
@@ -356,6 +426,12 @@ export default function ChatTab({
   // Below the desktop breakpoint the list hides behind the open thread, so
   // the header carries the way back to it.
   const isDesktop = useIsDesktop();
+  const isMobile = useIsMobile();
+  const composing = useComposerFocused();
+  // The composer takes focus on its own only on a wide screen. On a phone a
+  // focus without a tap opens no keyboard, yet it would fold the tab bar and
+  // the Today line away as if the athlete were typing.
+  const focusComposerOnOpen = layout !== 'embedded' && isDesktop;
 
   // The message whose verdicts the drawer shows. The rows are written right
   // after the reply row, so a chip that landed before the read did opens the
@@ -461,14 +537,20 @@ export default function ChatTab({
   // Focus input when conversation is selected; an info drawer left open
   // belongs to the previous thread, so it closes with it.
   // An embedded thread leaves focus where the athlete put it (see
-  // MessageInput's `focusOnMount`).
+  // MessageInput's `focusOnMount`). Only a change of thread runs this: the
+  // focus rule is read through a ref, so a window crossing `lg` — which
+  // flips it — does not close the drawer of the thread still open.
+  const focusComposerOnOpenRef = useRef(focusComposerOnOpen);
+  focusComposerOnOpenRef.current = focusComposerOnOpen;
   useEffect(() => {
     setInfoOpen(false);
     setInfoOpensParticipants(false);
-    if (selectedConversation && layout !== 'embedded') {
+    setAtLatest(true);
+    lastScrollTopRef.current = 0;
+    if (selectedConversation && focusComposerOnOpenRef.current) {
       inputRef.current?.focus();
     }
-  }, [selectedConversation, layout]);
+  }, [selectedConversation]);
 
   // OAuth completion listener
   useEffect(() => {
@@ -1032,10 +1114,13 @@ export default function ChatTab({
     void sendTurn(retryableQuestion);
   }, [retryableQuestion, sendTurn]);
 
-  /** The "+" menu's three items, wired the same way in both header slots. */
+  /**
+   * The "+" menu, wired the same way in every header slot. The Groups tab
+   * offers rooms only — a one-to-one thread is Home's to start.
+   */
   const composeMenu = (withParticipants: boolean) => (
     <ChatComposeMenu
-      onNewChat={() => startConversation()}
+      onNewChat={layout === 'shell' ? undefined : () => startConversation()}
       onNewGroupChat={(command) => runComposerAction({ kind: 'send', text: command })}
       onAddParticipant={
         withParticipants
@@ -1072,10 +1157,42 @@ export default function ChatTab({
       </div>
     ) : null;
 
+  /**
+   * Home's folded Today line follows the athlete's reading: it steps aside
+   * when they scroll up the thread and comes back once they reach its latest
+   * message. Only a move up hides it — the thread's own scroll to its end on
+   * open and on every reply runs downward and may stop short of the last
+   * pixel, so it never folds the line away by itself.
+   */
+  const handleTranscriptScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const previous = lastScrollTopRef.current;
+    lastScrollTopRef.current = scroller.scrollTop;
+    if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= LATEST_MESSAGE_SLACK_PX) {
+      setAtLatest(true);
+    } else if (scroller.scrollTop < previous) {
+      setAtLatest(false);
+    }
+  }, []);
+
+  // Whether the athlete is in any room at all — the Groups tab with none says
+  // so in place of an empty list beside an empty thread. Only a list read in
+  // full can say so: a failed read, or rooms on a page not loaded yet, leave
+  // the list to show its own error or its next page.
+  const hasNoGroups = useMemo(
+    () =>
+      !conversationsLoading &&
+      !conversationsFailed &&
+      !moreConversations &&
+      !conversations.some((conversation) => scopeOfKind(deriveKind(conversation)) === 'groups'),
+    [conversations, conversationsLoading, conversationsFailed, moreConversations],
+  );
+
   // The list's "+" knows which thread is open, so on a wide screen it offers
   // the same three ways in as the thread header's "+" beside it.
   const listColumn = (
     <ConversationList
+      scope="groups"
       selectedConversation={selectedConversation}
       onSelectConversation={onSelectConversation}
       compose={composeMenu(Boolean(selectedConversation))}
@@ -1091,7 +1208,10 @@ export default function ChatTab({
           and without `relative` here it resolves against the tab root, where
           twenty of them stretch the outer pane to the transcript's full height
           and the first focus scrolls the header and the list off screen. */}
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
+      <div
+        className="relative min-h-0 flex-1 overflow-y-auto"
+        onScroll={layout === 'personal' ? handleTranscriptScroll : undefined}
+      >
         <div className="px-4 py-4 md:px-6">
           {roomFailed ? (
             <p className="mx-auto mb-2 max-w-[720px] text-center text-sm text-outline" data-testid="room-load-failed">
@@ -1138,7 +1258,7 @@ export default function ChatTab({
         isStopping={isStopping}
         disabled={usageStatus.sendDisabled}
         conversationId={selectedConversation}
-        focusOnMount={layout !== 'embedded'}
+        focusOnMount={focusComposerOnOpen}
       />
     </>
   );
@@ -1173,17 +1293,12 @@ export default function ChatTab({
     );
   }
 
+  // The Groups tab with rooms but none open — on a wide screen, the pane
+  // beside the list. Starting a one-to-one thread is Home's, so it offers
+  // nothing but the rooms on its left.
   const threadPane = !selectedConversation ? (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {banner}
-      <ChatEmptyState
-        compose={composeMenu(false)}
-        onOpenCommands={handleOpenCommands}
-        onSuggestRoute={handleSuggestRoute}
-        disabled={createConversation.isPending}
-        onNavigate={onNavigate}
-        providerStatus={providerStatus}
-      />
+    <div className="flex flex-1 items-center justify-center px-6" data-testid="groups-pick-one">
+      <p className="text-sm text-on-surface-variant">{t('groups.pickOne')}</p>
     </div>
   ) : (
     /* Active Conversation View */
@@ -1208,11 +1323,8 @@ export default function ChatTab({
     </div>
   );
 
-  return (
-    <div className="relative h-full">
-      <ChatShell list={listColumn} thread={threadPane} hasSelection={Boolean(selectedConversation)} />
-
-      {/* Drawers */}
+  const drawers = (
+    <>
       {infoOpen && activeConversation ? (
         <ConversationInfoPanel
           conversation={activeConversation}
@@ -1244,6 +1356,318 @@ export default function ChatTab({
       ) : null}
 
       {verdictDrawer}
+    </>
+  );
+
+  if (layout === 'personal') {
+    return (
+      <PersonalSurface
+        selectedConversation={selectedConversation}
+        resolving={resolving}
+        isDesktop={isDesktop}
+        isMobile={isMobile}
+        today={today}
+        todayDocked={todayDocked}
+        onToggleTodayDocked={() => {
+          setTodayDocked((open) => {
+            writeTodayDocked(!open);
+            return !open;
+          });
+        }}
+        todaySheetOpen={todaySheetOpen}
+        onTodaySheetOpenChange={setTodaySheetOpen}
+        historyOpen={historyOpen}
+        onHistoryOpenChange={setHistoryOpen}
+        peekHidden={!atLatest || composing}
+        onDraft={(text) => {
+          setTodaySheetOpen(false);
+          runComposerAction({ kind: 'draft', text });
+        }}
+        onSelectConversation={onSelectConversation}
+        onNewConversation={() => startConversation()}
+        creating={createConversation.isPending}
+        renderHeader={(lead, trail) =>
+          selectedConversation ? (
+            <ThreadHeader
+              title={headerTitle}
+              subtitle={headerSubtitle}
+              initials={initialsFor(headerTitle)}
+              avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
+              avatarShape={activeConversation?.group_id ? 'square' : 'circle'}
+              onOpenInfo={() => {
+                setInfoOpensParticipants(false);
+                setInfoOpen(true);
+              }}
+              actions={
+                <>
+                  {lead}
+                  {composeMenu(true)}
+                  {trail}
+                </>
+              }
+            />
+          ) : null
+        }
+        thread={
+          <>
+            <UsageWarningBanner level={usageStatus.level} text={usageStatus.text} />
+            {banner}
+            {transcript}
+          </>
+        }
+        emptyState={
+          <ChatEmptyState
+            compose={composeMenu(false)}
+            onOpenCommands={handleOpenCommands}
+            onSuggestRoute={handleSuggestRoute}
+            disabled={createConversation.isPending}
+            onNavigate={onNavigate}
+            providerStatus={providerStatus}
+          />
+        }
+        drawers={drawers}
+      />
+    );
+  }
+
+  // The Groups tab with no room at all: one sentence and one way to start one,
+  // in place of an empty list beside an empty thread.
+  if (hasNoGroups && !selectedConversation) {
+    return (
+      <div className="relative h-full" data-testid="chat-shell">
+        <GroupsEmptyState onCreate={() => setNewGroupOpen(true)} disabled={createConversation.isPending} />
+        <NewGroupDialog
+          open={newGroupOpen}
+          onClose={() => setNewGroupOpen(false)}
+          onNewGroupChat={(command) => runComposerAction({ kind: 'send', text: command })}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full">
+      <ChatShell list={listColumn} thread={threadPane} hasSelection={Boolean(selectedConversation)} />
+      {drawers}
+    </div>
+  );
+}
+
+/** The Groups tab before the athlete is in any room. */
+function GroupsEmptyState({ onCreate, disabled }: { onCreate: () => void; disabled: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      data-testid="groups-empty"
+      className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-container text-on-primary-container"
+      >
+        <Users className="h-6 w-6" />
+      </span>
+      <h2 className="font-display text-lg font-semibold text-on-surface">{t('groups.emptyTitle')}</h2>
+      <p className="max-w-[360px] text-sm leading-relaxed text-on-surface-variant">{t('groups.emptyBody')}</p>
+      <Button variant="primary" onClick={onCreate} disabled={disabled} className="mt-1" data-testid="groups-empty-create">
+        {t('groups.createCta')}
+      </Button>
+    </div>
+  );
+}
+
+interface PersonalSurfaceProps {
+  selectedConversation: string | null;
+  resolving: boolean;
+  isDesktop: boolean;
+  isMobile: boolean;
+  today: PersonalToday | undefined;
+  todayDocked: boolean;
+  onToggleTodayDocked: () => void;
+  todaySheetOpen: boolean;
+  onTodaySheetOpenChange: (open: boolean) => void;
+  historyOpen: boolean;
+  onHistoryOpenChange: (open: boolean) => void;
+  peekHidden: boolean;
+  onDraft: (text: string) => void;
+  onSelectConversation: (id: string | null) => void;
+  onNewConversation: () => void;
+  creating: boolean;
+  /**
+   * The open thread's header, given Home's own buttons to place around the
+   * "+": the history first, the Today panel's toggle last. `null` before
+   * there is a thread.
+   */
+  renderHeader: (lead: ReactNode, trail: ReactNode) => ReactNode;
+  /** The open thread's banners, transcript and composer. */
+  thread: ReactNode;
+  /** What Home shows when the athlete has no conversation yet. */
+  emptyState: ReactNode;
+  drawers: ReactNode;
+}
+
+/**
+ * Home: the athlete's own conversation in the middle, Today beside it.
+ *
+ * At ≥1024px Today is a docked panel the athlete can fold away; below it the
+ * panel is one line above the thread that opens a drawer (tablet) or a
+ * full-height sheet (phone). The other personal threads — plain, agents,
+ * Telegram and the other channels — sit behind the history button.
+ */
+function PersonalSurface({
+  selectedConversation,
+  resolving,
+  isDesktop,
+  isMobile,
+  today,
+  todayDocked,
+  onToggleTodayDocked,
+  todaySheetOpen,
+  onTodaySheetOpenChange,
+  historyOpen,
+  onHistoryOpenChange,
+  peekHidden,
+  onDraft,
+  onSelectConversation,
+  onNewConversation,
+  creating,
+  renderHeader,
+  thread,
+  emptyState,
+  drawers,
+}: PersonalSurfaceProps) {
+  const { t } = useTranslation();
+  const iconButton =
+    'flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target';
+
+  const historyButton = (
+    <button
+      type="button"
+      onClick={() => onHistoryOpenChange(true)}
+      data-testid="home-history-button"
+      aria-haspopup="dialog"
+      title={t('home.personal.history')}
+      className={iconButton}
+    >
+      <History className="h-[18px] w-[18px]" aria-hidden="true" />
+      <span className="hidden md:inline">{t('home.personal.history')}</span>
+      <span className="sr-only md:hidden">{t('home.personal.history')}</span>
+    </button>
+  );
+  const todayToggle =
+    isDesktop && today ? (
+      <button
+        type="button"
+        onClick={onToggleTodayDocked}
+        data-testid="home-today-toggle"
+        aria-pressed={todayDocked}
+        aria-label={todayDocked ? t('home.personal.todayHide') : t('home.personal.todayShow')}
+        title={todayDocked ? t('home.personal.todayHide') : t('home.personal.todayShow')}
+        className={iconButton}
+      >
+        {todayDocked ? (
+          <PanelRightClose className="h-[18px] w-[18px]" aria-hidden="true" />
+        ) : (
+          <PanelRightOpen className="h-[18px] w-[18px]" aria-hidden="true" />
+        )}
+      </button>
+    ) : null;
+
+  const peek = !isDesktop && today ? today.peek(() => onTodaySheetOpenChange(true), peekHidden) : null;
+
+  let centre: ReactNode;
+  if (selectedConversation) {
+    centre = (
+      <>
+        {renderHeader(historyButton, todayToggle)}
+        {peek}
+        {thread}
+      </>
+    );
+  } else {
+    centre = (
+      <>
+        <div className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b ghost-border bg-surface pl-4 pr-2 md:pl-5 md:pr-3">
+          <h2 className="font-display text-lg font-semibold text-on-surface">{t('nav.home')}</h2>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {historyButton}
+            {todayToggle}
+          </div>
+        </div>
+        {peek}
+        {resolving ? (
+          <div className="flex flex-1 items-center justify-center" role="status" aria-label={t('common.loading')}>
+            <div className="pierre-spinner" />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{emptyState}</div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="relative flex h-full min-h-0 bg-surface" data-testid="home-page">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{centre}</div>
+
+      {isDesktop && today && todayDocked && (
+        <aside
+          aria-label={t('chat.dayToday')}
+          data-testid="home-today-panel"
+          className="flex w-[320px] shrink-0 flex-col border-l ghost-border bg-surface xl:w-[360px]"
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto">{today.panel(onDraft, true)}</div>
+        </aside>
+      )}
+
+      {!isDesktop && today && todaySheetOpen && (
+        <Sheet
+          side={isMobile ? 'bottom' : 'right'}
+          title={t('chat.dayToday')}
+          onClose={() => onTodaySheetOpenChange(false)}
+          data-testid="home-today-sheet"
+        >
+          {today.panel(onDraft, false)}
+        </Sheet>
+      )}
+
+      {historyOpen && (
+        <Sheet
+          side="left"
+          width="full"
+          title={t('home.personal.history')}
+          onClose={() => onHistoryOpenChange(false)}
+          data-testid="home-history"
+          actions={
+            <button
+              type="button"
+              onClick={() => {
+                onHistoryOpenChange(false);
+                onNewConversation();
+              }}
+              disabled={creating}
+              aria-label={t('chat.newChat')}
+              title={t('chat.newChat')}
+              data-testid="home-history-new"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-primary transition-colors hover:bg-surface-container-low disabled:opacity-50 focus-ring"
+            >
+              <Plus className="h-5 w-5" aria-hidden="true" />
+            </button>
+          }
+        >
+          <ConversationList
+            scope="personal"
+            showTitle={false}
+            selectedConversation={selectedConversation}
+            onSelectConversation={(id) => {
+              onHistoryOpenChange(false);
+              onSelectConversation(id);
+            }}
+          />
+        </Sheet>
+      )}
+
+      {drawers}
     </div>
   );
 }

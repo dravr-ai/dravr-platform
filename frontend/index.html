@@ -7,8 +7,12 @@
     <!-- viewport-fit=cover is REQUIRED for env(safe-area-inset-*) to resolve
          non-zero on notched iOS — it activates the bottom-bar / drawer / content
          safe-area padding already in the tree. Never add user-scalable=no /
-         maximum-scale (breaks pinch-zoom, WCAG 1.4.4). -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+         maximum-scale (breaks pinch-zoom, WCAG 1.4.4).
+         interactive-widget=resizes-content makes Chrome on Android shrink the
+         layout under its keyboard, so the chat composer rides on top of it
+         instead of being covered; Safari ignores the key and scrolls the
+         focused composer into view itself. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <!-- Two theme-colors, not one. A single dark value painted the installed
          app's title bar and the mobile browser's address bar deep-forest even
          for a viewer who had chosen the light scheme. Browsers pick the tag

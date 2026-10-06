@@ -16,6 +16,8 @@ interface RouteSketchProps {
   points: readonly (readonly [number, number])[];
   /** What a screen reader announces for the drawing. */
   label: string;
+  /** The small frame of Home's folded Today line, rather than an activity row's. */
+  compact?: boolean;
 }
 
 /**
@@ -25,7 +27,7 @@ interface RouteSketchProps {
  * all in one place, or off the globe — because an empty frame would read as a
  * route that failed to load rather than as an activity with no route to show.
  */
-export function RouteSketch({ points, label }: RouteSketchProps) {
+export function RouteSketch({ points, label, compact = false }: RouteSketchProps) {
   const d = useMemo(() => projectRouteToSvgPath(points, SKETCH_BOX), [points]);
   if (d === null) return null;
   return (
@@ -34,7 +36,7 @@ export function RouteSketch({ points, label }: RouteSketchProps) {
       role="img"
       aria-label={label}
       data-testid="route-sketch"
-      className="block h-12 w-16 rounded-lg border ghost-border bg-surface-container-lowest"
+      className={`block border ghost-border bg-surface-container-lowest ${compact ? 'h-8 w-11 rounded-md' : 'h-12 w-16 rounded-lg'}`}
     >
       <path
         d={d}

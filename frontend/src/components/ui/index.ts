@@ -69,3 +69,5 @@ export {
   ListSkeleton,
   ZoneEditorSkeleton,
 } from './Skeleton';
+export { Sheet } from './Sheet';
+export type { SheetProps, SheetSide } from './Sheet';

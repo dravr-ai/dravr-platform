@@ -81,15 +81,15 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Chat Tab
+  // Home — the athlete's own conversation
   // ========================================
-  test.describe('Chat Tab', () => {
+  test.describe('Home conversation', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'webtest');
     });
 
     test('chat - displays conversation list', async ({ page }) => {
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');
@@ -99,7 +99,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
     });
 
     test('chat - new conversation button visible', async ({ page }) => {
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await waitForNetworkIdle(page);
 
       // Check for new chat button (may or may not be visible)
@@ -109,7 +109,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
     });
 
     test('chat - message input accepts text', async ({ page }) => {
-      await navigateToTab(page, 'Chat');
+      await navigateToTab(page, 'Home');
       await waitForNetworkIdle(page);
 
       const messageInput = page.locator('textarea, input[placeholder*="message" i], input[placeholder*="type" i]');
@@ -121,13 +121,15 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       }
     });
 
-    test('chat - the unified conversation list', async ({ page }) => {
-      await navigateToTab(page, 'Chat');
+    test('chat - the history of the athlete\'s own threads', async ({ page }) => {
+      await navigateToTab(page, 'Home');
       await waitForNetworkIdle(page);
 
-      // The one list every thread lands in, whatever surface created it.
-      await expect(page.getByTestId('conversation-list')).toBeVisible();
-      await expect(page.getByLabel('Search conversations')).toBeVisible();
+      // Every thread that is only the athlete and Dravr, behind History.
+      await page.getByTestId('home-history-button').click();
+      const history = page.getByRole('dialog', { name: 'History' });
+      await expect(history.getByTestId('conversation-list')).toBeVisible();
+      await expect(history.getByLabel('Search our conversations')).toBeVisible();
 
       await takeVisualScreenshot(page, 'user-chat', 'conversation-list');
     });
@@ -229,9 +231,9 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       // could keep passing. The nav must hold the athlete tabs and nothing
       // pointing at a feed.
       const aside = page.locator('aside');
-      await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
+      await expect(aside.getByRole('button', { name: 'Groups', exact: true })).toBeVisible();
       await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
-      await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
+      await expect(aside.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0);
       await expect(aside.getByRole('button', { name: 'Insights' })).toHaveCount(0);
       await expect(aside.getByRole('button', { name: 'Friends' })).toHaveCount(0);
 

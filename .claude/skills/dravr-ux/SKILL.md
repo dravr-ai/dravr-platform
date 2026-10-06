@@ -1,11 +1,13 @@
 ---
 name: dravr-ux
-description: Design and review athlete-facing web and mobile UI for Dravr — the Boreal design system (DESIGN.md) and the messenger layout the chat, list and settings surfaces follow. Use before building or restyling any screen, component, empty state or theme work, and to verify a UI change in both themes before calling it done.
+description: Design and review athlete-facing web and mobile UI for Dravr — the Boreal design system (DESIGN.md), Home's personal conversation beside Today, and the messenger layout the Groups, list and settings surfaces follow. Use before building or restyling any screen, component, empty state or theme work, and to verify a UI change in both themes before calling it done.
 ---
 
 # Dravr UX
 
-Dravr's athlete app is a **messenger**, styled by the **Boreal** design system.
+Dravr's athlete app is the athlete's own conversation with Dravr on **Home**,
+beside Today, plus a **messenger** for group rooms — styled by the **Boreal**
+design system.
 `frontend/DESIGN.md` is the source of truth for tokens, type, elevation
 and components; this skill is the working method around it. Never design from
 memory of another product's palette: the Pierre Violet/Cyan system was retired
@@ -14,7 +16,7 @@ and any `pierre-violet`/`pierre-cyan`/`gradient-pierre` class is a regression.
 ## 1. Read before you draw
 
 1. `frontend/DESIGN.md` §2 (tokens), §5 (components — including *Chat surfaces — the
-   messenger layout*), §6 (layout), §8 (accessibility).
+   personal Home and the Groups messenger*), §6 (layout), §8 (accessibility).
 2. The screen's existing selectors: every e2e and unit test selects on
    `data-testid`, `role` and accessible names — list them (`rg data-testid
    <component>`) and keep them verbatim, or migrate the specs in the same change.
@@ -32,11 +34,16 @@ and any `pierre-violet`/`pierre-cyan`/`gradient-pierre` class is a regression.
   dravr.theme`). A change is not done until it has been looked at in light AND
   dark. Dark-on-dark and light-on-light pairings are bugs: `bg-primary` pairs
   with `text-on-primary`, `primary-container` with `on-primary-container`.
-- **The shell is a messenger.** 72px icon rail (Chat, Discover, Notifications,
-  gear + avatar) → list column (title, `+`, search, filter chips, rows with
-  avatar/title/time/preview/unread pill) → thread (header with avatar + title
-  + one subtitle line, bubbles, composer). Below `lg` the list and the thread
-  take turns; the thread header carries the back button.
+- **Home is the athlete's own conversation; Groups is the messenger.** 72px
+  icon rail (Home, Groups, Discover, Notifications, gear + avatar). Home: the
+  personal thread in the middle, Today docked right from `lg` (a one-line
+  peek + drawer/sheet below it), History behind a header button; anything
+  that is only the athlete and Dravr — any channel, any agent — is personal
+  (`scopeOfKind`). Groups: list column (title, `+`, search, filter chips, rows
+  with avatar/title/time/preview/unread pill) → thread (header with avatar +
+  title + one subtitle line, bubbles, composer). Below `lg` the list and the
+  thread take turns; the thread header carries the back button. The phone
+  app's Chat tab still holds every thread until mobile follows.
 - **Bubbles, not a document.** Athlete right in `.chat-bubble-user`, agent left
   in `.chat-bubble-ai`, 24-hour time inside the bubble, author line only on the
   first bubble of a run, day pills between days, actions (copy/share/rate/

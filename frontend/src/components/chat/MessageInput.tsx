@@ -195,6 +195,9 @@ export default function MessageInput({
             ref={inputRef}
             id={inputId}
             name="message"
+            // Marks the field useComposerFocused watches: a phone folds its
+            // tab bar and Home's Today line away while the athlete types.
+            data-composer="true"
             // The placeholder disappears as soon as the athlete types, so it
             // cannot be the field's name; a screen reader announces this one.
             aria-label={t('chat.messageDravrLabel')}

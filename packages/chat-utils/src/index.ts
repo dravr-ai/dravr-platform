@@ -50,6 +50,7 @@ export {
   CONVERSATION_ROW_LABEL_KEYS,
   conversationRowLabels,
   deriveKind,
+  scopeOfKind,
   initialsFor,
   avatarSlot,
   previewFor,
@@ -61,6 +62,7 @@ export {
 export type {
   AvatarSlotHue,
   ConversationKind,
+  ConversationScope,
   ConversationRowLabels,
   ConversationRowModel,
 } from './conversation-row';

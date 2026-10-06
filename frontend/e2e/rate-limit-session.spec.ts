@@ -5,7 +5,7 @@
 // ABOUTME: Session restore answering 429 must not bounce to login; a 429 on new chat must not claim the conversation cap
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat, APP_SHELL_TIMEOUT_MS } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome, APP_SHELL_TIMEOUT_MS } from './test-helpers';
 
 /** The refusal the server answers once the monthly request budget is spent. */
 const BUDGET_SPENT = {
@@ -79,7 +79,7 @@ test.describe('Spent request budget', () => {
   }) => {
     await setupSpentBudgetMocks(page);
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
 
     await page.getByRole('button', { name: 'New', exact: true }).first().click();
     await page

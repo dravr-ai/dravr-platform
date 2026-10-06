@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
+import type { ConversationScope } from '@pierre/chat-utils';
 import { useUnreadConversationTotal } from '../../hooks/useConversationList';
 import type { User } from '../../types/api';
 
@@ -40,12 +41,13 @@ export function useStoreStatsPendingCount(enabled = true): number {
 }
 
 /**
- * Unread rows across the athlete's conversations, for the Chat nav badge.
+ * Unread rows across one side of the athlete's conversations: rooms for the
+ * Groups nav badge, the athlete's own threads for Home's.
  *
- * Reads the same paged list query the sidebar draws, so opening a thread
+ * Reads the same paged list query the lists draw, so opening a thread
  * (which zeroes its row) and the badge agree without a second request.
- * `enabled` is the caller's athlete check: an operator has no chat tab.
+ * `enabled` is the caller's athlete check: an operator has neither tab.
  */
-export function useUnreadConversationsCount(enabled = true): number {
-  return useUnreadConversationTotal(enabled);
+export function useUnreadConversationsCount(scope: ConversationScope, enabled = true): number {
+  return useUnreadConversationTotal(scope, enabled);
 }

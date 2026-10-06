@@ -24,6 +24,8 @@ interface RecentActivitiesProps {
    * for the connections pane, and a tap on an activity opens its own view.
    */
   onNavigate: (route: string) => void;
+  /** The latest activity's map in its shorter frame — the Today panel beside the conversation. */
+  compact?: boolean;
 }
 
 /**
@@ -72,10 +74,18 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
 }
 
 /** The newest activity: its map, then the row that opens its view. */
-function LatestActivity({ activity, onOpen }: { activity: HomeActivity; onOpen: (activity: HomeActivity) => void }) {
+function LatestActivity({
+  activity,
+  onOpen,
+  compact,
+}: {
+  activity: HomeActivity;
+  onOpen: (activity: HomeActivity) => void;
+  compact: boolean;
+}) {
   return (
     <li data-testid="home-activity-latest" className="border-b ghost-border-faint pb-2">
-      <ActivityMap activity={activity} burst />
+      <ActivityMap activity={activity} burst compact={compact} />
       <button
         type="button"
         onClick={() => onOpen(activity)}
@@ -169,7 +179,7 @@ function FetchingRow() {
  * every tab, so this card does not say it a second time; the cached rows it
  * still shows are the athlete's own activities.
  */
-export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
+export function RecentActivities({ onNavigate, compact = false }: RecentActivitiesProps) {
   const { t, language } = useTranslation();
   const openActivity = (activity: HomeActivity) => onNavigate(activityViewRoute(activity.provider, activity.id));
   const recent = useRecentActivities();
@@ -256,7 +266,12 @@ export function RecentActivities({ onNavigate }: RecentActivitiesProps) {
         {noProvider && connectPrompt}
         <ul className={clsx(noProvider && 'mt-2')}>
           {fetching && <FetchingRow />}
-          <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpen={openActivity} />
+          <LatestActivity
+            key={`${latest.provider}:${latest.id}`}
+            activity={latest}
+            onOpen={openActivity}
+            compact={compact}
+          />
           {earlier.map((activity) => (
             <ActivityRow
               key={`${activity.provider}:${activity.id}`}

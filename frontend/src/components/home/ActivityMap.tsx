@@ -12,9 +12,13 @@ import RouteView from '../chat/RouteView';
 import { useActivityRoute } from '../../hooks/useHome';
 
 /** The frame the map fills, holding a line of text while there is no map in it. */
-function MapNote({ children }: { children: ReactNode }) {
+function MapNote({ children, compact }: { children: ReactNode; compact: boolean }) {
   return (
-    <div className="my-4 flex h-64 w-full items-center justify-center rounded-[10px] border ghost-border bg-surface-container-lowest px-4 text-center text-sm text-on-surface-variant sm:h-80">
+    <div
+      className={`my-4 flex w-full items-center justify-center rounded-[10px] border ghost-border bg-surface-container-lowest px-4 text-center text-sm text-on-surface-variant ${
+        compact ? 'h-48' : 'h-64 sm:h-80'
+      }`}
+    >
       {children}
     </div>
   );
@@ -31,10 +35,13 @@ function MapNote({ children }: { children: ReactNode }) {
 export function ActivityMap({
   activity,
   burst = false,
+  compact = false,
 }: {
   activity: Pick<HomeActivity, 'provider' | 'id' | 'has_gps'>;
   /** The map is Home's, read in the page's burst of route reads; the activity view's is not. */
   burst?: boolean;
+  /** A shorter frame, for Home's Today panel beside the conversation. */
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const route = useActivityRoute(activity.provider, activity.id, activity.has_gps, { burst });
@@ -57,13 +64,13 @@ export function ActivityMap({
         {t('home.activities.routeFailed')}
       </EmptyState>
     ) : (
-      <MapNote>
+      <MapNote compact={compact}>
         <span role="status">{t('home.activities.mapLoading')}</span>
       </MapNote>
     );
   }
   if (route.data.route !== null) {
-    return <RouteView view={route.data.route} />;
+    return <RouteView view={route.data.route} compact={compact} />;
   }
   return (
     <p className="py-3 text-sm text-on-surface-variant">

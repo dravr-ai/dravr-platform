@@ -103,7 +103,11 @@ function groupRecord(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
 }
 
 function renderChatTab(
-  props: { onNavigate?: (route: string) => void; onSelectConversation?: (id: string | null) => void } = {},
+  props: {
+    onNavigate?: (route: string) => void;
+    onSelectConversation?: (id: string | null) => void;
+    layout?: 'shell' | 'personal';
+  } = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -115,6 +119,7 @@ function renderChatTab(
           selectedConversation={CONVERSATION_ID}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           onNavigate={props.onNavigate}
+          layout={props.layout}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -896,9 +901,10 @@ describe('ChatTab conversation create failures', () => {
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
+  // A one-to-one thread is started from Home; the Groups tab's "+" offers rooms only.
   async function startNewChat() {
     const user = userEvent.setup();
-    renderChatTab();
+    renderChatTab({ layout: 'personal' });
     const [menuButton] = await screen.findAllByRole('button', { name: 'New' });
     await user.click(menuButton);
     await user.click(await screen.findByRole('menuitem', { name: 'New chat' }));

@@ -43,8 +43,21 @@ const SERVED_BY: Record<string, string> = {
   users: 'surface-users',
 };
 
-vi.mock('../components/home/Home', () => ({ default: () => <div data-testid="surface-home" /> }));
-vi.mock('../components/ChatTab', () => ({ default: () => <div data-testid="surface-chat" /> }));
+// Home is ChatTab's personal layout; the Groups tab (`chat`) is its shell.
+vi.mock('../components/home/Home', () => ({ HomeBriefing: () => null }));
+vi.mock('../components/home/TodayPeek', () => ({ TodayPeek: () => null }));
+vi.mock('../components/ChatTab', () => ({
+  default: ({ layout }: { layout?: string }) => (
+    <div data-testid={layout === 'personal' ? 'surface-home' : 'surface-chat'} />
+  ),
+}));
+// Home opens on the latest personal thread; these specs assert nothing about
+// which one, and no #chat link here names a thread the list knows.
+vi.mock('../hooks/useConversationList', () => ({
+  useLatestPersonalConversation: () => ({ id: null, isLoading: false }),
+  useConversationScope: () => null,
+}));
+
 vi.mock('../components/StoreScreen', () => ({ default: () => <div data-testid="surface-discover" /> }));
 vi.mock('../components/notifications/NotificationsPanel', () => ({
   default: () => <div data-testid="surface-notifications" />,

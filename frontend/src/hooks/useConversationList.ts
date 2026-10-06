@@ -15,9 +15,12 @@ import {
 import {
   buildConversationRow,
   conversationRowLabels,
+  deriveKind,
   filterRows,
+  scopeOfKind,
   sortRowsByActivity,
   type ConversationRowModel,
+  type ConversationScope,
 } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { ConversationsResponse } from '@pierre/api-client';
@@ -162,19 +165,69 @@ export function useConversationList(query = ''): ConversationListState {
   };
 }
 
+/** What Home opens on when no link names a conversation. */
+export interface LatestPersonalConversation {
+  /** The athlete's own thread with the latest activity; `null` once the list is read and holds none. */
+  id: string | null;
+  /** True until the list's first page answers. */
+  isLoading: boolean;
+}
+
 /**
- * `user`/`assistant` rows the athlete has not read, summed over every loaded
- * conversation — what the Chat nav badge shows.
+ * The athlete's own conversation Home opens on: the personal thread — plain,
+ * an agent's, a channel DM — with the latest activity, by the same order the
+ * history lists them in. `enabled` is the athlete check: an operator has no
+ * Home conversation, and the list is never read for them.
  */
-export function useUnreadConversationTotal(enabled = true): number {
+export function useLatestPersonalConversation(enabled = true): LatestPersonalConversation {
+  const { data, isLoading } = useConversationsQuery(enabled);
+  const { t, language } = useTranslation();
+  const labels = useMemo(() => conversationRowLabels(t, language), [t, language]);
+  const id = useMemo(() => {
+    const now = new Date();
+    const rows = sortRowsByActivity(
+      (data?.pages.flatMap((page) => page.conversations) ?? []).map((conversation) =>
+        buildConversationRow(conversation, labels, now),
+      ),
+    );
+    return rows.find((row) => scopeOfKind(row.kind) === 'personal')?.id ?? null;
+  }, [data, labels]);
+  return { id, isLoading: enabled && isLoading };
+}
+
+/**
+ * The side of the app a conversation belongs to, read from the loaded list:
+ * `undefined` while the list has not answered, `null` when it holds no such
+ * conversation. A link that names a thread — a notification's, an old
+ * `#chat/<id>` bookmark — uses it to open the thread where it lives.
+ */
+export function useConversationScope(conversationId: string | null, enabled = true): ConversationScope | null | undefined {
+  const { data } = useConversationsQuery(enabled && conversationId !== null);
+  return useMemo(() => {
+    if (conversationId === null) return null;
+    if (data === undefined) return undefined;
+    const conversation = data.pages
+      .flatMap((page) => page.conversations)
+      .find((candidate) => candidate.id === conversationId);
+    return conversation ? scopeOfKind(deriveKind(conversation)) : null;
+  }, [data, conversationId]);
+}
+
+/**
+ * `user`/`assistant` rows the athlete has not read, summed over the loaded
+ * conversations of one side of the app — Groups' rooms for its nav badge,
+ * the athlete's own threads for Home's.
+ */
+export function useUnreadConversationTotal(scope: ConversationScope, enabled = true): number {
   const { data } = useConversationsQuery(enabled);
   return useMemo(
     () =>
       data?.pages
         .flatMap((page) => page.conversations)
+        .filter((conversation) => scopeOfKind(deriveKind(conversation)) === scope)
         .reduce((sum, conversation) => sum + Math.max(0, conversation.unread_count ?? 0), 0) ??
       0,
-    [data],
+    [data, scope],
   );
 }
 

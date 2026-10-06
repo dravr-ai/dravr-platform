@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { setupDashboardMocks, loginToDashboard, openChat, APP_SHELL_TIMEOUT_MS } from '../test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome, APP_SHELL_TIMEOUT_MS } from '../test-helpers';
 
 const CONVERSATION = {
   id: 'conv-a11y-1',
@@ -93,7 +93,7 @@ async function setupChat(page: Page) {
   await loginToDashboard(page);
   await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
   // Sign-in lands on Home; the chat shell is one tap away.
-  await openChat(page);
+  await openHome(page);
   // Prove the fixture rendered. Scanning an empty shell would pass without
   // ever having looked at a conversation.
   await page

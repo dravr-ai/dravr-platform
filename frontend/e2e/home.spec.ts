@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for the athlete Home — sign-in lands on it, the rail logo leads back, a day drafts a chat, an activity opens its view
+// ABOUTME: E2E for the athlete Home — sign-in lands on it, the rail logo leads back, a day drafts in its conversation, an activity opens its view
 // ABOUTME: Runs against mocked /api/me reads shaped like the server's; a stale cache is followed up on a schedule that ends
 
 import { test, expect, type Page } from '@playwright/test';
@@ -472,7 +472,7 @@ test.describe('Athlete Home', () => {
     await mockHome(page);
     await login(page);
 
-    await page.getByTestId('icon-rail').getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByTestId('icon-rail').getByRole('button', { name: 'Groups', exact: true }).click();
     await expect(page).toHaveURL(/#chat$/);
     await expect(page.getByTestId('home-page')).toHaveCount(0);
 
@@ -481,7 +481,7 @@ test.describe('Athlete Home', () => {
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
-  test('no plan offers one "Build my plan" button, which opens chat with the request drafted', async ({ page }) => {
+  test('no plan offers one "Build my plan" button, which drafts the request in Home\'s own conversation', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page, { plan: null });
     await mockConversationCreate(page);
@@ -493,7 +493,7 @@ test.describe('Athlete Home', () => {
     await expect(page.getByTestId('home-week')).toHaveCount(0);
 
     await empty.getByRole('button', { name: 'Build my plan' }).click();
-    await expect(page).toHaveURL(/#chat\/conv-home-draft$/);
+    await expect(page).toHaveURL(/#home\/chat\/conv-home-draft$/);
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
       'Build me a training plan for my goal race.',
     );
@@ -818,7 +818,7 @@ test.describe('Athlete Home', () => {
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
 
     // Another tab: the strip stays.
-    await page.getByTestId('icon-rail').getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByTestId('icon-rail').getByRole('button', { name: 'Groups', exact: true }).click();
     await expect(page).toHaveURL(/#chat$/);
     await expect(page.getByTestId('home-page')).toHaveCount(0);
     await expect(banner).toBeVisible();
@@ -867,7 +867,7 @@ test.describe('Athlete Home', () => {
 
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
     await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
-    await page.getByTestId('icon-rail').getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByTestId('icon-rail').getByRole('button', { name: 'Groups', exact: true }).click();
     await expect(page).toHaveURL(/#chat$/);
     await expect(page.getByTestId('provider-reconnect-banner')).toHaveCount(0);
   });

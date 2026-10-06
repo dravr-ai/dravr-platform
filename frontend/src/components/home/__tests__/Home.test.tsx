@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the Home page as a whole — the header, the plan half's three answers, and the activities under them
+// ABOUTME: Tests Home's Today as a whole — the plan half's three answers, the status, and the activities under them
 // ABOUTME: Red if no plan shows more than one filled button, or a plan that failed to load is offered as "no plan"
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingPlanResponse } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
-import Home from '../Home';
+import { HomeBriefing } from '../Home';
 import { homePlan, recentResponse, routeView, TODAY } from './homeFixtures';
 
 const api = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ function renderHome() {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <Home onNavigate={onNavigate} onOpenChatDraft={onOpenChatDraft} />
+        <HomeBriefing onNavigate={onNavigate} onOpenChatDraft={onOpenChatDraft} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -75,12 +75,13 @@ beforeEach(() => {
   });
 });
 
-describe('Home', () => {
-  it('opens with the Home header, the plan for today, the week, and the recent activities', async () => {
+describe('Home — Today', () => {
+  it('holds the plan for today, the week, the status and the recent activities, in that order', async () => {
     api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
     renderHome();
 
-    expect(screen.getByRole('heading', { level: 2, name: 'Home' })).toBeInTheDocument();
+    // The page header belongs to the conversation; Today is the panel beside it.
+    expect(screen.queryByRole('heading', { level: 2, name: 'Home' })).toBeNull();
     expect(await screen.findByTestId('home-today-session')).toHaveTextContent('Tempo run');
     expect(screen.getByTestId('home-week')).toBeInTheDocument();
     expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Productive');

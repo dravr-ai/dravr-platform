@@ -1,40 +1,59 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The conversation list column — its title and "+", a quiet search, text-tab filters, then flat rows sorted by last activity
-// ABOUTME: One list for every thread the athlete is in, whatever surface created it; the shape every messenger keeps on the left
+// ABOUTME: A conversation list — its title and "+", a quiet search, text-tab filters, then flat rows sorted by last activity
+// ABOUTME: Scoped to one side of the app: the Groups tab's rooms, or the athlete's own threads in Home's history
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import type { ConversationRowModel } from '@pierre/chat-utils';
+import { scopeOfKind, type ConversationRowModel, type ConversationScope } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
 import ConversationItem from '../chat/ConversationItem';
 import { Button, ConfirmDialog, SearchField } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface ConversationListProps {
+  /** Which side of the app the list draws: the Groups tab's rooms, or the athlete's own threads. */
+  scope: ConversationScope;
   selectedConversation: string | null;
   onSelectConversation: (id: string | null) => void;
   /** The chat "+" menu, rendered by the host so it stays wired to the one conversation-creating mutation. */
   compose?: ReactNode;
+  /**
+   * Whether the list draws its own title row. Off where a host already names
+   * it — the history sheet, whose header holds the title and the "+".
+   */
+  showTitle?: boolean;
 }
 
 /** Which rows the chips above the list keep. */
-type RowFilter = 'all' | 'unread' | 'groups' | 'coaches';
+type RowFilter = 'all' | 'unread' | 'coaches';
 
-const FILTERS: { key: RowFilter; labelKey: string }[] = [
-  { key: 'all', labelKey: 'discover.filterAll' },
-  { key: 'unread', labelKey: 'chat.filterUnread' },
-  { key: 'groups', labelKey: 'chat.filterGroups' },
-  { key: 'coaches', labelKey: 'chat.filterAgents' },
-];
+const FILTERS_BY_SCOPE: Record<ConversationScope, { key: RowFilter; labelKey: string }[]> = {
+  groups: [
+    { key: 'all', labelKey: 'discover.filterAll' },
+    { key: 'unread', labelKey: 'chat.filterUnread' },
+  ],
+  personal: [
+    { key: 'all', labelKey: 'discover.filterAll' },
+    { key: 'unread', labelKey: 'chat.filterUnread' },
+    { key: 'coaches', labelKey: 'chat.filterAgents' },
+  ],
+};
+
+const TEXT_BY_SCOPE: Record<ConversationScope, { title: string; search: string; empty: string }> = {
+  groups: { title: 'nav.groups', search: 'groups.searchPlaceholder', empty: 'groups.emptyTitle' },
+  personal: {
+    title: 'home.personal.history',
+    search: 'home.personal.historySearch',
+    empty: 'home.personal.historyEmpty',
+  },
+};
 
 function keepsRow(filter: RowFilter, row: ConversationRowModel): boolean {
   switch (filter) {
     case 'unread':
       return row.unreadCount > 0;
-    case 'groups':
-      return row.kind === 'group';
     case 'coaches':
       return row.kind === 'coach';
     case 'all':
@@ -44,17 +63,20 @@ function keepsRow(filter: RowFilter, row: ConversationRowModel): boolean {
 }
 
 /**
- * Every conversation the athlete takes part in, as one flat list.
+ * One side of the athlete's conversations, as one flat list.
  *
- * Rows are the shared row model, so a Telegram DM, an agent thread and a group
- * room sit in the same order and carry the same anatomy here as on mobile.
- * Selecting a row only opens it; the read marker is the thread's business
- * and moves once its messages resolve.
+ * Rows are the shared row model, so a Telegram DM and an agent thread sit in
+ * the same order and carry the same anatomy here as on mobile; a room is the
+ * Groups tab's, never Home's, and the scope decides which of the two a list
+ * keeps. Selecting a row only opens it; the read marker is the thread's
+ * business and moves once its messages resolve.
  */
 export default function ConversationList({
+  scope,
   selectedConversation,
   onSelectConversation,
   compose,
+  showTitle = true,
 }: ConversationListProps) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,7 +90,15 @@ export default function ConversationList({
   const { rename, remove, isRemoving, markUnread } = useConversationMutations();
 
   const searchActive = searchQuery.trim().length > 0;
-  const visibleRows = useMemo(() => rows.filter((row) => keepsRow(filter, row)), [rows, filter]);
+  const visibleRows = useMemo(
+    () => rows.filter((row) => scopeOfKind(row.kind) === scope && keepsRow(filter, row)),
+    [rows, filter, scope],
+  );
+  const text = TEXT_BY_SCOPE[scope];
+  // The scope is applied to the loaded pages, so a page can hold none of this
+  // side's rows while later pages do: the list then offers the next page
+  // rather than saying the side is empty.
+  const canLoadMore = hasMore && !searchActive;
 
   const handleStartRename = (row: ConversationRowModel): void => {
     setEditingConversationId(row.id);
@@ -100,20 +130,22 @@ export default function ConversationList({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="conversation-list">
+    <div className="flex h-full min-h-0 flex-col" data-testid="conversation-list" data-scope={scope}>
       <div className="flex-shrink-0 px-4">
-        <div className="flex h-[52px] items-center justify-between gap-2">
-          <h2 className="font-display text-xl font-semibold text-on-surface">{t('chat.listTitle')}</h2>
-          {compose ? <div className="flex items-center">{compose}</div> : null}
-        </div>
+        {showTitle && (
+          <div className="flex h-[52px] items-center justify-between gap-2">
+            <h2 className="font-display text-xl font-semibold text-on-surface">{t(text.title)}</h2>
+            {compose ? <div className="flex items-center">{compose}</div> : null}
+          </div>
+        )}
         <SearchField
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('convPanel.searchChats')}
-          aria-label={t('convPanel.search')}
+          placeholder={t(text.search)}
+          aria-label={t(text.search)}
         />
-        <div className="mt-2.5 flex gap-[18px] border-b ghost-border" role="radiogroup" aria-label={t('chat.listTitle')}>
-          {FILTERS.map((entry) => {
+        <div className="mt-2.5 flex gap-[18px] border-b ghost-border" role="radiogroup" aria-label={t(text.title)}>
+          {FILTERS_BY_SCOPE[scope].map((entry) => {
             const active = filter === entry.key;
             return (
               <button
@@ -147,31 +179,33 @@ export default function ConversationList({
               {t('chat.listRetry')}
             </Button>
           </div>
-        ) : visibleRows.length === 0 ? (
+        ) : visibleRows.length === 0 && !canLoadMore ? (
           <p className="px-4 py-8 text-center text-sm text-outline" data-testid="conversation-list-empty">
-            {searchActive || filter !== 'all' ? t('convPanel.noChatsMatch') : t('chat.noChatsEmptyHint')}
+            {searchActive || filter !== 'all' ? t('convPanel.noChatsMatch') : t(text.empty)}
           </p>
         ) : (
           <>
-            <ul aria-label={t('chat.conversations')}>
-              {visibleRows.map((row) => (
-                <ConversationItem
-                  key={row.id}
-                  row={row}
-                  isSelected={selectedConversation === row.id}
-                  isEditing={editingConversationId === row.id}
-                  editedTitleValue={editedTitleValue}
-                  onSelect={() => onSelectConversation(row.id)}
-                  onStartRename={() => handleStartRename(row)}
-                  onMarkUnread={() => void markUnread(row.id)}
-                  onDelete={() => setDeleteConfirmation(row)}
-                  onTitleChange={setEditedTitleValue}
-                  onSaveRename={handleSaveRename}
-                  onCancelRename={handleCancelRename}
-                />
-              ))}
-            </ul>
-            {hasMore && !searchActive && (
+            {visibleRows.length > 0 && (
+              <ul aria-label={t('chat.conversations')}>
+                {visibleRows.map((row) => (
+                  <ConversationItem
+                    key={row.id}
+                    row={row}
+                    isSelected={selectedConversation === row.id}
+                    isEditing={editingConversationId === row.id}
+                    editedTitleValue={editedTitleValue}
+                    onSelect={() => onSelectConversation(row.id)}
+                    onStartRename={() => handleStartRename(row)}
+                    onMarkUnread={() => void markUnread(row.id)}
+                    onDelete={() => setDeleteConfirmation(row)}
+                    onTitleChange={setEditedTitleValue}
+                    onSaveRename={handleSaveRename}
+                    onCancelRename={handleCancelRename}
+                  />
+                ))}
+              </ul>
+            )}
+            {canLoadMore && (
               <div className="flex justify-center px-3 py-3">
                 <Button
                   variant="secondary"

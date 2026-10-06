@@ -94,9 +94,12 @@ vi.mock('../../hooks/useNotifications', () => ({
 
 vi.mock('../ChatTab', () => ({
   default: (props: {
+    layout?: string;
     selectedConversation: string | null;
     pendingComposerAction?: PendingComposerAction | null;
   }) => {
+    // Home is ChatTab's personal layout; only the Groups tab's props are asserted here.
+    if (props.layout === 'personal') return <div data-testid="home-tab" />;
     chatTabProps({ selected: props.selectedConversation, action: props.pendingComposerAction ?? null });
     return <div data-testid="chat-tab" />;
   },
@@ -104,8 +107,13 @@ vi.mock('../ChatTab', () => ({
 
 // Home's own rendering is covered by its tests; here it only has to be where
 // a personal record lands.
-vi.mock('../home/Home', () => ({
-  default: () => <div data-testid="home-tab" />,
+vi.mock('../home/Home', () => ({ HomeBriefing: () => null }));
+vi.mock('../home/TodayPeek', () => ({ TodayPeek: () => null }));
+// Home opens on the latest personal thread; these specs assert nothing about
+// which one, and no #chat link here names a thread the list knows.
+vi.mock('../../hooks/useConversationList', () => ({
+  useLatestPersonalConversation: () => ({ id: null, isLoading: false }),
+  useConversationScope: () => null,
 }));
 
 vi.mock('../ConnectProviderBanner', () => ({ ConnectProviderBanner: () => null }));

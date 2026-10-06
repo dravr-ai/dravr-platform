@@ -6,6 +6,7 @@ import {
   HOME_STALE_REFETCH_DELAYS_MS,
   IDLE_STOP_AFTER_MS,
   QUERY_KEYS,
+  SURFACE_CAPABILITIES,
   USER_SURFACES,
   surfaceById,
   sportHasRoutes,
@@ -22,7 +23,8 @@ describe('home surface', () => {
       web: 'home',
       mobile: '/(app)/(tabs)/(home)',
       webNav: 'Home',
-      blocks: [],
+      // Home holds the athlete's own conversation on web, so it renders what the chat does.
+      blocks: SURFACE_CAPABILITIES.web_chat.blocks,
     });
     expect(surfacesFor('web').some((surface) => surface.id === 'home')).toBe(true);
     expect(surfacesFor('mobile').some((surface) => surface.id === 'home')).toBe(true);

@@ -8,11 +8,13 @@ import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } fro
 import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
 import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
+import { useComposerFocused } from '../hooks/useComposerFocused';
+import { useConversationScope, useLatestPersonalConversation } from '../hooks/useConversationList';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
 import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
-import type { PendingComposerAction } from './ChatTab';
+import type { PendingComposerAction, PersonalToday } from './ChatTab';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
@@ -79,7 +81,11 @@ const AdminSettings = lazy(() => import('./AdminSettings'));
 const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
-const Home = lazy(() => import('./home/Home'));
+// Home's Today, drawn beside the athlete's conversation: its sections for the
+// panel, the drawer or the sheet, and the one line that stands for them above
+// the thread on a narrow screen.
+const HomeBriefing = lazy(() => import('./home/Home').then((module) => ({ default: module.HomeBriefing })));
+const TodayPeek = lazy(() => import('./home/TodayPeek').then((module) => ({ default: module.TodayPeek })));
 const ActivityView = lazy(() => import('./activity/ActivityView'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
 const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
@@ -123,6 +129,7 @@ import SettingsShell from './settings/SettingsShell';
 import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
 import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRoute';
 import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
+import { homeConversationRoute, parseHomeConversation } from './home/homeRoute';
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
 function parseSettingsTab(segment: string): SettingsTab | null {
@@ -238,13 +245,41 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const pendingUsersCount = usePendingUsersCount(isAdminUser);
   const storeStatsPendingCount = useStoreStatsPendingCount(isAdminUser);
   const { unreadCount: notificationUnreadCount } = useUnreadCount();
-  // Unread chat rows; an operator has no Chat tab, so the list is never fetched for them.
-  const unreadConversationsCount = useUnreadConversationsCount(!isAdminUser);
+  // Unread rows, one badge per side of the app: Groups counts the rooms, Home
+  // the athlete's own threads. An operator has neither tab, so the list is
+  // never fetched for them.
+  const unreadGroupsCount = useUnreadConversationsCount('groups', !isAdminUser);
+  const unreadPersonalCount = useUnreadConversationsCount('personal', !isAdminUser);
 
-  // Chat conversations state
+  // The Groups tab's open room. The tab keeps its `chat` id, so `#chat/<id>`
+  // links — notifications, bookmarks — still land.
   const [selectedConversation, setSelectedConversation] = useState<string | null>(
     initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );
+  // A `#chat/<id>` link names a thread without saying which side it lives on.
+  // Once the list says, a personal one moves to Home. Only links do this: a
+  // room being created in the Groups tab is plain until `/group create` binds
+  // it, and must not be pulled away mid-command.
+  const [linkedChatConversation, setLinkedChatConversation] = useState<string | null>(
+    initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+  );
+
+  // Home's open conversation, from `#home/chat/<id>`. `null` is the athlete's
+  // latest own thread, which is where Home opens.
+  const [homeConversation, setHomeConversation] = useState<string | null>(
+    initialTabSeg === 'home' ? parseHomeConversation(initialSubSeg) : null,
+  );
+  const latestPersonal = useLatestPersonalConversation(!isAdminUser);
+  const linkedScope = useConversationScope(linkedChatConversation, !isAdminUser);
+  useEffect(() => {
+    if (linkedChatConversation === null || linkedScope === undefined) return;
+    if (linkedScope === 'personal') {
+      setHomeConversation(linkedChatConversation);
+      setSelectedConversation(null);
+      setActiveTab('home');
+    }
+    setLinkedChatConversation(null);
+  }, [linkedChatConversation, linkedScope]);
 
   // The open settings section, from `#settings/<section>`; `null` is the
   // menu alone on a narrow screen and the first section on a wide one.
@@ -276,16 +311,6 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setPendingComposerAction({ kind: 'send', text: COMMAND_DRAFTS.groupJoin(pendingInviteCode) });
   }, [pendingInviteCode]);
 
-  // Home's way into a conversation: a fresh thread whose composer already
-  // holds the question — "Analyze my activity from…", "Build me a training
-  // plan…" — for the athlete to finish and send. The open thread is cleared
-  // first so the draft never lands in whichever conversation was open last.
-  const openChatDraft = useCallback((text: string) => {
-    setSelectedConversation(null);
-    setPendingComposerAction({ kind: 'draft', text });
-    setActiveTab('chat');
-  }, []);
-
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
@@ -293,6 +318,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     if (activeTab === 'discover' && editingCoachId) return `discover/${encodeURIComponent(editingCoachId)}`;
     if (activeTab === 'chat' && selectedConversation) return `chat/${encodeURIComponent(selectedConversation)}`;
     if (activeTab === 'home' && openActivity) return activityViewRoute(openActivity.provider, openActivity.id);
+    if (activeTab === 'home' && homeConversation) return homeConversationRoute(homeConversation);
     if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
     return activeTab;
   })();
@@ -349,7 +375,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     const sub = tab !== requested || slash === -1 ? '' : raw.slice(slash + 1);
     setActiveTab(tab);
     setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
-    setSelectedConversation(tab === 'chat' && sub ? decodeURIComponent(sub) : null);
+    const chatConversation = tab === 'chat' && sub ? decodeURIComponent(sub) : null;
+    setSelectedConversation(chatConversation);
+    setLinkedChatConversation(chatConversation);
+    setHomeConversation(tab === 'home' ? parseHomeConversation(sub) : null);
     const activity = tab === 'home' ? parseActivitySubview(sub) : null;
     // A fresh object per route would reset the view's thread on every hash
     // event; the same activity keeps its state.
@@ -523,12 +552,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
       </svg>
-    ) },
-    { id: 'chat', name: t('nav.chat'), icon: (
+    ), badge: unreadPersonalCount > 0 ? unreadPersonalCount : undefined },
+    // Groups: the rooms the athlete shares with other people. The athlete's
+    // own conversation with Dravr is Home's (Phil, 2026-10-05); the tab keeps
+    // its `chat` id so every `#chat/…` link still resolves.
+    { id: 'chat', name: t('nav.groups'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
-    ), badge: unreadConversationsCount > 0 ? unreadConversationsCount : undefined },
+    ), badge: unreadGroupsCount > 0 ? unreadGroupsCount : undefined },
     // The agent library is a pinned section of Discover, not a tab of its own.
     { id: 'discover', name: t('nav.discover'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -548,7 +580,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         </svg>
       ) }]
       : []),
-  ], [notificationUnreadCount, unreadConversationsCount, t]);
+  ], [notificationUnreadCount, unreadGroupsCount, unreadPersonalCount, t]);
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
@@ -559,7 +591,26 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the rest fall into the off-canvas drawer. Active <768px only.
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // For regular users, pin Home / Chat / Discover / Notifications to the
+  // While the athlete types, a phone's tab bar steps aside so the composer
+  // sits on the keyboard (Phil, 2026-10-05).
+  const composing = useComposerFocused();
+
+  // Home's Today for the personal surface: the briefing's sections, which
+  // draft into the open conversation, and the one line above it on a phone
+  // or a tablet.
+  const personalToday = useMemo<PersonalToday>(() => ({
+    panel: (onOpenChatDraft, compact) => (
+      <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+        <HomeBriefing onNavigate={applyRoute} onOpenChatDraft={onOpenChatDraft} compact={compact} />
+      </Suspense>
+    ),
+    peek: (onOpen, hidden) => (
+      <Suspense fallback={null}>
+        <TodayPeek onOpen={onOpen} hidden={hidden} />
+      </Suspense>
+    ),
+  }), [applyRoute]);
+  // For regular users, pin Home / Groups / Discover / Notifications to the
   // bottom bar and route the rest through the drawer. For admin users we use
   // the first three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
@@ -905,7 +956,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             // Reserve space for the mobile bottom tab bar (56px) plus the
             // iOS safe-area home indicator. No-op on >=md where the bar is
             // hidden.
-            paddingBottom: isMobile ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : undefined,
+            paddingBottom: isMobile && !composing ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : undefined,
           }}
         >
 
@@ -1044,7 +1095,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                 onNavigate={applyRoute}
               />
             ) : (
-              <Home onNavigate={applyRoute} onOpenChatDraft={openChatDraft} />
+              <ChatTab
+                layout="personal"
+                selectedConversation={homeConversation ?? latestPersonal.id}
+                onSelectConversation={setHomeConversation}
+                onNavigate={applyRoute}
+                resolving={homeConversation === null && latestPersonal.isLoading}
+                today={personalToday}
+              />
             )}
           </Suspense>
         )}
@@ -1135,16 +1193,18 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             onOpenSettings={() => setActiveTab('settings')}
             onSignOut={logout}
           />
-          <BottomTabBar
-            primary={primaryMobileTabs}
-            activeTab={activeTab}
-            onSelect={(id) => {
-              setActiveTab(id);
-              if (id === 'chat') setSelectedConversation(null);
-            }}
-            onOpenDrawer={() => setDrawerOpen(true)}
-            drawerHasBadge={drawerHasBadge}
-          />
+          {!composing && (
+            <BottomTabBar
+              primary={primaryMobileTabs}
+              activeTab={activeTab}
+              onSelect={(id) => {
+                setActiveTab(id);
+                if (id === 'chat') setSelectedConversation(null);
+              }}
+              onOpenDrawer={() => setDrawerOpen(true)}
+              drawerHasBadge={drawerHasBadge}
+            />
+          )}
         </>
       )}
     </div>

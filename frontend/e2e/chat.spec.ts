@@ -5,7 +5,12 @@
 // ABOUTME: Tests conversation list, message display, prompt suggestions, and CRUD operations.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome, openPersonalConversation } from './test-helpers';
+
+/** Home's History sheet, where the athlete's own threads are listed. */
+function history(page: Page) {
+  return page.getByRole('dialog', { name: 'History' });
+}
 
 // Mock conversations matching ConversationsResponse
 const mockConversations = {
@@ -274,7 +279,7 @@ test.describe('Chat - Empty pane', () => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
     // Sign-in lands on Home; every test here is about the chat pane.
-    await openChat(page);
+    await openHome(page);
   });
 
   test('shows one line, the "+" and the Commands button', async ({ page }) => {
@@ -297,26 +302,28 @@ test.describe('Chat - Conversation Sidebar', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page);
     await loginToDashboard(page);
-    await openChat(page);
+    // The athlete's own threads are listed behind Home's History.
+    await openHome(page);
+    await page.getByTestId('home-history-button').click();
   });
 
   test('pins a search box above one flat list of every conversation', async ({ page }) => {
-    await expect(page.getByLabel('Search conversations')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('list', { name: 'Conversations' })).toBeVisible();
+    await expect(history(page).getByLabel('Search our conversations')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByRole('list', { name: 'Conversations' })).toBeVisible();
   });
 
   test('displays existing conversations in sidebar', async ({ page }) => {
     // Conversations appear as flat rows in the sidebar list
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Nutrition Strategy')).toBeVisible();
-    await expect(page.getByText('Recovery Protocol')).toBeVisible();
+    await expect(history(page).getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Nutrition Strategy')).toBeVisible();
+    await expect(history(page).getByText('Recovery Protocol')).toBeVisible();
   });
 
   test('shows the row actions menu on conversation hover', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
     // Hover over conversation item (button with conversation title text)
-    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+    const conversationItem = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Marathon Training Plan',
     });
     await conversationItem.hover();
@@ -330,9 +337,9 @@ test.describe('Chat - Conversation Sidebar', () => {
   });
 
   test('the menu rename enables edit mode with the current title', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+    const conversationItem = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Marathon Training Plan',
     });
     await conversationItem.hover();
@@ -346,9 +353,9 @@ test.describe('Chat - Conversation Sidebar', () => {
   });
 
   test('the menu delete opens a confirmation dialog', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+    const conversationItem = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Marathon Training Plan',
     });
     await conversationItem.hover();
@@ -377,9 +384,9 @@ test.describe('Chat - Conversation Sidebar', () => {
       }
     });
 
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
 
-    const conversationItem = page.locator('[data-testid="conversation-row"]', {
+    const conversationItem = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Marathon Training Plan',
     });
     await conversationItem.hover();
@@ -400,15 +407,11 @@ test.describe('Chat - Messages Display', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page);
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
   });
 
   test('clicking conversation loads messages', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
-
-    // Click on conversation in sidebar
-    await page.getByText('Marathon Training Plan').click();
-    await page.waitForTimeout(500);
+    await openPersonalConversation(page, 'Marathon Training Plan');
 
     // Messages should load in main content area
     await expect(page.getByText('What should my weekly mileage be for a marathon?')).toBeVisible({ timeout: 10000 });
@@ -416,18 +419,14 @@ test.describe('Chat - Messages Display', () => {
   });
 
   test('messages display with markdown formatting', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
-    await page.getByText('Marathon Training Plan').click();
-    await page.waitForTimeout(500);
+    await openPersonalConversation(page, 'Marathon Training Plan');
 
     // Markdown heading should render
     await expect(page.getByText('Key principles:')).toBeVisible({ timeout: 10000 });
   });
 
   test('both user and assistant messages are displayed', async ({ page }) => {
-    await expect(page.getByText('Marathon Training Plan')).toBeVisible({ timeout: 10000 });
-    await page.getByText('Marathon Training Plan').click();
-    await page.waitForTimeout(500);
+    await openPersonalConversation(page, 'Marathon Training Plan');
 
     // User messages
     await expect(page.getByText('What should my weekly mileage be for a marathon?')).toBeVisible({ timeout: 10000 });
@@ -441,12 +440,13 @@ test.describe('Chat - Empty State', () => {
   test('shows welcome state when no conversations exist', async ({ page }) => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
 
     // The empty pane names what to do next
     await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
-    // No conversations in the sidebar list either
-    await expect(page.getByTestId('conversation-list-empty')).toContainText('No chats yet');
+    // And History has nothing else to offer either
+    await page.getByTestId('home-history-button').click();
+    await expect(history(page).getByTestId('conversation-list-empty')).toContainText('No other conversations yet.');
   });
 });
 
@@ -482,7 +482,7 @@ test.describe('Chat - Error Handling', () => {
     });
 
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
 
     // Page should still render without crashing
     await page.waitForTimeout(1000);
@@ -504,7 +504,7 @@ test.describe('Chat - Provider Connection', () => {
     });
 
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
 
     // ChatTab shows "No provider connected" when no provider is connected
     await expect(page.getByText('No provider connected')).toBeVisible({ timeout: 10000 });
@@ -549,7 +549,7 @@ test.describe('Chat - No provider connected', () => {
     });
 
     await loginToDashboard(page);
-    await openChat(page);
+    await openHome(page);
     // The composer belongs to an open thread — the chat pane with none open
     // shows the empty state, not a message box.
     await page.goto('/#chat/conv-1');

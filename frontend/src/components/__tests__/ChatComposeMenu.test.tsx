@@ -52,7 +52,7 @@ const CONVERSATION_ID = 'conv-1';
 
 function renderChatTab(
   selected: string | null,
-  props: { onSelectConversation?: (id: string | null) => void } = {},
+  props: { onSelectConversation?: (id: string | null) => void; layout?: 'shell' | 'personal' } = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -63,6 +63,7 @@ function renderChatTab(
         <ChatTab
           selectedConversation={selected}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
+          layout={props.layout ?? 'personal'}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -179,5 +180,44 @@ describe('chat "+" menu', () => {
     expect(within(participants).getByRole('list', { name: 'Participant list' })).toHaveTextContent(
       'owner-1 · owner',
     );
+  });
+  it('offers rooms only in the Groups tab — a one-to-one thread is started from Home', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [
+        { id: 'room-1', title: 'Sunday Riders', group_id: 'group-1', agent_id: null, unread_count: 0 },
+      ],
+      total: 1,
+    });
+    const user = userEvent.setup();
+    renderChatTab(null, { layout: 'shell' });
+
+    await user.click((await screen.findAllByRole('button', { name: 'New' }))[0]);
+
+    const menu = screen.getByRole('menu', { name: 'Start a conversation' });
+    const items = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
+    expect(items).toEqual(['New group chat']);
+  });
+
+  it('answers a Groups tab with no room with one way to start one, which sends /group create', async () => {
+    const onSelectConversation = vi.fn();
+    const user = userEvent.setup();
+    // The only conversation is the athlete's own, which lives on Home.
+    renderChatTab(null, { layout: 'shell', onSelectConversation });
+
+    expect(await screen.findByTestId('groups-empty')).toHaveTextContent('No groups yet');
+    await user.click(screen.getByTestId('groups-empty-create'));
+    await user.type(await screen.findByTestId('group-name-input'), 'Sunday Riders');
+    await user.click(screen.getByTestId('group-name-submit'));
+
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+  });
+
+  it('never says "No groups yet" over a list that failed to load — the list says what happened', async () => {
+    getConversations.mockRejectedValue(new Error('network down'));
+    renderChatTab(null, { layout: 'shell' });
+
+    expect(await screen.findByText('Your chats could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByTestId('groups-empty')).toBeNull();
   });
 });

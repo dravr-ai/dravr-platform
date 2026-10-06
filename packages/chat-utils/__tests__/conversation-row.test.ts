@@ -15,6 +15,7 @@ import {
   formatListTimestamp,
   initialsFor,
   previewFor,
+  scopeOfKind,
   sortRowsByActivity,
 } from '../src/conversation-row';
 
@@ -57,6 +58,15 @@ describe('deriveKind', () => {
     expect(deriveKind(conversation({ title: 'Trail Coach', channel_type: 'whatsapp' }))).toBe(
       'channel',
     );
+  });
+});
+
+describe('scopeOfKind', () => {
+  it('puts a room in Groups and every one-to-one thread on Home, whatever its channel or agent', () => {
+    expect(scopeOfKind(deriveKind(conversation({ group_id: 'g1', agent_id: 'c1' })))).toBe('groups');
+    expect(scopeOfKind(deriveKind(conversation({ channel_type: 'telegram' })))).toBe('personal');
+    expect(scopeOfKind(deriveKind(conversation({ agent_id: 'c1' })))).toBe('personal');
+    expect(scopeOfKind(deriveKind(conversation()))).toBe('personal');
   });
 });
 

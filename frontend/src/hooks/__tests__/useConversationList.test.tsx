@@ -130,24 +130,28 @@ describe('useConversationList', () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it('sums the unread rows across conversations for the nav badge', async () => {
+  it('sums the unread rows of one side of the app for its nav badge', async () => {
     getConversations.mockResolvedValue(
       page([
         conversation({ id: 'c1', unread_count: 2 }),
         conversation({ id: 'c2', unread_count: 0 }),
-        conversation({ id: 'c3', unread_count: 5 }),
+        conversation({ id: 'c3', unread_count: 5, channel_type: 'telegram' }),
+        conversation({ id: 'g1', unread_count: 4, group_id: 'group-1' }),
       ]),
     );
+    const client = newClient();
 
-    const { result } = renderHook(() => useUnreadConversationTotal(), { wrapper: wrapperFor(newClient()) });
+    const personal = renderHook(() => useUnreadConversationTotal('personal'), { wrapper: wrapperFor(client) });
+    const groups = renderHook(() => useUnreadConversationTotal('groups'), { wrapper: wrapperFor(client) });
 
-    await waitFor(() => expect(result.current).toBe(7));
+    await waitFor(() => expect(personal.result.current).toBe(7));
+    expect(groups.result.current).toBe(4);
   });
 
   it('never fetches for a caller that disabled the badge', async () => {
     getConversations.mockResolvedValue(page([conversation({ unread_count: 4 })]));
 
-    const { result } = renderHook(() => useUnreadConversationTotal(false), {
+    const { result } = renderHook(() => useUnreadConversationTotal('groups', false), {
       wrapper: wrapperFor(newClient()),
     });
 

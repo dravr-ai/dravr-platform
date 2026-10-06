@@ -52,9 +52,10 @@ export interface UserSurface {
    * catalogue.
    *
    * Empty for every surface that carries no agent reply — a settings screen
-   * renders no turn envelope. Only the chat surface has a non-empty column,
-   * and it is read out of the catalogue rather than typed here, so a surface
-   * cannot claim an affordance the server never sends it.
+   * renders no turn envelope. Only the surfaces that hold a conversation —
+   * Groups, and Home on web — have a non-empty column, and it is read out of
+   * the catalogue rather than typed here, so a surface cannot claim an
+   * affordance the server never sends it.
    */
   blocks: readonly ReplyBlockKind[];
   /** Required when either side is null: why that platform does not have it. */
@@ -80,20 +81,26 @@ export const USER_SURFACES: readonly UserSurface[] = [
   {
     // Where an athlete lands after sign-in on both platforms, and where the
     // Dravr logo leads: today's session from the plan, the week around it,
-    // and the latest activities with their routes.
+    // and the latest activities with their routes. On web it is also the
+    // athlete's own conversation with Dravr, Today beside it (Phil,
+    // 2026-10-05), so it renders every reply block the chat does. The mobile
+    // Home holds no conversation.
     id: 'home',
     label: 'Home',
     web: 'home',
     mobile: '/(app)/(tabs)/(home)',
     webNav: 'Home',
-    blocks: NO_BLOCKS,
+    blocks: CHAT_BLOCKS,
   },
   {
+    // The rooms the athlete shares with other people. Web calls it Groups and
+    // keeps the `chat` id and route, so every `#chat/<id>` link still lands;
+    // the mobile Chat tab holds every thread, rooms and one-to-one alike.
     id: 'chat',
-    label: 'Chat',
+    label: 'Groups',
     web: 'chat',
     mobile: '/(app)/(tabs)/(chat)',
-    webNav: 'Chat',
+    webNav: 'Groups',
     blocks: CHAT_BLOCKS,
   },
   {

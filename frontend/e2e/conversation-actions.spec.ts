@@ -4,8 +4,13 @@
 // ABOUTME: E2E tests for the conversation row's own actions — rename, mark unread, delete
 // ABOUTME: Web equivalents of the mobile swipe gestures, on the unified list's rows
 
-import { test, expect } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { setupDashboardMocks, loginToDashboard, openHome } from './test-helpers';
+
+/** Home's History sheet, where the athlete's own threads are listed. */
+function history(page: Page) {
+  return page.getByRole('dialog', { name: 'History' });
+}
 
 const mockConversations = {
   conversations: [
@@ -103,20 +108,21 @@ test.describe('Conversation Management Actions', () => {
       });
     });
     await loginToDashboard(page);
-    // Sign-in lands on Home; the conversation list is Chat's.
-    await openChat(page);
+    // Sign-in lands on Home; the athlete's own threads are listed behind History.
+    await openHome(page);
+    await page.getByTestId('home-history-button').click();
   });
 
   test('should display conversations in sidebar', async ({ page }) => {
-    await expect(page.getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Nutrition Questions')).toBeVisible();
+    await expect(history(page).getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Nutrition Questions')).toBeVisible();
   });
 
   test('should reveal the row actions menu on hover', async ({ page }) => {
-    await expect(page.getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
 
     // Hover over the row to reveal its single actions trigger (group-hover)
-    const row = page.locator('[data-testid="conversation-row"]', {
+    const row = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Training Plan Discussion',
     });
     await row.hover();
@@ -131,23 +137,24 @@ test.describe('Conversation Management Actions', () => {
   });
 
   test('the row stays clickable while its actions are showing', async ({ page }) => {
-    await expect(page.getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
 
     // Hovering used to lay three buttons over the right half of the row, so
     // clicking there stopped opening the thread.
-    const row = page.locator('[data-testid="conversation-row"]', {
+    const row = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Training Plan Discussion',
     });
     await row.hover();
     await row.getByRole('button', { name: /Training Plan Discussion/ }).click();
 
-    await expect(page).toHaveURL(/#chat\/conv-1$/);
+    await expect(page).toHaveURL(/#home\/chat\/conv-1$/);
+    await expect(history(page)).toBeHidden();
   });
 
   test('should enable rename mode from the row actions menu', async ({ page }) => {
-    await expect(page.getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
+    await expect(history(page).getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
 
-    const row = page.locator('[data-testid="conversation-row"]', {
+    const row = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Training Plan Discussion',
     });
     await row.hover();
@@ -167,14 +174,14 @@ test.describe('Conversation Management Actions', () => {
       await route.fulfill({ status: 204, body: '' });
     });
 
-    const unreadRow = page.locator('[data-testid="conversation-row"]', {
+    const unreadRow = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Nutrition Questions',
     });
     await expect(unreadRow.getByTestId('conversation-unread-count')).toHaveText('2', {
       timeout: 10000,
     });
 
-    const readRow = page.locator('[data-testid="conversation-row"]', {
+    const readRow = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Training Plan Discussion',
     });
     await expect(readRow.getByTestId('conversation-unread-count')).toHaveCount(0);
@@ -187,7 +194,7 @@ test.describe('Conversation Management Actions', () => {
   });
 
   test('shows the last-message preview beside each row', async ({ page }) => {
-    const row = page.locator('[data-testid="conversation-row"]', {
+    const row = history(page).locator('[data-testid="conversation-row"]', {
       hasText: 'Training Plan Discussion',
     });
     await expect(row.getByTestId('conversation-preview')).toHaveText('Hold the long run at 2h30.', {

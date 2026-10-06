@@ -29,6 +29,18 @@ import {
 import { athleteApi, providersApi } from '../services/api';
 import { planDayRouteDraft } from '../components/home/homeFormat';
 
+/**
+ * The recent-activities read, one cache entry for every reader: Home's list,
+ * which also runs the stale-answer schedule below, and the folded Today line,
+ * which only shows what the list last read.
+ */
+export function recentActivitiesQuery() {
+  return {
+    queryKey: QUERY_KEYS.home.recentActivities(),
+    queryFn: () => athleteApi.getRecentActivities(),
+  };
+}
+
 /** What the Home page reads from the recent-activities query. */
 export interface RecentActivitiesState {
   data: RecentActivitiesResponse | undefined;
@@ -86,10 +98,7 @@ export interface RecentActivitiesState {
  */
 export function useRecentActivities(): RecentActivitiesState {
   const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: QUERY_KEYS.home.recentActivities(),
-    queryFn: () => athleteApi.getRecentActivities(),
-  });
+  const query = useQuery(recentActivitiesQuery());
   const { refetch } = query;
   // The answer the last schedule ran out on, named by when it arrived. Only
   // that answer is owed nothing more; any stale answer after it is owed a

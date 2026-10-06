@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the unified conversation list — rows, search, empty state, Load more, row actions
+// ABOUTME: Tests for the scoped conversation list — Home's history or the Groups tab's rooms: rows, search, empty state, Load more, row actions
 // ABOUTME: Mocks chatApi and asserts what the list draws and which calls its actions make
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
+import type { ConversationScope } from '@pierre/chat-utils';
 import ConversationList from '../ConversationList';
 import { CONVERSATION_PAGE_SIZE } from '../../../hooks/useConversationList';
 
@@ -46,7 +47,11 @@ function page(conversations: Conversation[], total = conversations.length) {
 }
 
 function renderList(
-  props: Partial<{ selectedConversation: string | null; onSelectConversation: (id: string | null) => void }> = {},
+  props: Partial<{
+    scope: ConversationScope;
+    selectedConversation: string | null;
+    onSelectConversation: (id: string | null) => void;
+  }> = {},
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -54,6 +59,7 @@ function renderList(
   return render(
     <QueryClientProvider client={queryClient}>
       <ConversationList
+        scope={props.scope ?? 'personal'}
         selectedConversation={props.selectedConversation ?? null}
         onSelectConversation={props.onSelectConversation ?? vi.fn()}
       />
@@ -66,19 +72,22 @@ describe('ConversationList', () => {
     vi.clearAllMocks();
   });
 
-  it('names the "+" beside the chat when there are no conversations', async () => {
-    getConversations.mockResolvedValue(page([]));
-    renderList();
+  it('says each side is empty in its own words', async () => {
+    // A room is the Groups tab's, so Home's history holds nothing here.
+    getConversations.mockResolvedValue(page([conversation({ id: 'g1', group_id: 'group-1' })]));
+    const { unmount } = renderList({ scope: 'personal' });
 
-    // The list has no "+" of its own: the chat surface owns the one compose
-    // menu, and it is on screen beside this pane whenever the list is empty.
-    expect(await screen.findByTestId('conversation-list-empty')).toHaveTextContent(
-      'No chats yet — start one from the "+" beside the chat',
-    );
+    expect(await screen.findByTestId('conversation-list-empty')).toHaveTextContent('No other conversations yet.');
+    // The list has no "+" of its own: its host owns the one compose control.
     expect(screen.queryByRole('button', { name: 'New' })).toBeNull();
+    unmount();
+
+    getConversations.mockResolvedValue(page([conversation({ id: 'c1' })]));
+    renderList({ scope: 'groups' });
+    expect(await screen.findByTestId('conversation-list-empty')).toHaveTextContent('No groups yet');
   });
 
-  it('draws one flat row per conversation, newest activity first, with preview and unread count', async () => {
+  it('keeps one side of the app, newest activity first, with preview and unread count', async () => {
     getConversations.mockResolvedValue(
       page([
         conversation({ id: 'c-old', title: 'Track workout', updated_at: '2026-04-01T10:00:00Z', last_message: null }),
@@ -94,18 +103,26 @@ describe('ConversationList', () => {
         }),
       ]),
     );
-    renderList();
+    const { unmount } = renderList({ scope: 'personal' });
 
+    // Home's history: the athlete's own threads, the room left out.
     const list = await screen.findByRole('list', { name: 'Conversations' });
     const rows = within(list).getAllByTestId('conversation-row');
-    expect(rows.map((row) => row.getAttribute('data-conversation-id'))).toEqual(['c-new', 'c-group', 'c-old']);
+    expect(rows.map((row) => row.getAttribute('data-conversation-id'))).toEqual(['c-new', 'c-old']);
     // No coach grouping headers, no "Without a coach" bucket — one flat list.
     expect(screen.queryByText(/Without a coach/)).toBeNull();
     expect(screen.queryByText('Running Coach')).toBeNull();
     expect(within(rows[0]).getByTestId('conversation-preview')).toHaveTextContent('Easy 10k tomorrow');
     expect(within(rows[0]).getByTestId('conversation-unread-count')).toHaveTextContent('2');
-    expect(within(rows[1]).getByTestId('conversation-kind-glyph')).toHaveAttribute('data-kind', 'group');
-    expect(within(rows[1]).getByTestId('conversation-preview')).toHaveTextContent('Tempo Coach: Ride at 8');
+    unmount();
+
+    // The Groups tab: the room alone.
+    renderList({ scope: 'groups' });
+    const groups = await screen.findByRole('list', { name: 'Conversations' });
+    const groupRows = within(groups).getAllByTestId('conversation-row');
+    expect(groupRows.map((row) => row.getAttribute('data-conversation-id'))).toEqual(['c-group']);
+    expect(within(groupRows[0]).getByTestId('conversation-kind-glyph')).toHaveAttribute('data-kind', 'group');
+    expect(within(groupRows[0]).getByTestId('conversation-preview')).toHaveTextContent('Tempo Coach: Ride at 8');
   });
 
   it('opens a row without touching the read marker', async () => {
@@ -129,7 +146,7 @@ describe('ConversationList', () => {
     renderList();
     await screen.findByText('Deadlift form');
 
-    const search = screen.getByLabelText('Search conversations');
+    const search = screen.getByLabelText('Search our conversations');
     fireEvent.change(search, { target: { value: 'strength' } });
     await waitFor(() => expect(screen.queryByText('Marathon plan')).toBeNull());
     expect(screen.getByText('Deadlift form')).toBeInTheDocument();
@@ -160,6 +177,27 @@ describe('ConversationList', () => {
     expect(await screen.findByText('The last one')).toBeInTheDocument();
     expect(getConversations).toHaveBeenLastCalledWith(CONVERSATION_PAGE_SIZE, CONVERSATION_PAGE_SIZE);
     await waitFor(() => expect(screen.queryByTestId('conversation-list-load-more')).toBeNull());
+  });
+
+  it('offers the next page, not "No groups yet", when the loaded page holds none of its side', async () => {
+    // Fifty newer one-to-one threads fill the first page; the room is on the second.
+    const first = Array.from({ length: CONVERSATION_PAGE_SIZE }, (_, i) =>
+      conversation({ id: `c${i}`, title: `Chat ${i}` }),
+    );
+    getConversations.mockResolvedValueOnce(page(first, CONVERSATION_PAGE_SIZE + 1));
+    getConversations.mockResolvedValueOnce({
+      conversations: [conversation({ id: 'g1', title: 'Sunday Riders', group_id: 'group-1' })],
+      total: CONVERSATION_PAGE_SIZE + 1,
+      limit: CONVERSATION_PAGE_SIZE,
+      offset: CONVERSATION_PAGE_SIZE,
+    });
+    renderList({ scope: 'groups' });
+
+    fireEvent.click(await screen.findByTestId('conversation-list-load-more'));
+    expect(screen.queryByTestId('conversation-list-empty')).toBeNull();
+
+    const rows = await screen.findAllByTestId('conversation-row');
+    expect(rows.map((row) => row.getAttribute('data-conversation-id'))).toEqual(['g1']);
   });
 
   it('marks a conversation unread from the row action without selecting it', async () => {

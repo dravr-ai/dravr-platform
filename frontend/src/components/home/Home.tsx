@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete's Home — where sign-in lands and the logo leads: today's plan, the week, the training status, the latest activities
-// ABOUTME: One reading column under the page header; a tap on a day drafts its question in a chat, one on an activity opens its view
+// ABOUTME: Home's Today — today's plan, the week, the training status, the latest activities — beside the athlete's conversation
+// ABOUTME: A tap on a day drafts its question in that conversation, one on an activity opens its view
 
+import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
-import { TabHeader } from '../ui/TabHeader';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { useTrainingPlan } from '../../hooks/useHome';
@@ -15,11 +15,13 @@ import { HomeStatus } from './HomeStatus';
 import { RecentActivities } from './RecentActivities';
 import { planWindow } from './homeFormat';
 
-interface HomeProps {
+interface HomeBriefingProps {
   /** Dashboard route navigator, `tab[/subview]`. */
   onNavigate: (route: string) => void;
-  /** Open a new chat whose composer holds `text`, for the athlete to finish and send. */
+  /** Put `text` in the conversation's composer, for the athlete to finish and send. */
   onOpenChatDraft: (text: string) => void;
+  /** Laid out for the docked side panel: the latest activity's map in its shorter frame. */
+  compact?: boolean;
 }
 
 /**
@@ -88,18 +90,17 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
   );
 }
 
-export default function Home({ onNavigate, onOpenChatDraft }: HomeProps) {
-  const { t } = useTranslation();
+/**
+ * Home's own sections, in the order the page always had them. The personal
+ * surface draws them in its Today panel beside the conversation on a wide
+ * screen, and in a drawer or a sheet on a narrower one.
+ */
+export function HomeBriefing({ onNavigate, onOpenChatDraft, compact = false }: HomeBriefingProps) {
   return (
-    <div className="flex h-full flex-col" data-testid="home-page">
-      <TabHeader title={t('nav.home')} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[720px] space-y-10 px-4 py-6 md:px-6">
-          <HomePlan onOpenChatDraft={onOpenChatDraft} />
-          <HomeStatus />
-          <RecentActivities onNavigate={onNavigate} />
-        </div>
-      </div>
+    <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
+      <HomePlan onOpenChatDraft={onOpenChatDraft} />
+      <HomeStatus />
+      <RecentActivities onNavigate={onNavigate} compact={compact} />
     </div>
   );
 }

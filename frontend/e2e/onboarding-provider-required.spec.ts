@@ -62,9 +62,9 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
     await expect(page.locator('[aria-label="Skip and start chatting"]')).toHaveCount(0);
 
     // Dashboard chrome must NOT be present — the user is fully gated until a
-    // provider is connected. The "Chat" sidebar button is the canonical
+    // provider is connected. The "Groups" sidebar button is the canonical
     // dashboard surface that proves the redirect happened.
-    await expect(page.locator('button:has-text("Chat")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Groups")')).toHaveCount(0);
   });
 
   test('already-onboarded user lands on the dashboard, not the onboarding screen', async ({ page }) => {

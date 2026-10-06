@@ -41,9 +41,9 @@ test.describe('Insights and Friends are retired', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
 
     const aside = page.locator('aside');
-    await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
+    await expect(aside.getByRole('button', { name: 'Groups', exact: true })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
-    await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
+    await expect(aside.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Insights' })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Friends' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);

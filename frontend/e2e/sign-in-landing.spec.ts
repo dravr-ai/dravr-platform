@@ -5,7 +5,7 @@
 // ABOUTME: A link the athlete followed while signed out still opens where it pointed; Firebase is served as a stub module
 
 import { test, expect, type Page } from '@playwright/test';
-import { APP_SHELL_TIMEOUT_MS, openChat, setupDashboardMocks } from './test-helpers';
+import { APP_SHELL_TIMEOUT_MS, openGroups, openHome, setupDashboardMocks } from './test-helpers';
 
 const ATHLETE = {
   id: 'user-123',
@@ -82,11 +82,11 @@ async function signIn(page: Page, method: SignInMethod) {
   await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
 }
 
-/** Signed in on Chat, then the session dies the way a 401 ends it. */
-async function sessionEndsOnChat(page: Page) {
+/** Signed in on Groups, then the session dies the way a 401 ends it. */
+async function sessionEndsOnGroups(page: Page) {
   await page.goto('/');
   await signIn(page, 'password');
-  await openChat(page);
+  await openGroups(page);
   await expect(page).toHaveURL(/#chat(\/|$)/);
   await page.evaluate(() => window.dispatchEvent(new Event('pierre:auth:failure')));
   await expect(page.locator('input[name="email"]')).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
@@ -94,9 +94,9 @@ async function sessionEndsOnChat(page: Page) {
 
 for (const method of ['password', 'google'] as const) {
   test.describe(`Sign-in landing — ${method}`, () => {
-    test(`a session that ended on Chat signs back in on Home (${method})`, async ({ page }) => {
+    test(`a session that ended on Groups signs back in on Home (${method})`, async ({ page }) => {
       await mockAthlete(page);
-      await sessionEndsOnChat(page);
+      await sessionEndsOnGroups(page);
       // The login screen no longer carries the dead session's page.
       expect(new URL(page.url()).hash).toBe('');
 
@@ -110,7 +110,7 @@ for (const method of ['password', 'google'] as const) {
       await mockAthlete(page);
       await page.goto('/');
       await signIn(page, 'password');
-      await openChat(page);
+      await openHome(page);
 
       // Overnight the cookie expired; the athlete comes back to the same tab.
       await page.route('**/api/auth/session', (route) =>

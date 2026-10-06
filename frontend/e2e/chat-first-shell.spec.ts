@@ -5,7 +5,7 @@
 // ABOUTME: Landing on Home with Chat one tap away, the retired Coach and Groups tabs, and the @handle mention autocomplete
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome } from './test-helpers';
 
 const CONVERSATION = {
   id: 'conv-1',
@@ -219,7 +219,7 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
 }
 
 test.describe('Chat-first shell', () => {
-  test('a regular user lands on Home, and the rail offers Chat and Discover but no Coaches tab', async ({ page }) => {
+  test('a regular user lands on Home, and the rail offers Groups and Discover but no Coaches tab', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
@@ -228,14 +228,13 @@ test.describe('Chat-first shell', () => {
     await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 10000 });
 
     const aside = page.locator('aside');
-    await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
+    await expect(aside.getByRole('button', { name: 'Groups', exact: true })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
-    await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
+    await expect(aside.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Agents' })).toHaveCount(0);
 
-    // Chat is one tap away, and opens on its empty pane.
-    await openChat(page);
-    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
+    // Home is the athlete's own conversation, opened on the latest thread.
+    await expect(page.getByTestId('thread-title')).toHaveText('Sunday long run', { timeout: 10000 });
   });
 
   test('a stale #groups deep link lands on Home', async ({ page }) => {
@@ -252,9 +251,18 @@ test.describe('Chat-first shell', () => {
 
   test('the empty pane names what to do and offers the "+" and Commands', async ({ page }) => {
     await setupShellMocks(page);
+    // Home shows the empty pane only to an athlete with no thread of their own yet.
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
+      if (request.method() !== 'GET') return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+      });
+    });
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
-    await openChat(page);
+    await openHome(page);
 
     const empty = page.getByTestId('chat-empty-state');
     await expect(empty).toBeVisible({ timeout: 10000 });
@@ -266,9 +274,13 @@ test.describe('Chat-first shell', () => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
-    await openChat(page);
+    await openHome(page);
+    // The athlete's own threads are listed behind History.
+    await page.getByTestId('home-history-button').click();
 
-    const row = page.locator('[data-testid="conversation-row"]', { hasText: 'Sunday long run' });
+    const row = page
+      .getByRole('dialog', { name: 'History' })
+      .locator('[data-testid="conversation-row"]', { hasText: 'Sunday long run' });
     await expect(row.getByTestId('conversation-unread-count')).toHaveText('3', { timeout: 10000 });
     await expect(row.getByTestId('conversation-preview')).toHaveText('How did the long run feel?');
     await expect(row.getByTestId('conversation-timestamp')).not.toBeEmpty();
@@ -321,21 +333,26 @@ test.describe('Chat-first shell', () => {
     await expect(page.getByText('custom AI personas')).toHaveCount(0);
   });
 
-  test('the "+" offers a new chat and a new group chat, and starts a plain chat', async ({ page }) => {
+  test('the "+" on Home offers a new chat, a new group chat and adding someone, and starts a plain chat', async ({ page }) => {
     const { created } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
-    await openChat(page);
+    await openHome(page);
 
     await page.getByRole('button', { name: 'New', exact: true }).first().click();
     const menu = page.getByRole('menu', { name: 'Start a conversation' });
-    await expect(menu.getByRole('menuitem')).toHaveText(['New chat', 'New group chat']);
+    // Home opens on the latest thread, so adding someone to it is offered too.
+    await expect(menu.getByRole('menuitem')).toHaveText([
+      'New chat',
+      'New group chat',
+      'Add someone to this discussion',
+    ]);
 
     await menu.getByRole('menuitem', { name: 'New chat' }).click();
 
     await expect.poll(() => created.length).toBe(1);
     expect(created[0].body).not.toHaveProperty('group_id');
-    await expect(page).toHaveURL(/#chat\/conv-new$/);
+    await expect(page).toHaveURL(/#home\/chat\/conv-new$/);
   });
 
   test('"New group chat" asks for a name and sends /group create, creating no group itself', async ({ page }) => {

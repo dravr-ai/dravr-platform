@@ -5,7 +5,7 @@
 // ABOUTME: Asserts Satellite and Terrain load keyless Esri tiles row-before-column and repaint the track, and French reads French
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from '../e2e/test-helpers';
+import { setupDashboardMocks, loginToDashboard, openPersonalConversation } from '../e2e/test-helpers';
 import { serveBasemapStandIn } from './basemap-stand-in';
 import { CHAT_ROUTE_QUESTION, CHAT_ROUTE_TITLE, mockChatRoute } from './chat-route-fixture';
 import { mockHome, paintedPixels, recordCspViolations } from './home-map-fixture';
@@ -63,11 +63,19 @@ function expectOverTheRoute(tiles: EsriTile[]): void {
   }
 }
 
+/** Unfold Today from its line above Home's conversation, as a phone does. */
+async function openToday(page: Page) {
+  await page.getByTestId('home-today-peek').click();
+  await expect(page.getByTestId('home-today-sheet')).toBeVisible();
+}
+
 async function openHomeMap(page: Page, name = 'Map of the recorded route: Morning Trail Run') {
   await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
   await mockHome(page);
   await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
   await expect(page.getByTestId('home-page')).toBeVisible();
+  // Below 1024 Today is folded into its line above the conversation.
+  if ((page.viewportSize()?.width ?? Number.POSITIVE_INFINITY) < 1024) await openToday(page);
   const map = page.getByTestId('home-activity-latest').getByRole('figure', { name });
   await expect(map).toHaveAttribute('data-route-drawn', 'true', { timeout: 30_000 });
   return map;
@@ -249,21 +257,22 @@ for (const { language, name, labels, fullScreen, exitFullScreen } of [
       await expectControlsApart(map, labels, fullScreen, `${width}px card`);
     }
 
-    // Full screen on a small phone, where the overlay is the viewport.
+    // Full screen on a small phone, where the overlay is the viewport. Today
+    // folds into its line there, so the map is reopened from it.
     await page.setViewportSize({ width: 320, height: 640 });
+    await openToday(page);
     await map.getByRole('button', { name: fullScreen }).click();
     await expect(map.locator('[data-map-screen]')).not.toHaveAttribute('data-map-screen', 'inline');
     await expectControlsApart(map, labels, exitFullScreen, 'full screen at 320px');
   });
 }
 
-/** The route card under a one-line coach reply, opened from the conversation list. */
+/** The route card under a one-line coach reply, opened from Home's History. */
 async function openChatRoute(page: Page) {
   await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
   await mockChatRoute(page);
   await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
-  await openChat(page);
-  await page.getByText(CHAT_ROUTE_TITLE).first().click();
+  await openPersonalConversation(page, CHAT_ROUTE_TITLE);
   await expect(page.getByText(CHAT_ROUTE_QUESTION)).toBeVisible({ timeout: 10_000 });
   const turn = page.locator('[data-testid="message-row"][data-role="assistant"]');
   const map = turn.getByRole('figure', { name: 'Map of the recorded route: Morning Trail Run' });

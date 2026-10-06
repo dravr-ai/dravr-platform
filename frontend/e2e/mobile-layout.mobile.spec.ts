@@ -5,7 +5,7 @@
 // ABOUTME: Verifies bottom tab bar, drawer, no horizontal overflow, tap targets.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openHome } from './test-helpers';
 
 const CONVERSATION = {
   id: 'conv-mobile-1',
@@ -66,17 +66,17 @@ test.describe('Mobile authenticated layout', () => {
     await expect(nav).toBeVisible();
     // 4 primary + Menu. Home leads the bar because sign-in lands there.
     // Insights was retired by the Chat-First Cutover, the Coach tab folded
-    // into Discover, and Groups moved inside the group's own chat thread — so
-    // the bar holds exactly these and nothing else.
+    // into Discover, and Chat became Groups when the athlete's own
+    // conversation moved to Home — so the bar holds exactly these.
     await expect(nav.getByRole('button', { name: 'Home' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Chat' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Groups' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Discover' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Notifications' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
     await expect(nav.getByRole('button')).toHaveCount(5);
     await expect(nav.getByRole('button', { name: 'Insights' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Agents' })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Groups' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0);
   });
 
   test('desktop sidebar is hidden at mobile viewport', async ({ page }) => {
@@ -121,10 +121,9 @@ test.describe('Mobile authenticated layout', () => {
 });
 
 test.describe('Mobile composer', () => {
-  // The composer belongs to an open thread — the empty pane offers the "+" and
-  // Commands instead. The conversation list lives in the desktop sidebar, so at
-  // this width the "+" is the athlete's way into a thread; taking it is what
-  // puts the composer, and its tap target, on screen.
+  // The composer belongs to an open thread. Home is the athlete's own
+  // conversation and opens on their latest thread, so the composer, and its
+  // tap target, are on screen as soon as Home is.
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, {
       role: 'user',
@@ -133,10 +132,8 @@ test.describe('Mobile composer', () => {
     });
     await mockConversationCreate(page);
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
-    // Sign-in lands on Home; the bottom bar's Chat is the way into a thread.
-    await openChat(page);
-    await page.getByTestId('conversation-pane').getByRole('button', { name: 'New', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'New chat' }).click();
+    // Sign-in lands on Home, which is the athlete's own conversation.
+    await openHome(page);
     await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible();
   });
 

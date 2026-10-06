@@ -237,6 +237,9 @@ module.exports = {
         'fade-in': 'fadeIn 0.15s ease-out',
         'slide-up': 'slideUp 0.2s ease-out',
         'scale-in': 'scaleIn 0.2s ease-out',
+        'sheet-in-bottom': 'sheetInBottom 0.22s cubic-bezier(0.22, 1, 0.36, 1)',
+        'sheet-in-right': 'sheetInRight 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+        'sheet-in-left': 'sheetInLeft 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
       },
       keyframes: {
         fadeRise: {
@@ -254,6 +257,18 @@ module.exports = {
         scaleIn: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        sheetInBottom: {
+          '0%': { transform: 'translateY(24px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        sheetInRight: {
+          '0%': { transform: 'translateX(24px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        sheetInLeft: {
+          '0%': { transform: 'translateX(-24px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
         },
       },
     },

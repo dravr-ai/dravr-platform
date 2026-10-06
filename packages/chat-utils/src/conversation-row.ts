@@ -138,6 +138,19 @@ export function deriveKind(conversation: Conversation): ConversationKind {
   return 'plain';
 }
 
+/**
+ * Where a conversation lives in the app. A room with other people is the
+ * Groups tab's; everything that is only the athlete and Dravr — a plain
+ * thread, a specialist agent's, a Telegram or WhatsApp DM — is the
+ * athlete's own, on Home.
+ */
+export type ConversationScope = 'groups' | 'personal';
+
+/** The side of the app a row of this kind belongs to — see {@link ConversationScope}. */
+export function scopeOfKind(kind: ConversationKind): ConversationScope {
+  return kind === 'group' ? 'groups' : 'personal';
+}
+
 // Punctuation a title may open a word with (`«Plan»`, `"Tempo"`, `@coach`)
 // that must not become an initial.
 const LEADING_PUNCTUATION = /^["'«‘“([{@#*_~-]+/;

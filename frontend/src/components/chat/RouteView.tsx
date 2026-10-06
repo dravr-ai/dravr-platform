@@ -128,7 +128,14 @@ function ClimbSwatch() {
  * the numbers underneath in words a screen reader can read, which the canvas
  * itself can never be.
  */
-export default function RouteView({ view }: { view: RouteViewData }) {
+export default function RouteView({
+  view,
+  compact = false,
+}: {
+  view: RouteViewData;
+  /** A shorter inline frame, for a map in a side panel rather than a reading column. */
+  compact?: boolean;
+}) {
   const { t, language } = useTranslation();
   const { scheme } = useTheme();
   const container = useRef<HTMLDivElement | null>(null);
@@ -384,7 +391,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
           ref={container}
           className={`[&_.maplibregl-ctrl-bottom-left]:right-12 [&_.maplibregl-ctrl-attrib]:text-black/75 ${
             screen === 'inline'
-              ? 'h-64 w-full overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest sm:h-80'
+              ? `${compact ? 'h-48' : 'h-64 sm:h-80'} w-full overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest`
               : 'h-full w-full'
           }`}
         />

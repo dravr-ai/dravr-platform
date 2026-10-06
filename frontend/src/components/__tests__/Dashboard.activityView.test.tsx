@@ -20,18 +20,31 @@ vi.mock('../dashboard/index', () => ({
 vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
-vi.mock('../ChatTab', () => ({ default: () => <div data-testid="chat-tab" /> }));
+// Home is ChatTab's personal layout; it draws the Today panel the shell hands it.
+vi.mock('../ChatTab', () => ({
+  default: (props: { layout?: string; today?: { panel: (draft: (text: string) => void, compact: boolean) => unknown } }) =>
+    props.layout === 'personal' ? (
+      <div data-testid="home-tab">{props.today?.panel(() => undefined, true) as never}</div>
+    ) : (
+      <div data-testid="chat-tab" />
+    ),
+}));
 vi.mock('../ConnectProviderBanner', () => ({ ConnectProviderBanner: () => null }));
 
-// Home hands the shell the route a tapped activity row builds.
+// Home's Today hands the shell the route a tapped activity row builds.
 vi.mock('../home/Home', () => ({
-  default: ({ onNavigate }: { onNavigate: (route: string) => void }) => (
-    <div data-testid="home-tab">
-      <button type="button" onClick={() => onNavigate('home/activity/strava/morning%20run')}>
-        tap activity
-      </button>
-    </div>
+  HomeBriefing: ({ onNavigate }: { onNavigate: (route: string) => void }) => (
+    <button type="button" onClick={() => onNavigate('home/activity/strava/morning%20run')}>
+      tap activity
+    </button>
   ),
+}));
+vi.mock('../home/TodayPeek', () => ({ TodayPeek: () => null }));
+// Home opens on the latest personal thread; these specs assert nothing about
+// which one, and no #chat link here names a thread the list knows.
+vi.mock('../../hooks/useConversationList', () => ({
+  useLatestPersonalConversation: () => ({ id: null, isLoading: false }),
+  useConversationScope: () => null,
 }));
 
 vi.mock('../activity/ActivityView', () => ({

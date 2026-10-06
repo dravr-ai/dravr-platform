@@ -192,6 +192,16 @@ async function mockHome(page: Page, providers = [provider('strava', 'Strava'), p
   });
 }
 
+/**
+ * On a phone Home's Today is one line above the conversation; a tap opens it
+ * as a full-height sheet, where today's session, the week and the activities
+ * are.
+ */
+async function openToday(page: Page) {
+  await page.getByTestId('home-today-peek').click();
+  await expect(page.getByRole('dialog', { name: 'Today' })).toBeVisible();
+}
+
 test.describe('Athlete Home — mobile viewport', () => {
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
@@ -206,8 +216,9 @@ test.describe('Athlete Home — mobile viewport', () => {
     const names = await nav.getByRole('button').evaluateAll((buttons) =>
       buttons.map((button) => button.getAttribute('aria-label')),
     );
-    expect(names).toEqual(['Home', 'Chat', 'Discover', 'Notifications', 'Open menu']);
+    expect(names).toEqual(['Home', 'Groups', 'Discover', 'Notifications', 'Open menu']);
     await expect(nav.getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+    await openToday(page);
     await expect(page.getByTestId('home-today-session')).toContainText('Tempo run');
   });
 
@@ -220,6 +231,7 @@ test.describe('Athlete Home — mobile viewport', () => {
 
     const viewport = page.viewportSize();
     expect(viewport).not.toBeNull();
+    await openToday(page);
     const cells = page.getByTestId('home-week').getByRole('button');
     await expect(cells).toHaveCount(7);
     for (const box of await cells.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))) {
@@ -230,6 +242,7 @@ test.describe('Athlete Home — mobile viewport', () => {
   });
 
   test("a latest activity whose stored route held no GPS says it has no track; tapping a row opens its view inside the phone width", async ({ page }) => {
+    await openToday(page);
     await expect(page.getByTestId('home-activity-latest')).toContainText('This activity recorded no GPS track.');
     // One sketch from the summary polyline, one from the route the endpoint
     // answers for the row whose route had never been read.
@@ -327,6 +340,7 @@ test.describe('Athlete Home — mobile viewport', () => {
         }),
       });
     });
+    await openToday(page);
     await page.getByTestId('home-activity-row').first().getByRole('button').click();
     const chat = page.getByTestId('activity-view').getByTestId('embedded-chat');
     await expect(chat.getByText('Steady and even.')).toBeVisible();
@@ -382,8 +396,8 @@ test.describe('Athlete Home — mobile viewport', () => {
     const homeTitle = await page.getByTestId('home-page').getByRole('heading', { name: 'Home' }).boundingBox();
     expect(homeTitle?.y ?? 0).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
 
-    // Chat renders into the same content area, so it clears the notch too.
-    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Chat' }).click();
+    // Groups renders into the same content area, so it clears the notch too.
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Groups' }).click();
     await expect(page).toHaveURL(/#chat/);
     await expect(page.getByTestId('home-page')).toHaveCount(0);
     expect(await pageTop(page)).toBeGreaterThanOrEqual(NOTCH_INSET_PX);
@@ -411,9 +425,13 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
   });
 
   test('the shell banner names the providers inside the phone width, the rows stay, and it leads to the connections pane', async ({ page }) => {
+    // The rows stay, in Today's sheet; the banner is the shell's, under it.
+    await openToday(page);
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Today' })).toBeHidden();
     const prompt = page.getByTestId('provider-reconnect-banner');
     await expect(prompt).toContainText('Reconnect Strava and Garmin to see your new activities.');
-    await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
 
     const viewport = page.viewportSize();
     expect(viewport).not.toBeNull();
@@ -569,6 +587,7 @@ test.describe('Athlete Home — mobile viewport, a drawn latest map', () => {
     });
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
     await expect(page.getByTestId('home-page')).toBeVisible();
+    await openToday(page);
     const map = page.getByTestId('home-activity-latest').locator('figure');
     await expect(map).toHaveAttribute('data-route-drawn', 'true', { timeout: 20_000 });
     const attribution = map.locator('.maplibregl-ctrl-attrib');

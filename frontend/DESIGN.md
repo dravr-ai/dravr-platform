@@ -555,18 +555,39 @@ measured table is the sheet's header. `scripts/ci/check-hosted-css.sh` (pre-push
 Tier 1l) regenerates the sheet and fails a push that left it stale, or a hosted
 template that draws outside it.
 
-### Chat surfaces — the messenger layout
+### Chat surfaces — Home's conversation and the Groups messenger
 
-The athlete app is a messenger, and reads like one: WhatsApp Web is the
-reference for the layout, Boreal for every tone. Three columns on a wide
-screen, one at a time below `lg` (1024px) — the list until a thread is open,
-then the thread with a back button in its header.
+**Web (2026-10-05, concept B of the Personal Home canvas):** the athlete's own
+conversation with Dravr is Home. Everything that is only the athlete and
+Dravr — a plain thread, a specialist agent's, a Telegram or WhatsApp DM — is
+personal and lives there; `scopeOfKind` in `@pierre/chat-utils` is the one
+rule. Home puts that conversation in the middle with **Today** — the plan,
+the week, the form and the latest activity on its map — docked to its right
+from `lg` (320px, 360px at `xl`, folded away by a header toggle the browser
+remembers). Below `lg` Today is one line above the thread that opens it as a
+360px drawer (tablet) or a full-height bottom sheet (phone); the line steps
+aside while the athlete reads back up the thread or types, and returns at the
+latest message. The other personal threads sit behind **History**, a sheet
+from the left — full screen on a phone. A Today tap drafts into the open
+thread's composer; it never opens another tab.
+
+The **Groups** tab (id and route still `chat`, so every `#chat/<id>` link
+lands — a link to a personal thread moves to Home) is the messenger for
+rooms with other people, and reads like one: WhatsApp Web is the reference
+for the layout, Boreal for every tone. Three columns on a wide screen, one at
+a time below `lg` (1024px) — the list until a thread is open, then the
+thread with a back button in its header. A Groups tab with no room says so
+and offers "Create a group"; its `+` offers rooms only. The phone app has not
+followed yet: its Chat tab still holds every thread.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|
-| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px — a button to Home with no fill of its own, only the focus ring — then one icon per destination (Home, Chat, Discover, Notifications), gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
+| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px — a button to Home with no fill of its own, only the focus ring — then one icon per destination (Home, Groups, Discover, Notifications), gear + avatar at the bottom; Home's badge counts the athlete's own unread threads, Groups' the rooms'; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
 | Home and Chat tab headers — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title — on Chat followed by the appearance toggle, the bell and the `+`. The lockup is a button named Home (`nav.home`): from Chat it goes to Home, on Home it scrolls back to the top. It gains a press, not a look — no recolour, no badge, no pressed ink beyond a dimming. Discover and Settings keep their own titles. |
-| List column (320/340px) | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread / Groups / Agents) under a primary underline, then rows. A hairline on the right separates it from the thread. |
+| List column (320/340px) — Groups | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread) under a primary underline, then rows. A hairline on the right separates it from the thread. History draws the same list in its sheet without the title row, its tabs All / Unread / Agents. |
+| Today panel (320/360px) — **web, ≥`lg`** | `surface` | `surface` | Home's own sections — Today, the week, the training status, the recent activities with the latest on its map in a 192px frame — scrolling on their own behind a hairline on the left. The header's toggle (`PanelRight`) folds it away. |
+| Today line — **web, <`lg`** | `surface-container-low` | same token | One 52px row above the thread, radius 12: "Today", the session, the form as a share of fitness, the latest route's sketch, a chevron. Not white: the composer stays the one white shape. |
+| Sheet (`ui/Sheet`) | `surface` over `bg-scrim/60` | same tokens | One component for every slide-over Home needs: bottom (full height, radius 16 top, a grabber), right (360px) or left (360px, full screen on a phone). 52px header with the title and a 44px close; Escape and the scrim close it; focus is trapped and returned. |
 | List row (60px) | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 36px initials avatar, title (13px, 600 when unread) + time on line 1, preview + unread pill on line 2, inset `ghost-border-faint` divider. Unread pill = `bg-primary text-on-primary`, 18px. |
 | Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. |
 | Thread canvas | `surface` | `surface` | One 720px reading column. The agent's turn is **prose on the canvas** — a 24px avatar, the name and the time on one line, the words under them to 620px, no fill, no border; the athlete's is the one bubble, on `primary-container`, on the right. Day labels are plain 12px text between days. |
@@ -633,7 +654,7 @@ pseudo-class so it never renders unless focused.
 Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 (chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
 
-Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px + list column 320px (`lg`) / 340px (`xl`); operator shell: sidebar 260px, rail 72px when collapsed. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
+Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px; Home: the thread + the Today panel 320px (`lg`) / 360px (`xl`); Groups: list column 320px (`lg`) / 340px (`xl`) + the thread; operator shell: sidebar 260px, rail 72px when collapsed. Sheets: 360px from a side, full height from the bottom. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
 
 A long table never pushes the page's next action below the fold: it scrolls
 inside a frame of its own, under a header row that stays put, and the action
@@ -704,6 +725,15 @@ string, so it is identical in all five locales by construction.
 ---
 
 ## 9. History
+
+**Personal Home (2026-10, web).** A single athlete found a list that mixed
+one-to-one threads, agents, channel DMs and group rooms confusing. Concept B
+of the Personal Home canvas (vault `Design/canvas-personal-home/`) moved the
+athlete's own conversation onto Home beside Today and renamed Chat to Groups;
+the mobile-web rules — the Today line, the full-height sheet, the line
+stepping aside on scroll and while typing — are Phil's answers of
+2026-10-05. Step 2 makes the personal conversation one continuous thread on
+the server; the layout does not change.
 
 **Boreal v2.1 "Less" (2026-09).** Phil's read of v2 the day it landed: still
 cluttered — the large hairline boxes ate the free space and the type ran a
