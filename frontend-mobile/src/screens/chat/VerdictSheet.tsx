@@ -151,6 +151,7 @@ function VerdictCard({
   const { ink } = verdictChipPalette(VERDICT_STATUS_TONE[verdict.status], colors);
   const references = parseEvidenceRefs(verdict.evidence_refs);
   const emittedLabel = formatDateTime(verdict.created_at, language);
+  // LIMITATION(registre#800): the card's `meta` line omits the verdict category, which has no label keys to print it in the athlete's language.
   const meta = [
     t('chat.evidenceLabel', { strength: t(EVIDENCE_STRENGTH_LABEL_KEY[verdict.evidence_strength]) }),
     t('chat.confidenceLabel', { confidence: (verdict.confidence * 100).toFixed(0) }),
@@ -208,6 +209,7 @@ function VerdictCard({
                 </Text>
               );
             }
+            // LIMITATION(registre#801): a study link's `label` is generic; a verdict row carries no per-reference author, year or title.
             const label =
               references.length === 1 ? t('chat.verdictReadStudy') : t('chat.verdictStudyN', { n: index + 1 });
             return (
@@ -261,6 +263,7 @@ function VerdictCard({
  * The chip opens it with all the rows of its message — a reply that drew two
  * chips shows two sections, not the first one twice. A chip pressed before the
  * rows landed opens it on the loading line while the host re-reads them.
+ * LIMITATION(registre#802): `VerdictSheet` has no device e2e; its study links, source preview and copy action are covered by jest only.
  */
 export function VerdictSheet({
   visible,

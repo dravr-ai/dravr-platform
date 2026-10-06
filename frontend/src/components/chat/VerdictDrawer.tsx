@@ -60,7 +60,10 @@ interface VerdictDrawerProps {
   renderTriage?: (verdict: ClaimVerdict) => ReactNode;
 }
 
-/** `training_prescription` reads as "Training Prescription" to a human. */
+/**
+ * `training_prescription` reads as "Training Prescription" to a human.
+ * LIMITATION(registre#800): `humanizeCategory` prints the English enum in every locale; verdict categories have no label keys.
+ */
 function humanizeCategory(category: string): string {
   return category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
 }
@@ -115,6 +118,7 @@ const PILL_CLASS =
  * The studies behind a verdict, one pill each. One study reads "Read the
  * study"; several are numbered in stored order. An id that names no known
  * page keeps its raw text, unlinked, rather than disappearing.
+ * LIMITATION(registre#801): `StudyPills` labels a study generically; a verdict row carries no per-reference author, year or title.
  */
 function StudyPills({ references }: { references: EvidenceRef[] }) {
   const { t } = useTranslation();
