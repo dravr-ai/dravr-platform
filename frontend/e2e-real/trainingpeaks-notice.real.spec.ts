@@ -5,6 +5,8 @@
 // ABOUTME: Never submits a TrainingPeaks credential, so it records no consent and repeats on a seeded server
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { accessToken as firstPartyAccessToken } from './first-party-sign-in';
+import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Requires a live Pierre
 // server on 8081 and the SPA on 5173, seeded by
@@ -21,12 +23,7 @@ const PASSWORD = process.env.WEBTEST_PASSWORD ?? 'WebTest123!';
 
 async function signedIn(): Promise<APIRequestContext> {
   const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
-  const token = await bootstrap.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username: EMAIL, password: PASSWORD },
-  });
-  expect(token.ok(), `seeded login failed: ${token.status()} — re-run the setup script`).toBeTruthy();
-  const { access_token: accessToken } = await token.json();
+  const accessToken = await firstPartyAccessToken(bootstrap, EMAIL, PASSWORD);
   await bootstrap.dispose();
   return apiRequest.newContext({
     baseURL: PIERRE_URL,
@@ -64,10 +61,7 @@ test.describe('TrainingPeaks exposure notice — real backend (no mocks)', () =>
   });
 
   test('Settings → TrainingPeaks shows the notice before the credentials and holds Log In', async ({ page }) => {
-    await page.goto(FRONTEND_URL);
-    await page.locator('input[name="email"]').fill(EMAIL);
-    await page.locator('input[name="password"]').fill(PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in/i }).click();
+    await signInThroughUi(page, FRONTEND_URL, EMAIL, PASSWORD);
 
     const openSettings = page.getByRole('button', { name: /open settings/i }).first();
     await openSettings.waitFor({ state: 'visible', timeout: 15_000 });

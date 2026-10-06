@@ -1,0 +1,17 @@
+# ABOUTME: Helper that signs the Android browser out of the authorization server before a flow that needs the hosted page
+# ABOUTME: iOS needs nothing: the app's auth session is ephemeral and keeps no cookie between sign-ins
+
+appId: host.exp.Exponent
+
+---
+# The hosted sign-in leaves the server's session cookie (pierre_session, 24 h)
+# in Chrome, which serves the app's Custom Tab. A later sign-in then returns
+# to the app at once, signed in as the earlier account, without showing the
+# page — so a flow that needs the page to appear (to cancel it, or to type a
+# wrong password into it) starts from a browser with no cookies. Chrome's
+# first-run screens come back with it; open-hosted-sign-in.yaml answers them.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - clearState: com.android.chrome

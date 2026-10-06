@@ -12,8 +12,9 @@
 //! casing could not sign in in another, and a second registration in another
 //! casing opened a second account for the same person. Every write now stores
 //! the trimmed, lowercase form and every lookup compares case aside, through
-//! the real `/api/auth/register` and `/oauth/token` handlers and through the
-//! repository every other account-creating path goes through.
+//! the real `/api/auth/register` handler, the hosted sign-in the apps use
+//! (redeemed at `/oauth/token`), and the repository every other
+//! account-creating path goes through.
 
 mod common;
 mod helpers;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::SignIn;
 use pierre_core::models::User;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
@@ -43,17 +45,10 @@ async fn register(res: &Arc<ServerContext>, email: &str) -> (u16, Value) {
     (resp.status(), resp.json())
 }
 
-/// Sign in through the password grant: the status and the body.
+/// Sign in as the web app does — the hosted login page, then the code
+/// redeemed at `/oauth/token`: the token endpoint's status and body.
 async fn sign_in(res: &Arc<ServerContext>, email: &str) -> (u16, Value) {
-    let resp = AxumTestRequest::post("/oauth/token")
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", email),
-            ("password", PASSWORD),
-        ])
-        .send(AuthRoutes::routes(res.auth_routes_context()))
-        .await;
+    let resp = SignIn::new(email, PASSWORD).run(res).await.token();
     (resp.status(), resp.json())
 }
 

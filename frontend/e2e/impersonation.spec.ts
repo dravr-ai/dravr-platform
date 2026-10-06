@@ -5,7 +5,7 @@
 // ABOUTME: Tests impersonation start/end, banner display, and role-based visibility.
 
 import { test, expect, type Page } from '@playwright/test';
-import { applyTestStubs } from './test-helpers';
+import { applyTestStubs, signInThroughHostedPage } from './test-helpers';
 
 // Helper to authenticate as a super admin and navigate to users tab
 async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
@@ -19,7 +19,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
     });
   });
 
-  // Mock OAuth2 ROPC login - SUPER ADMIN role
+  // Mock the hosted sign-in's code exchange - SUPER ADMIN role
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -52,10 +52,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
   });
 
   await page.goto('/');
-  await page.waitForSelector('form');
-  await page.locator('input[name="email"]').fill('superadmin@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 
   // Wait for dashboard sidebar to appear - the sidebar contains Dravr logo
   await page.waitForSelector('text=Dravr', { timeout: 10000 });
@@ -73,7 +70,7 @@ async function loginAsRegularAdmin(page: Page) {
     });
   });
 
-  // Mock OAuth2 ROPC login - REGULAR ADMIN role
+  // Mock the hosted sign-in's code exchange - REGULAR ADMIN role
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -106,10 +103,7 @@ async function loginAsRegularAdmin(page: Page) {
   });
 
   await page.goto('/');
-  await page.waitForSelector('form');
-  await page.locator('input[name="email"]').fill('admin@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 
   // Wait for dashboard sidebar to appear
   await page.waitForSelector('text=Dravr', { timeout: 10000 });

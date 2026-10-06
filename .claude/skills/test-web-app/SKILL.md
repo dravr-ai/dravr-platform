@@ -169,7 +169,10 @@ show ChefFamille, and the only durable evidence of a visual defect.
 
 Log in as the `$ADMIN_EMAIL` / `$ADMIN_PASSWORD` you resolved in Phase 1 — **not** the
 `admin@example.com` default, which does not exist on a machine whose `.envrc` overrides it.
-Landing tab is `users`.
+The SPA has no password field (carnet#787): its "Sign in" button opens the server's hosted
+login page (`/oauth2/login`, through Vite's `/oauth` proxy), where you fill `#email` and
+`#password` — `.envrc`'s `OAUTH_DEFAULT_EMAIL`/`OAUTH_DEFAULT_PASSWORD` prefill them, so
+overwrite both — and press "Login"; the app resumes on `/auth/callback`. Landing tab is `users`.
 
 Navigate **by clicking the sidebar** — that exercises the nav itself. Hash routes
 (`#users`, `#agents`, `#groups/<id>`, `#chat/<conversationId>`) exist and `navigate_page`

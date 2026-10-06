@@ -10,6 +10,7 @@ import {
   createAndLoginAsAdmin,
   logout,
   isLoggedIn,
+  signInButton,
   waitForDashboardLoad,
   createTestAdminUser,
 } from '../helpers';
@@ -48,7 +49,8 @@ test.describe('Authentication Integration Tests', () => {
 
       expect(result.success).toBe(false);
 
-      await expect(page.locator('input[name="email"]')).toBeVisible();
+      // The hosted login page refuses it with its own error banner.
+      await expect(page.getByRole('alert')).toContainText(/invalid email or password/i);
     });
 
     test('failed login with non-existent user shows error', async ({ page }) => {
@@ -60,18 +62,24 @@ test.describe('Authentication Integration Tests', () => {
 
       expect(result.success).toBe(false);
 
-      await expect(page.locator('input[name="email"]')).toBeVisible();
+      await expect(page.getByRole('alert')).toContainText(/invalid email or password/i);
     });
 
     test('login form validates required fields', async ({ page }) => {
+      // The credentials are typed on the server's hosted login page, so that
+      // is the form whose required fields hold an empty submit back.
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: timeouts.medium });
+      await signInButton(page).click({ timeout: timeouts.medium });
+      await page.waitForURL((url) => url.pathname.startsWith('/oauth2/'), { timeout: timeouts.medium });
 
-      await page.getByRole('button', { name: 'Sign in' }).click();
+      // A dev server may prefill the form (OAUTH_DEFAULT_EMAIL/PASSWORD).
+      await page.locator('#email').fill('');
+      await page.locator('#password').fill('');
+      await page.locator('form[action="/oauth2/login"] button[type="submit"]').click();
 
-      await expect(page.locator('input[name="email"]')).toBeVisible();
+      await expect(page.locator('#email')).toBeVisible();
 
-      const emailInput = page.locator('input[name="email"]');
+      const emailInput = page.locator('#email');
       const isInvalid = await emailInput.evaluate((el: HTMLInputElement) => !el.validity.valid);
       expect(isInvalid).toBe(true);
     });
@@ -84,7 +92,7 @@ test.describe('Authentication Integration Tests', () => {
 
       await logout(page);
 
-      await expect(page.locator('input[name="email"]')).toBeVisible({ timeout: timeouts.medium });
+      await expect(signInButton(page)).toBeVisible({ timeout: timeouts.medium });
       expect(await isLoggedIn(page)).toBe(false);
     });
 
@@ -97,7 +105,7 @@ test.describe('Authentication Integration Tests', () => {
 
       await page.waitForTimeout(1000);
 
-      await expect(page.locator('input[name="email"]')).toBeVisible();
+      await expect(signInButton(page)).toBeVisible();
     });
   });
 
@@ -145,12 +153,12 @@ test.describe('Authentication Integration Tests', () => {
   test.describe('Setup Status', () => {
     test('login page shows server setup status', async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: timeouts.medium });
+      await signInButton(page).waitFor({ state: 'visible', timeout: timeouts.medium });
 
       const setupStatus = page.locator('text=Ready to Login, text=Setup Required');
       const hasStatus = await setupStatus.first().isVisible().catch(() => false);
 
-      expect(hasStatus || await page.locator('form').isVisible()).toBe(true);
+      expect(hasStatus || await signInButton(page).isVisible()).toBe(true);
     });
   });
 });

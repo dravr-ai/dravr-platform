@@ -137,11 +137,13 @@ appId: host.exp.Exponent
       visible: "Close"
     file: dismiss-dev-panel.yaml
 
-# Confirm the login form is interactable (overlay is fully dismissed).
+# Confirm the login screen is interactable (overlay is fully dismissed): its
+# sign-in button, which opens the hosted login page, is in the tree. It can sit
+# below the fold on a short screen, which a tree lookup does not mind.
 # 30s timeout to handle slow CI environments.
 - extendedWaitUntil:
     visible:
-      id: "email-input"
+      id: "login-button"
     timeout: 30000
 
 # Expo Go 57's floating developer-tools button covers the header's trailing

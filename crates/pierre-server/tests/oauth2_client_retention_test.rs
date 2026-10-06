@@ -31,6 +31,7 @@ use pierre_auth::oauth2_server::models::{
 };
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{
     OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State,
@@ -54,7 +55,10 @@ const COUNT_REFRESH_TOKENS_SQL: &str =
     "SELECT COUNT(*) FROM oauth2_refresh_tokens WHERE client_id = $1";
 const COUNT_STATES_SQL: &str = "SELECT COUNT(*) FROM oauth2_states WHERE client_id = $1";
 const COUNT_GRANTS_SQL: &str = "SELECT COUNT(*) FROM oauth_client_grants WHERE client_id = $1";
-const COUNT_CLIENTS_SQL: &str = "SELECT COUNT(*) FROM oauth2_clients";
+/// The registrations a test made: every row but Dravr's own apps, which a
+/// migration registers in every database (carnet#787) and no sweep touches.
+const COUNT_CLIENTS_SQL: &str =
+    "SELECT COUNT(*) FROM oauth2_clients WHERE client_id NOT IN ('dravr-web', 'dravr-mobile')";
 const COUNT_PENDING_SQL: &str = "SELECT COUNT(*) FROM oauth2_clients \
      WHERE expires_at IS NOT NULL AND last_authorized_at IS NULL";
 const BACKDATE_SQL: &str =
@@ -544,6 +548,7 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
             .unwrap()
             .oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

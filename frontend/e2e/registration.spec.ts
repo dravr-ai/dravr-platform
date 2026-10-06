@@ -5,6 +5,7 @@
 // ABOUTME: Tests form validation, successful registration, error handling, and navigation.
 
 import { test, expect } from '@playwright/test';
+import { waitForLoginScreen } from './test-helpers';
 
 // Helper to set up common API mocks for the registration page
 async function setupBasicMocks(page: import('@playwright/test').Page) {
@@ -26,7 +27,7 @@ async function setupBasicMocks(page: import('@playwright/test').Page) {
 async function navigateToRegistration(page: import('@playwright/test').Page) {
   await setupBasicMocks(page);
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10000 });
+  await waitForLoginScreen(page, 10000);
 
   // Click the "Don't have an account? Create one" link to show registration form
   await page.getByText("Don't have an account?").click();
@@ -98,6 +99,7 @@ test.describe('Registration Page - Form Display', () => {
 
     // Should see login form (Boreal editorial h1 is "Sign in")
     await expect(page.locator('h1')).toContainText('Sign in');
+    await waitForLoginScreen(page, 5000);
     await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
   });
 });

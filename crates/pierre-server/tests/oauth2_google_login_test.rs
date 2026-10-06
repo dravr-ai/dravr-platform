@@ -44,6 +44,7 @@ use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_config::environment::ServerConfig;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
@@ -333,6 +334,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.oauth2_accounts(),
         google_sign_in: resources.oauth2_google_sign_in(),
+        strings: Arc::new(MessagingStringsRegistry::new()),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_652))))
 }
@@ -1219,6 +1221,7 @@ async fn without_google_configured_neither_route_goes_to_google_and_the_page_has
 async fn the_login_page_links_google_on_the_issuer_host_for_this_request() {
     let f = Fixture::new().await;
     let page = AxumTestRequest::get(&format!("/oauth2/login?{}", authorize_query(&f.client_id)))
+        .header("accept-language", "en")
         .send(f.routes())
         .await
         .body_text();
@@ -1243,6 +1246,7 @@ async fn the_server_mounts_both_routes_past_its_csrf_layer() {
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_653))));
 
     let page = AxumTestRequest::get(&format!("/oauth2/login?{}", authorize_query(&f.client_id)))
+        .header("accept-language", "en")
         .send(app.clone())
         .await
         .body_text();
@@ -1638,13 +1642,21 @@ async fn the_password_form_refuses_a_suspended_account_and_gates_a_pending_one()
         .await
         .unwrap();
     let refused = AxumTestRequest::post("/oauth2/login")
+        .header("accept-language", "en")
         .form(&[
             ("email", "suspended@example.test"),
             ("password", "password123"),
         ])
         .send(f.routes())
         .await;
-    assert_eq!(refused.status(), 401);
+    // The password was right, so the page says why instead of calling it
+    // wrong (carnet#787: the apps sign in here too).
+    assert_eq!(refused.status(), 400, "{}", refused.body_text());
+    assert!(
+        refused.body_text().contains("suspended"),
+        "{}",
+        refused.body_text()
+    );
     assert!(session(&refused).is_none());
 
     let pending = f.account("pending@example.test", true).await;

@@ -5,6 +5,7 @@
 // ABOUTME: Tests all user dashboard screens against real backend.
 
 import { test, expect } from '@playwright/test';
+import { SIGN_IN_BUTTON, waitForLoginScreen } from './test-helpers';
 import {
   loginAsUser,
   navigateToTab,
@@ -20,7 +21,7 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
   // Login & Authentication
   // ========================================
   test.describe('Login & Authentication', () => {
-    test('user login - renders login form', async ({ page }) => {
+    test('user login - renders login screen', async ({ page }) => {
       // Setup minimal mocks needed for login page to render
       await page.route('**/admin/setup/status', async (route) => {
         await route.fulfill({
@@ -31,11 +32,11 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       });
 
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: VISUAL_TEST_CONFIG.defaultTimeout });
+      await waitForLoginScreen(page, VISUAL_TEST_CONFIG.defaultTimeout);
 
-      await expect(page.locator('input[name="email"]')).toBeVisible();
-      await expect(page.locator('input[name="password"]')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+      // carnet#787: the password is typed on the server's hosted page.
+      await expect(page.getByRole('button', { name: 'Sign in with email' })).toBeVisible();
+      await expect(page.locator('input[type="password"]')).toHaveCount(0);
 
       await takeVisualScreenshot(page, 'user-login', 'form-rendered');
     });
@@ -44,39 +45,10 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await loginAsUser(page, 'webtest');
 
       // Verify we're on the dashboard (not login page), on the athlete's Home
-      await expect(page.locator('input[name="email"]')).not.toBeVisible();
+      await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible();
       await expect(page.getByTestId('home-page')).toBeVisible();
 
       await takeVisualScreenshot(page, 'user-login', 'home-visible');
-    });
-
-    test('user login - password visibility toggle works', async ({ page }) => {
-      // Setup minimal mocks needed for login page to render
-      await page.route('**/admin/setup/status', async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-        });
-      });
-
-      await page.goto('/');
-      await page.waitForSelector('form');
-
-      const passwordInput = page.locator('input[name="password"]');
-      await passwordInput.fill('TestPassword');
-
-      // Password should be hidden by default
-      await expect(passwordInput).toHaveAttribute('type', 'password');
-
-      // Click toggle button (eye icon inside the password underline input)
-      const toggleButton = page.getByRole('button', { name: /show password|hide password/i });
-      if (await toggleButton.isVisible().catch(() => false)) {
-        await toggleButton.click();
-        await expect(passwordInput).toHaveAttribute('type', 'text');
-
-        await takeVisualScreenshot(page, 'user-login', 'password-visible');
-      }
     });
   });
 

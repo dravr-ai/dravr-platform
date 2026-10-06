@@ -16,6 +16,7 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::a2a::agent_card::{
     AgentCard, SecurityScheme, BINDING_HTTP_JSON, BINDING_JSONRPC, OAUTH2_TOKEN_PATH,
@@ -246,6 +247,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

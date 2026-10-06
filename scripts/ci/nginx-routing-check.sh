@@ -68,6 +68,8 @@ BACKEND_PATHS=(
     "POST /oauth2/register"                           # RFC 7591 dynamic client registration
     "POST /oauth2/token"                              # OAuth token endpoint (oauth2 family)
     "GET /oauth2/authorize"
+    "GET /oauth2/login"                               # hosted sign-in page the web app opens (carnet#787)
+    "POST /oauth2/login"
     "GET /api/health"
     "POST /oauth/token"
     "GET /admin/x"
@@ -88,6 +90,8 @@ SPA_PATHS=(
     "GET /dashboard/status"                           # the backend mounts nothing under /dashboard
     "GET /mcpanything"
     "GET /index.html"
+    "GET /auth/callback"                              # first-party sign-in return leg (carnet#787)
+    "GET /auth/callback?code=c&state=s"
 )
 
 cleanup() {

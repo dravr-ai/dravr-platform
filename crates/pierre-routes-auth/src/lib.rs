@@ -12,8 +12,8 @@
 //! - User-lifecycle endpoints (`/api/auth/*`, `/api/user/*`) — registration,
 //!   credential login, Firebase SSO, session restore, profile update,
 //!   password change, password reset, analytics consent, locale, coaching
-//!   persona, self-serve account deletion, plus the unified `OAuth2` ROPC
-//!   token endpoint at `/oauth/token`.
+//!   persona, self-serve account deletion, plus the first-party `OAuth2`
+//!   token endpoint at `/oauth/token` (authorization code + PKCE, refresh).
 //! - OAuth callback + provider connect/disconnect endpoints
 //!   (`/api/oauth/*`, `/api/providers/*`) — handles fitness provider OAuth
 //!   flows (Strava, Garmin, WHOOP, …) including mobile in-app browser
@@ -73,7 +73,6 @@ mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
 mod email_verification;
-mod first_party_client;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
 mod intervals_icu;
@@ -258,7 +257,7 @@ impl AuthRoutes {
                 "/api/user/coaching-persona",
                 put(login::handle_update_coaching_persona),
             )
-            // OAuth2 ROPC endpoint (RFC 6749 Section 4.3) — unified login for all clients
+            // First-party token endpoint: the apps' authorization-code (PKCE) and refresh grants
             .route("/oauth/token", post(token_grant::handle_oauth2_token))
             .route(
                 "/api/oauth/callback/{provider}",

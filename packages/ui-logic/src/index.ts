@@ -66,7 +66,8 @@ export {
   prefersServerDetail,
   describeApiError,
   describeQuotaRefusal,
-  describeLoginFailure,
+  describeSignInFailure,
+  type SignInFailure,
   refusalReason,
   refusalProvider,
 } from './apiError';

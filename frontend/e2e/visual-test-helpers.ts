@@ -291,8 +291,8 @@ export async function loginAsUser(
   // Setup coach + store catalogue mocks
   await setupCatalogueMocks(page);
 
-  // Login through the form
-  await loginToDashboard(page, { email: user.email, password: 'TestPassword123!' });
+  // Sign in through the login screen and the mocked hosted sign-in
+  await loginToDashboard(page);
 }
 
 /**

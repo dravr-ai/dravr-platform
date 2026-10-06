@@ -5,6 +5,8 @@
 // ABOUTME: Drives the live Pierre server + Vite dev frontend; persists into the seeded DB.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { signIn } from './first-party-sign-in';
+import { signInThroughUi } from './ui-sign-in';
 
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -22,20 +24,7 @@ interface SessionBundle {
 
 async function loginAsWebtest(): Promise<SessionBundle> {
   const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
-  const tokenResp = await bootstrap.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: {
-      grant_type: 'password',
-      client_id: 'dravr-web',
-      username: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
-  expect(
-    tokenResp.ok(),
-    `webtest login failed: ${tokenResp.status()} — re-run the setup script`,
-  ).toBeTruthy();
-  const { access_token: accessToken } = await tokenResp.json();
+  const { access_token: accessToken } = await signIn(bootstrap, TEST_EMAIL, TEST_PASSWORD);
   expect(typeof accessToken).toBe('string');
   await bootstrap.dispose();
 
@@ -99,13 +88,9 @@ test.describe('coaching persona — real backend (no mocks)', () => {
   });
 
   test('Settings → Coaching style tab updates the user via the live UI', async ({ page }) => {
-    // 1. The SPA has no client router — login is conditional rendering off
-    //    `isAuthenticated`. Open the root URL, fill the form, and wait for
-    //    the dashboard "Open Settings" button to confirm we crossed over.
-    await page.goto(FRONTEND_URL);
-    await page.locator('input[name="email"]').fill(TEST_EMAIL);
-    await page.locator('input[name="password"]').fill(TEST_PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in/i }).click();
+    // 1. Sign in through the hosted login page, then wait for the dashboard
+    //    "Open Settings" button to confirm we crossed over.
+    await signInThroughUi(page, FRONTEND_URL, TEST_EMAIL, TEST_PASSWORD);
 
     const openSettings = page.getByRole('button', { name: /open settings/i }).first();
     await openSettings.waitFor({ state: 'visible', timeout: 15_000 });

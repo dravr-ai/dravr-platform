@@ -13,7 +13,9 @@ const mockAuthContext = {
   isAuthenticated: true,
   isLoading: false,
   loading: false,
-  login: vi.fn(),
+  startSignIn: vi.fn(),
+  signInFailure: null,
+  clearSignInFailure: vi.fn(),
   loginWithFirebase: vi.fn(),
   logout: vi.fn(),
   impersonation: {
@@ -53,12 +55,13 @@ describe('useAuth hook', () => {
     }).toThrow('useAuth must be used within an AuthProvider')
   })
 
-  it('should provide login function', () => {
+  it('should provide the hosted sign-in entry point', () => {
     const { result } = renderHook(() => useAuth(), {
       wrapper: createWrapper(),
     })
 
-    expect(typeof result.current.login).toBe('function')
+    expect(typeof result.current.startSignIn).toBe('function')
+    expect(result.current.signInFailure).toBeNull()
   })
 
   it('should provide logout function', () => {

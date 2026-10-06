@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { test, expect } from '@playwright/test';
-import { applyTestStubs } from './test-helpers';
+import { applyTestStubs, signInThroughHostedPage, SIGN_IN_BUTTON } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
 interface MockOptions {
@@ -360,14 +360,10 @@ async function loginAndNavigateToSettings(
 ) {
   await setupAuthenticatedMocks(page, isAdmin, options);
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10000 });
-
-  await page.locator('input[name="email"]').fill(isAdmin ? 'admin@pierre.dev' : 'webtest@pierre.dev');
-  await page.locator('input[name="password"]').fill('TestPassword123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 
   // Wait for dashboard to load
-  await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 10000 });
+  await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible({ timeout: 10000 });
 
   // Click the gear icon (Settings) in the bottom-left profile bar
   const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
@@ -901,13 +897,9 @@ test.describe('Settings Page - User Profile Bar Navigation', () => {
   test('clicking user profile bar navigates to settings (user mode)', async ({ page }) => {
     await setupAuthenticatedMocks(page, false);
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await signInThroughHostedPage(page);
 
-    await page.locator('input[name="email"]').fill('webtest@pierre.dev');
-    await page.locator('input[name="password"]').fill('TestPassword123');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-
-    await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 10000 });
+    await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible({ timeout: 10000 });
 
     // Look for the user profile bar at bottom of sidebar and click it
     const userProfileBar = page.locator('button:has-text("Web Test")');
@@ -923,13 +915,9 @@ test.describe('Settings Page - User Profile Bar Navigation', () => {
   test('clicking user profile bar navigates to user settings (admin mode)', async ({ page }) => {
     await setupAuthenticatedMocks(page, true);
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await signInThroughHostedPage(page);
 
-    await page.locator('input[name="email"]').fill('admin@pierre.dev');
-    await page.locator('input[name="password"]').fill('TestPassword123');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-
-    await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 10000 });
+    await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible({ timeout: 10000 });
 
     // Look for the user profile bar and click it — navigates to user settings for all users
     const userProfileBar = page.locator('button:has-text("Admin User")');
@@ -946,14 +934,10 @@ test.describe('Settings Page - User Profile Bar Navigation', () => {
 async function loginAndNavigateToAdminSettings(page: import('@playwright/test').Page) {
   await setupAuthenticatedMocks(page, true);
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10000 });
-
-  await page.locator('input[name="email"]').fill('admin@pierre.dev');
-  await page.locator('input[name="password"]').fill('TestPassword123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 
   // Wait for dashboard to load
-  await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 10000 });
+  await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible({ timeout: 10000 });
 
   // Navigate to admin settings via Platform Settings sidebar tab
   await page.getByRole('button', { name: 'Platform Settings', exact: true }).click();

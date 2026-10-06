@@ -537,6 +537,54 @@ pub fn default_locale() -> String {
     SUPPORTED_LOCALES[0].to_owned()
 }
 
+/// The locale a page with no signed-in user is rendered in, read from the
+/// browser's `Accept-Language` header value.
+///
+/// The primary subtag of the first language the browser accepts, when it is
+/// a [`SUPPORTED_LOCALES`] entry; otherwise the default, French, which the
+/// platform's majority user base reads.
+#[must_use]
+pub fn locale_from_accept_language(accept_language: Option<&str>) -> &'static str {
+    let primary = accept_language
+        .unwrap_or_default()
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .split(['-', ';'])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    SUPPORTED_LOCALES
+        .into_iter()
+        .find(|locale| *locale == primary)
+        .unwrap_or(SUPPORTED_LOCALES[0])
+}
+
+/// The first locale of an `OpenID` Connect `ui_locales` list (Core §3.1.2.1:
+/// space-separated BCP 47 tags, most preferred first) that the platform
+/// speaks, by primary subtag.
+#[must_use]
+pub fn supported_ui_locale(ui_locales: Option<&str>) -> Option<&'static str> {
+    ui_locales?.split_ascii_whitespace().find_map(|tag| {
+        let primary = tag
+            .split(['-', '_'])
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        SUPPORTED_LOCALES
+            .into_iter()
+            .find(|locale| *locale == primary)
+    })
+}
+
+/// The locale a page with no signed-in user is rendered in: the language the
+/// app that opened it asked for (`ui_locales`), else the browser's.
+#[must_use]
+pub fn page_locale(ui_locales: Option<&str>, accept_language: Option<&str>) -> &'static str {
+    supported_ui_locale(ui_locales).unwrap_or_else(|| locale_from_accept_language(accept_language))
+}
+
 /// The one form an email is stored and compared in: trimmed, lower-case.
 ///
 /// Emails are case-insensitive across the product, so `Jane@X.com` and

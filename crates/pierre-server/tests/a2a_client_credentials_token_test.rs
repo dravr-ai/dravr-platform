@@ -28,6 +28,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -62,6 +63,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),

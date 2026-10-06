@@ -23,6 +23,7 @@ use pierre_auth::dto::auth::LoginResponse;
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     endpoints::OAuth2AuthorizationServer,
+    first_party::is_first_party,
     models::{
         AuthorizeRequest, ClientRegistrationRequest, OAuth2Error, TokenRequest,
         ValidateRefreshRequest,
@@ -34,7 +35,9 @@ use pierre_auth::security::cookies::{
     auth_cookie_name_on, host_cookie_name, SameSitePolicy, SecureCookieConfig,
 };
 use pierre_auth::security::csrf::CsrfTokenManager;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_services::auth::AuthService;
@@ -52,12 +55,15 @@ mod consent;
 mod google_login;
 /// The hosted login form's submission: a metered password sign-in
 mod login_form;
+/// The hosted login page's text, in the athlete's language
+mod login_text;
 /// Server-rendered login, consent and error pages of the authorization flow
 mod pages;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
 pub use google_login::GoogleSignIn;
+pub use login_text::LoginPageLabels;
 pub use pages::{ConsentHtmlParams, LoginHtmlParams};
 
 /// Name of the authorization server's own session cookie, before the
@@ -113,6 +119,8 @@ pub struct OAuth2Context {
     /// Google sign-in on the hosted login page; `None` when unconfigured,
     /// which hides the button
     pub google_sign_in: Option<GoogleSignIn>,
+    /// The string catalogue the hosted login page speaks from, the apps' own
+    pub strings: Arc<MessagingStringsRegistry>,
 }
 
 /// OAuth 2.0 routes implementation
@@ -214,13 +222,29 @@ impl OAuth2Routes {
 
         let redirect_uri = request.redirect_uri.clone();
 
-        // Check if user is authenticated via session cookie
-        let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context);
+        // Check if user is authenticated via session cookie. OpenID Connect
+        // `prompt=login` asks for the password again whatever session the
+        // browser holds: Dravr's apps always send it, so signing out of the
+        // app and back in never lands in the account the browser remembers.
+        // The login redirect below does not carry `prompt`, so the request
+        // the form sends back after the password is checked proceeds.
+        let (user_id, tenant_id) = if requests_fresh_login(&params) {
+            (None, None)
+        } else {
+            Self::extract_authenticated_user(&headers, &context)
+        };
 
         // If no authenticated user, redirect to login page with OAuth parameters
         let Some(authenticated_user_id) = user_id else {
             info!("No authenticated session for OAuth authorization, redirecting to login");
-            let login_url = Self::build_login_url_with_oauth_params(&request);
+            let mut login_url = Self::build_login_url_with_oauth_params(&request);
+            // The language the app asked for carries to the page (one of the
+            // platform's own locale codes, so nothing to escape)
+            if let Some(locale) = supported_ui_locale(params.get("ui_locales").map(String::as_str))
+            {
+                login_url.push_str("&ui_locales=");
+                login_url.push_str(locale);
+            }
             return Redirect::to(&login_url).into_response();
         };
 
@@ -298,6 +322,19 @@ impl OAuth2Routes {
         redirect_uri: String,
         client_name: Option<&str>,
     ) -> Response {
+        // Dravr's own app is signing the athlete in, not asking for access:
+        // no consent screen (carnet#787).
+        if is_first_party(&request.client_id) {
+            return Self::sign_in_first_party(
+                context,
+                request,
+                authenticated_user_id,
+                tenant_id,
+                redirect_uri,
+            )
+            .await;
+        }
+
         // Only an active account authorizes a client: a pending one would get
         // a connector every call of which is refused, a suspended one none.
         let user = match Self::account_gate(context, authenticated_user_id).await {
@@ -392,6 +429,7 @@ impl OAuth2Routes {
                 .map(str::to_owned)
                 .collect(),
         )
+        .with_first_party_redirects(context.config.first_party_redirects.clone())
     }
 
     /// Mint an authorization code and redirect back to the client.
@@ -629,7 +667,14 @@ impl OAuth2Routes {
     async fn handle_oauth_login_page(
         State(context): State<OAuth2Context>,
         Query(params): Query<HashMap<String, String>>,
+        headers: HeaderMap,
     ) -> Html<String> {
+        let labels = login_text::LoginText::for_request(
+            &context.strings,
+            &headers,
+            params.get("ui_locales").map(String::as_str),
+        )
+        .labels();
         // Extract OAuth parameters to preserve them through login flow (including PKCE)
         let client_id = params
             .get("client_id")
@@ -699,6 +744,7 @@ impl OAuth2Routes {
                 default_email: &default_email,
                 default_password: &default_password,
                 google_start_url: google_start_url.as_deref(),
+                labels: &labels,
             })
         })
         .await
@@ -1129,4 +1175,14 @@ impl OAuth2Routes {
         }
         app_token
     }
+}
+
+/// Whether an authorization request carries `OpenID` Connect `prompt=login`
+/// (Core §3.1.2.1): the athlete signs in again, whatever session exists.
+fn requests_fresh_login(params: &HashMap<String, String>) -> bool {
+    params.get("prompt").is_some_and(|prompt| {
+        prompt
+            .split_ascii_whitespace()
+            .any(|value| value == "login")
+    })
 }

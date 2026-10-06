@@ -381,7 +381,7 @@ async function signInAthlete(page: Page) {
 }
 
 async function login(page: Page) {
-  await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+  await loginToDashboard(page);
   await expect(page.getByTestId('home-page')).toBeVisible();
 }
 

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState, useEffect } from 'react';
-import { useAsyncAction, classifyApiError, describeLoginFailure } from '@pierre/ui-logic';
+import { useState, useEffect } from 'react';
+import { classifyApiError, describeSignInFailure } from '@pierre/ui-logic';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 // Only the configured-flag is static. The SDK itself is imported at the point
 // of use — on mount to complete a redirect, and on click to start a sign-in —
-// so a password login never downloads it.
+// so an email sign-in never downloads it.
 import { isFirebaseEnabled } from '../firebase/config';
-import { Button, Input, RevealButton } from './ui';
+import { Button } from './ui';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
@@ -19,7 +19,6 @@ import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
 interface LoginProps {
   onNavigateToRegister?: () => void;
   onNavigateToForgotPassword?: () => void;
-  prefilledEmail?: string;
 }
 
 /**
@@ -53,24 +52,40 @@ function describeGoogleFailure(
   return t('auth.googleSignInFailed');
 }
 
-export default function Login({ onNavigateToRegister, onNavigateToForgotPassword, prefilledEmail }: LoginProps) {
+export default function Login({ onNavigateToRegister, onNavigateToForgotPassword }: LoginProps) {
   const { t } = useTranslation();
-  const [email, setEmail] = useState(prefilledEmail ?? '');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
+  const [googleError, setGoogleError] = useState('');
+  const [startFailed, setStartFailed] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const { login, loginWithFirebase } = useAuth();
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const { startSignIn, signInFailure, clearSignInFailure, loginWithFirebase } = useAuth();
   const { scheme, toggle } = useTheme();
   const online = useOnlineStatus();
 
-  // Delegate email/password login loading lifecycle to @pierre/ui-logic
-  const loginAction = useAsyncAction({
-    action: () => login(email, password),
-    onError: (err: unknown) => setError(describeLoginFailure(err, { online, t })),
-    successResetDelay: 0,
-    errorResetDelay: 0,
-  });
+  // One banner for every way a sign-in can come back empty: the hosted
+  // sign-in's return leg (refused, or a code that would not redeem), a
+  // sign-in that could not be started here, and the Google button.
+  const error = signInFailure
+    ? describeSignInFailure(signInFailure, { online, t })
+    : startFailed
+      ? t('auth.loginFailed')
+      : googleError;
+
+  const clearErrors = () => {
+    clearSignInFailure();
+    setStartFailed(false);
+    setGoogleError('');
+  };
+
+  // Coming back from the hosted sign-in restores this page from the
+  // back-forward cache with the spinner still up; take it down.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setIsRedirecting(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   // Complete a Google sign-in that used the redirect fallback. In-app browsers
   // (Telegram, Instagram, Messenger) block the popup, so signInWithGoogle()
@@ -90,7 +105,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         if (cancelled) {
           return;
         }
-        setError(describeGoogleFailure(err, online, t));
+        setGoogleError(describeGoogleFailure(err, online, t));
       } finally {
         if (!cancelled) {
           setIsGoogleLoading(false);
@@ -102,15 +117,23 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
     };
   }, [loginWithFirebase]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    loginAction.execute();
+  // The password is typed on the server's hosted page, never here
+  // (carnet#787): this only opens it. The spinner stays up while the browser
+  // navigates away; it comes down only if the page could not be left.
+  const handleSignIn = async () => {
+    clearErrors();
+    setIsRedirecting(true);
+    try {
+      await startSignIn();
+    } catch {
+      setStartFailed(true);
+      setIsRedirecting(false);
+    }
   };
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
-    setError('');
+    clearErrors();
 
     try {
       // Popup flow returns the ID token directly. Where popups are blocked
@@ -128,7 +151,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
       const firebaseError = err as { code?: string };
       // Closing the popup is a decision, not a failure — say nothing.
       if (firebaseError.code !== 'auth/popup-closed-by-user') {
-        setError(describeGoogleFailure(err, online, t));
+        setGoogleError(describeGoogleFailure(err, online, t));
       }
       setIsGoogleLoading(false);
     }
@@ -231,7 +254,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
             </p>
           </div>
 
-          <form className="space-y-8" onSubmit={handleSubmit}>
+          <div className="space-y-8">
             {error && (
               <div
                 role="alert"
@@ -242,36 +265,16 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               </div>
             )}
 
-            <div className="space-y-6">
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                label={t('auth.emailAddressLabel')}
-                autoComplete="email"
-                required
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <Input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                label={t('auth.passwordLabel')}
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                rightIcon={
-                  <RevealButton
-  revealed={showPassword}
-  onToggle={() => setShowPassword(!showPassword)}
-  label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-/>
-                }
-              />
-            </div>
+            <Button size="lg"
+              type="button"
+              variant="primary"
+              loading={isRedirecting}
+              onClick={() => void handleSignIn()}
+              data-testid="sign-in-button"
+              className="w-full"
+            >
+              {isRedirecting ? t('auth.signingIn') : t('auth.signInWithEmail')}
+            </Button>
 
             {onNavigateToForgotPassword && (
               <div className="flex justify-end -mt-3">
@@ -284,15 +287,6 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 </button>
               </div>
             )}
-
-            <Button size="lg"
-              type="submit"
-              variant="primary"
-              loading={loginAction.isLoading}
-              className="w-full"
-            >
-              {loginAction.isLoading ? t('auth.signingIn') : t('auth.signInAction')}
-            </Button>
 
             {isFirebaseEnabled() && (
               <>
@@ -329,7 +323,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                 </button>
               </>
             )}
-          </form>
+          </div>
 
           {onNavigateToRegister && (
             <p className="text-sm text-on-surface-variant text-center">

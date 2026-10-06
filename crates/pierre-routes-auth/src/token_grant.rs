@@ -1,5 +1,5 @@
-// ABOUTME: The first-party OAuth2 token endpoint (POST /oauth/token): the password grant and the refresh grant
-// ABOUTME: Password sign-ins are refused past their attempt windows (carnet#804) before the password is checked
+// ABOUTME: The first-party OAuth2 token endpoint (POST /oauth/token): the authorization-code grant and the refresh grant
+// ABOUTME: Dravr's own apps redeem the code the hosted login page issued, with PKCE, for a first-party session
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,16 +12,15 @@ use axum::{
 };
 use tracing::{debug, field, field::Empty, info, Span};
 
-use crate::first_party_client::refuse_unbound_client;
-use crate::password_attempts::password_sign_in_refusal;
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
+use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
+use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::{set_auth_cookie, set_csrf_cookie};
 use pierre_core::errors::AppError;
-use pierre_middleware::PeerAddress;
 
 use pierre_auth::dto::auth::{
-    LoginRequest, LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
+    LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
 };
 
 use pierre_services::analytics::cache_user_email;
@@ -29,29 +28,34 @@ use pierre_services::auth::AuthService;
 
 /// Handle the first-party `OAuth2` token request.
 ///
-/// Two grants. RFC 6749 §4.3, the password grant, is how Dravr's own web and
-/// mobile apps sign in, and only them: the request must name one of them as
-/// `client_id` (`dravr-web`, `dravr-mobile`), or it is refused with
-/// `invalid_client` before the password is checked. Adding
+/// Two grants, both for Dravr's own web and mobile apps. RFC 6749 §4.1.3,
+/// the authorization-code grant, is how they sign in (carnet#787): the
+/// athlete typed the password on the hosted login page, never into the app,
+/// and the app redeems the code it was issued with its PKCE verifier. The
+/// request names the app as `client_id` (`dravr-web`, `dravr-mobile`), the
+/// `redirect_uri` the code was sent to, and `code_verifier`; adding
 /// `scope=offline_access` asks for a refresh token alongside the JWT. RFC
 /// 6749 §6, the refresh grant, exchanges that token for a fresh JWT and a
 /// successor token once the JWT has lapsed. It names no client: a refresh
-/// token is only ever issued by a password grant, so it is already bound to
-/// a first-party client by the grant that issued it.
+/// token is only ever issued here, so it is already bound to a first-party
+/// client by the sign-in that issued it.
+///
+/// The password grant (RFC 6749 §4.3) is not served: RFC 9700 §2.4 forbids
+/// it, and it let anything holding a password become Dravr's own app.
 ///
 /// Request format: `application/x-www-form-urlencoded`
 /// ```text
-/// grant_type=password&client_id=dravr-mobile&username=user@example.com&password=secret&scope=offline_access
+/// grant_type=authorization_code&client_id=dravr-mobile&code=...&redirect_uri=dravr%3A%2F%2Fauth%2Fcallback&code_verifier=...&scope=offline_access
 /// grant_type=refresh_token&refresh_token=...
 /// ```
 ///
 /// Response format: RFC 6749 Section 5.1 compliant JSON
 #[tracing::instrument(
-    skip(resources, peer, headers, request),
+    skip(resources, request),
     fields(
         route = "oauth2_token",
         grant_type = Empty,
-        username = Empty,
+        client_id = Empty,
         user_id = Empty,
         tenant_id = Empty,
         success = Empty,
@@ -59,8 +63,6 @@ use pierre_services::auth::AuthService;
 )]
 pub async fn handle_oauth2_token(
     State(resources): State<AuthRoutesContext>,
-    peer: PeerAddress,
-    headers: HeaderMap,
     request: Result<Form<OAuth2TokenRequest>, FormRejection>,
 ) -> Result<Response, AppError> {
     // RFC 6749 §5.2: a malformed or missing-parameter token request must be
@@ -74,8 +76,8 @@ pub async fn handle_oauth2_token(
                 error: "invalid_request".to_owned(),
                 error_description: Some(
                     "The request is missing a required parameter or is otherwise malformed. \
-                     Expected form fields: grant_type, then username and password or \
-                     refresh_token."
+                     Expected form fields: grant_type, then client_id, code, redirect_uri \
+                     and code_verifier, or refresh_token."
                         .to_owned(),
                 ),
             };
@@ -83,8 +85,8 @@ pub async fn handle_oauth2_token(
         }
     };
     Span::current().record("grant_type", field::display(&request.grant_type));
-    if let Some(username) = request.username.as_deref() {
-        Span::current().record("username", field::display(&username));
+    if let Some(client_id) = request.client_id.as_deref() {
+        Span::current().record("client_id", field::display(&client_id));
     }
 
     let auth_service = AuthService::new(
@@ -98,72 +100,53 @@ pub async fn handle_oauth2_token(
     // the client walks away with, or to the service error the tail maps to
     // an RFC 6749 §5.2 error body.
     let outcome = match request.grant_type.as_str() {
-        "password" => {
-            // Checked before the password is (carnet#768).
-            if let Some(refusal) = refuse_unbound_client(request.client_id.as_deref()) {
-                return Ok(refusal);
-            }
-            let (Some(email), Some(password)) = (request.username, request.password) else {
+        "authorization_code" => {
+            let (Some(client_id), Some(code), Some(redirect_uri)) = (
+                request.client_id.as_deref(),
+                request.code.as_deref(),
+                request.redirect_uri.as_deref(),
+            ) else {
                 return Ok(oauth2_error(
                     "invalid_request",
-                    "The password grant needs both username and password.",
+                    "The authorization_code grant needs client_id, code, redirect_uri and \
+                     code_verifier.",
                 ));
             };
-            // The sign-in windows are read before the password is checked, and a
-            // refused password is counted in them (carnet#804).
-            let limiter = &resources.rate_limiter;
-            let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
-            if let Some(refusal) = password_sign_in_refusal(limiter, client, &email).await {
-                return Ok(refusal);
-            }
-            let login_request = LoginRequest {
-                email,
-                password,
-                // The password grant's form carries no timezone field.
-                timezone: None,
+            let redeemed = match authorization_server(&resources)
+                .redeem_first_party_code(
+                    client_id,
+                    code,
+                    redirect_uri,
+                    request.code_verifier.as_deref(),
+                )
+                .await
+            {
+                Ok(redeemed) => redeemed,
+                Err(refusal) => return Ok(refused_code(&refusal)),
             };
-            let attempted = login_request.email.clone();
-            match auth_service.login(login_request).await {
+            match auth_service
+                .sign_in_with_code(redeemed.user_id, &redeemed.tenant_id)
+                .await
+            {
+                Err(e) => Err(e),
                 Ok(response) => {
-                    let user_id = uuid::Uuid::parse_str(&response.user.user_id)
-                        .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
-
-                    // notify: record tenant/user on the current span so the NotifyLayer can
-                    // attribute the user.login event without the call site re-passing IDs.
-                    // tenant_id is optional on UserInfo; only record when present so the
-                    // routing layer sees an empty field rather than a literal "None".
-                    Span::current().record("user_id", field::display(&user_id));
-                    if let Some(tenant_id) = response.user.tenant_id.as_deref() {
-                        Span::current().record("tenant_id", field::display(&tenant_id));
-                    }
-                    // Warm the identity cache before emitting so the NotifyLayer enricher
-                    // can attach this user's email to the user.login event itself.
-                    cache_user_email(&user_id.to_string(), &response.user.email);
-                    info!(
-                        target: "notify",
-                        event = "user.login",
-                        "user authenticated"
-                    );
-
+                    record_sign_in(&response);
                     // A refresh token only for the client that asked for one.
                     // The web app never does: its session is the cookie, and a
                     // token it would discard is a live credential in a table.
                     let refresh_token = if requests_offline_access(request.scope.as_deref()) {
                         Some(
                             auth_service
-                                .issue_refresh_token(user_id, response.user.tenant_id.clone())
+                                .issue_refresh_token(
+                                    redeemed.user_id,
+                                    response.user.tenant_id.clone(),
+                                )
                                 .await?,
                         )
                     } else {
                         None
                     };
                     Ok((response, refresh_token))
-                }
-                Err(e) => {
-                    if !e.is_server_fault() {
-                        limiter.count_failed_sign_in(client, &attempted).await;
-                    }
-                    Err(e)
                 }
             }
         }
@@ -183,7 +166,8 @@ pub async fn handle_oauth2_token(
             return Ok(oauth2_error(
                 "unsupported_grant_type",
                 &format!(
-                    "Grant type '{other}' is not supported. Use 'password' or 'refresh_token'."
+                    "Grant type '{other}' is not supported. Use 'authorization_code' or \
+                     'refresh_token'."
                 ),
             ));
         }
@@ -203,7 +187,7 @@ pub async fn handle_oauth2_token(
 /// away", which is exactly what a phone closed for a week is.
 const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
 
-/// Whether a password grant asked for a refresh token.
+/// Whether a sign-in asked for a refresh token.
 fn requests_offline_access(scope: Option<&str>) -> bool {
     scope.is_some_and(|scope| {
         scope
@@ -213,7 +197,7 @@ fn requests_offline_access(scope: Option<&str>) -> bool {
 }
 
 /// Turn a login-shaped response into the RFC 6749 §5.1 token response, with
-/// the CSRF token and cookies a web client needs. The password and refresh
+/// the CSRF token and cookies a web client needs. The code and refresh
 /// grants both end here, so a session minted either way looks the same.
 fn issue_tokens(
     resources: &AuthRoutesContext,
@@ -258,4 +242,61 @@ fn issue_tokens(
 
     Span::current().record("success", true);
     Ok((StatusCode::OK, headers, Json(oauth2_response)).into_response())
+}
+
+/// The authorization server that issued the code, serving this deployment's
+/// first-party redirects.
+fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationServer {
+    let repos = &resources.repos;
+    let oauth2 = &resources.config.oauth2_server;
+    OAuth2AuthorizationServer::new(
+        repos.oauth2_server.clone(),
+        repos.tenants.clone(),
+        repos.users.clone(),
+        resources.auth_manager.clone(),
+        resources.jwks_manager.clone(),
+        resources.config.auth.refresh_token_expiry_days,
+        oauth2
+            .mcp_resources()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    )
+    .with_first_party_redirects(oauth2.first_party_redirects.clone())
+}
+
+/// The RFC 6749 §5.2 answer to a code the authorization server refused:
+/// 401 for `invalid_client`, 500 for its own fault, 400 otherwise.
+fn refused_code(refusal: &OAuth2Error) -> Response {
+    let status = match refusal.error.as_str() {
+        "invalid_client" => StatusCode::UNAUTHORIZED,
+        "server_error" => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    let body = OAuth2ErrorResponse {
+        error: refusal.error.clone(),
+        error_description: refusal.error_description.clone(),
+    };
+    (status, Json(body)).into_response()
+}
+
+/// Record a completed sign-in on the span and raise the `user.login` notify
+/// event for it.
+fn record_sign_in(response: &LoginResponse) {
+    // notify: record tenant/user on the current span so the NotifyLayer can
+    // attribute the user.login event without the call site re-passing IDs.
+    // tenant_id is optional on UserInfo; only record when present so the
+    // routing layer sees an empty field rather than a literal "None".
+    Span::current().record("user_id", field::display(&response.user.user_id));
+    if let Some(tenant_id) = response.user.tenant_id.as_deref() {
+        Span::current().record("tenant_id", field::display(&tenant_id));
+    }
+    // Warm the identity cache before emitting so the NotifyLayer enricher
+    // can attach this user's email to the user.login event itself.
+    cache_user_email(&response.user.user_id, &response.user.email);
+    info!(
+        target: "notify",
+        event = "user.login",
+        "user authenticated"
+    );
 }

@@ -4,7 +4,7 @@
 // ABOUTME: Authentication helper functions for integration tests.
 // ABOUTME: Provides real login flows that interact with the actual backend server.
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { testUsers } from '../fixtures/test-data';
 import { createTestAdminUser, type TestUser } from './db-setup';
 
@@ -14,8 +14,24 @@ export interface LoginResult {
 }
 
 /**
- * Perform a real login through the login form.
- * This interacts with the actual backend server, not mocked endpoints.
+ * The SPA's sign-in button. The login view has no password field of its own
+ * (carnet#787): this button sends the browser to the server's hosted login
+ * page. "Sign out" does not match, so it also tells a signed-out view apart.
+ */
+export function signInButton(page: Page): Locator {
+  return page.getByRole('button', { name: /sign in|log in/i });
+}
+
+/** Whether the browser is on the server's hosted sign-in pages. */
+function onHostedSignIn(page: Page): boolean {
+  return new URL(page.url()).pathname.startsWith('/oauth2/');
+}
+
+/**
+ * Perform a real login the way an athlete does: the SPA's sign-in button, the
+ * server's hosted login page (`#email`, `#password`, "Sign in"), then back to the
+ * app at /auth/callback. This interacts with the actual backend server, not
+ * mocked endpoints.
  */
 export async function loginWithCredentials(
   page: Page,
@@ -26,52 +42,43 @@ export async function loginWithCredentials(
     console.log(`[Login] Starting login for ${email}`);
     await page.goto('/');
 
-    console.log('[Login] Waiting for login form...');
-    await page.waitForSelector('form', { timeout: 15000 });
+    console.log('[Login] Opening the hosted sign-in...');
+    await signInButton(page).click({ timeout: 15000 });
+    await page.waitForURL((url) => url.pathname.startsWith('/oauth2/'), { timeout: 15000 });
 
-    await page.locator('input[name="email"]').fill(email);
-    await page.locator('input[name="password"]').fill(password);
+    await page.locator('#email').fill(email);
+    await page.locator('#password').fill(password);
+    console.log('[Login] Submitting the hosted login form...');
+    await page.locator('form[action="/oauth2/login"] button[type="submit"]').click();
 
-    console.log('[Login] Clicking sign in button...');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-
-    // Wait for navigation after login attempt - either dashboard loads or error appears
     // Use a longer timeout for CI environments where server startup may be slower
     const loginTimeout = process.env.CI ? 30000 : 15000;
 
-    // First, check if an error message appears quickly (within 5 seconds).
-    //
-    // Matched on the ARIA role the login form actually publishes, not on a
-    // utility class. `.bg-red-50` had stopped existing in Login.tsx — the error
-    // banner carries `role="alert"` and paints from a CSS custom property — so
-    // this probe could only ever time out, and a genuinely failed login fell
-    // through to the form-disappear wait and burned the full test timeout
-    // instead of reporting in five seconds. A role is part of the contract the
-    // page owes a screen reader; a Tailwind class is a restyle away from gone.
-    console.log('[Login] Checking for error message...');
-    const errorAppeared = await page.waitForSelector('[role="alert"]', { timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
+    // A refused password re-renders the hosted page with a role="alert"
+    // banner and never leaves /oauth2/; a sign-in returns to the app.
+    console.log('[Login] Waiting for the app or a refusal...');
+    const outcome = await Promise.race([
+      page
+        .waitForURL((url) => !url.pathname.startsWith('/oauth2/'), { timeout: loginTimeout })
+        .then(() => 'returned' as const),
+      page
+        .locator('[role="alert"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: loginTimeout })
+        .then(() => (onHostedSignIn(page) ? ('refused' as const) : ('returned' as const))),
+    ]).catch(() => 'timeout' as const);
 
-    if (errorAppeared) {
-      const errorElement = page.locator('[role="alert"]');
-      const errorText = await errorElement.textContent().catch(() => 'Unknown error');
+    if (outcome === 'refused') {
+      const errorText = await page.locator('[role="alert"]').first().textContent().catch(() => null);
       console.log(`[Login] Error appeared: ${errorText}`);
       return { success: false, error: errorText || 'Login failed' };
     }
-
-    // No error appeared, wait for the login form to disappear (indicating successful navigation)
-    console.log('[Login] No error, waiting for form to disappear...');
-    try {
-      await page.waitForSelector('input[name="email"]', { state: 'hidden', timeout: loginTimeout });
-      console.log('[Login] Form disappeared');
-    } catch {
-      // Login form still visible after timeout - login likely failed
-      console.log('[Login] Form still visible after timeout');
-      return { success: false, error: 'Login timed out - form still visible' };
+    if (outcome === 'timeout') {
+      console.log('[Login] Still on the hosted sign-in after timeout');
+      return { success: false, error: 'Login timed out - never returned to the app' };
     }
 
-    // Additional verification: wait for dashboard content to appear
+    // Back on the app: wait for dashboard content to appear
     // Use OR pattern since selectors have different syntax (CSS vs Playwright text=)
     console.log('[Login] Waiting for dashboard content...');
     try {
@@ -81,7 +88,7 @@ export async function loginWithCredentials(
       await dashboardLocator.first().waitFor({ state: 'visible', timeout: 10000 });
       console.log('[Login] Dashboard content visible');
     } catch {
-      // Dashboard didn't load, but login form disappeared - ambiguous state
+      // Dashboard didn't load, but the hosted page redirected back - ambiguous state
       console.log('[Login] Dashboard did not load');
       return { success: false, error: 'Login redirect occurred but dashboard did not load' };
     }
@@ -163,7 +170,7 @@ export async function logout(page: Page): Promise<void> {
     const isVisible = await selector.first().isVisible().catch(() => false);
     if (isVisible) {
       await selector.first().click();
-      await page.waitForSelector('input[name="email"]', { timeout: 10000 });
+      await signInButton(page).waitFor({ state: 'visible', timeout: 10000 });
       return;
     }
   }
@@ -177,9 +184,11 @@ export async function logout(page: Page): Promise<void> {
  */
 export async function isLoggedIn(page: Page): Promise<boolean> {
   try {
-    const loginForm = page.locator('input[name="email"]');
-    const isLoginVisible = await loginForm.isVisible().catch(() => true);
-    return !isLoginVisible;
+    if (onHostedSignIn(page)) {
+      return false;
+    }
+    const isSignInVisible = await signInButton(page).first().isVisible().catch(() => true);
+    return !isSignInVisible;
   } catch {
     return false;
   }

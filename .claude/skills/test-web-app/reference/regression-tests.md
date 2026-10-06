@@ -98,9 +98,13 @@ wrong reason. Resolve it one of these ways, in order of reliability:
    or `frontend/src/services/api/` (web-only: admin, a2a, dashboard, keys, usage).
 3. **From the handler** — `rg '<fragment>' crates/pierre-server/src/routes/`.
 
-Verified endpoints usable without lookup: `POST /oauth/token`, `POST /api/auth/register`,
+Verified endpoints usable without lookup: `POST /api/auth/register`,
 `GET /api/auth/session`, `GET /api/oauth/status`, `POST /api/oauth/disconnect/{provider}`,
-`GET /api/me/onboarding-status`, `GET /health`.
+`GET /api/me/onboarding-status`, `GET /health`. Sign-in is not one of them: the password grant
+is gone from `/oauth/token` (carnet#787), so a real-backend spec signs in through
+`frontend/e2e-real/first-party-sign-in.ts` (API: hosted login page → authorization code → PKCE
+token exchange) or `frontend/e2e-real/ui-sign-in.ts` (browser: the SPA's "Sign in" button, the
+hosted page's `#email`/`#password`/"Login", back on `/auth/callback`).
 
 ### Helpers available in `frontend/e2e/test-helpers.ts`
 
@@ -148,6 +152,7 @@ Requires a live stack (`./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 // ABOUTME: Guards the "connected but disconnected" drift between provider_connections and oauth_tokens.
 
 import { test, expect, request as apiRequest } from '@playwright/test';
+import { accessToken } from './first-party-sign-in';
 
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const USER_EMAIL = process.env.WEB_TEST_EMAIL ?? 'webtest@pierre.dev';
@@ -156,14 +161,8 @@ const USER_PASSWORD = process.env.WEB_TEST_PASSWORD ?? 'WebTest123!';
 test('disconnecting a provider clears the connection for real', async () => {
   const ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
-  const login = await ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username: USER_EMAIL, password: USER_PASSWORD },
-  });
-  expect(login.ok(), `login failed: ${login.status()}`).toBe(true);
-  const { access_token } = await login.json();
-
-  const auth = { Authorization: `Bearer ${access_token}` };
+  // Hosted login page → authorization code → PKCE; fails naming the refusing step.
+  const auth = { Authorization: `Bearer ${await accessToken(ctx, USER_EMAIL, USER_PASSWORD)}` };
 
   // GET /api/oauth/status and POST /api/oauth/disconnect/{provider} are the real
   // routes; read the response shape from the handler before asserting on fields.

@@ -33,7 +33,8 @@ const { mockAuthStorage } = vi.hoisted(() => ({
 
 vi.mock('../../services/api', () => ({
   authApi: {
-    login: vi.fn(),
+    beginSignIn: vi.fn(),
+    completeSignIn: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     getSession: vi.fn(),
   },

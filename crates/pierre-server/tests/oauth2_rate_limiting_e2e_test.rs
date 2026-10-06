@@ -27,6 +27,7 @@ use pierre_auth::{
 };
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_config::environment::ServerConfig;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{DatabaseProvider, OAuth2ServerRepository};
@@ -734,6 +735,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
             .unwrap()
             .oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(limiter),
     });
     (routes, client_id)

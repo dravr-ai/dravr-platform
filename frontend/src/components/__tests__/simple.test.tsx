@@ -11,7 +11,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // Mock the API service - AuthContext uses authApi, pierreApi, adminApi
 vi.mock('../../services/api', () => ({
   authApi: {
-    login: vi.fn(),
+    beginSignIn: vi.fn(),
+    completeSignIn: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
   },
   adminApi: {
@@ -59,8 +60,6 @@ describe('Component Tests', () => {
     renderWithProviders(<Login />)
 
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in with email' })).toBeInTheDocument()
   })
 })

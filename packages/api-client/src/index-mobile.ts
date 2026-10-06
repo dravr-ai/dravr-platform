@@ -25,7 +25,15 @@ export type { EndpointKeys } from './core/endpoints';
 
 // Re-export domain API factories
 export { createAuthApi } from './domains/auth';
-export type { AuthApi, LoginCredentials, RegisterCredentials } from './domains/auth';
+export type {
+  AuthApi,
+  RegisterCredentials,
+  SignInRequest,
+  SignInCallback,
+  CompleteSignIn,
+} from './domains/auth';
+export { readSignInCallback } from './domains/auth';
+export type { PkceCrypto } from './core/pkce';
 
 export { createChatApi, replySceneBlocks } from './domains/chat';
 export type {

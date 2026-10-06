@@ -7,6 +7,7 @@
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { SCIOTTE_DOUBLE_PORT, startSciotteDouble, type SciotteDouble } from './sciotte-double';
 import { freshAthlete, retireAthlete, skipOnboarding } from './fresh-athlete';
+import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Like home-sync, it needs a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097
@@ -46,10 +47,7 @@ test.describe('COROS code step — real backend, scripted scraper', () => {
 
   test('a refused code stays on the code step, and the right code connects', async ({ page }) => {
     await page.addInitScript(() => window.localStorage.setItem('pierre_app_language', 'en'));
-    await page.goto(FRONTEND_URL);
-    await page.locator('input[name="email"]').fill(email);
-    await page.locator('input[name="password"]').fill(password);
-    await page.getByRole('button', { name: /sign in|log in/i }).click();
+    await signInThroughUi(page, FRONTEND_URL, email, password);
 
     // An athlete with no provider lands on onboarding's connect step, whose
     // COROS card opens the same sign-in dialog Settings does.

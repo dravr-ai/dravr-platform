@@ -5,6 +5,7 @@
 // ABOUTME: Tests display of pending status, user info, and logout functionality.
 
 import { test, expect } from '@playwright/test';
+import { SIGN_IN_BUTTON, signInThroughHostedPage, waitForLoginScreen } from './test-helpers';
 
 // Helper to mock a pending user login that results in pending approval page
 async function loginAsPendingUser(page: import('@playwright/test').Page) {
@@ -20,7 +21,7 @@ async function loginAsPendingUser(page: import('@playwright/test').Page) {
     });
   });
 
-  // Mock OAuth2 ROPC login to return a pending user
+  // Mock the hosted sign-in's code exchange to return a pending user
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -54,18 +55,9 @@ async function loginAsPendingUser(page: import('@playwright/test').Page) {
   });
 
   await page.goto('/');
-  // Let background auth/setup fetches settle so the app doesn't flip back to its
-  // loading spinner (which unmounts the form) mid-interaction.
-  await page.waitForLoadState('networkidle');
-  // Wait for the password field specifically: it uniquely identifies the stable
-  // Login form, so we never fill email into a transitional form that's about to
-  // be replaced.
-  await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
-
-  // Login
-  await page.locator('input[name="email"]').fill('pending@test.com');
-  await page.locator('input[name="password"]').fill('TestPassword123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Sign in through the (mocked) hosted sign-in page; the code exchange
+  // answers with the pending user above.
+  await signInThroughHostedPage(page);
 
   // Wait for pending approval page to appear
   await page.waitForSelector('text=Account Pending Approval', { timeout: 5000 });
@@ -125,7 +117,7 @@ test.describe('Pending Approval Page - Logout', () => {
 
     // Should return to login page (Boreal editorial h1 is "Sign in")
     await expect(page.locator('h1')).toContainText('Sign in', { timeout: 5000 });
-    await expect(page.locator('input[name="email"]')).toBeVisible();
+    await waitForLoginScreen(page, 5000);
   });
 });
 
@@ -153,7 +145,7 @@ test.describe('Pending Approval Page - Without Display Name', () => {
       });
     });
 
-    // Mock OAuth2 ROPC login with user without display name
+    // Mock the hosted sign-in's code exchange with user without display name
     await page.route('**/oauth/token', async (route) => {
       await route.fulfill({
         status: 200,
@@ -185,12 +177,7 @@ test.describe('Pending Approval Page - Without Display Name', () => {
     });
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
-
-    await page.locator('input[name="email"]').fill('noname@test.com');
-    await page.locator('input[name="password"]').fill('TestPassword123');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await signInThroughHostedPage(page);
 
     await page.waitForSelector('text=Account Pending Approval', { timeout: 5000 });
 
@@ -216,7 +203,7 @@ test.describe('Pending Approval Page - Active User Redirect', () => {
       });
     });
 
-    // Mock OAuth2 ROPC login with an active user
+    // Mock the hosted sign-in's code exchange with an active user
     await page.route('**/oauth/token', async (route) => {
       await route.fulfill({
         status: 200,
@@ -241,18 +228,13 @@ test.describe('Pending Approval Page - Active User Redirect', () => {
     });
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.locator('input[name="password"]').waitFor({ state: 'visible', timeout: 10000 });
-
-    await page.locator('input[name="email"]').fill('active@test.com');
-    await page.locator('input[name="password"]').fill('TestPassword123');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await signInThroughHostedPage(page);
 
     // Should NOT see pending approval page
     await expect(page.locator('text=Account Pending Approval')).not.toBeVisible({ timeout: 3000 });
 
-    // Should be logged in (login form should not be visible)
-    await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 5000 });
+    // Should be logged in (login screen should not be visible)
+    await expect(page.locator(SIGN_IN_BUTTON)).not.toBeVisible({ timeout: 5000 });
   });
 });
 

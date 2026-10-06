@@ -31,6 +31,9 @@ scripts/
 │   ├── setup-claude-code-mcp.sh     # Claude Code session JWT setup
 │   ├── check-gh-cli.sh             # GitHub CLI availability check
 │   └── add-license-headers.sh       # SPDX license header management
+├── auth/                            # Headless first-party sign-in (carnet#787)
+│   ├── first-party-sign-in.sh       # Hosted login → auth code → PKCE; prints the token JSON
+│   └── first-party-sign-in.js       # Node twin (+ .d.ts) for the SDK tooling and test helpers
 ├── sdk/                             # SDK tooling
 │   └── generate-sdk-types.js        # TypeScript type generation from server schemas
 ├── profiling/                       # Performance profiling

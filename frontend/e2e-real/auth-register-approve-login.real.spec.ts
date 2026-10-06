@@ -5,6 +5,7 @@
 // ABOUTME: Drives a live Pierre server (8081) through the real register/approve/oauth-token/session APIs, no mocks.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { attemptSignIn, type SignInOutcome } from './first-party-sign-in';
 
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com';
@@ -16,33 +17,23 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
 // The existing real-server suite only logs in a pre-seeded admin and never
 // creates or approves a user, so the approval transition was untested.
 //
-// Approval model (verified against the live handlers): the OAuth token endpoint
-// issues a token regardless of status, so a pending user CAN authenticate — but
+// Approval model (verified against the live handlers): the first-party sign-in
+// (hosted login page → authorization code → /oauth/token) issues a token
+// regardless of status, so a pending user CAN authenticate — but
 // `/api/auth/session` is GATED until an admin approves the account, after which
 // it resolves and reports `active`. On an auto-approving server
 // (AUTO_APPROVE_USERS=true) registration is already `active` and skips the gate;
 // on a gated one (the default) it is `pending` until approved. This test adapts
 // to both and always ends with the user resolving an `active` session.
 
-/** Password-grant login against the live server. */
-async function loginToken(
-  ctx: APIRequestContext,
-  username: string,
-  password: string,
-) {
-  return ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username, password },
-  });
+/** First-party sign-in (hosted login page, code, PKCE) against the live server. */
+async function loginToken(ctx: APIRequestContext, email: string, password: string) {
+  return attemptSignIn(ctx, email, password);
 }
 
-/** Extract `access_token` if the login response carries one, else undefined. */
-async function accessTokenOf(resp: Awaited<ReturnType<typeof loginToken>>) {
-  if (!resp.ok()) {
-    return undefined;
-  }
-  const body = await resp.json().catch(() => ({}));
-  return typeof body.access_token === 'string' ? body.access_token : undefined;
+/** Extract `access_token` if the sign-in succeeded, else undefined. */
+async function accessTokenOf(outcome: SignInOutcome) {
+  return outcome.ok ? outcome.tokens.access_token : undefined;
 }
 
 test.describe('register → approve → login — real backend (no mocks)', () => {
@@ -114,7 +105,7 @@ test.describe('register → approve → login — real backend (no mocks)', () =
       // ACTIVE zombie users. Suspension (not deletion) because the console's
       // session mount deliberately has no user-delete route — permanent
       // deletion lives only on the admin-token API (DELETE /admin/users/{id}),
-      // which this spec's password-grant login cannot reach. Best-effort — a
+      // which this spec's first-party sign-in cannot reach. Best-effort — a
       // cleanup failure must not mask the real test outcome, so it only logs.
       const adminAccess = await accessTokenOf(
         await loginToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD),

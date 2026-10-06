@@ -323,44 +323,57 @@ export function describeQuotaRefusal(err: unknown, t: ApiErrorTranslate): string
 }
 
 /**
- * Turn a failed sign-in into a sentence the athlete can act on.
+ * Why a hosted sign-in did not end in a session (carnet#787).
  *
- * The sign-in form is the one screen where a 401 means "wrong password"
- * rather than "your session expired", so it maps that kind itself instead of
- * taking the shared default. Shared by the web form and the phone's login
- * screen: the phone used to keep its own copy that matched on axios's English
- * prose (`error.message.includes('400')`), so every 400 — an ordinary
- * validation failure included — read as bad credentials, in English, under
- * French chrome (carnet#354). One classifier, one wording table.
- *
- * Before the classifier, an offline device produced the same message as a
- * rejected password: the request never reached a server, so there was no
- * `response.data.error`, and the code fell through to a hardcoded English
- * "login failed". An athlete in a tunnel was told their credentials were wrong.
- * `online` is optional because React Native has no `navigator.onLine`; absent,
- * a dead request reads as a network error rather than as "offline".
+ * `callback`: the sign-in came back without a code — the `error` the
+ * authorization server put on the redirect, or the client's own refusal of
+ * the callback (`state_mismatch` when the `state` is not the one this device
+ * sent, `invalid_request` when no code came back or no sign-in was pending).
+ * `exchange`: the code came back but redeeming it failed.
  */
-export function describeLoginFailure(
-  err: unknown,
+export type SignInFailure =
+  | { kind: 'callback'; error: string }
+  | { kind: 'exchange'; err: unknown };
+
+/**
+ * Turn a failed hosted sign-in into a sentence the athlete can act on.
+ *
+ * The password is typed on the server's page now, so a wrong one never
+ * reaches the app: the page answers it itself. What does reach the app is a
+ * refused sign-in or a code that would not redeem, and neither means "check
+ * what you typed" — so a rejected grant reads as a sign-in that failed,
+ * never as bad credentials.
+ *
+ * `access_denied` is the one refusal a signed-in athlete can be given for a
+ * first-party sign-in: a pending account is let in (it lands on the approval
+ * screen), so the refusal is the suspended account's, and it says so. The
+ * server's `error_description` is English prose and is never shown.
+ */
+export function describeSignInFailure(
+  failure: SignInFailure,
   opts: { online?: boolean; t: ApiErrorTranslate },
 ): string {
-  const { kind } = classifyApiError(err, { online: opts.online });
-  if (kind === 'credentials' || kind === 'unauthorized' || kind === 'validation') {
-    return opts.t('auth.invalidCredentials');
+  if (failure.kind === 'callback') {
+    switch (failure.error) {
+      case 'access_denied':
+        return opts.t('shell.accountSuspendedBody');
+      case 'server_error':
+      case 'temporarily_unavailable':
+        return opts.t('errors.serverError');
+      default:
+        return opts.t('auth.loginFailed');
+    }
   }
-  if (kind === 'quota') {
-    // The sign-in limiter's 429: too many refused passwords from this address
-    // or at this account, so retrying at once is refused again (carnet#804).
-    // Account deletion's sentence is the same limit, already in every locale.
-    return opts.t('accountDeletion.tooManyAttempts');
-  }
+  const { kind } = classifyApiError(failure.err, { online: opts.online });
   if (kind === 'offline') {
     return opts.t('errors.offline');
   }
   if (kind === 'network' || kind === 'timeout') {
     return opts.t('errors.network');
   }
-  if (kind === 'server') {
+  // A 429 on the code exchange is the request limiter, not a password
+  // attempt: "try again a bit later" is the instruction that fits it.
+  if (kind === 'server' || kind === 'quota') {
     return opts.t('errors.serverError');
   }
   return opts.t('auth.loginFailed');

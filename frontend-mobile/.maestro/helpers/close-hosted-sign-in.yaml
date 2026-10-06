@@ -1,0 +1,32 @@
+# ABOUTME: Helper that closes the hosted login page without signing in: the sheet's Cancel on iOS, the Custom Tab's close button on Android
+# ABOUTME: The app reads a closed browser as a cancelled sign-in and stays on its login screen, saying nothing
+
+appId: host.exp.Exponent
+
+---
+# ASWebAuthenticationSession's own button, labelled in the simulator's
+# language.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Cancel|Annuler"
+
+# The Custom Tab's own close button. Back is not used: on the CI emulator it
+# reached Expo Go after the tab and left the project for Expo Go's home.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "com.android.chrome:id/close_button"
+      # Expo Go hosts the project in its own activity, and a Custom Tab
+      # closed without a deep link back returns to Expo Go's home rather than
+      # the project (CI 2026-10-06: Back and the close button both did). A
+      # store build is one app and returns to it. The project is opened again,
+      # signed out as the cancelled sign-in left it, so the caller still sees
+      # the login screen it expects.
+      - runFlow:
+          when:
+            visible: "Development servers|Enter URL"
+          file: launch-app.yaml

@@ -16,51 +16,24 @@ appId: host.exp.Exponent
       id: "login-screen"
     timeout: 10000
 
-# Enter test credentials (hardcoded to match CI user seed).
-# Fields are empty after fresh launch, no eraseText needed.
-- tapOn:
-    id: "email-input"
-- inputText: "mobiletest@pierre.dev"
-
-# Move to the password field with the keyboard's own return key: the email
-# field is `returnKeyType="next"` and focuses the password field on submit.
-# No tap is involved, so it works wherever the keyboard sits. The two tricks
-# this replaces both failed somewhere: a tap at 50%,20% to blur the field does
-# not dismiss the keyboard on iOS 27 (the password was typed into the email
-# field, 2026-09-28), and tapping the password field by id lands on the
-# keyboard on a short Android emulator, where the keyboard covers the field.
-- pressKey: Enter
-- inputText: "MobileTest1234"
-
-# The password field is `returnKeyType="go"` and signs in on submit.
-- pressKey: Enter
-
-# If the return key did not submit — a platform keyboard that swallows it —
-# sign in with the button. It sits below the fold on a short screen — CI's
-# emulator is shorter than a Pixel 6 and could not find login-button at all
-# (2026-09-06, 8 of 10 critical flows) — so it is scrolled to the way a user
-# would. The button is disabled while a sign-in is in flight, so a slow login
-# the first wait gave up on is never submitted twice.
-- extendedWaitUntil:
-    notVisible:
-      id: "login-screen"
-    timeout: 15000
-    optional: true
+# Sign in on the server's hosted page (carnet#787): the app opens it in the
+# system browser and redeems the code it returns with. The credentials are
+# hardcoded to match the CI user seed. A browser already signed in to the
+# authorization server (a Chrome Custom Tab keeps its cookie between flows)
+# returns at once without showing the page, so the form is filled only when
+# it is there.
+- runFlow:
+    file: open-hosted-sign-in.yaml
 - runFlow:
     when:
-      visible:
-        id: "login-screen"
-    commands:
-      - scrollUntilVisible:
-          element:
-            id: "login-button"
-          direction: DOWN
-          timeout: 20000
-      - tapOn:
-          id: "login-button"
+      visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    file: submit-hosted-sign-in.yaml
+    env:
+      EMAIL: "mobiletest@pierre.dev"
+      PASSWORD: "MobileTest1234"
 
-# Wait for login screen to disappear (login API + auth state change).
-# 45s timeout accounts for slow CI servers (login API can take 20s+).
+# Wait for login screen to disappear (code redemption + auth state change).
+# 45s timeout accounts for slow CI servers (sign-in can take 20s+).
 - extendedWaitUntil:
     notVisible:
       id: "login-screen"
@@ -70,7 +43,7 @@ appId: host.exp.Exponent
 - takeScreenshot: "after-login-navigation"
 
 # Dismiss iOS "Save Password?" native dialog if present.
-# iOS shows this dialog after form submission with secureTextEntry fields.
+# iOS can offer it after the hosted page's password form is submitted.
 # The dialog blocks the entire RN accessibility tree until dismissed, and it
 # arrives seconds after the login screen has gone, so it is watched for while
 # Home is awaited rather than checked once.

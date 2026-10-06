@@ -10,6 +10,7 @@
 const { generateTestToken } = require('./token-generator');
 const crypto = require('crypto');
 const { issueApiKey } = require('./server');
+const { firstPartySignIn } = require('../../../scripts/auth/first-party-sign-in');
 
 /**
  * Setup multiple MCP clients for multi-tenant testing
@@ -38,16 +39,9 @@ async function setupMultiTenantClients(numTenants = 2, serverConfig = {}) {
             body: JSON.stringify({ email, password, display_name: `Tenant ${i + 1}` }),
         });
 
-        const loginResponse = await fetch(`${serverUrl}/oauth/token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ grant_type: 'password', client_id: 'dravr-web', username: email, password }).toString(),
-        });
-        if (!loginResponse.ok) {
-            const text = await loginResponse.text();
-            throw new Error(`Tenant ${i + 1} login failed (${loginResponse.status}): ${text}`);
-        }
-        const tokenData = await loginResponse.json();
+        // Signs in as the mobile app does: hosted login page, authorization
+        // code, PKCE (the password grant is gone, carnet#787).
+        const tokenData = await firstPartySignIn({ baseUrl: serverUrl, email, password });
         // /mcp refuses the session token itself (carnet#768): each tenant's
         // client presents the API key its athlete issued from that session.
         const apiKey = await issueApiKey(serverUrl, tokenData.access_token);

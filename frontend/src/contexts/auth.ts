@@ -6,6 +6,7 @@
 
 import { createContext } from 'react';
 import type { User, UserRole, UserStatus, FirebaseLoginResponse } from '@pierre/shared-types';
+import type { SignInFailure } from '@pierre/ui-logic';
 
 interface ImpersonationState {
   isImpersonating: boolean;
@@ -25,7 +26,14 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   loading: boolean; // For test compatibility
-  login: (email: string, password: string) => Promise<void>;
+  /**
+   * Open the server's hosted sign-in (carnet#787). Resolves only if the page
+   * could not be left; on success the browser is already navigating away.
+   */
+  startSignIn: () => Promise<void>;
+  /** Why the last hosted sign-in returned without a session, if it did. */
+  signInFailure: SignInFailure | null;
+  clearSignInFailure: () => void;
   loginWithFirebase: (idToken: string) => Promise<FirebaseLoginResponse>;
   logout: () => void;
   impersonation: ImpersonationState;

@@ -1,26 +1,25 @@
 <!DOCTYPE html>
-<!-- ABOUTME: OAuth 2.0 login failure page, with a link back to the login that keeps the PKCE request -->
+<!-- ABOUTME: OAuth 2.0 login failure page, in the athlete's language, with a link back to the login that keeps the PKCE request -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; every value in the link is URL- then HTML-escaped -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Login Failed - Dravr</title>
+    <title>{{T_FAILED}} - Dravr</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card card-center">
         <div class="lockup" role="img" aria-label="Dravr"></div>
         <div class="status-icon status-icon-error" aria-hidden="true">!</div>
-        <h1>Login Failed</h1>
+        <h1>{{T_FAILED}}</h1>
         <div class="alert alert-error" role="alert">{{ERROR_MESSAGE}}</div>
-        <p class="lead">Please check your credentials and try again.</p>
-        <a class="btn btn-primary btn-block" href="/oauth2/login?client_id={{CLIENT_ID}}&redirect_uri={{REDIRECT_URI}}&response_type={{RESPONSE_TYPE}}&state={{STATE}}&scope={{SCOPE}}&code_challenge={{CODE_CHALLENGE}}&code_challenge_method={{CODE_CHALLENGE_METHOD}}&resource={{RESOURCE}}">Back to Login</a>
+        <a class="btn btn-primary btn-block" href="/oauth2/login?client_id={{CLIENT_ID}}&redirect_uri={{REDIRECT_URI}}&response_type={{RESPONSE_TYPE}}&state={{STATE}}&scope={{SCOPE}}&code_challenge={{CODE_CHALLENGE}}&code_challenge_method={{CODE_CHALLENGE_METHOD}}&resource={{RESOURCE}}&ui_locales={{LANG}}">{{T_BACK}}</a>
     </main>
 </body>
 </html>

@@ -26,7 +26,7 @@ jest.mock('@expo/vector-icons', () => {
 });
 
 jest.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ login: jest.fn(), loginWithFirebase: jest.fn(), register: jest.fn() }),
+  useAuth: () => ({ loginWithFirebase: jest.fn(), register: jest.fn() }),
 }));
 
 jest.mock('../../../services/api', () => ({
@@ -35,7 +35,6 @@ jest.mock('../../../services/api', () => ({
 
 import { FormScrollView, FORM_KEYBOARD_GAP } from '../FormScrollView';
 import { spacing } from '../../../constants/theme';
-import { LoginScreen } from '../../../screens/auth/LoginScreen';
 import { RegisterScreen } from '../../../screens/auth/RegisterScreen';
 import { ForgotPasswordScreen } from '../../../screens/auth/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../../../screens/auth/ResetPasswordScreen';
@@ -90,9 +89,12 @@ describe('FormScrollView', () => {
   });
 });
 
-/** Every screen that lays out a form the keyboard has to stay clear of. */
+/**
+ * Every screen that lays out a form the keyboard has to stay clear of. The
+ * login screen has no field since the password moved to the server's hosted
+ * page (carnet#787), so no keyboard rises over it.
+ */
 const AUTH_SCREENS: Array<[string, React.ComponentType]> = [
-  ['LoginScreen', LoginScreen],
   ['RegisterScreen', RegisterScreen],
   ['ForgotPasswordScreen', ForgotPasswordScreen],
   ['ResetPasswordScreen', ResetPasswordScreen],

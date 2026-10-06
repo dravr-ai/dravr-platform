@@ -14,6 +14,7 @@ import {
   type ScrapedRide,
 } from './sciotte-double';
 import { freshAthlete, retireAthlete, skipOnboarding } from './fresh-athlete';
+import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). It needs a Pierre
 // server started with DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097 (the
@@ -95,10 +96,7 @@ async function signIn(page: Page, email: string, password: string): Promise<void
   // http://localhost:5173 only, and a checkout moved off that port serves the
   // SPA from another origin, so the spec states its language on every origin.
   await page.addInitScript(() => window.localStorage.setItem('pierre_app_language', 'en'));
-  await page.goto(FRONTEND_URL);
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill(password);
-  await page.locator('form button[type="submit"]').first().click();
+  await signInThroughUi(page, FRONTEND_URL, email, password);
 }
 
 /** A time in the text form the server writes it. */

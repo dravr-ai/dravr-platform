@@ -35,7 +35,11 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── helpers/                 # Reusable helper flows
 │   ├── launch-app.yaml      # Launch app fresh
 │   ├── hide-dev-tools-button.yaml  # Switch off Expo Go's floating tools button (iOS)
-│   ├── login.yaml           # Perform login
+│   ├── login.yaml           # Perform login (hosted page, below)
+│   ├── open-hosted-sign-in.yaml    # Tap Sign in, wait for the server's login page in the browser
+│   ├── submit-hosted-sign-in.yaml  # Fill Email/Password on that page (EMAIL, PASSWORD env) and submit
+│   ├── close-hosted-sign-in.yaml   # Close the page without signing in (Cancel / Back)
+│   ├── reset-browser-session.yaml  # Android: clear Chrome so the page is shown, not skipped
 │   ├── wait-for-home-after-login.yaml  # Wait for Home, clearing the "Save Password?" sheet
 │   ├── login-if-needed.yaml # Conditional login
 │   ├── navigate-to-*.yaml   # Navigation helpers (chat, discover, settings)
@@ -104,6 +108,18 @@ Measured on iOS 27.0 with Expo Go 57.0.9 (iPhone 17, Xcode 27, 2026-09-25):
   delete key instead, and fails when it never appears. With Xcode 27 the software
   keyboard appeared even though `com.apple.iphonesimulator ConnectHardwareKeyboard`
   was true, and `hideKeyboard` works in Expo Go 57.
+
+## Signing in
+
+The app has no password field (carnet#787): its sign-in button opens the server's
+hosted login page (`/oauth2/login`) in the system browser — ASWebAuthenticationSession
+on iOS (ephemeral, so no "wants to use … to sign in" alert and no cookie kept), a
+Chrome Custom Tab on Android — and redeems the authorization code it returns with.
+Flows type the credentials into that page. In Expo Go the return address is
+`exp://<host>:8082/--/auth/callback`, which the server accepts only with
+`OAUTH_ALLOW_EXPO_GO_REDIRECT=true` — set it on any server these flows run against.
+Chrome keeps the server's session cookie between flows, so a flow that needs the page
+to appear starts with `helpers/reset-browser-session.yaml`.
 
 ## Test Credentials
 

@@ -67,7 +67,7 @@ fn agent_card_serde_round_trip_preserves_required_fields() {
 
 #[test]
 fn agent_card_advertises_the_client_credentials_token_endpoint() {
-    // `/oauth/token` is the password-grant ROPC bridge; the
+    // `/oauth/token` is where Dravr's own apps redeem their sign-in code; the
     // client_credentials grant is served by the OAuth 2.0 authorization
     // server at `OAUTH2_TOKEN_PATH`. Advertising the wrong one hands every
     // discovering agent a 400 unsupported_grant_type.
@@ -89,7 +89,7 @@ fn agent_card_advertises_the_client_credentials_token_endpoint() {
     assert_eq!(flow.token_url, format!("{base_url}{OAUTH2_TOKEN_PATH}"));
     assert!(
         !flow.token_url.ends_with("/oauth/token"),
-        "the ROPC bridge does not serve client_credentials"
+        "the first-party token endpoint does not serve client_credentials"
     );
 }
 

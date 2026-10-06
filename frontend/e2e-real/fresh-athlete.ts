@@ -5,6 +5,7 @@
 // ABOUTME: Shared by the specs that drive the SPA against the scraper double, so none of them touches a seeded account
 
 import { expect, type APIRequestContext } from '@playwright/test';
+import { accessToken } from './first-party-sign-in';
 
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com';
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
@@ -18,16 +19,6 @@ const ONBOARDING_STEPS = [
   'messaging_channel',
   'messaging_configure',
 ] as const;
-
-export async function accessToken(ctx: APIRequestContext, email: string, password: string): Promise<string> {
-  const response = await ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username: email, password },
-  });
-  expect(response.ok(), `login of ${email} failed: ${response.status()} — re-run the setup script`).toBeTruthy();
-  const { access_token: token } = await response.json();
-  return token as string;
-}
 
 /** Register a fresh athlete named `displayName`, approve them as the seeded admin, and return a bearer for them. */
 export async function freshAthlete(

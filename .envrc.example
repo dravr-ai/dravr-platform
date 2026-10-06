@@ -40,8 +40,18 @@ export RUST_LOG="info"
 # When using Cloudflare tunnels, set this to the tunnel URL
 export BASE_URL="http://localhost:8081"
 
-# Frontend URL for OAuth callback redirects (development uses separate Vite port)
+# Frontend URL for OAuth callback redirects (development uses separate Vite port).
+# Also the origin the web app's sign-in code may return to: dravr-web's only
+# accepted redirect_uri is <FRONTEND_URL or issuer origin>/auth/callback.
 export FRONTEND_URL="http://localhost:5173"
+
+# Expo Go returns from the hosted sign-in to exp://<host>:<port>/--/auth/callback,
+# which the server accepts for dravr-mobile only with this opt-in. LOCAL Expo Go
+# development only — NEVER set it on a deployed server: an exp:// URL loads
+# whatever bundle its host serves, so a crafted link could receive an athlete's
+# sign-in code. bin/setup-db-with-seeds-and-oauth-and-start-servers.sh exports
+# it for the local stack it starts.
+# export OAUTH_ALLOW_EXPO_GO_REDIRECT="true"
 
 # ============================================================================
 # DATABASE CONFIGURATION

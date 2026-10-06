@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { PENDING_SIGN_IN_KEY } from '../../utils/signIn'
 import Login from '../Login'
 import { AuthProvider } from '../../contexts/AuthContext'
 import { ThemeProvider } from '../../hooks/useTheme'
@@ -27,8 +28,10 @@ const { mockAuthStorage } = vi.hoisted(() => ({
 // Mock the API service - AuthContext uses authApi, pierreApi, adminApi
 vi.mock('../../services/api', () => ({
   authApi: {
-    login: vi.fn(),
+    beginSignIn: vi.fn(),
+    completeSignIn: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
+    getSession: vi.fn(),
   },
   adminApi: {
     endImpersonation: vi.fn(),
@@ -40,220 +43,182 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-async function renderLogin(props: { prefilledEmail?: string } = {}) {
+// No Google redirect is in flight: the Firebase SDK's own redirect check has
+// no network in jsdom and would otherwise put its failure in the banner.
+vi.mock('../../firebase/firebase', () => ({
+  getGoogleRedirectResult: vi.fn().mockResolvedValue(null),
+  signInWithGoogle: vi.fn(),
+}))
+
+async function renderLogin() {
   let result;
   await act(async () => {
     result = render(
       <ThemeProvider>
         <AuthProvider>
-          <Login prefilledEmail={props.prefilledEmail} />
+          <Login onNavigateToForgotPassword={() => {}} onNavigateToRegister={() => {}} />
         </AuthProvider>
       </ThemeProvider>
     );
-    // Wait for setup status check to complete
-    await waitFor(() => {
-      expect(screen.queryByText('Checking setup...')).not.toBeInTheDocument();
-    }, { timeout: 1000 });
   });
   return result;
+}
+
+/** Land on the hosted sign-in's return leg with `query`, a sign-in pending in this tab. */
+function landOnCallback(query: string) {
+  sessionStorage.setItem(
+    PENDING_SIGN_IN_KEY,
+    JSON.stringify({
+      codeVerifier: 'verifier-1',
+      state: 'state-1',
+      redirectUri: `${window.location.origin}/auth/callback`,
+      deepLink: null,
+    }),
+  )
+  window.history.replaceState(null, '', `/auth/callback?${query}`)
+}
+
+/** Pin navigator.onLine for one test; jsdom reports true by default. */
+function setOnline(value: boolean) {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    get: () => value,
+  })
 }
 
 describe('Login Component', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
+    localStorage.clear()
+    window.history.replaceState(null, '', '/')
   })
 
-  it('should render login form', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    setOnline(true)
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('offers the hosted sign-in, and never asks for a password itself', async () => {
     await renderLogin()
 
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in with email' })).toBeInTheDocument()
+    // carnet#787: the password is typed on the server's page, never in the app.
+    expect(screen.queryByLabelText(/email address/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^password$/i)).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="password"]')).toBeNull()
+    expect(screen.getByRole('button', { name: /forgot password/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create one/i })).toBeInTheDocument()
   })
 
-  it('should allow user to type in email and password fields', async () => {
-    const user = userEvent.setup()
-    await renderLogin()
-
-    const emailInput = screen.getByLabelText(/email address/i)
-    const passwordInput = screen.getByLabelText(/^password$/i)
-
-    await user.type(emailInput, 'test@example.com')
-    await user.type(passwordInput, 'password123')
-
-    expect(emailInput).toHaveValue('test@example.com')
-    expect(passwordInput).toHaveValue('password123')
-  })
-
-  it('should require email and password fields', async () => {
-    const user = userEvent.setup()
-    await renderLogin()
-
-    const submitButton = screen.getByRole('button', { name: /sign in/i })
-
-    // Try to submit without filling fields
-    await user.click(submitButton)
-
-    // HTML5 validation should prevent submission
-    expect(screen.getByLabelText(/email address/i)).toBeRequired()
-    expect(screen.getByLabelText(/^password$/i)).toBeRequired()
-  })
-
-  it('should show loading state during login', async () => {
+  it('opens the hosted sign-in when the button is pressed, and keeps the spinner up while leaving', async () => {
     const user = userEvent.setup()
     const { authApi } = await import('../../services/api')
-
-    // Make login hang to test loading state
-    vi.mocked(authApi.login).mockImplementation(() => new Promise(() => {}))
+    const authorizeUrl = `${window.location.origin}/oauth2/authorize?state=state-1`
+    vi.mocked(authApi.beginSignIn).mockResolvedValue({
+      authorizeUrl,
+      codeVerifier: 'verifier-1',
+      state: 'state-1',
+      redirectUri: `${window.location.origin}/auth/callback`,
+    })
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, origin: window.location.origin, pathname: '/', assign })
 
     await renderLogin()
+    await user.click(screen.getByRole('button', { name: 'Sign in with email' }))
 
-    const emailInput = screen.getByLabelText(/email address/i)
-    const passwordInput = screen.getByLabelText(/^password$/i)
-    const submitButton = screen.getByRole('button', { name: /sign in/i })
-
-    await user.type(emailInput, 'test@example.com')
-    await user.type(passwordInput, 'password123')
-    await user.click(submitButton)
-
-    expect(screen.getByText(/signing in/i)).toBeInTheDocument()
-    expect(submitButton).toBeDisabled()
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(authorizeUrl))
+    expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled()
+    expect(sessionStorage.getItem(PENDING_SIGN_IN_KEY)).not.toBeNull()
   })
 
-  it('should display error message on login failure', async () => {
+  it('says the sign-in failed when it could not even be started', async () => {
     const user = userEvent.setup()
     const { authApi } = await import('../../services/api')
-
-    // A real axios rejection always carries the status alongside the body;
-    // the classifier reads the status, so the fixture has to have one.
-    const mockError = {
-      response: {
-        status: 401,
-        data: {
-          error: 'Invalid credentials'
-        }
-      }
-    }
-
-    vi.mocked(authApi.login).mockRejectedValue(mockError)
+    // e.g. WebCrypto absent on an insecure origin
+    vi.mocked(authApi.beginSignIn).mockRejectedValue(new TypeError('crypto.subtle is undefined'))
 
     await renderLogin()
-
-    const emailInput = screen.getByLabelText(/email address/i)
-    const passwordInput = screen.getByLabelText(/^password$/i)
-    const submitButton = screen.getByRole('button', { name: /sign in/i })
-
-    await user.type(emailInput, 'test@example.com')
-    await user.type(passwordInput, 'wrongpassword')
-    await user.click(submitButton)
+    await user.click(screen.getByRole('button', { name: 'Sign in with email' }))
 
     await waitFor(() => {
-      // Login component maps "Invalid credentials" to user-friendly message
-      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign-in failed')
     })
-
-    // Should not be loading anymore
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
-    expect(submitButton).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sign in with email' })).not.toBeDisabled()
   })
 
-  /** Fill the form and submit it, returning once the request has been made. */
-  async function submitCredentials() {
-    const user = userEvent.setup()
+  it('reads a refused sign-in for a suspended account as the suspension', async () => {
+    landOnCallback('error=access_denied&error_description=Your+Dravr+account+is+suspended&state=state-1')
+
     await renderLogin()
-    await user.type(screen.getByLabelText(/email address/i), 'test@example.com')
-    await user.type(screen.getByLabelText(/^password$/i), 'password123')
-    await user.click(screen.getByRole('button', { name: /sign in/i }))
-  }
-
-  /** Pin navigator.onLine for one test; jsdom reports true by default. */
-  function setOnline(value: boolean) {
-    Object.defineProperty(window.navigator, 'onLine', {
-      configurable: true,
-      get: () => value,
-    })
-  }
-
-  it('reads a reachable-but-failing network as a network error, not a bad password', async () => {
-    const { authApi } = await import('../../services/api')
-    vi.mocked(authApi.login).mockRejectedValue(new Error('Network error'))
-    setOnline(true)
-
-    await submitCredentials()
 
     await waitFor(() => {
-      expect(screen.getByText('Network error. Check your connection.')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Your account has been suspended. Contact an administrator for help.',
+      )
     })
-    // The defect this replaced: every non-credential failure read as one.
+    // The server's English description is never shown.
+    expect(screen.queryByText(/Your Dravr account is suspended/)).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('refuses a return leg this tab did not start, without blaming a password', async () => {
+    const { authApi } = await import('../../services/api')
+    landOnCallback('code=forged-code&state=not-mine')
+
+    await renderLogin()
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign-in failed')
+    })
+    expect(authApi.completeSignIn).not.toHaveBeenCalled()
     expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
   })
 
-  it('tells an OFFLINE athlete they are offline instead of blaming their password', async () => {
+  it('reads a code that would not redeem as a failed sign-in, never as a wrong password', async () => {
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.completeSignIn).mockRejectedValue({
+      response: { status: 400, data: { error: 'invalid_grant' } },
+    })
+    landOnCallback('code=spent-code&state=state-1')
+
+    await renderLogin()
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Sign-in failed')
+    })
+    expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
+  })
+
+  it('tells an OFFLINE athlete they are offline when the code exchange never left', async () => {
     const { authApi } = await import('../../services/api')
     // A request that never reached a server: no `response` on the rejection.
-    vi.mocked(authApi.login).mockRejectedValue(new Error('Network Error'))
+    vi.mocked(authApi.completeSignIn).mockRejectedValue(new Error('Network Error'))
     setOnline(false)
+    landOnCallback('code=offline-code&state=state-1')
 
-    await submitCredentials()
+    await renderLogin()
 
     await waitFor(() => {
-      expect(
-        screen.getByText("You're offline. Check your connection and try again."),
-      ).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        "You're offline. Check your connection and try again.",
+      )
     })
-    expect(screen.queryByText('Invalid email or password')).not.toBeInTheDocument()
-    setOnline(true)
   })
 
-  it('still names a genuinely rejected credential, in any server language', async () => {
+  it('clears the reported failure when a new sign-in starts', async () => {
+    const user = userEvent.setup()
     const { authApi } = await import('../../services/api')
-    // A French backend: the old code matched on the substring "Invalid" and
-    // would have fallen through to the generic failure here.
-    vi.mocked(authApi.login).mockRejectedValue({
-      response: { status: 401, data: { error: 'Identifiants invalides' } },
-    })
-    setOnline(true)
+    vi.mocked(authApi.beginSignIn).mockImplementation(() => new Promise(() => {}))
+    landOnCallback('error=access_denied&state=state-1')
 
-    await submitCredentials()
-
-    await waitFor(() => {
-      expect(screen.getByText('Invalid email or password')).toBeInTheDocument()
-    })
-  })
-
-  it('should prefill the email field when prefilledEmail prop is supplied', async () => {
-    await renderLogin({ prefilledEmail: 'alice@acme.com' })
-
-    const emailInput = screen.getByLabelText(/email address/i)
-    expect(emailInput).toHaveValue('alice@acme.com')
-  })
-
-  it('should leave the email field empty when no prefilledEmail is supplied', async () => {
     await renderLogin()
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
 
-    const emailInput = screen.getByLabelText(/email address/i)
-    expect(emailInput).toHaveValue('')
-  })
+    await user.click(screen.getByRole('button', { name: 'Sign in with email' }))
 
-  it('should use a synthetic placeholder that cannot be mistaken for a pre-filled value', async () => {
-    await renderLogin()
-
-    const emailInput = screen.getByLabelText(/email address/i)
-    // RFC 2606 reserves example.com for documentation; this prevents
-    // users from thinking their own email has already been entered.
-    expect(emailInput).toHaveAttribute('placeholder', 'name@example.com')
-  })
-
-  it('should have proper accessibility attributes', async () => {
-    await renderLogin()
-
-    const emailInput = screen.getByLabelText(/email address/i)
-    const passwordInput = screen.getByLabelText(/^password$/i)
-
-    expect(emailInput).toHaveAttribute('type', 'email')
-    expect(emailInput).toHaveAttribute('required')
-    expect(passwordInput).toHaveAttribute('type', 'password')
-    expect(passwordInput).toHaveAttribute('required')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

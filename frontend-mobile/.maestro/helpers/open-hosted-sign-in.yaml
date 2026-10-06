@@ -1,0 +1,82 @@
+# ABOUTME: Helper that taps the app's sign-in button and waits for the server's hosted login page in the system browser
+# ABOUTME: Answers what the platform puts in front of the page: iOS's "wants to use … to sign in" alert, Chrome's first-run screens
+
+appId: host.exp.Exponent
+
+---
+# The app has no password field (carnet#787): its sign-in button opens the
+# server's /oauth2/login page in an auth session — ASWebAuthenticationSession
+# on iOS, a Chrome Custom Tab on Android. The button sits below the fold on a
+# short screen (CI's emulator is shorter than a Pixel 6, 2026-09-06), so it is
+# scrolled to the way a user would.
+- scrollUntilVisible:
+    element:
+      id: "login-button"
+    direction: DOWN
+    timeout: 20000
+- tapOn:
+    id: "login-button"
+
+# Whatever the platform shows before the page. Each check is a `when`, not an
+# optional tap, so a round with nothing to answer costs no lookup budget.
+#   - iOS asks '"Expo Go" Wants to Use "<host>" to Sign In' for a shared
+#     session. The app opens an ephemeral one, which iOS does not ask about;
+#     the check stays for a runtime that asks anyway.
+#   - Chrome on a fresh emulator (or after clearState) runs its first-run
+#     screens inside the Custom Tab: terms, sign-in to Chrome, notifications.
+# The loop ends when the page's password field label is on screen, or when no
+# page comes at all — a browser already signed in to the authorization server
+# returns to the app at once, which the caller's Home wait then sees.
+- repeat:
+    times: 8
+    while:
+      notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    commands:
+      - extendedWaitUntil:
+          visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+          timeout: 4000
+          optional: true
+      # A sheet whose page never drew after the wait above: the simulator
+      # sometimes opens the auth sheet with no web content process
+      # (BrowserView WebViewProcessID=0, CI 2026-10-06), nothing reaches the
+      # server, and the sheet's Reload only spins. A new sheet gets a new
+      # process, so the sheet is cancelled and sign-in started again, as an
+      # athlete would with a stuck page.
+      - runFlow:
+          when:
+            platform: iOS
+            visible: "Cancel"
+            notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+          commands:
+            - tapOn: "Cancel"
+            - extendedWaitUntil:
+                visible:
+                  id: "login-button"
+                timeout: 10000
+            - tapOn:
+                id: "login-button"
+      - runFlow:
+          when:
+            visible: ".*Wants to Use.*to Sign In.*"
+          commands:
+            - tapOn: "Continue"
+      - runFlow:
+          when:
+            visible: "Accept & continue"
+          commands:
+            - tapOn: "Accept & continue"
+      - runFlow:
+          when:
+            visible: "Use without an account"
+          commands:
+            - tapOn: "Use without an account"
+      - runFlow:
+          when:
+            visible: "No thanks"
+          commands:
+            - tapOn: "No thanks"
+      - runFlow:
+          when:
+            visible: "No, thanks"
+          commands:
+            - tapOn: "No, thanks"

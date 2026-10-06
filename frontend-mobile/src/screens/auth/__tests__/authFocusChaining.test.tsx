@@ -25,11 +25,9 @@ jest.mock('@expo/vector-icons', () => {
   return { AntDesign: (props: Record<string, unknown>) => require('react').createElement(View, { testID: `icon-${props.name}` }) };
 });
 
-const mockLogin = jest.fn();
 const mockRegister = jest.fn();
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({
-    login: (...args: unknown[]) => mockLogin(...args),
     loginWithFirebase: jest.fn(),
     register: (...args: unknown[]) => mockRegister(...args),
   }),
@@ -45,7 +43,6 @@ jest.mock('../../../services/api', () => ({
 }));
 
 import { Input } from '../../../components/ui/Input';
-import { LoginScreen } from '../LoginScreen';
 import { RegisterScreen } from '../RegisterScreen';
 import { ForgotPasswordScreen } from '../ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../ResetPasswordScreen';
@@ -75,16 +72,6 @@ const FORMS: Array<{
   submit: jest.Mock;
   submittedWith: unknown[];
 }> = [
-  {
-    name: 'LoginScreen',
-    Screen: LoginScreen,
-    fields: [
-      ['email-input', 'jean@example.com'],
-      ['password-input', 'ValidPassword123'],
-    ],
-    submit: mockLogin,
-    submittedWith: ['jean@example.com', 'ValidPassword123'],
-  },
   {
     name: 'RegisterScreen',
     Screen: RegisterScreen,

@@ -2,12 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the auth API surface exported from services/api (pierreApi.auth)
-// ABOUTME: Validates login, logout, and register calls go through the shared client
+// ABOUTME: Validates sign-in, logout, and register calls go through the shared client
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-const { mockLogin, mockLoginWithFirebase, mockLogout, mockRegister } = vi.hoisted(() => ({
-  mockLogin: vi.fn(),
+const { mockBeginSignIn, mockCompleteSignIn, mockLoginWithFirebase, mockLogout, mockRegister } = vi.hoisted(() => ({
+  mockBeginSignIn: vi.fn(),
+  mockCompleteSignIn: vi.fn(),
   mockLoginWithFirebase: vi.fn(),
   mockLogout: vi.fn(),
   mockRegister: vi.fn(),
@@ -18,7 +19,8 @@ vi.mock('../api', async (importOriginal) => {
   return {
     ...original,
     authApi: {
-      login: mockLogin,
+      beginSignIn: mockBeginSignIn,
+      completeSignIn: mockCompleteSignIn,
       loginWithFirebase: mockLoginWithFirebase,
       logout: mockLogout,
       register: mockRegister,
@@ -33,26 +35,47 @@ describe('authApi (from @pierre/api-client via services/api barrel)', () => {
     vi.clearAllMocks()
   })
 
-  describe('login', () => {
-    it('should delegate to pierreApi.auth.login', async () => {
+  describe('hosted sign-in', () => {
+    it('should delegate beginSignIn to pierreApi.auth.beginSignIn', async () => {
+      const request = {
+        authorizeUrl: '/oauth2/authorize?client_id=dravr-web',
+        codeVerifier: 'v',
+        state: 's',
+        redirectUri: 'http://localhost/auth/callback',
+      }
+      mockBeginSignIn.mockResolvedValue(request)
+      const crypto = { randomBytes: vi.fn(), sha256: vi.fn() }
+
+      const result = await authApi.beginSignIn('http://localhost/auth/callback', crypto)
+
+      expect(mockBeginSignIn).toHaveBeenCalledWith('http://localhost/auth/callback', crypto)
+      expect(result).toEqual(request)
+    })
+
+    it('should delegate completeSignIn to pierreApi.auth.completeSignIn', async () => {
       const mockResponse = { user: { id: '1', email: 'test@example.com' }, csrf_token: 'csrf-123' }
-      mockLogin.mockResolvedValue(mockResponse)
+      mockCompleteSignIn.mockResolvedValue(mockResponse)
 
-      const result = await authApi.login({ email: 'test@example.com', password: 'password123' })
+      const result = await authApi.completeSignIn({
+        code: 'c',
+        codeVerifier: 'v',
+        redirectUri: 'http://localhost/auth/callback',
+      })
 
-      expect(mockLogin).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        password: 'password123',
+      expect(mockCompleteSignIn).toHaveBeenCalledWith({
+        code: 'c',
+        codeVerifier: 'v',
+        redirectUri: 'http://localhost/auth/callback',
       })
       expect(result).toEqual(mockResponse)
     })
 
-    it('should propagate login errors', async () => {
-      mockLogin.mockRejectedValue(new Error('Invalid credentials'))
+    it('should propagate code exchange errors', async () => {
+      mockCompleteSignIn.mockRejectedValue(new Error('invalid_grant'))
 
       await expect(
-        authApi.login({ email: 'bad@example.com', password: 'wrong' })
-      ).rejects.toThrow('Invalid credentials')
+        authApi.completeSignIn({ code: 'spent', codeVerifier: 'v', redirectUri: 'http://localhost/auth/callback' })
+      ).rejects.toThrow('invalid_grant')
     })
   })
 
@@ -105,7 +128,8 @@ describe('authApi (from @pierre/api-client via services/api barrel)', () => {
       // authApi is re-exported as pierreApi.auth in services/api/index.ts
       // This test verifies the mock wiring matches the real barrel export
       expect(authApi).toBeDefined()
-      expect(authApi.login).toBe(mockLogin)
+      expect(authApi.beginSignIn).toBe(mockBeginSignIn)
+      expect(authApi.completeSignIn).toBe(mockCompleteSignIn)
       expect(authApi.loginWithFirebase).toBe(mockLoginWithFirebase)
       expect(authApi.logout).toBe(mockLogout)
       expect(authApi.register).toBe(mockRegister)

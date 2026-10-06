@@ -5,6 +5,7 @@
 // ABOUTME: Tests key listing, creation, revocation, rotation, and bulk operations.
 
 import { test, expect, type Page } from '@playwright/test';
+import { signInThroughHostedPage } from './test-helpers';
 
 // Helper to authenticate and set up common mocks
 async function setupAuthenticatedSession(page: Page) {
@@ -17,7 +18,7 @@ async function setupAuthenticatedSession(page: Page) {
     });
   });
 
-  // Mock OAuth2 ROPC login
+  // Mock the hosted sign-in's code exchange
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -60,10 +61,7 @@ async function setupAuthenticatedSession(page: Page) {
 
 async function loginToDashboard(page: Page) {
   await page.goto('/');
-  await page.waitForSelector('form');
-  await page.locator('input[name="email"]').fill('admin@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
   await page.waitForTimeout(500);
 }
 

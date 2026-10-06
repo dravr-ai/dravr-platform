@@ -31,6 +31,7 @@ export {
   createAndLoginTestUser,
   logout,
   isLoggedIn,
+  signInButton,
   navigateToTab,
   waitForDashboardLoad,
   type LoginResult,

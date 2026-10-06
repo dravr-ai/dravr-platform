@@ -8,6 +8,8 @@
 pub mod client_registration;
 /// OAuth 2.0 authorization server endpoints
 pub mod endpoints;
+/// Dravr's own web and mobile apps as clients of this server
+pub mod first_party;
 /// OAuth 2.0 data models and types
 pub mod models;
 /// PKCE (RFC 7636) challenge and verifier checks

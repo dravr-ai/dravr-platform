@@ -10,6 +10,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const { TestConfig } = require('./fixtures');
+const { firstPartySignIn } = require('../../../scripts/auth/first-party-sign-in');
 
 // Use native fetch (Node 18+) or dynamic import for node-fetch
 const fetch = global.fetch || (async (...args) => {
@@ -309,37 +310,22 @@ async function registerAndGetToken(port, databaseUrl, encryptionKey) {
   // Promote to a global admin so tools/list returns the full catalog.
   await promoteUserToGlobalAdmin(testEmail, testPassword, databaseUrl, encryptionKey);
 
-  // Login via OAuth2 ROPC (RFC 6749 §4.3) to get RS256 JWT
+  // Sign in as the mobile app does — hosted login page, authorization code,
+  // PKCE (the password grant is gone, carnet#787) — for an RS256 session JWT.
   try {
-    const loginResponse = await fetch(`${baseUrl}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'password',
-        client_id: 'dravr-web',
-        username: testEmail,
-        password: testPassword
-      }).toString()
-    });
-
-    if (loginResponse.ok) {
-      const tokenData = await loginResponse.json();
-      console.log('✅ Test user authenticated with RS256 JWT');
-      // /mcp refuses a first-party session token (carnet#768), so the bridge
-      // is handed the athlete's own API key, issued from that session — the
-      // credential a user pastes into an MCP client.
-      const apiKey = await issueApiKey(baseUrl, tokenData.access_token);
-      return {
-        access_token: apiKey,
-        token_type: tokenData.token_type || 'Bearer',
-        expires_in: tokenData.expires_in || 86400,
-        scope: tokenData.scope || 'read:fitness write:fitness',
-        saved_at: Math.floor(Date.now() / 1000)
-      };
-    }
-
-    const errorText = await loginResponse.text();
-    console.warn(`⚠️ Login returned ${loginResponse.status}: ${errorText}`);
+    const tokenData = await firstPartySignIn({ baseUrl, email: testEmail, password: testPassword });
+    console.log('✅ Test user authenticated with RS256 JWT');
+    // /mcp refuses a first-party session token (carnet#768), so the bridge
+    // is handed the athlete's own API key, issued from that session — the
+    // credential a user pastes into an MCP client.
+    const apiKey = await issueApiKey(baseUrl, tokenData.access_token);
+    return {
+      access_token: apiKey,
+      token_type: tokenData.token_type || 'Bearer',
+      expires_in: tokenData.expires_in || 86400,
+      scope: tokenData.scope || 'read:fitness write:fitness',
+      saved_at: Math.floor(Date.now() / 1000)
+    };
   } catch (error) {
     console.warn(`⚠️ Login failed: ${error.message}`);
   }

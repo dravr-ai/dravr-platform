@@ -6,6 +6,7 @@
 // ABOUTME: that backs the 8 admin tabs, asserts 200 + valid JSON envelope.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { signIn } from './first-party-sign-in';
 
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com';
@@ -24,18 +25,7 @@ async function loginAndAuthedRequest(): Promise<{
 }> {
   const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
-  const tokenResp = await bootstrap.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: {
-      grant_type: 'password',
-      client_id: 'dravr-web',
-      username: ADMIN_EMAIL,
-      password: ADMIN_PASSWORD,
-    },
-  });
-  expect(tokenResp.ok(), `login failed: ${tokenResp.status()}`).toBeTruthy();
-  const tokenBody = await tokenResp.json();
-  const accessToken: string = tokenBody.access_token;
+  const { access_token: accessToken } = await signIn(bootstrap, ADMIN_EMAIL, ADMIN_PASSWORD);
   expect(typeof accessToken).toBe('string');
   expect(accessToken.length).toBeGreaterThan(20);
 
@@ -167,20 +157,8 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
   test('cookie-auth rejects non-admin users with 403', async () => {
     // Seeded non-admin user from `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh`.
     const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
-    const tokenResp = await bootstrap.post('/oauth/token', {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      form: {
-        grant_type: 'password',
-        client_id: 'dravr-web',
-        username: 'alice@acme.com',
-        password: 'DemoUser123!',
-      },
-    });
-    expect(
-      tokenResp.ok(),
-      'alice@acme.com must be present — re-run the setup script',
-    ).toBeTruthy();
-    const { access_token } = await tokenResp.json();
+    // alice@acme.com is seeded by the setup script; a refusal names the step.
+    const { access_token } = await signIn(bootstrap, 'alice@acme.com', 'DemoUser123!');
     await bootstrap.dispose();
 
     const userCtx = await apiRequest.newContext({

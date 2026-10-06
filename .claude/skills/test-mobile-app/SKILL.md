@@ -158,10 +158,15 @@ Admin token for API-side cross-checks: `logs/admin-token.txt`. A user token for 
 what a screen *should* be showing:
 
 ```bash
-curl -s -X POST http://localhost:8081/oauth/token \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234' | jq -r .access_token
+scripts/auth/first-party-sign-in.sh http://localhost:8081 mobiletest@pierre.dev MobileTest1234 | jq -r .access_token
 ```
+
+The password grant is gone from `/oauth/token` (carnet#787): the script signs in the way the app
+does — hosted login page, authorization code, PKCE — as `dravr-mobile`. In the app itself,
+"Sign in" opens that hosted page (`#email`, `#password`, "Login") in the system browser and
+returns on `dravr://auth/callback`; under Expo Go it returns on
+`exp://<host>:<port>/--/auth/callback`, which the server accepts only with
+`OAUTH_ALLOW_EXPO_GO_REDIRECT=true` (the setup script exports it for the local stack).
 
 Open a working ledger in the scratchpad and append to it as you go — never hold findings only in
 your head across a 30-screen sweep:

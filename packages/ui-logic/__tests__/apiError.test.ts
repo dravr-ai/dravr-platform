@@ -8,8 +8,8 @@ import { describe, it, expect } from 'vitest';
 import {
   classifyApiError,
   describeApiError,
-  describeLoginFailure,
   describeQuotaRefusal,
+  describeSignInFailure,
   refusalReason,
   API_ERROR_KEYS,
 } from '../src/apiError';
@@ -266,56 +266,6 @@ describe('describeApiError', () => {
   });
 });
 
-describe('describeLoginFailure', () => {
-  const t = (key: string) => key;
-
-  it('reads a rejected password as bad credentials in every carrier the server uses', () => {
-    // OAuth's invalid_grant rides a 400; a plain 401 and a validation 400 land
-    // on the same sentence, since the form is the one screen where all three
-    // mean "check what you typed".
-    expect(describeLoginFailure(responded(400, { error: 'invalid_grant' }), { t })).toBe(
-      'auth.invalidCredentials',
-    );
-    expect(describeLoginFailure(responded(401), { t })).toBe('auth.invalidCredentials');
-    expect(describeLoginFailure(responded(400, { message: 'email malformed' }), { t })).toBe(
-      'auth.invalidCredentials',
-    );
-  });
-
-  it('never announces a dead network as a wrong password', () => {
-    const err = new Error('Network Error');
-    expect(describeLoginFailure(err, { online: false, t })).toBe('errors.offline');
-    expect(describeLoginFailure(err, { online: true, t })).toBe('errors.network');
-    // React Native has no navigator.onLine: with no answer, a dead request is
-    // a network error, still never a credentials one.
-    expect(describeLoginFailure(err, { t })).toBe('errors.network');
-    expect(describeLoginFailure({ code: 'ECONNABORTED' }, { t })).toBe('errors.network');
-  });
-
-  it('names a refused burst of attempts as one, never as a wrong password', () => {
-    // The sign-in limiter's 429 (carnet#804): telling the athlete to retype
-    // the password would only spend the window again.
-    expect(describeLoginFailure(responded(429, { error: 'too_many_requests' }), { t })).toBe(
-      'accountDeletion.tooManyAttempts',
-    );
-  });
-
-  it('names a server failure as the server’s, and anything else as a failed sign-in', () => {
-    expect(describeLoginFailure(responded(503), { t })).toBe('errors.serverError');
-    expect(describeLoginFailure(responded(418), { t })).toBe('auth.loginFailed');
-  });
-
-  it('is keyed on status, never on the server’s prose', () => {
-    // The phone used to match `error.message.includes('invalid')`; a French
-    // backend saying "Identifiants invalides" must classify identically.
-    expect(
-      describeLoginFailure(responded(400, { error: 'invalid_grant', message: 'Identifiants invalides' }), {
-        t,
-      }),
-    ).toBe('auth.invalidCredentials');
-  });
-});
-
 describe('refusalReason', () => {
   it('reads the reason a refusal names in details.reason', () => {
     const err = responded(409, {
@@ -332,5 +282,43 @@ describe('refusalReason', () => {
     expect(refusalReason(responded(409, { details: { reason: 7 } }))).toBeUndefined();
     expect(refusalReason(new Error('Network Error'))).toBeUndefined();
     expect(refusalReason(null)).toBeUndefined();
+  });
+});
+
+describe('describeSignInFailure', () => {
+  const t = (key: string) => key;
+
+  it('reads a refused sign-in for a suspended account as the suspension, never as bad credentials', () => {
+    expect(describeSignInFailure({ kind: 'callback', error: 'access_denied' }, { t })).toBe(
+      'shell.accountSuspendedBody',
+    );
+  });
+
+  it('reads a callback this device did not start as a failed sign-in', () => {
+    expect(describeSignInFailure({ kind: 'callback', error: 'state_mismatch' }, { t })).toBe('auth.loginFailed');
+    expect(describeSignInFailure({ kind: 'callback', error: 'invalid_request' }, { t })).toBe('auth.loginFailed');
+  });
+
+  it('reads the server failing the authorization as a server error', () => {
+    expect(describeSignInFailure({ kind: 'callback', error: 'server_error' }, { t })).toBe('errors.serverError');
+    expect(describeSignInFailure({ kind: 'callback', error: 'temporarily_unavailable' }, { t })).toBe(
+      'errors.serverError',
+    );
+  });
+
+  it('never reads a code that would not redeem as a wrong password', () => {
+    // The password was checked on the hosted page; an invalid_grant here is a
+    // spent or expired code, which is a sign-in to start again.
+    expect(
+      describeSignInFailure({ kind: 'exchange', err: responded(400, { error: 'invalid_grant' }) }, { t }),
+    ).toBe('auth.loginFailed');
+  });
+
+  it('keeps transport failures apart from refusals on the exchange', () => {
+    const err = new Error('Network Error');
+    expect(describeSignInFailure({ kind: 'exchange', err }, { online: false, t })).toBe('errors.offline');
+    expect(describeSignInFailure({ kind: 'exchange', err }, { online: true, t })).toBe('errors.network');
+    expect(describeSignInFailure({ kind: 'exchange', err: responded(503) }, { t })).toBe('errors.serverError');
+    expect(describeSignInFailure({ kind: 'exchange', err: responded(429) }, { t })).toBe('errors.serverError');
   });
 });

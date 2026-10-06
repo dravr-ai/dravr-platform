@@ -41,20 +41,18 @@ JWT_CACHE="${TMPDIR:-/tmp}/pierre-e2e-jwt.txt"
 
 pretty() { python3 -m json.tool 2>/dev/null || cat; }
 
-# Mint (and cache) a JWT for the local test user via the OAuth2 password grant.
+# Mint (and cache) a JWT for the local test user the way the mobile app signs in:
+# hosted login page, authorization code, PKCE (the password grant is gone, carnet#787).
 mint_jwt() {
   local resp
-  resp=$(curl -s -X POST "$PLATFORM/oauth/token" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    --data-urlencode "grant_type=password" \
-    --data-urlencode "client_id=dravr-web" \
-    --data-urlencode "username=$E2E_USER" \
-    --data-urlencode "password=$E2E_PASS")
+  if ! resp=$(printf '%s\n' "$E2E_PASS" | "$HERE/scripts/auth/first-party-sign-in.sh" "$PLATFORM" "$E2E_USER" -); then
+    err "could not mint JWT for $E2E_USER (create it: scripts/sciotte-platform-e2e.sh setup-user)"
+    exit 1
+  fi
   local tok
   tok=$(printf '%s' "$resp" | python3 -c "import json,sys;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
   if [ -z "$tok" ]; then
-    err "could not mint JWT for $E2E_USER (create it: scripts/sciotte-platform-e2e.sh setup-user)"
-    printf '%s\n' "$resp" | head -c 300; echo; exit 1
+    err "sign-in for $E2E_USER returned no access_token"; exit 1
   fi
   printf '%s' "$tok" > "$JWT_CACHE"
   printf '%s' "$tok"

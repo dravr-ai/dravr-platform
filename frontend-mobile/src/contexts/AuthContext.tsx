@@ -1,17 +1,23 @@
 // ABOUTME: Authentication context provider for Dravr Mobile app
-// ABOUTME: Restores the stored session on launch, renews its token against the server, and owns login/logout
+// ABOUTME: Restores the stored session on launch, renews its token against the server, and owns sign-in/logout
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
+import { signInWithHostedPage } from '../utils/hostedSignIn';
 import type { User, FirebaseLoginResponse } from '../types';
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /**
+   * Sign in on the server's hosted login page (carnet#787). Resolves `true`
+   * once signed in, `false` when the athlete closed the browser; throws when
+   * the server refused the sign-in or the code could not be redeemed.
+   */
+  signIn: () => Promise<boolean>;
   loginWithFirebase: (idToken: string) => Promise<FirebaseLoginResponse>;
   logout: () => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
@@ -133,25 +139,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return unsubscribe;
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const response = await authApi.login({ email, password });
+  // The sign-in lives here rather than in the login screen so that it
+  // completes even if the screen remounts while the browser is open: on
+  // Android the redirect also reaches the router as a deep link.
+  const signIn = useCallback(async (): Promise<boolean> => {
+    const response = await signInWithHostedPage();
+    if (!response) {
+      return false;
+    }
 
-    // OAuth2 response contains access_token and user info
-    const loginUser: User = response.user || {
-      user_id: '',
-      email,
-      is_admin: false,
-      role: 'user',
-      user_status: 'active',
-    };
-
-    await authApi.storeAuth(response.access_token, response.csrf_token || '', loginUser);
-    setUser(loginUser);
+    await authApi.storeAuth(response.access_token, response.csrf_token || '', response.user);
+    setUser(response.user);
 
     // Best-effort: persist the device's IANA timezone so the chat
     // prompt resolves {{CURRENT_DATE}} in the user's local calendar.
-    // Failures don't block login — UTC fallback keeps chat usable.
+    // Failures don't block sign-in — UTC fallback keeps chat usable.
     void captureUserTimezone();
+    return true;
   }, []);
 
   const loginWithFirebase = useCallback(async (idToken: string): Promise<FirebaseLoginResponse> => {
@@ -202,12 +206,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user,
     isAuthenticated,
     isLoading,
-    login,
+    signIn,
     loginWithFirebase,
     logout,
     register,
     updateUser,
-  }), [user, isAuthenticated, isLoading, login, loginWithFirebase, logout, register, updateUser]);
+  }), [user, isAuthenticated, isLoading, signIn, loginWithFirebase, logout, register, updateUser]);
 
   return (
     <AuthContext.Provider value={value}>

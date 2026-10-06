@@ -8,6 +8,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { firstPartySignIn } = require('../auth/first-party-sign-in');
 
 /**
  * Configuration
@@ -54,35 +55,16 @@ function httpRequest({ method, requestPath, headers = {}, body }) {
 }
 
 /**
- * Exchange admin credentials for a JWT via the OAuth2 password grant.
+ * Sign the admin in for a session JWT the way the mobile app does: hosted
+ * login page, authorization code, PKCE (the password grant is gone, carnet#787).
  */
 async function loginAsAdmin(email, password) {
-  const form = new URLSearchParams({
-    grant_type: 'password',
-    client_id: 'dravr-web',
-    username: email,
+  const tokenResponse = await firstPartySignIn({
+    baseUrl: `http://localhost:${SERVER_PORT}`,
+    email,
     password
-  }).toString();
-
-  const { statusCode, body } = await httpRequest({
-    method: 'POST',
-    requestPath: '/oauth/token',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-Length': Buffer.byteLength(form)
-    },
-    body: form
   });
-
-  if (statusCode !== 200) {
-    throw new Error(`Admin login failed (${statusCode}): ${body}`);
-  }
-
-  const token = JSON.parse(body).access_token;
-  if (!token) {
-    throw new Error('Admin login response carried no access_token');
-  }
-  return token;
+  return tokenResponse.access_token;
 }
 
 /** Whether `token` is a Pierre API key rather than a session JWT. */
@@ -147,7 +129,7 @@ async function revokeApiKey(sessionToken, keyId) {
  *
  *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token (an API
  *      key, or an admin session JWT this exchanges for one).
- *   2. `ADMIN_EMAIL` + `ADMIN_PASSWORD` — a fresh password-grant login (both
+ *   2. `ADMIN_EMAIL` + `ADMIN_PASSWORD` — a fresh first-party sign-in (both
  *      are exported by `.envrc` on a dev machine).
  *   3. `logs/admin-token.txt` — written by the dev-stack setup script.
  */

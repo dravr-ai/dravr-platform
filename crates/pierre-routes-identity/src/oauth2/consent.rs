@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use chrono::Utc;
-use pierre_auth::oauth2_server::models::OAuth2Error;
+use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_core::models::{OAuthClientGrant, User, UserStatus};
 use tracing::{error, warn};
 use uuid::Uuid;
@@ -113,6 +113,30 @@ impl OAuth2Routes {
             .await
             .map_err(refuse)?;
         Self::account_refusal(&user).map_or_else(|| Ok(user), |error| Err(refuse(error)))
+    }
+
+    /// Sign the athlete in to Dravr's own web or mobile app: a code with no
+    /// consent screen, which the app redeems for a first-party session.
+    ///
+    /// A pending account signs in too, as it always has, so the app can show
+    /// it the approval it awaits; the session it gets is refused by every
+    /// route a pending account may not use. A suspended one is refused here.
+    pub(super) async fn sign_in_first_party(
+        context: &OAuth2Context,
+        request: AuthorizeRequest,
+        user_id: Uuid,
+        tenant_id: Option<String>,
+        redirect_uri: String,
+    ) -> Response {
+        let refused = match Self::signed_in_account(context, user_id).await {
+            Ok(user) if user.user_status == UserStatus::Suspended => Self::account_refusal(&user),
+            Ok(_) => None,
+            Err(error) => Some(error),
+        };
+        if let Some(error) = refused {
+            return Self::render_oauth_error_response(&error);
+        }
+        Self::mint_authorization_code(context, request, user_id, tenant_id, redirect_uri).await
     }
 
     /// The account a session names.

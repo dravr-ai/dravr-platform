@@ -78,10 +78,26 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(() => Promise.resolve()),
 }));
 
-// Mock expo-web-browser
+// Mock expo-web-browser. The auth session resolves `cancel` unless a test
+// scripts the redirect it returns with.
 jest.mock('expo-web-browser', () => ({
   openBrowserAsync: jest.fn(() => Promise.resolve({ type: 'success' })),
+  openAuthSessionAsync: jest.fn(() => Promise.resolve({ type: 'cancel' })),
 }));
+
+// Mock expo-crypto with Node's: real randomness and a real SHA-256, so the
+// PKCE challenge a test sees is the one the server would verify.
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = require('crypto');
+  return {
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    getRandomBytes: jest.fn((length) => new Uint8Array(nodeCrypto.randomBytes(length))),
+    digest: jest.fn(async (_algorithm, data) => {
+      const hash = nodeCrypto.createHash('sha256').update(Buffer.from(data)).digest();
+      return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength);
+    }),
+  };
+});
 
 // Mock expo-haptics
 jest.mock('expo-haptics', () => ({

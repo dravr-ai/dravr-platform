@@ -58,7 +58,7 @@ test.describe('Mobile authenticated layout', () => {
       email: 'alice@acme.com',
       displayName: 'Alice Test',
     });
-    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await loginToDashboard(page);
   });
 
   test('bottom tab bar renders with 5 entries including Menu', async ({ page }) => {
@@ -131,7 +131,7 @@ test.describe('Mobile composer', () => {
       displayName: 'Alice Test',
     });
     await mockConversationCreate(page);
-    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await loginToDashboard(page);
     // Sign-in lands on Home, which is the athlete's own conversation.
     await openHome(page);
     await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible();

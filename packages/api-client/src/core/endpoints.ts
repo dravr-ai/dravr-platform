@@ -11,8 +11,10 @@
 export const ENDPOINTS = {
   // ==================== AUTH ====================
   AUTH: {
-    /** OAuth token endpoint (login) */
+    /** First-party token endpoint: redeems a sign-in code, refreshes a session */
     TOKEN: '/oauth/token',
+    /** Hosted sign-in: the authorization endpoint the apps open (carnet#787) */
+    AUTHORIZE: '/oauth2/authorize',
     /** Firebase authentication */
     FIREBASE: '/api/auth/firebase',
     /** Logout */

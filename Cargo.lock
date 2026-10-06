@@ -4253,6 +4253,7 @@ dependencies = [
  "chrono",
  "hex",
  "pierre-auth",
+ "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
  "pierre-middleware",

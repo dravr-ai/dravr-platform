@@ -24,8 +24,15 @@ export { ENDPOINTS } from './core/endpoints';
 export type { EndpointKeys } from './core/endpoints';
 
 // Re-export domain API factories
-export { createAuthApi } from './domains/auth';
-export type { AuthApi, LoginCredentials, RegisterCredentials } from './domains/auth';
+export { createAuthApi, readSignInCallback } from './domains/auth';
+export type {
+  AuthApi,
+  RegisterCredentials,
+  SignInRequest,
+  SignInCallback,
+  CompleteSignIn,
+} from './domains/auth';
+export type { PkceCrypto } from './core/pkce';
 
 export { createChatApi, replySceneBlocks } from './domains/chat';
 export type {
@@ -265,7 +272,7 @@ export interface PierreApiService {
  *
  * // Use domain APIs
  * const coaches = await api.coaches.list();
- * const user = await api.auth.login({ email, password });
+ * const signIn = await api.auth.beginSignIn(redirectUri, pkceCrypto);
  *
  * @example
  * // Mobile usage

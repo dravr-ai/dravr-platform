@@ -1,0 +1,58 @@
+# ABOUTME: Helper that fills the server's hosted login page (Email, Password) and submits it
+# ABOUTME: Takes EMAIL and PASSWORD from the caller's env; run open-hosted-sign-in.yaml first
+
+appId: host.exp.Exponent
+
+---
+# The page is server HTML in the app's language (the app sends ui_locales),
+# so every label is matched in all five locales: the email label for #email,
+# the password label for #password, and the "Sign in" submit button. Tapping a
+# label focuses its field. A dev server can prefill both fields
+# (OAUTH_DEFAULT_EMAIL / OAUTH_DEFAULT_PASSWORD), so each is erased first.
+# iOS exposes the page's text a moment after it draws: wait for the label
+# before tapping it.
+- extendedWaitUntil:
+    visible: "Email|E-mail|E-Mail|Correo"
+    timeout: 15000
+- tapOn: "Email|E-mail|E-Mail|Correo"
+- eraseText: 60
+- inputText: ${EMAIL}
+
+# The email field is short and at the top of the page, so the password label
+# stays above the keyboard the email field raised.
+- tapOn: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+- eraseText: 60
+- inputText: ${PASSWORD}
+
+# Return in a form field submits the form, with no tap to aim past the
+# keyboard. A keyboard that swallows it leaves the page up, and the button —
+# the one "Sign in" below the password field, not the page's heading — is
+# tapped instead.
+- pressKey: Enter
+- extendedWaitUntil:
+    notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    timeout: 10000
+    optional: true
+- runFlow:
+    when:
+      visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    commands:
+      - tapOn:
+          text: "Sign in|Se connecter|Iniciar sesión|Anmelden|Entrar"
+          below: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+
+# iOS offers to save the password the page just took ("Do you want to save
+# your password for <host>?") over whatever the page shows next, and the
+# offer hides that page from Maestro (CI 2026-10-06: the failure page was
+# drawn but unreadable). It is declined. A sign-in that succeeded has already
+# left the page; the app-side copy of the offer is handled by
+# wait-for-home-after-login.yaml.
+- extendedWaitUntil:
+    visible: "Not Now"
+    timeout: 5000
+    optional: true
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"

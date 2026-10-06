@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Authentication domain API - login, logout, register, session restore
+// ABOUTME: Authentication domain API - first-party sign-in (authorization code + PKCE), logout, register, session restore
 // ABOUTME: Platform-agnostic auth logic using the adapter for token storage
 
 import type { AxiosInstance } from 'axios';
 import type { User, LoginResponse, RegisterResponse, FirebaseLoginResponse, SessionResponse } from '@pierre/shared-types';
 import type { AuthStorage, PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
+import { createPkcePair, type PkceCrypto } from '../core/pkce';
 
 /**
  * The scope a login sends to receive a refresh token alongside its JWT.
@@ -20,24 +21,62 @@ import { ENDPOINTS } from '../core/endpoints';
 const OFFLINE_ACCESS_SCOPE = 'offline_access';
 
 /**
- * The `client_id` each first-party app names on the password grant.
+ * The `client_id` each first-party app signs in as.
  *
- * The server serves the password grant to Dravr's own apps only: a sign-in
- * session is accepted by chat and every REST route as the app itself, so a
- * request naming no first-party client is refused with `invalid_client`
- * before the password is checked. The identifiers are public, as every
- * browser and native app's is; they declare the client, they do not
- * authenticate it. Mirrors `FIRST_PARTY_CLIENT_IDS` in
- * `crates/pierre-routes-auth/src/first_party_client.rs`.
+ * Dravr's apps sign in like any OAuth client (carnet#787): the athlete types
+ * the password on the server's hosted login page, never into the app, and
+ * the app redeems the authorization code it is sent back with, proving with
+ * its PKCE verifier that it started the sign-in. The identifiers are public,
+ * as every browser and native app's is. Mirrors `WEB_CLIENT_ID` and
+ * `MOBILE_CLIENT_ID` in `crates/pierre-auth/src/oauth2_server/first_party.rs`.
  */
 const FIRST_PARTY_CLIENT_IDS = {
   web: 'dravr-web',
   mobile: 'dravr-mobile',
 } as const satisfies Record<PlatformAdapter['platform'], string>;
 
-export interface LoginCredentials {
-  email: string;
-  password: string;
+/** A sign-in the app has started: where to send the athlete, and what to keep until they return. */
+export interface SignInRequest {
+  /** The hosted sign-in to open: `/oauth2/authorize` on the API's origin. */
+  authorizeUrl: string;
+  /** Kept by the app and sent with the code; never leaves the device before then. */
+  codeVerifier: string;
+  /** Must come back unchanged on the callback, or the callback is not this sign-in's. */
+  state: string;
+  /** Where the server sends the athlete back; sent again with the code. */
+  redirectUri: string;
+}
+
+/** What the server sent the athlete back with: a code to redeem, or the reason there is none. */
+export type SignInCallback =
+  | { kind: 'code'; code: string }
+  | { kind: 'error'; error: string; description?: string };
+
+/**
+ * Read the callback the hosted sign-in returned to.
+ *
+ * `params` are the callback URL's query parameters. A `state` that is not
+ * the one this sign-in sent is refused: the callback was not started here.
+ */
+export function readSignInCallback(params: URLSearchParams, expectedState: string): SignInCallback {
+  const error = params.get('error');
+  if (error) {
+    return { kind: 'error', error, description: params.get('error_description') ?? undefined };
+  }
+  if (params.get('state') !== expectedState) {
+    return { kind: 'error', error: 'state_mismatch' };
+  }
+  const code = params.get('code');
+  if (!code) {
+    return { kind: 'error', error: 'invalid_request' };
+  }
+  return { kind: 'code', code };
+}
+
+export interface CompleteSignIn {
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
 }
 
 export interface RegisterCredentials {
@@ -63,14 +102,49 @@ export function createAuthApi(
 ) {
   return {
     /**
-     * Login with email and password.
+     * Start a sign-in: a fresh PKCE pair and `state`, and the hosted sign-in
+     * URL to open with them, in `uiLocale` when given. The app keeps the
+     * result until the athlete returns to `redirectUri`.
      */
-    async login(credentials: LoginCredentials): Promise<LoginResponse> {
+    async beginSignIn(redirectUri: string, crypto: PkceCrypto, uiLocale?: string): Promise<SignInRequest> {
+      const { codeVerifier, codeChallenge, state } = await createPkcePair(crypto);
+      const query = new URLSearchParams({
+        response_type: 'code',
+        client_id: FIRST_PARTY_CLIENT_IDS[platform],
+        redirect_uri: redirectUri,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        state,
+        // Always ask for the password: the browser may still hold the
+        // session of whoever signed in before, and signing out of the app
+        // must not leave the next sign-in landing in their account.
+        prompt: 'login',
+      });
+      // OpenID Connect ui_locales: the hosted page speaks the language the
+      // app is showing, not whatever the browser or OS happens to prefer.
+      if (uiLocale) {
+        query.set('ui_locales', uiLocale);
+      }
+      const origin = (axios.defaults.baseURL ?? '').replace(/\/+$/, '');
+      return {
+        authorizeUrl: `${origin}${ENDPOINTS.AUTH.AUTHORIZE}?${query.toString()}`,
+        codeVerifier,
+        state,
+        redirectUri,
+      };
+    },
+
+    /**
+     * Redeem the code the hosted sign-in returned with for a session: the
+     * same response, cookies and stored tokens a sign-in has always produced.
+     */
+    async completeSignIn(request: CompleteSignIn): Promise<LoginResponse> {
       const formData = new URLSearchParams();
-      formData.append('grant_type', 'password');
+      formData.append('grant_type', 'authorization_code');
       formData.append('client_id', FIRST_PARTY_CLIENT_IDS[platform]);
-      formData.append('username', credentials.email);
-      formData.append('password', credentials.password);
+      formData.append('code', request.code);
+      formData.append('redirect_uri', request.redirectUri);
+      formData.append('code_verifier', request.codeVerifier);
       if (platform === 'mobile') {
         formData.append('scope', OFFLINE_ACCESS_SCOPE);
       }

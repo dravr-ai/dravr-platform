@@ -34,7 +34,10 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use axum::Router;
 use common::{create_test_server_resources, create_test_user, get_shared_test_jwks};
-use helpers::axum_test::AxumTestRequest;
+use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use helpers::first_party_sign_in::{
+    first_party_router, fresh_state, submit_login, FirstPartyClient, Pkce, DEFAULT_PEER,
+};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config};
@@ -46,6 +49,7 @@ use pierre_auth::oauth2_server::models::{
 };
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::password::verify_password;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_authorization::MAX_STATE_BYTES;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -567,6 +571,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(
             None,
             OAuth2RateLimiter::local_window_store(),
@@ -822,51 +827,60 @@ async fn a_weak_password_at_public_registration_warns_and_never_pages() {
     );
 }
 
-#[tokio::test]
-async fn an_unknown_email_at_the_password_grant_is_refused_without_paging() {
-    let resources = create_test_server_resources().await.unwrap();
-    let captured = Captured::start();
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", "nobody@example.com"),
-            ("password", "any password"),
-        ])
-        .send(AuthRoutes::routes(resources.auth_routes_context()))
-        .await;
-
-    assert_eq!(response.status(), 400);
-    assert_eq!(response.json::<Value>()["error"], "invalid_grant");
-    captured.assert_nothing_paged();
+/// The hosted login form, as Dravr's web app posts it (carnet#787): the
+/// password is checked here, never at `/oauth/token`.
+async fn hosted_sign_in(resources: &ServerContext, email: &str) -> AxumTestResponse {
+    let pkce = Pkce::generate();
+    submit_login(
+        first_party_router(resources, DEFAULT_PEER),
+        FirstPartyClient::Web.client_id(),
+        &FirstPartyClient::Web.redirect_uri(&resources.common.config.oauth2_server),
+        &pkce.challenge,
+        &fresh_state(),
+        email,
+        "any password",
+    )
+    .await
 }
 
 #[tokio::test]
-async fn a_database_failure_at_the_password_grant_answers_server_error_and_pages() {
+async fn an_unknown_email_at_the_hosted_sign_in_is_refused_without_paging() {
+    let resources = create_test_server_resources().await.unwrap();
+    let captured = Captured::start();
+
+    let response = hosted_sign_in(&resources, "nobody@example.com").await;
+
+    assert_eq!(response.status(), 401, "{}", response.body_text());
+    assert!(response.header("set-cookie").is_none());
+    captured.assert_nothing_paged();
+    assert!(
+        captured.at(Level::WARN).iter().any(|e| e
+            .message
+            .starts_with("Authentication failed for OAuth login")),
+        "{:#?}",
+        captured.at(Level::WARN)
+    );
+}
+
+#[tokio::test]
+async fn a_database_failure_at_the_hosted_sign_in_answers_server_error_and_pages() {
     let resources = create_test_server_resources().await.unwrap();
     break_table(&resources.agent.database, "users").await;
     let captured = Captured::start();
 
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", "athlete@example.com"),
-            ("password", "any password"),
-        ])
-        .send(AuthRoutes::routes(resources.auth_routes_context()))
-        .await;
+    let response = hosted_sign_in(&resources, "athlete@example.com").await;
 
-    assert_eq!(response.status(), 500);
-    let body = response.json::<Value>();
-    assert_eq!(body["error"], "server_error");
+    // An outage is not a wrong password: the page says so, and sets nothing.
+    assert_eq!(response.status(), 500, "{}", response.body_text());
+    assert!(response.header("set-cookie").is_none());
+    let page = response.body_text();
     assert!(
-        !body["error_description"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("users"),
-        "the database detail stays in the log: {body}"
+        !page.contains("Invalid email or password"),
+        "an outage is never blamed on the password: {page}"
+    );
+    assert!(
+        !page.contains("users"),
+        "the database detail stays in the log: {page}"
     );
     captured.page("Login could not complete: user lookup failed");
 }

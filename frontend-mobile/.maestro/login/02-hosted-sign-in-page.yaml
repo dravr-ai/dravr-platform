@@ -1,0 +1,42 @@
+# ABOUTME: The sign-in button opens the server's hosted login page (Email, Password) in the system browser
+# ABOUTME: Closing the page returns to the app's login screen with no error: a cancelled sign-in is not a failure
+
+appId: ai.dravr.app
+
+---
+# A browser still signed in to the server would skip the page entirely.
+- runFlow:
+    file: ../helpers/reset-browser-session.yaml
+
+# Launch app fresh
+- runFlow:
+    file: ../helpers/launch-app.yaml
+
+# The phone has no password field (carnet#787): the button opens the page.
+- runFlow:
+    file: ../helpers/open-hosted-sign-in.yaml
+
+# The page is server HTML in the app's language (ui_locales), so its labels
+# are matched in all five locales.
+# iOS exposes a web page's text to the accessibility tree a moment after it
+# draws, so each label is waited for rather than asserted at once.
+- extendedWaitUntil:
+    visible: "Email|E-mail|E-Mail|Correo"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    timeout: 15000
+
+- runFlow:
+    file: ../helpers/close-hosted-sign-in.yaml
+
+# Back on the app's login screen, and not signed in. A closed browser raises
+# no alert, so nothing covers the screen the wait reads.
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 15000
+- assertVisible:
+    id: "login-button"
+- assertNotVisible:
+    id: "home-screen"

@@ -96,8 +96,8 @@ impl AxumTestRequest {
         self
     }
 
-    /// Add URL-encoded form body to the request (for `OAuth2` ROPC)
-    /// Note: Used by `routes_auth_http_test.rs`, but not all tests use it
+    /// Add URL-encoded form body to the request (`OAuth2` token and login forms)
+    /// Note: not every test uses it
     #[allow(dead_code)]
     pub fn form<T: Serialize>(mut self, data: &T) -> Self {
         self.body = Some(serde_urlencoded::to_string(data).expect("Failed to serialize form"));
@@ -342,14 +342,17 @@ mod tests {
     #[tokio::test]
     async fn test_axum_test_request_post_with_form() {
         let app = Router::new().route("/test", post(|body: String| async move { body }));
-        let form_data = [("grant_type", "password"), ("username", "test@example.com")];
+        let form_data = [
+            ("grant_type", "authorization_code"),
+            ("redirect_uri", "dravr://auth/callback"),
+        ];
         let response = AxumTestRequest::post("/test")
             .form(&form_data)
             .send(app)
             .await;
         assert_eq!(response.status(), 200);
         let text = response.text();
-        assert!(text.contains("grant_type=password"));
-        assert!(text.contains("username=test%40example.com"));
+        assert!(text.contains("grant_type=authorization_code"));
+        assert!(text.contains("redirect_uri=dravr%3A%2F%2Fauth%2Fcallback"));
     }
 }

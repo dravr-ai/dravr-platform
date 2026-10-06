@@ -1,22 +1,22 @@
 <!DOCTYPE html>
-<!-- ABOUTME: OAuth 2.0 authorization-server login page an MCP client sends the athlete to -->
+<!-- ABOUTME: OAuth 2.0 authorization-server login page: Dravr's apps and MCP clients send the athlete here, in their language -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; the hidden fields carry the PKCE request through -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
-<html lang="en">
+<html lang="{{LANG}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
     <meta name="color-scheme" content="light dark">
-    <title>Login - Dravr</title>
+    <title>{{T_SIGN_IN}} - Dravr</title>
     <style>{{HOSTED_PAGE_CSS}}</style>
 </head>
 <body>
     <main class="card">
         <div class="lockup" role="img" aria-label="Dravr"></div>
-        <h1>Login</h1>
+        <h1>{{T_SIGN_IN}}</h1>
         <form method="post" action="/oauth2/login">
             <input type="hidden" name="client_id" value="{{CLIENT_ID}}">
             <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">
@@ -26,15 +26,16 @@
             <input type="hidden" name="code_challenge" value="{{CODE_CHALLENGE}}">
             <input type="hidden" name="code_challenge_method" value="{{CODE_CHALLENGE_METHOD}}">
             <input type="hidden" name="resource" value="{{RESOURCE}}">
+            <input type="hidden" name="ui_locales" value="{{LANG}}">
             <div class="field">
-                <label for="email">Email</label>
+                <label for="email">{{T_EMAIL}}</label>
                 <input type="email" id="email" name="email" value="{{DEFAULT_EMAIL}}" required autocomplete="email">
             </div>
             <div class="field">
-                <label for="password">Password</label>
+                <label for="password">{{T_PASSWORD}}</label>
                 <input type="password" id="password" name="password" value="{{DEFAULT_PASSWORD}}" required autocomplete="current-password">
             </div>
-            <button type="submit" class="btn btn-primary btn-block">Login</button>
+            <button type="submit" class="btn btn-primary btn-block">{{T_SIGN_IN}}</button>
         </form>
         {{GOOGLE_SIGN_IN}}
     </main>

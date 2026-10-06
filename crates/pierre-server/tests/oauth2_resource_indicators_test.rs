@@ -37,6 +37,7 @@ use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_config::environment::ServerConfig;
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::constants::service_names::MCP;
 use pierre_core::models::User;
@@ -96,6 +97,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         csrf_manager: resources.auth.csrf_manager.clone(),
         accounts: resources.oauth2_accounts(),
         google_sign_in: None,
+        strings: Arc::new(MessagingStringsRegistry::new()),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_484))))
 }
@@ -850,18 +852,16 @@ async fn a_refused_login_links_back_with_every_oauth_parameter_and_the_resource(
     ];
 
     let refused = AxumTestRequest::post("/oauth2/login")
+        .header("accept-language", "en")
         .form(&form)
         .send(oauth2_routes(&resources))
         .await;
     assert_eq!(refused.status(), 401);
     let page = refused.text();
-    assert!(
-        page.contains("Authentication Failed: Invalid email or password. Please try again."),
-        "{page}"
-    );
+    assert!(page.contains("Invalid email or password"), "{page}");
     assert!(!page.contains("{{"), "every placeholder is filled: {page}");
     let retry = format!(
-        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}\"",
+        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}&ui_locales=en\"",
         urlencoding::encode(REDIRECT),
         urlencoding::encode(STATE),
         urlencoding::encode(MCP_RESOURCE),

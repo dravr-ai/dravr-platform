@@ -147,6 +147,11 @@ FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
 # the resolved port has to reach them and not just this script's own variable.
 export HTTP_PORT="$SERVER_PORT"
 export EXPO_PORT
+# The mobile app run in Expo Go returns from the hosted sign-in to
+# exp://<host>:<port>/--/auth/callback, which the server accepts only with this
+# opt-in (carnet#787). It is for this local stack alone: on a deployed server an
+# exp:// redirect would let a crafted link receive an athlete's code.
+export OAUTH_ALLOW_EXPO_GO_REDIRECT="${OAUTH_ALLOW_EXPO_GO_REDIRECT:-true}"
 
 # Admin credentials from .envrc (with fallback defaults)
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
@@ -534,9 +539,11 @@ fi
 
 # Step 9: Generate admin token
 print_step 9 "Generating admin API token..."
-ADMIN_LOGIN=$(curl -s -X POST "http://127.0.0.1:$SERVER_PORT/oauth/token" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=password&client_id=dravr-web&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD")
+# The password grant is gone (carnet#787): sign in as the mobile app does, through
+# the hosted login page with an authorization code and PKCE.
+ADMIN_LOGIN=$(printf '%s\n' "$ADMIN_PASSWORD" \
+    | "$PROJECT_ROOT/scripts/auth/first-party-sign-in.sh" "http://127.0.0.1:$SERVER_PORT" "$ADMIN_EMAIL" -) \
+    || ADMIN_LOGIN=""
 ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | jq -r '.access_token // empty')
 
 if [ -n "$ADMIN_TOKEN" ]; then

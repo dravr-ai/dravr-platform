@@ -25,8 +25,9 @@
 //!    `/admin/approve-user` HTTP endpoint itself is covered by
 //!    `admin_user_approval_e2e_test`; re-mounting the heavyweight
 //!    `AdminApiContext` here would duplicate it).
-//! 3. `POST /oauth/token` (ROPC) now returns a real JWT with `user_status:
-//!    active` — the transition the isolation tests punt on.
+//! 3. The apps' sign-in (hosted login page, code redeemed at
+//!    `POST /oauth/token`) now returns a real JWT with `user_status: active`
+//!    — the transition the isolation tests punt on.
 //! 4. `GET /api/me/onboarding-status` with that JWT is reachable (200),
 //!    proving the approved user can enter the onboarding flow.
 
@@ -37,6 +38,7 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::SignIn;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -150,7 +152,7 @@ async fn register_pending_then_approve_then_login_then_onboarding() {
             "password": password,
             "display_name": "Acting Admin"
         }))
-        .send(auth_routes.clone())
+        .send(auth_routes)
         .await;
     assert_eq!(
         approver_resp.status(),
@@ -172,16 +174,9 @@ async fn register_pending_then_approve_then_login_then_onboarding() {
         .await
         .expect("approval state transition must succeed");
 
-    // 3. Login (OAuth2 ROPC, form-encoded) must now succeed with an active user.
-    let login_resp = AxumTestRequest::post("/oauth/token")
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", email),
-            ("password", password),
-        ])
-        .send(auth_routes.clone())
-        .await;
+    // 3. Sign-in (hosted login page + code redeemed with PKCE) must now
+    //    succeed with an active user.
+    let login_resp = SignIn::new(email, password).run(&resources).await.token();
     assert_eq!(
         login_resp.status(),
         200,

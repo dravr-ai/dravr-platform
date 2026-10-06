@@ -7,8 +7,8 @@
 //! `/api/users/me/*` — user-profile self-service endpoints.
 //!
 //! These let an authenticated client update fields on its own user
-//! row that aren't suitable for the OAuth2 ROPC token endpoint
-//! (timezone, profile preferences, etc.). The chat prompt-assembly
+//! row that the sign-in itself does not carry (timezone, profile
+//! preferences, etc.). The chat prompt-assembly
 //! stage reads `users.timezone` to resolve `{{CURRENT_DATE}}` to the
 //! user's local calendar day, so the value must be writeable without
 //! re-authenticating.

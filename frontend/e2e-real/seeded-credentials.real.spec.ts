@@ -5,6 +5,7 @@
 // ABOUTME: Guards the drift where docs/hooks advertised a password the seeder no longer produces.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { attemptSignIn, type SignInOutcome } from './first-party-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Requires a live Pierre
 // server on 8081 seeded by ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh.
@@ -49,12 +50,17 @@ const SEEDED_ACCOUNTS = [
   { label: 'demo (garmin)', email: 'bob@startup.io', password: 'DemoUser123!' },
 ] as const;
 
-/** Password-grant login against the live server. */
-async function login(ctx: APIRequestContext, username: string, password: string) {
-  return ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username, password },
-  });
+/** First-party sign-in (hosted login page, code, PKCE) against the live server. */
+async function login(ctx: APIRequestContext, email: string, password: string) {
+  return attemptSignIn(ctx, email, password);
+}
+
+/** The token response of a sign-in that must succeed, or a failure naming `hint`. */
+function tokensOf(outcome: SignInOutcome, email: string, hint: string) {
+  if (!outcome.ok) {
+    throw new Error(`${email} failed to authenticate (${outcome.step} ${outcome.status}: ${outcome.reason}). ${hint}`);
+  }
+  return outcome.tokens;
 }
 
 test.describe('seeded credentials — real backend (no mocks)', () => {
@@ -62,16 +68,14 @@ test.describe('seeded credentials — real backend (no mocks)', () => {
     test(`${account.label} (${account.email}) authenticates with the documented password`, async () => {
       const ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
-      const resp = await login(ctx, account.email, account.password);
-      expect(
-        resp.ok(),
-        `${account.email} failed to authenticate (${resp.status()}). ` +
-          'Either the seeder changed this password or the docs are stale — fix both together.',
-      ).toBe(true);
+      const body = tokensOf(
+        await login(ctx, account.email, account.password),
+        account.email,
+        'Either the seeder changed this password or the docs are stale — fix both together.',
+      );
 
       // Assert content, not just a 2xx: a token endpoint that returns 200 with
-      // an empty body would sail past `resp.ok()` alone.
-      const body = await resp.json();
+      // an empty body would sail past a status check alone.
       expect(typeof body.access_token, 'no access_token in the token response').toBe('string');
       expect(body.access_token.length).toBeGreaterThan(20);
       expect(body.user?.email).toBe(account.email);
@@ -89,14 +93,11 @@ test.describe('seeded credentials — real backend (no mocks)', () => {
     // as tabs quietly missing from the console rather than as an error.
     const ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
-    const resp = await login(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
-    expect(
-      resp.ok(),
-      `admin login failed for ${ADMIN_EMAIL} (${resp.status()}). ` +
-        'If this is a local run, source .envrc — ADMIN_EMAIL/ADMIN_PASSWORD override the defaults.',
-    ).toBe(true);
-
-    const body = await resp.json();
+    const body = tokensOf(
+      await login(ctx, ADMIN_EMAIL, ADMIN_PASSWORD),
+      ADMIN_EMAIL,
+      'If this is a local run, source .envrc — ADMIN_EMAIL/ADMIN_PASSWORD override the defaults.',
+    );
     expect(typeof body.access_token, 'no access_token in the admin token response').toBe('string');
     expect(body.user?.email).toBe(ADMIN_EMAIL);
     expect(body.user?.user_status).toBe('active');
@@ -112,8 +113,10 @@ test.describe('seeded credentials — real backend (no mocks)', () => {
     // credential suite must not have.
     const ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
-    const resp = await login(ctx, 'webtest@pierre.dev', 'definitely-not-the-password');
-    expect(resp.ok(), 'server accepted a wrong password').toBe(false);
+    const outcome = await login(ctx, 'webtest@pierre.dev', 'definitely-not-the-password');
+    expect(outcome.ok, 'server accepted a wrong password').toBe(false);
+    // Refused by the hosted login page itself, not somewhere later in the flow.
+    expect(outcome.ok ? undefined : outcome.step).toBe('login');
 
     await ctx.dispose();
   });

@@ -149,7 +149,8 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
-  // Mock OAuth2 ROPC login endpoint
+  // Mock the first-party token endpoint: the hosted sign-in's code exchange
+  // (grant_type=authorization_code), which answers what the password grant did.
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -468,21 +469,75 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
 export const APP_SHELL_TIMEOUT_MS = 20000;
 
 /**
- * Performs login through the login form.
- * Requires setupDashboardMocks() to be called first.
+ * The login screen's sign-in button. By test id, not by name: the label is
+ * translated, so matching "Sign in" tied every spec to the chrome being
+ * English, and the French sweeps could not sign in at all.
  */
-export async function loginToDashboard(page: Page, credentials?: { email?: string; password?: string }) {
-  const { email = 'admin@test.com', password = 'password123' } = credentials || {};
+export const SIGN_IN_BUTTON = '[data-testid="sign-in-button"]';
 
+/**
+ * Stand in for the server's hosted sign-in (carnet#787).
+ *
+ * The app sends the athlete to `/oauth2/authorize`; the real server shows its
+ * login page there and, once the password is accepted, redirects back to the
+ * `redirect_uri` the app sent with a code and the app's own `state`. This
+ * answers that navigation with the redirect directly — or with `error` when a
+ * spec needs a refused sign-in (`access_denied` is a suspended account). The
+ * password form itself is the server's, tested on the Rust side.
+ */
+export async function mockHostedSignIn(page: Page, outcome: { error?: string } = {}) {
+  await page.route('**/oauth2/authorize**', async (route) => {
+    const request = new URL(route.request().url());
+    const redirectUri = request.searchParams.get('redirect_uri');
+    if (!redirectUri) {
+      await route.fulfill({ status: 400, contentType: 'text/plain', body: 'redirect_uri missing' });
+      return;
+    }
+    const callback = new URL(redirectUri);
+    if (outcome.error) {
+      callback.searchParams.set('error', outcome.error);
+    } else {
+      callback.searchParams.set('code', 'e2e-code');
+    }
+    callback.searchParams.set('state', request.searchParams.get('state') ?? '');
+    await route.fulfill({ status: 302, headers: { location: callback.toString() } });
+  });
+}
+
+/** Wait for the login screen: its sign-in button is painted. */
+export async function waitForLoginScreen(page: Page, timeout = APP_SHELL_TIMEOUT_MS) {
+  await page.locator(SIGN_IN_BUTTON).waitFor({ state: 'visible', timeout });
+}
+
+/**
+ * Sign in from the login screen the way an athlete does: press the button,
+ * pass through the (mocked) hosted sign-in, and return to the app once the
+ * callback has redeemed its code and left `/auth/callback`.
+ *
+ * Installs the hosted-sign-in mock unless the spec already installed its own
+ * (pass `mockHostedPage: false`), and expects `**\/oauth/token` to be mocked
+ * for the code exchange — `setupDashboardMocks` does that.
+ */
+export async function signInThroughHostedPage(page: Page, options: { mockHostedPage?: boolean } = {}) {
+  if (options.mockHostedPage !== false) {
+    await mockHostedSignIn(page);
+  }
+  await waitForLoginScreen(page);
+  await Promise.all([
+    page.waitForURL((url) => url.pathname === '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS }),
+    page.locator(SIGN_IN_BUTTON).click(),
+  ]);
+  await page.waitForURL((url) => url.pathname !== '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS });
+}
+
+/**
+ * Signs in through the login screen and the mocked hosted sign-in.
+ * Requires setupDashboardMocks() to be called first; the user is the one
+ * setupDashboardMocks was given.
+ */
+export async function loginToDashboard(page: Page) {
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill(password);
-  // By role, not by name: the submit label is translated, so matching "Sign in"
-  // tied every spec in the suite to the chrome being English. The suite pins
-  // English, but a spec that deliberately runs in another locale — the French
-  // sweeps — could not log in at all.
-  await page.locator('form button[type="submit"]').first().click();
+  await signInThroughHostedPage(page);
 
   // Wait for dashboard to load - wait for main content area which only exists after successful login
   // Note: 'text=Dravr' would match login page's "Dravr" title, so use 'main' instead

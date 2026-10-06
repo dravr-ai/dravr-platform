@@ -5,7 +5,15 @@
 // ABOUTME: Verifies the light-first theme, dark variant via <html class="dark">, and runtime toggle
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import {
+  SIGN_IN_BUTTON,
+  setupDashboardMocks,
+  loginToDashboard,
+  mockHostedSignIn,
+  navigateToTab,
+  signInThroughHostedPage,
+  waitForLoginScreen,
+} from './test-helpers';
 
 async function setupThemeMocks(page: Page, options: { isAdmin?: boolean } = {}) {
   const { isAdmin = true } = options;
@@ -154,17 +162,16 @@ test.describe('Boreal Light Theme — consistency across navigation', () => {
     await expect(page.locator('h1').first()).toBeVisible();
   });
 
-  test('form inputs have proper light theme styling', async ({ page }) => {
+  test('the sign-in button has proper light theme styling', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
-    const emailInput = page.locator('input[name="email"]');
-    await expect(emailInput).toBeVisible();
-    await emailInput.fill('test@example.com');
-    await expect(emailInput).toHaveValue('test@example.com');
+    const signIn = page.locator(SIGN_IN_BUTTON);
+    await expect(signIn).toBeVisible();
+    await expect(signIn).toBeEnabled();
   });
 });
 
@@ -174,7 +181,7 @@ test.describe('Boreal Dark Theme — tuned variant', () => {
     await setupThemeMocks(page, { isAdmin: true });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
     const htmlClass = await page.evaluate(() => document.documentElement.className);
     expect(htmlClass).toContain('dark');
@@ -217,11 +224,9 @@ test.describe('Boreal Theme — visible layout elements', () => {
     await setupThemeMocks(page, { isAdmin: true });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
-    await expect(page.locator('input[name="email"]')).toBeVisible();
-    await expect(page.locator('input[name="password"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in with email' })).toBeVisible();
 
     // DRAVR wordmark lives in the hero column on desktop and as a mobile label
     await expect(page.getByText('DRAVR').first()).toBeVisible();
@@ -239,7 +244,7 @@ test.describe('Boreal Theme — visible layout elements', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
     const aside = page.locator('aside');
     await expect(aside).toBeVisible();
@@ -272,7 +277,7 @@ test.describe('Boreal Theme — visible layout elements', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
     const aside = page.locator('aside');
     await expect(aside.locator('h2')).toBeVisible();
@@ -295,7 +300,7 @@ test.describe('Boreal Theme — visible layout elements', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
     const aside = page.locator('aside');
     await expect(aside).toBeVisible();
@@ -378,21 +383,17 @@ test.describe('Boreal Theme — accessibility', () => {
     }
   });
 
-  test('form inputs are visible and usable', async ({ page }) => {
+  test('the sign-in button is visible and usable', async ({ page }) => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await waitForLoginScreen(page, 10000);
 
-    const emailInput = page.locator('input[name="email"]');
-    await expect(emailInput).toBeVisible();
-    await emailInput.fill('test@example.com');
-    await expect(emailInput).toHaveValue('test@example.com');
-
-    const passwordInput = page.locator('input[name="password"]');
-    await expect(passwordInput).toBeVisible();
-    await passwordInput.fill('testpassword');
+    const signIn = page.locator(SIGN_IN_BUTTON);
+    await expect(signIn).toBeVisible();
+    await signIn.focus();
+    await expect(signIn).toBeFocused();
   });
 
   test('navigation icons are visible', async ({ page }) => {
@@ -414,30 +415,12 @@ test.describe('Boreal Theme — accessibility', () => {
     await forceLightTheme(page);
     await setupThemeMocks(page, { isAdmin: true });
 
-    await page.route('**/oauth/token', async (route) => {
-      await route.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          error: 'invalid_grant',
-          error_description: 'Invalid credentials',
-        }),
-      });
-    });
+    // The hosted sign-in comes back refused: the banner is the error state.
+    await mockHostedSignIn(page, { error: 'access_denied' });
 
     await page.goto('/');
-    await page.waitForSelector('form', { timeout: 10000 });
+    await signInThroughHostedPage(page, { mockHostedPage: false });
 
-    await page.locator('input[name="email"]').fill('test@example.com');
-    await page.locator('input[name="password"]').fill('wrongpassword');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-
-    await page.waitForTimeout(1000);
-
-    const errorElement = page.locator('[role="alert"], .error, .text-error');
-    const errorCount = await errorElement.count();
-    if (errorCount > 0) {
-      await expect(errorElement.first()).toBeVisible();
-    }
+    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10000 });
   });
 });

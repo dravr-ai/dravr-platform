@@ -201,9 +201,8 @@ pub enum OAuth2Endpoint {
     /// A signed-in account re-confirming its password (`change-password`,
     /// account deletion), metered per account rather than per address
     PasswordConfirm,
-    /// A refused password sign-in (the `POST /oauth/token` password grant,
-    /// `POST /oauth2/login`, the messaging link page, the device approval
-    /// page), metered per client address
+    /// A refused password sign-in (`POST /oauth2/login`, the messaging link
+    /// page, the device approval page), metered per client address
     PasswordLogin,
     /// A refused password sign-in, metered per account named rather than per
     /// address

@@ -15,7 +15,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_routes_identity::LoginPageLabels;
+use std::sync::LazyLock;
+
+/// The login form's English text, from the catalogue the server renders it
+/// with.
+static ENGLISH_LABELS: LazyLock<LoginPageLabels> =
+    LazyLock::new(|| LoginPageLabels::new(&MessagingStringsRegistry::new(), "en"));
 mod common;
 
 use pierre_routes_identity::OAuth2Routes;
@@ -101,10 +109,14 @@ fn test_oauth_login_error_template_exists() {
     assert!(TEMPLATE.contains("<!DOCTYPE html>"), "Missing DOCTYPE");
     assert!(TEMPLATE.contains("<html"), "Missing html tag");
     assert!(TEMPLATE.contains("</html>"), "Missing closing html tag");
-    assert!(
-        TEMPLATE.contains("Back to Login") || TEMPLATE.contains("back to login"),
-        "Missing back to login link"
-    );
+    // The page's words come from the catalogue in the athlete's language
+    // (carnet#787): the template names them, never a fixed English string.
+    for placeholder in ["{{LANG}}", "{{T_FAILED}}", "{{T_BACK}}"] {
+        assert!(
+            TEMPLATE.contains(placeholder),
+            "Missing localized text placeholder {placeholder}"
+        );
+    }
 }
 
 /// The login page's parameters for one pending request, with the Google
@@ -124,6 +136,7 @@ fn google_login_params(
         default_email: "",
         default_password: "",
         google_start_url,
+        labels: &ENGLISH_LABELS,
     }
 }
 
@@ -300,6 +313,7 @@ async fn test_generate_login_html() {
         default_email: test_email,
         default_password: test_password,
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
 
     // Verify all placeholders were replaced with actual values
@@ -416,6 +430,7 @@ async fn test_generate_login_html_empty_scope() {
         default_email: "test@example.com",
         default_password: "",
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
 
     // An empty request renders the grant it will actually be ISSUED —
@@ -533,6 +548,7 @@ async fn test_templates_use_boreal_design_system() {
         default_email: "",
         default_password: "",
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
     let dark_at = html
         .find("@media (prefers-color-scheme: dark)")
@@ -540,7 +556,7 @@ async fn test_templates_use_boreal_design_system() {
     // Sage-forest #255f4d is the light primary, mint #a3d0be the dark one.
     assert!(html[..dark_at].contains("--color-primary: 37 95 77;"));
     assert!(html[dark_at..].contains("--color-primary: 163 208 190;"));
-    assert!(html.contains(r#"class="btn btn-primary btn-block">Login</button>"#));
+    assert!(html.contains(r#"class="btn btn-primary btn-block">Sign in</button>"#));
     assert!(!html.contains("#7C3AED"));
 }
 
@@ -553,12 +569,13 @@ fn test_templates_accessibility() {
         include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
 
     // Verify proper HTML lang attribute
+    // The lang attribute is the locale the page is rendered in
     assert!(
-        LOGIN_TEMPLATE.contains("lang=\"en\""),
+        LOGIN_TEMPLATE.contains("lang=\"{{LANG}}\""),
         "Login template missing lang attribute"
     );
     assert!(
-        ERROR_TEMPLATE.contains("lang=\"en\""),
+        ERROR_TEMPLATE.contains("lang=\"{{LANG}}\""),
         "Error template missing lang attribute"
     );
 
@@ -693,6 +710,7 @@ async fn test_login_html_escapes_xss_in_state() {
         default_email: "",
         default_password: "",
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
 
     // The XSS payload should NOT appear unescaped
@@ -725,6 +743,7 @@ async fn test_login_html_escapes_xss_in_redirect_uri() {
         default_email: "",
         default_password: "",
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
 
     // The attribute breakout should NOT appear unescaped
@@ -756,6 +775,7 @@ async fn test_oauth_login_page_integration() {
         default_email: "test@pierre.test",
         default_password: "test123",
         google_start_url: None,
+        labels: &ENGLISH_LABELS,
     });
 
     // Verify complete HTML structure

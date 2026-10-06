@@ -6,13 +6,13 @@
 
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { APP_SHELL_TIMEOUT_MS } from '../test-helpers';
+import { SIGN_IN_BUTTON, waitForLoginScreen } from '../test-helpers';
 
 test.describe('Auth Forms Accessibility', () => {
   test.describe('Login Page', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
+      await waitForLoginScreen(page);
     });
 
     test('should have no WCAG 2.1 AA violations on login page', async ({ page }) => {
@@ -27,107 +27,55 @@ test.describe('Auth Forms Accessibility', () => {
       expect.soft(accessibilityScanResults.violations).toEqual([]);
     });
 
-    test('should have proper form field labels', async ({ page }) => {
-      // Email input should have associated label
-      const emailInput = page.locator('input[name="email"]');
-      const emailLabel = await emailInput.evaluate((el) => {
-        const input = el as HTMLInputElement;
-        const labelId = input.getAttribute('aria-labelledby');
-        const labelFor = document.querySelector(`label[for="${input.id}"]`);
-        return !!(labelId || labelFor || input.getAttribute('aria-label'));
-      });
-      expect(emailLabel).toBe(true);
-
-      // Password input should have associated label
-      const passwordInput = page.locator('input[name="password"]');
-      const passwordLabel = await passwordInput.evaluate((el) => {
-        const input = el as HTMLInputElement;
-        const labelId = input.getAttribute('aria-labelledby');
-        const labelFor = document.querySelector(`label[for="${input.id}"]`);
-        return !!(labelId || labelFor || input.getAttribute('aria-label'));
-      });
-      expect(passwordLabel).toBe(true);
+    test('the sign-in button has an accessible name', async ({ page }) => {
+      // carnet#787: the login screen asks for no credentials; its one control
+      // opens the server's hosted sign-in, and it must say so to a reader.
+      await expect(page.getByRole('button', { name: 'Sign in with email' })).toBeVisible();
+      await expect(page.locator('input[type="password"]')).toHaveCount(0);
     });
 
     test('should support keyboard navigation', async ({ page }) => {
-      // Focus the email input directly. The Boreal Editorial login page ships
-      // a theme toggle button in the top-right that is keyboard-reachable
-      // first; rather than brittle-counting Tab presses past it, start the
-      // navigation chain at the first form field.
-      const emailInput = page.locator('input[name="email"]');
-      await emailInput.focus();
+      // Start the chain at the sign-in button rather than brittle-counting
+      // Tab presses past the theme toggle the editorial layout ships first.
+      const signIn = page.locator(SIGN_IN_BUTTON);
+      await signIn.focus();
+      await expect(signIn).toBeFocused();
 
-      const emailFocused = await page.evaluate(
-        () => document.activeElement?.getAttribute('name') === 'email'
-      );
-      expect(emailFocused).toBe(true);
-
-      // Tab to password input
-      await page.keyboard.press('Tab');
-      const passwordFocused = await page.evaluate(
-        () => document.activeElement?.getAttribute('name') === 'password'
-      );
-      expect(passwordFocused).toBe(true);
-
-      // Tab forward; next focusable is the password show/hide button, then
-      // the "Forgot password?" link, then the Sign in submit button. We
-      // accept any button element as "next focusable after the password
-      // field" — the important property is that no element is trapped.
+      // The next focusable is another button ("Forgot password?"): no trap.
       await page.keyboard.press('Tab');
       const buttonFocused = await page.evaluate(
         () => document.activeElement?.tagName === 'BUTTON'
       );
       expect(buttonFocused).toBe(true);
+      await expect(signIn).not.toBeFocused();
     });
 
     test('should have visible focus indicators', async ({ page }) => {
-      const emailInput = page.locator('input[name="email"]');
-      await emailInput.focus();
+      // Reach the button by keyboard so :focus-visible applies.
+      const signIn = page.locator(SIGN_IN_BUTTON);
+      await signIn.focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      await expect(signIn).toBeFocused();
 
-      // Check for focus ring or outline
-      const focusStyles = await emailInput.evaluate((el) => {
+      const focusStyles = await signIn.evaluate((el) => {
         const styles = window.getComputedStyle(el);
-        return {
-          outline: styles.outline,
-          outlineOffset: styles.outlineOffset,
-          boxShadow: styles.boxShadow,
-        };
+        return { outlineStyle: styles.outlineStyle, boxShadow: styles.boxShadow };
       });
 
-      // Should have some visible focus indicator
       const hasFocusIndicator =
-        focusStyles.outline !== 'none' ||
+        focusStyles.outlineStyle !== 'none' ||
         focusStyles.boxShadow !== 'none';
       expect(hasFocusIndicator).toBe(true);
     });
 
-    test('should announce form errors to screen readers', async ({ page }) => {
-      // Fill in values that pass HTML5 validation but will trigger API error
-      // HTML5 validation (required) prevents form submission with empty fields
-      await page.locator('input[name="email"]').fill('test@example.com');
-      await page.locator('input[name="password"]').fill('wrongpassword');
+    test('should announce a refused sign-in to screen readers', async ({ page }) => {
+      // The hosted sign-in came back refused (a suspended account).
+      await page.goto('/auth/callback?error=access_denied&state=e2e');
 
-      // Submit form to trigger API validation error
-      await page.getByRole('button', { name: /sign in/i }).click();
-
-      // Wait for API error to appear
-      await page.waitForTimeout(1000);
-
-      // Check for error message with role="alert"
       const errorMessage = page.locator('[role="alert"]');
-      const errorCount = await errorMessage.count();
-
-      // Error should be announced via role="alert"
-      // If no error appears (API not mocked), test still passes for structure check
-      if (errorCount > 0) {
-        // Verify the error is properly announced
-        const ariaLive = await errorMessage.getAttribute('aria-live');
-        expect(ariaLive).toBe('polite');
-      }
-
-      // Verify the error structure exists in the component
-      // The Login component has role="alert" and aria-live="polite" on error div
-      expect(true).toBe(true);
+      await expect(errorMessage).toBeVisible({ timeout: 10000 });
+      await expect(errorMessage).toHaveAttribute('aria-live', 'polite');
     });
 
     test('should have proper heading hierarchy', async ({ page }) => {
@@ -164,19 +112,18 @@ test.describe('Auth Forms Accessibility', () => {
       expect(contrastViolations).toEqual([]);
     });
 
-    test('should support form submission with Enter key', async ({ page }) => {
-      const emailInput = page.locator('input[name="email"]');
-      await emailInput.fill('test@example.com');
+    test('should start the sign-in with the Enter key', async ({ page }) => {
+      let opened = false;
+      await page.route('**/oauth2/authorize**', async (route) => {
+        opened = true;
+        await route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Hosted sign-in</h1>' });
+      });
 
-      const passwordInput = page.locator('input[name="password"]');
-      await passwordInput.fill('password123');
+      await page.locator(SIGN_IN_BUTTON).focus();
+      await page.keyboard.press('Enter');
 
-      // Press Enter to submit
-      await passwordInput.press('Enter');
-
-      // Should trigger form submission (may show error or navigate)
-      // Just verify no a11y errors during submission
-      await page.waitForTimeout(500);
+      await expect(page.getByRole('heading', { name: 'Hosted sign-in' })).toBeVisible();
+      expect(opened).toBe(true);
     });
   });
 
@@ -184,14 +131,11 @@ test.describe('Auth Forms Accessibility', () => {
     test.beforeEach(async ({ page }) => {
       // Navigate to registration (may need to click a link from login)
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
+      await waitForLoginScreen(page);
 
-      // Look for registration link or toggle
-      const registerLink = page.getByRole('link', { name: /register|sign up/i });
-      if ((await registerLink.count()) > 0) {
-        await registerLink.click();
-        await page.waitForTimeout(500);
-      }
+      // The login screen's "Don't have an account? Create one" button.
+      await page.getByRole('button', { name: /create one/i }).click();
+      await page.locator('input[name="displayName"]').waitFor({ state: 'visible' });
     });
 
     test('should have no WCAG 2.1 AA violations on registration form', async ({ page }) => {
@@ -250,7 +194,7 @@ test.describe('Auth Forms Accessibility', () => {
   test.describe('Password Reset Flow', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
+      await waitForLoginScreen(page);
     });
 
     test('should have accessible forgot password link', async ({ page }) => {
@@ -273,19 +217,13 @@ test.describe('Auth Forms Accessibility', () => {
 
   test.describe('Error States', () => {
     test.beforeEach(async ({ page }) => {
-      await page.goto('/');
-      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
+      // The hosted sign-in came back refused: the login screen shows why.
+      await page.goto('/auth/callback?error=access_denied&state=e2e');
+      await waitForLoginScreen(page);
+      await expect(page.locator('[role="alert"]')).toBeVisible();
     });
 
     test('should have accessible error messages', async ({ page }) => {
-      // Submit invalid form
-      await page.locator('input[name="email"]').fill('invalid-email');
-      await page.getByRole('button', { name: /sign in/i }).click();
-
-      // Wait for validation
-      await page.waitForTimeout(500);
-
-      // Check axe for error message accessibility
       const accessibilityScanResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
         .analyze();
@@ -296,30 +234,21 @@ test.describe('Auth Forms Accessibility', () => {
       expect.soft(accessibilityScanResults.violations).toEqual([]);
     });
 
-    test('should maintain focus after error', async ({ page }) => {
-      // Submit empty form
-      const emailInput = page.locator('input[name="email"]');
-      await emailInput.focus();
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Enter');
-
-      // Wait for validation
-      await page.waitForTimeout(500);
-
-      // Focus should be managed (either on first error or button)
-      const focusedElement = await page.evaluate(() => document.activeElement?.tagName);
-      expect(['INPUT', 'BUTTON']).toContain(focusedElement);
+    test('should keep the sign-in reachable after an error', async ({ page }) => {
+      const signIn = page.locator(SIGN_IN_BUTTON);
+      await expect(signIn).toBeEnabled();
+      await signIn.focus();
+      await expect(signIn).toBeFocused();
     });
   });
 
   test.describe('Touch Target Sizes', () => {
     test('should have sufficient touch target sizes (44x44px minimum)', async ({ page }) => {
       await page.goto('/');
-      await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
+      await waitForLoginScreen(page);
 
       // Check button size
-      const button = page.getByRole('button', { name: /sign in/i });
+      const button = page.locator(SIGN_IN_BUTTON);
       const buttonSize = await button.boundingBox();
 
       if (buttonSize) {

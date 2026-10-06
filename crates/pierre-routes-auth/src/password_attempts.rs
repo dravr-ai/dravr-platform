@@ -1,65 +1,14 @@
-// ABOUTME: Meters password checks through the OAuth2 endpoint limiter: sign-ins per address and account, re-confirmations per account
-// ABOUTME: A sign-in past its window is a 429 with Retry-After; change-password and account deletion share one window
+// ABOUTME: Meters password re-confirmations through the OAuth2 endpoint limiter, per account
+// ABOUTME: Change-password and account deletion share one window; past it the caller answers 429
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::net::IpAddr;
-
-use axum::http::header::RETRY_AFTER;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::Json;
-use pierre_auth::dto::auth::OAuth2ErrorResponse;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
 use tracing::{error, warn};
 use uuid::Uuid;
-
-/// Decide whether a password sign-in from `client` naming `email` may be
-/// tried, before the password is checked: `None` admits it, `Some` is the
-/// RFC 6749 §5.2 body refusing it — a 429 `too_many_requests` with
-/// `Retry-After` when the address's or the account's window of refused
-/// passwords is full, a 503 `temporarily_unavailable` when the limiter could
-/// not read them.
-pub async fn password_sign_in_refusal(
-    limiter: &OAuth2RateLimiter,
-    client: Option<IpAddr>,
-    email: &str,
-) -> Option<Response> {
-    let (status, error, description, retry_after) = match limiter.sign_in_wait(client, email).await
-    {
-        Ok(None) => return None,
-        Ok(Some(retry_after)) => {
-            warn!(retry_after, "Password sign-in refused: too many attempts");
-            (
-                StatusCode::TOO_MANY_REQUESTS,
-                "too_many_requests",
-                "Too many sign-in attempts; retry later",
-                Some(retry_after),
-            )
-        }
-        Err(failure) => {
-            error!(error = %failure, "Password sign-in limiter could not read its windows");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "temporarily_unavailable",
-                "Sign-in is temporarily unavailable; retry later",
-                None,
-            )
-        }
-    };
-    let body = OAuth2ErrorResponse {
-        error: error.to_owned(),
-        error_description: Some(description.to_owned()),
-    };
-    let mut response = (status, Json(body)).into_response();
-    if let Some(secs) = retry_after {
-        response.headers_mut().insert(RETRY_AFTER, secs.into());
-    }
-    Some(response)
-}
 
 /// Count one password re-confirmation by `user_id`.
 ///

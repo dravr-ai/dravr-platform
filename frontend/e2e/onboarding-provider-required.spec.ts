@@ -5,7 +5,7 @@
 // ABOUTME: Mocks GET /api/me/onboarding-status with needs_provider_connection=true; asserts the connect-provider screen and its stacking under the offline strip
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, signInThroughHostedPage } from './test-helpers';
 
 /**
  * Spec-local login that doesn't wait for `<main>` — the onboarding screen
@@ -13,12 +13,9 @@ import { setupDashboardMocks, loginToDashboard } from './test-helpers';
  * helper would time out. Returns after the sign-in click; assertions in the
  * test wait for the screen-specific anchor.
  */
-async function loginExpectingOnboarding(page: Page, email: string) {
+async function loginExpectingOnboarding(page: Page) {
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10_000 });
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 }
 
 /**
@@ -41,7 +38,7 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
   test('fresh user is redirected to the connect-provider screen instead of the dashboard', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'fresh@test.com', displayName: 'Fresh User' });
     await stubOnboardingNeeded(page);
-    await loginExpectingOnboarding(page, 'fresh@test.com');
+    await loginExpectingOnboarding(page);
 
     // Canonical anchor for the onboarding screen. The welcome heading is
     // unique to `OnboardingConnectProvider` — the dashboard sidebar never
@@ -72,7 +69,7 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
     // this guards against regression on the happy path (the value the gate
     // checks is correctly read, and `false` lets the user through).
     await setupDashboardMocks(page, { role: 'user', email: 'returning@test.com', displayName: 'Returning User' });
-    await loginToDashboard(page, { email: 'returning@test.com' });
+    await loginToDashboard(page);
 
     // The onboarding welcome heading is NOT rendered.
     await expect(page.getByRole('heading', { name: /welcome, returning user/i })).toHaveCount(0);
@@ -83,7 +80,7 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
   test('offline, the progress bar stacks under the offline strip and the step clears both, with and without a notch', async ({ page, context }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'fresh@test.com', displayName: 'Fresh User' });
     await stubOnboardingNeeded(page);
-    await loginExpectingOnboarding(page, 'fresh@test.com');
+    await loginExpectingOnboarding(page);
     const heading = page.getByRole('heading', { name: /welcome, fresh user/i });
     await expect(heading).toBeVisible();
 

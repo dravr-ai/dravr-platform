@@ -1,14 +1,13 @@
-// ABOUTME: Login screen with email/password and Google Sign-In authentication
+// ABOUTME: Login screen: sign in on the server's hosted page (authorization code + PKCE) or with native Google Sign-In
 // ABOUTME: The phone's half of DESIGN.md §5 "Auth and onboarding" — tint page, white form sheet, both schemes
 
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  type TextInput,
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
@@ -16,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
-import { Button, FormScrollView, Input } from '../../components/ui';
+import { Button, FormScrollView } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
 import { PROVIDER_COLORS, spacing } from '../../constants/theme';
 import {
@@ -29,7 +28,8 @@ import {
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { describeLoginFailure } from '@pierre/ui-logic';
+import { describeSignInFailure } from '@pierre/ui-logic';
+import { SignInRefusedError } from '../../utils/hostedSignIn';
 
 /**
  * The catalogue key for a Google sign-in failure.
@@ -77,54 +77,29 @@ export function LoginScreen() {
    */
   const pageGround = isDark ? tokens.surface : tokens.primaryContainer;
   const cardGround = isDark ? tokens.surfaceContainerHigh : tokens.surfaceContainerLowest;
-  const { login, loginWithFirebase } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { signIn, loginWithFirebase } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
-  const validateForm = () => {
-    const newErrors: { email?: string; password?: string } = {};
-
-    if (!email.trim()) {
-      newErrors.email = t('validation.emailRequired');
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = t('validation.email');
-    }
-
-    if (!password) {
-      newErrors.password = t('validation.passwordRequired');
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // Chains focus from the email field to the password field: `returnKeyType`
-  // only relabels the return key, so without a ref to move the caret the
-  // athlete has to aim at the second field with the keyboard already up
-  // (carnet#353).
-  const passwordRef = useRef<TextInput>(null);
-
-  const handleLogin = async () => {
-    if (!validateForm()) return;
-
+  // The password is typed on the server's hosted page, never into the app
+  // (carnet#787, RFC 8252): this opens it in the system browser and redeems
+  // the code it returns with. A wrong password is answered on that page, so
+  // what reaches this screen is a refused sign-in or a code that would not
+  // redeem — named by the shared wording table the web uses, never with the
+  // server's English `error_description`.
+  const handleSignIn = async () => {
     setIsLoading(true);
     try {
-      await login(email.trim(), password);
-      // Navigation is handled by auth state change in root layout auth gating
-      // If user is pending, the auth guard redirects to PendingApproval screen
+      await signIn();
+      // Navigation is handled by auth state change in root layout auth gating.
+      // If the user is pending, the auth guard redirects to PendingApproval.
+      // A closed browser resolves false and shows nothing.
     } catch (error) {
-      // The same classifier the web form uses, keyed on the response's status
-      // and transport state, never on axios's English prose: a validation 400
-      // is not announced as a wrong password, a wrong password is named as one,
-      // and the body of this dialog is translated like its title. The prose
-      // match this replaces compared a translated string against axios's own
-      // "Network Error" (so that branch could never fire) and showed the raw
-      // error.message to the athlete. The Google path above was migrated for
-      // the same reason under carnet#207; this is the other half.
-      Alert.alert(t('app.loginFailedTitle'), describeLoginFailure(error, { t }));
+      const failure =
+        error instanceof SignInRefusedError
+          ? ({ kind: 'callback', error: error.code } as const)
+          : ({ kind: 'exchange', err: error } as const);
+      Alert.alert(t('app.loginFailedTitle'), describeSignInFailure(failure, { t }));
     } finally {
       setIsLoading(false);
     }
@@ -227,55 +202,27 @@ export function LoginScreen() {
                 </Text>
               </View>
 
-              {/* Login Form */}
+              {/* Sign-in actions. The email and password are entered on the
+                  server's hosted page the button opens. */}
               <View className="mb-2">
-                <Input
-                  label={t('common.email')}
-                  placeholder="you@example.com"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  error={errors.email}
-                  returnKeyType="next"
-                  onSubmitEditing={() => passwordRef.current?.focus()}
-                  blurOnSubmit={false}
-                  testID="email-input"
-                />
-
-                <Input
-                  ref={passwordRef}
-                  label={t('common.password')}
-                  placeholder={t('app.enterYourPassword')}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  showPasswordToggle
-                  returnKeyType="go"
-                  onSubmitEditing={handleLogin}
-                  error={errors.password}
-                  testID="password-input"
+                <Button
+                  title={t('auth.signInWithEmail')}
+                  onPress={handleSignIn}
+                  loading={isLoading}
+                  fullWidth
+                  style={submitButtonStyle}
+                  testID="login-button"
                 />
 
                 <TouchableOpacity
                   onPress={() => router.push('/(auth)/forgot-password')}
-                  className="self-end mb-2"
+                  className="self-center mt-3"
                   testID="forgot-password-link"
                 >
                   <Text className="text-sm font-medium" style={{ color: tokens.primary }}>
                     {t('app.forgotPasswordLink')}
                   </Text>
                 </TouchableOpacity>
-
-                <Button
-                  title={t('common.login')}
-                  onPress={handleLogin}
-                  loading={isLoading}
-                  fullWidth
-                  style={submitButtonStyle}
-                  testID="login-button"
-                />
 
                 {/* Google Sign-In - only show when Firebase is configured */}
                 {isFirebaseEnabled() && (

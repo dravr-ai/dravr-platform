@@ -9,6 +9,7 @@
 // - Arc clone for database manager creation
 
 use super::client_registration::ClientRegistrationManager;
+use super::first_party::{is_first_party, FirstPartyRedirects};
 use super::models::{
     AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
     OAuth2Error, TokenRequest, TokenResponse,
@@ -32,6 +33,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Access-token validation with refresh, `validate_and_refresh`
+mod first_party_code;
+pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
 
 /// Parameters for authorization code generation
@@ -77,6 +80,9 @@ pub struct OAuth2AuthorizationServer {
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
     resources: Vec<String>,
+    /// Where Dravr's own apps may receive a code; empty until
+    /// [`Self::with_first_party_redirects`] names it, which refuses them
+    first_party: FirstPartyRedirects,
 }
 
 impl OAuth2AuthorizationServer {
@@ -109,7 +115,16 @@ impl OAuth2AuthorizationServer {
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
             resources,
+            first_party: FirstPartyRedirects::default(),
         }
+    }
+
+    /// Serve Dravr's own web and mobile apps, sending their codes only where
+    /// `redirects` allows (carnet#787).
+    #[must_use]
+    pub fn with_first_party_redirects(mut self, redirects: FirstPartyRedirects) -> Self {
+        self.first_party = redirects;
+        self
     }
 
     /// The MCP resource identifiers, as the resource checks take them.
@@ -143,8 +158,15 @@ impl OAuth2AuthorizationServer {
                 AuthorizeRejection::ShownToUser(ClientRegistrationManager::lookup_refusal(&e))
             })?;
 
-        // Exact match against the client's registration (RFC 6749 Section 3.1.2.3).
-        if !client.redirect_uris.contains(&request.redirect_uri) {
+        // Exact match against the client's registration (RFC 6749 Section
+        // 3.1.2.3), or for Dravr's own apps against the deployment's policy.
+        let redirect_accepted = if is_first_party(&client.client_id) {
+            self.first_party
+                .accepts(&client.client_id, &request.redirect_uri)
+        } else {
+            client.redirect_uris.contains(&request.redirect_uri)
+        };
+        if !redirect_accepted {
             return Err(AuthorizeRejection::ShownToUser(
                 OAuth2Error::invalid_request("Invalid redirect_uri"),
             ));
@@ -284,6 +306,12 @@ impl OAuth2AuthorizationServer {
     /// # Errors
     /// Returns an error if client validation fails or token generation fails
     pub async fn token(&self, request: TokenRequest) -> Result<TokenResponse, OAuth2Error> {
+        // Dravr's own apps are public clients with no secret to present here;
+        // they redeem their codes at the first-party `/oauth/token` (carnet#787).
+        if is_first_party(&request.client_id) {
+            warn!(client_id = %request.client_id, "First-party client refused at the confidential-client token endpoint");
+            return Err(OAuth2Error::invalid_client());
+        }
         // ALWAYS validate client credentials for ALL grant types (RFC 6749 Section 6)
         // RFC 6749 §6 states: "If the client type is confidential or the client was issued
         // client credentials, the client MUST authenticate with the authorization server"

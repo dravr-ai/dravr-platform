@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for where a sign-in lands — Home for an athlete, by password or by Google, whatever page the last session ended on
+// ABOUTME: E2E for where a sign-in lands — Home for an athlete, by the hosted sign-in or by Google, whatever page the last session ended on
 // ABOUTME: A link the athlete followed while signed out still opens where it pointed; Firebase is served as a stub module
 
 import { test, expect, type Page } from '@playwright/test';
-import { APP_SHELL_TIMEOUT_MS, openGroups, openHome, setupDashboardMocks } from './test-helpers';
+import {
+  APP_SHELL_TIMEOUT_MS,
+  openGroups,
+  openHome,
+  setupDashboardMocks,
+  signInThroughHostedPage,
+  waitForLoginScreen,
+} from './test-helpers';
 
 const ATHLETE = {
   id: 'user-123',
@@ -68,14 +75,13 @@ async function mockAthlete(page: Page) {
   await page.route(/openfreemap\.org|arcgisonline\.com/, (route) => route.abort());
 }
 
-type SignInMethod = 'password' | 'google';
+/** `hosted`: the server's hosted sign-in round trip (carnet#787); `google`: the Firebase button. */
+type SignInMethod = 'hosted' | 'google';
 
 async function signIn(page: Page, method: SignInMethod) {
-  await page.waitForSelector('form', { timeout: APP_SHELL_TIMEOUT_MS });
-  if (method === 'password') {
-    await page.locator('input[name="email"]').fill(ATHLETE.email);
-    await page.locator('input[name="password"]').fill('password123');
-    await page.locator('form button[type="submit"]').first().click();
+  await waitForLoginScreen(page);
+  if (method === 'hosted') {
+    await signInThroughHostedPage(page);
   } else {
     await page.getByRole('button', { name: /continue with google/i }).click();
   }
@@ -85,14 +91,14 @@ async function signIn(page: Page, method: SignInMethod) {
 /** Signed in on Groups, then the session dies the way a 401 ends it. */
 async function sessionEndsOnGroups(page: Page) {
   await page.goto('/');
-  await signIn(page, 'password');
+  await signIn(page, 'hosted');
   await openGroups(page);
   await expect(page).toHaveURL(/#chat(\/|$)/);
   await page.evaluate(() => window.dispatchEvent(new Event('pierre:auth:failure')));
-  await expect(page.locator('input[name="email"]')).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+  await waitForLoginScreen(page);
 }
 
-for (const method of ['password', 'google'] as const) {
+for (const method of ['hosted', 'google'] as const) {
   test.describe(`Sign-in landing — ${method}`, () => {
     test(`a session that ended on Groups signs back in on Home (${method})`, async ({ page }) => {
       await mockAthlete(page);
@@ -109,7 +115,7 @@ for (const method of ['password', 'google'] as const) {
     test(`a reloaded tab whose session expired signs back in on Home (${method})`, async ({ page }) => {
       await mockAthlete(page);
       await page.goto('/');
-      await signIn(page, 'password');
+      await signIn(page, 'hosted');
       await openHome(page);
 
       // Overnight the cookie expired; the athlete comes back to the same tab.
@@ -143,7 +149,7 @@ test('a followed link survives a stale cached session and its sign-out', async (
     route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
   );
   await page.goto('/#settings');
-  await expect(page.locator('input[name="email"]')).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+  await waitForLoginScreen(page);
   expect(new URL(page.url()).hash).toBe('#settings');
 
   await signIn(page, 'google');

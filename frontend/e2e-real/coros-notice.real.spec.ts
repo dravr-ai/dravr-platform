@@ -5,6 +5,8 @@
 // ABOUTME: Never submits a COROS credential, so it records no consent and repeats on a seeded server
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { accessToken as firstPartyAccessToken } from './first-party-sign-in';
+import { signInThroughUi } from './ui-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Requires a live Pierre
 // server on 8081 and the SPA on 5173, seeded by
@@ -25,12 +27,7 @@ const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'DemoUser123!';
 
 async function signedIn(email = EMAIL, password = PASSWORD): Promise<APIRequestContext> {
   const bootstrap = await apiRequest.newContext({ baseURL: PIERRE_URL });
-  const token = await bootstrap.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username: email, password },
-  });
-  expect(token.ok(), `seeded login failed: ${token.status()} — re-run the setup script`).toBeTruthy();
-  const { access_token: accessToken } = await token.json();
+  const accessToken = await firstPartyAccessToken(bootstrap, email, password);
   await bootstrap.dispose();
   return apiRequest.newContext({
     baseURL: PIERRE_URL,
@@ -85,10 +82,7 @@ test.describe('COROS exposure notice — real backend (no mocks)', () => {
   });
 
   test('Settings → COROS shows its notice before the credentials and holds Log In', async ({ page }) => {
-    await page.goto(FRONTEND_URL);
-    await page.locator('input[name="email"]').fill(EMAIL);
-    await page.locator('input[name="password"]').fill(PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in/i }).click();
+    await signInThroughUi(page, FRONTEND_URL, EMAIL, PASSWORD);
 
     const openSettings = page.getByRole('button', { name: /open settings/i }).first();
     await openSettings.waitFor({ state: 'visible', timeout: 15_000 });

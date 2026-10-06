@@ -10,8 +10,12 @@
 #![recursion_limit = "256"]
 
 mod common;
+mod helpers;
 
 use anyhow::Result;
+use helpers::first_party_sign_in::{
+    authorize_uri, callback_param, fresh_state, FirstPartyClient, Pkce,
+};
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_cache::{Cache, CacheConfig};
@@ -264,17 +268,94 @@ impl MultiTenantMcpClient {
         Ok(user_id.to_string())
     }
 
-    /// Login and get JWT token via `OAuth2` ROPC endpoint
+    /// The `Location` of a redirect `response`, or the error naming `step`.
+    fn redirect_location(response: &reqwest::Response, step: &str) -> Result<String> {
+        if !response.status().is_redirection() {
+            return Err(anyhow::anyhow!(
+                "{step}: expected a redirect, got {}",
+                response.status()
+            ));
+        }
+        response
+            .headers()
+            .get("location")
+            .and_then(|location| location.to_str().ok())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| anyhow::anyhow!("{step}: redirect without a Location"))
+    }
+
+    /// Sign in as Dravr's web app does (carnet#787): `/oauth2/authorize`
+    /// sends the signed-out athlete to the hosted login page, the form signs
+    /// them in and returns to `/oauth2/authorize` with its session, which
+    /// sends the code to the app's callback; the code is redeemed with the
+    /// PKCE verifier at `/oauth/token`, whose response carries the session.
     async fn login(&mut self, email: &str, password: &str) -> Result<()> {
+        let client_id = FirstPartyClient::Web.client_id();
+        // create_test_config serves the default authorization-server config.
+        let redirect_uri = FirstPartyClient::Web.redirect_uri(&OAuth2ServerConfig::default());
+        let pkce = Pkce::generate();
+        let state = fresh_state();
+
+        let signed_out = self
+            .http_client
+            .get(format!(
+                "{}{}",
+                self.base_url,
+                authorize_uri(client_id, &redirect_uri, &pkce.challenge, &state)
+            ))
+            .send()
+            .await?;
+        let login_page = Self::redirect_location(&signed_out, "authorize")?;
+        if !login_page.starts_with("/oauth2/login?") {
+            return Err(anyhow::anyhow!(
+                "authorize sent the athlete to {login_page}"
+            ));
+        }
+
+        let form = self
+            .http_client
+            .post(format!("{}/oauth2/login", self.base_url))
+            .form(&[
+                ("response_type", "code"),
+                ("client_id", client_id),
+                ("redirect_uri", redirect_uri.as_str()),
+                ("code_challenge", pkce.challenge.as_str()),
+                ("code_challenge_method", "S256"),
+                ("state", state.as_str()),
+                ("email", email),
+                ("password", password),
+            ])
+            .send()
+            .await?;
+        let resume = Self::redirect_location(&form, "hosted login")?;
+        let session = form
+            .headers()
+            .get("set-cookie")
+            .and_then(|cookie| cookie.to_str().ok())
+            .and_then(|cookie| cookie.split(';').next())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| anyhow::anyhow!("the hosted login set no session"))?;
+
+        let authorized = self
+            .http_client
+            .get(format!("{}{resume}", self.base_url))
+            .header("cookie", session)
+            .send()
+            .await?;
+        let callback = Self::redirect_location(&authorized, "signed-in authorize")?;
+        let code = callback_param(&callback, &redirect_uri, "code")
+            .ok_or_else(|| anyhow::anyhow!("no code in the callback {callback}"))?;
+
         let response = timeout(
             Duration::from_secs(10),
             self.http_client
                 .post(format!("{}/oauth/token", self.base_url))
                 .form(&[
-                    ("grant_type", "password"),
-                    ("client_id", "dravr-web"),
-                    ("username", email),
-                    ("password", password),
+                    ("grant_type", "authorization_code"),
+                    ("client_id", client_id),
+                    ("code", code.as_str()),
+                    ("redirect_uri", redirect_uri.as_str()),
+                    ("code_verifier", pkce.verifier.as_str()),
                 ])
                 .send(),
         )

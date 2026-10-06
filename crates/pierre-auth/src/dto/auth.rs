@@ -252,27 +252,29 @@ pub struct LogoutRequest {
     pub refresh_token: Option<String>,
 }
 
-/// `OAuth2` token request for first-party clients — RFC 6749 §4.3 password
-/// grant and §6 refresh grant, form-encoded.
+/// `OAuth2` token request for first-party clients — RFC 6749 §4.1.3
+/// authorization-code grant (with RFC 7636 PKCE) and §6 refresh grant,
+/// form-encoded.
 ///
-/// `username` and `password` belong to the password grant and
+/// `code`, `redirect_uri` and `code_verifier` belong to the code grant and
 /// `refresh_token` to the refresh grant, so each is optional here and the
 /// handler requires the ones its grant needs.
 #[derive(Debug, Deserialize)]
 pub struct OAuth2TokenRequest {
-    /// Grant type - `password` for ROPC, `refresh_token` to exchange one
+    /// Grant type - `authorization_code` to redeem a first-party sign-in,
+    /// `refresh_token` to exchange one
     pub grant_type: String,
-    /// User's email address (RFC calls this "username")
-    pub username: Option<String>,
-    /// User's password
-    pub password: Option<String>,
+    /// The authorization code the hosted login page issued
+    pub code: Option<String>,
+    /// The `redirect_uri` the code was issued to, which it must match
+    pub redirect_uri: Option<String>,
+    /// The PKCE verifier of the challenge the code was issued for (RFC 7636)
+    pub code_verifier: Option<String>,
     /// The refresh token to exchange, for the `refresh_token` grant
     pub refresh_token: Option<String>,
-    /// `OAuth2` client identifier. The password grant requires one of Dravr's
-    /// own app identifiers (carnet#768); the refresh grant reads none.
+    /// `OAuth2` client identifier: one of Dravr's own apps for the
+    /// authorization-code grant (carnet#787); the refresh grant reads none.
     pub client_id: Option<String>,
-    /// `OAuth2` client secret (optional for public clients)
-    pub client_secret: Option<String>,
     /// Requested `OAuth2` scopes (optional, space-separated)
     pub scope: Option<String>,
 }

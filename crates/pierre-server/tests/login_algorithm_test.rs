@@ -10,7 +10,10 @@
 
 //! Login Algorithm Tests
 //!
-//! These tests exercise the login algorithm's internal logic, focusing on:
+//! These tests exercise the login algorithm's internal logic through the
+//! first-party sign-in (carnet#787): the password is checked on the hosted
+//! login page (`POST /oauth2/login`), and a sign-in it admits ends in the
+//! session `/oauth/token` mints for the app's authorization code. They focus on:
 //! - User status checks (Active, Pending, Suspended)
 //! - Password verification edge cases
 //! - `last_active` timestamp updates
@@ -20,7 +23,8 @@ mod common;
 mod helpers;
 
 use chrono::{Timelike, Utc};
-use helpers::axum_test::AxumTestRequest;
+use helpers::axum_test::AxumTestResponse;
+use helpers::first_party_sign_in::{SignIn, SignInOutcome};
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -28,7 +32,6 @@ use pierre_config::environment::{
 use pierre_core::models::{User, UserStatus};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
-use pierre_routes_auth::AuthRoutes;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -98,8 +101,10 @@ impl LoginAlgorithmTestSetup {
         })
     }
 
-    fn routes(&self) -> axum::Router {
-        AuthRoutes::routes(self.resources.auth_routes_context())
+    /// Sign `email` in with `password` the way Dravr's web app does: the
+    /// hosted login page, then the authorization code redeemed with PKCE.
+    async fn sign_in(&self, email: &str, password: &str) -> SignInOutcome {
+        SignIn::new(email, password).run(&self.resources).await
     }
 
     /// Create a user with a specific status and password
@@ -128,6 +133,25 @@ impl LoginAlgorithmTestSetup {
     }
 }
 
+/// The hosted login form's generic refusal: no session, and nothing that
+/// tells a wrong password from an unknown account.
+const GENERIC_REFUSAL: &str = "Invalid email or password";
+
+/// Assert the hosted login form refused the sign-in with its generic page,
+/// and set no session.
+fn assert_refused_generically(refused: &AxumTestResponse) {
+    assert_eq!(refused.status(), 401, "{}", refused.body_text());
+    assert!(
+        refused.body_text().contains(GENERIC_REFUSAL),
+        "{}",
+        refused.body_text()
+    );
+    assert!(
+        refused.header("set-cookie").is_none(),
+        "a refused sign-in never sets a session"
+    );
+}
+
 // ============================================================================
 // User Status Tests - Verify login behavior for different account states
 // ============================================================================
@@ -144,27 +168,7 @@ async fn test_login_active_user_succeeds() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(
-        response.status(),
-        200,
-        "Active user should be able to login"
-    );
-
-    let body: serde_json::Value = response.json();
+    let body = setup.sign_in(email, password).await.signed_in();
     assert!(body["access_token"].is_string());
     assert_eq!(body["user"]["email"].as_str(), Some(email));
 }
@@ -184,28 +188,9 @@ async fn test_login_pending_user_succeeds_with_status_in_response() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // Pending users can authenticate - access control is handled by frontend
-    assert_eq!(
-        response.status(),
-        200,
-        "Pending user should be able to authenticate (frontend handles access control)"
-    );
-
-    let body: serde_json::Value = response.json();
+    // Pending users authenticate: the hosted form admits them, /oauth2/authorize
+    // issues the app its code, and access control is the frontend's.
+    let body = setup.sign_in(email, password).await.signed_in();
 
     // Verify the user_status is returned so frontend can act on it
     let user_status = body["user"]["user_status"]
@@ -222,8 +207,8 @@ async fn test_login_pending_user_succeeds_with_status_in_response() {
 
 #[tokio::test]
 async fn test_login_suspended_user_is_rejected() {
-    // Suspended users are blocked at login — the /oauth/token endpoint returns
-    // 400 with OAuth2 "access_denied" error (RFC 6749 format).
+    // Suspended users are blocked at sign-in: the hosted login form refuses
+    // them with a page that says why, and no session or code is issued.
     let setup = LoginAlgorithmTestSetup::new().await.expect("Setup failed");
 
     let email = "suspended@example.com";
@@ -234,37 +219,25 @@ async fn test_login_suspended_user_is_rejected() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
+    let refused = setup.sign_in(email, password).await.login_refused();
 
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(
-        response.status(),
-        400,
-        "Suspended user should be rejected via OAuth2 error format"
-    );
-
-    let body: serde_json::Value = response.json();
-    let oauth_error = body["error"].as_str().unwrap_or_default();
-    assert_eq!(
-        oauth_error, "access_denied",
-        "OAuth2 error should be access_denied for suspended users, got: {oauth_error}"
-    );
-
-    let description = body["error_description"].as_str().unwrap_or_default();
     assert!(
-        description.contains("suspended"),
-        "Error description should mention suspension, got: {description}"
+        refused.status() >= 400,
+        "Suspended user should be refused, got {}",
+        refused.status()
+    );
+    assert!(
+        refused.header("set-cookie").is_none(),
+        "a suspended account gets no session"
+    );
+    let page = refused.body_text();
+    assert!(
+        !page.contains(GENERIC_REFUSAL),
+        "A suspended account's right password is not called wrong, got: {page}"
+    );
+    assert!(
+        page.to_lowercase().contains("suspended"),
+        "The refusal should mention suspension, got: {page}"
     );
 }
 
@@ -284,20 +257,7 @@ async fn test_login_correct_password_succeeds() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
+    let response = setup.sign_in(email, password).await.token();
     assert_eq!(response.status(), 200, "Correct password should succeed");
 }
 
@@ -314,26 +274,9 @@ async fn test_login_wrong_password_fails() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", wrong_password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // OAuth2 ROPC returns 400 with invalid_grant for bad credentials
-    assert_eq!(
-        response.status(),
-        400,
-        "Wrong password should fail with 400"
-    );
+    // The hosted login form refuses a wrong password; no code reaches the app.
+    let refused = setup.sign_in(email, wrong_password).await.login_refused();
+    assert_refused_generically(&refused);
 }
 
 #[tokio::test]
@@ -348,21 +291,12 @@ async fn test_login_empty_password_fails() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", ""),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_ne!(response.status(), 200, "Empty password should not succeed");
+    let refused = setup.sign_in(email, "").await.login_refused();
+    assert_ne!(refused.status(), 200, "Empty password should not succeed");
+    assert!(
+        refused.header("set-cookie").is_none(),
+        "an empty password gets no session"
+    );
 }
 
 #[tokio::test]
@@ -378,26 +312,12 @@ async fn test_login_case_sensitive_password() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    // Try with wrong case
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", wrong_case_password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(
-        response.status(),
-        400,
-        "Password verification should be case-sensitive"
-    );
+    // Password verification is case-sensitive
+    let refused = setup
+        .sign_in(email, wrong_case_password)
+        .await
+        .login_refused();
+    assert_refused_generically(&refused);
 }
 
 #[tokio::test]
@@ -412,20 +332,7 @@ async fn test_login_unicode_password() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
+    let response = setup.sign_in(email, password).await.token();
     assert_eq!(
         response.status(),
         200,
@@ -456,20 +363,7 @@ async fn test_login_updates_last_active_timestamp() {
     // Delay to ensure timestamp difference across second boundary
     sleep(Duration::from_millis(1100)).await;
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
+    let response = setup.sign_in(email, password).await.token();
     assert_eq!(response.status(), 200);
 
     // Fetch the updated user from database
@@ -516,22 +410,9 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Small delay
     sleep(Duration::from_millis(10)).await;
 
-    let routes = setup.routes();
-
     // Attempt login with wrong password
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", "wrongPassword"),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 400, "Login should fail");
+    let refused = setup.sign_in(email, "wrongPassword").await.login_refused();
+    assert_refused_generically(&refused);
 
     // Verify timestamp was NOT updated
     let after_user = setup
@@ -567,74 +448,42 @@ async fn test_nonexistent_user_error_matches_wrong_password_error() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
     // Try login with nonexistent user
-    let nonexistent_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", nonexistent_email),
-        ("password", password),
-    ];
-
-    let nonexistent_response = AxumTestRequest::post("/oauth/token")
-        .form(&nonexistent_request)
-        .send(routes.clone())
-        .await;
+    let nonexistent = setup
+        .sign_in(nonexistent_email, password)
+        .await
+        .login_refused();
 
     // Try login with existing user but wrong password
-    let wrong_pw_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", existing_email),
-        ("password", "wrongPassword"),
-    ];
-
-    let wrong_pw_response = AxumTestRequest::post("/oauth/token")
-        .form(&wrong_pw_request)
-        .send(routes)
-        .await;
+    let wrong_pw = setup
+        .sign_in(existing_email, "wrongPassword")
+        .await
+        .login_refused();
 
     // Both should return the same status code
     assert_eq!(
-        nonexistent_response.status(),
-        wrong_pw_response.status(),
+        nonexistent.status(),
+        wrong_pw.status(),
         "Nonexistent user and wrong password should return same status code"
     );
 
-    // Parse error responses
-    let nonexistent_body: serde_json::Value = nonexistent_response.json();
-    let wrong_pw_body: serde_json::Value = wrong_pw_response.json();
+    // Both pages carry the same generic message, so neither tells the two apart
+    assert_refused_generically(&nonexistent);
+    assert_refused_generically(&wrong_pw);
 
-    // Error types should be the same
+    // The pages differ only in the authorization request they echo back
+    // (state and PKCE challenge are fresh per sign-in), never in the message.
+    let message = |page: &str| {
+        page.lines()
+            .filter(|line| line.contains(GENERIC_REFUSAL))
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     assert_eq!(
-        nonexistent_body["error"], wrong_pw_body["error"],
-        "Error types should match to prevent user enumeration"
-    );
-
-    // Error descriptions should be identical or similarly vague
-    let nonexistent_desc = nonexistent_body["error_description"]
-        .as_str()
-        .unwrap_or_default();
-    let wrong_pw_desc = wrong_pw_body["error_description"]
-        .as_str()
-        .unwrap_or_default();
-
-    // Both should be generic "invalid credentials" type messages
-    assert!(
-        nonexistent_desc.to_lowercase().contains("invalid")
-            || nonexistent_desc
-                .to_lowercase()
-                .contains("email or password"),
-        "Nonexistent user error should be generic: {}",
-        nonexistent_desc
-    );
-
-    assert!(
-        wrong_pw_desc.to_lowercase().contains("invalid")
-            || wrong_pw_desc.to_lowercase().contains("email or password"),
-        "Wrong password error should be generic: {}",
-        wrong_pw_desc
+        message(&nonexistent.body_text()),
+        message(&wrong_pw.body_text()),
+        "Error messages should match to prevent user enumeration"
     );
 }
 
@@ -650,38 +499,21 @@ async fn test_error_does_not_reveal_user_exists() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
     // Try login with wrong password
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", "wrongPassword"),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    let body: serde_json::Value = response.json();
-    let error_desc = body["error_description"]
-        .as_str()
-        .unwrap_or_default()
-        .to_lowercase();
+    let refused = setup.sign_in(email, "wrongPassword").await.login_refused();
+    let page = refused.body_text().to_lowercase();
 
     // Should NOT contain phrases that reveal the user exists
     assert!(
-        !error_desc.contains("user exists"),
+        !page.contains("user exists"),
         "Error should not reveal user exists"
     );
     assert!(
-        !error_desc.contains("password incorrect"),
+        !page.contains("password incorrect"),
         "Error should not specifically mention password is wrong"
     );
     assert!(
-        !error_desc.contains("wrong password"),
+        !page.contains("wrong password"),
         "Error should not specifically mention wrong password"
     );
 }
@@ -702,25 +534,14 @@ async fn test_login_with_whitespace_in_email() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
     // Try login with leading/trailing whitespace in email
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", " whitespace@example.com "),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
+    let body = setup
+        .sign_in(" whitespace@example.com ", password)
+        .await
+        .signed_in();
 
     // An email is compared in its normalized form, so surrounding
     // whitespace does not stop the account's own address from signing in.
-    assert_eq!(response.status(), 200, "the trimmed address signs in");
-    let body: serde_json::Value = response.json();
     assert_eq!(body["user"]["email"], "whitespace@example.com", "{body}");
 }
 
@@ -736,25 +557,12 @@ async fn test_login_case_insensitive_email() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    // Try login with different case
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", "casemixed@example.com"),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
     // Emails are case-insensitive: the account registered as
     // `CaseMixed@Example.COM` is stored lowercase and signs in in any casing.
-    assert_eq!(response.status(), 200, "another casing signs in");
-    let body: serde_json::Value = response.json();
+    let body = setup
+        .sign_in("casemixed@example.com", password)
+        .await
+        .signed_in();
     assert_eq!(body["user"]["user_id"], user.id.to_string(), "{body}");
     assert_eq!(body["user"]["email"], "casemixed@example.com", "{body}");
 }
@@ -771,49 +579,20 @@ async fn test_multiple_failed_logins_same_user() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
     // Attempt multiple failed logins
     for i in 0..5 {
-        let login_request = [
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", email),
-            ("password", "wrongPassword"),
-        ];
-
-        let response = AxumTestRequest::post("/oauth/token")
-            .form(&login_request)
-            .send(routes.clone())
-            .await;
-
-        assert_eq!(
-            response.status(),
-            400,
-            "Attempt {} should fail with 400",
-            i + 1
-        );
+        let refused = setup.sign_in(email, "wrongPassword").await.login_refused();
+        assert_eq!(refused.status(), 401, "Attempt {} should fail", i + 1);
     }
 
-    // After multiple failures, a correct login should still work
-    // (unless rate limiting kicks in, which is a separate concern)
-    let correct_login = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&correct_login)
-        .send(routes)
-        .await;
-
-    // Should succeed (or be rate limited with 429)
-    assert!(
-        response.status() == 200 || response.status() == 429,
-        "Correct password should succeed (or be rate limited), got {}",
-        response.status()
+    // Five refusals stay inside the account's window of refused passwords
+    // (PASSWORD_LOGIN_ACCOUNT_RPM = 10), so the right password still signs in.
+    let response = setup.sign_in(email, password).await.token();
+    assert_eq!(
+        response.status(),
+        200,
+        "Correct password should succeed after failures inside the window: {}",
+        response.body_text()
     );
 }
 
@@ -829,23 +608,7 @@ async fn test_login_response_contains_required_fields() {
         .await
         .expect("Failed to create user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email),
-        ("password", password),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
+    let body = setup.sign_in(email, password).await.signed_in();
 
     // OAuth2 required fields
     assert!(

@@ -1,5 +1,5 @@
-# ABOUTME: Test successful login with valid credentials
-# ABOUTME: Converted from login.test.js "should login successfully with valid credentials"
+# ABOUTME: Test successful sign-in with valid credentials on the server's hosted login page
+# ABOUTME: The app opens the page in the system browser, redeems the returned code, and lands on Home
 # ABOUTME: NOTE: This test requires the Dravr backend server running with test user
 
 appId: ai.dravr.app
@@ -9,40 +9,22 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/launch-app.yaml
 
-# Enter test credentials (hardcoded to match CI user seed).
-# Fields are empty after fresh launch, no eraseText needed.
-- tapOn:
-    id: "email-input"
-- inputText: "mobiletest@pierre.dev"
-
-# Dismiss keyboard by tapping header area. hideKeyboard fails in Expo Go v55.
-# Needed on Android where keyboard covers the password field.
-- tapOn:
-    point: "50%,20%"
-
-- tapOn:
-    id: "password-input"
-- inputText: "MobileTest1234"
-
-# Dismiss keyboard before tapping login button to ensure it's fully visible.
-- tapOn:
-    point: "50%,20%"
-
-# Tap the Sign In button (testID="login-button" on Button component).
-# The submit control sits below the fold on a short screen — CI's emulator is
-# shorter than a Pixel 6 and could not find login-button at all (2026-09-06,
-# 8 of 10 critical flows). Scroll to it the way a user would rather than
-# assuming it is on screen.
-- scrollUntilVisible:
-    element:
-      id: "login-button"
-    direction: DOWN
-    timeout: 20000
-- tapOn:
-    id: "login-button"
+# Sign in on the server's hosted page in the system browser (carnet#787),
+# with the credentials of the CI user seed. The app then redeems the code the
+# page returns with. A Chrome Custom Tab already signed in to the server
+# returns without showing the page, so the form is filled only when it is up.
+- runFlow:
+    file: ../helpers/open-hosted-sign-in.yaml
+- runFlow:
+    when:
+      visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+    file: ../helpers/submit-hosted-sign-in.yaml
+    env:
+      EMAIL: "mobiletest@pierre.dev"
+      PASSWORD: "MobileTest1234"
 
 # After successful login, should navigate away from login screen.
-# 45s timeout accounts for slow CI servers (login API can take 20s+).
+# 45s timeout accounts for slow CI servers (sign-in can take 20s+).
 - extendedWaitUntil:
     notVisible:
       id: "login-screen"

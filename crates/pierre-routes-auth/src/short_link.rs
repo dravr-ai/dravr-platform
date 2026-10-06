@@ -20,6 +20,7 @@ use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use pierre_core::html::HOSTED_PAGE_CSS;
+use pierre_core::models::locale_from_accept_language;
 use tracing::warn;
 
 use crate::AuthRoutesContext;
@@ -27,30 +28,13 @@ use crate::AuthRoutesContext;
 /// Pick the page locale from the browser's `Accept-Language` header.
 ///
 /// A page with no verified user has no stored locale to read — this redirect,
-/// and a hosted connect page whose link-token is missing or invalid; the
-/// primary subtag of the first accepted language is mapped to one of the five
-/// supported locales, defaulting to French (the platform is French-first) for
-/// `fr` and anything unrecognized.
+/// and a hosted connect page whose link-token is missing or invalid.
 pub fn preferred_locale(headers: &HeaderMap) -> &'static str {
-    let primary = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(',')
-        .next()
-        .unwrap_or("")
-        .split(['-', ';'])
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    match primary.as_str() {
-        "en" => "en",
-        "es" => "es",
-        "de" => "de",
-        "pt" => "pt",
-        _ => "fr",
-    }
+    locale_from_accept_language(
+        headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|value| value.to_str().ok()),
+    )
 }
 
 /// Render the localized expired/unknown-code page on the shared Boreal sheet.

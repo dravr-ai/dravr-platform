@@ -125,9 +125,10 @@ jobs:
           ./target/debug/pierre-cli user create \
             --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
 
-          PIERRE_ADMIN_TOKEN="$(curl -s -X POST http://localhost:8081/oauth/token \
-            -H 'Content-Type: application/x-www-form-urlencoded' \
-            -d "grant_type=password&client_id=dravr-web&username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
+          # Sign in as the mobile app does: hosted login page, authorization
+          # code, PKCE (the password grant is gone, carnet#787).
+          PIERRE_ADMIN_TOKEN="$(printf '%s\n' "$ADMIN_PASSWORD" \
+            | scripts/auth/first-party-sign-in.sh http://localhost:8081 "$ADMIN_EMAIL" - \
             | jq -r '.access_token // empty')"
           if [ -z "$PIERRE_ADMIN_TOKEN" ]; then
             echo "::error::Failed to mint an admin token for SDK type generation"

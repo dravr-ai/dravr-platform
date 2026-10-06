@@ -5,6 +5,7 @@
 // ABOUTME: Guards the omission of usage_count/permissions that crashed the token detail panel.
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
+import { accessToken } from './first-party-sign-in';
 
 // Opt-in real-server spec (`bun run test:e2e:real`). Requires a live Pierre
 // server on 8081 seeded by ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh.
@@ -25,17 +26,7 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'AdminPassword123';
 
 async function adminToken(ctx: APIRequestContext): Promise<string> {
-  const resp = await ctx.post('/oauth/token', {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'password', client_id: 'dravr-web', username: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  });
-  expect(
-    resp.ok(),
-    `admin login failed for ${ADMIN_EMAIL} (${resp.status()}). Source .envrc — ` +
-      'ADMIN_EMAIL/ADMIN_PASSWORD override the defaults.',
-  ).toBe(true);
-  const body = await resp.json();
-  return body.access_token;
+  return accessToken(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
 }
 
 test.describe('admin token list contract — real backend (no mocks)', () => {

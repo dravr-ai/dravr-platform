@@ -61,6 +61,27 @@ export function markCurrentSessionRoute(): void {
 }
 
 /**
+ * The followed link still waiting for a session, if any. The hosted sign-in is
+ * a full-page round trip that returns to `/auth/callback` with no hash, so the
+ * sign-in keeps this beside its PKCE verifier and puts it back on return.
+ */
+export function peekDeepLink(): string | null {
+  return pendingDeepLink;
+}
+
+/**
+ * Put a followed link back in the address bar after the hosted sign-in's round
+ * trip, as the followed link it was (unmarked, so the dashboard opens it), and
+ * hold it as pending until the session that is being established shows it.
+ * With no link, the address bar is left at the app root and the dashboard
+ * resolves the role default.
+ */
+export function restoreDeepLink(route: string | null): void {
+  pendingDeepLink = route;
+  window.history.replaceState(null, '', route ? `/#${route}` : '/');
+}
+
+/**
  * A session has been established and the dashboard it opens has read the
  * followed link: it is spent, and a later sign-out must not replay it.
  */

@@ -255,6 +255,10 @@ jobs:
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The route request's own bound, shortened as the web e2e-real lane does.
           PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
+          # The app signs in on the hosted login page and returns to
+          # exp://<host>:8082/--/auth/callback inside Expo Go, an address the
+          # server sends dravr-mobile's code to only with this set (carnet#787).
+          OAUTH_ALLOW_EXPO_GO_REDIRECT: "true"
 
       - name: Seed test user for Maestro tests
         run: |
@@ -392,17 +396,17 @@ jobs:
           # server log is now uploaded on failure so the next look can confirm this
           # rather than infer it.
           # visual/01-authentication was deleted (Boreal v2.2 Phase 6): its render checks
-          # are now covered by visual/00-capture.yaml, and its behavioral assertions live
+          # are now covered by visual/00-capture.yaml, and its behavioral assertion lives
           # in login/07-invalid-credentials.yaml — wrong credentials keep the athlete on
-          # the login screen, and the password field stays visible while typed into. The
-          # second is the check carnet#353 (keyboard covering the field on a short screen)
-          # made fail; FormScrollView fixed it, and login/07 is here to keep it fixed.
+          # the login screen. The password is typed on the server's hosted page now
+          # (carnet#787), so login/02 opens that page and closes it, login/06 signs in
+          # on it and login/07 is refused by it.
           echo "Running critical-path subset with per-test retry..."
           # home-sync/01 runs last: it connects the shared Maestro athlete's Strava
           # through the scraper double, and each of its attempts resets that
           # athlete's activity state before it starts. Its copy assertions accept
           # English and French, so the chrome's language does not decide it.
-          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
 
           # The list is unconditional now, so an empty one means someone edited it to
           # nothing — which under the guard below would silently report a green run of

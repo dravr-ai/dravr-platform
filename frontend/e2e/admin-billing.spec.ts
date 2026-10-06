@@ -5,7 +5,7 @@
 // ABOUTME: Regression-pins: Usage Card must coexist with Impersonate button; admin /api/admin/users/{id}/usage path.
 
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { applyTestStubs } from './test-helpers';
+import { applyTestStubs, signInThroughHostedPage } from './test-helpers';
 
 async function loginAsSuperAdminWithUsers(page: Page) {
   await applyTestStubs(page);
@@ -183,10 +183,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
   });
 
   await page.goto('/');
-  await page.waitForSelector('form');
-  await page.locator('input[name="email"]').fill('superadmin@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
   // Login.tsx has its own "Dravr" splash text — gate on <nav> which is dashboard-exclusive.
   await page.waitForSelector('nav', { timeout: 10000 });
   await page.waitForTimeout(300);

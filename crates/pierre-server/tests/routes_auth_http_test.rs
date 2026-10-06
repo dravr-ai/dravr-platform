@@ -18,6 +18,9 @@ mod helpers;
 
 use chrono::{DateTime, Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::{
+    first_party_router, redeem, FirstPartyClient, SignIn, DEFAULT_PEER,
+};
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -315,22 +318,14 @@ async fn test_login_success() {
         .await
         .expect("Failed to create test user");
 
-    let routes = setup.routes();
+    // The web app's sign-in: hosted login page, then the code redeemed with PKCE
+    // ("password123" is create_test_user's default password).
+    let response = SignIn::new(&user.email, "password123")
+        .run(&setup.resources)
+        .await
+        .token();
 
-    // OAuth2 ROPC uses form-encoded data
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", &user.email),
-        ("password", "password123"), // Default password from create_test_user
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 200);
+    assert_eq!(response.status(), 200, "{}", response.body_text());
 
     let body: serde_json::Value = response.json();
     assert!(body["access_token"].is_string());
@@ -343,45 +338,28 @@ async fn test_login_success() {
 #[tokio::test]
 async fn test_login_no_auth_required() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
 
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", "user@example.com"),
-        ("password", "password123"),
-    ];
-
-    // Login should work without authentication header
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // Should fail due to wrong credentials (401) but not require auth header
-    // If it returns 401, it's because credentials are wrong, not missing auth
-    assert_ne!(response.status(), 500);
+    // The sign-in needs no authentication header: an unknown account is
+    // refused for its credentials by the hosted login form, never for a
+    // missing header and never with a server error.
+    let refused = SignIn::new("user@example.com", "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401, "{}", refused.body_text());
 }
 
 #[tokio::test]
 async fn test_login_invalid_credentials() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
 
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", "nonexistent@example.com"),
-        ("password", "wrongpassword"),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // OAuth2 ROPC returns 400 with "invalid_grant" error for bad credentials (RFC 6749 Section 5.2)
-    assert_eq!(response.status(), 400);
+    // The hosted login form refuses bad credentials; no code reaches the app.
+    let refused = SignIn::new("nonexistent@example.com", "wrongpassword")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401);
+    assert!(refused.header("set-cookie").is_none());
 }
 
 #[tokio::test]
@@ -393,22 +371,13 @@ async fn test_login_wrong_password() {
         .await
         .expect("Failed to create test user");
 
-    let routes = setup.routes();
-
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", user.email.as_str()),
-        ("password", "wrongpassword"),
-    ];
-
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // OAuth2 ROPC returns 400 with "invalid_grant" error for bad credentials (RFC 6749 Section 5.2)
-    assert_eq!(response.status(), 400);
+    // The hosted login form refuses a wrong password; no code reaches the app.
+    let refused = SignIn::new(&user.email, "wrongpassword")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401);
+    assert!(refused.header("set-cookie").is_none());
 }
 
 #[tokio::test]
@@ -416,12 +385,8 @@ async fn test_login_missing_fields() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    // Missing password field
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", "user@example.com"),
-    ];
+    // A form the token request type cannot read at all: no grant_type
+    let login_request = [("client_id", "dravr-web"), ("code", "some-code")];
 
     let response = AxumTestRequest::post("/oauth/token")
         .form(&login_request)
@@ -445,19 +410,12 @@ async fn test_login_missing_fields() {
 /// Log the shared test user in the way the mobile app does — asking for a
 /// refresh token — and return the JSON body.
 async fn login_with_offline_access(setup: &AuthTestSetup, email: &str) -> serde_json::Value {
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-mobile"),
-        ("username", email),
-        ("password", "password123"),
-        ("scope", "offline_access"),
-    ];
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(setup.routes())
-        .await;
-    assert_eq!(response.status(), 200);
-    response.json()
+    SignIn::new(email, "password123")
+        .client(FirstPartyClient::Mobile)
+        .offline_access()
+        .run(&setup.resources)
+        .await
+        .signed_in()
 }
 
 /// Exchange a refresh token at the token endpoint.
@@ -498,19 +456,10 @@ async fn test_login_without_offline_access_returns_no_refresh_token() {
         .await
         .expect("Failed to create test user");
 
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", user.email.as_str()),
-        ("password", "password123"),
-    ];
-    let response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(setup.routes())
-        .await;
-    assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
+    let body = SignIn::new(&user.email, "password123")
+        .run(&setup.resources)
+        .await
+        .signed_in();
     assert!(body["access_token"].is_string());
     // The web app never asked, so nothing exchangeable was written for it.
     assert!(body.get("refresh_token").is_none());
@@ -753,8 +702,8 @@ async fn test_refresh_grant_without_token_is_invalid_request() {
     assert_eq!(body["error"].as_str(), Some("invalid_request"));
 }
 
-/// Post a password grant with the right credentials and `client_id`
-/// (omitted when `None`), returning the status and body.
+/// Post a password grant with `client_id` (omitted when `None`), returning
+/// the status and body.
 async fn password_grant_as(
     setup: &AuthTestSetup,
     email: &str,
@@ -777,37 +726,71 @@ async fn password_grant_as(
     (status, response.json())
 }
 
-/// The password grant mints a first-party session, so it is served to
-/// Dravr's own apps only (carnet#768): a caller that names no client walks
-/// away with nothing, whatever it knows of the athlete's password.
+/// The password grant is not served (carnet#787, RFC 9700 §2.4): not to
+/// Dravr's own apps, not to anyone. Whatever the caller knows of the
+/// athlete's password, it walks away with nothing, and the answer is the
+/// same whether the password is right, wrong or names no account — so the
+/// endpoint is no password oracle either.
 #[tokio::test]
-async fn test_password_grant_without_client_id_is_invalid_client() {
+async fn test_password_grant_is_unsupported_for_every_client() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
     let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
-    let (status, body) = password_grant_as(&setup, &user.email, "password123", None).await;
+    for client_id in [
+        Some("dravr-web"),
+        Some("dravr-mobile"),
+        Some("my-mcp-client"),
+        None,
+    ] {
+        let (status, right) =
+            password_grant_as(&setup, &user.email, "password123", client_id).await;
+        assert_eq!(status, 400, "client_id {client_id:?}: {right}");
+        assert_eq!(
+            right["error"].as_str(),
+            Some("unsupported_grant_type"),
+            "client_id {client_id:?}: {right}"
+        );
+        assert!(
+            right["access_token"].is_null(),
+            "no session minted: {right}"
+        );
+        assert!(
+            right["refresh_token"].is_null(),
+            "no refresh token: {right}"
+        );
 
-    assert_eq!(status, 400, "{body}");
-    assert_eq!(body["error"].as_str(), Some("invalid_client"), "{body}");
-    assert!(body["access_token"].is_null(), "no session minted: {body}");
-    assert!(body["refresh_token"].is_null(), "no refresh token: {body}");
+        let (_, wrong) =
+            password_grant_as(&setup, &user.email, "not-the-password", client_id).await;
+        let (_, unknown) =
+            password_grant_as(&setup, "nobody@example.com", "password123", client_id).await;
+        assert_eq!(right, wrong, "client_id {client_id:?}");
+        assert_eq!(right, unknown, "client_id {client_id:?}");
+    }
 }
 
-/// A client id that is not one of Dravr's own apps is refused the same way —
-/// an MCP client or script authorizes through OAuth or uses an API key.
+/// The authorization-code grant at `/oauth/token` mints a first-party
+/// session, so it serves Dravr's own apps only: any other client id — an
+/// MCP client, an empty one, a near-miss spelling — is `invalid_client`
+/// before the code is looked at.
 #[tokio::test]
-async fn test_password_grant_with_an_unknown_client_id_is_invalid_client() {
+async fn test_code_grant_with_an_unknown_client_id_is_invalid_client() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let (_, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
+    let router = first_party_router(&setup.resources, DEFAULT_PEER);
 
     for client_id in ["my-mcp-client", "", "DRAVR-WEB", "dravr-web "] {
-        let (status, body) =
-            password_grant_as(&setup, &user.email, "password123", Some(client_id)).await;
-        assert_eq!(status, 400, "client_id {client_id:?}: {body}");
+        let response = redeem(
+            router.clone(),
+            client_id,
+            "some-code",
+            "dravr://auth/callback",
+            Some("a-verifier-that-is-long-enough-to-be-a-real-pkce-verifier-0123"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), 401, "client_id {client_id:?}");
+        let body: serde_json::Value = response.json();
         assert_eq!(
             body["error"].as_str(),
             Some("invalid_client"),
@@ -820,52 +803,33 @@ async fn test_password_grant_with_an_unknown_client_id_is_invalid_client() {
     }
 }
 
-/// The client is checked before the password: an unbound caller learns
-/// nothing about the account, so a wrong password and an unknown account
-/// answer it exactly as the right password does.
-#[tokio::test]
-async fn test_password_grant_refuses_the_client_before_reading_the_password() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let (_, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
-
-    let (_, right) = password_grant_as(&setup, &user.email, "password123", None).await;
-    let (_, wrong) = password_grant_as(&setup, &user.email, "not-the-password", None).await;
-    let (_, unknown) = password_grant_as(&setup, "nobody@example.com", "password123", None).await;
-
-    assert_eq!(right, wrong);
-    assert_eq!(right, unknown);
-}
-
 /// Both first-party apps are served.
 #[tokio::test]
-async fn test_password_grant_serves_both_first_party_apps() {
+async fn test_sign_in_serves_both_first_party_apps() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
     let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
-    for client_id in ["dravr-web", "dravr-mobile"] {
-        let (status, body) =
-            password_grant_as(&setup, &user.email, "password123", Some(client_id)).await;
-        assert_eq!(status, 200, "client_id {client_id}: {body}");
-        assert!(
-            body["access_token"].is_string(),
-            "client_id {client_id}: {body}"
-        );
+    for client in [FirstPartyClient::Web, FirstPartyClient::Mobile] {
+        let body = SignIn::new(&user.email, "password123")
+            .client(client)
+            .run(&setup.resources)
+            .await
+            .signed_in();
+        assert!(body["access_token"].is_string(), "{client:?}: {body}");
     }
 }
 
 #[tokio::test]
-async fn test_password_grant_without_credentials_is_invalid_request() {
+async fn test_code_grant_without_a_code_is_invalid_request() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     let response = AxumTestRequest::post("/oauth/token")
         .form(&[
-            ("grant_type", "password"),
+            ("grant_type", "authorization_code"),
             ("client_id", "dravr-web"),
-            ("username", "user@example.com"),
+            ("redirect_uri", "http://localhost:8081/auth/callback"),
         ])
         .send(setup.routes())
         .await;
@@ -920,7 +884,7 @@ async fn test_all_auth_endpoints_registered() {
     // Test that all endpoints are registered (not 404)
     let endpoints = vec![
         ("/api/auth/register", "POST"),
-        ("/oauth/token", "POST"), // OAuth2 ROPC replaces /api/auth/login
+        ("/oauth/token", "POST"), // The apps' code + refresh grants (carnet#787)
         ("/api/auth/logout", "POST"),
         ("/api/providers", "GET"),
     ];
@@ -953,8 +917,6 @@ async fn test_register_and_login_flow() {
         .create_admin_token()
         .await
         .expect("Failed to create admin token");
-    let routes = setup.routes();
-
     // Step 1: Register a new user (with admin auth)
     let email = format!("flowtest{}@example.com", uuid::Uuid::new_v4());
     let password = "securePassword123";
@@ -968,7 +930,7 @@ async fn test_register_and_login_flow() {
     let register_response = AxumTestRequest::post("/api/auth/register")
         .header("Authorization", &format!("Bearer {}", admin_token))
         .json(&register_request)
-        .send(routes.clone())
+        .send(setup.routes())
         .await;
 
     // Registration might fail in some test scenarios, so we'll be flexible
@@ -976,22 +938,16 @@ async fn test_register_and_login_flow() {
         return;
     }
 
-    // Step 2: Login with the registered credentials using OAuth2 ROPC
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", password),
-    ];
-
-    let login_response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes)
-        .await;
-
-    // Login might fail if user needs approval, so we'll check both scenarios
-    assert!(
-        login_response.status() == 200 || login_response.status() == 403,
-        "Login should either succeed or be forbidden due to pending approval"
+    // Step 2: Sign in with the registered credentials through the hosted
+    // login page, as the web app does. A pending account signs in too (the
+    // app shows it the approval it awaits), so the sign-in succeeds either way.
+    let body = SignIn::new(&email, password)
+        .run(&setup.resources)
+        .await
+        .signed_in();
+    assert_eq!(
+        body["user"]["email"].as_str(),
+        Some(email.as_str()),
+        "{body}"
     );
 }

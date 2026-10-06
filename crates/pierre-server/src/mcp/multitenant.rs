@@ -510,6 +510,7 @@ impl ProviderToolRouter {
                 csrf_manager: resources.auth.csrf_manager.clone(),
                 accounts: resources.oauth2_accounts(),
                 google_sign_in: resources.oauth2_google_sign_in(),
+                strings: resources.mcp.messaging_strings_registry.clone(),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };

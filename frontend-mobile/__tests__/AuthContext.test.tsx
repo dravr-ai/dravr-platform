@@ -1,10 +1,11 @@
 // ABOUTME: Unit tests for AuthContext
-// ABOUTME: Tests session restore and renewal on launch, login, logout, and registration
+// ABOUTME: Tests session restore and renewal on launch, hosted sign-in, logout, and registration
 
 import React from 'react';
 import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-native';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
+import * as WebBrowser from 'expo-web-browser';
 import { authApi, onAuthFailure } from '../src/services/api';
 
 // Mock the api service
@@ -13,7 +14,8 @@ jest.mock('../src/services/api', () => ({
     initializeAuth: jest.fn(),
     getStoredUser: jest.fn(),
     getSession: jest.fn(),
-    login: jest.fn(),
+    beginSignIn: jest.fn(),
+    completeSignIn: jest.fn(),
     logout: jest.fn(),
     register: jest.fn(),
     storeAuth: jest.fn(),
@@ -24,6 +26,20 @@ jest.mock('../src/services/api', () => ({
 /** What the transport raises when the phone is offline: no response at all. */
 const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' });
 
+// The hosted sign-in's two platform edges: the redirect URI and the browser
+// sheet. `expo-web-browser` is mocked globally (jest.setup.js); each test
+// scripts the redirect the sheet closes on.
+jest.mock('expo-linking', () => ({
+  createURL: jest.fn((path: string) => `dravr://${path}`),
+}));
+
+const SIGN_IN_REQUEST = {
+  authorizeUrl: 'https://api.example.com/oauth2/authorize?client_id=dravr-mobile',
+  codeVerifier: 'v'.repeat(43),
+  state: 'the-state',
+  redirectUri: 'dravr://auth/callback',
+};
+
 // Mock the firebase module to prevent WebBrowser initialization errors in tests
 jest.mock('../src/firebase', () => ({
   signOutFromFirebase: jest.fn().mockResolvedValue(undefined),
@@ -33,16 +49,23 @@ jest.mock('../src/firebase', () => ({
 
 // Test component that uses the auth context
 function TestAuthConsumer() {
-  const { user, isAuthenticated, isLoading, login, logout, register } = useAuth();
+  const { user, isAuthenticated, isLoading, signIn, logout, register } = useAuth();
+  const [signInOutcome, setSignInOutcome] = React.useState('none');
 
   return (
     <>
       <Text testID="loading">{isLoading ? 'loading' : 'loaded'}</Text>
       <Text testID="authenticated">{isAuthenticated ? 'authenticated' : 'not-authenticated'}</Text>
       <Text testID="user-email">{user?.email || 'no-user'}</Text>
+      <Text testID="sign-in-outcome">{signInOutcome}</Text>
       <TouchableOpacity
         testID="login-btn"
-        onPress={() => login('test@example.com', 'password123')}
+        onPress={() => {
+          signIn().then(
+            (signedIn) => setSignInOutcome(signedIn ? 'signed-in' : 'closed'),
+            (error: { code?: string }) => setSignInOutcome(`refused:${error.code ?? 'error'}`),
+          );
+        }}
       >
         <Text>Login</Text>
       </TouchableOpacity>
@@ -235,7 +258,7 @@ describe('AuthContext', () => {
       await waitFor(() => {
         expect(getByTestId('display-name').children[0]).toBe('Renewed Name');
       });
-      expect(authApi.login).not.toHaveBeenCalled();
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
     });
 
     it('keeps the stored session when the renewal fails on the transport', async () => {
@@ -324,53 +347,116 @@ describe('AuthContext', () => {
     });
   });
 
-  describe('login', () => {
-    it('should update state after successful login', async () => {
-      const mockUser = {
-        user_id: '123',
-        email: 'test@example.com',
-        is_admin: false,
-        role: 'user',
-        user_status: 'active',
-      };
+  describe('sign-in on the hosted page', () => {
+    const mockUser = {
+      user_id: '123',
+      email: 'test@example.com',
+      is_admin: false,
+      role: 'user',
+      user_status: 'active',
+    };
 
-      const mockLoginResponse = {
-        access_token: 'jwt-token',
-        csrf_token: 'csrf-token',
-        user: mockUser,
-      };
-
+    async function renderSignedOut() {
       (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
-      (authApi.login as jest.Mock).mockResolvedValue(mockLoginResponse);
+      (authApi.beginSignIn as jest.Mock).mockResolvedValue(SIGN_IN_REQUEST);
       (authApi.storeAuth as jest.Mock).mockResolvedValue(undefined);
-
-      const { getByTestId } = render(
+      const view = render(
         <AuthProvider>
           <TestAuthConsumer />
         </AuthProvider>
       );
+      await waitFor(() => {
+        expect(view.getByTestId('loading').children[0]).toBe('loaded');
+      });
+      expect(view.getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      return view;
+    }
+
+    function pressSignIn(view: ReturnType<typeof render>) {
+      return act(async () => {
+        fireEvent.press(view.getByTestId('login-btn'));
+      });
+    }
+
+    it('redeems the returned code and stores the session it is given', async () => {
+      (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+        type: 'success',
+        url: 'dravr://auth/callback?code=the-code&state=the-state',
+      });
+      (authApi.completeSignIn as jest.Mock).mockResolvedValue({
+        access_token: 'jwt-token',
+        token_type: 'Bearer',
+        csrf_token: 'csrf-token',
+        user: mockUser,
+      });
+      const view = await renderSignedOut();
+
+      await pressSignIn(view);
 
       await waitFor(() => {
-        expect(getByTestId('loading').children[0]).toBe('loaded');
+        expect(view.getByTestId('authenticated').children[0]).toBe('authenticated');
       });
-
-      // Initially not authenticated
-      expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
-
-      // Trigger login
-      await act(async () => {
-        fireEvent.press(getByTestId('login-btn'));
-      });
-
-      await waitFor(() => {
-        expect(getByTestId('authenticated').children[0]).toBe('authenticated');
-      });
-
-      expect(authApi.login).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        password: 'password123',
+      expect(view.getByTestId('sign-in-outcome').children[0]).toBe('signed-in');
+      // The hosted page is asked for the language the app is showing.
+      expect(authApi.beginSignIn).toHaveBeenCalledWith('dravr://auth/callback', expect.anything(), 'en');
+      expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+        SIGN_IN_REQUEST.authorizeUrl,
+        'dravr://auth/callback',
+        { preferEphemeralSession: true },
+      );
+      expect(authApi.completeSignIn).toHaveBeenCalledWith({
+        code: 'the-code',
+        codeVerifier: SIGN_IN_REQUEST.codeVerifier,
+        redirectUri: 'dravr://auth/callback',
       });
       expect(authApi.storeAuth).toHaveBeenCalledWith('jwt-token', 'csrf-token', mockUser);
+    });
+
+    it('stays signed out, quietly, when the athlete closes the browser', async () => {
+      (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({ type: 'cancel' });
+      const view = await renderSignedOut();
+
+      await pressSignIn(view);
+
+      await waitFor(() => {
+        expect(view.getByTestId('sign-in-outcome').children[0]).toBe('closed');
+      });
+      expect(view.getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
+      expect(authApi.storeAuth).not.toHaveBeenCalled();
+    });
+
+    it('refuses a callback for another sign-in and stores nothing', async () => {
+      (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+        type: 'success',
+        url: 'dravr://auth/callback?code=forged&state=not-the-state',
+      });
+      const view = await renderSignedOut();
+
+      await pressSignIn(view);
+
+      await waitFor(() => {
+        expect(view.getByTestId('sign-in-outcome').children[0]).toBe('refused:state_mismatch');
+      });
+      expect(view.getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
+      expect(authApi.storeAuth).not.toHaveBeenCalled();
+    });
+
+    it('reports the error the hosted sign-in returned with', async () => {
+      (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+        type: 'success',
+        url: 'dravr://auth/callback?error=access_denied&error_description=Account%20suspended&state=the-state',
+      });
+      const view = await renderSignedOut();
+
+      await pressSignIn(view);
+
+      await waitFor(() => {
+        expect(view.getByTestId('sign-in-outcome').children[0]).toBe('refused:access_denied');
+      });
+      expect(view.getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
     });
   });
 

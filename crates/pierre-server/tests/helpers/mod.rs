@@ -17,6 +17,9 @@ pub mod command_e2e;
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]
 pub mod drained_turn;
+/// The first-party sign-in: authorization code + PKCE through the hosted login page.
+#[cfg(feature = "protocol-rest")]
+pub mod first_party_sign_in;
 /// Google's OpenID Connect token endpoint and signing keys, for the hosted Google sign-in.
 pub mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.

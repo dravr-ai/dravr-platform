@@ -283,6 +283,58 @@ impl AuthService {
         })
     }
 
+    /// Open the first-party session an authorization code signs in to.
+    ///
+    /// Dravr's web and mobile apps sign in on the hosted login page, which
+    /// checks the password (or Google), and redeem the code it issues
+    /// (carnet#787). `user_id` and `tenant_id` are what that code recorded.
+    /// The session is the one a sign-in has always opened: the self grant,
+    /// 24 hours, the tenant the code names while the athlete still belongs to
+    /// it. A suspended account is refused; a pending one signs in, so the app
+    /// can show the approval it awaits.
+    ///
+    /// # Errors
+    /// Returns an error if the account is gone or suspended, or the session
+    /// cannot be minted
+    pub async fn sign_in_with_code(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: &str,
+    ) -> AppResult<LoginResponse> {
+        let repos = self.data.repos();
+        let user = repos.users.get_global(user_id).await?.ok_or_else(|| {
+            AppError::auth_invalid("The account this sign-in names no longer exists")
+        })?;
+        Self::reject_if_suspended(&user)?;
+
+        let tenant_id = if self.is_tenant_member(user.id, tenant_id).await? {
+            Some(tenant_id.to_owned())
+        } else {
+            self.ensure_user_has_tenant(&user).await?
+        };
+        let jwt_token = self
+            .auth_manager
+            .generate_token_with_tenant(&user, &self.jwks_manager, tenant_id.clone())
+            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
+        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+
+        repos
+            .users
+            .update_last_active(user.id)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
+
+        info!(user_id = %user.id, "User signed in with an authorization code");
+
+        let user_info = self.user_info(&user, tenant_id).await;
+        Ok(LoginResponse {
+            jwt_token: Some(jwt_token),
+            csrf_token: String::new(), // Will be set by HTTP handler
+            expires_at: expires_at.to_rfc3339(),
+            user: user_info,
+        })
+    }
+
     /// Handle Firebase login - authenticate with Firebase ID token
     ///
     /// Validates the Firebase ID token, then signs the person it names in

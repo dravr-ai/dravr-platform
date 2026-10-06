@@ -206,7 +206,7 @@ test.describe('Athlete Home — mobile viewport', () => {
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
     await mockHome(page);
-    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await loginToDashboard(page);
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
@@ -420,7 +420,7 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
   test.beforeEach(async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
     await mockHome(page, [provider('strava', 'Strava', true), provider('garmin', 'Garmin', true)]);
-    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await loginToDashboard(page);
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
@@ -585,7 +585,7 @@ test.describe('Athlete Home — mobile viewport, a drawn latest map', () => {
         body: JSON.stringify({ activities: ACTIVITIES.slice(1), as_of: '2026-09-24T08:15:00Z', stale: false }),
       });
     });
-    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await loginToDashboard(page);
     await expect(page.getByTestId('home-page')).toBeVisible();
     await openToday(page);
     const map = page.getByTestId('home-activity-latest').locator('figure');

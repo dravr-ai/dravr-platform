@@ -1,12 +1,40 @@
 // ABOUTME: Authentication helper functions for mobile integration tests.
-// ABOUTME: Provides real login flows that interact with the actual backend server via API.
+// ABOUTME: Provides real sign-in flows (hosted login page, authorization code + PKCE) against the actual backend server.
 
+const crypto = require('crypto');
 const { getBackendUrl } = require('./server-manager');
 const { createTestAdminUser } = require('./db-setup');
 const { testUsers } = require('../fixtures/test-data');
 
+/** The app's OAuth client and the return address every deployment accepts for it. */
+const MOBILE_CLIENT_ID = 'dravr-mobile';
+const MOBILE_REDIRECT_URI = 'dravr://auth/callback';
+
+/** Unpadded base64url (RFC 4648 §5) of a buffer. */
+function base64Url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The `name=value` pairs of a response's Set-Cookie headers, as one Cookie header. */
+function cookieHeader(response) {
+  return response.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(';')[0])
+    .join('; ');
+}
+
 /**
- * Perform a real login through the OAuth token endpoint.
+ * Perform a real sign-in the way the app does (carnet#787): the server's hosted
+ * login page, the authorization code it redirects with, and the PKCE verifier
+ * that redeems it. The password grant is gone from /oauth/token.
+ *
+ *   1. POST /oauth2/login      credentials + the authorization request
+ *                              → 302 to /oauth2/authorize, with the session cookie
+ *   2. GET  /oauth2/authorize  with that cookie
+ *                              → 302 to dravr://auth/callback?code=…&state=…
+ *                              (dravr-mobile skips the consent screen)
+ *   3. POST /oauth/token       grant_type=authorization_code + code_verifier
+ *
  * This makes actual API calls to the backend server.
  *
  * @param {string} email - User email
@@ -18,6 +46,74 @@ async function loginWithCredentials(email, password) {
     const backendUrl = getBackendUrl();
     console.log(`[Auth] Attempting login for ${email}`);
 
+    const codeVerifier = base64Url(crypto.randomBytes(32));
+    const codeChallenge = base64Url(crypto.createHash('sha256').update(codeVerifier).digest());
+    const state = base64Url(crypto.randomBytes(16));
+
+    // Step 1: the hosted login form. A refused password answers the form's own
+    // error page (no redirect); a signed-in one redirects to the authorization
+    // request with the authorization server's session cookie.
+    const loginResponse = await fetch(`${backendUrl}/oauth2/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: MOBILE_CLIENT_ID,
+        redirect_uri: MOBILE_REDIRECT_URI,
+        response_type: 'code',
+        state,
+        scope: '',
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        resource: '',
+        email,
+        password,
+      }).toString(),
+    });
+    const authorizeLocation = loginResponse.headers.get('location');
+    if (loginResponse.status !== 302 && loginResponse.status !== 303) {
+      console.log(`[Auth] Login failed: hosted login page answered HTTP ${loginResponse.status}`);
+      return {
+        success: false,
+        error:
+          loginResponse.status === 429
+            ? 'Too many sign-in attempts'
+            : `Sign-in refused by the hosted login page (HTTP ${loginResponse.status})`,
+      };
+    }
+    if (!authorizeLocation) {
+      return { success: false, error: 'Hosted login page redirected nowhere' };
+    }
+
+    // Step 2: the authorization request, signed in by the session cookie.
+    const authorizeResponse = await fetch(new URL(authorizeLocation, backendUrl), {
+      redirect: 'manual',
+      headers: { Cookie: cookieHeader(loginResponse) },
+    });
+    const callbackLocation = authorizeResponse.headers.get('location') ?? '';
+    if (!callbackLocation.startsWith(`${MOBILE_REDIRECT_URI}?`)) {
+      return {
+        success: false,
+        error: `Authorization answered HTTP ${authorizeResponse.status} without returning to ${MOBILE_REDIRECT_URI}`,
+      };
+    }
+    const callback = new URLSearchParams(callbackLocation.slice(MOBILE_REDIRECT_URI.length + 1));
+    if (callback.get('error')) {
+      return {
+        success: false,
+        error: callback.get('error_description') || callback.get('error'),
+      };
+    }
+    if (callback.get('state') !== state) {
+      return { success: false, error: 'Authorization returned a mismatched state' };
+    }
+    const code = callback.get('code');
+    if (!code) {
+      return { success: false, error: 'Authorization redirect carried no code' };
+    }
+
+    // Step 3: redeem the code with the PKCE verifier, as the app does — with
+    // offline_access, so a refresh token comes back too.
     const response = await fetch(`${backendUrl}/oauth/token`, {
       method: 'POST',
       headers: {
@@ -25,10 +121,12 @@ async function loginWithCredentials(email, password) {
         Accept: 'application/json',
       },
       body: new URLSearchParams({
-        grant_type: 'password',
-        client_id: 'dravr-mobile',
-        username: email,
-        password: password,
+        grant_type: 'authorization_code',
+        client_id: MOBILE_CLIENT_ID,
+        code,
+        redirect_uri: MOBILE_REDIRECT_URI,
+        code_verifier: codeVerifier,
+        scope: 'offline_access',
       }).toString(),
     });
 

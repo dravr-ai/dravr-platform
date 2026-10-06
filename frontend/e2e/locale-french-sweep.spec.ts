@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { test, expect, type Page } from '@playwright/test';
 import { settingsPaneWebRoute } from '@pierre/shared-constants';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, signInThroughHostedPage } from './test-helpers';
 
 // Read from disk rather than importing @pierre/i18n: Playwright's loader
 // rejects the package's JSON imports without an import attribute, and the
@@ -186,10 +186,7 @@ function frenchParqQuestions(): { id: string; text: string }[] {
  */
 async function loginExpectingWizard(page: Page): Promise<void> {
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10_000 });
-  await page.locator('input[name="email"]').fill('admin@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.locator('form button[type="submit"]').first().click();
+  await signInThroughHostedPage(page);
 }
 
 test.describe('French rendering sweep', () => {
@@ -205,7 +202,7 @@ test.describe('French rendering sweep', () => {
       } catch { /* */ }
     });
     await page.goto('/');
-    await expect(page.getByRole('button', { name: frenchValue('auth.signInButton') })).toBeVisible({
+    await expect(page.getByRole('button', { name: frenchValue('auth.signInWithEmail') })).toBeVisible({
       timeout: 10_000,
     });
     const found = await page.evaluate(TEXT_NODE_OFFENDERS, { values: english, root: 'body' });

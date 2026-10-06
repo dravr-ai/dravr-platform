@@ -7,6 +7,7 @@
 import { Database } from 'bun:sqlite';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { startSciotteDouble, type ScrapedRide } from './sciotte-double';
+import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
 
 // `bun e2e-real/home-sync-control.ts` — a long-running process beside a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL naming the double
@@ -72,17 +73,10 @@ async function api(path: string, init: RequestInit = {}, token?: string): Promis
   return fetch(`${PIERRE_URL}${path}`, { ...init, headers });
 }
 
+/** The athlete's bearer, signed in as the mobile app does (hosted login page, code, PKCE; carnet#787). */
 async function signIn(): Promise<string> {
-  const response = await api('/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'password', client_id: 'dravr-web', username: ATHLETE_EMAIL, password: ATHLETE_PASSWORD }),
-  });
-  if (!response.ok) {
-    throw new Error(`login of ${ATHLETE_EMAIL} failed: ${response.status} ${await response.text()}`);
-  }
-  const { access_token: token } = (await response.json()) as { access_token: string };
-  return token;
+  const tokens = await firstPartySignIn({ baseUrl: PIERRE_URL, email: ATHLETE_EMAIL, password: ATHLETE_PASSWORD });
+  return tokens.access_token;
 }
 
 /** Poll Home's list until `settled` holds for its answer, or fail naming the last one. */

@@ -17,7 +17,7 @@ use tracing::error;
 /// Field keys never forwarded to `PostHog`: identity, the tracing message body,
 /// and the HTTP/OAuth plumbing inherited from the enclosing request span
 /// (mirrors tronc's Slack denylist so neither sink leaks request internals —
-/// notably `username` from the OAuth password grant).
+/// notably a `username` a sign-in span records).
 const STRIPPED_KEYS: &[&str] = &[
     "user_id",
     "tenant_id",

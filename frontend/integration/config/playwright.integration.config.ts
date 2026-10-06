@@ -81,6 +81,9 @@ export default defineConfig({
         PIERRE_MASTER_ENCRYPTION_KEY: process.env.PIERRE_MASTER_ENCRYPTION_KEY || 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=',
         PIERRE_RSA_KEY_SIZE: process.env.PIERRE_RSA_KEY_SIZE || '2048',
         HTTP_PORT: process.env.HTTP_PORT || '8081',
+        // The SPA's sign-in returns to <origin>/auth/callback, accepted only on
+        // the server's configured web origin (carnet#787): the Vite below.
+        FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
         RUST_LOG: process.env.RUST_LOG || 'warn',
         STRAVA_CLIENT_ID: process.env.STRAVA_CLIENT_ID || 'test_client_id_integration',
         STRAVA_CLIENT_SECRET: process.env.STRAVA_CLIENT_SECRET || 'test_client_secret_integration',

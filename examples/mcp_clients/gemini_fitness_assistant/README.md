@@ -406,7 +406,8 @@ curl -H "Content-Type: application/json" \
 
 ### Pierre Authentication Issues
 
-Pierre's password sign-in (`POST /oauth/token`) serves Pierre's own web and
+Pierre's first-party sign-in (the hosted login page, redeemed at `POST
+/oauth/token` with an authorization code and PKCE) serves Pierre's own web and
 mobile apps only, and `/mcp` does not accept the session it mints. This client
 authenticates with an API key: create one in the Pierre web app under
 Settings → API keys and set it as `PIERRE_API_KEY`.

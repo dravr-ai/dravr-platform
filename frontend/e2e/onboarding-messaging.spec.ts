@@ -5,7 +5,7 @@
 // ABOUTME: A connected user with the agent step done + channels configured lands on the messaging steps, then reaches the dashboard
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks } from './test-helpers';
+import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
 
 /** Wire the messaging-onboarding mocks. `links` starts empty and flips to linked. */
 function setupMessagingMocks(page: Page) {
@@ -65,10 +65,7 @@ test('messaging onboarding: pick a channel, connect via QR, auto-advance to the 
   await mocks.install();
 
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10_000 });
-  await page.locator('input[name="email"]').fill('msg@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
 
   // Step: messaging channel picker (two channels configured → the picker shows).
   await expect(page.getByText(/Where do you want to chat with your agent/i)).toBeVisible({

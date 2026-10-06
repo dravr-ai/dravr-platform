@@ -269,6 +269,10 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           PIERRE_LLM_MODEL: "ci-test-model"
+          # The app signs in on the hosted login page and returns to
+          # exp://<host>:8082/--/auth/callback inside Expo Go, an address the
+          # server sends dravr-mobile's code to only with this set (carnet#787).
+          OAUTH_ALLOW_EXPO_GO_REDIRECT: "true"
 
       - name: Seed test user for Maestro tests
         run: |
@@ -604,14 +608,14 @@ jobs:
           curl -sf http://127.0.0.1:8081/health && echo " OK" || echo " FAILED!"
 
           echo ""
-          echo "=== Login API test (OAuth token endpoint) ==="
-          LOGIN_RESPONSE=$(curl -sf -X POST http://127.0.0.1:8081/oauth/token \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1) || true
+          echo "=== Sign-in test (hosted login page, authorization code + PKCE) ==="
+          # The app's own sign-in, headless: the password grant is gone (carnet#787).
+          LOGIN_RESPONSE=$(scripts/auth/first-party-sign-in.sh http://127.0.0.1:8081 \
+            mobiletest@pierre.dev MobileTest1234 dravr-mobile 2>&1) || true
           if echo "$LOGIN_RESPONSE" | grep -q "access_token"; then
-            echo "Login API: SUCCESS (got access_token)"
+            echo "Sign-in: SUCCESS (got access_token)"
           else
-            echo "Login API: FAILED"
+            echo "Sign-in: FAILED"
             echo "Response: $LOGIN_RESPONSE"
           fi
 
@@ -712,13 +716,13 @@ jobs:
           # Android emulator and are expected, not proven, to pass here. The first
           # scheduled run after this lands is what turns that into evidence.
           # visual/01-authentication was deleted (Boreal v2.2 Phase 6): its render checks
-          # are now covered by visual/00-capture.yaml, and its behavioral assertions live
+          # are now covered by visual/00-capture.yaml, and its behavioral assertion lives
           # in login/07-invalid-credentials.yaml — wrong credentials keep the athlete on
-          # the login screen, and the password field stays visible while typed into. The
-          # second is the check carnet#353 (keyboard covering the field on a short screen)
-          # made fail; FormScrollView fixed it, and login/07 is here to keep it fixed.
+          # the login screen. The password is typed on the server's hosted page now
+          # (carnet#787), so login/02 opens that page and closes it, login/06 signs in
+          # on it and login/07 is refused by it.
           echo "Running critical-path subset in two batches..."
-          BATCH1_FILES="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml"
+          BATCH1_FILES="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml"
           BATCH2_FILES="chat/01-basic-visibility.yaml"
           BATCH_COUNT=2
 
@@ -852,9 +856,8 @@ jobs:
           grep -iE "error|fail|reject|invalid" /tmp/pierre-server.log 2>/dev/null | tail -20 || echo "No error entries"
           echo ""
           echo "=== Post-login API test (verify JWT works for subsequent calls) ==="
-          JWT=$(curl -sf -X POST http://127.0.0.1:8081/oauth/token \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=password&client_id=dravr-mobile&username=mobiletest@pierre.dev&password=MobileTest1234" 2>&1 | jq -r '.access_token // empty') || true
+          JWT=$(scripts/auth/first-party-sign-in.sh http://127.0.0.1:8081 \
+            mobiletest@pierre.dev MobileTest1234 dravr-mobile | jq -r '.access_token // empty') || true
           if [ -n "$JWT" ]; then
             echo "Got JWT token (length: ${#JWT})"
             echo "Testing GET /api/agents with JWT:"
@@ -889,6 +892,9 @@ jobs:
             /tmp/pre-maestro-screenshot.png
             /tmp/post-maestro-screenshot.png
             /tmp/maestro-screenshots/
+            # Every flow's own folder (per-step screenshots, hierarchy, commands):
+            # the flat copy above keeps one file per step name across all flows
+            /Users/runner/.maestro/tests/
             /tmp/metro.log
             /tmp/expo-install.log
             /tmp/pierre-server.log

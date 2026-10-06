@@ -5,7 +5,7 @@
 // ABOUTME: The welcome renders under the agent's name with its starters as buttons; tapping one sends it as the next turn
 
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { setupDashboardMocks } from './test-helpers';
+import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
 
 const USER_ID = 'user-123';
 const AGENT_ID = 'agent-fuelling';
@@ -154,10 +154,7 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
   const mocks = await installMocks(page);
 
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10_000 });
-  await page.locator('input[name="email"]').fill('fresh@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.locator('form button[type="submit"]').first().click();
+  await signInThroughHostedPage(page);
   await expect(page.getByRole('heading', { name: /welcome, fresh user/i })).toBeVisible();
 
   // The provider lands: the status flips once its cache is stale and the tab

@@ -5,7 +5,7 @@
 // ABOUTME: The first spec on the coach branch: a coach with and without coach access, and putting the step off
 
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { setupDashboardMocks } from './test-helpers';
+import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
 
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -71,10 +71,7 @@ async function setupCoach(page: Page, managesRoster: boolean) {
   });
 
   await page.goto('/');
-  await page.waitForSelector('form', { timeout: 10_000 });
-  await page.locator('input[name="email"]').fill('coach@test.com');
-  await page.locator('input[name="password"]').fill('password123');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signInThroughHostedPage(page);
   await expect(page.getByTestId('onboarding-group-name')).toBeVisible({ timeout: 15_000 });
 
   return calls;

@@ -20,7 +20,7 @@ vi.mock('@pierre/api-client', () => {
   }
   return {
     createPierreApi: vi.fn(() => ({
-      auth: { login: vi.fn(), register: vi.fn() },
+      auth: { beginSignIn: vi.fn(), completeSignIn: vi.fn(), register: vi.fn() },
       chat: { getConversations: vi.fn() },
       coaches: { list: vi.fn() },
       oauth: {

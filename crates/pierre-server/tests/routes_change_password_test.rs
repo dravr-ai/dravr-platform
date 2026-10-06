@@ -14,6 +14,7 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::{FirstPartyClient, SignIn};
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -155,23 +156,16 @@ async fn test_change_password_can_login_with_new_password() {
     let response = AxumTestRequest::put("/api/user/change-password")
         .header("Authorization", &format!("Bearer {}", jwt_token))
         .json(&change_password_request)
-        .send(routes.clone())
+        .send(routes)
         .await;
 
     assert_eq!(response.status(), 200);
 
     // Login with new password should succeed
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", "NewSecurePass456"),
-    ];
-
-    let login_response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes.clone())
-        .await;
+    let login_response = SignIn::new(&email, "NewSecurePass456")
+        .run(&setup.resources)
+        .await
+        .token();
 
     assert_eq!(
         login_response.status(),
@@ -179,22 +173,15 @@ async fn test_change_password_can_login_with_new_password() {
         "Login with new password should succeed"
     );
 
-    // Login with old password should fail
-    let old_login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", "password123"),
-    ];
-
-    let old_login_response = AxumTestRequest::post("/oauth/token")
-        .form(&old_login_request)
-        .send(routes)
-        .await;
+    // Login with old password should fail: the hosted login form refuses it
+    let old_login_response = SignIn::new(&email, "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
 
     assert_eq!(
         old_login_response.status(),
-        400,
+        401,
         "Login with old password should fail after change"
     );
 }
@@ -209,19 +196,12 @@ async fn test_change_password_revokes_every_refresh_token() {
     let routes = setup.routes();
 
     // A phone logged in under the old password holds a refresh token.
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", "password123"),
-        ("scope", "offline_access"),
-    ];
-    let login_response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes.clone())
-        .await;
-    assert_eq!(login_response.status(), 200);
-    let login_body: serde_json::Value = login_response.json();
+    let login_body = SignIn::new(&email, "password123")
+        .client(FirstPartyClient::Mobile)
+        .offline_access()
+        .run(&setup.resources)
+        .await
+        .signed_in();
     let refresh_token = login_body["refresh_token"]
         .as_str()
         .expect("offline_access login carries a refresh token")

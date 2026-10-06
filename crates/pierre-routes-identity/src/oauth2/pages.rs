@@ -17,6 +17,7 @@ use pierre_auth::oauth2_server::{
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use url::Url;
 
+use super::login_text::{LoginPageLabels, LoginText};
 use super::OAuth2Routes;
 
 /// Parameters for generating OAuth login HTML
@@ -46,6 +47,8 @@ pub struct LoginHtmlParams<'a> {
     /// request; `None` hides the button (Google sign-in is not configured,
     /// or the page names no request to return to)
     pub google_start_url: Option<&'a str>,
+    /// The form's text in the athlete's language
+    pub labels: &'a LoginPageLabels,
 }
 
 /// Parameters for rendering the OAuth consent page.
@@ -101,8 +104,8 @@ impl OAuth2Routes {
 
     /// The "Continue with Google" block of the login page; `{{GOOGLE_START_URL}}`
     /// is filled with the escaped start URL
-    const GOOGLE_SIGN_IN_BLOCK: &'static str = r#"<p class="fineprint">or</p>
-        <a class="btn btn-secondary btn-block" href="{{GOOGLE_START_URL}}">Continue with Google</a>"#;
+    const GOOGLE_SIGN_IN_BLOCK: &'static str = r#"<p class="fineprint">{{T_OR}}</p>
+        <a class="btn btn-secondary btn-block" href="{{GOOGLE_START_URL}}">{{T_GOOGLE}}</a>"#;
 
     /// OAuth login error template embedded at compile-time
     /// Loaded with `include_str`!() to avoid blocking filesystem IO at runtime
@@ -167,11 +170,19 @@ impl OAuth2Routes {
         } else {
             params.scope.to_owned()
         };
+        let labels = params.labels;
         let google_sign_in = params.google_start_url.map_or_else(String::new, |url| {
-            Self::GOOGLE_SIGN_IN_BLOCK.replace("{{GOOGLE_START_URL}}", &escape_html_attribute(url))
+            Self::GOOGLE_SIGN_IN_BLOCK
+                .replace("{{GOOGLE_START_URL}}", &escape_html_attribute(url))
+                .replace("{{T_OR}}", &escape_html_attribute(&labels.or))
+                .replace("{{T_GOOGLE}}", &escape_html_attribute(&labels.google))
         });
 
         with_hosted_page_css(Self::OAUTH_LOGIN_TEMPLATE)
+            .replace("{{LANG}}", &escape_html_attribute(&labels.lang))
+            .replace("{{T_SIGN_IN}}", &escape_html_attribute(&labels.sign_in))
+            .replace("{{T_EMAIL}}", &escape_html_attribute(&labels.email))
+            .replace("{{T_PASSWORD}}", &escape_html_attribute(&labels.password))
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",
@@ -264,19 +275,24 @@ impl OAuth2Routes {
             .replace("{{SCOPE_ITEMS}}", &scope_items)
     }
 
-    /// Render the 401 page shown when the OAuth login form's credentials are
-    /// refused, carrying the form's OAuth parameters back to the retry link.
-    pub(super) fn login_failure_response(form: &HashMap<String, String>) -> Response {
+    /// Render the page a refused hosted sign-in answers with, in the
+    /// athlete's language: `message` says why, and the retry link carries the
+    /// form's OAuth parameters back to the login.
+    pub(super) fn login_failure_response(
+        form: &HashMap<String, String>,
+        text: &LoginText<'_>,
+        message: &str,
+        status: StatusCode,
+    ) -> Response {
         // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
         // Values go into an <a href> URL attribute — URL-encode for URL
         // correctness, then HTML-escape for attribute safety (XSS prevention)
+        let labels = text.labels();
         let error_html = with_hosted_page_css(Self::OAUTH_LOGIN_ERROR_TEMPLATE)
-            .replace(
-                "{{ERROR_MESSAGE}}",
-                &escape_html_attribute(
-                    "Authentication Failed: Invalid email or password. Please try again.",
-                ),
-            )
+            .replace("{{LANG}}", &escape_html_attribute(&labels.lang))
+            .replace("{{T_FAILED}}", &escape_html_attribute(&text.failed()))
+            .replace("{{T_BACK}}", &escape_html_attribute(&text.back()))
+            .replace("{{ERROR_MESSAGE}}", &escape_html_attribute(message))
             .replace(
                 "{{CLIENT_ID}}",
                 &escape_html_attribute(
@@ -327,7 +343,7 @@ impl OAuth2Routes {
                 ),
             );
 
-        (StatusCode::UNAUTHORIZED, Html(error_html)).into_response()
+        (status, Html(error_html)).into_response()
     }
 }
 

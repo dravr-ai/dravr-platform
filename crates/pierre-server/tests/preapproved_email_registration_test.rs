@@ -10,8 +10,9 @@
 //! the account lands `Active` with `approved_by` attributed to the operator,
 //! skipping the pending queue.
 //!
-//! These tests drive the real `/api/auth/register` handler and the ROPC
-//! `/oauth/token` login over one in-memory database, with global
+//! These tests drive the real `/api/auth/register` handler and the apps'
+//! sign-in (hosted login page, code redeemed at `/oauth/token`) over one
+//! in-memory database, with global
 //! auto-approval off and no `AUTO_APPROVE_DOMAINS` — so any `Active` outcome
 //! here is the allow-list's doing, and a returns-empty stub of the repository
 //! would fail the attribution and status assertions.
@@ -23,6 +24,7 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::SignIn;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -296,16 +298,7 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
         .expect("recording the allow must succeed");
 
     // Next login retroactively promotes the pending account.
-    let auth_routes = AuthRoutes::routes(resources.auth_routes_context());
-    let login_resp = AxumTestRequest::post("/oauth/token")
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "dravr-web"),
-            ("username", email),
-            ("password", password),
-        ])
-        .send(auth_routes)
-        .await;
+    let login_resp = SignIn::new(email, password).run(&resources).await.token();
     assert_eq!(
         login_resp.status(),
         200,

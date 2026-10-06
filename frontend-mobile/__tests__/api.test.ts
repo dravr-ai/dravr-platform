@@ -4,7 +4,8 @@
 // Mock the entire api service module to avoid transformation issues with @pierre/api-client
 jest.mock('../src/services/api', () => ({
   authApi: {
-    login: jest.fn(),
+    beginSignIn: jest.fn(),
+    completeSignIn: jest.fn(),
     register: jest.fn(),
     logout: jest.fn(),
     initializeAuth: jest.fn(),
@@ -53,8 +54,9 @@ describe('API Service', () => {
       expect(authApi).toBeDefined();
     });
 
-    it('should have login method', () => {
-      expect(typeof authApi.login).toBe('function');
+    it('should have the hosted sign-in methods', () => {
+      expect(typeof authApi.beginSignIn).toBe('function');
+      expect(typeof authApi.completeSignIn).toBe('function');
     });
 
     it('should have register method', () => {

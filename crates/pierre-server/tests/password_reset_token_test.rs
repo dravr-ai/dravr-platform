@@ -18,6 +18,7 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::SignIn;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -131,7 +132,7 @@ async fn test_complete_reset_success() {
             "reset_token": raw_token,
             "new_password": "BrandNewPassword789"
         }))
-        .send(routes.clone())
+        .send(routes)
         .await;
 
     assert_eq!(
@@ -147,17 +148,10 @@ async fn test_complete_reset_success() {
     );
 
     // Verify user can now log in with the new password
-    let login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", "BrandNewPassword789"),
-    ];
-
-    let login_response = AxumTestRequest::post("/oauth/token")
-        .form(&login_request)
-        .send(routes.clone())
-        .await;
+    let login_response = SignIn::new(&email, "BrandNewPassword789")
+        .run(&setup.resources)
+        .await
+        .token();
 
     assert_eq!(
         login_response.status(),
@@ -166,21 +160,14 @@ async fn test_complete_reset_success() {
     );
 
     // Verify old password no longer works
-    let old_login_request = [
-        ("grant_type", "password"),
-        ("client_id", "dravr-web"),
-        ("username", email.as_str()),
-        ("password", "password123"),
-    ];
-
-    let old_login_response = AxumTestRequest::post("/oauth/token")
-        .form(&old_login_request)
-        .send(routes)
-        .await;
+    let old_login_response = SignIn::new(&email, "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
 
     assert_eq!(
         old_login_response.status(),
-        400,
+        401,
         "Login with old password should fail after reset"
     );
 }

@@ -28,7 +28,7 @@ jest.mock('expo-router', () => ({
 // the module stays real so `onAuthFailure` and friends keep their shapes.
 jest.mock('../src/services/api', () => ({
   ...jest.requireActual('../src/services/api'),
-  authApi: { ...jest.requireActual('../src/services/api').authApi, login: jest.fn() },
+  authApi: { ...jest.requireActual('../src/services/api').authApi, completeSignIn: jest.fn() },
   userApi: { ...jest.requireActual('../src/services/api').userApi, updateTheme: jest.fn().mockResolvedValue(undefined) },
 }));
 

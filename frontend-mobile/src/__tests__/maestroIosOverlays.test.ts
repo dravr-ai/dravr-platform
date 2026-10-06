@@ -58,9 +58,14 @@ describe('the wait for Home after a login', () => {
     // The sheet arrives seconds after the login screen has gone and hides the
     // tree the Home wait reads, so a flow waiting for Home on its own fails
     // behind it on any simulator where AutoFill is on.
+    // A flow signs in by submitting the hosted login page (carnet#787) and
+    // expects Home when it then waits for `home-screen` to be visible.
     const loggingIn = FLOWS.filter((flow) => {
       const text = read(flow);
-      return text.includes('id: "login-button"') && text.includes('id: "home-screen"');
+      return (
+        text.includes('submit-hosted-sign-in.yaml') &&
+        /extendedWaitUntil:\s*\n\s+visible:\s*\n\s+id: "home-screen"/.test(text)
+      );
     });
     expect(loggingIn).toEqual(expect.arrayContaining(['helpers/login.yaml', 'login/06-successful-login.yaml']));
     for (const flow of loggingIn) {
@@ -109,7 +114,7 @@ describe("Expo Go's floating tools button", () => {
   const helper = commandsOf(HIDE_TOOLS_BUTTON);
 
   it('is switched off on every launch, once the login form is up', () => {
-    expectInOrder(commandsOf('helpers/launch-app.yaml'), ['id: "email-input"', 'file: hide-dev-tools-button.yaml']);
+    expectInOrder(commandsOf('helpers/launch-app.yaml'), ['id: "login-button"', 'file: hide-dev-tools-button.yaml']);
   });
 
   it('is acted on only on the iOS login screen, where no tab bar shares its symbol', () => {
