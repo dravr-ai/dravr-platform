@@ -1,0 +1,96 @@
+# ABOUTME: Daily live run of the tests that call public third-party APIs (Open-Meteo, Overpass/Nominatim, USDA)
+# ABOUTME: Builds the live-e2e targets no other lane provisions and fails unless every one of them ran and passed
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# WHY THIS LANE EXISTS
+#
+# The tests that call public third-party APIs are `live-e2e` targets under
+# crates/pierre-server/tests/live/: a default build never compiles them, and a
+# built one fails when its service is unreachable, never returning early as a
+# pass (carnet#805). No other lane provisions these services, so this lane is
+# where they run.
+#
+# A red here is either a real regression in the integration or the provider
+# being down. Both are worth a look; neither is hidden as a pass.
+#
+# What is deliberately not here: the Slack, Ollama, Redis and incident-corpus
+# live targets each run in the lane that provisions their service
+# (messaging-eval, llm-live-cron, ci-redis, live-incident-eval).
+
+name: "Monitor: Live third-party APIs"
+
+on:
+  schedule:
+    # Daily at 07:17 UTC, off the hour so it never queues behind the :00 wave.
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-apis-cron
+  cancel-in-progress: false
+
+env:
+  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+  # downloads ~130 MB and embeds the Copilot CLI unless told not to.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  live-apis:
+    name: Live third-party API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "live-apis-cron"
+          # Written by the scheduled run on main only; every other run restores.
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
+
+      - name: Build the live targets
+        run: |
+          cargo test --features live-e2e \
+            --test weather_geocoding_live_test \
+            --test route_discovery_live_test \
+            --test usda_live_test \
+            --no-run
+
+      # The verdict is the exit status, then the count: each of the three
+      # binaries must report a passing result with at least one test, so a
+      # target that built but selected nothing cannot read as green.
+      - name: Run the live targets
+        env:
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+        run: |
+          log="$RUNNER_TEMP/live-apis.log"
+          status=0
+          set -o pipefail
+          # --no-fail-fast: one provider's outage must not hide the others'
+          # results, so every binary runs and reports.
+          cargo test --features live-e2e --no-fail-fast \
+            --test weather_geocoding_live_test \
+            --test route_discovery_live_test \
+            --test usda_live_test \
+            -- --test-threads=1 --nocapture 2>&1 | tee "$log" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::a live third-party API test failed (exit $status)" >&2; exit 1; }
+          ran=$(grep -Ec '^test result: ok\. [1-9][0-9]* passed' "$log" || true)
+          if [ "$ran" -ne 3 ]; then
+            echo "::error::expected 3 live test binaries to pass with at least one test each, got $ran" >&2
+            exit 1
+          fi

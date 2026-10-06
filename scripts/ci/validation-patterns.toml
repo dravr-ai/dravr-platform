@@ -431,12 +431,12 @@ max_magic_input_antipatterns = 0  # ZERO TOLERANCE: tools must require explicit 
 
 # File patterns to exclude from certain checks
 [ignored_tests_allowlist]
-# Files permitted to have #[ignore] tests with justification
-# These require external infrastructure that CI cannot provide
-files = [
-    "llm_local_integration_test.rs",     # Requires Ollama/vLLM server with downloaded models
-    "messaging_eval_real_slack_test.rs", # Requires MESSAGING_EVAL_SLACK_* credentials + live Slack workspace
-]
+# Empty, and meant to stay that way: no test is ignored. A test that needs a
+# live service (Slack, Ollama, vLLM, a public API) goes under
+# crates/pierre-server/tests/live/ as a `required-features = ["live-e2e"]`
+# target, so a default build never compiles it and the lane that provisions
+# the service builds it with `--features live-e2e` (carnet#805).
+files = []
 
 [ci_continue_on_error_allowlist]
 # Workflow steps permitted to have continue-on-error: true.

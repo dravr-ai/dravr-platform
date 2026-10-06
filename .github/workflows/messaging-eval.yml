@@ -48,6 +48,7 @@ on:
       - "crates/pierre-server/src/services/slack_socket.rs"
       - "crates/pierre-server/tests/helpers/messaging_eval.rs"
       - "crates/pierre-server/tests/messaging_eval_*.rs"
+      - "crates/pierre-server/tests/live/messaging_eval_*.rs"
       - "crates/pierre-server/tests/messaging_rendering_test.rs"
       - "crates/pierre-server/tests/slack_socket_unit_test.rs"
       - ".github/workflows/messaging-eval.yml"
@@ -130,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: rust-asserters
     # 120 minutes covers build (~10 min) + Ollama install/pull/warmup
-    # (~3 min) + Pierre boot + 5 ignored tests sharing one warm Ollama:
+    # (~3 min) + Pierre boot + 5 real-Slack tests sharing one warm Ollama:
     # driver smoke + 4 real LLM probes. The first two probes complete
     # in ~8-9 min each; probes 3+4 took 12+ min in run #2 (longer
     # accumulated conversation context plus a model reload when the
@@ -311,16 +312,16 @@ jobs:
           # ~11 of its 25 minutes inside `cargo test --no-run` while the
           # daemon waited.
           cargo build --release --bin pierre-mcp-server --bin pierre-cli
-          cargo test --release --test messaging_eval_real_slack_test --no-run
+          cargo test --release --features live-e2e --test messaging_eval_real_slack_test --no-run
 
       - name: Resolve QA driver bot_id + user_id
         id: driver-identity
         run: |
           # auth.test with the QA driver's bot token returns its bot_id AND
           # its Slack user_id. The bot_id feeds SLACK_ALLOWED_BOT_IDS (canot
-          # accepts driver posts as user input); the user_id seeds the
-          # messaging_sessions row so Pierre routes its messages to the
-          # pre-linked admin user instead of replying with an OTP link.
+          # accepts driver posts as user input); the user_id seeds the channel
+          # link so Pierre routes its messages to the pre-linked admin user
+          # instead of replying with an OTP link.
           RESPONSE=$(curl -sS -H "Authorization: Bearer $MESSAGING_EVAL_SLACK_BOT_TOKEN" \
             https://slack.com/api/auth.test)
           echo "auth.test response: $RESPONSE" >&2
@@ -360,10 +361,13 @@ jobs:
         env:
           DRIVER_USER_ID: ${{ steps.driver-identity.outputs.user_id }}
         run: |
-          # Bypass the OTP / account-linking flow: seed a messaging_sessions
-          # row that maps the driver's Slack user_id to the admin user. This
-          # lets Pierre run a full coach turn on the probe instead of
-          # replying with the pre-auth link prompt.
+          # Bypass the OTP / account-linking flow so Pierre runs a full coach
+          # turn on the probe instead of replying with the link prompt.
+          # Ingress authenticates a sender by its messaging_channel_links row
+          # (tenant, channel, channel_user_id); a messaging_sessions row alone
+          # leaves the driver unlinked. Seeding only the session is what made
+          # every probe get the link prompt, which the old placeholder skip
+          # then counted as a pass (carnet#805).
           DB=/tmp/pierre-messaging-eval.db
           ADMIN_ID=$(sqlite3 "$DB" "SELECT id FROM users WHERE email='$ADMIN_EMAIL';")
           TENANT_ID=$(sqlite3 "$DB" "SELECT tenant_id FROM tenant_users WHERE user_id='$ADMIN_ID' LIMIT 1;")
@@ -372,9 +376,13 @@ jobs:
             sqlite3 "$DB" ".tables"
             exit 1
           fi
+          LINK_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          sqlite3 "$DB" "INSERT INTO messaging_channel_links (id, tenant_id, user_id, channel_type, channel_user_id, display_name) VALUES ('$LINK_ID', '$TENANT_ID', '$ADMIN_ID', 'slack', '$DRIVER_USER_ID', 'messaging-eval QA driver');"
           SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
           sqlite3 "$DB" "INSERT INTO messaging_sessions (id, user_id, tenant_id, channel_type, channel_user_id) VALUES ('$SESSION_ID', '$ADMIN_ID', '$TENANT_ID', 'slack', '$DRIVER_USER_ID');"
-          echo "Linked driver Slack user $DRIVER_USER_ID → admin $ADMIN_ID (tenant $TENANT_ID, session $SESSION_ID)"
+          LINKED=$(sqlite3 "$DB" "SELECT COUNT(*) FROM messaging_channel_links WHERE tenant_id='$TENANT_ID' AND channel_type='slack' AND channel_user_id='$DRIVER_USER_ID';")
+          [ "$LINKED" = "1" ] || { echo "ERROR: driver channel link not written (count=$LINKED)" >&2; exit 1; }
+          echo "Linked driver Slack user $DRIVER_USER_ID → admin $ADMIN_ID (tenant $TENANT_ID, link $LINK_ID, session $SESSION_ID)"
 
       - name: Start Pierre (background)
         env:
@@ -443,9 +451,22 @@ jobs:
           # standalone Q without follow-up. --test-threads=1 keeps the
           # ordering deterministic and prevents two probes from posting
           # to Slack simultaneously.
-          cargo test --release \
+          #
+          # The target exists only under `live-e2e`. A stale `--ignored`
+          # once selected zero of these and the step still passed, every
+          # night from 2026-05-13, so the count is asserted, not assumed
+          # (carnet#805).
+          EXPECTED=5
+          LOG="$RUNNER_TEMP/real-slack-tests.log"
+          set -o pipefail
+          cargo test --release --features live-e2e \
             --test messaging_eval_real_slack_test \
-            -- --ignored --nocapture --test-threads=1
+            -- --nocapture --test-threads=1 2>&1 | tee "$LOG"
+          PASSED=$(sed -n 's/^test result: ok\. \([0-9][0-9]*\) passed.*/\1/p' "$LOG")
+          if [ "$PASSED" != "$EXPECTED" ]; then
+            echo "ERROR: expected $EXPECTED real-Slack tests to pass, got '${PASSED:-none}'" >&2
+            exit 1
+          fi
 
       - name: Stop Pierre
         if: always()

@@ -552,9 +552,16 @@ async fn test_search_food_empty_query() -> Result<()> {
         }),
     );
 
-    let result = executor.execute_tool(request).await;
-    // Empty query might be rejected or return empty results
-    let _ = result;
+    // A blank query is invalid input, refused before any USDA call and
+    // whether or not a key is configured.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("an empty query must be rejected");
+    assert!(
+        err.to_string().contains("query"),
+        "the error should name the query parameter: {err}"
+    );
 
     Ok(())
 }

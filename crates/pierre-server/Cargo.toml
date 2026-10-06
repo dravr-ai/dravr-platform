@@ -41,6 +41,13 @@ telemetry = ["pierre-logging/telemetry", "pierre-middleware/telemetry", "pierre-
 toon = ["dep:toon-format", "pierre-formatters/toon"]
 analytics-posthog = ["pierre-services/analytics-posthog"]
 
+# Builds the live tests under tests/live/: they talk to a real service (Slack,
+# Ollama, Redis, Open-Meteo, Overpass, USDA, ...) and fail when it is absent.
+# Off by default so a plain `cargo test` never compiles them, and so never
+# counts a live test it could not run as passed (carnet#805). The lanes that
+# provision each service build them with `--features live-e2e`.
+live-e2e = []
+
 # Key management feature flags
 # Compiles the GCP Cloud KMS KEK provider; selected at runtime when PIERRE_KMS_KEY_RESOURCE is set (ADR-017)
 gcp-kms = ["pierre-auth/gcp-kms"]
@@ -353,6 +360,46 @@ pprof = { version = "0.15", features = ["flamegraph", "criterion"] }
 # Run all benchmarks: cargo bench
 # Run specific suite: cargo bench --bench intelligence_bench
 # Run specific benchmark: cargo bench --bench intelligence_bench -- "training_load"
+
+[[test]]
+name = "messaging_eval_real_slack_test"
+path = "tests/live/messaging_eval_real_slack_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "llm_local_integration_test"
+path = "tests/live/llm_local_integration_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "weather_geocoding_live_test"
+path = "tests/live/weather_geocoding_live_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "cache_redis_test"
+path = "tests/live/cache_redis_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "chat_scenario_live_test"
+path = "tests/live/chat_scenario_live_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "live_incident_corpus_test"
+path = "tests/live/live_incident_corpus_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "route_discovery_live_test"
+path = "tests/live/route_discovery_live_test.rs"
+required-features = ["live-e2e"]
+
+[[test]]
+name = "usda_live_test"
+path = "tests/live/usda_live_test.rs"
+required-features = ["live-e2e"]
 
 [[bench]]
 name = "intelligence_bench"

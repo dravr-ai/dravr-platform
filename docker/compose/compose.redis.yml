@@ -30,7 +30,7 @@ services:
     volumes:
       - .:/app
     working_dir: /app
-    command: ["cargo", "test", "--test", "cache_redis_test", "--", "--test-threads=1"]
+    command: ["cargo", "test", "--features", "live-e2e", "--test", "cache_redis_test", "--", "--test-threads=1"]
 
   # Optional: Redis Commander for cache management
   redis-commander:

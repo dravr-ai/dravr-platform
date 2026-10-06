@@ -540,7 +540,6 @@ jobs:
           POSTGRES_MIN_CONNECTIONS: "1"
           POSTGRES_ACQUIRE_TIMEOUT: "20"
           RUST_LOG: "info"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
       - name: Prove the shard ran on PostgreSQL
         # The factory builds its template database on first use and names it

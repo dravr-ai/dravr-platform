@@ -29,7 +29,8 @@ notes: "Tool-discipline regression — registre#250, Telegram 2026-09-02"
 #
 # That left the rule measured by nothing on an ordinary day, which is how
 # it would have rotted (registre#260). It is now carried by the
-# `stated_physiology` episode in live_incident_eval_test.rs — the nightly
+# `stated_physiology` episode in tests/helpers/live_incident_corpus.rs,
+# driven by tests/live/live_incident_corpus_test.rs — the nightly
 # lane that drives the real, tool-capable provider chain — and that
 # episode asserts the OUTCOME rather than the call: the athlete's stored
 # profile must hold 380 W afterwards. A reply that quotes the number back

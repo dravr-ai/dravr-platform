@@ -123,7 +123,7 @@ pub fn init_server_config() {
         // provider (`EmbacleProvider::build_headless` assigns it straight to
         // `config.model`), so a suite that does reach one is handed a model id
         // no backend serves. A lane driving real providers must set the value
-        // itself and refuse the placeholder — `live_incident_eval_test` does.
+        // itself and refuse the placeholder — `live_incident_corpus_test` does.
         if env::var("PIERRE_LLM_MODEL").is_err() {
             env::set_var("PIERRE_LLM_MODEL", PLACEHOLDER_LLM_MODEL);
         }

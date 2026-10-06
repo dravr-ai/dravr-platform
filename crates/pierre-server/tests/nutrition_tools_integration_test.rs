@@ -13,22 +13,22 @@
 //! - `get_food_details`: USDA food details lookup (requires API key)
 //! - `analyze_meal_nutrition`: Multi-food meal analysis (requires API key)
 //!
-//! Note: USDA API tests are skipped if `USDA_API_KEY` is not set.
+//! Everything here is offline and independent of the process environment.
+//! The USDA-backed tools are covered for input validation and for the refusal
+//! they give when no key is configured; the USDA key each executor carries is
+//! set explicitly in its config, never inherited from `USDA_API_KEY`. The
+//! calls that reach USDA live in the `live-e2e` target `usda_live_test`
+//! (carnet#805).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_config::environment::ServerConfig;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
-use std::env;
-use std::time::Duration;
-use tokio::time::timeout;
 use uuid::Uuid;
-
-/// Timeout for USDA API calls (external government API can be slow)
-const USDA_API_TIMEOUT: Duration = Duration::from_secs(30);
 
 mod common;
 
@@ -36,13 +36,38 @@ mod common;
 // Test Setup
 // ============================================================================
 
-/// Create test executor for nutrition tool tests
-async fn create_nutrition_test_executor() -> Result<UniversalToolExecutor> {
+/// USDA key for the offline executor. Never sent: the USDA tools resolve the
+/// key first, and every USDA-tool test in this file fails input validation
+/// before a request would be made, so the key only gets them past the
+/// "key not configured" refusal to the validation under test.
+const OFFLINE_USDA_KEY: &str = "offline-test-key-never-sent";
+
+/// Executor whose USDA key is `usda_api_key`, set explicitly so no test here
+/// depends on whether the process exports `USDA_API_KEY`.
+async fn create_executor_with_usda_key(
+    usda_api_key: Option<String>,
+) -> Result<UniversalToolExecutor> {
     common::init_server_config();
     common::init_test_http_clients();
 
-    let resources = common::create_test_server_resources().await?;
+    let config = ServerConfig {
+        usda_api_key,
+        ..common::test_server_config()
+    };
+    let resources = common::create_test_server_resources_with_config(config).await?;
     Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+}
+
+/// Create test executor for nutrition tool tests: a USDA key is configured,
+/// so the USDA tools reach their input validation.
+async fn create_nutrition_test_executor() -> Result<UniversalToolExecutor> {
+    create_executor_with_usda_key(Some(OFFLINE_USDA_KEY.to_owned())).await
+}
+
+/// Create a test executor with no USDA key configured, so the "key not
+/// configured" refusal is exercised.
+async fn create_nutrition_test_executor_without_usda_key() -> Result<UniversalToolExecutor> {
+    create_executor_with_usda_key(None).await
 }
 
 /// Create a test request with given parameters
@@ -54,77 +79,6 @@ fn create_test_request(tool_name: &str, parameters: serde_json::Value) -> Univer
         protocol: "test".to_owned(),
         tenant_id: None,
     }
-}
-
-/// Check if USDA API key is configured
-fn usda_api_key_available() -> bool {
-    env::var("USDA_API_KEY").is_ok()
-}
-
-/// Execute a USDA API tool call with timeout and graceful error handling.
-///
-/// Returns:
-/// - `Ok(Some(response))` - API call succeeded
-/// - `Ok(None)` - API call failed due to infrastructure issues (timeout, network, rate limit)
-///   The test should skip gracefully in this case.
-/// - `Err(e)` - Unexpected error that should fail the test
-async fn execute_usda_api_call_with_timeout(
-    executor: &UniversalToolExecutor,
-    request: UniversalRequest,
-    test_name: &str,
-) -> Result<Option<UniversalResponse>> {
-    match timeout(USDA_API_TIMEOUT, executor.execute_tool(request)).await {
-        Ok(Ok(response)) => {
-            // API call completed - check if it failed due to infrastructure issues
-            if !response.success {
-                let error_msg = response
-                    .error
-                    .as_ref()
-                    .map_or("Unknown error", String::as_str);
-                if is_infrastructure_error(error_msg) {
-                    println!("Skipping {test_name} - external API issue: {error_msg}");
-                    return Ok(None);
-                }
-            }
-            Ok(Some(response))
-        }
-        Ok(Err(err)) => {
-            // Tool execution returned an error - check if it's network-related
-            let error_string = err.to_string();
-            if is_infrastructure_error(&error_string) {
-                println!("Skipping {test_name} - execution error (likely network): {error_string}");
-                return Ok(None);
-            }
-            Err(err.into())
-        }
-        Err(_elapsed) => {
-            // Timeout occurred
-            println!(
-                "Skipping {test_name} - USDA API timeout after {} seconds",
-                USDA_API_TIMEOUT.as_secs()
-            );
-            Ok(None)
-        }
-    }
-}
-
-/// Check if an error message indicates infrastructure/network issues rather than logic errors.
-fn is_infrastructure_error(error_msg: &str) -> bool {
-    let error_lower = error_msg.to_lowercase();
-    error_lower.contains("rate limit")
-        || error_lower.contains("timeout")
-        || error_lower.contains("503")
-        || error_lower.contains("500")
-        || error_lower.contains("502")
-        || error_lower.contains("504")
-        || error_lower.contains("connection")
-        || error_lower.contains("network")
-        || error_lower.contains("dns")
-        || error_lower.contains("temporarily unavailable")
-        || error_lower.contains("service unavailable")
-        || error_lower.contains("timed out")
-        || error_lower.contains("error sending request")
-        || error_lower.contains("external service")
 }
 
 // ============================================================================
@@ -585,19 +539,12 @@ async fn test_get_nutrient_timing_missing_intensity() -> Result<()> {
 }
 
 // ============================================================================
-// search_food Tests (USDA API - conditional)
+// search_food Tests (offline: validation and the no-key refusal)
 // ============================================================================
 
 #[tokio::test]
 async fn test_search_food_no_api_key() -> Result<()> {
-    // This test verifies the error message when API key is not set
-    // Skip if USDA_API_KEY is actually configured
-    if usda_api_key_available() {
-        println!("Skipping test_search_food_no_api_key - API key is configured");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
+    let executor = create_nutrition_test_executor_without_usda_key().await?;
 
     let request = create_test_request(
         "search_food",
@@ -645,205 +592,25 @@ async fn test_search_food_page_size_boundary() -> Result<()> {
 
     let response = executor.execute_tool(request).await?;
 
-    // Either fails validation or returns API key error
+    // A key is configured, so this is the page-size validation, not the
+    // missing-key refusal.
     assert!(!response.success, "Should not succeed with page_size > 200");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_search_food_pagination_metadata_fields() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_search_food_pagination_metadata_fields - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    let request = create_test_request(
-        "search_food",
-        json!({
-            "query": "chicken",
-            "page_size": 5,
-            "page_number": 1
-        }),
-    );
-
-    let response = execute_usda_api_call_with_timeout(
-        &executor,
-        request,
-        "test_search_food_pagination_metadata_fields",
-    )
-    .await?;
-
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success);
-    let result = response.result.unwrap();
-
-    // Verify all pagination metadata fields are present
+    let error = response.error.unwrap_or_default();
     assert!(
-        result.get("returned_count").is_some(),
-        "Response should include returned_count"
+        error.contains("Page size must be between 1 and 200"),
+        "Should be rejected by page-size validation, got: {error}"
     );
-    assert!(
-        result.get("total_hits").is_some(),
-        "Response should include total_hits"
-    );
-    assert!(
-        result.get("page_number").is_some(),
-        "Response should include page_number"
-    );
-    assert!(
-        result.get("page_size").is_some(),
-        "Response should include page_size"
-    );
-    assert!(
-        result.get("total_pages").is_some(),
-        "Response should include total_pages"
-    );
-    assert!(
-        result.get("has_more").is_some(),
-        "Response should include has_more"
-    );
-
-    // Verify page_number matches request
-    assert_eq!(result["page_number"].as_u64().unwrap(), 1);
-    assert_eq!(result["page_size"].as_u64().unwrap(), 5);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_search_food_pagination_has_more_calculation() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_search_food_pagination_has_more_calculation - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    // Request a small page size to ensure multiple pages exist for common foods
-    let request = create_test_request(
-        "search_food",
-        json!({
-            "query": "apple",
-            "page_size": 2,
-            "page_number": 1
-        }),
-    );
-
-    let response = execute_usda_api_call_with_timeout(
-        &executor,
-        request,
-        "test_search_food_pagination_has_more_calculation",
-    )
-    .await?;
-
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success);
-    let result = response.result.unwrap();
-
-    let current_page = result["page_number"].as_u64().unwrap();
-    let total_pages = result["total_pages"].as_u64().unwrap();
-    let has_more = result["has_more"].as_bool().unwrap();
-
-    // Verify has_more is calculated correctly: current_page < total_pages
-    if total_pages > 1 {
-        assert!(
-            has_more,
-            "has_more should be true when on page {current_page} of {total_pages}"
-        );
-    }
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_search_food_pagination_page_navigation() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_search_food_pagination_page_navigation - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    // Request page 1
-    let request1 = create_test_request(
-        "search_food",
-        json!({
-            "query": "beef",
-            "page_size": 3,
-            "page_number": 1
-        }),
-    );
-
-    let response1 = execute_usda_api_call_with_timeout(
-        &executor,
-        request1,
-        "test_search_food_pagination_page_navigation_1",
-    )
-    .await?;
-
-    let Some(response1) = response1 else {
-        return Ok(());
-    };
-
-    assert!(response1.success);
-    let result1 = response1.result.unwrap();
-    assert_eq!(result1["page_number"].as_u64().unwrap(), 1);
-
-    // Request page 2 if available
-    if result1["has_more"].as_bool().unwrap_or(false) {
-        let request2 = create_test_request(
-            "search_food",
-            json!({
-                "query": "beef",
-                "page_size": 3,
-                "page_number": 2
-            }),
-        );
-
-        let response2 = execute_usda_api_call_with_timeout(
-            &executor,
-            request2,
-            "test_search_food_pagination_page_navigation_2",
-        )
-        .await?;
-
-        let Some(response2) = response2 else {
-            return Ok(());
-        };
-
-        assert!(response2.success);
-        let result2 = response2.result.unwrap();
-        assert_eq!(
-            result2["page_number"].as_u64().unwrap(),
-            2,
-            "page_number should reflect requested page"
-        );
-    }
 
     Ok(())
 }
 
 // ============================================================================
-// get_food_details Tests (USDA API - conditional)
+// get_food_details Tests (offline: validation and the no-key refusal)
 // ============================================================================
 
 #[tokio::test]
 async fn test_get_food_details_no_api_key() -> Result<()> {
-    if usda_api_key_available() {
-        println!("Skipping test_get_food_details_no_api_key - API key is configured");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
+    let executor = create_nutrition_test_executor_without_usda_key().await?;
 
     let request = create_test_request(
         "get_food_details",
@@ -874,17 +641,12 @@ async fn test_get_food_details_missing_fdc_id() -> Result<()> {
 }
 
 // ============================================================================
-// analyze_meal_nutrition Tests (USDA API - conditional)
+// analyze_meal_nutrition Tests (offline: validation and the no-key refusal)
 // ============================================================================
 
 #[tokio::test]
 async fn test_analyze_meal_nutrition_no_api_key() -> Result<()> {
-    if usda_api_key_available() {
-        println!("Skipping test_analyze_meal_nutrition_no_api_key - API key is configured");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
+    let executor = create_nutrition_test_executor_without_usda_key().await?;
 
     let request = create_test_request(
         "analyze_meal_nutrition",
@@ -928,20 +690,19 @@ async fn test_analyze_meal_nutrition_empty_foods() -> Result<()> {
         }),
     );
 
-    // Empty array should either succeed with zero totals or fail gracefully.
-    // Post-refactor (2b98ba43) the schema validator rejects empty arrays as
-    // invalid input, so accept either outcome here — the test's intent was
-    // "tool doesn't crash on an empty list." `if let Ok` covers the success
-    // path; the implicit Err branch is acceptable and produces no assertion.
-    if let Ok(response) = executor.execute_tool(request).await {
-        if response.success {
-            let result = response.result.unwrap();
-            assert!(
-                result["total_calories"].as_f64().unwrap().abs() < 0.1,
-                "Empty foods should have zero or near-zero calories"
-            );
-        }
-    }
+    // An empty meal is a valid meal with nothing in it: zero totals, no
+    // foods, and no USDA call to make.
+    let response = executor.execute_tool(request).await?;
+    assert!(
+        response.success,
+        "an empty meal should succeed: {response:?}"
+    );
+    let result = response.result.expect("a successful analysis has a result");
+    assert!(
+        result["total_calories"].as_f64().unwrap().abs() < f64::EPSILON,
+        "an empty meal has zero calories"
+    );
+    assert_eq!(result["foods"].as_array().map(Vec::len), Some(0));
 
     Ok(())
 }
@@ -963,138 +724,6 @@ async fn test_analyze_meal_nutrition_invalid_food_entry() -> Result<()> {
     let result = executor.execute_tool(request).await;
 
     assert!(result.is_err(), "Should fail with missing grams");
-
-    Ok(())
-}
-
-// ============================================================================
-// USDA API Integration Tests (only run if API key available)
-// ============================================================================
-
-#[tokio::test]
-async fn test_search_food_with_api_key() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_search_food_with_api_key - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    let request = create_test_request(
-        "search_food",
-        json!({
-            "query": "chicken breast raw",
-            "page_size": 5
-        }),
-    );
-
-    let response =
-        execute_usda_api_call_with_timeout(&executor, request, "test_search_food_with_api_key")
-            .await?;
-
-    // Skip test if API had infrastructure issues
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success, "Search should succeed with API key");
-    let result = response.result.unwrap();
-
-    assert!(result["foods"].is_array(), "Should return foods array");
-    // Response uses total_hits for total result count, returned_count for items in response
-    assert!(
-        result["total_hits"].as_u64().unwrap_or(0) > 0
-            || result["returned_count"].as_u64().unwrap_or(0) > 0,
-        "Should find results"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_food_details_with_api_key() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_get_food_details_with_api_key - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    // Use a known FDC ID (chicken breast)
-    let request = create_test_request(
-        "get_food_details",
-        json!({
-            "fdc_id": 171_477
-        }),
-    );
-
-    let response = execute_usda_api_call_with_timeout(
-        &executor,
-        request,
-        "test_get_food_details_with_api_key",
-    )
-    .await?;
-
-    // Skip test if API had infrastructure issues
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success, "Should succeed with valid FDC ID");
-    let result = response.result.unwrap();
-
-    assert!(result["fdc_id"].as_u64().is_some(), "Should have fdc_id");
-    assert!(result["description"].is_string(), "Should have description");
-    assert!(
-        result["nutrients"].is_array(),
-        "Should have nutrients array"
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_analyze_meal_nutrition_with_api_key() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_analyze_meal_nutrition_with_api_key - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_nutrition_test_executor().await?;
-
-    let request = create_test_request(
-        "analyze_meal_nutrition",
-        json!({
-            "ingredients": [
-                {"fdc_id": 171_477, "amount_g": 150.0}
-            ]
-        }),
-    );
-
-    let response = execute_usda_api_call_with_timeout(
-        &executor,
-        request,
-        "test_analyze_meal_nutrition_with_api_key",
-    )
-    .await?;
-
-    // Skip test if API had infrastructure issues
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success, "Should succeed analyzing meal");
-    let result = response.result.unwrap();
-
-    assert!(
-        result["total_calories"].as_f64().unwrap() > 0.0,
-        "Should have calories"
-    );
-    assert!(
-        result["total_protein_g"].as_f64().is_some(),
-        "Should have protein"
-    );
-    assert!(result["foods"].is_array(), "Should have foods array");
 
     Ok(())
 }

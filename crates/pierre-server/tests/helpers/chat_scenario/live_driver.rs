@@ -1,5 +1,5 @@
 // ABOUTME: Live LLM-driven scenario driver — wires a real provider + in-memory fake tools
-// ABOUTME: Used by chat_scenario_test::live_driver_executes_every_scenario behind CHAT_SCENARIO_LIVE=1
+// ABOUTME: Used by tests/live/chat_scenario_live_test.rs::live_driver_executes_every_scenario (live-e2e)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

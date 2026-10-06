@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for local LLM with Pierre fitness tools
-// ABOUTME: Validates function calling and latency with Ollama/vLLM backends
+// ABOUTME: Validates function calling and latency against a live Ollama backend
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,10 +9,12 @@
 
 //! # Local LLM Integration Tests
 //!
-//! These tests exercise the local LLM integration against a running Ollama (or
-//! vLLM) server. CI provisions Ollama on `localhost:11434`; on developer
-//! machines, run `ollama serve` and `ollama pull qwen2.5:14b-instruct` before
-//! executing the suite.
+//! These tests exercise the local LLM integration against a running Ollama
+//! server. They are built only with the `live-e2e` feature and never skip: a
+//! missing server fails them. `llm-live-cron.yml` provisions Ollama on
+//! `localhost:11434`; on a workstation, run `ollama serve` and
+//! `ollama pull qwen2.5:14b-instruct` first. The offline error-path case is
+//! `tests/llm_provider_unreachable_test.rs`.
 //!
 //! ## Latency Test Thresholds
 //!
@@ -28,56 +30,17 @@
 //! ## Running
 //!
 //! ```bash
-//! cargo test --test llm_local_integration_test -- --nocapture
+//! cargo test --features live-e2e --test llm_local_integration_test -- --nocapture
 //! ```
 
 use pierre_llm::{
-    http_env, ChatMessage, ChatProvider, ChatRequest, FunctionDeclaration, LlmCapabilities,
-    OpenAiCompatibleConfig, Tool,
+    http_env, ChatMessage, ChatProvider, ChatRequest, FunctionDeclaration, OpenAiCompatibleConfig,
+    Tool,
 };
 use serde_json::json;
-use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-
-/// Returns true when the test should actually run (CI provisions Ollama and
-/// sets `RUN_LOCAL_LLM_TESTS=1`). On developer machines this defaults to false
-/// so the live-LLM tests skip silently instead of hanging on a missing local
-/// server. Pattern mirrors `weather_backfill_test::RUN_NETWORK_TESTS`.
-fn local_llm_tests_enabled() -> bool {
-    env::var("RUN_LOCAL_LLM_TESTS").is_ok()
-}
-
-macro_rules! require_local_llm {
-    () => {
-        if !local_llm_tests_enabled() {
-            eprintln!(
-                "skipping: set RUN_LOCAL_LLM_TESTS=1 (and run `ollama serve`) to enable local LLM integration tests"
-            );
-            return;
-        }
-    };
-}
-
-/// vLLM tests run against a separate server (`localhost:8000`) that the daily
-/// cron does NOT provision. Gate them behind their own opt-in env var so they
-/// skip cleanly when only Ollama is available; flip both vars on a workstation
-/// running both backends.
-fn vllm_tests_enabled() -> bool {
-    env::var("RUN_VLLM_TESTS").is_ok()
-}
-
-macro_rules! require_vllm {
-    () => {
-        if !vllm_tests_enabled() {
-            eprintln!(
-                "skipping: set RUN_VLLM_TESTS=1 (and run a local vLLM server on :8000) to enable vLLM integration tests"
-            );
-            return;
-        }
-    };
-}
 
 // =============================================================================
 // Helper Functions
@@ -223,7 +186,6 @@ fn create_pierre_fitness_tools() -> Vec<Tool> {
 
 #[tokio::test]
 async fn test_ollama_server_health() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let result = provider.health_check().await;
@@ -234,27 +196,12 @@ async fn test_ollama_server_health() {
     assert!(result.unwrap(), "Health check should return true");
 }
 
-#[tokio::test]
-async fn test_vllm_server_health() {
-    require_vllm!();
-    let provider = wrap(OpenAiCompatibleConfig::vllm(
-        "meta-llama/Llama-3.1-8B-Instruct",
-    ));
-
-    let result = provider.health_check().await;
-    assert!(
-        result.is_ok(),
-        "vLLM server should be reachable: {result:?}"
-    );
-}
-
 // =============================================================================
 // Pierre Fitness Tools Integration Tests
 // =============================================================================
 
 #[tokio::test]
 async fn test_pierre_fitness_tools_with_local_llm() {
-    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -343,7 +290,6 @@ async fn test_pierre_fitness_tools_with_local_llm() {
 
 #[tokio::test]
 async fn test_pierre_complex_multi_tool_query() {
-    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -374,7 +320,6 @@ async fn test_pierre_complex_multi_tool_query() {
 
 #[tokio::test]
 async fn test_local_llm_latency_acceptable() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let simple_request =
@@ -401,7 +346,6 @@ async fn test_local_llm_latency_acceptable() {
 #[tokio::test]
 async fn test_local_llm_streaming_first_token_latency() {
     use futures_util::StreamExt;
-    require_local_llm!();
 
     let provider = create_ollama_provider();
 
@@ -447,7 +391,6 @@ async fn test_local_llm_streaming_first_token_latency() {
 
 #[tokio::test]
 async fn test_local_llm_tool_calling_latency() {
-    require_local_llm!();
     let provider = create_ollama_provider();
     let tools = create_pierre_fitness_tools();
 
@@ -486,7 +429,6 @@ async fn test_local_llm_tool_calling_latency() {
 
 #[tokio::test]
 async fn test_local_llm_missing_model_error() {
-    require_local_llm!();
     let provider = wrap(OpenAiCompatibleConfig::ollama("nonexistent-model:latest"));
 
     let request = ChatRequest::new(vec![ChatMessage::user("Hello")]);
@@ -500,37 +442,12 @@ async fn test_local_llm_missing_model_error() {
     println!("Error for missing model: {err:?}");
 }
 
-#[tokio::test]
-async fn test_local_llm_server_not_running_error() {
-    // Use a port that definitely doesn't have a server
-    let config = OpenAiCompatibleConfig {
-        base_url: "http://localhost:59999/v1".to_owned(),
-        api_key: None,
-        default_model: "test".to_owned(),
-        provider_name: "test".to_owned(),
-        display_name: "Test".to_owned(),
-        capabilities: LlmCapabilities::default(),
-        ..OpenAiCompatibleConfig::default()
-    };
-
-    let provider = wrap(config);
-
-    let result = provider.health_check().await;
-
-    // Should fail because server is not running
-    assert!(result.is_err(), "Should fail when server is not running");
-
-    let err = result.unwrap_err();
-    println!("Error for missing server: {err:?}");
-}
-
 // =============================================================================
 // Concurrent Request Tests
 // =============================================================================
 
 #[tokio::test]
 async fn test_local_llm_concurrent_requests() {
-    require_local_llm!();
     let provider = create_ollama_provider();
     let provider = Arc::new(provider);
 
@@ -663,7 +580,6 @@ async fn assert_tool_called_with_retry(tool_name: &str, user_prompt: &str) {
 
 #[tokio::test]
 async fn test_real_tool_registry_calling_get_activities() {
-    require_local_llm!();
     assert_tool_called_with_retry(
         "get_activities",
         "Call the get_activities tool now to fetch my last 5 activities. \
@@ -675,7 +591,6 @@ async fn test_real_tool_registry_calling_get_activities() {
 
 #[tokio::test]
 async fn test_real_tool_registry_calling_analyze_training_load() {
-    require_local_llm!();
     assert_tool_called_with_retry(
         "analyze_training_load",
         "I want a training load analysis for the last 30 days. \
@@ -688,7 +603,6 @@ async fn test_real_tool_registry_calling_analyze_training_load() {
 
 #[tokio::test]
 async fn test_multi_tool_real_registry_query() {
-    require_local_llm!();
     let provider = create_ollama_provider();
     // Three tools that pair naturally for an end-of-week review request.
     let tools = registry_tools(&[
@@ -745,7 +659,6 @@ async fn test_multi_tool_real_registry_query() {
 
 #[tokio::test]
 async fn test_streaming_under_tool_pressure() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     // Streaming without `complete_with_tools`: many local-LLM regressions break
@@ -784,7 +697,6 @@ async fn test_streaming_under_tool_pressure() {
 
 #[tokio::test]
 async fn test_persona_prompt_changes_output_style() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let user_prompt = "I ran 8km this morning. Two-sentence reaction.";
@@ -830,7 +742,7 @@ async fn test_persona_prompt_changes_output_style() {
 // regression in prompt assembly, scope carve-outs, or member attribution
 // will surface as a concrete behavioral diff instead of a silent drop.
 //
-// Run locally with `RUN_LOCAL_LLM_TESTS=1 cargo test --test llm_local_integration_test`.
+// Run locally with `cargo test --features live-e2e --test llm_local_integration_test`.
 
 const SLEEP_AGENT_INSTRUCTIONS: &str = "You are a sleep optimization specialist for athletes. \
     Your expertise includes: sleep architecture and its role in recovery, optimal sleep duration \
@@ -854,7 +766,6 @@ const NUTRITION_AGENT_INSTRUCTIONS: &str = "You are a sports nutrition specialis
 
 #[tokio::test]
 async fn test_agent_prompt_steers_topic() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let question = "What's one thing I should focus on this week to improve my recovery?";
@@ -910,7 +821,6 @@ async fn test_agent_prompt_steers_topic() {
 
 #[tokio::test]
 async fn test_agent_scope_refusal_nutrition_vs_training() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let request = ChatRequest::new(vec![
@@ -951,7 +861,6 @@ async fn test_agent_scope_refusal_nutrition_vs_training() {
 
 #[tokio::test]
 async fn test_group_message_attribution() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let group_context = "You are answering inside a group chat. Recent messages from members:\n\
@@ -988,7 +897,6 @@ async fn test_group_message_attribution() {
 
 #[tokio::test]
 async fn test_group_summary_includes_all_members() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     let group_context = "You are summarizing a group's training week. Here is each member's \
@@ -1020,7 +928,6 @@ async fn test_group_summary_includes_all_members() {
 
 #[tokio::test]
 async fn test_persona_x_agent_composition() {
-    require_local_llm!();
     let provider = create_ollama_provider();
 
     // Compose the Agent persona on top of the sleep agent prompt. The

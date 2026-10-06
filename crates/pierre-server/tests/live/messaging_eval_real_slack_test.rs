@@ -14,22 +14,23 @@
 //!
 //! ## Running
 //!
-//! All five env vars must be set (CI exposes them as secrets):
+//! A live test: it is built only with the `live-e2e` feature, so a plain
+//! `cargo test` never compiles it and never counts it as passed. Built, it
+//! never skips: all five env vars must be set (CI exposes them as secrets)
+//! and a Pierre must be serving the channel, or the test fails.
 //!
 //! ```sh
-//! cargo test --test messaging_eval_real_slack_test -- --nocapture
+//! cargo test --features live-e2e --test messaging_eval_real_slack_test -- --nocapture
 //! ```
-//!
-//! Missing env vars cause the test to print a clear skip message and
-//! exit zero — no false failure when the operator hasn't configured
-//! the Slack side.
 //!
 //! ## Two tests, two scopes
 //!
-//! - [`real_slack_post_and_read_smoke`] — verifies the driver layer
-//!   only: the QA driver can post a message AND the test can read
-//!   that same message back from `conversations.history`. Exercises
-//!   token validity, channel membership, and the polling harness.
+//! - [`real_slack_post_and_read_smoke`] — verifies the driver layer:
+//!   the QA driver can post a message, read it back from
+//!   `conversations.history`, and see the agent answer it. Pierre runs a
+//!   turn on every channel message, so the smoke waits for that reply;
+//!   otherwise it lands after the next probe's post and every later
+//!   probe reads its predecessor's reply.
 //! - [`real_slack_scope_refusal_e2e`] — the full round trip:
 //!   user utterance → canot → chat pipeline → agent reply → asserter.
 //!
@@ -54,30 +55,6 @@
 #![allow(clippy::absolute_paths)] // std::time::Instant / UNIX_EPOCH used once each
 #![allow(missing_docs)]
 
-mod helpers;
-
-/// Live-Slack tests need both the QA driver tokens AND a Pierre dev server
-/// running locally that's wired into the Slack workspace. Gate on
-/// `RUN_SLACK_E2E_TESTS=1` so they skip silently otherwise — CI cron with
-/// the full setup is the only environment that can pass these. Mirrors
-/// `llm_local_integration_test::require_local_llm!`.
-///
-/// Without this gate the tests had a deceptive failure mode: developers
-/// with `MESSAGING_EVAL_SLACK_*` in `.envrc` would see the tests fail
-/// (no live Pierre to reply), while CI runners with NO env vars saw the
-/// tests return early and report as passed — meaning CI was silently
-/// skipping coverage.
-macro_rules! require_slack_e2e {
-    () => {
-        if std::env::var("RUN_SLACK_E2E_TESTS").is_err() {
-            eprintln!(
-                "skipping: set RUN_SLACK_E2E_TESTS=1 (and run a local Pierre with SLACK_ALLOWED_BOT_IDS configured) to enable Slack e2e tests"
-            );
-            return;
-        }
-    };
-}
-
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::env;
@@ -92,36 +69,31 @@ struct SlackCreds {
 }
 
 impl SlackCreds {
-    /// Load all five env vars; returns `None` if any is missing so
-    /// the test can skip cleanly instead of failing.
-    fn from_env() -> Option<Self> {
+    /// Load all five env vars. The test is only built for a live run, so a
+    /// missing variable is a half-configured environment and panics, never
+    /// a skip that reads as a pass (carnet#805).
+    fn from_env() -> Self {
         // App token + signing secret aren't used by polling but are
         // required by the operator's setup, so we gate on their
         // presence to catch half-configured environments loudly.
-        for name in [
-            "MESSAGING_EVAL_SLACK_BOT_TOKEN",
-            "MESSAGING_EVAL_SLACK_APP_TOKEN",
-            "MESSAGING_EVAL_SLACK_SIGNING_SECRET",
-            "MESSAGING_EVAL_SLACK_CHANNEL",
-            "MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID",
-        ] {
-            if env::var(name).ok().is_none_or(|v| v.is_empty()) {
-                eprintln!("[skip] {name} not set — real-Slack scenario skipped");
-                return None;
-            }
+        let required = |name: &str| match env::var(name) {
+            Ok(value) if !value.is_empty() => value,
+            _ => panic!("{name} must be set for the live real-Slack tests"),
+        };
+        required("MESSAGING_EVAL_SLACK_APP_TOKEN");
+        required("MESSAGING_EVAL_SLACK_SIGNING_SECRET");
+        Self {
+            bot_token: required("MESSAGING_EVAL_SLACK_BOT_TOKEN"),
+            channel: required("MESSAGING_EVAL_SLACK_CHANNEL"),
+            coach_user_id: required("MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID"),
         }
-        Some(Self {
-            bot_token: env::var("MESSAGING_EVAL_SLACK_BOT_TOKEN").ok()?,
-            channel: env::var("MESSAGING_EVAL_SLACK_CHANNEL").ok()?,
-            coach_user_id: env::var("MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID").ok()?,
-        })
     }
 }
 
 /// Classify an agent-authored message as transient (safe to skip while
 /// polling) vs the final pipeline output.
 ///
-/// Three kinds of transient replies land in the channel before the real
+/// Two kinds of transient replies land in the channel before the real
 /// LLM reply on the same turn:
 ///
 /// 1. **Pre-auth link prompt** — a stray Slack system event (e.g. a
@@ -133,20 +105,8 @@ impl SlackCreds {
 ///    pipeline progresses. `conversations.history` returns whatever
 ///    text the message currently holds, so a fast poll can grab the
 ///    placeholder before the final edit.
-/// 3. **Smoke-probe echo** — `real_slack_post_and_read_smoke` posts a
-///    "messaging-eval smoke probe — ignore — nonce=…" line authored by
-///    the QA driver. When the smoke and scope tests share a CI run the
-///    agent bot occasionally echoes the probe text back (Pierre routes
-///    every channel message into the pipeline; "ignore" instructions
-///    in the body are LLM-honored only intermittently). The echo lands
-///    in `conversations.history` as an agent-authored message and would
-///    otherwise satisfy `wait_for_agent_reply`'s author filter for the
-///    next probe in the suite.
 fn is_transient_agent_reply(text: &str) -> bool {
     if text.contains("/messaging/link/") {
-        return true;
-    }
-    if text.contains("messaging-eval smoke probe") {
         return true;
     }
     // AG-UI placeholders are short status phrases (< 80 chars) that end
@@ -207,8 +167,7 @@ async fn post_user_message(
 /// recent agent message will be the pre-auth link prompt — which tells
 /// us nothing about whether the real turn ran. We skip those (and
 /// AG-UI progress placeholders) so the caller sees the last real reply
-/// — typically the LLM quota-error copy, which lets the test mark the
-/// run as an infra flake instead of a regression.
+/// — typically the LLM quota-error copy — and names it in the failure.
 async fn peek_last_agent_reply(
     client: &Client,
     creds: &SlackCreds,
@@ -381,16 +340,15 @@ async fn driver_user_id(client: &Client, bot_token: &str) -> Result<String, Stri
         .ok_or_else(|| "auth.test response missing `user_id`".to_owned())
 }
 
-/// Driver-layer smoke: QA driver posts a message and reads it back.
+/// Driver-layer smoke: QA driver posts a message, reads it back, and waits
+/// for the agent's reply to it.
 ///
-/// Passes today — exercises token validity, channel membership, and
-/// the polling harness without requiring the agent bot to reply.
+/// Exercises token validity, channel membership, and the polling harness.
+/// The wait is not optional: Pierre runs a turn on every channel message,
+/// and an unconsumed reply would be read as the next probe's answer.
 #[tokio::test]
 async fn real_slack_post_and_read_smoke() {
-    require_slack_e2e!();
-    let Some(creds) = SlackCreds::from_env() else {
-        return;
-    };
+    let creds = SlackCreds::from_env();
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -418,6 +376,13 @@ async fn real_slack_post_and_read_smoke() {
     assert!(
         echoed.contains("messaging-eval smoke probe"),
         "readback text mismatch: {echoed}"
+    );
+
+    let reply = wait_for_agent_reply(&client, &creds, &post_ts, 1200).await;
+    assert!(
+        reply.is_some(),
+        "the agent never answered the smoke post within 1200s; later probes would \
+         read a stale reply"
     );
 }
 
@@ -488,10 +453,7 @@ struct EvalProbe {
 /// independent — multiple probes can be invoked from sibling tests in
 /// the same CI run, sharing one warm Pierre + Ollama process.
 async fn run_probe(probe: &EvalProbe) {
-    require_slack_e2e!();
-    let Some(creds) = SlackCreds::from_env() else {
-        return;
-    };
+    let creds = SlackCreds::from_env();
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -507,23 +469,18 @@ async fn run_probe(probe: &EvalProbe) {
 
     let Some(reply) = wait_for_agent_reply(&client, &creds, &post_ts, 1200).await else {
         let last = peek_last_agent_reply(&client, &creds, &post_ts).await;
-        // Stuck-on-placeholder timeout (e.g. last seen is "réflexion…"
-        // or "thinking…") is an Ollama-on-CPU CI infra flake, same
-        // class as a Gemini quota wall: the pipeline ran, the model
-        // emitted the AG-UI placeholder, and CPU prefill/decode never
-        // finished within the budget. Skip cleanly instead of
-        // failing — the positive-control probe still has to pass to
-        // confirm the LLM path is alive end-to-end, so a genuinely
-        // broken pipeline keeps the workflow red.
+        // A reply still stuck on the AG-UI placeholder ("thinking…",
+        // "réflexion…") means the pipeline ran but the model never finished
+        // within the budget. That fails like any other missing reply: a stall
+        // is a red to look at, never a pass (carnet#805).
         if let Some(text) = last.as_deref() {
-            if is_transient_agent_reply(text) {
-                eprintln!(
-                    "[{name}] Skipping: model stuck on placeholder {text:?} after \
-                     1200s — Ollama/qwen2.5:3b CPU stall counted as infra flake.",
-                    name = probe.name,
-                );
-                return;
-            }
+            assert!(
+                !is_transient_agent_reply(text),
+                "[{name}] Only a transient reply after 1200s: {text:?}. A link prompt \
+                 means the driver is not linked (messaging_channel_links); a \
+                 \"thinking…\" placeholder means the LLM never finished (Ollama stall?).",
+                name = probe.name,
+            );
         }
         panic!(
             "[{name}] No non-transient reply from coach bot ({agent}) within 1200s \

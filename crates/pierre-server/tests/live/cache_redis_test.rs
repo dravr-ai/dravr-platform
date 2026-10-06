@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for Redis cache backend implementation
-// ABOUTME: Tests all CacheProvider operations with a real Redis instance (CI-only)
+// ABOUTME: Tests all CacheProvider operations with a real Redis instance; fails without one
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -31,13 +31,17 @@ fn test_cache_key(resource: CacheResource) -> CacheKey {
     )
 }
 
-/// Helper: Create Redis cache from `REDIS_URL` environment variable
-/// Returns None if `REDIS_URL` is not set (allows skipping tests in non-Redis environments)
-async fn create_redis_cache() -> Result<Option<Cache>> {
-    let Ok(redis_url) = env::var("REDIS_URL") else {
-        println!("REDIS_URL not set, skipping Redis cache tests");
-        return Ok(None);
-    };
+/// Helper: Create the Redis cache named by the `REDIS_URL` environment variable.
+///
+/// This target is live-only (`required-features = ["live-e2e"]`) and never skips
+/// (carnet#805): an unset `REDIS_URL` panics, and an unreachable Redis fails the
+/// test through the `Cache::new` error or a 60s connect deadline. The
+/// `CI: Backend (Redis)` lane provisions the service and asserts the binary ran
+/// tests.
+async fn create_redis_cache() -> Result<Cache> {
+    let redis_url = env::var("REDIS_URL").expect(
+        "REDIS_URL must name a reachable Redis (e.g. redis://localhost:6379) to run cache_redis_test",
+    );
 
     let config = CacheConfig {
         max_entries: 1000, // Not used for Redis, but required by config
@@ -47,35 +51,26 @@ async fn create_redis_cache() -> Result<Option<Cache>> {
         ..Default::default()
     };
 
-    let cache = Cache::new(config).await?;
-
-    Ok(Some(cache))
-}
-
-/// Helper macro to skip test if Redis is not available
-macro_rules! require_redis {
-    ($cache:expr) => {
-        match $cache {
-            Some(cache) => cache,
-            None => {
-                println!("Skipping test: Redis not available");
-                return Ok(());
-            }
-        }
-    };
+    // Bounded here because an unreachable Redis does not error out of `Cache::new`
+    // in reasonable time (a refused port was still connecting after 8 minutes);
+    // a live test that cannot reach its service must fail, not hang.
+    let cache = time::timeout(Duration::from_secs(60), Cache::new(config))
+        .await
+        .expect("Redis at REDIS_URL did not accept a connection within 60s")?;
+    Ok(cache)
 }
 
 /// Every replica connected to one Redis sees the same entries.
 #[tokio::test]
 async fn test_redis_cache_is_shared_across_processes() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     assert!(cache.is_shared_across_processes());
     Ok(())
 }
 
 #[tokio::test]
 async fn test_redis_cache_health_check() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     // Redis PING should return PONG
     cache.health_check().await?;
@@ -85,7 +80,7 @@ async fn test_redis_cache_health_check() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_set_and_get() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
     let data = TestData {
         value: "redis_test".to_owned(),
@@ -93,7 +88,7 @@ async fn test_redis_cache_set_and_get() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set value
     cache.set(&key, &data, Duration::from_mins(1)).await?;
@@ -110,11 +105,11 @@ async fn test_redis_cache_set_and_get() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_get_nonexistent() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
 
     // Ensure key doesn't exist
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Get should return None for non-existent key
     let retrieved: Option<TestData> = cache.get(&key).await?;
@@ -125,7 +120,7 @@ async fn test_redis_cache_get_nonexistent() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_expiration() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
     let data = TestData {
         value: "expires".to_owned(),
@@ -133,7 +128,7 @@ async fn test_redis_cache_expiration() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set value with 1-second TTL
     cache.set(&key, &data, Duration::from_secs(1)).await?;
@@ -154,7 +149,7 @@ async fn test_redis_cache_expiration() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_ttl() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
     let data = TestData {
         value: "ttl_test".to_owned(),
@@ -162,7 +157,7 @@ async fn test_redis_cache_ttl() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set value with 60-second TTL
     cache.set(&key, &data, Duration::from_mins(1)).await?;
@@ -182,11 +177,11 @@ async fn test_redis_cache_ttl() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_ttl_nonexistent() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
 
     // Ensure key doesn't exist
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // TTL should return None for non-existent key
     let ttl = cache.ttl(&key).await?;
@@ -197,7 +192,7 @@ async fn test_redis_cache_ttl_nonexistent() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_exists() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
     let data = TestData {
         value: "exists_test".to_owned(),
@@ -205,7 +200,7 @@ async fn test_redis_cache_exists() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Should not exist initially
     assert!(!cache.exists(&key).await?);
@@ -227,7 +222,7 @@ async fn test_redis_cache_exists() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_invalidate() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
     let data = TestData {
         value: "delete_me".to_owned(),
@@ -235,7 +230,7 @@ async fn test_redis_cache_invalidate() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set value
     cache.set(&key, &data, Duration::from_mins(1)).await?;
@@ -254,7 +249,7 @@ async fn test_redis_cache_invalidate() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_invalidate_pattern() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     // Use unique IDs for this test to avoid conflicts
     let tenant_id = TenantId::generate();
@@ -286,9 +281,9 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
     );
 
     // Clean up any existing keys first
-    let _ = cache.invalidate(&key1).await;
-    let _ = cache.invalidate(&key2).await;
-    let _ = cache.invalidate(&key3).await;
+    cache.invalidate(&key1).await?;
+    cache.invalidate(&key2).await?;
+    cache.invalidate(&key3).await?;
 
     // Set all values
     cache.set(&key1, &data, Duration::from_mins(1)).await?;
@@ -315,7 +310,7 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_tenant_isolation() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     let tenant1 = TenantId::generate();
     let tenant2 = TenantId::generate();
@@ -345,8 +340,8 @@ async fn test_redis_cache_tenant_isolation() -> Result<()> {
     );
 
     // Clean up any existing keys first
-    let _ = cache.invalidate(&key1).await;
-    let _ = cache.invalidate(&key2).await;
+    cache.invalidate(&key1).await?;
+    cache.invalidate(&key2).await?;
 
     // Set data for both tenants
     cache.set(&key1, &data1, Duration::from_mins(1)).await?;
@@ -372,7 +367,7 @@ async fn test_redis_cache_tenant_isolation() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_clear_all() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     // Use unique IDs for this test
     let tenant_id = TenantId::generate();
@@ -397,7 +392,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
 
     // Clean up any existing keys first
     for key in &keys {
-        let _ = cache.invalidate(key).await;
+        cache.invalidate(key).await?;
     }
 
     // Add entries
@@ -423,7 +418,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_different_resource_types() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
@@ -454,7 +449,7 @@ async fn test_redis_cache_different_resource_types() -> Result<()> {
         .collect();
 
     for key in &keys {
-        let _ = cache.invalidate(key).await;
+        cache.invalidate(key).await?;
     }
 
     // Set all values
@@ -478,7 +473,7 @@ async fn test_redis_cache_different_resource_types() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_overwrite() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
 
     let data1 = TestData {
@@ -491,7 +486,7 @@ async fn test_redis_cache_overwrite() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set initial value
     cache.set(&key, &data1, Duration::from_mins(1)).await?;
@@ -515,7 +510,7 @@ async fn test_redis_cache_overwrite() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_large_value() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::AthleteProfile);
 
     // Create a larger data structure
@@ -526,7 +521,7 @@ async fn test_redis_cache_large_value() -> Result<()> {
     };
 
     // Clean up any existing key first
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     // Set large value
     cache.set(&key, &data, Duration::from_mins(1)).await?;
@@ -543,7 +538,7 @@ async fn test_redis_cache_large_value() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_concurrent_operations() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
 
@@ -591,7 +586,7 @@ async fn test_redis_cache_concurrent_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_invalidate_pattern_no_matches() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     // Try to invalidate pattern with no matching keys
     let removed = cache
@@ -606,7 +601,7 @@ async fn test_redis_cache_invalidate_pattern_no_matches() -> Result<()> {
 
 #[tokio::test]
 async fn test_redis_cache_tenant_pattern_invalidation() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
 
     let tenant_id = TenantId::generate();
     let user1_id = Uuid::new_v4();
@@ -632,8 +627,8 @@ async fn test_redis_cache_tenant_pattern_invalidation() -> Result<()> {
     );
 
     // Clean up first
-    let _ = cache.invalidate(&key1).await;
-    let _ = cache.invalidate(&key2).await;
+    cache.invalidate(&key1).await?;
+    cache.invalidate(&key2).await?;
 
     // Set both values
     cache.set(&key1, &data, Duration::from_mins(1)).await?;
@@ -663,10 +658,10 @@ const CONCURRENT_WINDOW_HITS: u64 = 50;
 /// opens a fresh one.
 #[tokio::test]
 async fn test_redis_count_in_window_counts_until_the_window_closes() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::Custom("window".to_owned()));
     let window = Duration::from_secs(2);
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     let first = cache.count_in_window(&key, window).await?;
     assert_eq!(first.hits, 1);
@@ -695,10 +690,10 @@ async fn test_redis_count_in_window_counts_until_the_window_closes() -> Result<(
 /// connection, are each counted exactly once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_redis_count_in_window_counts_concurrent_hits_once_each() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::Custom("concurrent".to_owned()));
     let window = Duration::from_mins(1);
-    let _ = cache.invalidate(&key).await;
+    cache.invalidate(&key).await?;
 
     let tasks: Vec<_> = (0..CONCURRENT_WINDOW_HITS)
         .map(|_| {
@@ -721,7 +716,7 @@ async fn test_redis_count_in_window_counts_concurrent_hits_once_each() -> Result
 /// A key holding something other than a count is an error, never a fresh window.
 #[tokio::test]
 async fn test_redis_count_in_window_refuses_a_key_holding_other_data() -> Result<()> {
-    let cache = require_redis!(create_redis_cache().await?);
+    let cache = create_redis_cache().await?;
     let key = test_cache_key(CacheResource::Custom("occupied".to_owned()));
     cache
         .set(&key, &"not a count", Duration::from_mins(1))

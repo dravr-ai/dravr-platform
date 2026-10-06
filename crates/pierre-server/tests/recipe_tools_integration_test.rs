@@ -14,22 +14,23 @@
 //! - `get_recipe`: Get specific recipe by ID
 //! - `delete_recipe`: Delete recipe from collection
 //! - `search_recipes`: Search recipes by name/tags/description
+//!
+//! Everything here is offline: `validate_recipe` is covered for input
+//! validation and for its no-key refusal, built with `usda_api_key: None`
+//! explicitly so the result does not depend on the process environment. The
+//! call that reaches USDA lives in the `live-e2e` target `usda_live_test`
+//! (carnet#805).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_config::environment::ServerConfig;
 use pierre_core::models::{Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
-use std::env;
-use std::time::Duration;
-use tokio::time::timeout;
 use uuid::Uuid;
-
-/// Timeout for USDA API calls (external government API can be slow)
-const USDA_API_TIMEOUT: Duration = Duration::from_secs(30);
 
 mod common;
 
@@ -43,6 +44,21 @@ async fn create_recipe_test_executor() -> Result<UniversalToolExecutor> {
     common::init_test_http_clients();
 
     let resources = common::create_test_server_resources().await?;
+    Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+}
+
+/// Create a recipe executor whose config has no USDA key, whatever the
+/// process environment says, so the "key not configured" refusal is
+/// exercised deterministically (CI lanes may export `USDA_API_KEY`).
+async fn create_recipe_test_executor_without_usda_key() -> Result<UniversalToolExecutor> {
+    common::init_server_config();
+    common::init_test_http_clients();
+
+    let config = ServerConfig {
+        usda_api_key: None,
+        ..common::test_server_config()
+    };
+    let resources = common::create_test_server_resources_with_config(config).await?;
     Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
 }
 
@@ -87,75 +103,6 @@ fn create_test_request(
         protocol: "test".to_owned(),
         tenant_id: Some(tenant_id.to_string()),
     }
-}
-
-/// Check if USDA API key is configured
-fn usda_api_key_available() -> bool {
-    env::var("USDA_API_KEY").is_ok()
-}
-
-/// Execute a USDA API tool call with timeout and graceful error handling.
-///
-/// Returns:
-/// - `Ok(Some(response))` - API call succeeded
-/// - `Ok(None)` - API call failed due to infrastructure issues (timeout, network, rate limit)
-///   The test should skip gracefully in this case.
-/// - `Err(e)` - Unexpected error that should fail the test
-async fn execute_usda_api_call_with_timeout(
-    executor: &UniversalToolExecutor,
-    request: UniversalRequest,
-    test_name: &str,
-) -> Result<Option<UniversalResponse>> {
-    match timeout(USDA_API_TIMEOUT, executor.execute_tool(request)).await {
-        Ok(Ok(response)) => {
-            // API call completed - check if it failed due to infrastructure issues
-            if !response.success {
-                let error_msg = response
-                    .error
-                    .as_ref()
-                    .map_or("Unknown error", String::as_str);
-                if is_infrastructure_error(error_msg) {
-                    println!("Skipping {test_name} - external API issue: {error_msg}");
-                    return Ok(None);
-                }
-            }
-            Ok(Some(response))
-        }
-        Ok(Err(err)) => {
-            // Tool execution returned an error - check if it's network-related
-            let error_string = err.to_string();
-            if is_infrastructure_error(&error_string) {
-                println!("Skipping {test_name} - execution error (likely network): {error_string}");
-                return Ok(None);
-            }
-            Err(err.into())
-        }
-        Err(_elapsed) => {
-            // Timeout occurred
-            println!(
-                "Skipping {test_name} - USDA API timeout after {} seconds",
-                USDA_API_TIMEOUT.as_secs()
-            );
-            Ok(None)
-        }
-    }
-}
-
-/// Check if an error message indicates infrastructure/network issues rather than logic errors.
-fn is_infrastructure_error(error_msg: &str) -> bool {
-    let error_lower = error_msg.to_lowercase();
-    error_lower.contains("rate limit")
-        || error_lower.contains("timeout")
-        || error_lower.contains("503")
-        || error_lower.contains("500")
-        || error_lower.contains("502")
-        || error_lower.contains("504")
-        || error_lower.contains("connection")
-        || error_lower.contains("network")
-        || error_lower.contains("dns")
-        || error_lower.contains("temporarily unavailable")
-        || error_lower.contains("service unavailable")
-        || error_lower.contains("timed out")
 }
 
 // ============================================================================
@@ -403,12 +350,7 @@ async fn test_get_recipe_constraints_with_time_limits() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_recipe_no_api_key() -> Result<()> {
-    if usda_api_key_available() {
-        println!("Skipping test_validate_recipe_no_api_key - API key configured");
-        return Ok(());
-    }
-
-    let executor = create_recipe_test_executor().await?;
+    let executor = create_recipe_test_executor_without_usda_key().await?;
     let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
 
     let request = create_test_request(
@@ -1194,83 +1136,6 @@ async fn test_recipe_user_isolation() -> Result<()> {
         !get_response.success,
         "User 2 should not access User 1's recipe"
     );
-
-    Ok(())
-}
-
-// ============================================================================
-// validate_recipe with USDA API (conditional)
-// ============================================================================
-
-#[tokio::test]
-async fn test_validate_recipe_with_api_key() -> Result<()> {
-    if !usda_api_key_available() {
-        println!("Skipping test_validate_recipe_with_api_key - no USDA_API_KEY");
-        return Ok(());
-    }
-
-    let executor = create_recipe_test_executor().await?;
-    let (user_id, tenant_id) = create_test_user_for_recipes(&executor).await?;
-
-    let request = create_test_request(
-        "validate_recipe",
-        json!({
-            "name": "Chicken and Rice",
-            "servings": 4,
-            "ingredients": [
-                {"name": "chicken breast", "amount": 500.0, "unit": "grams"},
-                {"name": "white rice", "amount": 300.0, "unit": "grams"}
-            ]
-        }),
-        user_id,
-        tenant_id,
-    );
-
-    let response =
-        execute_usda_api_call_with_timeout(&executor, request, "test_validate_recipe_with_api_key")
-            .await?;
-
-    // Skip test if API had infrastructure issues
-    let Some(response) = response else {
-        return Ok(());
-    };
-
-    assert!(response.success, "Should succeed with API key");
-    let result = response.result.unwrap();
-
-    assert!(result["validated"].as_bool().unwrap());
-    assert!(result["nutrition_per_serving"].is_object());
-
-    // USDA FoodData Central occasionally returns a 200 OK with zero ingredient
-    // matches for inputs it should know (chicken breast, white rice). When that
-    // happens, calories sum to 0 because there's no nutrition data to add up —
-    // a degraded-API case that mirrors the timeout/network path, not a logic
-    // bug. Treat zero matches as the same graceful skip the helper applies for
-    // infrastructure errors.
-    let matched = result["usda_matched_count"]
-        .as_u64()
-        .expect("usda_matched_count must be reported");
-    if matched == 0 {
-        println!(
-            "Skipping test_validate_recipe_with_api_key - USDA returned 0 ingredient matches \
-             for chicken breast + white rice (degraded API response)"
-        );
-        return Ok(());
-    }
-
-    // A matched ingredient with zero calories is a parse failure, not a
-    // degraded API: the client asks the detail endpoint for its nested shape
-    // and fails closed on a nutrient list that names no nutrient, so a detail
-    // response it cannot read surfaces as an unmatched ingredient above, never
-    // as a silent zero here (carnet#423).
-    let calories = result["nutrition_per_serving"]["calories"]
-        .as_f64()
-        .expect("calories must be reported as a number");
-    assert!(
-        calories > 0.0,
-        "USDA matched {matched} ingredients but reported zero calories"
-    );
-    assert!(result["validation_completeness"].as_f64().is_some());
 
     Ok(())
 }

@@ -453,7 +453,7 @@ if [ "$IGNORED_TESTS_UNAUTHORIZED" -gt 0 ]; then
     UNAUTHORIZED_IGNORED=$(rg '#\[ignore' crates/pierre-server/tests/ -l 2>/dev/null | grep -v -E "${ALLOWLIST_GREP:-__NEVER_MATCH__}" | head -5)
     echo -e "${RED}❌ Found $IGNORED_TESTS_UNAUTHORIZED unauthorized #[ignore] test(s)${NC}"
     echo "$UNAUTHORIZED_IGNORED"
-    fail_validation "#[ignore] outside the allowlist hides failures — implement the test, delete it, or justify it in [ignored_tests_allowlist] in validation-patterns.toml"
+    fail_validation "#[ignore] hides failures — implement the test or delete it; a test that needs a live service goes under crates/pierre-server/tests/live/ behind the live-e2e feature"
 fi
 
 # Placeholder test bodies in JS/TS test files

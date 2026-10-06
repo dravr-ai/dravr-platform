@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // Shared helpers in `tests/helpers/` compile into every integration-test
-// binary, but only `chat_scenario_test` consumes this submodule — so
+// binary, but only the chat_scenario targets consume this submodule — so
 // every other binary sees these symbols as dead. This is the documented
 // Rust pattern for scoped test helpers (Rust Book ch11.3) — the only
 // alternative is to move the tree out of `helpers/`, which costs more

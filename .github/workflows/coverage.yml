@@ -170,7 +170,6 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
           CARGO_INCREMENTAL: 0
 
       - name: Upload coverage to Codecov

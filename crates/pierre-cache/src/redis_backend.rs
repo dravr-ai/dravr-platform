@@ -90,13 +90,7 @@ impl RedisCache {
         client: &redis::Client,
         conn_config: &RedisConnectionConfig,
     ) -> AppResult<ConnectionManager> {
-        // Configure connection manager with timeout and reconnection settings
-        let manager_config = ConnectionManagerConfig::new()
-            .set_connection_timeout(Duration::from_secs(conn_config.connection_timeout_secs))
-            .set_response_timeout(Duration::from_secs(conn_config.response_timeout_secs))
-            .set_number_of_retries(conn_config.reconnection_retries)
-            .set_exponent_base(conn_config.retry_exponent_base)
-            .set_max_delay(conn_config.max_retry_delay_ms);
+        let manager_config = Self::manager_config(conn_config);
 
         let max_retries = conn_config.initial_connection_retries;
         let initial_delay_ms = conn_config.initial_retry_delay_ms;
@@ -140,6 +134,24 @@ impl RedisCache {
             max_retries + 1,
             last_error.map_or_else(|| "unknown error".to_owned(), |e| e.to_string())
         )))
+    }
+
+    /// Connection manager settings: timeouts and the reconnection backoff.
+    ///
+    /// redis 0.28 stores `exponent_base` but never reads it: its backoff grows
+    /// by `factor` from a one-second floor, and the library default of 100
+    /// jumped straight to the `max_retry_delay_ms` cap. Against a dead Redis
+    /// that cost ~2 minutes per `ConnectionManager::new_with_config`, and the
+    /// initial-connection loop above calls it four times, so boot sat ~8
+    /// minutes before failing (carnet#806). The configured growth therefore
+    /// goes in as `factor`, the field the backoff reads.
+    fn manager_config(conn_config: &RedisConnectionConfig) -> ConnectionManagerConfig {
+        ConnectionManagerConfig::new()
+            .set_connection_timeout(Duration::from_secs(conn_config.connection_timeout_secs))
+            .set_response_timeout(Duration::from_secs(conn_config.response_timeout_secs))
+            .set_number_of_retries(conn_config.reconnection_retries)
+            .set_factor(conn_config.retry_exponent_base)
+            .set_max_delay(conn_config.max_retry_delay_ms)
     }
 
     /// Build full Redis key with namespace prefix
@@ -360,5 +372,25 @@ impl CacheProvider for RedisCache {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_growth_is_the_configured_factor_not_the_library_default() {
+        let conn_config = RedisConnectionConfig::default();
+        let rendered = format!("{:?}", RedisCache::manager_config(&conn_config));
+
+        assert!(
+            rendered.contains(&format!("factor: {},", conn_config.retry_exponent_base)),
+            "redis 0.28 grows its backoff by `factor`; it must carry the configured growth: {rendered}"
+        );
+        assert!(
+            !rendered.contains("factor: 100"),
+            "the library default factor of 100 jumps straight to the delay cap: {rendered}"
+        );
     }
 }

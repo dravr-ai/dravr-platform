@@ -703,7 +703,6 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
   feature-profiles:
     name: Feature Profile Check (${{ matrix.name }})
@@ -833,7 +832,6 @@ jobs:
             find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
               | sed 's/\.rs$//' \
               | grep -v '^common$' \
-              | grep -v 'cache_redis_test' \
               | grep -v 'database_plugins_postgresql_test' \
               | sort
           )
@@ -880,7 +878,6 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
   # Every test target OUTSIDE crates/pierre-server/tests, on every push. The
   # per-push suites enumerate only pierre-server's tests directory (ci-postgres
@@ -1108,7 +1105,6 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
   # ============================================================================
   # PHASE 2: Release binary — gates on clippy, uploads artifact for other workflows

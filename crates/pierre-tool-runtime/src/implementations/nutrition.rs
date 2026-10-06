@@ -730,14 +730,20 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
+            // Input is validated before the client is built, so a blank query
+            // is refused as invalid whether or not a USDA key is configured.
+            let query = args
+                .get("query")
+                .and_then(Value::as_str)
+                .filter(|q| !q.trim().is_empty())
+                .ok_or_else(|| {
+                    AppError::invalid_input("Missing or invalid required parameter: query")
+                })?;
+
             let client = match build_usda_client(&context) {
                 Ok(c) => c,
                 Err(err_result) => return Ok(err_result),
             };
-
-            let query = args.get("query").and_then(Value::as_str).ok_or_else(|| {
-                AppError::invalid_input("Missing or invalid required parameter: query")
-            })?;
 
             let page_size_u64 = args.get("page_size").and_then(Value::as_u64).unwrap_or(10);
 

@@ -106,7 +106,6 @@ jobs:
     timeout-minutes: 350
 
     env:
-      LIVE_INCIDENT_EVAL: "1"
       # INFO, not the WARN this defaults to (tests/common.rs init_test_logging).
       # At WARN the run records THAT a turn came back empty and nothing about
       # which prompt did it: `wire shape at the provider boundary` (total_chars,
@@ -280,9 +279,12 @@ jobs:
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
           "$PREFIX/bin/copilot" --version
 
-      # The gate is the exit status, then a marker. With LIVE_INCIDENT_EVAL
-      # unset the test prints "skipping" and PASSES, and a filter that matched
-      # nothing passes too — so a green run must also show the corpus summary.
+      # The gate is the exit status, then two markers. The corpus is the
+      # live-e2e target live_incident_corpus_test, which a default build never
+      # compiles and which fails, never skips, without its model (carnet#805).
+      # The run is filtered to the corpus test by exact name, so the binary's
+      # shared-helper unit tests cannot stand in for it: a green run must show
+      # exactly one test passed AND the corpus summary line.
       - name: Run the incident corpus
         run: |
           log="$RUNNER_TEMP/incident-corpus.log"
@@ -290,8 +292,9 @@ jobs:
           # tee, not a redirect: a run killed by the job's wall clock must still
           # show which turn it died on. pipefail keeps cargo's status, not tee's.
           set -o pipefail
-          cargo test --test live_incident_eval_test -- --nocapture 2>&1 | tee "$log" || status=$?
+          cargo test --features live-e2e --test live_incident_corpus_test live_incident_corpus_holds -- --exact --nocapture 2>&1 | tee "$log" || status=$?
           [ "$status" -eq 0 ] || { echo "::error::the incident corpus failed (exit $status)" >&2; exit 1; }
+          grep -Eq '^test result: ok\. 1 passed;' "$log" || { echo "::error::the corpus test did not run — expected exactly 1 passed" >&2; exit 1; }
           grep -q '=== live incident corpus: ' "$log" || { echo "::error::the corpus never ran — no summary line" >&2; exit 1; }
 
       - name: Ollama log on failure

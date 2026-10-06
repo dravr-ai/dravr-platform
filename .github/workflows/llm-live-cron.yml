@@ -11,9 +11,11 @@
 # `EmbacleProvider` facade. `llm_local_integration_test` drives exactly that
 # path against a real model: completion, streaming, tool calling with schemas
 # pulled from the live `ToolRegistry`, the coaching persona prompts, group
-# attribution, concurrency, and the missing-model / dead-server errors. A tool
-# rename or schema change that a function-calling model can no longer act on
-# shows up here and nowhere else in this repository.
+# attribution, concurrency, and the missing-model error. The dead-server error
+# needs no model and runs offline in every default pass
+# (tests/llm_provider_unreachable_test.rs). A tool rename or schema change that
+# a function-calling model can no longer act on shows up here and nowhere else
+# in this repository.
 #
 # What is deliberately not here:
 #   - the OpenAI-compatible provider's own tests, which moved with the provider
@@ -75,7 +77,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Build the live test
-        run: cargo test --test llm_local_integration_test --no-run
+        run: cargo test --features live-e2e --test llm_local_integration_test --no-run
 
       # The installer starts Ollama as its own systemd unit on 127.0.0.1:11434
       # (run 35340398372: "Creating ollama systemd service"), so that unit is
@@ -97,26 +99,19 @@ jobs:
         # The one model the test names (create_ollama_provider); ~9 GB.
         run: ollama pull qwen2.5:14b-instruct
 
-      # The verdict is the exit status, then two markers — never the absence of
-      # a finding. With RUN_LOCAL_LLM_TESTS unset every live case prints
-      # "skipping" and PASSES, so a green run must show that none skipped and
-      # that the binary ran tests at all. The vLLM case skips on purpose: it
-      # has its own switch and no server here.
+      # The verdict is the exit status, then a marker — never the absence of a
+      # finding. The target exists only under `live-e2e` and its tests fail,
+      # never skip, without Ollama (carnet#805), so a green run must still show
+      # that the binary ran tests at all.
       - name: Run the live local-LLM tests
-        env:
-          RUN_LOCAL_LLM_TESTS: "1"
         run: |
           log="$RUNNER_TEMP/llm-live.log"
           status=0
           # tee, not a redirect: a run killed by the job's wall clock must still
           # show which test it died in. pipefail keeps cargo's status, not tee's.
           set -o pipefail
-          cargo test --test llm_local_integration_test -- --test-threads=1 --nocapture 2>&1 | tee "$log" || status=$?
+          cargo test --features live-e2e --test llm_local_integration_test -- --test-threads=1 --nocapture 2>&1 | tee "$log" || status=$?
           [ "$status" -eq 0 ] || { echo "::error::the live local-LLM tests failed (exit $status)" >&2; exit 1; }
-          if grep -q 'skipping: set RUN_LOCAL_LLM_TESTS' "$log"; then
-            echo "::error::a live test skipped — RUN_LOCAL_LLM_TESTS never reached the test process" >&2
-            exit 1
-          fi
           grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log" || { echo "::error::the test binary ran nothing" >&2; exit 1; }
 
       - name: Dump Ollama log on failure

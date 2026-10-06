@@ -8,7 +8,7 @@ on:
     paths:
       - 'crates/pierre-cache/**'
       - 'crates/pierre-server/src/cache/**'
-      - 'crates/pierre-server/tests/cache_redis_test.rs'
+      - 'crates/pierre-server/tests/live/cache_redis_test.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/ci-redis.yml'
@@ -18,7 +18,7 @@ on:
     paths:
       - 'crates/pierre-cache/**'
       - 'crates/pierre-server/src/cache/**'
-      - 'crates/pierre-server/tests/cache_redis_test.rs'
+      - 'crates/pierre-server/tests/live/cache_redis_test.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/ci-redis.yml'
@@ -98,8 +98,17 @@ jobs:
           redis-cli -h localhost -p 6379 INFO server | head -10
 
       - name: Run Redis cache tests
-        # Coverage provided by SQLite backend tests - Redis tests validate integration only
-        run: cargo test --test cache_redis_test -- --test-threads=1
+        # Coverage provided by SQLite backend tests - Redis tests validate integration only.
+        # The target exists only under `live-e2e` and its tests fail, never skip,
+        # without REDIS_URL or a reachable Redis (carnet#805), so a green run must
+        # still show the binary ran tests. pipefail keeps cargo's status, not tee's.
+        run: |
+          log="$RUNNER_TEMP/redis-tests.log"
+          status=0
+          set -o pipefail
+          cargo test --features live-e2e --test cache_redis_test -- --test-threads=1 2>&1 | tee "$log" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::the Redis cache tests failed (exit $status)" >&2; exit 1; }
+          grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log" || { echo "::error::the Redis test binary ran nothing" >&2; exit 1; }
         env:
           REDIS_URL: "redis://localhost:6379"
           DATABASE_URL: "sqlite::memory:"

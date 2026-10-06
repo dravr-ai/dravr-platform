@@ -49,6 +49,7 @@ on:
     paths:
       - "crates/pierre-server/tests/helpers/chat_scenario/**"
       - "crates/pierre-server/tests/chat_scenario_test.rs"
+      - "crates/pierre-server/tests/live/chat_scenario_live_test.rs"
       - "crates/pierre-server/tests/scenarios/**"
       - ".github/workflows/chat-conversation-eval.yml"
 
@@ -106,10 +107,13 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Run chat_scenario_test (structural mode)
-        run: cargo test --test chat_scenario_test
-        env:
-          # CHAT_SCENARIO_LIVE unset → structural mode only
-          PIERRE_LLM_MODEL: "mock"
+        # The offline half only — the live half is a separate target built
+        # under live-e2e (carnet#805). pipefail keeps cargo's exit code
+        # through the tee, and the grep refuses a run that executed nothing.
+        run: |
+          set -o pipefail
+          cargo test --test chat_scenario_test 2>&1 | tee "$RUNNER_TEMP/chat-scenario-structural.log"
+          grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/chat-scenario-structural.log"
 
   # ---------------------------------------------------------------------------
   # Live-LLM pass: nightly cron + on-demand. Drives every scenario through
@@ -123,7 +127,7 @@ jobs:
   # model + warm-up).
   # ---------------------------------------------------------------------------
   live-llm:
-    name: Live LLM execution (shard ${{ matrix.shard }}/5)
+    name: Live LLM execution (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     # Restoring the platform contract to the live driver put the whole
     # ~23.7 KB document in front of a CPU-only q4_K_M 7b at num_ctx 32768,
@@ -141,11 +145,15 @@ jobs:
       # One shard failing must not cancel the others — each covers a
       # disjoint slice of the scenarios, so we want every verdict.
       fail-fast: false
+      # The test shards the SELECTED scenarios, and a shard that selects
+      # none fails (carnet#805). The nightly selects only the nightly_gate
+      # scenarios (three today), so it runs three shards; a dispatch with
+      # include_ondemand selects all eleven and fans out to five. Carving a
+      # nightly scenario out to on-demand means lowering the nightly count.
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: ${{ fromJSON(inputs.include_ondemand && '[1, 2, 3, 4, 5]' || '[1, 2, 3]') }}
 
     env:
-      CHAT_SCENARIO_LIVE: "1"
       # The live driver (helpers/chat_scenario/live_driver.rs) reads
       # PIERRE_LLM_MODEL and dispatches to the local Ollama server
       # (OpenAI-compatible at :11434) — no API key, no rate limit, no cost.
@@ -153,16 +161,17 @@ jobs:
       # qwen2.5:7b-instruct with num_ctx 32768 so Pierre's full system
       # prompt + tool schemas fit without truncation.
       PIERRE_LLM_MODEL: "dravr-chateval"
-      # Fan the scenario files across 5 runners round-robin so each shard
-      # stays inside the wall-clock cap (multi-turn CPU inference is minutes
-      # per turn). Format is "<index>/<total>", consumed by
-      # shard_scenario_files() in chat_scenario_test.rs.
-      CHAT_SCENARIO_SHARD: "${{ matrix.shard }}/5"
+      # Fan the selected scenarios across the matrix round-robin so each
+      # shard stays inside the wall-clock cap (multi-turn CPU inference is
+      # minutes per turn). Format is "<index>/<total>", consumed by
+      # shard_selected() in tests/live/chat_scenario_live_test.rs.
+      CHAT_SCENARIO_SHARD: "${{ matrix.shard }}/${{ strategy.job-total }}"
       # On-demand carve-out: only a manual dispatch with include_ondemand=true
       # runs nightly_gate:false scenarios (e.g. today_anchor, which a local 7b
       # can't reliably clear). The nightly cron leaves this empty, so those
-      # scenarios are skipped and the run stays green. Consumed by
-      # live_driver_executes_every_scenario in chat_scenario_test.rs.
+      # scenarios are left out of the selection and the run stays green. Consumed by
+      # live_driver_executes_every_scenario in tests/live/chat_scenario_live_test.rs.
+      # A shard whose selection executes zero scenarios fails that test.
       CHAT_SCENARIO_INCLUDE_ONDEMAND: "${{ inputs.include_ondemand && '1' || '' }}"
       # Pierre's shared LLM reqwest client defaults to a 300s request
       # timeout; CPU prefill of the ~8K-token prompt on qwen2.5:7b runs
@@ -303,12 +312,22 @@ jobs:
             -d '{"model":"dravr-chateval","stream":false,"messages":[{"role":"user","content":"reply with the word ok"}]}' \
             | tee "$RUNNER_TEMP/ollama-logs/warmup.json"
 
-      - name: Run chat_scenario_test (live mode, shard ${{ matrix.shard }}/3)
-        # --nocapture streams the live driver's per-dispatch diagnostics
-        # (attempt failures, timeouts, backoffs) to the job log in real
-        # time, so a degraded run is visible even if the job hits its hard
-        # wall-clock kill before the test reports.
-        run: cargo test --test chat_scenario_test -- --include-ignored --nocapture
+      - name: Run chat_scenario_live_test (live mode, shard ${{ matrix.shard }}/${{ strategy.job-total }})
+        # The live target compiles only under live-e2e and never skips
+        # (carnet#805). --exact runs just the scenario driver: the helper
+        # unit tests compiled into this binary already run in the structural
+        # job, and one of them unsets PIERRE_LLM_MODEL mid-run. --nocapture
+        # streams the live driver's per-dispatch diagnostics (attempt
+        # failures, timeouts, backoffs) to the job log in real time, so a
+        # degraded run is visible even if the job hits its hard wall-clock
+        # kill before the test reports. pipefail + the grep refuse a run
+        # where the one test did not execute and pass.
+        run: |
+          set -o pipefail
+          cargo test --features live-e2e --test chat_scenario_live_test -- \
+            --exact live_driver_executes_every_scenario --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/chat-scenario-live.log"
+          grep -Eq '^test result: ok\. 1 passed' "$RUNNER_TEMP/chat-scenario-live.log"
 
       - name: Dump Ollama log on failure
         if: failure()

@@ -20,10 +20,12 @@
 //!   column names matches. Types are intentionally **not** compared — SQLite and
 //!   PostgreSQL spell the same logical type differently (`TEXT` vs `VARCHAR`,
 //!   `INTEGER` vs `BIGINT`, `BOOLEAN` storage, etc.); only column *presence* is
-//!   portable and meaningful. The SQLite side runs always (in-memory); the
-//!   PostgreSQL side runs only when a Postgres `DATABASE_URL`/`TEST_DATABASE_URL`
-//!   is available and the `postgresql` feature is compiled in, so the test runs
-//!   for real in `ci-postgres` and skips cleanly in the SQLite-only local lane.
+//!   portable and meaningful. It needs a live PostgreSQL server, so it belongs
+//!   to the PostgreSQL build: it is compiled only with the `postgresql` feature
+//!   (which `ci-postgres` builds with, against a postgres `DATABASE_URL`), and
+//!   when compiled it FAILS if `DATABASE_URL` names no PostgreSQL server rather
+//!   than returning early as a pass (carnet#805). A default build does not
+//!   contain it at all.
 //!
 //! - [`whole_table_sets_have_no_unexpected_divergence`] is a portable, always-on
 //!   fallback that replays the table-level DDL of both directories — `CREATE
@@ -50,12 +52,19 @@
     clippy::doc_markdown
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(feature = "postgresql")]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+#[cfg(feature = "postgresql")]
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "postgresql")]
 use pierre_database::backends::factory::DatabaseBackend;
+#[cfg(feature = "postgresql")]
 use pierre_test_support::db::{create_sqlite_test_db, create_test_db};
+#[cfg(feature = "postgresql")]
 use sqlx::Row;
 
 /// Repo-root-relative path to the SQLite migration tree.
@@ -64,6 +73,7 @@ const SQLITE_MIGRATIONS: &str = "../../migrations";
 const PG_MIGRATIONS: &str = "../../migrations_pg";
 
 /// `_sqlx_migrations` is sqlx bookkeeping, not part of the application schema.
+#[cfg(feature = "postgresql")]
 const SQLX_BOOKKEEPING_TABLE: &str = "_sqlx_migrations";
 
 /// Tables the PostgreSQL tree ends up with and the SQLite tree does not.
@@ -201,6 +211,7 @@ fn leading_identifier(text: &str) -> Option<String> {
 }
 
 /// Read the applied table -> {column names} map from a live SQLite pool.
+#[cfg(feature = "postgresql")]
 async fn sqlite_schema(pool: &sqlx::Pool<sqlx::Sqlite>) -> BTreeMap<String, BTreeSet<String>> {
     let table_rows =
         sqlx::query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -277,17 +288,29 @@ async fn whole_table_sets_have_no_unexpected_divergence() {
     );
 }
 
+#[cfg(feature = "postgresql")]
 #[tokio::test]
 async fn columns_match_on_shared_tables() {
     // P2-13 — applied-schema guard. The SQLite side always runs in-memory —
     // this is a comparison of the two dialects, so it opens SQLite explicitly
     // whatever `DATABASE_URL` names. The PostgreSQL side is whatever the
-    // factory opens: real PostgreSQL in ci-postgres, and a clean skip in the
-    // SQLite-only local lane.
+    // factory opens, and in a `postgresql` build it must be real PostgreSQL:
+    // a non-postgres `DATABASE_URL` fails here rather than skipping.
+    let database_url = env::var("DATABASE_URL").unwrap_or_default();
+    assert!(
+        database_url.starts_with("postgres://") || database_url.starts_with("postgresql://"),
+        "columns_match_on_shared_tables needs DATABASE_URL to name a PostgreSQL server \
+         (postgres:// or postgresql://) in a `postgresql` build; it is {:?}",
+        if database_url.is_empty() {
+            "unset"
+        } else {
+            "set to a non-postgres URL"
+        }
+    );
+
     let db = create_sqlite_test_db().await.unwrap();
     let sqlite = match db.backend() {
         DatabaseBackend::SQLite(sqlite_db) => sqlite_schema(sqlite_db.pool()).await,
-        #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(_) => panic!("create_sqlite_test_db yields SQLite"),
     };
     assert!(
@@ -296,13 +319,7 @@ async fn columns_match_on_shared_tables() {
         sqlite.len()
     );
 
-    let Some(pg) = applied_pg_schema().await else {
-        eprintln!(
-            "[schema-parity] DATABASE_URL names no PostgreSQL server (or the `postgresql` \
-             feature is off) — SQLite-only run, skipping cross-backend column comparison"
-        );
-        return;
-    };
+    let pg = applied_pg_schema().await;
 
     assert!(
         pg.len() > 50,
@@ -343,20 +360,25 @@ async fn columns_match_on_shared_tables() {
     );
 }
 
-/// Open the factory's database and, when it is Postgres-backed (so the
-/// `migrations_pg` tree is what was applied), read its applied
+/// Open the factory's database, which must be Postgres-backed (so the
+/// `migrations_pg` tree is what was applied), and read its applied
 /// table -> {column names} map.
 ///
-/// Returns `None` — so the caller skips cleanly — when the factory opened
-/// SQLite instead: the `postgresql` feature is off, or `DATABASE_URL` names no
-/// Postgres server.
-async fn applied_pg_schema() -> Option<BTreeMap<String, BTreeSet<String>>> {
+/// # Panics
+///
+/// When the factory opened SQLite instead: the caller has already required a
+/// postgres `DATABASE_URL`, so a SQLite backend here means the factory ignored
+/// it, and comparing SQLite against itself would pass vacuously.
+#[cfg(feature = "postgresql")]
+async fn applied_pg_schema() -> BTreeMap<String, BTreeSet<String>> {
     let db = create_test_db()
         .await
         .expect("open the factory's test database");
     match db.backend() {
-        DatabaseBackend::SQLite(_) => None,
-        #[cfg(feature = "postgresql")]
+        DatabaseBackend::SQLite(_) => panic!(
+            "DATABASE_URL names a PostgreSQL server but the test factory opened SQLite — \
+             the cross-backend column comparison would compare SQLite with itself"
+        ),
         DatabaseBackend::PostgreSQL(pg) => {
             let rows = sqlx::query(
                 "SELECT table_name, column_name \
@@ -381,7 +403,7 @@ async fn applied_pg_schema() -> Option<BTreeMap<String, BTreeSet<String>>> {
                     .or_default()
                     .insert(column.to_lowercase());
             }
-            Some(schema)
+            schema
         }
     }
 }

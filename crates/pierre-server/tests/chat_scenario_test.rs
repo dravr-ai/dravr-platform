@@ -1,108 +1,35 @@
 // ABOUTME: Entry test for the chat conversation eval framework — discovers YAML scenarios and runs them
-// ABOUTME: Default mode loads + parses scenarios; opt-in CHAT_SCENARIO_LIVE=1 drives them against a real LLM
+// ABOUTME: Offline half: loads + parses scenarios and smoke-tests the runner against the mock driver
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Discovery + execution test for `tests/scenarios/*.yaml`.
+//! Discovery + offline validation for `tests/scenarios/*.yaml`.
 //!
-//! Two execution modes:
+//! Every scenario file and Telegram trace is loaded and parsed;
+//! structural invariants are asserted (at least one locale, at least
+//! one turn, assertions reference known asserter kinds), and the runner
+//! is smoke-tested against the mock driver. Fast, deterministic, runs
+//! in CI on every push.
 //!
-//! - **Default (no env var):** every scenario file is loaded and
-//!   parsed; structural invariants are asserted (at least one locale,
-//!   at least one turn, assertions reference known asserter kinds).
-//!   Fast, deterministic, runs in CI on every push.
-//! - **`CHAT_SCENARIO_LIVE=1`:** scenarios are executed against a live
-//!   LLM-backed fixture (`helpers::chat_scenario::live_driver`). Wires
-//!   the canonical `PIERRE_SYSTEM_PROMPT`, the registered tool catalog,
-//!   and an in-memory provider store seeded from `provider_state`.
-//!   Cost-bounded, gated to nightly + on-demand `workflow_dispatch` in
-//!   the eval workflow; locally a missing env self-skips the test.
-//!
-//! The default-mode pass is the per-push gate; the live-mode pass is
-//! the nightly drift detector.
+//! Executing the scenarios against a real LLM is the live half,
+//! `tests/live/chat_scenario_live_test.rs`, built only with the
+//! `live-e2e` feature — the per-push gate lives here, the nightly drift
+//! detector there.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-mod common;
 mod helpers;
 
-use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::thread::sleep as thread_sleep;
-use std::time::Duration;
-
-/// Scenario-level retry budget for the live driver. Real LLMs are
-/// non-deterministic and occasionally drop a digit on multi-step
-/// arithmetic or pick a sibling phrasing that misses an `any_of`
-/// clause; retries with a fresh history absorb that variance without
-/// hiding a hard schema regression (which fails on every attempt).
-/// Four attempts — not the earlier seven — because each is a full
-/// multi-turn run against a CPU-bound local Ollama model (minutes per
-/// turn), so a high ceiling would let one flaky scenario eat the shard's
-/// wall-clock budget. A fresh-history retry is independent, so four
-/// drive a per-scenario miss rate `p` to `p^4` (≈0.05% at p=0.15, the
-/// ~85%-reliable persona scenarios), which keeps the suite green without
-/// masking a hard regression (which fails every attempt). Three proved
-/// too few: `fragment_dedup` \[fr\] went 0-for-3 on both the 2026-08-02
-/// and 2026-08-03 nightlies with every physical variable held constant
-/// (same commit, same EPYC 7763 runner, same ollama v0.32.5, same
-/// weights digest) — the Modelfile pins no temperature or seed, so its
-/// turn-1 miss rate is materially above the 0.15 this ceiling was sized
-/// for, and `p^3` was landing in red-a-nightly territory. Hoisted out of
-/// the function body so the workspace's `clippy::items_after_statements`
-/// lint stays satisfied.
-const MAX_SCENARIO_ATTEMPTS: usize = 4;
 
 use helpers::chat_scenario::{
     format::{AssertionSpec, ProviderState},
-    live_driver::RealExecution,
-    load_scenario, load_trace, run_scenario, ChatScenario, LiveScenarioDriver, MockScenarioDriver,
+    load_scenario, load_trace, run_scenario, ChatScenario, MockScenarioDriver,
     VocabularyContractRegistry,
 };
-use tokio::runtime::Builder as TokioRuntimeBuilder;
-
-/// Seed an athlete on a real server for a scenario that grades written state.
-///
-/// Built fresh per attempt rather than shared: a retry must start from an
-/// athlete with no plan, or the second attempt grades rows the first one
-/// wrote and a model that saved nothing passes on its predecessor's work.
-///
-/// Synchronous because the live-scenario test is a plain `#[test]` — the
-/// driver already spins a nested runtime per turn for the same reason.
-fn real_execution_fixture() -> Result<RealExecution, String> {
-    let rt = TokioRuntimeBuilder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("build runtime: {e}"))?;
-    rt.block_on(async {
-        common::init_server_config();
-        common::init_test_http_clients();
-        let resources = common::create_test_server_resources()
-            .await
-            .map_err(|e| format!("server resources: {e}"))?;
-        let (user_id, _user) = common::create_test_user(&resources.agent.database)
-            .await
-            .map_err(|e| format!("test user: {e}"))?;
-        let tenant_id = resources
-            .common
-            .repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| format!("tenants: {e}"))?
-            .first()
-            .ok_or_else(|| "the seeded athlete owns no tenant".to_owned())?
-            .id;
-        Ok(RealExecution {
-            resources,
-            user_id,
-            tenant_id,
-        })
-    })
-}
 
 /// Resolve the `tests/scenarios/` directory relative to this file at
 /// compile time so the test works regardless of `cargo test` invocation
@@ -122,41 +49,6 @@ fn enumerate_scenario_files() -> Vec<PathBuf> {
         .collect();
     files.sort();
     files
-}
-
-/// Partition the discovered scenario files for the current CI shard.
-///
-/// The chat-eval `live-llm` job fans out across parallel runners because a
-/// single scenario's multi-turn conversation costs minutes of CPU inference
-/// on the local Ollama model; sharding keeps each runner inside its
-/// wall-clock cap. `CHAT_SCENARIO_SHARD` is `"<index>/<total>"` (1-based,
-/// e.g. `"2/3"`); files are assigned round-robin over the sorted list so
-/// the split is deterministic, stable across runs, and spreads the heavier
-/// multi-locale scenarios rather than clustering them on one runner. Unset
-/// or blank runs every file — the default for local dev and non-sharded
-/// dispatch. A malformed value panics rather than silently running all
-/// scenarios on every runner (which would mask a shard misconfiguration).
-fn shard_scenario_files(files: Vec<PathBuf>) -> Vec<PathBuf> {
-    let spec = match env::var("CHAT_SCENARIO_SHARD") {
-        Ok(s) if !s.trim().is_empty() => s,
-        _ => return files,
-    };
-    let parsed = spec.split_once('/').and_then(|(idx, total)| {
-        let idx = idx.trim().parse::<usize>().ok()?;
-        let total = total.trim().parse::<usize>().ok()?;
-        (idx >= 1 && total >= 1 && idx <= total).then_some((idx, total))
-    });
-    let (index, total) = parsed.unwrap_or_else(|| {
-        panic!(
-            "CHAT_SCENARIO_SHARD must be \"<index>/<total>\" (1-based, index <= total); got {spec:?}"
-        )
-    });
-    files
-        .into_iter()
-        .enumerate()
-        .filter(|(i, _)| i % total == index - 1)
-        .map(|(_, path)| path)
-        .collect()
 }
 
 #[test]
@@ -326,8 +218,8 @@ fn a_bare_reply_language_assertion_is_rejected() {
 
 /// Smoke-test the runner against the mock driver to prove the
 /// framework wiring works. The companion `live_driver_executes_every_scenario`
-/// test below exercises the same runner against a real LLM when
-/// `CHAT_SCENARIO_LIVE=1` is set.
+/// test in `tests/live/chat_scenario_live_test.rs` exercises the same runner
+/// against a real LLM.
 #[test]
 fn runner_executes_a_scenario_against_the_mock_driver() {
     let scenario = ChatScenario {
@@ -365,110 +257,4 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
     let reports = run_scenario(&scenario, &mut driver, &vocab);
     assert_eq!(reports.len(), 1);
     assert!(reports[0].passed(), "{}", reports[0].failure_summary());
-}
-
-/// Drive every YAML scenario through the live LLM-backed driver.
-///
-/// Off by default — set `CHAT_SCENARIO_LIVE=1` (with a local Ollama server
-/// serving `PIERRE_LLM_MODEL`) to opt in. The chat-eval workflow's nightly
-/// and on-demand `live-llm` job provisions Ollama and exports both env vars;
-/// on developer machines the test self-skips so a casual `cargo test`
-/// doesn't stall for minutes on CPU inference. `CHAT_SCENARIO_SHARD`
-/// (`"<index>/<total>"`) optionally restricts this run to one shard's slice
-/// of the scenarios so CI can fan the suite across parallel runners.
-#[test]
-fn live_driver_executes_every_scenario() {
-    if env::var("CHAT_SCENARIO_LIVE").ok().as_deref() != Some("1") {
-        eprintln!(
-            "skipping live_driver_executes_every_scenario: set CHAT_SCENARIO_LIVE=1 + a running Ollama (PIERRE_LLM_MODEL) to enable"
-        );
-        return;
-    }
-
-    let files = enumerate_scenario_files();
-    assert!(
-        !files.is_empty(),
-        "no scenario files found under {}",
-        scenarios_dir().display()
-    );
-    let files = shard_scenario_files(files);
-    eprintln!(
-        "live_driver_executes_every_scenario: running {} scenario file(s){}",
-        files.len(),
-        env::var("CHAT_SCENARIO_SHARD")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .map_or_else(String::new, |s| format!(" for shard {s}"))
-    );
-
-    // On-demand carve-out: scenarios with `nightly_gate: false` (a grader
-    // model genuinely can't clear their honest assertion) run only when
-    // CHAT_SCENARIO_INCLUDE_ONDEMAND is set, so the nightly stays green while
-    // the scenario keeps its strict assertions for deliberate runs. Empty /
-    // unset (the nightly cron case) skips them.
-    let include_ondemand = env::var("CHAT_SCENARIO_INCLUDE_ONDEMAND")
-        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
-
-    let vocab = VocabularyContractRegistry::with_defaults();
-    let mut failures: Vec<String> = Vec::new();
-
-    for path in &files {
-        let scenario =
-            load_scenario(path).unwrap_or_else(|e| panic!("load scenario {}: {e}", path.display()));
-
-        if !scenario.nightly_gate && !include_ondemand {
-            eprintln!(
-                "skipping on-demand-only scenario {} (nightly_gate=false; set \
-                 CHAT_SCENARIO_INCLUDE_ONDEMAND=1 to run it)",
-                path.display()
-            );
-            continue;
-        }
-
-        let mut last_attempt_failures: Vec<String> = Vec::new();
-        let mut scenario_passed = false;
-        for attempt in 0..MAX_SCENARIO_ATTEMPTS {
-            if attempt > 0 {
-                eprintln!(
-                    "scenario {} did not pass on attempt {}; retrying with fresh driver state",
-                    path.display(),
-                    attempt - 1
-                );
-                thread_sleep(Duration::from_secs(6));
-            }
-            let mut driver = LiveScenarioDriver::from_env().unwrap_or_else(|e| {
-                panic!("LiveScenarioDriver::from_env failed: {e}");
-            });
-            // A scenario grading written state gets a real platform: tools
-            // that write commit, and the runner reads the rows back after
-            // each turn. Built per attempt so a retry starts from a clean
-            // athlete rather than inheriting the previous attempt's plan.
-            if scenario.real_execution {
-                driver = driver.with_real_execution(real_execution_fixture().unwrap_or_else(|e| {
-                    panic!("seed a real platform for {}: {e}", path.display())
-                }));
-            }
-            driver.reset_history();
-            let reports = run_scenario(&scenario, &mut driver, &vocab);
-            let attempt_failures: Vec<String> = reports
-                .iter()
-                .filter(|r| !r.passed())
-                .map(|r| format!("{}: {}", path.display(), r.failure_summary()))
-                .collect();
-            if attempt_failures.is_empty() {
-                scenario_passed = true;
-                break;
-            }
-            last_attempt_failures = attempt_failures;
-        }
-        if !scenario_passed {
-            failures.extend(last_attempt_failures);
-        }
-    }
-
-    assert!(
-        failures.is_empty(),
-        "live scenario failures (after {MAX_SCENARIO_ATTEMPTS} attempts each):\n{}",
-        failures.join("\n\n")
-    );
 }

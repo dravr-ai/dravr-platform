@@ -68,7 +68,6 @@ bootstrap_seeder_role_test	1.6
 build_features_test	0.0
 byo_chat_provider_test	1.1
 cache_memory_test	2.5
-cache_redis_test	0.0
 caching_provider_test	0.0
 calibrate_command_test	1.2
 calibration_facts_test	0.8
@@ -250,10 +249,10 @@ llm_base_url_allowlist_test	0.0
 llm_chain_guard_test	0.0
 llm_consumption_test	1.2
 llm_health_probe_test	0.0
-llm_local_integration_test	0.1
 llm_openai_compatible_test	0.0
 llm_pricing_test	0.0
 llm_provider_test	0.0
+llm_provider_unreachable_test	0.1
 llm_sse_parser_test	0.0
 llm_test	0.1
 llm_usage_test	1.3
@@ -305,7 +304,6 @@ messaging_eval_hallucination_probes_test	0.9
 messaging_eval_phase_0_test	0.9
 messaging_eval_phase_1_integration_test	2.5
 messaging_eval_pipeline_tool_loop_test	1.9
-messaging_eval_real_slack_test	0.8
 messaging_eval_tool_called_happy_path_test	2.1
 messaging_intake_test	28.4
 messaging_link_auth_test	4.1
