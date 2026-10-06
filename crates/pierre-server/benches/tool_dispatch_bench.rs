@@ -261,17 +261,27 @@ fn bench_tools_call(c: &mut Criterion) {
 /// [`PierreAuthHook::authenticate`] with a real JWT — the pre-dispatch cost
 /// (bearer validation, tenant resolution, global-admin lookup) every MCP
 /// request pays before reaching the dispatcher.
+///
+/// The token is a delegated OAuth grant, the credential an MCP client holds:
+/// `/mcp` refuses a first-party session token (carnet#768).
 fn bench_auth_hook(c: &mut Criterion) {
     let f = DispatchFixture::new();
 
+    let scopes: Vec<String> = OAuthScope::delegable_as_str()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let token = f
         .resources
         .auth
         .auth_manager
-        .generate_token_with_tenant(
-            &f.member,
+        .generate_oauth_access_token(
             &f.resources.auth.jwks_manager,
+            &f.member.id,
+            &scopes,
+            &[],
             Some(f.member_tenant.to_string()),
+            None,
         )
         .unwrap();
     let hook = PierreAuthHook {
