@@ -14,16 +14,17 @@
 
 use std::collections::HashSet;
 
+use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use pierre_evals::VerificationConfig;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
 use pierre_services::claim_verification::{
-    corpus, verify_reply_heuristic, verify_reply_with_config, warm_corpus,
+    verify_reply_heuristic, verify_reply_with_config, warm_corpus,
 };
 
 #[test]
 fn embedded_corpus_parses_from_include_str() {
     warm_corpus();
-    let c = corpus();
+    let c = compiled_in_corpus();
     assert!(!c.is_empty(), "embedded sports_science.jsonl should parse");
 }
 

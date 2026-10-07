@@ -5,7 +5,9 @@
 // ABOUTME: Pins name → agent → create → thread → 30-day invite, the app.dravr.ai link, access pending, retry and skip
 
 import React from 'react';
+import { Alert, Linking } from 'react-native';
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
@@ -142,6 +144,41 @@ describe('OnboardingCoachGroupScreen', () => {
     await nameAndCreate();
 
     await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
+  });
+
+  describe('contacting support while access is pending (carnet#803)', () => {
+    const SUPPORT = 'mailto:support@dravr.ai';
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    async function pressContact() {
+      createGroup.mockResolvedValue(group(null));
+      render(<OnboardingCoachGroupScreen />);
+      await nameAndCreate();
+      fireEvent.press(await screen.findByText(i18n.t('onboarding.groupAccessContact')));
+    }
+
+    it('writes to support', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+      await pressContact();
+      await waitFor(() => expect(openURL).toHaveBeenCalledWith(SUPPORT));
+    });
+
+    // The rejection used to be swallowed by `.catch(() => {})`: a phone with
+    // no mail app showed a link that did nothing.
+    it('says so when the device has no mail app', async () => {
+      jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      await pressContact();
+      await waitFor(() =>
+        expect(alert).toHaveBeenCalledWith(
+          i18n.t('app.couldNotOpenLink'),
+          i18n.t('app.openInBrowserInstead', { url: SUPPORT }),
+        ),
+      );
+    });
   });
 
   it('retries after a failure without making a second group', async () => {

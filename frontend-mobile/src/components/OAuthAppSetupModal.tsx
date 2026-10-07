@@ -2,13 +2,14 @@
 // ABOUTME: Mobile mirror of frontend/src/components/OAuthAppSetupModal.tsx; opens in-place so first-run users never leave the screen
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { Button, Input, Sheet } from './ui';
 import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
 import type { OAuthApp } from '../types';
 import { Trans, useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
+import { openExternal } from '../utils/openExternal';
 
 interface OAuthAppSetupModalProps {
   visible: boolean;
@@ -87,15 +88,12 @@ export function OAuthAppSetupModal({
     void hydrate();
   }, [visible, hydrate]);
 
-  const handleOpenDevPortal = async () => {
-    try {
-      await Linking.openURL(devPortalUrl);
-    } catch {
-      Alert.alert(
-        t('app.unableOpenBrowser'),
-        t('app.openPortalManually', { url: devPortalUrl, provider: displayName }),
-      );
-    }
+  // A device that cannot open the portal is told which one to open by hand.
+  const handleOpenDevPortal = () => {
+    void openExternal(devPortalUrl, t, {
+      title: t('app.unableOpenBrowser'),
+      message: t('app.openPortalManually', { url: devPortalUrl, provider: displayName }),
+    });
   };
 
   const handleSubmit = async () => {

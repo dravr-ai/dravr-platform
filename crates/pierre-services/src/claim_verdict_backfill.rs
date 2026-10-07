@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
+use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{AssistantMessage, InsertClaimVerdictParams};
@@ -184,10 +185,9 @@ pub async fn run_backfill(
     );
 
     let rows = fetch_assistant_messages(repos, params, cursor.as_deref(), limit).await?;
-    // CLI callers skip `resolve_corpus` because they don't have a
-    // `ServerContext` handle and the compiled-in `corpus()` is the
-    // same data the runtime registry falls back to when empty.
-    let corpus = super::claim_verification::corpus();
+    // CLI callers have no `EvidenceRegistry` handle, so they verify against
+    // the compiled-in corpus — the data the registry falls back to when empty.
+    let corpus = compiled_in_corpus();
 
     let mut stats = BackfillStats {
         dry_run: params.dry_run,

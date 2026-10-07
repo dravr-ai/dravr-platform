@@ -185,4 +185,27 @@ describe('MessagingChannelsScreen', () => {
     alertSpy.mockRestore();
     openURL.mockRestore();
   });
+
+  // carnet#803: the link started, but the device has nothing to open it with.
+  // That is not the channel failing to start, so it reads as the link alert.
+  it('says the link could not be opened when the device has no handler for it', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockListLinks.mockResolvedValue([]);
+    const url = 'https://slack.com/oauth/v2/authorize?state=pair-42';
+
+    const { getByTestId } = render(<MessagingChannelsScreen />);
+    await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
+    fireEvent.press(getByTestId('messaging-link-add-slack'));
+
+    await waitFor(() =>
+      expect(alertSpy).toHaveBeenCalledWith(
+        i18n.t('app.couldNotOpenLink'),
+        i18n.t('app.openInBrowserInstead', { url }),
+      ),
+    );
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+    openURL.mockRestore();
+  });
 });

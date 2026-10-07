@@ -78,6 +78,25 @@ const schemeAndChromeRestrictions = [
   },
 ];
 
+/**
+ * The one outbound-link opener (carnet#803). A bare `Linking.openURL` rejects
+ * on a device with no handler, and the unhandled rejection reads as a button
+ * that does nothing; `openExternal` tells the athlete instead. So `openURL`
+ * (react-native's or expo-linking's) and expo-web-browser's
+ * `openBrowserAsync` are refused everywhere but src/utils/openExternal.ts,
+ * however they are reached: a member, a named import, a destructured binding.
+ * `openAuthSessionAsync` stays allowed: it is a sign-in session that returns
+ * to the app with a result its caller reads, not a link handed off.
+ */
+const OPENER_MESSAGE =
+  'Open an outbound link with openExternal (src/utils/openExternal.ts): a bare openURL fails silently on a device that cannot open it.';
+const OPENER_NAMES = '/^(openURL|openBrowserAsync)$/';
+const outboundLinkRestrictions = [
+  { selector: `MemberExpression[property.name=${OPENER_NAMES}]`, message: OPENER_MESSAGE },
+  { selector: `ImportSpecifier[imported.name=${OPENER_NAMES}]`, message: OPENER_MESSAGE },
+  { selector: `ObjectPattern > Property[key.name=${OPENER_NAMES}]`, message: OPENER_MESSAGE },
+];
+
 // React Native / Browser globals
 const rnGlobals = {
   console: 'readonly',
@@ -157,13 +176,25 @@ export default [
       'no-console': 'off',
       // A failed call is shown through describeApiError, never as the thrown
       // error's own message: that is axios's English, under any locale.
-      'no-restricted-syntax': ['error', ...rawErrorMessageRestrictions, ...schemeAndChromeRestrictions],
+      'no-restricted-syntax': [
+        'error',
+        ...rawErrorMessageRestrictions,
+        ...schemeAndChromeRestrictions,
+        ...outboundLinkRestrictions,
+      ],
       'no-restricted-imports': ['error', restrictedImports],
     },
     settings: {
       react: {
         version: 'detect',
       },
+    },
+  },
+  // The opener itself is the one file that calls Linking.openURL.
+  {
+    files: ['src/utils/openExternal.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...rawErrorMessageRestrictions, ...schemeAndChromeRestrictions],
     },
   },
   // Test files - more relaxed rules

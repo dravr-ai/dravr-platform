@@ -5,7 +5,7 @@
 // ABOUTME: The developer-portal host is a pressable span inside the translated sentence, not glued between English halves
 
 import React from 'react';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { OAuthAppSetupModal } from '../OAuthAppSetupModal';
@@ -46,6 +46,28 @@ describe('OAuthAppSetupModal (mobile) intro', () => {
     await waitFor(() =>
       expect(openURL).toHaveBeenCalledWith('https://developer-dashboard.whoop.com/apps'),
     );
+    openURL.mockRestore();
+  });
+
+  // carnet#803: the portal opens through openExternal, keeping this sheet's
+  // own failure copy — it names the portal to open by hand.
+  it('names the portal to open by hand when the device cannot open it', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    renderSheet();
+
+    fireEvent.press(await screen.findByText('developer-dashboard.whoop.com'));
+
+    await waitFor(() =>
+      expect(alert).toHaveBeenCalledWith(
+        i18n.t('app.unableOpenBrowser'),
+        i18n.t('app.openPortalManually', {
+          url: 'https://developer-dashboard.whoop.com/apps',
+          provider: 'WHOOP',
+        }),
+      ),
+    );
+    alert.mockRestore();
     openURL.mockRestore();
   });
 

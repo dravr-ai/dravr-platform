@@ -6,7 +6,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Keyboard, Text, TextInput, TouchableOpacity } from 'react-native';
-import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
 import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
@@ -16,6 +15,7 @@ import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 import { Sheet } from '../../components/ui';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { openExternal } from '../../utils/openExternal';
 import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
@@ -124,29 +124,31 @@ export function ChatThread({
     inputRef.current?.focus();
   }, [routeDraft, onChangeInputText, inputRef]);
 
+  /**
+   * Open a link a reply carries. A reply is model-authored, so it may only
+   * send the athlete to a web page: anything but http(s) is refused here,
+   * before `openExternal` (which judges no URL) hands it to the device and
+   * reports a device that cannot open it. An action button's link is
+   * vetted further, by host, in `handleActionClick` before it reaches here.
+   */
   const handleOpenUrl = useCallback(async (url: string) => {
+    let parsedUrl: URL;
     try {
-      let parsedUrl: URL;
-      try {
-        parsedUrl = new URL(url);
-      } catch {
-        console.error('Invalid URL:', url);
-        Alert.alert(t('app.linkErrorTitle'), t('app.linkInvalidFormat'));
-        return;
-      }
-
-      const scheme = parsedUrl.protocol.toLowerCase();
-      if (scheme !== 'http:' && scheme !== 'https:') {
-        console.warn('Blocked non-HTTP URL scheme:', scheme);
-        Alert.alert(t('app.linkBlockedTitle'), t('app.linkBlockedBody'));
-        return;
-      }
-
-      await Linking.openURL(url);
-    } catch (error) {
-      console.error('Failed to open URL:', error);
-      Alert.alert(t('app.linkErrorTitle'), t('app.couldNotOpenLink'));
+      parsedUrl = new URL(url);
+    } catch {
+      console.error('Invalid URL:', url);
+      Alert.alert(t('app.linkErrorTitle'), t('app.linkInvalidFormat'));
+      return;
     }
+
+    const scheme = parsedUrl.protocol.toLowerCase();
+    if (scheme !== 'http:' && scheme !== 'https:') {
+      console.warn('Blocked non-HTTP URL scheme:', scheme);
+      Alert.alert(t('app.linkBlockedTitle'), t('app.linkBlockedBody'));
+      return;
+    }
+
+    await openExternal(url, t);
   }, [t]);
 
   const handleSendMessage = useCallback(async () => {

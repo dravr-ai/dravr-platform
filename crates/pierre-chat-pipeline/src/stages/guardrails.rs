@@ -1,5 +1,5 @@
 // ABOUTME: Tier 6 text guardrails stage — disclaimer prepending, blocked-topic rejection, length caps
-// ABOUTME: Provides apply_text_guardrails — post-LLM sanitizer for assistant reply text
+// ABOUTME: Provides apply_text_guardrails (post-LLM) and answer_off_scope (the pre-LLM scope rails)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,6 +14,9 @@
 //!   leading characters rather than a canned placeholder.
 //! - Rejects replies that reference blocked topics.
 //!
+//! And, before the model runs, answers the turn itself when the athlete's
+//! message trips one of the guard's scope rails — see [`answer_off_scope`].
+//!
 //! Reads the active rules from
 //! [`pierre_contremaitre::harness_config_registry::HarnessConfigRegistry`], so the
 //! disclaimer text, blocked-topic list, length cap, and trigger keywords
@@ -24,9 +27,136 @@ use std::sync::Arc;
 
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC,
+    MessagingStringsRegistry, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_MEDICAL_EMERGENCY,
+    KEY_SCOPE_REFUSAL,
 };
+use pierre_contremaitre::text_guardrails::scope_rails::ScopeRail;
 use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection};
+use pierre_core::errors::AppResult;
+
+use super::deterministic_reply::{
+    deliver, DeterministicReplyInputs, PLATFORM_REPLY_TRANSCRIPT_MARKER,
+};
+use super::onboarding::GuidedTarget;
+use super::turn_extraction::spawn_turn_extraction;
+use crate::envelope::TurnEnvelope;
+use crate::surface_profile::SurfaceProfile;
+use crate::turn::TurnInput;
+use crate::ChatPipelineContext;
+use pierre_database::database::{ConversationRecord, MessageRecord};
+
+/// The platform's own answer to a message that tripped a scope rail, in the
+/// turn's locale. `None` when no rail fired — or when the copy is missing from
+/// the registry, since an empty platform reply is worse than the model's.
+fn scope_rail_reply(
+    harness_config_registry: &Arc<HarnessConfigRegistry>,
+    messaging_strings_registry: &Arc<MessagingStringsRegistry>,
+    message: &str,
+    locale: &str,
+) -> Option<(ScopeRail, String)> {
+    let rail = harness_config_registry
+        .current_guardrails()
+        .classify_request(message)?;
+    let key = match rail {
+        ScopeRail::MedicalEmergency => KEY_GUARDRAIL_MEDICAL_EMERGENCY,
+        // The same canonical sentence the prompt tells the model to emit for
+        // an off-scope ask, so the athlete reads one refusal either way.
+        ScopeRail::FinancialAdvice | ScopeRail::PriceLookup => KEY_SCOPE_REFUSAL,
+    };
+    let reply = messaging_strings_registry.get(key, locale);
+    if reply.trim().is_empty() {
+        tracing::error!(
+            rail = rail.label(),
+            key,
+            locale,
+            "scope rail fired but its copy is missing; the model answers instead"
+        );
+        return None;
+    }
+    Some((rail, reply))
+}
+
+/// The turn so far, as [`answer_off_scope`] reads it.
+pub struct OffScopeTurn<'a> {
+    /// Shared pipeline context.
+    pub ctx: &'a ChatPipelineContext,
+    /// The turn being answered.
+    pub input: &'a TurnInput,
+    /// What the surface can render, and the turn's locale.
+    pub profile: &'a SurfaceProfile,
+    /// Model the turn resolved to, recorded on the persisted row.
+    pub active_model: &'a str,
+    /// The already-persisted athlete message.
+    pub user_message: &'a MessageRecord,
+    /// Conversation the turn belongs to.
+    pub conv: &'a ConversationRecord,
+    /// The guided-walk topic the message answers, if the athlete is mid walk,
+    /// so the extracted fact keeps its provenance.
+    pub guided_answer: Option<GuidedTarget>,
+}
+
+/// Stage 4.6: answer the turn with platform copy when the athlete's message
+/// trips a scope rail, skipping the model entirely.
+///
+/// The rails are the input side of the Tier 6 guard (see
+/// [`pierre_contremaitre::text_guardrails::scope_rails`]): acute red-flag
+/// symptoms get the emergency redirect, investment advice and retail price
+/// lookups get the canonical scope refusal. A model — the 3B CI model
+/// especially (carnet#819) — answers these wrong often enough that the answer
+/// cannot be left to it.
+///
+/// The athlete's message is still extracted, exactly as on the guided
+/// wrap-up: chest pain reported to the coach is a fact worth keeping whoever
+/// wrote the reply.
+///
+/// # Errors
+///
+/// Returns the persistence error when the platform reply cannot be written.
+pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEnvelope>> {
+    let OffScopeTurn {
+        ctx,
+        input,
+        profile,
+        active_model,
+        user_message,
+        conv,
+        guided_answer,
+    } = turn;
+    let Some((rail, reply)) = scope_rail_reply(
+        &ctx.harness_config_registry,
+        &ctx.messaging_strings_registry,
+        &input.content,
+        &profile.locale,
+    ) else {
+        return Ok(None);
+    };
+    tracing::info!(
+        rail = rail.label(),
+        tenant_id = %input.conversation_tenant_id,
+        "scope rail answered the turn without the model"
+    );
+    // Owned copies only on the rare turn a rail fires, never on every turn.
+    let inputs = DeterministicReplyInputs {
+        ctx,
+        input,
+        profile,
+        active_model: active_model.to_owned(),
+        user_message: user_message.clone(),
+        conv,
+    };
+    let result = deliver(inputs, reply).await?;
+    spawn_turn_extraction(
+        ctx,
+        input,
+        conv,
+        PLATFORM_REPLY_TRANSCRIPT_MARKER,
+        &result.assistant.message.id,
+        guided_answer,
+        false,
+    )
+    .await;
+    Ok(Some(result))
+}
 
 /// Apply the live admin-configured text guardrails to an assistant reply.
 ///

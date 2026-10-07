@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Device from 'expo-device';
@@ -17,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { messagingApi } from '../../services/api';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { openExternal } from '../../utils/openExternal';
 import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
@@ -144,7 +145,7 @@ export function OnboardingMessagingConfigureScreen() {
               ? t('app.openChannel', { channel: displayName })
               : t('app.connectWithChannel', { channel: displayName })
           }
-          onPress={() => void Linking.openURL(link.linking_url)}
+          onPress={() => void openExternal(link.linking_url, t)}
           fullWidth
         />
 

@@ -20,7 +20,7 @@
 //! `GeminiEmbeddingProvider` for semantic retrieval over the same corpus.
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_memory::{ClaimCategory, EvidenceStrength};
+use pierre_memory::{ClaimCategory, EvidenceCitation, EvidenceStrength};
 use serde::{Deserialize, Serialize};
 
 /// A single atomic proposition in the evidence corpus.
@@ -36,6 +36,35 @@ pub struct EvidenceRecord {
     pub strength: EvidenceStrength,
     /// Short-form citation string suitable for the UI chip.
     pub citation: String,
+    /// Where the study is published.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Author and year as an athlete reads it: "Rønnestad & Mujika, 2014".
+    #[serde(default)]
+    label: Option<String>,
+    /// The study's full title.
+    #[serde(default)]
+    title: Option<String>,
+    /// The journal it appeared in.
+    #[serde(default)]
+    journal: Option<String>,
+    /// Publication year.
+    #[serde(default)]
+    year: Option<u16>,
+}
+
+impl EvidenceRecord {
+    /// The study this record cites, as a verdict read names it.
+    fn evidence_citation(&self) -> EvidenceCitation {
+        EvidenceCitation {
+            id: self.id.clone(),
+            url: self.url.clone(),
+            label: self.label.clone(),
+            title: self.title.clone(),
+            journal: self.journal.clone(),
+            year: self.year,
+        }
+    }
 }
 
 /// Match returned by [`EvidenceCorpus::retrieve`], ordered by descending score.
@@ -144,6 +173,20 @@ impl EvidenceCorpus {
         self.records.is_empty()
     }
 
+    /// The study a verdict's evidence reference names, by its id (`doi:…`
+    /// or `pmid:…`). `None` when no record carries that id, as for a
+    /// reference whose proposition was since removed from the corpus.
+    ///
+    /// A linear scan: the corpus holds a few hundred records and a verdict
+    /// cites at most three, so an index would cost more to keep than it saves.
+    #[must_use]
+    pub fn citation(&self, id: &str) -> Option<EvidenceCitation> {
+        self.records
+            .iter()
+            .find(|record| record.id == id)
+            .map(EvidenceRecord::evidence_citation)
+    }
+
     /// Retrieve the top-`limit` matches for a claim text in a given category.
     ///
     /// Scoring is keyword overlap: for each unique lowercase word of 4+
@@ -202,12 +245,25 @@ impl EvidenceCorpus {
 
 /// Frontmatter shape for a markdown-stored proposition. The proposition
 /// body is stored separately as the file's markdown body.
+///
+/// The study fields (`url` through `year`) are optional so a registry entry
+/// synced before the corpus carried them still parses.
 #[derive(Debug, Deserialize)]
 struct Frontmatter {
     id: String,
     category: ClaimCategory,
     strength: EvidenceStrength,
     citation: String,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    journal: Option<String>,
+    #[serde(default)]
+    year: Option<u16>,
 }
 
 fn parse_markdown_record(contents: &str, filename: &str) -> AppResult<EvidenceRecord> {
@@ -247,5 +303,10 @@ fn parse_markdown_record(contents: &str, filename: &str) -> AppResult<EvidenceRe
         proposition: body,
         strength: fm.strength,
         citation: fm.citation,
+        url: fm.url,
+        label: fm.label,
+        title: fm.title,
+        journal: fm.journal,
+        year: fm.year,
     })
 }

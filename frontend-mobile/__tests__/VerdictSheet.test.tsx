@@ -177,6 +177,35 @@ describe('VerdictSheet', () => {
     openURL.mockRestore();
   });
 
+  // carnet#801: the link names the study the corpus resolved; its title is the hint.
+  it('names the study by author and year, and opens it', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const named = {
+      ...STUDIED,
+      evidence: [
+        {
+          id: 'doi:10.1111/sms.12104',
+          url: 'https://doi.org/10.1111/sms.12104',
+          label: 'Rønnestad & Mujika, 2014',
+          title: 'Optimizing strength training for running and cycling endurance performance: A review',
+          journal: 'Scand J Med Sci Sports',
+          year: 2014,
+        },
+      ],
+    };
+    const { getByRole, getByText, queryByText } = renderSheet({ verdicts: [named] });
+
+    const link = getByRole('link', { name: 'Rønnestad & Mujika, 2014' });
+    expect(link.props.accessibilityHint).toBe(
+      'Optimizing strength training for running and cycling endurance performance: A review — Scand J Med Sci Sports, 2014',
+    );
+    expect(queryByText('Read the study ↗')).toBeNull();
+    fireEvent.press(getByText('Rønnestad & Mujika, 2014 ↗'));
+
+    await waitFor(() => expect(openURL).toHaveBeenCalledWith('https://doi.org/10.1111/sms.12104'));
+    openURL.mockRestore();
+  });
+
   it('names the conversation and expands the reply on a press, the claim marked', () => {
     const { getByTestId, queryByTestId, getByText } = renderSheet({ verdicts: [STUDIED], source: SOURCE });
 

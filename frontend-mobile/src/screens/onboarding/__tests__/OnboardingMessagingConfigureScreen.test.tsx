@@ -5,7 +5,9 @@
 // ABOUTME: Verifies a phone taps straight through (no QR), a tablet gets the QR handoff, and the poll auto-advances
 
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { Alert, Linking } from 'react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingMessagingConfigureScreen } from '../OnboardingMessagingConfigureScreen';
 import { useMessagingOnboarding } from '../../../hooks/useMessagingOnboarding';
@@ -92,6 +94,34 @@ describe('OnboardingMessagingConfigureScreen', () => {
     // A QR here would ask the athlete to scan the screen they are holding.
     expect(screen.queryByTestId('messaging-qr')).toBeNull();
     expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
+  });
+
+  describe('the open button (carnet#803)', () => {
+    const LINK = 'https://t.me/DravrBot?start=abc';
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('opens the chat app on the pairing link', async () => {
+      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Open Telegram'));
+      await waitFor(() => expect(openURL).toHaveBeenCalledWith(LINK));
+    });
+
+    it('says so when the device cannot open the link, instead of doing nothing', async () => {
+      jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      renderScreen();
+      fireEvent.press(await screen.findByText('Open Telegram'));
+      await waitFor(() =>
+        expect(alert).toHaveBeenCalledWith(
+          i18n.t('app.couldNotOpenLink'),
+          i18n.t('app.openInBrowserInstead', { url: LINK }),
+        ),
+      );
+    });
   });
 
   it('offers the QR handoff on a tablet, where the chat app may live elsewhere', async () => {

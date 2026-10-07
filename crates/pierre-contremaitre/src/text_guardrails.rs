@@ -1,5 +1,5 @@
 // ABOUTME: Tier 6 text guardrails — per-locale disclaimer triggers, blocked topics, length caps
-// ABOUTME: Applied to agent responses post-LLM, before they leave the dispatch path
+// ABOUTME: Applied to agent responses post-LLM; its scope rails screen the athlete's message pre-LLM
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,6 +27,11 @@
 //! with word boundaries (so within a locale, `"doctor"` would not match
 //! `"indoctrinate"`).
 //!
+//! The same guard also runs on the way in: [`scope_rails`] classifies the
+//! athlete's message before dispatch, and a few requests whose correct
+//! answer is fixed (acute red-flag symptoms, investment advice, retail price
+//! lookups) are answered with platform copy instead of the model's attempt.
+//!
 //! ## Locale lookup
 //!
 //! Trigger matching uses the active turn locale exactly. If a tenant
@@ -39,6 +44,11 @@ use std::collections::HashMap;
 
 use regex::{escape, Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
+
+/// Input rails: the off-scope requests answered without the model.
+pub mod scope_rails;
+
+use scope_rails::{ScopeRail, ScopeRails};
 
 /// Per-locale disclaimer triggers and disclaimer text.
 ///
@@ -85,6 +95,10 @@ pub struct TextGuardrails {
     /// up here first, then `en` as a fallback, then disclaimer
     /// generation skips.
     pub locales: HashMap<String, CompiledLocaleGuardrails>,
+    /// Input rails checked against the athlete's message before dispatch.
+    /// Built-in rather than admin-configured: they encode safety and scope
+    /// policy, and an empty list must never be one bad save away.
+    pub(crate) scope_rails: ScopeRails,
 }
 
 impl TextGuardrails {
@@ -110,7 +124,17 @@ impl TextGuardrails {
             max_response_chars,
             blocked_topics,
             locales: compiled,
+            scope_rails: ScopeRails::compile(),
         }
+    }
+
+    /// Classify the athlete's `message` against the input rails.
+    ///
+    /// `Some` means the platform answers the turn itself with that rail's
+    /// fixed copy and the model never sees it; `None` means dispatch as usual.
+    #[must_use]
+    pub fn classify_request(&self, message: &str) -> Option<ScopeRail> {
+        self.scope_rails.classify(message)
     }
 
     /// A safe default that ships disclaimer + trigger lists for the five

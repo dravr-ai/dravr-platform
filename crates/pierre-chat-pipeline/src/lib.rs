@@ -622,6 +622,30 @@ async fn run_turn(
         None
     };
 
+    // Stage 4.6: scope rails. An athlete's message reporting acute red-flag
+    // symptoms, or asking for investment advice or a retail price, is answered
+    // with platform copy before any model sees it (carnet#819). After the
+    // guided stage so a walk's answer is still stamped with its topic; a
+    // platform-composed prompt is not the athlete asking, so it never trips.
+    if input.origin.persists_user_row() {
+        if let Some(answered) =
+            stages::guardrails::answer_off_scope(stages::guardrails::OffScopeTurn {
+                ctx,
+                input: &input,
+                profile,
+                active_model: &active_model,
+                user_message: &user_message,
+                conv: &conv,
+                guided_answer: onboarding_turn
+                    .as_ref()
+                    .and_then(|turn| stages::onboarding::answered_target(&turn.state)),
+            })
+            .await?
+        {
+            return Ok(answered);
+        }
+    }
+
     // Stage 5: Load conversation history for LLM context. Bound the load to a
     // generous multiple of the compaction message cap so a long thread loads
     // its recent working set, not its full unbounded history (a 200-turn thread

@@ -115,6 +115,7 @@ export type {
   VerdictDisposition,
   DispositionReason,
   VerdictTone,
+  EvidenceCitation,
   ClaimVerdict,
   VerdictSeverity,
   VerdictSummary,

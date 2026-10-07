@@ -149,7 +149,7 @@ function VerdictCard({
 }) {
   const { t } = useTranslation();
   const { ink } = verdictChipPalette(VERDICT_STATUS_TONE[verdict.status], colors);
-  const references = parseEvidenceRefs(verdict.evidence_refs);
+  const references = parseEvidenceRefs(verdict.evidence_refs, verdict.evidence);
   const emittedLabel = formatDateTime(verdict.created_at, language);
   // LIMITATION(registre#800): the card's `meta` line omits the verdict category, which has no label keys to print it in the athlete's language.
   const meta = [
@@ -209,9 +209,11 @@ function VerdictCard({
                 </Text>
               );
             }
-            // LIMITATION(registre#801): a study link's `label` is generic; a verdict row carries no per-reference author, year or title.
+            // Named by author and year when the corpus names the study;
+            // otherwise "Read the study", or numbered when there are several.
             const label =
-              references.length === 1 ? t('chat.verdictReadStudy') : t('chat.verdictStudyN', { n: index + 1 });
+              reference.label ??
+              (references.length === 1 ? t('chat.verdictReadStudy') : t('chat.verdictStudyN', { n: index + 1 }));
             return (
               <TouchableOpacity
                 key={reference.id}
@@ -220,7 +222,7 @@ function VerdictCard({
                 // The arrow is decoration, as the web's icon is: the link
                 // reads as its words alone.
                 accessibilityLabel={label}
-                accessibilityHint={reference.id}
+                accessibilityHint={reference.title ?? reference.id}
                 testID="verdict-study-link"
                 className={LINK_ROW}
               >

@@ -50,6 +50,11 @@ async fn stored_v1_key(database: &Database) -> Vec<u8> {
 }
 
 /// Run one raw statement against whichever backend the factory opened.
+///
+/// Only the `PostgreSQL` arms of [`break_reads`] and [`restore_reads`] call
+/// it, so it exists only where that backend is compiled in; a default-feature
+/// build (the macOS cross-platform lane) would otherwise deny it as dead code.
+#[cfg(feature = "postgresql")]
 async fn execute_raw(database: &Database, sql: &str) {
     match database.backend() {
         DatabaseBackend::SQLite(sqlite) => {

@@ -2,7 +2,7 @@
 // ABOUTME: Unlink and connect are ink words on the trailing side of a 52 row; no card, no filled button (Boreal v2.2 Phase 4)
 
 import React, { useCallback, useState } from 'react';
-import { View, Text, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, ActivityIndicator, Alert } from 'react-native';
 import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useFocusEffect } from 'expo-router';
 import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
@@ -10,6 +10,7 @@ import { spacing, useThemeColors } from '../../constants/theme';
 import { messagingApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
+import { openExternal } from '../../utils/openExternal';
 
 /**
  * Manage which chat apps are linked to the account.
@@ -73,7 +74,7 @@ export function MessagingChannelsScreen() {
       setBusyChannel(channel.channel);
       try {
         const link = await messagingApi.initLink(channel.channel);
-        await Linking.openURL(link.linking_url);
+        await openExternal(link.linking_url, t);
       } catch (err) {
         const message = describeApiError(err, { t, fallbackKey: 'app.failedLoadChannels' });
         Alert.alert(

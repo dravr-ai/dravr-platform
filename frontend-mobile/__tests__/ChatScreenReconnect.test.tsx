@@ -5,6 +5,7 @@
 // ABOUTME: Safari taking the reconnect over is a hand-off the callback has no way back from; WHOOP states its notice first; a flag shows the banner
 
 import React from 'react';
+import { Alert, Linking as DeviceLinking } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -58,7 +59,6 @@ jest.mock('expo-web-browser', () => ({
 }));
 
 jest.mock('expo-linking', () => ({
-  openURL: jest.fn(() => Promise.resolve(true)),
   parse: jest.fn((url: string) => ({ queryParams: url.includes('success=true') ? { success: 'true' } : {} })),
   createURL: jest.fn((path: string) => `dravr://${path}`),
 }));
@@ -191,6 +191,12 @@ describe('ChatScreen provider reconnect', () => {
     mockBlocks = GARMIN_BLOCKS;
     mockGetProvidersStatus.mockResolvedValue({ providers: [] });
     mockInitMobileOAuth.mockResolvedValue({ authorization_url: AUTHORIZATION_URL });
+    // A link leaves the app through openExternal, the one opener (carnet#803).
+    jest.spyOn(DeviceLinking, 'openURL').mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('reconnects inside the app’s auth session rather than handing off to the browser', async () => {
@@ -204,7 +210,7 @@ describe('ChatScreen provider reconnect', () => {
     expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false });
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
     // Safari never gets it, so there is nothing for the athlete to come back from.
-    expect(Linking.openURL).not.toHaveBeenCalled();
+    expect(DeviceLinking.openURL).not.toHaveBeenCalled();
   });
 
   it("states WHOOP's owner authorization before reconnecting, and carries the acceptance", async () => {
@@ -328,7 +334,19 @@ describe('ChatScreen provider reconnect', () => {
 
     fireEvent.press(getByText(FRIENDLY_LINK_TEXT));
 
-    await waitFor(() => expect(Linking.openURL).toHaveBeenCalledWith(LINK));
+    await waitFor(() => expect(DeviceLinking.openURL).toHaveBeenCalledWith(LINK));
     expect(WebBrowser.openAuthSessionAsync).not.toHaveBeenCalled();
+  });
+
+  it('says so when the device cannot open a link from a reply', async () => {
+    (DeviceLinking.openURL as jest.Mock).mockRejectedValue(new Error('no handler'));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    const { getByText } = renderChatScreen();
+
+    fireEvent.press(getByText(FRIENDLY_LINK_TEXT));
+
+    await waitFor(() =>
+      expect(alert).toHaveBeenCalledWith('Could not open link', `Open ${LINK} in your browser instead.`),
+    );
   });
 });

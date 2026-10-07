@@ -83,6 +83,26 @@ export const DISPOSITION_REASONS: readonly DispositionReason[] = [
 export type VerdictTone = 'success' | 'warning' | 'error' | 'info' | 'secondary';
 
 /**
+ * The study behind one of a verdict's evidence references, as the evidence
+ * corpus names it. Resolved by the server when the verdict is read; a field
+ * the corpus entry lacks is null, and a client then names the study by its id.
+ */
+export interface EvidenceCitation {
+  /** The reference as the verdict stores it: `doi:…` or `pmid:…`. */
+  id: string;
+  /** Where the study is published, as the corpus records it. */
+  url: string | null;
+  /** Author and year as the athlete reads it: "Rønnestad & Mujika, 2014". */
+  label: string | null;
+  /** The study's full title. */
+  title: string | null;
+  /** The journal it appeared in, abbreviated as indexed. */
+  journal: string | null;
+  /** Publication year. */
+  year: number | null;
+}
+
+/**
  * One `claim_verdicts` row, as both the chat read and the admin read carry it.
  *
  * One database row had two client-side shapes — a chat one and an admin one —
@@ -115,6 +135,11 @@ export interface ClaimVerdict {
   explanation: string | null;
   /** Comma-separated evidence references. */
   evidence_refs: string | null;
+  /**
+   * The study behind each of `evidence_refs`, in the same order. Returned by
+   * the chat read only.
+   */
+  evidence?: EvidenceCitation[];
   /** RFC3339 instant the verdict was written. */
   created_at: string;
   /** Owning tenant. Returned by the admin read only. */

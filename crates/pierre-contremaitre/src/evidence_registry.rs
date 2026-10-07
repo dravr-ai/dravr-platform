@@ -23,14 +23,36 @@
 //! `evidence.sports_science.{category}.{slug}` path resolves to.
 
 use std::collections::HashMap;
-use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use chrono::{DateTime, Utc};
+use dravr_contremaitre::evidence::SPORTS_SCIENCE;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
-use pierre_memory::ClaimCategory;
+use pierre_memory::{ClaimCategory, EvidenceCitation};
+use tracing::error;
 
 use super::errors::ContremaitreError;
 use super::registry::PromptSource;
+
+static COMPILED_IN: OnceLock<EvidenceCorpus> = OnceLock::new();
+
+/// The compiled-in fallback corpus: the pinned contremaitre crate's
+/// `evidence/sports_science/` propositions, parsed on first call.
+///
+/// A parse failure logs an error and yields an empty corpus, so verification
+/// degrades rather than panicking. Production reads go through
+/// [`EvidenceRegistry::resolved_corpus`] and [`EvidenceRegistry::citation`],
+/// which prefer the runtime registry; this is for callers with no registry
+/// handle (the CLI backfill) and for warming at boot.
+#[must_use]
+pub fn compiled_in_corpus() -> &'static EvidenceCorpus {
+    COMPILED_IN.get_or_init(|| {
+        EvidenceCorpus::from_markdown_files(SPORTS_SCIENCE.iter().copied()).unwrap_or_else(|e| {
+            error!("Failed to parse embedded sports-science corpus: {e}");
+            EvidenceCorpus::default()
+        })
+    })
+}
 
 /// A single proposition entry in the registry.
 #[derive(Debug, Clone)]
@@ -51,8 +73,7 @@ pub struct EvidenceEntry {
 
 /// Thread-safe registry for externalized sports-science evidence.
 ///
-/// Starts empty; the compiled-in fallback in
-/// [`crate::services::claim_verification`] serves as the bootstrap corpus.
+/// Starts empty; [`compiled_in_corpus`] serves as the bootstrap corpus.
 /// Entries are populated by the contremaitre sync and updated via webhook.
 pub struct EvidenceRegistry {
     /// Keyed by `(category_str, slug)` — e.g. `("nutrition",
@@ -63,8 +84,8 @@ pub struct EvidenceRegistry {
 impl EvidenceRegistry {
     /// Create an empty registry.
     ///
-    /// The compiled-in propositions are the bootstrap fallback and live
-    /// in the `claim_verification` service.
+    /// The compiled-in propositions are the bootstrap fallback, served by
+    /// [`compiled_in_corpus`].
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -139,8 +160,8 @@ impl EvidenceRegistry {
 
     /// Assemble an [`EvidenceCorpus`] containing every proposition.
     ///
-    /// Used by the `claim_verification` service as the runtime corpus
-    /// source. Callers that want category-scoped recall should prefer
+    /// The runtime half of [`Self::resolved_corpus`]. Callers that want
+    /// category-scoped recall should prefer
     /// [`Self::corpus_for`] to keep the working set small.
     #[must_use]
     pub fn full_corpus(&self) -> EvidenceCorpus {
@@ -150,6 +171,36 @@ impl EvidenceRegistry {
             combined.extend(entry.corpus.clone());
         }
         combined
+    }
+
+    /// The corpus a request verifies against: every runtime proposition when
+    /// the registry holds any, else the [`compiled_in_corpus`].
+    ///
+    /// The fallback fires only before the first sync completes, with
+    /// contremaitre disabled, with GitHub unreachable at every sync, or on an
+    /// empty remote `evidence/` tree. Owned because the registry aggregates
+    /// per-proposition corpora on every call; the clone is a `Vec` of small
+    /// records and keeps the lock hold short.
+    #[must_use]
+    pub fn resolved_corpus(&self) -> EvidenceCorpus {
+        let runtime = self.full_corpus();
+        if runtime.is_empty() {
+            compiled_in_corpus().clone()
+        } else {
+            runtime
+        }
+    }
+
+    /// The study a verdict's evidence reference names (carnet#801), from the
+    /// same source [`Self::resolved_corpus`] would verify against, without
+    /// assembling it. `None` when that source holds no record with this id.
+    #[must_use]
+    pub fn citation(&self, id: &str) -> Option<EvidenceCitation> {
+        let guard = self.read();
+        if guard.is_empty() {
+            return compiled_in_corpus().citation(id);
+        }
+        guard.values().find_map(|entry| entry.corpus.citation(id))
     }
 
     /// List all registered entries sorted by `(category, slug)`.

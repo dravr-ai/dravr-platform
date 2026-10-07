@@ -67,6 +67,13 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+        # No wrapper: its wrapper/terraform.js returns normally on exit code 2
+        # ("Success with non-empty diff"), so the process exits 0 and `$?`
+        # below never sees drift. Run 37040311847 (2026-10-02) planned "4 to
+        # add, 1 to change" with code=0 under a plain redirect; only the
+        # plan-text cross-check caught it.
+        with:
+          terraform_wrapper: false
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
@@ -74,7 +81,8 @@ jobs:
       # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present (drift).
       # Redirect to a file (NO pipe) so `$?` is terraform's own exit — a piped
       # `${PIPESTATUS[0]}` mis-captured 0 on a real 6-resource diff under the
-      # runner shell and false-greened this monitor (2026-07-01). Never fail this
+      # runner shell and false-greened this monitor (2026-07-01); `$?` is only
+      # terraform's own with the setup-terraform wrapper off (above). Never fail this
       # step; the classification below decides pass/fail from BOTH the exit code
       # and a plan-text cross-check, so no single quirk can false-green us again.
       - name: Terraform Plan (drift check)

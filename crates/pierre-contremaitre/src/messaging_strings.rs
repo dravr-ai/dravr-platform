@@ -136,6 +136,9 @@ pub const KEY_REPLY_GARMIN_ATTRIBUTION: &str = "messaging.attribution.garmin";
 pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
 /// Key: text-guardrails rejected a blocked-topic response.
 pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic";
+/// Key: the scope rail's answer to acute red-flag symptoms — an emergency
+/// redirect that names no condition. Sent instead of any model reply.
+pub const KEY_GUARDRAIL_MEDICAL_EMERGENCY: &str = "messaging.guardrail.medical_emergency";
 /// Key: claim-verification `Warn` fallback suffix appended below the LLM reply.
 pub const KEY_VERIFICATION_WARN_SUFFIX: &str = "messaging.verification.warn_suffix";
 /// Key: claim-verification `Block` fallback that fully replaces the LLM reply.

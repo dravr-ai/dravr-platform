@@ -5,17 +5,17 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::routes::haversine_meters_between;
-use pierre_core::constants::project::user_agent;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::http_client::api_client as shared_client;
-use pierre_core::http_client::SharedHttpClient;
 use pierre_core::models::SportType;
-use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
-use std::time::{Duration, Instant, SystemTime};
-use tracing::{debug, warn};
+use std::time::{Duration, SystemTime};
+use tracing::debug;
+
+mod overpass;
+
+use overpass::{OverpassClient, OVERPASS_SERVER_TIMEOUT_SECS};
 
 /// Cache duration for route queries (24 hours)
 const ROUTE_CACHE_DURATION_SECS: u64 = 86400;
@@ -92,31 +92,6 @@ const OUT_AND_BACK_PASSES: u32 = 2;
 /// load.
 static ROUTE_CACHE: LazyLock<RwLock<HashMap<String, CachedRoutes>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
-
-/// Public Overpass API mirrors, tried in order until one answers successfully.
-///
-/// The primary endpoint (`overpass-api.de`) regularly returns 503/504 during
-/// peak hours because it's a shared free service. Production cannot depend on
-/// a single public Overpass instance, so we fall through to community mirrors
-/// published on the OSM wiki until one succeeds. If every mirror fails we
-/// surface a transient-error variant so the MCP tool can tell the LLM to
-/// retry rather than fabricate.
-const OVERPASS_MIRRORS: &[&str] = &[
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
-];
-
-/// Overall wall-clock budget across the whole mirror walk.
-///
-/// Each attempt is already bounded (`[timeout:25]` server-side under the
-/// shared client's 30s request timeout), but three slow-hanging mirrors in a
-/// row still cost ~90s — well past what a coaching turn tolerates. The budget
-/// admits one fast-failing mirror plus one slow success (a healthy mirror
-/// answers in 3-9s, a loaded one in ~25s) and then stops trying: no further
-/// mirror is attempted once it is spent, and the accumulated failures come
-/// back as the retryable error.
-const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(45);
 
 // ============================================================================
 // Public types
@@ -231,8 +206,7 @@ pub enum RouteSource {
 
 /// Service for discovering routes and trails near a location
 pub struct RouteDiscoveryService {
-    client: &'static SharedHttpClient,
-    overpass_mirrors: Vec<String>,
+    overpass: OverpassClient,
 }
 
 #[derive(Debug)]
@@ -242,12 +216,11 @@ struct CachedRoutes {
 }
 
 impl RouteDiscoveryService {
-    /// Create a route discovery service with default Overpass mirrors.
+    /// Create a route discovery service over the public Overpass instances.
     #[must_use]
     pub fn with_defaults() -> Self {
         Self {
-            client: shared_client(),
-            overpass_mirrors: OVERPASS_MIRRORS.iter().map(|s| (*s).to_owned()).collect(),
+            overpass: OverpassClient::public(),
         }
     }
 
@@ -264,7 +237,8 @@ impl RouteDiscoveryService {
     ///
     /// # Errors
     ///
-    /// Returns an error when every Overpass mirror fails to answer.
+    /// Returns [`pierre_core::errors::ErrorCode::ExternalServiceUnavailable`] when no Overpass
+    /// instance returns routes within the time budget.
     pub async fn discover_routes_for_sport(
         &self,
         sport: &SportType,
@@ -300,13 +274,9 @@ impl RouteDiscoveryService {
     // Overpass API integration
     // ========================================================================
 
-    /// Try each configured Overpass mirror in order until one answers with a
-    /// payload that parses, then rank it into the full candidate list.
-    ///
-    /// A mirror that answers 200 with an HTML error page counts as a failure
-    /// and falls through to the next one — free Overpass instances do exactly
-    /// that under load. If every mirror fails, the accumulated reasons come
-    /// back as one error so the agent can say "retry" instead of fabricating.
+    /// Ask the Overpass instances for `query` and rank the first answer
+    /// that parses into the full candidate list. See [`OverpassClient::fetch`]
+    /// for the failover, its time budget, and the error when nothing answers.
     async fn fetch_candidates(
         &self,
         query: &str,
@@ -314,76 +284,11 @@ impl RouteDiscoveryService {
         center_lat: f64,
         center_lon: f64,
     ) -> AppResult<Vec<DiscoveredRoute>> {
-        let mut failures: Vec<String> = Vec::with_capacity(self.overpass_mirrors.len());
-        let started = Instant::now();
-
-        for mirror in &self.overpass_mirrors {
-            if started.elapsed() >= OVERPASS_TOTAL_BUDGET {
-                failures.push(format!(
-                    "budget exhausted after {:.0?}; remaining mirrors not tried",
-                    started.elapsed()
-                ));
-                break;
-            }
-            let body = match self.try_mirror(mirror, query).await {
-                Ok(body) => body,
-                Err(reason) => {
-                    failures.push(reason);
-                    continue;
-                }
-            };
-            match candidates_from_overpass_json(&body, sport, center_lat, center_lon) {
-                Ok(routes) => {
-                    debug!(mirror, count = routes.len(), "Overpass mirror answered");
-                    return Ok(routes);
-                }
-                Err(e) => {
-                    warn!(mirror, error = %e, "Failed to parse Overpass response");
-                    failures.push(format!("{mirror}: parse error: {e}"));
-                }
-            }
-        }
-
-        Err(AppError::internal(format!(
-            "All Overpass mirrors failed: {}",
-            failures.join(" | ")
-        )))
-    }
-
-    /// Query a single Overpass mirror and return its raw response body.
-    ///
-    /// Returns `Ok(body)` on a successful status, or `Err(reason)` describing
-    /// why this mirror failed so the caller can accumulate a diagnostic across
-    /// the full mirror list before surfacing a single error to the LLM.
-    async fn try_mirror(&self, mirror: &str, query: &str) -> Result<String, String> {
-        debug!(mirror, "Querying Overpass mirror");
-
-        let response = self
-            .client
-            .post(mirror)
-            .header(USER_AGENT, user_agent())
-            .form(&[("data", query)])
-            .send()
+        self.overpass
+            .fetch(query, |body| {
+                candidates_from_overpass_json(body, sport, center_lat, center_lon)
+            })
             .await
-            .map_err(|e| {
-                warn!(mirror, error = %e, "Overpass mirror network error");
-                format!("{mirror}: network error: {e}")
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            // Keep the body in the per-mirror diagnostic but truncate so
-            // three mirrors' worth of HTML error pages don't flood logs.
-            let truncated: String = body.chars().take(200).collect();
-            warn!(mirror, %status, "Overpass mirror returned error");
-            return Err(format!("{mirror}: HTTP {status}: {truncated}"));
-        }
-
-        response.text().await.map_err(|e| {
-            warn!(mirror, error = %e, "Reading Overpass response body failed");
-            format!("{mirror}: body read error: {e}")
-        })
     }
 }
 
@@ -477,7 +382,7 @@ fn around(latitude: f64, longitude: f64, radius: u32) -> String {
 fn build_running_query(latitude: f64, longitude: f64, radius: u32) -> String {
     let a = around(latitude, longitude, radius);
     format!(
-        r#"[out:json][timeout:25];
+        r#"[out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECS}];
 (
   relation["route"~"^(foot|hiking|running)$"]["name"]{a};
   way["highway"~"^(path|track|bridleway)$"]["name"]{a};
@@ -497,7 +402,7 @@ out tags geom {OVERPASS_ELEMENT_BUDGET};"#
 fn build_cycling_query(latitude: f64, longitude: f64, radius: u32) -> String {
     let a = around(latitude, longitude, radius);
     format!(
-        r#"[out:json][timeout:25];
+        r#"[out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECS}];
 (
   relation["route"~"^(bicycle|mtb)$"]["name"]{a};
   way["highway"~"^(cycleway|track|path)$"]["name"]["bicycle"!~"^(no|dismount)$"]{a};
@@ -515,7 +420,7 @@ out tags geom {OVERPASS_ELEMENT_BUDGET};"#
 fn build_hiking_query(latitude: f64, longitude: f64, radius: u32) -> String {
     let a = around(latitude, longitude, radius);
     format!(
-        r#"[out:json][timeout:25];
+        r#"[out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECS}];
 (
   relation["route"~"^(hiking|foot)$"]["name"]{a};
   way["highway"~"^(path|track|bridleway)$"]["name"]{a};
@@ -530,7 +435,7 @@ out tags geom {OVERPASS_ELEMENT_BUDGET};"#
 fn build_ski_query(latitude: f64, longitude: f64, radius: u32) -> String {
     let a = around(latitude, longitude, radius);
     format!(
-        r#"[out:json][timeout:25];
+        r#"[out:json][timeout:{OVERPASS_SERVER_TIMEOUT_SECS}];
 (
   relation["route"~"^(ski|piste)$"]["name"]{a};
   way["piste:type"~"^(downhill|nordic|skitour)$"]["name"]{a};

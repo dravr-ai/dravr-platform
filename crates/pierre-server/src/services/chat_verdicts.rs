@@ -62,6 +62,7 @@ pub async fn get_verdicts_handler(
     .await?;
     let response = list_for_conversation(
         &resources.data().repos().agent_repos(),
+        &resources.mcp.evidence_registry,
         &conversation_id,
         &auth.user_id.to_string(),
         tenant_id,

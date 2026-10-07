@@ -6,22 +6,16 @@
 
 //! # Claim Verification Service
 //!
-//! Process-wide singleton [`EvidenceCorpus`] + dispatch pipeline runners.
-//!
-//! The fallback corpus is parsed from `dravr_contremaitre::evidence`, the
-//! proposition files under contremaitre's `evidence/sports_science/` that the
-//! pinned crate compiles in. Thin wrappers run a single claim (or a whole
+//! Dispatch pipeline runners: thin wrappers run a single claim (or a whole
 //! agent reply) through the detector pipeline.
 //!
-//! Each proposition is a markdown file with YAML frontmatter matching the
-//! dravr-contremaitre prompts/ convention. Files are compiled into the
-//! binary so the service works offline and requires no filesystem access.
-//! The runtime [`pierre_contremaitre::EvidenceRegistry`] picks up freshly
-//! published propositions via webhook sync; this module falls back to the
-//! embedded files when the registry is empty.
+//! The corpus comes from [`pierre_contremaitre::EvidenceRegistry`]: its
+//! `resolved_corpus` prefers the propositions synced from dravr-contremaitre
+//! and falls back to [`compiled_in_corpus`], the files the pinned crate
+//! compiles in, so the service works offline. The runners without a corpus
+//! argument verify against that compiled-in fallback.
 
-use dravr_contremaitre::evidence::SPORTS_SCIENCE;
-use pierre_contremaitre::EvidenceRegistry;
+use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use pierre_core::errors::AppResult;
 use pierre_evals::{
     athlete_data::AthleteRecord, check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
@@ -30,72 +24,20 @@ use pierre_evals::{
 };
 use pierre_memory::claims::EvidenceStrength;
 use std::slice;
-use std::sync::OnceLock;
-use tracing::{error, warn};
-
-static CORPUS: OnceLock<EvidenceCorpus> = OnceLock::new();
-
-/// Return the compiled-in fallback corpus.
-///
-/// Parses the pinned contremaitre evidence corpus on first call. Parse
-/// failures log an error and return an empty corpus so verification
-/// gracefully degrades rather than panicking.
-///
-/// **This is the fallback source.** Production dispatch should use
-/// [`resolve_corpus`] to prefer the runtime `EvidenceRegistry` populated
-/// from dravr-contremaitre and fall back here only when the registry is
-/// empty.
-#[must_use]
-pub fn corpus() -> &'static EvidenceCorpus {
-    CORPUS.get_or_init(|| {
-        match EvidenceCorpus::from_markdown_files(SPORTS_SCIENCE.iter().copied()) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Failed to parse embedded sports-science corpus: {e}");
-                EvidenceCorpus::default()
-            }
-        }
-    })
-}
-
-/// Resolve the evidence corpus for a given request.
-///
-/// Prefers the runtime [`pierre_contremaitre::EvidenceRegistry`] sourced
-/// from dravr-contremaitre when it holds at least one proposition, falling
-/// back to the compiled-in [`corpus`] otherwise. The contremaitre registry
-/// is always non-empty when a successful startup sync + webhook pipeline
-/// is in place; the fallback path only fires on:
-///
-/// - First boot before `full_sync` completes
-/// - `CONTREMAITRE_REPO` unset (contremaitre disabled)
-/// - GitHub unreachable at startup + every subsequent sync attempt
-/// - An empty `evidence/` tree on the remote manifest
-///
-/// Returns an owned [`EvidenceCorpus`] because the registry aggregates
-/// per-proposition corpora on every call; cloning is cheap (a `Vec` of
-/// small records) and keeps the lock hold time minimal.
-#[must_use]
-pub fn resolve_corpus(registry: &EvidenceRegistry) -> EvidenceCorpus {
-    let runtime = registry.full_corpus();
-    if runtime.is_empty() {
-        corpus().clone()
-    } else {
-        runtime
-    }
-}
+use tracing::warn;
 
 /// Verify an agent reply against the compiled-in fallback corpus.
 ///
 /// Thin wrapper over [`verify_reply_heuristic_with`] for callers that
 /// don't have a [`ServerContext`] handy (tests, tool dispatch when the
 /// registry is not yet initialized). Production dispatch should prefer
-/// [`verify_reply_heuristic_with`] with [`resolve_corpus`].
+/// [`verify_reply_heuristic_with`] with the registry's `resolved_corpus`.
 #[must_use]
 pub fn verify_reply_heuristic(
     agent_reply: &str,
     minimum_strength: EvidenceStrength,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
-    verify_reply_heuristic_with(agent_reply, minimum_strength, corpus())
+    verify_reply_heuristic_with(agent_reply, minimum_strength, compiled_in_corpus())
 }
 
 /// Verify an agent reply end-to-end against a caller-provided corpus.
@@ -132,7 +74,7 @@ pub fn verify_reply_with_config(
     agent_reply: &str,
     config: &VerificationConfig,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
-    verify_reply_with_config_and_corpus(agent_reply, config, corpus())
+    verify_reply_with_config_and_corpus(agent_reply, config, compiled_in_corpus())
 }
 
 /// Verify an agent reply honoring the per-agent [`VerificationConfig`],
@@ -244,7 +186,7 @@ pub fn verify_single_claim_with(
 /// Called once from server boot so parse failures surface early instead
 /// of mid-request.
 pub fn warm_corpus() {
-    let c = corpus();
+    let c = compiled_in_corpus();
     if c.is_empty() {
         warn!("evidence corpus is empty — verification will fall through to Unsupported");
     } else {

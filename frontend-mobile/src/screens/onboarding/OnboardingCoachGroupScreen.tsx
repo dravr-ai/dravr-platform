@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, Share, Linking } from 'react-native';
+import { View, Text, ScrollView, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ import { chatApi, coachesApi, groupsApi, userApi } from '../../services/api';
 import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { inviteLink } from '../../constants/inviteLink';
+import { openExternal } from '../../utils/openExternal';
 
 /**
  * How long the onboarding athlete invite stays valid — the web step's value:
@@ -140,7 +141,7 @@ export function OnboardingCoachGroupScreen() {
                 {t('humanCoach.accessPendingBody')}
               </Text>
               <Pressable
-                onPress={() => void Linking.openURL('mailto:support@dravr.ai').catch(() => {})}
+                onPress={() => void openExternal('mailto:support@dravr.ai', t)}
                 accessibilityRole="link"
               >
                 <Text className="mt-3 text-sm font-medium text-primary">

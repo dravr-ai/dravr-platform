@@ -27,7 +27,8 @@
 #   1. RED — the latest completed cron-or-dispatch run of an active lane
 #      concluded something other than success/skipped/neutral. A `cancelled`
 #      conclusion counts: on this fleet it is more often a job timeout than a
-#      human preemption.
+#      human preemption. A cron run cancelled before any runner picked up a
+#      job (zero steps) is not a verdict; the newest cron run that ran is.
 #   2. STALE — an active lane's latest completed run is older than
 #      STALE_AFTER_DAYS. The fleet's slowest cadence is weekly, so at 8 days
 #      the cron has stopped firing (dropped by GitHub, or the workflow breaks
@@ -116,6 +117,19 @@ jobs:
                   )["jobs"]
               return jobs_by_run[run["id"]]
 
+          def never_ran(job):
+              return not job.get("runner_name") and not job.get("steps")
+
+          # A run whose every unhealthy job was cancelled before a runner ever
+          # picked it up: no runner, no step. It tested nothing and failed
+          # nothing, and it cannot be a job timeout — a timeout needs a job
+          # that started. A run with no unhealthy job at all is not preempted.
+          def preempted(run):
+              unhealthy = [j for j in jobs(run) if j["conclusion"] not in HEALTHY]
+              return bool(unhealthy) and all(
+                  j["conclusion"] == "cancelled" and never_ran(j) for j in unhealthy
+              )
+
           # Workflow state (active / disabled_manually / disabled_inactivity)
           # lives in the API, not the file.
           states = {}
@@ -183,6 +197,7 @@ jobs:
               )["workflow_runs"]
               latest = {}
               lagged = []
+              unread = []
               for event in ("schedule", "workflow_dispatch", "repository_dispatch"):
                   indexed = api(
                       f"{base}?status=completed&event={event}"
@@ -200,12 +215,41 @@ jobs:
                   }
                   if not candidates:
                       continue
-                  newest = max(candidates.values(), key=lambda r: when(r["created_at"]))
+                  ordered = sorted(
+                      candidates.values(), key=lambda r: when(r["created_at"]), reverse=True
+                  )
+                  newest = ordered[0]
+                  # A CRON run preempted before any runner took it is not a
+                  # verdict on the lane, so the lane's verdict is the newest
+                  # cron run that actually ran. 2026-10-05 ~19:45-20:45 UTC,
+                  # hosted runners went unacquired ("The job was not acquired
+                  # by Runner of type hosted even after multiple attempts"):
+                  # terraform-drift and this monitor each had one cron run
+                  # fail with zero steps, both lanes passed their next cron,
+                  # and the scan in between filed carnet#815 and #816 against
+                  # two lanes nothing was wrong with. Skipping the run does
+                  # not bury a red the way a dispatch would — the run read
+                  # instead is the same event, the same coverage, and is
+                  # judged by every rule below. A cron that keeps getting
+                  # preempted still alarms: staleness is measured from the
+                  # cron run that ran, so it goes stale at STALE_AFTER_DAYS.
+                  # With no cron run that ran in reach, the preempted one is
+                  # the verdict and it alarms.
+                  if event == "schedule" and newest["conclusion"] not in HEALTHY:
+                      ran = next((r for r in ordered if not preempted(r)), None)
+                      if ran is not None and ran["id"] != newest["id"]:
+                          skipped = ordered[: ordered.index(ran)]
+                          unread.append(
+                              "cron run(s) "
+                              + ", ".join(str(r["id"]) for r in skipped)
+                              + f" preempted before any runner; read {ran['id']}"
+                          )
+                          newest = ran
                   latest[event] = newest
-                  if indexed and indexed[0]["id"] != newest["id"]:
+                  if indexed and indexed[0]["id"] != ordered[0]["id"]:
                       lagged.append(
                           f"{event}: filtered read returned run {indexed[0]['id']}, "
-                          f"newest completed is {newest['id']}"
+                          f"newest completed is {ordered[0]['id']}"
                       )
               if not latest:
                   rows.append((name, f, "never completed a cron run", "not alarmed"))
@@ -270,21 +314,14 @@ jobs:
               cron_ok = cron is not None and cron["conclusion"] in HEALTHY
               cron_started = when(cron["run_started_at"]) if cron else None
 
-              def never_ran(job):
-                  return not job.get("runner_name") and not job.get("steps")
-
               def answered_by(red_run):
                   red_started = when(red_run["run_started_at"])
-                  unhealthy = [
-                      j for j in jobs(red_run) if j["conclusion"] not in HEALTHY
-                  ]
-                  failed = {j["name"] for j in unhealthy}
+                  failed = {
+                      j["name"] for j in jobs(red_run) if j["conclusion"] not in HEALTHY
+                  }
                   if not failed:
                       return None
-                  preempted = all(
-                      j["conclusion"] == "cancelled" and never_ran(j) for j in unhealthy
-                  )
-                  if preempted:
+                  if preempted(red_run):
                       for later in latest.values():
                           if (
                               later["conclusion"] == "success"
@@ -337,7 +374,8 @@ jobs:
               if cron:
                   age = NOW - cron_started
                   if age > STALE_AFTER:
-                      verdicts.append(f"stale ({age.days}d since the last cron run)")
+                      ran = " that got a runner" if unread else ""
+                      verdicts.append(f"stale ({age.days}d since the last cron run{ran})")
 
               shown = ", ".join(
                   f"{event}: {run['conclusion']}" for event, run in latest.items()
@@ -345,6 +383,8 @@ jobs:
               note = ", ".join(verdicts) or "ok"
               if superseded:
                   note += " [" + "; ".join(superseded) + "]"
+              if unread:
+                  note += " [" + "; ".join(unread) + "]"
               if lagged:
                   note += " [index lag — " + "; ".join(lagged) + "]"
               rows.append((name, f, shown, note))

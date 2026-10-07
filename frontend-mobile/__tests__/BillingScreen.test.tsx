@@ -5,7 +5,7 @@
 // ABOUTME: A past-due subscription names its plan in the athlete's words; checkout returns to the app's own link
 
 import React from 'react';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -118,6 +118,70 @@ describe('BillingScreen', () => {
       tier: 'professional',
       success_url: 'dravr://billing?upgrade=success',
       cancel_url: 'dravr://billing?upgrade=cancel',
+    });
+  });
+
+  // carnet#803: each billing link opened with a bare Linking.openURL, so a
+  // device with no browser handler left the athlete on a button that did
+  // nothing. Every one of them now says it could not open the page.
+  describe('when the device cannot open the page', () => {
+    let openURL: jest.SpyInstance;
+    let alert: jest.SpyInstance;
+    beforeEach(() => {
+      openURL = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+      alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      openURL.mockRestore();
+      alert.mockRestore();
+    });
+
+    const expectCouldNotOpen = async (url: string) => {
+      await waitFor(() =>
+        expect(alert).toHaveBeenCalledWith('Could not open link', `Open ${url} in your browser instead.`),
+      );
+      expect(openURL).toHaveBeenCalledWith(url);
+    };
+
+    it('says so for the checkout', async () => {
+      mockGetSubscription.mockResolvedValue(null);
+      mockStartCheckout.mockResolvedValue({ checkout_url: 'https://checkout.example/s/1' });
+
+      renderScreen();
+      fireEvent.press(await screen.findByText('Upgrade to Professional'));
+
+      await expectCouldNotOpen('https://checkout.example/s/1');
+    });
+
+    it('says so for the payment portal', async () => {
+      mockGetSubscription.mockResolvedValue(professionalPastDue);
+      mockOpenPortal.mockResolvedValue({ portal_url: 'https://portal.example/p/1' });
+
+      renderScreen();
+      fireEvent.press(await screen.findByText('Update payment'));
+
+      await expectCouldNotOpen('https://portal.example/p/1');
+    });
+
+    it('says so for a hosted invoice', async () => {
+      mockGetSubscription.mockResolvedValue({ ...professionalPastDue, status: 'active' });
+      mockListInvoices.mockResolvedValue({
+        invoices: [
+          {
+            id: 'in_1',
+            number: 'INV-1',
+            amount_paid: 1250,
+            currency: 'usd',
+            created: 1_768_478_400,
+            hosted_invoice_url: 'https://invoice.example/i/1',
+          },
+        ],
+      });
+
+      renderScreen();
+      fireEvent.press(await screen.findByText('Jan 15, 2026'));
+
+      await expectCouldNotOpen('https://invoice.example/i/1');
     });
   });
 

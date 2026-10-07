@@ -43,7 +43,6 @@ use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
-use pierre_services::claim_verification::resolve_corpus;
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use tracing::warn;
@@ -503,7 +502,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         };
     }
 
-    let corpus = resolve_corpus(&ctx.evidence_registry);
+    let corpus = ctx.evidence_registry.resolved_corpus();
     // The LLM-judge layer (Layer 5), resolved through the same provider
     // factory Stage 11 dispatch and the identity-leak re-ask use — reading
     // `ctx.llm_provider` directly made the judge dead code in production,

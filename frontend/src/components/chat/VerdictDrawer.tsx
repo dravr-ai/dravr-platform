@@ -115,10 +115,11 @@ const PILL_CLASS =
   'inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border ghost-border px-3 text-sm font-medium touch-target';
 
 /**
- * The studies behind a verdict, one pill each. One study reads "Read the
- * study"; several are numbered in stored order. An id that names no known
+ * The studies behind a verdict, one pill each, named by author and year
+ * ("Rønnestad & Mujika, 2014") with the full title on hover. A study the
+ * corpus does not name falls back to "Read the study" when it is the only
+ * one, and is numbered in stored order otherwise. An id that names no known
  * page keeps its raw text, unlinked, rather than disappearing.
- * LIMITATION(registre#801): `StudyPills` labels a study generically; a verdict row carries no per-reference author, year or title.
  */
 function StudyPills({ references }: { references: EvidenceRef[] }) {
   const { t } = useTranslation();
@@ -126,7 +127,8 @@ function StudyPills({ references }: { references: EvidenceRef[] }) {
     <>
       {references.map((reference, index) => {
         const label =
-          references.length === 1 ? t('chat.verdictReadStudy') : t('chat.verdictStudyN', { n: index + 1 });
+          reference.label ??
+          (references.length === 1 ? t('chat.verdictReadStudy') : t('chat.verdictStudyN', { n: index + 1 }));
         if (!reference.href) {
           return (
             <span key={reference.id} className={clsx(PILL_CLASS, 'font-mono text-xs text-on-surface-variant')}>
@@ -140,12 +142,12 @@ function StudyPills({ references }: { references: EvidenceRef[] }) {
             href={reference.href}
             target="_blank"
             rel="noopener noreferrer"
-            title={reference.id}
+            title={reference.title ?? reference.id}
             data-testid="verdict-study-link"
             className={clsx(PILL_CLASS, 'text-primary hover:bg-surface-container-low')}
           >
             <BookOpen className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-            <span>{label}</span>
+            <span className="min-w-0 truncate">{label}</span>
             <ExternalLink className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
           </a>
         );
@@ -312,7 +314,7 @@ function VerdictCard({
   renderTriage?: (verdict: ClaimVerdict) => ReactNode;
 }) {
   const { t } = useTranslation();
-  const references = parseEvidenceRefs(verdict.evidence_refs);
+  const references = parseEvidenceRefs(verdict.evidence_refs, verdict.evidence);
   const operator = Boolean(renderTriage);
   const hasProvenance = Boolean(
     verdict.user_id || verdict.agent_id || verdict.conversation_id || verdict.message_id,

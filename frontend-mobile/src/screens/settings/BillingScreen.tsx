@@ -7,7 +7,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +33,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { billingApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
+import { openExternal } from '../../utils/openExternal';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -77,7 +77,7 @@ export function BillingScreen(): React.ReactElement {
       });
     },
     onSuccess: ({ checkout_url }) => {
-      void Linking.openURL(checkout_url);
+      void openExternal(checkout_url, t);
     },
     onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.checkoutFailed' })),
   });
@@ -88,7 +88,7 @@ export function BillingScreen(): React.ReactElement {
       return billingApi.openPortal({ return_url: 'dravr://billing' });
     },
     onSuccess: ({ portal_url }) => {
-      void Linking.openURL(portal_url);
+      void openExternal(portal_url, t);
     },
     onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.portalOpenFailed' })),
   });
@@ -286,7 +286,7 @@ export function BillingScreen(): React.ReactElement {
               key={inv.id ?? idx}
               style={styles.invoiceRow}
               onPress={() => {
-                if (inv.hosted_invoice_url) void Linking.openURL(inv.hosted_invoice_url);
+                if (inv.hosted_invoice_url) void openExternal(inv.hosted_invoice_url, t);
               }}
               disabled={!inv.hosted_invoice_url}
             >

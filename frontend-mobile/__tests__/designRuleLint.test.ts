@@ -116,3 +116,48 @@ describe('no deprecated core SafeAreaView (carnet#356)', () => {
     expect(await restrictionHits(SCREEN, source)).toEqual([]);
   });
 });
+
+describe('every outbound link opens through openExternal (carnet#803)', () => {
+  const OPENER = { cwd: MOBILE_ROOT, file: 'src/utils/openExternal.ts' };
+  const MESSAGE = 'Open an outbound link with openExternal';
+
+  it.each([
+    ["react-native's Linking", `import { Linking } from 'react-native';\nexport const go = () => Linking.openURL('https://dravr.ai');`],
+    ["expo-linking's namespace", `import * as Linking from 'expo-linking';\nexport const go = () => Linking.openURL('https://dravr.ai');`],
+    ['a rejection swallowed by .catch', `import { Linking } from 'react-native';\nexport const go = () => void Linking.openURL('mailto:support@dravr.ai').catch(() => {});`],
+    ['the in-app browser', `import * as WebBrowser from 'expo-web-browser';\nexport const go = () => WebBrowser.openBrowserAsync('https://dravr.ai');`],
+    ['a detached reference', `import { Linking } from 'react-native';\nexport const open = Linking.openURL;`],
+    ['a named import', `import { openURL } from 'expo-linking';\nexport const go = () => openURL('https://dravr.ai');`],
+    ['a destructured binding', `import { Linking } from 'react-native';\nconst { openURL } = Linking;\nexport const go = () => openURL('https://dravr.ai');`],
+  ])('refuses %s in a screen', async (_shape, source) => {
+    const found = await restrictionHits(SCREEN, source);
+    expect(rulesFired(found)).toEqual([SYNTAX]);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain(MESSAGE);
+  });
+
+  it('refuses a bare opener in a route file too', async () => {
+    const source = `import { Linking } from 'react-native';\nexport const go = () => Linking.openURL('https://dravr.ai');`;
+    const found = await restrictionHits(ROUTE, source);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain(MESSAGE);
+  });
+
+  it('accepts openExternal, a sign-in session and the other Linking calls in a screen', async () => {
+    const source = `
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+import { openExternal } from '../utils/openExternal';
+declare const t: (key: string) => string;
+export const go = () => openExternal('https://dravr.ai', t);
+export const signIn = () => WebBrowser.openAuthSessionAsync('https://dravr.ai/oauth', Linking.createURL('auth'));
+export const settings = () => Linking.openSettings();
+`;
+    expect(await restrictionHits(SCREEN, source)).toEqual([]);
+  });
+
+  it('lets the opener itself call Linking.openURL', async () => {
+    const source = `import { Linking } from 'react-native';\nexport const open = async (url: string) => { await Linking.openURL(url); };`;
+    expect(await restrictionHits(OPENER, source)).toEqual([]);
+  });
+});

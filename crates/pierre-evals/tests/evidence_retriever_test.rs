@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 use pierre_core::errors::AppResult;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
-use pierre_memory::{ClaimCategory, EvidenceStrength};
+use pierre_memory::{ClaimCategory, EvidenceCitation, EvidenceStrength};
 
 const SAMPLE_CORPUS: &str = r#"
 {"id":"doi:10.1/a","category":"nutrition","proposition":"Protein intake of 1.6 to 2.2 g per kg body weight per day maximizes muscle protein synthesis in trained athletes","strength":"strong","citation":"Morton 2018 meta-analysis"}
@@ -129,5 +129,99 @@ fn parses_markdown_with_crlf_line_endings() -> AppResult<()> {
     let crlf = SAMPLE_MARKDOWN.replace('\n', "\r\n");
     let corpus = EvidenceCorpus::from_markdown(&crlf)?;
     assert_eq!(corpus.len(), 1);
+    Ok(())
+}
+
+/// A proposition as the corpus writes it since carnet#801: the study's own
+/// name beside the free-text citation, with quoted scalars and a non-ASCII
+/// author.
+const NAMED_STUDY_MARKDOWN: &str = r#"---
+id: doi:10.1111/sms.12104
+url: https://doi.org/10.1111/sms.12104
+category: training_prescription
+strength: strong
+citation: Rønnestad and Mujika 2014 review
+label: "Rønnestad & Mujika, 2014"
+title: "Optimizing strength training for running and cycling endurance performance: A review"
+journal: "Scand J Med Sci Sports"
+year: 2014
+---
+
+Heavy strength training improves cycling and running economy in endurance athletes.
+"#;
+
+const PMID_MARKDOWN: &str = r#"---
+id: pmid:22389869
+url: https://pubmed.ncbi.nlm.nih.gov/22389869/
+category: training_prescription
+strength: mixed
+citation: Nielsen et al. 2012 observational
+label: "Nielsen et al., 2012"
+title: "Training errors and running related injuries: a systematic review"
+journal: "Int J Sports Phys Ther"
+year: 2012
+---
+
+Abrupt changes in running distance are associated with running-related injury.
+"#;
+
+fn named_corpus() -> AppResult<EvidenceCorpus> {
+    EvidenceCorpus::from_markdown_files([
+        ("ronnestad.md", NAMED_STUDY_MARKDOWN),
+        ("nielsen.md", PMID_MARKDOWN),
+    ])
+}
+
+#[test]
+fn citation_names_the_study_by_doi() -> AppResult<()> {
+    assert_eq!(
+        named_corpus()?.citation("doi:10.1111/sms.12104"),
+        Some(EvidenceCitation {
+            id: "doi:10.1111/sms.12104".to_owned(),
+            url: Some("https://doi.org/10.1111/sms.12104".to_owned()),
+            label: Some("Rønnestad & Mujika, 2014".to_owned()),
+            title: Some(
+                "Optimizing strength training for running and cycling endurance performance: A review"
+                    .to_owned()
+            ),
+            journal: Some("Scand J Med Sci Sports".to_owned()),
+            year: Some(2014),
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn citation_names_the_study_by_pmid() -> AppResult<()> {
+    let citation = named_corpus()?
+        .citation("pmid:22389869")
+        .expect("pmid resolves");
+    assert_eq!(citation.label.as_deref(), Some("Nielsen et al., 2012"));
+    assert_eq!(citation.year, Some(2012));
+    Ok(())
+}
+
+#[test]
+fn citation_is_none_for_an_id_the_corpus_does_not_hold() -> AppResult<()> {
+    assert_eq!(named_corpus()?.citation("doi:10.1/removed"), None);
+    Ok(())
+}
+
+/// A registry entry synced before the corpus carried the study fields still
+/// parses; its citation names only the id, and the client builds the link.
+#[test]
+fn a_proposition_without_study_fields_still_parses() -> AppResult<()> {
+    let corpus = EvidenceCorpus::from_markdown(SAMPLE_MARKDOWN)?;
+    assert_eq!(
+        corpus.citation("doi:10.1/sample"),
+        Some(EvidenceCitation {
+            id: "doi:10.1/sample".to_owned(),
+            url: None,
+            label: None,
+            title: None,
+            journal: None,
+            year: None,
+        })
+    );
     Ok(())
 }

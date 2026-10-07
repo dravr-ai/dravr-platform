@@ -34,9 +34,11 @@ sha2 = "0.10"
 hex = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 urlencoding = "2.1"
+# Paces the one retry an Overpass instance gets after a gateway error.
+tokio = { version = "1.48", features = ["time"] }
 
 [dev-dependencies]
-tokio = { version = "1.48", features = ["macros", "rt"] }
+tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
 
 [lints]
 workspace = true

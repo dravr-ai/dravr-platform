@@ -178,7 +178,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 category,
                 source: ClaimSource::Caller,
             };
-            let corpus = claim_verification::resolve_corpus(context.resources.evidence_registry());
+            let corpus = context.resources.evidence_registry().resolved_corpus();
             let outcome =
                 claim_verification::verify_single_claim_with(&extracted, minimum_strength, &corpus);
 

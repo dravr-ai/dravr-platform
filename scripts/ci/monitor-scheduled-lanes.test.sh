@@ -16,7 +16,11 @@
 #      never when the red run has no failed job to compare. A run preempted
 #      before any job got a runner (carnet#759) is answered by any LATER
 #      success instead; a cancel whose job started (a timeout) is not.
-#   4. The newest run ANY read returns wins: a lagging filtered index must not
+#   4. A CRON run preempted before any runner took a job is not a verdict: the
+#      newest cron run that ran is read instead, and staleness counts from it,
+#      so a red that ran is never buried and a cron that keeps getting
+#      preempted still alarms (carnet#815, #816).
+#   5. The newest run ANY read returns wins: a lagging filtered index must not
 #      turn a daily cron into "stale" (carnet#544).
 #
 # Then the issue step: it must not re-file a run a closed issue records, must
@@ -127,6 +131,16 @@ CASES = {
              "stall": UNSTARTED, "merge": UNSTARTED, "ship": UNSTARTED}),
         run("repository_dispatch", "success", 2, dict(GREEN_BUMP, gate="skipped")),
     ],
+    # 2026-10-05: hosted runners went unacquired for an hour; the cron run
+    # failed with zero steps and the lane's next cron passed (carnet#815/#816).
+    "preempted-cron.yml": [run("schedule", "success", 2),
+                           run("schedule", "failure", 1, {"a": UNSTARTED})],
+    "preempted-after-red.yml": [run("schedule", "failure", 2),
+                                run("schedule", "failure", 1, {"a": UNSTARTED})],
+    "preempted-cron-only.yml": [run("schedule", "failure", 1, {"a": UNSTARTED})],
+    "preempted-cron-stale.yml": [run("schedule", "success", 12),
+                                 run("schedule", "failure", 5, {"a": UNSTARTED}),
+                                 run("schedule", "cancelled", 1, {"a": UNSTARTED})],
     "branch-red.yml": [run("schedule", "success", 1),
                        run("workflow_dispatch", "failure", 0, branch="feature/x")],
     "disabled.yml": [run("schedule", "failure", 1)],
@@ -147,6 +161,10 @@ EXPECT = {
     "preempted-dispatch.yml": False,  # preempted before a runner; a later run succeeded
     "preempted-alone.yml": True,  # preempted, and nothing has run the lane green since
     "timed-out-dispatch.yml": True, # its gate STARTED then cancelled: a timeout, not a preemption
+    "preempted-cron.yml": False,  # no runner, no verdict: the newest cron that RAN is green
+    "preempted-after-red.yml": True,  # the newest cron that ran is red; skipping never buries it
+    "preempted-cron-only.yml": True,  # nothing that ran is in reach: the preempted run stands
+    "preempted-cron-stale.yml": True, # every cron since day 12 was preempted: stale
     "branch-red.yml":     False,  # a feature-branch dispatch is never main's verdict
     "disabled.yml":       False,  # a disabled lane is listed, never alarmed
 }
@@ -234,6 +252,10 @@ if "passed every job it failed" not in note["covered-dispatch.yml"]:
     sys.exit(f"FAIL: covered-dispatch should say what answered it, got: {note['covered-dispatch.yml']}")
 if "preempted before any job ran" not in note["preempted-dispatch.yml"]:
     sys.exit(f"FAIL: preempted-dispatch should say what answered it, got: {note['preempted-dispatch.yml']}")
+if "preempted before any runner" not in note["preempted-cron.yml"]:
+    sys.exit(f"FAIL: a skipped preempted cron run must be printed, got: {note['preempted-cron.yml']}")
+if "stale" not in note["preempted-cron-stale.yml"]:
+    sys.exit(f"FAIL: repeated cron preemption must read stale, got: {note['preempted-cron-stale.yml']}")
 if "index lag" not in note["lagged-index.yml"]:
     sys.exit(f"FAIL: a lagging filtered read must be printed, got: {note['lagged-index.yml']}")
 

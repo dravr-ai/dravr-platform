@@ -4364,7 +4364,6 @@ dependencies = [
  "dashmap",
  "dravr-cageux",
  "dravr-canot",
- "dravr-contremaitre",
  "dravr-enforme",
  "dravr-equilibre",
  "dravr-meteo",

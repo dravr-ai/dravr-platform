@@ -397,6 +397,29 @@ impl fmt::Display for DispositionReason {
     }
 }
 
+/// The study behind one of a verdict's `evidence_refs` ids, as the evidence
+/// corpus names it.
+///
+/// Resolved from the corpus when a verdict is read rather than stored on the
+/// row, so a corrected corpus entry also corrects older verdicts. A field the
+/// corpus entry does not carry stays `None`; a client then falls back to
+/// building the link from `id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceCitation {
+    /// The reference as the verdict stores it: `doi:…` or `pmid:…`.
+    pub id: String,
+    /// Where the study is published, as the corpus records it.
+    pub url: Option<String>,
+    /// Author and year as an athlete reads it: "Rønnestad & Mujika, 2014".
+    pub label: Option<String>,
+    /// The study's full title.
+    pub title: Option<String>,
+    /// The journal it appeared in, abbreviated as indexed.
+    pub journal: Option<String>,
+    /// Publication year.
+    pub year: Option<u16>,
+}
+
 /// A single verdict emitted by the claim-verification pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaimVerdict {

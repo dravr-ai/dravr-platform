@@ -144,6 +144,45 @@ describe('VerdictDrawer athlete card', () => {
     );
   });
 
+  // carnet#801: the pill names the study the corpus resolved, its title on hover.
+  it('names each study by author and year, keeping the generic words for one it cannot name', () => {
+    render(
+      <VerdictDrawer
+        verdicts={[
+          verdict('v1', {
+            evidence_refs: 'doi:10.1111/sms.12104,pmid:22389869',
+            evidence: [
+              {
+                id: 'doi:10.1111/sms.12104',
+                url: 'https://doi.org/10.1111/sms.12104',
+                label: 'Rønnestad & Mujika, 2014',
+                title: 'Optimizing strength training for running and cycling endurance performance: A review',
+                journal: 'Scand J Med Sci Sports',
+                year: 2014,
+              },
+              { id: 'pmid:22389869', url: null, label: null, title: null, journal: null, year: null },
+            ],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const named = screen.getByRole('link', { name: 'Rønnestad & Mujika, 2014' });
+    expect(named).toHaveAttribute('href', 'https://doi.org/10.1111/sms.12104');
+    expect(named).toHaveAttribute(
+      'title',
+      'Optimizing strength training for running and cycling endurance performance: A review — Scand J Med Sci Sports, 2014',
+    );
+    // A long label truncates inside the pill rather than widening the drawer.
+    expect(within(named).getByText('Rønnestad & Mujika, 2014')).toHaveClass('truncate');
+    expect(screen.getByRole('link', { name: 'Study 2' })).toHaveAttribute(
+      'href',
+      'https://pubmed.ncbi.nlm.nih.gov/22389869/',
+    );
+    expect(screen.queryByText('Read the study')).toBeNull();
+  });
+
   it('names the conversation, and shows the reply only on hover until pressed', () => {
     render(<VerdictDrawer verdicts={[SUPPORTED]} onClose={vi.fn()} source={SOURCE} />);
 
