@@ -145,7 +145,7 @@ export function ChatThread({
       await Linking.openURL(url);
     } catch (error) {
       console.error('Failed to open URL:', error);
-      Alert.alert(t('app.linkErrorTitle'), t('app.linkOpenFailed'));
+      Alert.alert(t('app.linkErrorTitle'), t('app.couldNotOpenLink'));
     }
   }, [t]);
 
