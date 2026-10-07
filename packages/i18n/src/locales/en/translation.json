@@ -3175,6 +3175,9 @@
       "messageQuota": "You've used {{percent}}% of your message quota ({{current}}/{{limit}}). Limits reset at {{time}}."
     }
   },
+  "use_cases": {
+    "unavailable": "That suggestion isn't available any more. Ask me in your own words, or type / for commands."
+  },
   "validation": {
     "confirmPassword": "Please confirm your password",
     "displayNameRequired": "Display name is required",

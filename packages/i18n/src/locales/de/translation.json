@@ -3175,6 +3175,9 @@
       "messageQuota": "Du hast {{percent}} % deines Nachrichtenkontingents ({{current}}/{{limit}}) verbraucht. Die Limits werden um {{time}} zurückgesetzt."
     }
   },
+  "use_cases": {
+    "unavailable": "Dieser Vorschlag ist nicht mehr verfügbar. Frag mich mit deinen eigenen Worten oder tippe / für Befehle."
+  },
   "validation": {
     "confirmPassword": "Bestätige dein Passwort",
     "displayNameRequired": "Anzeigename ist erforderlich",

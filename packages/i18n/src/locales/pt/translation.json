@@ -3175,6 +3175,9 @@
       "messageQuota": "Usaste {{percent}} % da tua quota de mensagens ({{current}}/{{limit}}). Os limites são reiniciados às {{time}}."
     }
   },
+  "use_cases": {
+    "unavailable": "Essa sugestão já não está disponível. Pergunta-me por palavras tuas ou escreve / para os comandos."
+  },
   "validation": {
     "confirmPassword": "Confirma a tua palavra-passe",
     "displayNameRequired": "O nome visível é obrigatório",
