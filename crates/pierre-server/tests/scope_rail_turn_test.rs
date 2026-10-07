@@ -25,7 +25,7 @@ mod common;
 mod scope_probes;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures_util::stream;
@@ -83,10 +83,26 @@ const RECORDED_REPLIES: [(&str, &str); 4] = [
 ];
 
 /// A model that answers each probe the way the CI model did, and counts how
-/// often it was asked.
+/// often the turn asked it.
+///
+/// The memory extractor runs detached after the reply and asks the same
+/// model; whether it has by the time the count is read is a race, so a
+/// request opening with the extraction prompt is answered but not counted.
 struct RecordedModel {
     calls: Arc<AtomicUsize>,
+    extraction_prompt: Arc<OnceLock<String>>,
     models: Vec<String>,
+}
+
+impl RecordedModel {
+    fn is_memory_extraction(&self, request: &ChatRequest) -> bool {
+        let Some(prompt) = self.extraction_prompt.get() else {
+            return false;
+        };
+        request.messages.first().is_some_and(|first| {
+            first.role == MessageRole::System && first.content.starts_with(prompt.as_str())
+        })
+    }
 }
 
 #[async_trait]
@@ -108,7 +124,9 @@ impl LlmProvider for RecordedModel {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        if !self.is_memory_extraction(request) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+        }
         let asked = last_user_message(&request.messages);
         let content = RECORDED_REPLIES
             .iter()
@@ -159,8 +177,10 @@ struct ServedTurn {
 /// delivered — asserting it is also what the conversation keeps.
 async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
     let calls = Arc::new(AtomicUsize::new(0));
+    let extraction_prompt = Arc::new(OnceLock::new());
     let provider: Arc<dyn LlmProvider> = Arc::new(RecordedModel {
         calls: Arc::clone(&calls),
+        extraction_prompt: Arc::clone(&extraction_prompt),
         models: vec!["recorded-model".to_owned()],
     });
     let resources = create_test_server_resources_with_chat_provider(provider)
@@ -213,6 +233,9 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         None,
     ));
     let ctx = resources.chat_pipeline_context();
+    extraction_prompt
+        .set(ctx.memory_extraction_prompt.clone())
+        .expect("set once per turn");
     let envelope = ai_scope::tracking(
         Provenance::new(),
         pierre_chat_pipeline::run(&ctx, input, &profile, &PipelineHooks::none()),
