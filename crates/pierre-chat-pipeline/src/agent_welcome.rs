@@ -121,6 +121,11 @@ impl WelcomeText {
     /// `role` is the agent's one-line description; a blank one renders the
     /// greeting without it. `samples` are the agent's sample prompts: blanks
     /// are dropped and the first [`MAX_STARTERS`] kept.
+    ///
+    /// LIMITATION(registre#828): `WelcomeText::compose` takes the agent's static
+    /// Example Inputs in authored order; nothing ranks the starters from the
+    /// athlete's state, so an athlete with no provider can be offered questions
+    /// about data they have not connected.
     #[must_use]
     pub fn compose(
         templates: &WelcomeTemplates,

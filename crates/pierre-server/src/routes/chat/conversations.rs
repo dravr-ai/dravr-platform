@@ -176,6 +176,9 @@ pub async fn create_conversation(
     // opened with an agent attached. Audit (2026-05-07) showed every agent
     // stuck at "0 uses" because nothing on the chat path called
     // record_usage even though the field is shown in the Coaches UI.
+    //
+    // LIMITATION(registre#829): `create_conversation` welcomes only a thread
+    // created with an `agent_id`; a thread created without one opens empty.
     if let Some(agent_id) = request.agent_id.as_deref() {
         record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
         post_welcome_best_effort(&resources, &conv, agent_id, auth.user_id, tenant_id).await;

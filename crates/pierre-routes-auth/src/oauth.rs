@@ -991,6 +991,9 @@ pub async fn handle_sync_provider(
 /// session: the backfill's first read waits for it, because each read is a
 /// browser on the scraper service and a connect that fires both at once sheds
 /// its own reads (carnet#736). An API connect has none to wait on.
+///
+/// LIMITATION(registre#831): `spawn_health_backfill` lands the athlete's first
+/// data and re-arms the notices, but no verified coach post follows it.
 #[cfg(feature = "health-sync")]
 pub fn spawn_health_backfill(
     resources: &AuthRoutesContext,

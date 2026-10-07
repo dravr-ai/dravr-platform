@@ -102,6 +102,7 @@ pub fn channel_allows_proactive(
         // Bot-initiated messages are unrestricted for a user who started the bot.
         ChannelType::Telegram | ChannelType::Slack | ChannelType::Discord => true,
         // Meta's 24-hour customer-service window.
+        // LIMITATION(registre#832): `ChannelType::WhatsApp` has no template send.
         ChannelType::WhatsApp | ChannelType::Messenger => {
             last_inbound.is_some_and(|at| now - at < REENGAGEMENT_WINDOW)
         }

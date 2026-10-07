@@ -135,6 +135,10 @@ fn assess_season(
 ///
 /// Never claims success it cannot evidence: the header states the real count,
 /// and a missing safety answer is named with an instruction to redo it.
+///
+/// LIMITATION(registre#830): `render`, `render_season` and `render_fortnight`
+/// close in text only; none carries its closing offer as an actions block or
+/// names a command that runs it.
 pub async fn render(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
