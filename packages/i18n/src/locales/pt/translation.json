@@ -441,7 +441,6 @@
     "linkBlockedTitle": "Bloqueado",
     "linkErrorTitle": "Erro",
     "linkInvalidFormat": "Formato de ligação inválido",
-    "linkOpenFailed": "Não foi possível abrir a ligação",
     "linked": "Associado",
     "loadingAgent": "A carregar o agente…",
     "loadingConnections": "A carregar ligações…",
@@ -2193,6 +2192,7 @@
     },
     "guardrail": {
       "blocked_topic": "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?",
+      "medical_emergency": "Não consigo avaliar sintomas, e isto precisa de alguém que consiga. Dor no peito, dificuldade em respirar, desmaio ou tontura súbita podem ser graves: se está a acontecer agora, para o que estás a fazer e liga para o número de emergência local (112 na Europa, 911 na América do Norte) ou vai às urgências. Se já passou, consulta um médico antes da tua próxima sessão.",
       "too_long": "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?"
     },
     "intake": {

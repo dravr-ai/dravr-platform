@@ -441,7 +441,6 @@
     "linkBlockedTitle": "Bloqueado",
     "linkErrorTitle": "Error",
     "linkInvalidFormat": "Formato de enlace no válido",
-    "linkOpenFailed": "No se pudo abrir el enlace",
     "linked": "Vinculado",
     "loadingAgent": "Cargando el agente…",
     "loadingConnections": "Cargando conexiones…",
@@ -2193,6 +2192,7 @@
     },
     "guardrail": {
       "blocked_topic": "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?",
+      "medical_emergency": "No puedo evaluar síntomas, y esto necesita a alguien que sí pueda. El dolor en el pecho, la dificultad para respirar, un desmayo o un mareo repentino pueden ser graves: si está ocurriendo ahora, detén lo que estés haciendo y llama al número de emergencias local (911 en Norteamérica, 112 en Europa) o acude a urgencias. Si ya pasó, consulta a un médico antes de tu próxima sesión.",
       "too_long": "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?"
     },
     "intake": {

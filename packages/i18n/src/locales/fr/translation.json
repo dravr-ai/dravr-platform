@@ -441,7 +441,6 @@
     "linkBlockedTitle": "Bloqué",
     "linkErrorTitle": "Erreur",
     "linkInvalidFormat": "Format de lien invalide",
-    "linkOpenFailed": "Impossible d'ouvrir le lien",
     "linked": "Lié",
     "loadingAgent": "Chargement de l'agent…",
     "loadingConnections": "Chargement des connexions…",
@@ -2193,6 +2192,7 @@
     },
     "guardrail": {
       "blocked_topic": "Je préfère ne pas aborder ce sujet ici. Restons concentrés sur ton entraînement et ta récupération. Y a-t-il quelque chose de précis sur lequel je peux t'aider?",
+      "medical_emergency": "Je ne peux pas évaluer des symptômes, et ceci demande quelqu'un qui le peut. Une douleur à la poitrine, une difficulté à respirer, un évanouissement ou un étourdissement soudain peuvent être graves : si ça se produit maintenant, arrête ce que tu fais et appelle le numéro d'urgence local (911 en Amérique du Nord, 112 en Europe) ou rends-toi aux urgences. Si c'est passé, consulte un médecin avant ta prochaine séance.",
       "too_long": "J'ai une réponse plus longue prête, mais elle dépasse la limite de longueur configurée. Veux-tu que je te la résume plus brièvement?"
     },
     "intake": {

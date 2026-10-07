@@ -441,7 +441,6 @@
     "linkBlockedTitle": "Blocked",
     "linkErrorTitle": "Error",
     "linkInvalidFormat": "Invalid link format",
-    "linkOpenFailed": "Failed to open link",
     "linked": "Linked",
     "loadingAgent": "Loading agent...",
     "loadingConnections": "Loading connections...",
@@ -2193,6 +2192,7 @@
     },
     "guardrail": {
       "blocked_topic": "I'd rather not get into that here. Let's stay focused on your training and recovery. Is there something specific I can help with?",
+      "medical_emergency": "I can't assess symptoms, and this needs someone who can. Chest pain, trouble breathing, fainting or sudden dizziness can be serious: if it is happening now, stop what you are doing and call your local emergency number (911 in North America, 112 in Europe) or get to an emergency room. If it has passed, see a doctor before your next session.",
       "too_long": "I have a longer response prepared but it exceeds the configured length cap. Want me to break it into a shorter summary?"
     },
     "intake": {

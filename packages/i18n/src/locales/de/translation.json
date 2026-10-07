@@ -441,7 +441,6 @@
     "linkBlockedTitle": "Blockiert",
     "linkErrorTitle": "Fehler",
     "linkInvalidFormat": "Ungültiges Linkformat",
-    "linkOpenFailed": "Link konnte nicht geöffnet werden",
     "linked": "Verknüpft",
     "loadingAgent": "Agent wird geladen…",
     "loadingConnections": "Verbindungen werden geladen…",
@@ -2193,6 +2192,7 @@
     },
     "guardrail": {
       "blocked_topic": "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?",
+      "medical_emergency": "Ich kann Symptome nicht beurteilen, und das braucht jemanden, der es kann. Brustschmerzen, Atemnot, Ohnmacht oder plötzlicher Schwindel können ernst sein: Wenn es gerade passiert, hör sofort auf und ruf den örtlichen Notruf an (112 in Europa, 911 in Nordamerika) oder geh in die Notaufnahme. Wenn es vorbei ist, lass dich vor deiner nächsten Einheit ärztlich untersuchen.",
       "too_long": "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?"
     },
     "intake": {
