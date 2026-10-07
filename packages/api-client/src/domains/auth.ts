@@ -73,10 +73,20 @@ export function readSignInCallback(params: URLSearchParams, expectedState: strin
   return { kind: 'code', code };
 }
 
+/**
+ * The iOS app's App Attest evidence for a code exchange (carnet#810): the
+ * key's attestation on an install's first sign-in, an assertion by it on
+ * every later one, both signed over the authorization code.
+ */
+export type AppAttestEvidence =
+  | { keyId: string; attestation: string }
+  | { keyId: string; assertion: string };
+
 export interface CompleteSignIn {
   code: string;
   codeVerifier: string;
   redirectUri: string;
+  appAttest?: AppAttestEvidence;
 }
 
 export interface RegisterCredentials {
@@ -147,6 +157,14 @@ export function createAuthApi(
       formData.append('code_verifier', request.codeVerifier);
       if (platform === 'mobile') {
         formData.append('scope', OFFLINE_ACCESS_SCOPE);
+      }
+      if (request.appAttest) {
+        formData.append('app_attest_key_id', request.appAttest.keyId);
+        if ('attestation' in request.appAttest) {
+          formData.append('app_attest_attestation', request.appAttest.attestation);
+        } else {
+          formData.append('app_attest_assertion', request.appAttest.assertion);
+        }
       }
 
       const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData.toString(), {

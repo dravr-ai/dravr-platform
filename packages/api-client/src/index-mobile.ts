@@ -30,6 +30,7 @@ export type {
   RegisterCredentials,
   SignInRequest,
   SignInCallback,
+  AppAttestEvidence,
   CompleteSignIn,
 } from './domains/auth';
 export { readSignInCallback } from './domains/auth';

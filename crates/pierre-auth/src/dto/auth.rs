@@ -277,6 +277,13 @@ pub struct OAuth2TokenRequest {
     pub client_id: Option<String>,
     /// Requested `OAuth2` scopes (optional, space-separated)
     pub scope: Option<String>,
+    /// The iOS app's App Attest key id, beside its attestation or assertion
+    /// (carnet#810)
+    pub app_attest_key_id: Option<String>,
+    /// Apple's attestation of a new key, on an install's first sign-in
+    pub app_attest_attestation: Option<String>,
+    /// An assertion by the registered key, on every later sign-in
+    pub app_attest_assertion: Option<String>,
 }
 
 /// `OAuth2` token response per RFC 6749 Section 5.1

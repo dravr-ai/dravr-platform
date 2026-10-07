@@ -13,8 +13,8 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
     ActivityConversationRepository, ActivityRouteTrackRepository, AdminRepository,
-    AgentsRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
+    AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ChatRepository,
+    ClaimVerdictRepository, CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     FeatureFlagsRepository, FederatedIdentityRepository, FirebaseIdentityDeletionRepository,
     FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
@@ -97,6 +97,8 @@ pub struct RepositoryRegistry {
     pub security: Arc<dyn SecurityRepository>,
     /// First-party refresh tokens — the credential a device holds between JWTs
     pub session_refresh_tokens: Arc<dyn SessionRefreshTokenRepository>,
+    /// iOS App Attest keys: the app installs Apple attested, and their counters
+    pub app_attest_keys: Arc<dyn AppAttestKeyRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
@@ -253,6 +255,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
+            app_attest_keys: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),
@@ -337,6 +340,7 @@ impl RepositoryRegistry {
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
+            app_attest_keys: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),

@@ -26,6 +26,8 @@ pub mod agents;
 pub mod analytics;
 /// API key management and validation
 pub mod api_keys;
+/// iOS App Attest keys of the app installs Apple attested (`SQLite`)
+pub mod app_attest_keys;
 /// Chat conversation and message storage
 pub mod chat;
 /// Claim verdicts from the bullshit detector pipeline

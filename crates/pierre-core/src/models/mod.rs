@@ -223,6 +223,10 @@ pub use oauth2_server::{
 mod session_refresh_token;
 pub use session_refresh_token::SessionRefreshToken;
 
+// iOS App Attest keys — the installs of Dravr's iOS app that Apple attested
+mod app_attest_key;
+pub use app_attest_key::{AppAttestEnvironment, AppAttestKey};
+
 // User MCP token types for AI client authentication
 mod user_mcp_token;
 pub use user_mcp_token::{

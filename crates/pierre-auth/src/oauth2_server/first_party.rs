@@ -36,6 +36,11 @@ pub const WEB_CLIENT_ID: &str = "dravr-web";
 /// The `client_id` Dravr's mobile app signs in as.
 pub const MOBILE_CLIENT_ID: &str = "dravr-mobile";
 
+/// The App Attest app id of Dravr's iOS app: its Apple Team ID and bundle
+/// id, which every attestation and assertion it signs names (carnet#810).
+/// The Team ID is the one EAS signs the app with.
+pub const MOBILE_APP_ATTEST_APP_ID: &str = "RGDD7MLAK7.ai.dravr.app";
+
 /// The path both apps receive their authorization code on.
 pub const CALLBACK_PATH: &str = "/auth/callback";
 

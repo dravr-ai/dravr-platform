@@ -67,6 +67,14 @@ argon2 = "0.5"
 bcrypt = "0.16"
 zeroize = { version = "1.8", features = ["alloc"] }
 
+# Apple App Attest: the CBOR evidence, the X.509 chain to Apple's root, and
+# the nonce extension inside the credential certificate
+ciborium = "0.2"
+der = "0.7"
+rustls-pki-types = "1"
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["ring", "std"] }
+x509-cert = { version = "0.2", default-features = false }
+
 # Encoding
 base64 = "0.22"
 hex = "0.4"

@@ -4,12 +4,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+/// Apple App Attest: verifying the iOS app's key attestation and assertions
+pub mod app_attest;
 /// RFC 7591 dynamic client registration implementation
 pub mod client_registration;
 /// OAuth 2.0 authorization server endpoints
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
+/// The iOS app's App Attest evidence on its code exchange
+pub mod mobile_attestation;
 /// OAuth 2.0 data models and types
 pub mod models;
 /// PKCE (RFC 7636) challenge and verifier checks

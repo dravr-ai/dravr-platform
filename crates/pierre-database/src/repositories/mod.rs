@@ -32,6 +32,8 @@ pub(crate) mod agents_backend;
 pub mod analytics;
 /// Repository trait for API keys.
 pub mod api_keys;
+/// Repository trait and shared body for iOS App Attest keys.
+pub mod app_attest_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
@@ -200,6 +202,7 @@ pub use admin::*;
 pub use agent_artefacts::*;
 pub use agents::*;
 pub use api_keys::*;
+pub use app_attest_keys::AppAttestKeyRepository;
 pub use chat::*;
 pub use claim_verdicts::*;
 pub use commitments::*;

@@ -15,6 +15,10 @@ use tracing::{debug, field, field::Empty, info, Span};
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
+use pierre_auth::oauth2_server::first_party::{MOBILE_APP_ATTEST_APP_ID, MOBILE_CLIENT_ID};
+use pierre_auth::oauth2_server::mobile_attestation::{
+    record_evidence, verify_evidence, AppAttestEvidence, VerifiedEvidence,
+};
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::{set_auth_cookie, set_csrf_cookie};
 use pierre_core::errors::AppError;
@@ -40,6 +44,12 @@ use pierre_services::auth::AuthService;
 /// token is only ever issued here, so it is already bound to a first-party
 /// client by the sign-in that issued it.
 ///
+/// The iOS app adds App Attest evidence to its code exchange (carnet#810):
+/// `app_attest_key_id` with `app_attest_attestation` on an install's first
+/// sign-in, or `app_attest_assertion` on every later one, both signed over
+/// the code. Evidence that is present must verify; see
+/// [`check_app_attest`].
+///
 /// The password grant (RFC 6749 §4.3) is not served: RFC 9700 §2.4 forbids
 /// it, and it let anything holding a password become Dravr's own app.
 ///
@@ -58,6 +68,7 @@ use pierre_services::auth::AuthService;
         client_id = Empty,
         user_id = Empty,
         tenant_id = Empty,
+        app_attest = Empty,
         success = Empty,
     )
 )]
@@ -112,6 +123,10 @@ pub async fn handle_oauth2_token(
                      code_verifier.",
                 ));
             };
+            let attested = match check_app_attest(&resources, &request, client_id, code).await {
+                Ok(attested) => attested,
+                Err(refusal) => return Ok(refused_evidence(&refusal)),
+            };
             let redeemed = match authorization_server(&resources)
                 .redeem_first_party_code(
                     client_id,
@@ -124,6 +139,17 @@ pub async fn handle_oauth2_token(
                 Ok(redeemed) => redeemed,
                 Err(refusal) => return Ok(refused_code(&refusal)),
             };
+            if let Some(verified) = attested {
+                if let Err(refusal) = record_evidence(
+                    resources.repos.app_attest_keys.as_ref(),
+                    verified,
+                    chrono::Utc::now(),
+                )
+                .await
+                {
+                    return Ok(refused_evidence(&refusal));
+                }
+            }
             match auth_service
                 .sign_in_with_code(redeemed.user_id, &redeemed.tenant_id)
                 .await
@@ -263,6 +289,72 @@ fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationSer
             .collect(),
     )
     .with_first_party_redirects(oauth2.first_party_redirects.clone())
+}
+
+/// Verify the App Attest evidence a code exchange carried, before the code
+/// is redeemed (carnet#810).
+///
+/// Only Dravr's mobile app attests, so evidence from any other client is a
+/// malformed request. Verified evidence comes back to be recorded once the
+/// code is redeemed; a refusal leaves the code unspent, so the app can retry
+/// with a fresh key. The span records which kind of evidence the mobile
+/// sign-in carried, `absent` included: absence is accepted until the Android
+/// app attests too, and the span is where its share is read.
+async fn check_app_attest(
+    resources: &AuthRoutesContext,
+    request: &OAuth2TokenRequest,
+    client_id: &str,
+    code: &str,
+) -> Result<Option<VerifiedEvidence>, OAuth2Error> {
+    let evidence = AppAttestEvidence::from_request(
+        request.app_attest_key_id.as_deref(),
+        request.app_attest_attestation.as_deref(),
+        request.app_attest_assertion.as_deref(),
+    )
+    .inspect_err(|_| {
+        if client_id == MOBILE_CLIENT_ID {
+            Span::current().record("app_attest", "refused");
+        }
+    })?;
+    if client_id != MOBILE_CLIENT_ID {
+        return match evidence {
+            None => Ok(None),
+            Some(_) => Err(OAuth2Error::invalid_request(
+                "App Attest evidence is accepted from dravr-mobile only.",
+            )),
+        };
+    }
+    let Some(evidence) = evidence else {
+        Span::current().record("app_attest", "absent");
+        return Ok(None);
+    };
+    let verified = verify_evidence(
+        resources.repos.app_attest_keys.as_ref(),
+        &evidence,
+        code,
+        MOBILE_APP_ATTEST_APP_ID,
+        chrono::Utc::now(),
+    )
+    .await
+    .inspect_err(|_| {
+        Span::current().record("app_attest", "refused");
+    })?;
+    Span::current().record("app_attest", verified.kind());
+    Ok(Some(verified))
+}
+
+/// The answer to App Attest evidence that was refused or malformed: the
+/// error's own status, so `invalid_client` is a 400. RFC 6749 §5.2 asks for
+/// a 401 only when the client authenticated through the `Authorization`
+/// header, which evidence never travels in, and the apps read any 401 as a
+/// session that lapsed — clearing it and announcing a sign-out in the middle
+/// of a sign-in.
+fn refused_evidence(refusal: &OAuth2Error) -> Response {
+    let body = OAuth2ErrorResponse {
+        error: refusal.error.clone(),
+        error_description: refusal.error_description.clone(),
+    };
+    (refusal.http_status(), Json(body)).into_response()
 }
 
 /// The RFC 6749 §5.2 answer to a code the authorization server refused:

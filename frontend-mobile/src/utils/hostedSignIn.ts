@@ -7,10 +7,11 @@
 import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { readSignInCallback, type PkceCrypto } from '@pierre/api-client';
+import { readSignInCallback, type CompleteSignIn, type PkceCrypto } from '@pierre/api-client';
 import type { LoginResponse } from '../types';
 import { authApi } from '../services/api';
 import { i18n } from '@pierre/i18n';
+import { appAttestEvidence, forgetAppAttestKey } from './appAttest';
 
 /**
  * The path the hosted sign-in returns to.
@@ -95,9 +96,47 @@ export async function signInWithHostedPage(): Promise<LoginResponse | null> {
     throw new SignInRefusedError(callback.error, callback.description);
   }
 
-  return authApi.completeSignIn({
+  return redeemCode({
     code: callback.code,
     codeVerifier: request.codeVerifier,
     redirectUri: request.redirectUri,
   });
+}
+
+/**
+ * Whether the server refused the exchange's App Attest evidence: a 400
+ * `invalid_client`. A refused code answers `invalid_client` as a 401, and
+ * fresh evidence cannot change that answer.
+ */
+function refusedEvidence(error: unknown): boolean {
+  const response = (error as { response?: { status?: unknown; data?: { error?: unknown } } } | null)
+    ?.response;
+  return response?.status === 400 && response.data?.error === 'invalid_client';
+}
+
+/**
+ * Redeem the code, with this install's App Attest evidence when it has any
+ * (carnet#810).
+ *
+ * The server checks the evidence before it spends the code, so when it
+ * refuses an assertion — its key was lost to a database reset, or registered
+ * on another server — the code is still good: the install drops the key and
+ * redeems once more with a freshly attested one.
+ */
+async function redeemCode(request: CompleteSignIn): Promise<LoginResponse> {
+  const attempt = await appAttestEvidence(request.code);
+  try {
+    const session = await authApi.completeSignIn({ ...request, appAttest: attempt?.evidence });
+    await attempt?.accepted();
+    return session;
+  } catch (error) {
+    if (!attempt || !('assertion' in attempt.evidence) || !refusedEvidence(error)) {
+      throw error;
+    }
+    await forgetAppAttestKey();
+    const retry = await appAttestEvidence(request.code, { freshKey: true });
+    const session = await authApi.completeSignIn({ ...request, appAttest: retry?.evidence });
+    await retry?.accepted();
+    return session;
+  }
 }

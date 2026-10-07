@@ -30,6 +30,8 @@ pub mod agents;
 pub mod analytics;
 /// API key repository implementation
 pub mod api_key;
+/// iOS App Attest keys of the app installs Apple attested (Postgres)
+pub mod app_attest_keys;
 /// Chat repository implementation
 pub mod chat;
 /// Claim verdict repository implementation

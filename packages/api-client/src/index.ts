@@ -30,6 +30,7 @@ export type {
   RegisterCredentials,
   SignInRequest,
   SignInCallback,
+  AppAttestEvidence,
   CompleteSignIn,
 } from './domains/auth';
 export type { PkceCrypto } from './core/pkce';
