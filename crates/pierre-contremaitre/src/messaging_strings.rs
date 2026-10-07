@@ -35,6 +35,10 @@
 //! fail otherwise. The `KEY_*` constants below name the server-rendered subset
 //! — positional `{0}` placeholders, filled by [`format_template`]; a
 //! client-rendered key uses i18next's `{{name}}` and is never read here.
+//! Contremaitre declares that subset itself in
+//! `strings/server-rendered-keys.txt`, so a new server string lands there
+//! first and its `KEY_*` follows once the bump lane has moved the pin; Tier 1b
+//! fails a `KEY_*` the list does not carry.
 //!
 //! ## Locale model
 //!

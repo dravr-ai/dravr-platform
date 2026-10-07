@@ -1,16 +1,21 @@
-# ABOUTME: Auto-bump the dravr-contremaitre Cargo rev when contremaitre main moves
-# ABOUTME: Triggered by repository_dispatch from contremaitre on push + hourly safety net
+# ABOUTME: The one writer of the dravr-contremaitre pin: moves the rev, Cargo.lock and the string copy
+# ABOUTME: Polls contremaitre main every ten minutes; a no-op exits before any toolchain installs
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
 name: "Contremaitre: Bump Dependency"
 
+# Polled, not pushed. contremaitre is private, and its push-time dispatch never
+# started while the org's private Actions minutes were spent (2026-10-04 on), so
+# the pin moved only on an hourly cron GitHub ran every four to six hours. This
+# repo is public and its minutes are free: every ten minutes, off the hour that
+# GitHub sheds first, a no-op costs one API call. `gh workflow run
+# contremaitre-bump.yml` moves the pin now. Branches never move it — Tier 1b
+# Check 8 refuses one that does (carnet#826).
 on:
-  repository_dispatch:
-    types: [contremaitre-updated]
   schedule:
-    - cron: "0 * * * *"
+    - cron: "3-59/10 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -38,26 +43,46 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.98.1
-
-      - name: Configure auth for private git deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Resolve target contremaitre SHA
         id: target
         env:
           GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
         run: |
-          # On a push dispatch the SHA rides in the payload; the scheduled /
-          # manual safety-net resolves contremaitre main via the API instead.
-          NEW_SHA="${{ github.event.client_payload.sha }}"
-          if [ -z "${NEW_SHA}" ]; then
-            NEW_SHA=$(gh api repos/dravr-ai/dravr-contremaitre/commits/main --jq .sha)
+          NEW_SHA=$(gh api repos/dravr-ai/dravr-contremaitre/commits/main --jq .sha)
+          CUR_SHA=$(sed -nE 's/^dravr-contremaitre = \{ git = "[^"]+", rev = "([a-f0-9]+)".*/\1/p' Cargo.toml)
+          if [ -z "${NEW_SHA}" ] || [ -z "${CUR_SHA}" ]; then
+            echo "::error::could not read contremaitre main (${NEW_SHA:-?}) or the workspace pin (${CUR_SHA:-?})"
+            exit 1
           fi
           echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
 
+          # The pin only ever moves forward. A target that is not a descendant
+          # of the current pin means contremaitre main was rewritten, and moving
+          # to it would drop commits the platform already ships; a revert is a
+          # new contremaitre commit, which this lane then moves to like any other.
+          STATUS=$(gh api "repos/dravr-ai/dravr-contremaitre/compare/${CUR_SHA}...${NEW_SHA}" --jq .status)
+          case "${STATUS}" in
+            identical)
+              echo "move=false" >> "$GITHUB_OUTPUT" ;;
+            ahead)
+              echo "move=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::contremaitre main ${NEW_SHA:0:8} is ${STATUS} relative to the pin ${CUR_SHA:0:8} — the pin never moves backward or sideways"
+              exit 1 ;;
+          esac
+
+      # Everything below runs only when the pin moves, so the ten-minute poll
+      # pays one API call and no toolchain when contremaitre has not moved.
+      - uses: dtolnay/rust-toolchain@1.98.1
+        if: steps.target.outputs.move == 'true'
+
+      - name: Configure auth for private git deps
+        if: steps.target.outputs.move == 'true'
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       - name: Bump rev in Cargo manifests + lockfile
         id: bump
+        if: steps.target.outputs.move == 'true'
         run: |
           NEW_SHA="${{ steps.target.outputs.new_sha }}"
 
@@ -118,13 +143,13 @@ jobs:
           scripts/ci/sync-contremaitre-fallback.sh
 
       - name: Refuse to push a bump that breaks the coupling
-        # Compile-free, ~2s, and gated on `changed` so the hourly no-op pays
+        # Compile-free, ~2s, and gated on `changed` so the polling no-op pays
         # nothing. Pushing first and validating afterwards is this lane's
         # design — GitHub suppresses workflow runs on GITHUB_TOKEN pushes, so
         # the dispatch below is necessarily after the fact. That is survivable
         # for a break CI finds in ten minutes; it is not survivable for one that
         # blocks every session's pre-push gate the instant it lands. Failing
-        # HERE leaves main green and lets the hourly cron retry, so a genuine
+        # HERE leaves main green and lets the next poll retry, so a genuine
         # upstream break stays loud without taking the branch down with it.
         if: steps.bump.outputs.changed == 'true'
         run: scripts/ci/check-contremaitre-sync.sh
@@ -148,7 +173,7 @@ jobs:
               "$(git diff --cached --numstat -- packages/i18n/src/locales | wc -l | tr -d ' ')")
           fi
           git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}${CORPUS_NOTE}"
-          # main moves while this hourly lane runs, and a bare push then rejects
+          # main moves while this lane runs, and a bare push then rejects
           # non-fast-forward over a bump that was correct (carnet#383).
           scripts/ci/push-to-branch-with-rebase.sh origin main
 
@@ -187,7 +212,7 @@ jobs:
         # A bump lands new coach prompts. Dispatching the eval's Phase 0-3
         # asserters here surfaces a prompt regression within minutes instead of
         # waiting for its 04:00 UTC nightly — the same suppressed-run problem as
-        # the step above, and gated on `changed` so the hourly no-op costs
+        # the step above, and gated on `changed` so the polling no-op costs
         # nothing. `asserters_only` skips the live Slack round trip.
         # `always()` so a dispatch hiccup in the step above cannot cancel this
         # one: an implicit success() would make the two lanes share a fate they
@@ -203,5 +228,5 @@ jobs:
       # the push webhook — both pull the latest from GitHub without a redeploy.
 
       - name: Report no-op
-        if: steps.bump.outputs.changed == 'false'
+        if: steps.target.outputs.move == 'false' || steps.bump.outputs.changed == 'false'
         run: echo "dravr-contremaitre already at ${{ steps.target.outputs.new_sha }} — nothing to bump"

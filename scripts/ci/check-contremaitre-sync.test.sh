@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Fixture test for check-contremaitre-sync.sh Check 3 — the MCP tool list comes from the one
-# ABOUTME: registry enumeration (tool_schema_properties.py) and inherits every premise that scan asserts
+# ABOUTME: Fixture test for check-contremaitre-sync.sh — Check 3's tool list from the one registry scan,
+# ABOUTME: Check 1's server-rendered keys read from contremaitre, and Check 8's bot-only pin
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -85,7 +85,7 @@ expect_absent() { # $1 = label, $2 = literal the last run must NOT print
     else pass "$1"; fi
 }
 
-echo "==== check-contremaitre-sync.sh Check 3 fixture test ===="
+echo "==== check-contremaitre-sync.sh fixture test ===="
 
 # 1. The baseline: two tools, three mirrors in agreement.
 root="$(tree baseline)"
@@ -132,6 +132,133 @@ impl McpTool for Delta {
 RS
 run "$root"
 expect_output "a computed tool name fails Check 3" "have a name this scan cannot read as a literal"
+
+# ---------------------------------------------------------------------------
+# Check 1 and Check 8 (carnet#826). The fixture grows what they read: a
+# catalogue copy, the locale lists, the registry's KEY_* constants, a git
+# history with an origin/main, and a contremaitre tree at ../dravr-contremaitre
+# — the sibling checkout the script falls back to when cargo cannot resolve the
+# pin, which is what lets these cases run without --contremaitre-root.
+# ---------------------------------------------------------------------------
+LOCALES=(fr en es de pt)
+CM="$TMP/dravr-contremaitre"
+mkdir -p "$CM/strings" "$CM/tools" "$CM/schemas" "$CM/prompts/agents/demo"
+printf "# Demo\n" > "$CM/prompts/agents/demo/coach.md"
+printf "description: Alpha\n" > "$CM/tools/alpha_tool.yaml"
+printf 'events:\n  - name: demo_event\n' > "$CM/schemas/notify-events.yaml"
+for l in "${LOCALES[@]}"; do
+    printf '{"common": {"greet": "Hi {0}", "cancel": "Cancel {{name}}"}}\n' > "$CM/strings/$l.json"
+done
+printf '# comment\ncommon.greet\n' > "$CM/strings/server-rendered-keys.txt"
+
+catalogue_tree() { # <name> — tree() plus everything Checks 1 and 8 read, committed as origin/main
+    local root
+    root="$(tree "$1")"
+    mkdir -p "$root/crates/pierre-contremaitre/src" "$root/crates/pierre-core/src/models" "$root/packages/i18n/src"
+    printf 'pub const SUPPORTED_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];\n' \
+        > "$root/crates/pierre-core/src/models/user.rs"
+    printf "export const SUPPORTED_LANGUAGES = ['fr', 'en', 'es', 'de', 'pt'] as const;\n" \
+        > "$root/packages/i18n/src/config.ts"
+    printf 'pub const KEY_GREET: &str = "common.greet";\n' > "$root/crates/pierre-contremaitre/src/keys.rs"
+    for l in "${LOCALES[@]}"; do
+        mkdir -p "$root/packages/i18n/src/locales/$l"
+        cp "$CM/strings/$l.json" "$root/packages/i18n/src/locales/$l/translation.json"
+    done
+    printf '[workspace.dependencies]\ndravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "aaaaaaaa" }\n' \
+        > "$root/Cargo.toml"
+    printf '[[package]]\nname = "dravr-contremaitre"\nsource = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=aaaaaaaa#aaaaaaaa"\n' \
+        > "$root/Cargo.lock"
+    git -C "$root" init -q
+    git -C "$root" add -A
+    git -C "$root" -c user.name=t -c user.email=t@t commit -q -m base
+    git -C "$root" update-ref refs/remotes/origin/main HEAD
+    echo "$root"
+}
+commit_all() { git -C "$1" add -A && git -C "$1" -c user.name=t -c user.email=t@t commit -q -m "$2"; }
+
+# 5. Every KEY_* listed, one listed key also server-rendered: the baseline.
+root="$(catalogue_tree catalogue)"
+run "$root"
+expect_output "a KEY_* listed by contremaitre passes Check 1" "Catalogue invariant: 2 keys × 5 locales, 1 server-rendered, 1 read by KEY_*"
+expect_output "a branch with no pin move passes Check 8" "Pin ownership: no commit here moves"
+
+# 6. A KEY_* contremaitre does not list: the platform got ahead of upstream.
+root="$(catalogue_tree unlisted)"
+printf 'pub const KEY_CANCEL: &str = "common.cancel";\n' >> "$root/crates/pierre-contremaitre/src/keys.rs"
+run "$root"
+expect_output "a KEY_* contremaitre does not list fails Check 1" \
+    "registry declares common.cancel but contremaitre does not list it in strings/server-rendered-keys.txt"
+
+# 7. A listed key no KEY_* reads yet: contremaitre got ahead, which is the
+#    supported order and must not wedge anything.
+root="$(catalogue_tree listed_early)"
+printf '' > "$root/crates/pierre-contremaitre/src/keys.rs"
+run "$root"
+expect_output "a listed key no KEY_* reads yet passes Check 1" "1 server-rendered, 0 read by KEY_*"
+
+# 7b. A listed key the catalogue does not carry: the list and the strings
+#     beside it disagree inside contremaitre itself.
+root="$(catalogue_tree listed_missing)"
+printf '# comment\ncommon.greet\ncommon.gone\n' > "$CM/strings/server-rendered-keys.txt"
+run "$root"
+printf '# comment\ncommon.greet\n' > "$CM/strings/server-rendered-keys.txt"
+expect_output "a listed key the catalogue lacks fails Check 1" \
+    "server-rendered-keys.txt lists common.gone but the catalogue has no such key"
+
+# 8. --contremaitre-root reads that tree's strings and skips the pin checks.
+root="$(catalogue_tree override)"
+run_override() { ( cd "$1" && PATH="$TMP/bin:$PATH" bash scripts/ci/check-contremaitre-sync.sh --contremaitre-root "$2" ) >"$OUT" 2>&1 || true; }
+run_override "$root" "$CM"
+expect_output "--contremaitre-root reads the named tree" "Reading the unpinned contremaitre tree at $CM/"
+expect_output "--contremaitre-root skips the string copy" "String copy skipped"
+expect_output "--contremaitre-root skips pin ownership" "Pin ownership skipped"
+run_override "$root" "$TMP/nowhere"
+expect_output "--contremaitre-root refuses a tree with no strings/" "--contremaitre-root needs a dravr-contremaitre tree"
+
+# 9. A hand bump of the rev line fails Check 8 by naming both revs.
+root="$(catalogue_tree hand_bump)"
+sed -i.bak 's/rev = "aaaaaaaa"/rev = "bbbbbbbb"/' "$root/Cargo.toml" && rm "$root/Cargo.toml.bak"
+commit_all "$root" "hand bump"
+run "$root"
+expect_output "a moved rev line fails Check 8" "Cargo.toml: dravr-contremaitre rev aaaaaaaa → bbbbbbbb"
+
+# 9b. A hand bump of the lock entry alone fails Check 8.
+root="$(catalogue_tree hand_lock)"
+sed -i.bak 's/aaaaaaaa/bbbbbbbb/g' "$root/Cargo.lock" && rm "$root/Cargo.lock.bak"
+commit_all "$root" "hand lock"
+run "$root"
+expect_output "a moved lock source fails Check 8" "Cargo.lock: the dravr-contremaitre source line"
+
+# 9c. A rev line the pattern cannot read fails closed instead of comparing
+#     two empty reads as equal.
+root="$(catalogue_tree unreadable)"
+sed -i.bak 's/rev = "aaaaaaaa"/tag = "v1"/' "$root/Cargo.toml" && rm "$root/Cargo.toml.bak"
+commit_all "$root" "unreadable pin"
+run "$root"
+expect_output "an unreadable rev line fails Check 8 closed" "no dravr-contremaitre rev line at HEAD matches"
+expect_absent "no clean pin ownership over an unreadable rev" "Pin ownership: no commit here moves"
+
+# 10. A hand-edited string copy fails Check 8 by naming the file.
+root="$(catalogue_tree hand_copy)"
+printf '{"common": {"greet": "Hello {0}", "cancel": "Cancel {{name}}"}}\n' \
+    > "$root/packages/i18n/src/locales/en/translation.json"
+commit_all "$root" "hand copy"
+run "$root"
+expect_output "an edited string copy fails Check 8" "packages/i18n/src/locales/en/translation.json"
+
+# 11. A commit origin/main already holds — the bump lane's own view — passes.
+root="$(catalogue_tree bot_view)"
+sed -i.bak 's/rev = "aaaaaaaa"/rev = "bbbbbbbb"/' "$root/Cargo.toml" && rm "$root/Cargo.toml.bak"
+commit_all "$root" "chore(contremaitre): bump"
+git -C "$root" update-ref refs/remotes/origin/main HEAD
+run "$root"
+expect_output "a bump already on origin/main passes Check 8" "Pin ownership: no commit here moves"
+
+# 12. No origin/main to judge against fails closed rather than reading clean.
+root="$(catalogue_tree no_origin)"
+git -C "$root" update-ref -d refs/remotes/origin/main
+run "$root"
+expect_output "no origin/main fails Check 8 closed" "Pin ownership cannot be judged"
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

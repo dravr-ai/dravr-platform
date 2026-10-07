@@ -34,6 +34,22 @@
 #   7. Overlay parameters — every tools/<name>.yaml parameter names a property
 #      the Rust schema declares, so no parameter description is written and
 #      never served.
+#   8. Pin ownership — a branch never moves the contremaitre pin, its
+#      Cargo.lock entry or the string copy; only contremaitre-bump.yml does, on
+#      main (carnet#826).
+#
+# Contremaitre is upstream, and every check above is one-directional so that a
+# change authored there first is valid on its own: strings, server-rendered
+# keys, notify events and prompts land in dravr-contremaitre, the bump lane
+# moves the pin within minutes, and the platform code that reads them follows.
+# Tools go the other way — the platform registers the tool, then contremaitre
+# overlays its description. Removals reverse both orders.
+#
+# --contremaitre-root DIR runs the same checks against an unpinned contremaitre
+# tree instead of the pinned one. dravr-contremaitre's pre-push gate calls it on
+# an export of platform main, so a contremaitre push that would wedge the bump
+# lane fails on the author's machine before it lands. Checks 6 and 8 are about
+# the platform's own pin and are skipped in that mode.
 #
 # Checks 5 and 7 are one-directional, and the asymmetry is the contract: tool
 # overlays are SPARSE. A tool with no yaml keeps its compiled-in description;
@@ -56,11 +72,51 @@ NC='\033[0m'
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
+
+CM_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --contremaitre-root)
+            if [[ -z "${2:-}" ]] || [[ ! -d "$2/strings" ]]; then
+                echo -e "${RED}❌ --contremaitre-root needs a dravr-contremaitre tree (one with strings/), got '${2:-}'.${NC}"
+                exit 2
+            fi
+            CM_OVERRIDE="$( cd "$2" && pwd )/"
+            shift 2
+            ;;
+        *)
+            echo -e "${RED}❌ unknown argument: $1 (usage: $0 [--contremaitre-root DIR])${NC}"
+            exit 2
+            ;;
+    esac
+done
+
 cd "$PROJECT_ROOT"
 
 echo -e "${BLUE}==== Contremaitre Coupling Sync (static) ====${NC}"
 
 FAILED=false
+
+# The contremaitre tree every check below reads: the pinned rev (Cargo.lock,
+# through cargo metadata), else a sibling checkout, else the tree
+# --contremaitre-root names. Resolved once, so no two checks can read two
+# different revs.
+MANIFEST=""
+CM_ROOT=""
+if [[ -n "$CM_OVERRIDE" ]]; then
+    CM_ROOT="$CM_OVERRIDE"
+    echo -e "${BLUE}Reading the unpinned contremaitre tree at ${CM_ROOT}${NC}"
+else
+    # The list comprehension avoids a `((` inside `$( )`, which stock macOS bash
+    # (3.2) parses as the start of an arithmetic expansion and then rejects.
+    MANIFEST="$(cargo metadata --format-version 1 2>/dev/null \
+        | python3 -c 'import json,sys; d=json.load(sys.stdin); m=[p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-contremaitre"]; print(m[0] if m else "")' 2>/dev/null || true)"
+    if [[ -n "$MANIFEST" && -d "${MANIFEST%Cargo.toml}tools" ]]; then
+        CM_ROOT="${MANIFEST%Cargo.toml}"
+    elif [[ -d "../dravr-contremaitre/tools" ]]; then
+        CM_ROOT="../dravr-contremaitre/"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Check 1: the string catalogue ships every key in all 5 locales
@@ -69,17 +125,39 @@ FAILED=false
 # files: the messaging-strings registry seeds from them (include_str!), both
 # clients embed them, GET /api/i18n/{locale} serves them, contremaitre overlays
 # them. One key set across the five files is the invariant that used to be
-# `entries == keys × 5` over the Rust COMPILED_IN table. Every `KEY_*` literal
-# declared anywhere in the contremaitre crate must exist in the catalogue, and a key is rendered by
-# exactly one side: server-rendered keys (the KEY_* set) take positional {0}
-# placeholders, client keys take i18next {{name}} placeholders.
-CATALOGUE_DIR="packages/i18n/src/locales"
+# `entries == keys × 5` over the Rust COMPILED_IN table.
+#
+# A key is rendered by exactly one side: server-rendered keys take positional
+# {0} placeholders, client keys take i18next {{name}} placeholders. Which keys
+# are server-rendered is declared in contremaitre, beside the text, in
+# strings/server-rendered-keys.txt — so contremaitre's own tests hold every
+# string to its side and a server string can land there first. The platform's
+# half is one-directional: every `KEY_*` literal declared in the contremaitre
+# crate must be listed there. A listed key no KEY_* reads yet is not drift; it
+# is a string the platform has not started rendering (carnet#826).
+#
+# With --contremaitre-root the catalogue is read from that tree's
+# strings/<l>.json rather than the platform's copy, which only the bump lane
+# rewrites.
 REGISTRY_SRC="crates/pierre-contremaitre/src"
 LOCALE_LIST_RS="crates/pierre-core/src/models/user.rs"
 LOCALE_LIST_TS="packages/i18n/src/config.ts"
+if [[ -n "$CM_OVERRIDE" ]]; then
+    CATALOGUE_FILE="${CM_ROOT}strings/{locale}.json"
+else
+    CATALOGUE_FILE="packages/i18n/src/locales/{locale}/translation.json"
+fi
+SERVER_KEYS_FILE="${CM_ROOT}strings/server-rendered-keys.txt"
 
-if [[ ! -d "$REGISTRY_SRC" ]] || [[ ! -f "$CATALOGUE_DIR/fr/translation.json" ]]; then
+if [[ ! -d "$REGISTRY_SRC" ]] || [[ ! -f "${CATALOGUE_FILE/\{locale\}/fr}" ]]; then
     echo -e "${RED}❌ Catalogue or registry source not found — this check is stale.${NC}"
+    FAILED=true
+elif [[ -z "$CM_ROOT" ]] || [[ ! -f "$SERVER_KEYS_FILE" ]]; then
+    # Fail closed, like Check 6: without the list no key can be classified, and
+    # a check that classifies nothing reads exactly like a pass.
+    echo -e "${RED}❌ Server-rendered key list not found${CM_ROOT:+ at ${SERVER_KEYS_FILE}}.${NC}"
+    echo -e "${YELLOW}   It is dravr-contremaitre strings/server-rendered-keys.txt in the pinned rev. Resolve the pin${NC}"
+    echo -e "${YELLOW}   (cargo fetch) — or, if the pinned rev predates the list, rebase onto main for the bot's bump.${NC}"
     FAILED=true
 else
     # The locale list is read, never spelled here: SUPPORTED_LOCALES in
@@ -97,10 +175,10 @@ else
         FAILED=true
     fi
 
-    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_DIR" "$REGISTRY_SRC" "$LOCALES_RS" <<'PY'
+    if CATALOGUE_REPORT="$(python3 - "$CATALOGUE_FILE" "$REGISTRY_SRC" "$LOCALES_RS" "$SERVER_KEYS_FILE" <<'PY'
 import json, pathlib, re, sys
 
-catalogue_dir, registry_src, locale_csv = sys.argv[1:4]
+catalogue_file, registry_src, locale_csv, server_keys_file = sys.argv[1:5]
 locales = [code for code in locale_csv.split(",") if code]
 
 
@@ -115,7 +193,7 @@ def flatten(tree, prefix=""):
 
 trees = {}
 for locale in locales:
-    with open(f"{catalogue_dir}/{locale}/translation.json", encoding="utf-8") as fh:
+    with open(catalogue_file.replace("{locale}", locale), encoding="utf-8") as fh:
         trees[locale] = dict(flatten(json.load(fh)))
 
 reference = set(trees["en"])
@@ -125,11 +203,18 @@ for locale in locales:
     problems += [f"{locale} is missing {k}" for k in sorted(reference - keys)]
     problems += [f"{locale} has an extra key {k}" for k in sorted(keys - reference)]
 
+with open(server_keys_file, encoding="utf-8") as fh:
+    server_keys = {line.strip() for line in fh if line.strip() and not line.lstrip().startswith("#")}
+problems += [f"server-rendered-keys.txt lists {k} but the catalogue has no such key" for k in sorted(server_keys - reference)]
+
 source = "\n".join(
     path.read_text(encoding="utf-8") for path in sorted(pathlib.Path(registry_src).rglob("*.rs"))
 )
-server_keys = set(re.findall(r'^pub const KEY_[A-Z0-9_]+: &str =\s*"([^"]+)"', source, re.M | re.S))
-problems += [f"registry declares {k} but the catalogue has no such key" for k in sorted(server_keys - reference)]
+registry_keys = set(re.findall(r'^pub const KEY_[A-Z0-9_]+: &str =\s*"([^"]+)"', source, re.M | re.S))
+problems += [
+    f"registry declares {k} but contremaitre does not list it in strings/server-rendered-keys.txt"
+    for k in sorted(registry_keys - server_keys)
+]
 
 positional = re.compile(r"\{\d+\}")
 for locale in locales:
@@ -139,7 +224,7 @@ for locale in locales:
         elif key not in server_keys and positional.search(value):
             problems.append(f"{locale} {key}: a client-rendered key must use {{{{name}}}} placeholders, not positional {{0}}")
 
-print(f"{len(reference)} keys × {len(locales)} locales, {len(server_keys)} server-rendered")
+print(f"{len(reference)} keys × {len(locales)} locales, {len(server_keys)} server-rendered, {len(registry_keys)} read by KEY_*")
 if problems:
     print("\n".join(problems[:40]))
     if len(problems) > 40:
@@ -151,7 +236,9 @@ PY
     else
         echo -e "${RED}❌ Catalogue drift:${NC}"
         printf '%s\n' "$CATALOGUE_REPORT" | sed 's/^/   /'
-        echo -e "${YELLOW}   Every key ships in fr/en/es/de/pt under ${CATALOGUE_DIR}, every KEY_* under ${REGISTRY_SRC} names one of them.${NC}"
+        echo -e "${YELLOW}   Every key ships in fr/en/es/de/pt, and every KEY_* under ${REGISTRY_SRC} names a key${NC}"
+        echo -e "${YELLOW}   dravr-contremaitre lists in strings/server-rendered-keys.txt. A new server string lands${NC}"
+        echo -e "${YELLOW}   there first; rebase onto main once the bump lane has moved the pin to it.${NC}"
         FAILED=true
     fi
 fi
@@ -159,18 +246,11 @@ fi
 # ---------------------------------------------------------------------------
 # Check 2: notify events emitted in src must be catalogued in notify-events.yaml
 # ---------------------------------------------------------------------------
-# Resolve the catalogue from the pinned dravr-contremaitre rev (Cargo.lock) via
-# cargo metadata; fall back to a sibling checkout; warn-skip if unresolvable so
-# an offline machine is not blocked from pushing.
+# The catalogue is the resolved contremaitre tree's; warn-skip if unresolvable
+# so an offline machine is not blocked from pushing.
 YAML=""
-# The list comprehension avoids a `((` inside `$( )`, which stock macOS bash
-# (3.2) parses as the start of an arithmetic expansion and then rejects.
-MANIFEST="$(cargo metadata --format-version 1 2>/dev/null \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); m=[p["manifest_path"] for p in d["packages"] if p["name"]=="dravr-contremaitre"]; print(m[0] if m else "")' 2>/dev/null || true)"
-if [[ -n "$MANIFEST" && -f "${MANIFEST%Cargo.toml}schemas/notify-events.yaml" ]]; then
-    YAML="${MANIFEST%Cargo.toml}schemas/notify-events.yaml"
-elif [[ -f "../dravr-contremaitre/schemas/notify-events.yaml" ]]; then
-    YAML="../dravr-contremaitre/schemas/notify-events.yaml"
+if [[ -n "$CM_ROOT" && -f "${CM_ROOT}schemas/notify-events.yaml" ]]; then
+    YAML="${CM_ROOT}schemas/notify-events.yaml"
 fi
 
 if [[ -z "$YAML" ]]; then
@@ -340,13 +420,6 @@ fi
 # actually ships. It bans the framings, not the framework name — "ACWR →
 # Gabbett" as an attribution is fine, and the coach prompt legitimately explains
 # what "the retired injury-prediction use" was.
-CM_ROOT=""
-if [[ -n "$MANIFEST" && -d "${MANIFEST%Cargo.toml}tools" ]]; then
-    CM_ROOT="${MANIFEST%Cargo.toml}"
-elif [[ -d "../dravr-contremaitre/tools" ]]; then
-    CM_ROOT="../dravr-contremaitre/"
-fi
-
 if [[ -z "$CM_ROOT" ]]; then
     echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the framing check.${NC}"
 else
@@ -463,7 +536,9 @@ fi
 # the script's exit status AND its success marker — never the absence of a
 # finding.
 SYNC_SCRIPT="scripts/ci/sync-contremaitre-fallback.sh"
-if [[ ! -x "$SYNC_SCRIPT" ]]; then
+if [[ -n "$CM_OVERRIDE" ]]; then
+    echo -e "${BLUE}ℹ️  String copy skipped: --contremaitre-root reads an unpinned tree; the bump lane writes the copy.${NC}"
+elif [[ ! -x "$SYNC_SCRIPT" ]]; then
     echo -e "${RED}❌ String copy check cannot run: ${SYNC_SCRIPT} is missing.${NC}"
     FAILED=true
 elif ! STRINGS_REPORT="$("$SYNC_SCRIPT" --check 2>&1)"; then
@@ -582,6 +657,67 @@ PYPARAM
     else
         echo -e "${RED}❌ Overlay parameter check could not run.${NC}"
         FAILED=true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 8: only the bump lane moves the contremaitre pin
+# ---------------------------------------------------------------------------
+# The rev in Cargo.toml, its Cargo.lock entry and the five string copies under
+# packages/i18n move together, and only contremaitre-bump.yml moves them, on
+# main. A branch that carries them by hand conflicts with every other branch
+# doing the same and with the bot, on all seven files at once — every feature
+# with a new string did, from both developers (carnet#826). The order instead:
+# push the strings to dravr-contremaitre, let the bump lane move the pin (it
+# polls every ten minutes; `gh workflow run contremaitre-bump.yml` to go now),
+# rebase, push the platform change.
+#
+# Judged over the commits this checkout adds to origin/main, so a branch that
+# predates a bump is fine, and the bump lane — which runs this on main before
+# committing — has nothing to judge. Fails closed when origin/main is absent:
+# a diff that could not be computed is not a clean one.
+if [[ -n "$CM_OVERRIDE" ]]; then
+    echo -e "${BLUE}ℹ️  Pin ownership skipped: --contremaitre-root reads an unpinned tree.${NC}"
+elif ! PIN_BASE="$(git merge-base origin/main HEAD 2>/dev/null)"; then
+    echo -e "${RED}❌ Pin ownership cannot be judged: no merge base with origin/main (git fetch origin main).${NC}"
+    FAILED=true
+else
+    PIN_MOVES=""
+    pin_rev() { # $1 = commit — the contremaitre rev Cargo.toml pins there
+        git show "$1:Cargo.toml" 2>/dev/null | sed -nE 's/^dravr-contremaitre = \{ git = "[^"]+", rev = "([a-f0-9]+)".*/\1/p'
+    }
+    lock_source() { # $1 = commit — the contremaitre source line(s) Cargo.lock records there
+        git show "$1:Cargo.lock" 2>/dev/null | grep -E '^source = "git\+https://github\.com/dravr-ai/dravr-contremaitre' | sort -u
+    }
+    HEAD_REV="$(pin_rev HEAD)"
+    HEAD_LOCK="$(lock_source HEAD)"
+    # Fail closed on a read that found nothing: a rev line or lock entry whose
+    # shape escaped the patterns above reads empty on both sides, and two empty
+    # reads compare equal — a pass that judged nothing.
+    if [[ -z "$HEAD_REV" ]]; then
+        PIN_MOVES+="Cargo.toml: no dravr-contremaitre rev line at HEAD matches Check 8's pattern"$'\n'
+    elif [[ "$(pin_rev "$PIN_BASE")" != "$HEAD_REV" ]]; then
+        PIN_MOVES+="Cargo.toml: dravr-contremaitre rev $(pin_rev "$PIN_BASE" | cut -c1-8) → ${HEAD_REV:0:8}"$'\n'
+    fi
+    if [[ -z "$HEAD_LOCK" ]]; then
+        PIN_MOVES+="Cargo.lock: no dravr-contremaitre source line at HEAD matches Check 8's pattern"$'\n'
+    elif [[ "$(lock_source "$PIN_BASE")" != "$HEAD_LOCK" ]]; then
+        PIN_MOVES+="Cargo.lock: the dravr-contremaitre source line"$'\n'
+    fi
+    LOCALE_MOVES="$(git diff --name-only "$PIN_BASE" HEAD -- packages/i18n/src/locales)"
+    if [[ -n "$LOCALE_MOVES" ]]; then
+        PIN_MOVES+="$LOCALE_MOVES"$'\n'
+    fi
+    if [[ -n "$PIN_MOVES" ]]; then
+        echo -e "${RED}❌ This branch moves the contremaitre pin, which only the bump lane does:${NC}"
+        printf '%s' "$PIN_MOVES" | sed 's/^/   /'
+        echo -e "${YELLOW}   Restore those files from origin/main (git checkout origin/main -- <file>) and drop the${NC}"
+        echo -e "${YELLOW}   hand bump. If the change needs newer strings: push them to dravr-contremaitre, wait for${NC}"
+        echo -e "${YELLOW}   'chore(contremaitre): bump' on main (gh workflow run contremaitre-bump.yml to go now),${NC}"
+        echo -e "${YELLOW}   then rebase onto origin/main.${NC}"
+        FAILED=true
+    else
+        echo -e "${GREEN}✅ Pin ownership: no commit here moves the contremaitre pin or the string copy.${NC}"
     fi
 fi
 
