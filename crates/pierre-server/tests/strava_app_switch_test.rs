@@ -51,6 +51,7 @@ use pierre_core::models::{
 };
 #[cfg(feature = "client-chat")]
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "client-chat")]
@@ -1792,7 +1793,11 @@ async fn a_rate_limited_primary_is_named_in_the_prefetched_window() {
 
     let executor = Arc::new(
         UniversalExecutor::new(resources.clone() as Arc<dyn ToolRuntime>)
-            .with_scopes(OAuthScope::self_grant()),
+            .with_scopes(OAuthScope::self_grant())
+            // A chat turn's prefetch, in the web app: over an external
+            // transport Strava's terms refuse the read before its refresh is
+            // tried (carnet#765).
+            .with_transport(Transport::WebApp),
     );
     let window = prefetch_activity_context(
         &executor,

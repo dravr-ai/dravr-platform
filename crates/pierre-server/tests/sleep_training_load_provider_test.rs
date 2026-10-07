@@ -20,6 +20,7 @@ use chrono::{Duration, Utc};
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -33,8 +34,12 @@ async fn executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
+    // The athlete's own app: the rides are Strava's, which no external
+    // transport serves (carnet#765).
     Ok(Arc::new(
-        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp),
     ))
 }
 

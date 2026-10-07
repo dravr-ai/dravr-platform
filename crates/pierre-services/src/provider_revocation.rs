@@ -831,7 +831,7 @@ pub async fn clear_backend(
     if was_coach {
         revoke_roster_for_coach_connection(data.repos(), user_id, tenant_id).await?;
     }
-    if coach_platform(backend).is_some() {
+    if coach_platform(data.provider_registry(), backend).is_some() {
         end_delegated_connections(data, user_id, tenant_id, backend).await?;
         forget_coach_roster(data.cache(), user_id, tenant_id, backend).await;
     }

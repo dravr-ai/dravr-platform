@@ -280,14 +280,11 @@ fn credentials(session_id: &str) -> OAuth2Credentials {
 
 /// A delegated TrainingPeaks provider reading `athlete_id` through `session_id`.
 async fn delegated(athlete_id: &str, session_id: &str) -> Box<dyn FitnessProvider> {
-    let provider = global_registry()
-        .create_delegated_provider("sciotte_trainingpeaks", athlete_id)
-        .expect("the TrainingPeaks mirror reads for a coached athlete"); // Safe: the one supported name
-    provider
-        .set_credentials(credentials(session_id))
+    // Safe: the one supported name, a valid AuthSession
+    global_registry()
+        .create_delegated_provider("sciotte_trainingpeaks", athlete_id, credentials(session_id))
         .await
-        .expect("a serialized session is accepted"); // Safe: the JSON is a valid AuthSession
-    provider
+        .expect("the TrainingPeaks mirror reads for a coached athlete through a serialized session")
 }
 
 /// A provider built by `factory` under `name`, reading its own account.
@@ -599,8 +596,8 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
     env::remove_var(ENV_REMOTE_URL);
 }
 
-#[test]
-fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() {
+#[tokio::test]
+async fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() {
     for other in ["sciotte", "sciotte_garmin", "sciotte_coros", "strava"] {
         assert!(
             global_registry()
@@ -608,7 +605,10 @@ fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() {
                 .is_err(),
             "{other}"
         );
-        let Err(error) = global_registry().create_delegated_provider(other, "900001") else {
+        let Err(error) = global_registry()
+            .create_delegated_provider(other, "900001", credentials(COACH_SESSION))
+            .await
+        else {
             panic!("{other} must not read on behalf of a coached athlete");
         };
         assert_eq!(error.code, ErrorCode::InvalidInput, "{other}");

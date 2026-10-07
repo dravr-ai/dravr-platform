@@ -630,6 +630,51 @@ async fn get_user_lists_the_providers_a_delete_would_disconnect() {
     assert_eq!(providers[0]["tenant_id"], tenant_id.to_string().as_str());
 }
 
+/// The read names which held providers an onboarding reset keeps, by this
+/// server's provider descriptors, so the CLI's preview needs no copy of them.
+#[tokio::test]
+async fn get_user_names_the_coaching_platforms_a_reset_keeps() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let context = admin_context(&resources, &stub.url);
+    let (user_id, tenant_id, _) = seed_user(repos, "kept-preview").await;
+    connect_strava(repos, user_id, tenant_id, None).await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            "sciotte_trainingpeaks",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let response = handle_get_user(
+        State(context),
+        Extension(manage_users_token()),
+        Path(user_id.to_string()),
+    )
+    .await
+    .expect("get user handler");
+    let body = body_json(response.into_response()).await;
+    assert_eq!(
+        body["data"]["connected_providers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "{body}"
+    );
+    assert_eq!(
+        body["data"]["kept_on_onboarding_reset"],
+        serde_json::json!(["trainingpeaks"]),
+        "{body}"
+    );
+}
+
 #[tokio::test]
 async fn delete_revokes_every_grant_then_removes_the_user_and_its_tokens() {
     let resources = resources().await;

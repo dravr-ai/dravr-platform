@@ -104,15 +104,17 @@ mod tests {
     use super::*;
     use crate::ai_scope::tests::first_party;
     use crate::ai_scope::{ai_read, serve_over, unfiltered, with_ai_consent};
-    use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP};
+    use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT, WHOOP, WHOOP_TRANSPORT};
+    #[cfg(feature = "provider-whoop")]
+    use crate::registry::ProviderRegistry;
     use chrono::{Duration, NaiveDate, TimeZone, Utc};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, DeviceType};
     use pierre_core::transport::{Transport, TransportPolicy};
     use std::collections::BTreeSet;
 
-    /// Nolio first-party only with its connector rules, WHOOP scores kept
-    /// from models, Garmin unrestricted.
+    /// Nolio first-party only with its connector rules, WHOOP first-party
+    /// only with its scores kept from models, Garmin unrestricted.
     struct HealthTerms;
 
     impl ProviderTerms for HealthTerms {
@@ -128,7 +130,8 @@ mod tests {
         fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
             match provider {
                 "nolio" => Some(NOLIO_TRANSPORT),
-                "whoop" | "garmin" => Some(TransportPolicy::AnyTransport),
+                "whoop" => Some(WHOOP_TRANSPORT),
+                "garmin" => Some(TransportPolicy::AnyTransport),
                 _ => None,
             }
         }
@@ -234,31 +237,90 @@ mod tests {
             ),
         )
         .await;
-        assert_eq!(data_source_ids(&kept), vec!["ds-garmin", "ds-whoop"]);
+        assert_eq!(data_source_ids(&kept), vec!["ds-garmin"]);
         assert_eq!(
-            withheld.off_interface, 2,
-            "both Nolio rows stay first-party"
+            withheld.off_interface, 3,
+            "the WHOOP row and both Nolio rows stay first-party"
         );
 
         let merged = merge_sleep_sessions(kept);
-        assert_eq!(merged.len(), 1, "the two permitted sources are one night");
+        assert_eq!(merged.len(), 1, "the permitted source is one night");
         let night = &merged[0];
-        assert_eq!(night.sources.len(), 2);
-        assert!(
-            night.sources.iter().all(|s| s != "nolio"),
-            "{:?}",
-            night.sources
-        );
+        assert_eq!(night.sources, vec!["garmin".to_owned()]);
         assert_eq!(
             night.record.deep_sleep_seconds, None,
             "no Nolio metric fills the served night"
         );
-        assert_eq!(night.record.min_heart_rate, Some(48));
-        assert_eq!(night.record.avg_hrv, Some(71.0));
+        assert_eq!(night.record.min_heart_rate, Some(48), "Garmin's stays");
         assert_eq!(
-            night.record.sleep_score, None,
-            "WHOOP's own score never reaches the model"
+            night.record.avg_hrv, None,
+            "no WHOOP metric fills the served night (carnet#766)"
         );
+        assert_eq!(night.record.sleep_score, None);
+    }
+
+    /// The same WHOOP and Garmin night merged for a first-party model read
+    /// and for an external one: only WHOOP's contribution differs.
+    #[tokio::test]
+    async fn a_merged_night_loses_only_its_whoop_contribution_over_an_external_transport() {
+        let pair = || vec![night("ds-garmin", "garmin"), night("ds-whoop", "whoop")];
+        let read = |transport: Transport| {
+            serve_over(
+                transport,
+                with_ai_consent(
+                    BTreeSet::new(),
+                    ai_read(async move { filter_stored_health(&HealthTerms, pair(), &sources()) }),
+                ),
+            )
+        };
+
+        let (own, own_withheld) = read(Transport::WebApp).await;
+        let own = merge_sleep_sessions(own);
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].sources.len(), 2, "{:?}", own[0].sources);
+        assert_eq!(own[0].record.min_heart_rate, Some(48));
+        assert_eq!(own[0].record.avg_hrv, Some(71.0), "WHOOP's HRV fills it");
+        assert_eq!(own_withheld.off_interface, 0);
+
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            let (external, withheld) = read(transport).await;
+            let external = merge_sleep_sessions(external);
+            assert_eq!(external.len(), 1, "{transport:?}");
+            assert_eq!(external[0].sources, vec!["garmin".to_owned()]);
+            assert_eq!(external[0].record.min_heart_rate, Some(48));
+            assert_eq!(external[0].record.avg_hrv, None, "{transport:?}");
+            assert_eq!(withheld.off_interface, 1, "{transport:?}");
+        }
+    }
+
+    /// The shipped WHOOP descriptor, resolved through the registry, keeps its
+    /// stored nights off an external transport and on the athlete's own.
+    #[cfg(feature = "provider-whoop")]
+    #[tokio::test]
+    async fn the_registered_whoop_descriptor_keeps_its_stored_nights_first_party() {
+        let registry = ProviderRegistry::new();
+        let whoop_night = || vec![night("ds-whoop", "whoop")];
+
+        let (external, withheld) = serve_over(
+            Transport::McpHttp,
+            ai_read(async { filter_stored_health(&registry, whoop_night(), &sources()) }),
+        )
+        .await;
+        assert!(external.is_empty());
+        assert_eq!(withheld.off_interface, 1);
+
+        let (own, withheld) = serve_over(
+            Transport::Messaging,
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(async { filter_stored_health(&registry, whoop_night(), &sources()) }),
+            ),
+        )
+        .await;
+        assert_eq!(data_source_ids(&own), vec!["ds-whoop"]);
+        assert_eq!(own[0].avg_hrv, Some(71.0), "WHOOP's measurements stay");
+        assert_eq!(own[0].sleep_score, None, "WHOOP's own score does not");
+        assert_eq!(withheld.off_interface, 0);
     }
 
     #[tokio::test]

@@ -12,19 +12,20 @@ use async_trait::async_trait;
 use chrono::NaiveDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::plan_calendar_push::{
     desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
-    CALENDAR_PROVIDER,
 };
 use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::calendar::{calendar_provider, destructive_annotations};
+use super::calendar::{
+    calendar_ledger_target, calendar_provider, calendar_target, destructive_annotations,
+    provider_arg, provider_property,
+};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
 use crate::context::ToolExecutionContext;
@@ -55,16 +56,18 @@ const PUSH_TOOL: &str = "push_training_plan";
 ///
 /// Returns an error when the ledger cannot be read.
 pub(super) async fn calendar_block(
-    repos: &RepositoryRegistry,
+    context: &ToolExecutionContext,
     tenant: TenantId,
     user_id: Uuid,
     active_weeks: &[PlanWeek],
     today: NaiveDate,
     fueling: &FuelingDisclosure,
 ) -> AppResult<CalendarBlock> {
+    let repos = context.resources.repos();
+    let target = calendar_ledger_target(context, tenant, user_id).await?;
     let mut live = repos
         .prescribed_workouts
-        .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
+        .list_live_calendar_events(tenant, user_id, &target, Some(today))
         .await?;
     // An entry pushed from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
@@ -96,7 +99,7 @@ pub(super) async fn calendar_block(
         })
         .collect();
     let mut block = CalendarBlock {
-        provider: CALENDAR_PROVIDER.to_owned(),
+        provider: target,
         entries,
         pending,
         stale: pending.is_stale(),
@@ -132,17 +135,22 @@ pub(super) async fn calendar_block(
 /// unreadable ledger degrades to `None` rather than failing the save.
 /// `fueling` is the disclosure a push would render the days with.
 pub(super) async fn calendar_preview_after_save(
-    repos: &RepositoryRegistry,
+    context: &ToolExecutionContext,
     tenant: TenantId,
     user_id: Uuid,
     plan_id: &str,
     today: NaiveDate,
     fueling: &FuelingDisclosure,
 ) -> Option<CalendarPreview> {
+    let repos = context.resources.repos();
+    let target = best_effort(
+        calendar_ledger_target(context, tenant, user_id).await,
+        "calendar target unresolved",
+    )?;
     let mut live = best_effort(
         repos
             .prescribed_workouts
-            .list_live_calendar_events(tenant, user_id, CALENDAR_PROVIDER, Some(today))
+            .list_live_calendar_events(tenant, user_id, &target, Some(today))
             .await,
         "calendar ledger unreadable",
     )?;
@@ -163,7 +171,7 @@ pub(super) async fn calendar_preview_after_save(
         "calendar preview could not be computed",
     )?;
     Some(CalendarPreview {
-        provider: CALENDAR_PROVIDER.to_owned(),
+        provider: target,
         pending,
         stale: pending.is_stale(),
     })
@@ -201,17 +209,20 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 ..Default::default()
             },
         );
+        properties.insert("provider".to_owned(), provider_property());
         let schema = object_schema(properties, None);
         answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
-            "Put the athlete's active training plan on their Intervals.icu calendar, or \
-             bring the calendar up to date after the plan changed: creates the days that \
-             are missing, updates the ones that changed, removes the ones the plan no \
-             longer has, and leaves alone any the athlete edited on Intervals.icu. Never \
+            "Put the athlete's active training plan on their calendar provider (Intervals.icu \
+             today), or bring the calendar up to date after the plan changed: creates the \
+             days that are missing, updates the ones that changed, removes the ones the \
+             plan no longer has, and leaves alone any the athlete edited on the provider. Never \
              touches dates before today. Call it when the athlete or coach asks to put or \
              update the plan on their calendar — not on your own initiative after a save; \
              save_training_plan's reply says when the calendar is behind. Requires a saved \
-             plan and a connected Intervals.icu account. Args: optional from_date.",
+             plan and a connected account of a provider that writes a training calendar. Args: \
+             optional from_date, optional provider (needed only to choose between several \
+             connected calendars).",
             schema,
             Some(destructive_annotations()),
         )))
@@ -246,7 +257,8 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                     .max(today),
                 None => today,
             };
-            let provider = calendar_provider(&context, tenant, user_id).await?;
+            let target = calendar_target(&context, tenant, user_id, provider_arg(&args)).await?;
+            let provider = calendar_provider(&context, tenant, user_id, &target).await?;
 
             // When this call runs behind an MCP task handle the dispatcher
             // scoped a cancel flag around it; handing it to the push loop is
@@ -259,7 +271,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 &PushPlanParams {
                     tenant,
                     user_id,
-                    provider: CALENDAR_PROVIDER,
+                    provider: &target,
                     from,
                     cancel: cancel_flag.as_deref(),
                 },
@@ -272,7 +284,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 emit_calendar_sync_failed(
                     tenant,
                     user_id,
-                    CALENDAR_PROVIDER,
+                    &target,
                     PUSH_TOOL,
                     &format!(
                         "{} of {attempted} entries failed; first: {}",
@@ -282,7 +294,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 );
             }
             if report.failed.is_empty() || landed > 0 {
-                emit_calendar_sync_completed(tenant, user_id, CALENDAR_PROVIDER, PUSH_TOOL, landed);
+                emit_calendar_sync_completed(tenant, user_id, &target, PUSH_TOOL, landed);
             }
 
             ok_typed("push_training_plan", &report)

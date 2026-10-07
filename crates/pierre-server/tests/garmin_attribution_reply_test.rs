@@ -40,6 +40,7 @@ use pierre_core::models::{
     ActivityBuilder, ConnectionType, ConversationTurnId, SportType, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
 };
@@ -248,10 +249,14 @@ async fn delivered_reply(
     };
     let ctx = resources.chat_pipeline_context();
     // Tracked the way `turn_service::execute`, the only caller of `run`,
-    // tracks every turn (carnet#769).
-    let envelope = ai_scope::tracking(
-        Provenance::new(),
-        pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none()),
+    // tracks every turn (carnet#769), over the web app its profile names
+    // (carnet#724).
+    let envelope = ai_scope::serve_over(
+        Transport::WebApp,
+        ai_scope::tracking(
+            Provenance::new(),
+            pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none()),
+        ),
     )
     .await
     .expect("the turn is served");
@@ -351,7 +356,9 @@ async fn a_loopback_tool_read_attributes_the_turn_that_built_its_executor() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = ai_scope::tracking(turn.clone(), async {
-        UniversalExecutor::new(Arc::clone(&runtime)).with_scopes(OAuthScope::self_grant())
+        UniversalExecutor::new(Arc::clone(&runtime))
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp)
     })
     .await;
     let response = tokio::spawn(async move {

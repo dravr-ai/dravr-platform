@@ -568,10 +568,11 @@ pub trait FitnessProvider: Send + Sync {
     /// The athletes the account behind the stored credential coaches, and
     /// the account's own email, as the platform lists them.
     ///
-    /// A coaching platform whose factory offers
-    /// [`DelegatedReads`](crate::delegation::DelegatedReads) through an API
-    /// overrides this. Every other provider inherits the refusal: an empty
-    /// roster would read as a coach with no athletes.
+    /// A coaching platform whose descriptor declares
+    /// [`ProviderCapabilities::COACH_ROSTER`](crate::spi::ProviderCapabilities::COACH_ROSTER)
+    /// and that lists its roster through an API overrides this. Every other
+    /// provider inherits the refusal: an empty roster would read as a coach
+    /// with no athletes.
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         Err(AppError::invalid_input(format!(
             "{} does not list a coach's athletes",

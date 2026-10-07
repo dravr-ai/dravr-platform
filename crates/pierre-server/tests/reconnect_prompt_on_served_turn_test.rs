@@ -38,7 +38,7 @@
 mod common;
 
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -70,6 +70,7 @@ use pierre_llm::{
 };
 use pierre_mcp_server::context::ServerContext;
 use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER};
+use pierre_providers::ai_scope;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -790,9 +791,14 @@ async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
     input.conversation_id = conversation.id.clone();
 
     let ctx = resources.chat_pipeline_context();
-    let envelope = pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none())
-        .await
-        .expect("a window a sibling served must produce a served turn");
+    // Over the web app its profile names, as `turn_service` declares it
+    // (carnet#724).
+    let envelope = ai_scope::serve_over(
+        Transport::WebApp,
+        pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none()),
+    )
+    .await
+    .expect("a window a sibling served must produce a served turn");
 
     let reconnect = envelope
         .assistant
@@ -914,8 +920,10 @@ async fn loopback_get_activities(
     acp_turn_token: &str,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    // The loopback serves the web turn that holds the token (carnet#724).
     let executor = UniversalExecutor::new(runtime)
         .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
         .with_turn_token(acp_turn_token.to_owned());
     let response = executor
         .execute_tool(UniversalRequest {
@@ -952,6 +960,7 @@ async fn finish_headless_turn(
     let executor = Arc::new(
         UniversalExecutor::new(runtime)
             .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp)
             .with_turn_token(acp_turn_token.to_owned()),
     );
     // The assembly reads the provider for its name alone; the ACP runner below

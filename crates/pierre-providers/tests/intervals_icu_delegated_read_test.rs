@@ -166,14 +166,10 @@ async fn delegated(
     athlete: &str,
     key: &str,
 ) -> Box<dyn FitnessProvider> {
-    let provider = registry
-        .create_delegated_provider("intervals_icu", athlete)
-        .expect("Intervals.icu reads for a coached athlete");
-    provider
-        .set_credentials(coach_credentials(key))
+    registry
+        .create_delegated_provider("intervals_icu", athlete, coach_credentials(key))
         .await
-        .expect("an API key credential is accepted");
-    provider
+        .expect("Intervals.icu reads for a coached athlete through an API key")
 }
 
 fn recent() -> ActivityQueryParams {
@@ -320,11 +316,14 @@ fn sample_session() -> PlannedSession {
     }
 }
 
-#[test]
-fn an_id_intervals_icu_could_not_have_issued_is_refused_before_any_read() {
+#[tokio::test]
+async fn an_id_intervals_icu_could_not_have_issued_is_refused_before_any_read() {
     let registry = registry("http://127.0.0.1:9".to_owned());
     for refused in ["", "i1/../i2", "i1?athlete=i2", "i 1"] {
-        let Err(error) = registry.create_delegated_provider("intervals_icu", refused) else {
+        let Err(error) = registry
+            .create_delegated_provider("intervals_icu", refused, coach_credentials(COACH_KEY))
+            .await
+        else {
             panic!("{refused:?} must be refused");
         };
         assert_eq!(error.code, ErrorCode::InvalidInput, "{refused:?}");

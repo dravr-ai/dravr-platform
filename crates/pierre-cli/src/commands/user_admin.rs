@@ -24,7 +24,6 @@ use std::io::{self, Write as _};
 
 use clap::Args;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_services::coach_platform::coach_platform;
 use serde_json::{json, Value};
 
 use pierre_cli::remote::RemoteClient;
@@ -474,8 +473,22 @@ pub async fn reset_onboarding(
             field(user, "email"),
             field(user, "id")
         );
+        // The server says which providers its reset keeps: a coaching
+        // platform is one by the server's provider descriptors, not this
+        // build's.
+        let kept: Vec<String> = user
+            .get("kept_on_onboarding_reset")
+            .and_then(Value::as_array)
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
         for entry in provider_entries(&body, "connected_providers") {
-            if coach_platform(&field(&entry, "provider")).is_some() {
+            if kept.contains(&field(&entry, "provider")) {
                 println!(
                     "  - {} would be kept: groups rely on it, and while it stays the provider steps stay hidden",
                     provider_line(&entry)

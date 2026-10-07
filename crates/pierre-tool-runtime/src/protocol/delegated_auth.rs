@@ -6,8 +6,9 @@
 
 //! # Coaching-platform read subject
 //!
-//! A coaching platform ([`CoachPlatform`]: `TrainingPeaks`, Intervals.icu)
-//! lets a coach's own account read the athletes who share with it. This step
+//! A coaching platform ([`CoachPlatform`]: a provider whose descriptor
+//! declares a coach roster, such as `TrainingPeaks` or Intervals.icu) lets a
+//! coach's own account read the athletes who share with it. This step
 //! decides, for a read of such a platform, whose credential serves it.
 //!
 //! A `TrainingPeaks` coach account keeps no calendar of its own, so a read of
@@ -162,7 +163,8 @@ impl AuthService {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
-        let platform = coach_platform(provider_name)?;
+        let platform = coach_platform(self.runtime().provider_registry(), provider_name)?;
+        let platform = platform.as_ref();
         let tenant = tenant_id?;
         let connections = self.platform_connections(platform, user_id, tenant).await?;
         if let Some(own_calendar_refusal) = platform.own_calendar_refusal() {
@@ -327,12 +329,9 @@ impl AuthService {
         let provider = self
             .runtime()
             .provider_registry()
-            .create_delegated_provider(&link.provider, &link.provider_athlete_id)
-            .map_err(|e| Box::new(refusal(format!("Failed to create provider: {e}"))))?;
-        provider
-            .set_credentials(credentials)
+            .create_delegated_provider(&link.provider, &link.provider_athlete_id, credentials)
             .await
-            .map_err(|e| Box::new(refusal(format!("Failed to set provider credentials: {e}"))))?;
+            .map_err(|e| Box::new(refusal(format!("Failed to create provider: {e}"))))?;
         info!(
             link_id = %link.id,
             user_id = %link.member_user_id,
@@ -469,9 +468,11 @@ impl AuthService {
         error: &AppError,
         attempt_started_at: DateTime<Utc>,
     ) {
-        let Some(platform) = coach_platform(provider.name()) else {
+        let Some(platform) = coach_platform(self.runtime().provider_registry(), provider.name())
+        else {
             return;
         };
+        let platform = platform.as_ref();
         let Ok(tenant) = TenantId::parse_str(tenant_id) else {
             return;
         };

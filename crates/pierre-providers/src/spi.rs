@@ -75,11 +75,20 @@
 //! ```
 
 use super::core::{FitnessProvider, ProviderConfig};
-#[cfg(feature = "provider-whoop")]
+#[cfg(any(
+    feature = "provider-whoop",
+    feature = "provider-strava",
+    feature = "provider-garmin",
+    feature = "provider-coros",
+    feature = "provider-sciotte",
+    feature = "provider-intervals-icu"
+))]
 use crate::provider_terms;
 #[cfg(feature = "provider-whoop")]
 use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
+#[cfg(feature = "provider-sciotte")]
+use pierre_core::constants::oauth::providers::{COROS, GARMIN, STRAVA, TRAININGPEAKS};
 #[cfg(feature = "provider-garmin")]
 use pierre_core::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
@@ -160,7 +169,7 @@ bitflags::bitflags! {
     /// Indicates which features a provider supports. Used by the system to
     /// route requests to appropriate providers and generate accurate tool descriptions.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-    pub struct ProviderCapabilities: u8 {
+    pub struct ProviderCapabilities: u16 {
         /// Provider requires OAuth authentication
         const OAUTH = 0b0000_0001;
         /// Provider supports activity/workout data
@@ -187,10 +196,22 @@ bitflags::bitflags! {
         /// Provider reads the workouts its calendar plans for the athlete —
         /// what a coach or a plan prescribed for a day — through
         /// `FitnessProvider::list_planned_workouts`.
-        ///
-        /// This is the last free bit of the `u8`: the next capability widens
-        /// the storage type first.
         const PLANNED_WORKOUTS = 0b1000_0000;
+        /// Provider is a coaching platform whose coach account reads the
+        /// athletes who share with it: it lists the coach's roster through
+        /// `FitnessProvider::read_coach_roster` and reads one athlete through
+        /// the coach's own credential, its factory offering
+        /// `ProviderFactory::delegated_reads`. The coach's credential may be
+        /// an OAuth grant or an API key (`CredentialKind`).
+        const COACH_ROSTER = 0b0000_0001_0000_0000;
+        /// Provider writes its training calendar — `list_calendar_events`,
+        /// `push_planned_session`, `update_planned_session` and
+        /// `delete_planned_sessions` on `FitnessProvider` — so the plan push
+        /// and `prescribe_workout` can target it.
+        ///
+        /// Distinct from `PLANNED_WORKOUTS`, which only reads: a provider can
+        /// show the athlete's planned workouts without accepting ours.
+        const CALENDAR_WRITE = 0b0000_0010_0000_0000;
     }
 }
 
@@ -255,6 +276,18 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn supports_planned_workouts(&self) -> bool {
         self.contains(Self::PLANNED_WORKOUTS)
+    }
+
+    /// Check if a coach account reads its athletes through the provider
+    #[must_use]
+    pub const fn supports_coach_roster(&self) -> bool {
+        self.contains(Self::COACH_ROSTER)
+    }
+
+    /// Check if the provider accepts writes to its training calendar
+    #[must_use]
+    pub const fn supports_calendar_write(&self) -> bool {
+        self.contains(Self::CALENDAR_WRITE)
     }
 }
 
@@ -324,6 +357,25 @@ pub trait ProviderDescriptor: Send + Sync {
     /// policies live in [`crate::provider_terms`].
     fn transport_policy(&self) -> TransportPolicy {
         TransportPolicy::AnyTransport
+    }
+
+    /// The relayed sources this provider's terms settle by name, each with
+    /// where its items may be served: the transport counterpart of
+    /// [`SourcePolicy::by_source`] (matched case-insensitively). A named
+    /// source decides alone; one not named keeps this provider's
+    /// [`Self::transport_policy`] and its origin's. Empty by default.
+    fn transport_by_source(&self) -> &'static [(&'static str, TransportPolicy)] {
+        &[]
+    }
+
+    /// The service whose data this descriptor's backend reads, when that is
+    /// not the descriptor itself: a scraper names the provider it scrapes
+    /// (`sciotte_trainingpeaks` reads `trainingpeaks`). Items stamped with
+    /// that service's name — a scraped activity's `source`, a planned
+    /// workout's `provider` — resolve to this descriptor's terms when no
+    /// descriptor carries the name itself. `None` by default.
+    fn origin(&self) -> Option<&'static str> {
+        None
     }
 
     /// How long a copy of this provider's data may be held before it must be
@@ -507,6 +559,10 @@ impl ProviderDescriptor for StravaDescriptor {
     fn default_scopes(&self) -> &'static [&'static str] {
         &["activity:read_all"]
     }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::STRAVA_TRANSPORT
+    }
 }
 
 /// Garmin provider descriptor
@@ -570,6 +626,10 @@ impl ProviderDescriptor for GarminDescriptor {
     fn default_scopes(&self) -> &'static [&'static str] {
         &[]
     }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::GARMIN_TRANSPORT
+    }
 }
 
 /// WHOOP provider descriptor
@@ -629,6 +689,12 @@ impl ProviderDescriptor for WhoopDescriptor {
 
     fn ai_policy(&self) -> &'static SourcePolicy {
         &provider_terms::WHOOP
+    }
+
+    /// WHOOP's API Terms bar exposing WHOOP Data to third parties without the
+    /// athlete's explicit opt-in, which Dravr does not record (carnet#766).
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::WHOOP_TRANSPORT
     }
 
     /// WHOOP's API Terms (§4, effective 2026-10-06) bar using WHOOP Data to
@@ -714,6 +780,10 @@ impl ProviderDescriptor for CorosDescriptor {
         // Placeholder scopes - update when docs received
         &["read:workouts", "read:sleep", "read:daily"]
     }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::COROS_TRANSPORT
+    }
 }
 
 /// Sciotte web scraping provider descriptor
@@ -732,6 +802,11 @@ impl ProviderDescriptor for SciotteDescriptor {
 
     fn display_name(&self) -> &'static str {
         "Strava"
+    }
+
+    /// The Strava backend: its stamp is `sciotte`, its data Strava's.
+    fn origin(&self) -> Option<&'static str> {
+        Some(STRAVA)
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -759,6 +834,11 @@ impl ProviderDescriptor for SciotteDescriptor {
     fn default_scopes(&self) -> &'static [&'static str] {
         &[] // No OAuth scopes — browser session-based
     }
+
+    /// This backend reads strava.com, so what it serves is Strava data.
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::STRAVA_TRANSPORT
+    }
 }
 
 /// Sciotte Garmin Connect web scraping provider descriptor
@@ -773,6 +853,14 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
 
     fn display_name(&self) -> &'static str {
         "Garmin"
+    }
+
+    fn origin(&self) -> Option<&'static str> {
+        Some(GARMIN)
+    }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::GARMIN_TRANSPORT
     }
 
     /// Activities are scraped on demand; the night's sleep, resting heart
@@ -825,8 +913,22 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
         "TrainingPeaks"
     }
 
+    /// The planned workouts are stamped `trainingpeaks`
+    /// ([`crate::trainingpeaks_plan`]), as is every scraped activity's source.
+    fn origin(&self) -> Option<&'static str> {
+        Some(TRAININGPEAKS)
+    }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::TRAININGPEAKS_TRANSPORT
+    }
+
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::PLANNED_WORKOUTS)
+        // A coach account reads its athletes through the coach's scraper
+        // session (`SciotteTrainingPeaksProviderFactory::delegated_reads`).
+        ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::PLANNED_WORKOUTS)
+            .union(ProviderCapabilities::COACH_ROSTER)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -862,6 +964,16 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
 
     fn display_name(&self) -> &'static str {
         "COROS"
+    }
+
+    /// `coros`, which no compiled descriptor carries in production: the
+    /// partner-API provider is feature-gated off (registre#509).
+    fn origin(&self) -> Option<&'static str> {
+        Some(COROS)
+    }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::COROS_TRANSPORT
     }
 
     /// Activities are scraped on demand; the resting heart rate, sleep HRV
@@ -922,12 +1034,19 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // `Wellness` rows name no source or device, so their Garmin attribution is
         // inferred from the athlete's most recent intervals.icu activity device
         // (pierre-services `stored_health`, carnet#521).
+        //
+        // A coach's API key lists the athletes who share with them and reads
+        // each at their own path (`IntervalsIcuProviderFactory::delegated_reads`).
+        // It also writes its training calendar: it implements the four
+        // calendar methods on `FitnessProvider`.
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
             .union(ProviderCapabilities::SLEEP_TRACKING)
             .union(ProviderCapabilities::RECOVERY_METRICS)
             .union(ProviderCapabilities::HEALTH_METRICS)
+            .union(ProviderCapabilities::COACH_ROSTER)
+            .union(ProviderCapabilities::CALENDAR_WRITE)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -959,5 +1078,13 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
 
     fn default_scopes(&self) -> &'static [&'static str] {
         INTERVALS_ICU_SCOPES
+    }
+
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::INTERVALS_ICU_TRANSPORT
+    }
+
+    fn transport_by_source(&self) -> &'static [(&'static str, TransportPolicy)] {
+        provider_terms::INTERVALS_ICU_TRANSPORT_BY_SOURCE
     }
 }

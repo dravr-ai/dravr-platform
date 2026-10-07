@@ -20,6 +20,7 @@ use pierre_core::models::{
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::context::ServerContext;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -212,8 +213,12 @@ async fn the_model_sees_what_the_relays_terms_permit_and_the_cache_keeps_every_r
     let (user_id, tenant) = connect_relay(&resources).await;
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    // The model on Dravr's own surface: this pins the AI rules, which a
+    // first-party read crosses alone. Over an external transport Strava's own
+    // terms drop the Strava session whole (carnet#765).
     let response = UniversalExecutor::new(runtime)
         .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
         .execute_tool(UniversalRequest {
             tool_name: "get_activities".to_owned(),
             parameters: serde_json::json!({ "provider": RELAY, "limit": 10, "mode": "summary" }),

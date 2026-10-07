@@ -13,6 +13,9 @@
 //! athlete's note were dropped, and the readiness reader summed both sources'
 //! hours into one double night. These tests hold the stored metrics and the
 //! merged read to their values.
+//!
+//! The merge tests read as one of Dravr's own surfaces: WHOOP's terms keep its
+//! records off every external transport (carnet#766), which the last test pins.
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
@@ -22,6 +25,7 @@ use pierre_core::models::{
     StoredSleepSession, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_core::untrusted::fence_athlete_text;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -30,12 +34,15 @@ use uuid::Uuid;
 
 mod common;
 
+/// An executor serving the athlete's own web app.
 async fn executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
     Ok(Arc::new(
-        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp),
     ))
 }
 
@@ -216,13 +223,20 @@ async fn every_stored_recovery_and_sleep_metric_survives_the_database() -> Resul
     Ok(())
 }
 
-#[tokio::test]
-async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Result<()> {
-    let executor = executor().await?;
-    let (user_id, tenant) = connected_user(&executor).await?;
-    let whoop_ds = data_source(&executor, user_id, &tenant, "whoop").await?;
-    let garmin_ds = data_source(&executor, user_id, &tenant, "garmin").await?;
+/// One night and one morning synced by both the athlete's WHOOP strap and
+/// a second connected source, each with values of its own.
+async fn whoop_and_other_night_and_morning(
+    executor: &UniversalToolExecutor,
+    other: &str,
+) -> Result<(Uuid, TenantId)> {
+    let (user_id, tenant) = connected_user(executor).await?;
     let repos = executor.resources.repos();
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, other, &ConnectionType::OAuth, None)
+        .await?;
+    let whoop_ds = data_source(executor, user_id, &tenant, "whoop").await?;
+    let other_ds = data_source(executor, user_id, &tenant, other).await?;
     // Health sync keeps WHOOP records only under WHOOP's owner authorization,
     // which is also the consent to hand them to a model (carnet#726).
     repos
@@ -238,33 +252,40 @@ async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Re
     whoop_night.total_sleep_seconds = Some(26_000);
     whoop_night.sleep_score = Some(84);
     whoop_night.sleep_efficiency = Some(91.0);
-    let mut garmin_night = sleep(user_id, "garmin", &garmin_ds, 9, 7);
-    garmin_night.total_sleep_seconds = Some(24_500);
-    garmin_night.deep_sleep_seconds = Some(5_400);
+    let mut other_night = sleep(user_id, other, &other_ds, 9, 7);
+    other_night.total_sleep_seconds = Some(24_500);
+    other_night.deep_sleep_seconds = Some(5_400);
     repos
         .sleep
         .upsert_sleep_session(&tenant, &whoop_night)
         .await?;
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &garmin_night)
+        .upsert_sleep_session(&tenant, &other_night)
         .await?;
 
     let morning = whoop_night.end_datetime.date_naive();
     let mut whoop_day = recovery(user_id, "whoop", &whoop_ds, morning);
     whoop_day.recovery_score = Some(71);
     whoop_day.hrv_rmssd = Some(62.0);
-    let mut garmin_day = recovery(user_id, "garmin", &garmin_ds, morning);
-    garmin_day.recovery_score = Some(40);
-    garmin_day.body_battery = Some(40);
+    let mut other_day = recovery(user_id, other, &other_ds, morning);
+    other_day.recovery_score = Some(40);
+    other_day.body_battery = Some(40);
     repos
         .recovery
         .upsert_recovery_metrics(&tenant, &whoop_day)
         .await?;
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant, &garmin_day)
+        .upsert_recovery_metrics(&tenant, &other_day)
         .await?;
+    Ok((user_id, tenant))
+}
+
+#[tokio::test]
+async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = whoop_and_other_night_and_morning(&executor, "garmin").await?;
 
     let sessions = executor
         .execute_tool(request("get_sleep_sessions", json!({}), user_id, &tenant))
@@ -322,6 +343,62 @@ async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Re
     assert!(
         text.contains("7.2"),
         "duration 26 000 s ≈ 7.2 h: {quality:#}"
+    );
+    Ok(())
+}
+
+/// WHOOP's terms keep its data off every external transport (carnet#766): the
+/// same merged night and morning, read by an MCP client, lose WHOOP's
+/// contribution and keep intervals.icu's, whose terms allow every transport
+/// (carnet#767). Garmin is first-party as well, so it cannot be the survivor.
+#[tokio::test]
+async fn an_external_client_gets_the_merged_records_without_whoop() -> Result<()> {
+    let own = executor().await?;
+    let (user_id, tenant) = whoop_and_other_night_and_morning(&own, "intervals_icu").await?;
+    let external =
+        UniversalToolExecutor::new(own.resources.clone()).with_scopes(OAuthScope::self_grant());
+    let external = external.with_transport(Transport::McpHttp);
+
+    let sessions = external
+        .execute_tool(request("get_sleep_sessions", json!({}), user_id, &tenant))
+        .await?;
+    assert!(sessions.success, "{:?}", sessions.error);
+    let sessions = sessions.result.unwrap();
+    assert_eq!(sessions["count"], 1, "{sessions:#}");
+    let night = &sessions["sessions"][0];
+    assert_eq!(night["source_name"], "intervals_icu", "{night:#}");
+    assert_eq!(night["sources"], json!(["intervals_icu"]));
+    assert_eq!(
+        night["total_sleep_seconds"], 24_500,
+        "intervals.icu's, not WHOOP's"
+    );
+    assert_eq!(night["deep_sleep_seconds"], 5_400);
+    assert!(
+        night.get("sleep_efficiency").is_none_or(Value::is_null),
+        "no WHOOP metric fills the night: {night:#}"
+    );
+
+    let metrics = external
+        .execute_tool(request("get_recovery_metrics", json!({}), user_id, &tenant))
+        .await?;
+    assert!(metrics.success, "{:?}", metrics.error);
+    let metrics = metrics.result.unwrap();
+    assert_eq!(metrics["count"], 1, "{metrics:#}");
+    let day = &metrics["metrics"][0];
+    assert_eq!(day["source_name"], "intervals_icu", "{day:#}");
+    assert_eq!(day["recovery_score"], 40);
+    assert!(
+        day.get("hrv_rmssd").is_none_or(Value::is_null),
+        "no WHOOP metric fills the morning: {day:#}"
+    );
+
+    // The athlete's own surface still merges both sources.
+    let sessions = own
+        .execute_tool(request("get_sleep_sessions", json!({}), user_id, &tenant))
+        .await?;
+    assert_eq!(
+        sessions.result.unwrap()["sessions"][0]["sources"],
+        json!(["whoop", "intervals_icu"])
     );
     Ok(())
 }

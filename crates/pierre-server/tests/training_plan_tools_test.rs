@@ -15,7 +15,7 @@ use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -107,8 +107,12 @@ async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
+    // The athlete's own app: the baseline rides are Strava's, which no
+    // external transport serves (carnet#765).
     Ok(Arc::new(
-        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp),
     ))
 }
 

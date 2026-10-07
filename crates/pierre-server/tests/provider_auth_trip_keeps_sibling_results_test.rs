@@ -21,6 +21,7 @@ mod common;
 mod helpers;
 
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use std::env;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -182,6 +183,9 @@ async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
     let executor = Arc::new(
         UniversalToolExecutor::new(resources)
             .with_scopes(OAuthScope::self_grant())
+            // A chat turn in the web app: the healthy connection is Strava,
+            // whose data no external transport serves (carnet#765).
+            .with_transport(Transport::WebApp)
             .with_turn_token("auth-trip-turn".to_owned()),
     );
     let tools = advertised_tools();

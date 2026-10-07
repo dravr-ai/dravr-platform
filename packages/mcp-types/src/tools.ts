@@ -1295,7 +1295,7 @@ export interface ListStretchingExercisesParams {
 
 
 /**
- * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the agent fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's Intervals.icu calendar.
+ * List the workout template bank by what a session is for. Every template carries a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill), the season phases it fits, the readiness level it needs, the sports it is written for, its evidence tier, and parameter ranges (reps, work and rest seconds, duration, RPE, intensity per sport) with a default the agent fills in for the athlete. Filter with purpose, phase and sport; the reply lists the athlete's own saved sessions after the bank. Pass detail = full for the structured steps and target zones prescribe_workout pushes to the athlete's calendar provider.
  */
 export interface ListWorkoutTemplatesParams {
 
@@ -1371,7 +1371,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional agent_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
+ * Write one workout onto the athlete's calendar provider (Intervals.icu today) for a given date, and record it in the prescribed_workouts ledger. Requires a connected account of a provider that writes a training calendar. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional agent_id, optional replaces, optional provider (needed only to choose between several connected calendars; a replaced entry stays on its own provider). Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1380,6 +1380,9 @@ export interface PrescribeWorkoutParams {
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
   date: string;
+
+  /** Calendar provider to write to, by name (e.g. intervals_icu). Optional: omitted, the athlete's connected provider that writes a training calendar is used, the first in alphabetical order when several are connected. */
+  provider?: string;
 
   /** prescription_id of an earlier prescription to change in place — the calendar entry keeps its slot and gets this workout. Omit to add a new entry. */
   replaces?: string;
@@ -1431,12 +1434,15 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional from_date.
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected account of a provider that writes a training calendar. Args: optional from_date, optional provider (needed only to choose between several connected calendars).
  */
 export interface PushTrainingPlanParams {
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
   from_date?: string;
+
+  /** Calendar provider to write to, by name (e.g. intervals_icu). Optional: omitted, the athlete's connected provider that writes a training calendar is used, the first in alphabetical order when several are connected. */
+  provider?: string;
 }
 
 
@@ -2247,12 +2253,15 @@ export interface VerifyClaimParams {
 
 
 /**
- * Remove a workout that prescribe_workout wrote to the athlete's Intervals.icu calendar: deletes the calendar entry and marks the prescription withdrawn. Only for single prescriptions — an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). Args: prescription_id.
+ * Remove a workout that prescribe_workout wrote to the athlete's calendar provider: deletes the calendar entry and marks the prescription withdrawn. Only for single prescriptions — an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). Args: prescription_id, optional provider (the entry's own provider is used; naming a different one is refused).
  */
 export interface WithdrawPrescribedWorkoutParams {
 
   /** prescription_id of the entry to remove — from the prescribe_workout reply, or from get_training_plan's calendar block. */
   prescription_id: string;
+
+  /** Provider the entry is on. Optional: the ledger already knows it; naming a different provider is refused. */
+  provider?: string;
 }
 
 // ============================================================================

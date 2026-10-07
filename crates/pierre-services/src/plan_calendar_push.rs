@@ -40,8 +40,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{Duration, NaiveDate, Utc};
-use pierre_core::constants::oauth::INTERVALS_ICU;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
     PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
@@ -49,17 +48,111 @@ use pierre_core::models::{
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::ProviderRegistry;
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::plan_fueling::FuelingDisclosure;
 
-/// The provider whose calendar plans and prescriptions are written to.
+/// Name of the descriptor capability a push target must declare, as a refusal
+/// and its `details` say it.
+pub const CALENDAR_WRITE_CAPABILITY: &str = "calendar_write";
+
+/// The provider a plan or a prescription is written to.
 ///
-/// Intervals.icu is the only connected backend with a writable training
-/// calendar; every other provider inherits the trait defaults, which report
-/// the capability as unsupported.
-pub const CALENDAR_PROVIDER: &str = INTERVALS_ICU;
+/// `requested` is the backend the caller named (already resolved from the
+/// name the athlete knows), `connected` the backends the athlete holds a live
+/// connection to. A named provider must declare
+/// [`CALENDAR_WRITE`](pierre_providers::spi::ProviderCapabilities::CALENDAR_WRITE);
+/// its connection is checked where the credentials are read. Without a name,
+/// the target is the connected
+/// provider that declares it, and when several qualify the first in
+/// alphabetical order of backend name — so the same athlete always lands on
+/// the same calendar until they name another.
+///
+/// # Errors
+///
+/// Returns an invalid-input error naming the providers that declare the
+/// capability when the named one does not. Returns `NoProviderConnected`,
+/// carrying `missing_capability` and the providers that would satisfy it,
+/// when no connection of the athlete declares it.
+pub fn resolve_calendar_target(
+    registry: &ProviderRegistry,
+    connected: &[&str],
+    requested: Option<&str>,
+) -> AppResult<String> {
+    let writable = |backend: &str| {
+        registry
+            .get_capabilities(backend)
+            .is_some_and(|caps| caps.supports_calendar_write())
+    };
+    if let Some(requested) = requested {
+        return if writable(requested) {
+            Ok(requested.to_owned())
+        } else {
+            Err(AppError::invalid_input(format!(
+                "{requested} does not write a training calendar (capability \
+                 {CALENDAR_WRITE_CAPABILITY}). Providers that do: {}",
+                calendar_write_names(registry)
+            )))
+        };
+    }
+    let mut candidates: Vec<&str> = connected
+        .iter()
+        .copied()
+        .filter(|backend| writable(backend))
+        .collect();
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates.first().map_or_else(
+        || Err(missing_calendar_capability(registry)),
+        |backend| Ok((*backend).to_owned()),
+    )
+}
+
+/// The calendar a read of the push ledger looks under.
+///
+/// The connected target, else the first provider that declares the
+/// capability, so a block for an athlete who never connected one is empty
+/// rather than an error.
+///
+/// # Errors
+///
+/// Returns the missing-capability refusal when no registered provider
+/// declares
+/// [`CALENDAR_WRITE`](pierre_providers::spi::ProviderCapabilities::CALENDAR_WRITE)
+/// at all.
+pub fn calendar_read_target(registry: &ProviderRegistry, connected: &[&str]) -> AppResult<String> {
+    resolve_calendar_target(registry, connected, None).or_else(|_| {
+        registry
+            .calendar_write_providers()
+            .first()
+            .map(|name| (*name).to_owned())
+            .ok_or_else(|| missing_calendar_capability(registry))
+    })
+}
+
+fn calendar_write_names(registry: &ProviderRegistry) -> String {
+    registry.calendar_write_providers().join(", ")
+}
+
+fn missing_calendar_capability(registry: &ProviderRegistry) -> AppError {
+    let providers = registry.calendar_write_providers();
+    let mut err = AppError::new(
+        ErrorCode::NoProviderConnected,
+        format!(
+            "None of the athlete's connected providers writes a training calendar (capability \
+             {CALENDAR_WRITE_CAPABILITY}). Connect one of: {}",
+            providers.join(", ")
+        ),
+    );
+    err.details = Some(Box::new(serde_json::json!({
+        "action": "connect_provider",
+        "missing_capability": CALENDAR_WRITE_CAPABILITY,
+        "providers": providers,
+    })));
+    err
+}
 
 /// Seconds a provider-side `updated` stamp must trail the ledger's own write
 /// by before an entry counts as edited on the provider. Absorbs clock skew
@@ -860,5 +953,142 @@ impl LedgerWrite<'_> {
             .prescribed_workouts
             .upsert_prescribed_workout(&row)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_providers::spi::{
+        OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
+    };
+
+    /// A calendar-writing provider the reconciler has never heard of.
+    struct MockCalendar {
+        name: &'static str,
+        capabilities: ProviderCapabilities,
+    }
+
+    impl ProviderDescriptor for MockCalendar {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn display_name(&self) -> &'static str {
+            self.name
+        }
+        fn capabilities(&self) -> ProviderCapabilities {
+            self.capabilities
+        }
+        fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+            None
+        }
+        fn oauth_params(&self) -> Option<OAuthParams> {
+            None
+        }
+        fn oauth_refresh(&self) -> Option<OAuthRefresh> {
+            None
+        }
+        fn api_base_url(&self) -> &'static str {
+            ""
+        }
+        fn default_scopes(&self) -> &'static [&'static str] {
+            &[]
+        }
+    }
+
+    fn registry() -> ProviderRegistry {
+        let mut registry = ProviderRegistry::new();
+        for (name, capabilities) in [
+            (
+                "mock_calendar_b",
+                ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CALENDAR_WRITE),
+            ),
+            (
+                "mock_calendar_a",
+                ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CALENDAR_WRITE),
+            ),
+            (
+                "mock_read_only",
+                ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::PLANNED_WORKOUTS),
+            ),
+        ] {
+            registry.register_descriptor(name, Box::new(MockCalendar { name, capabilities }));
+        }
+        registry
+    }
+
+    #[test]
+    fn the_target_is_the_connected_provider_that_writes_a_calendar() {
+        let target = resolve_calendar_target(&registry(), &["strava", "mock_calendar_b"], None);
+        assert_eq!(target.unwrap(), "mock_calendar_b");
+    }
+
+    #[test]
+    fn several_qualifying_connections_resolve_alphabetically_whatever_the_order() {
+        let registry = registry();
+        for connected in [
+            ["mock_calendar_b", "mock_calendar_a"],
+            ["mock_calendar_a", "mock_calendar_b"],
+        ] {
+            let target = resolve_calendar_target(&registry, &connected, None);
+            assert_eq!(target.unwrap(), "mock_calendar_a");
+        }
+    }
+
+    #[test]
+    fn a_named_provider_wins_over_the_default_order() {
+        let target = resolve_calendar_target(
+            &registry(),
+            &["mock_calendar_a", "mock_calendar_b"],
+            Some("mock_calendar_b"),
+        );
+        assert_eq!(target.unwrap(), "mock_calendar_b");
+    }
+
+    #[test]
+    fn a_named_provider_without_the_capability_is_refused_by_name() {
+        let err = resolve_calendar_target(&registry(), &[], Some("mock_read_only")).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidInput);
+        assert!(
+            err.message.contains(CALENDAR_WRITE_CAPABILITY),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("mock_calendar_a"), "{}", err.message);
+    }
+
+    #[test]
+    fn no_calendar_capable_connection_names_the_missing_capability() {
+        let err =
+            resolve_calendar_target(&registry(), &["strava", "mock_read_only"], None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NoProviderConnected);
+        assert!(
+            err.message.contains(CALENDAR_WRITE_CAPABILITY),
+            "{}",
+            err.message
+        );
+        let details = err.details.expect("details");
+        assert_eq!(details["missing_capability"], CALENDAR_WRITE_CAPABILITY);
+        let providers = details["providers"].as_array().expect("providers");
+        assert!(providers.iter().any(|name| name == "mock_calendar_a"));
+        assert!(providers.iter().all(|name| name != "mock_read_only"));
+    }
+
+    #[test]
+    fn a_read_looks_under_the_first_calendar_provider_when_none_is_connected() {
+        // The registry also holds whichever real calendar providers this
+        // build compiles (intervals_icu under --all-features), so the first
+        // in alphabetical order is read from it rather than assumed.
+        let registry = registry();
+        let first = registry.calendar_write_providers()[0];
+        assert!(first <= "mock_calendar_a", "{first}");
+        let target = calendar_read_target(&registry, &["strava"]);
+        assert_eq!(target.unwrap(), first);
+    }
+
+    #[test]
+    fn a_read_prefers_the_connected_target() {
+        let target = calendar_read_target(&registry(), &["mock_calendar_b"]);
+        assert_eq!(target.unwrap(), "mock_calendar_b");
     }
 }

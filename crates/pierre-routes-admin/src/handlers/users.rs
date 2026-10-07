@@ -25,6 +25,7 @@ use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_middleware::redaction::mask_email;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
+use pierre_services::onboarding_reset::kept_for_groups;
 use pierre_services::pre_approval::{self, AllowOutcome};
 use pierre_services::user_removal::held_providers;
 
@@ -246,6 +247,14 @@ pub async fn handle_get_user(
     // The providers the user holds, across tenants: what a delete would
     // disconnect, and what `pierre-cli user delete` previews without --yes.
     let connected_providers = held_providers(&context.repos, user_uuid).await?;
+    // Which of them an onboarding reset keeps, which
+    // `pierre-cli user reset-onboarding` previews without --yes: this server's
+    // answer, not the CLI build's.
+    let kept_on_onboarding_reset: Vec<&str> = connected_providers
+        .iter()
+        .map(|held| held.provider.as_str())
+        .filter(|provider| kept_for_groups(provider))
+        .collect();
     let manages_roster_operator_grant = context
         .repos
         .users
@@ -270,6 +279,7 @@ pub async fn handle_get_user(
                 "created_at": user.created_at.to_rfc3339(),
                 "last_active": user.last_active.to_rfc3339(),
                 "connected_providers": connected_providers,
+                "kept_on_onboarding_reset": kept_on_onboarding_reset,
             })),
         },
         StatusCode::OK,

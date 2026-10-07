@@ -24,12 +24,10 @@ use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
-use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
-use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
-
 use super::calendar::{
-    calendar_provider, destructive_annotations, required_text, step_schema, validate_step,
-    TargetRule, MAX_SESSION_STEPS,
+    calendar_provider, calendar_target, destructive_annotations, entry_provider_property,
+    provider_arg, provider_property, required_text, step_schema, validate_step, TargetRule,
+    MAX_SESSION_STEPS,
 };
 use super::training_plan_authorship::{load_conversation, resolve_turn_agent};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
@@ -46,6 +44,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_tools_core::ToolResult;
 
 /// Tool names, as the notify events name the trigger.
@@ -570,7 +569,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              in for the athlete. Filter with purpose, phase and sport; the reply \
              lists the athlete's own saved sessions after the bank. Pass detail = \
              full for the structured steps and target zones prescribe_workout \
-             pushes to the athlete's Intervals.icu calendar.",
+             pushes to the athlete's calendar provider.",
             vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
         );
         answers_with::<WorkoutTemplatesResult>(tool_definition(
@@ -728,7 +727,7 @@ fn session_schema() -> PropertySchema {
     }
 }
 
-/// `prescribe_workout` — push a workout to the athlete's Intervals.icu calendar
+/// `prescribe_workout` — push a workout to the athlete's calendar provider
 /// and record the prescription.
 pub struct PrescribeWorkoutTool;
 
@@ -786,18 +785,22 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 ..Default::default()
             },
         );
+        properties.insert("provider".to_owned(), provider_property());
         let schema = object_schema(properties, Some(vec!["date".to_owned()]));
         answers_with::<PrescribeWorkoutResult>(tool_definition(
             "prescribe_workout",
-            "Write one workout onto the athlete's Intervals.icu calendar for a \
-             given date, and record it in the prescribed_workouts ledger. \
-             Requires a connected Intervals.icu account. Pass EITHER \
+            "Write one workout onto the athlete's calendar provider (Intervals.icu \
+             today) for a given date, and record it in the prescribed_workouts \
+             ledger. Requires a connected account of a provider that writes a \
+             training calendar. Pass EITHER \
              template_slug — a slug from the workout bank (list_workout_templates \
              filters it by purpose, phase and sport) or a session you prescribed \
              this athlete before — OR session, a structured session you authored \
              for anything those do not express. Args: date (YYYY-MM-DD), \
              template_slug or session, \
-             optional agent_id, optional replaces. Without replaces every call \
+             optional agent_id, optional replaces, optional provider (needed only to \
+             choose between several connected calendars; a replaced entry stays on \
+             its own provider). Without replaces every call \
              adds a new calendar entry; with replaces = a prescription_id (from an \
              earlier call, or from get_training_plan's calendar block) that entry \
              is changed in place instead. withdraw_prescribed_workout removes one.",
@@ -850,7 +853,22 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 Some(id) => Some(live_prescription(&context, tenant_id, user_id, id).await?),
                 None => None,
             };
-            let provider = calendar_provider(&context, tenant_id, user_id).await?;
+            // A replaced entry lives on the provider the ledger filed it under;
+            // naming another would orphan it.
+            let named = provider_arg(&args);
+            let target = match &previous {
+                Some((prev, _)) => {
+                    if let Some(named) = named.filter(|name| *name != prev.provider) {
+                        return Err(AppError::invalid_input(format!(
+                            "prescription {} is on {}, so it cannot be replaced on {named}",
+                            prev.id, prev.provider
+                        )));
+                    }
+                    prev.provider.clone()
+                }
+                None => calendar_target(&context, tenant_id, user_id, named).await?,
+            };
+            let provider = calendar_provider(&context, tenant_id, user_id, &target).await?;
 
             let prescription_id = Uuid::new_v4();
             let session = PlannedSession::from_template(
@@ -881,14 +899,14 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 Ok(_) => emit_calendar_sync_completed(
                     tenant_id,
                     user_id,
-                    CALENDAR_PROVIDER,
+                    &target,
                     PRESCRIBE_TOOL,
                     1,
                 ),
                 Err(e) => emit_calendar_sync_failed(
                     tenant_id,
                     user_id,
-                    CALENDAR_PROVIDER,
+                    &target,
                     PRESCRIBE_TOOL,
                     &e.to_string(),
                 ),
@@ -924,7 +942,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 template_slug: Some(template.slug.clone()),
                 sport: template.sport.clone(),
                 prescribed_for_date: date,
-                provider: CALENDAR_PROVIDER.to_owned(),
+                provider: target.clone(),
                 provider_event_id: provider_event_id.clone(),
                 external_id: Some(session.external_id.clone()),
                 source: CalendarEventSource::Prescription,
@@ -957,7 +975,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             let event_id = push?;
             audit.map_err(|e| {
                 AppError::internal(format!(
-                    "the workout IS on the athlete's Intervals.icu calendar (event {event_id}) \
+                    "the workout IS on the athlete's {target} calendar (event {event_id}) \
                      but the prescription ledger row failed to save — do not prescribe it again: {e}"
                 ))
             })?;
@@ -966,7 +984,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 "prescribe_workout",
                 PrescribeWorkoutResult {
                     prescription_id,
-                    provider: CALENDAR_PROVIDER.to_owned(),
+                    provider: target,
                     provider_event_id: event_id,
                     replaced_prescription_id: previous
                         .as_ref()
@@ -1004,14 +1022,16 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 ..Default::default()
             },
         );
+        properties.insert("provider".to_owned(), entry_provider_property());
         let schema = object_schema(properties, Some(vec!["prescription_id".to_owned()]));
         answers_with::<WithdrawWorkoutResult>(tool_definition(
             "withdraw_prescribed_workout",
-            "Remove a workout that prescribe_workout wrote to the athlete's Intervals.icu \
-             calendar: deletes the calendar entry and marks the prescription withdrawn. \
+            "Remove a workout that prescribe_workout wrote to the athlete's calendar \
+             provider: deletes the calendar entry and marks the prescription withdrawn. \
              Only for single prescriptions — an entry the training plan put there is \
              removed by adjusting the plan (save_training_plan) and pushing it \
-             (push_training_plan). Args: prescription_id.",
+             (push_training_plan). Args: prescription_id, optional provider (the entry's own \
+             provider is used; naming a different one is refused).",
             schema,
             Some(destructive_annotations()),
         ))
@@ -1038,7 +1058,13 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 .ok_or_else(|| AppError::invalid_input("prescription_id is required"))?;
             let (row, event_id) =
                 live_prescription(&context, tenant_id, user_id, prescription_id).await?;
-            let provider = calendar_provider(&context, tenant_id, user_id).await?;
+            if let Some(named) = provider_arg(&args).filter(|name| *name != row.provider) {
+                return Err(AppError::invalid_input(format!(
+                    "prescription {prescription_id} is on {}, not {named}",
+                    row.provider
+                )));
+            }
+            let provider = calendar_provider(&context, tenant_id, user_id, &row.provider).await?;
 
             let deleted = provider
                 .delete_planned_sessions(slice::from_ref(&event_id))
@@ -1047,14 +1073,14 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 Ok(_) => emit_calendar_sync_completed(
                     tenant_id,
                     user_id,
-                    CALENDAR_PROVIDER,
+                    &row.provider,
                     WITHDRAW_TOOL,
                     1,
                 ),
                 Err(e) => emit_calendar_sync_failed(
                     tenant_id,
                     user_id,
-                    CALENDAR_PROVIDER,
+                    &row.provider,
                     WITHDRAW_TOOL,
                     &e.to_string(),
                 ),
@@ -1077,9 +1103,10 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 .await
                 .map_err(|e| {
                     AppError::internal(format!(
-                        "the entry is gone from the athlete's Intervals.icu calendar (event \
+                        "the entry is gone from the athlete's {provider_name} calendar (event \
                          {event_id}) but the ledger could not record the withdrawal — call \
-                         again to repair the row: {e}"
+                         again to repair the row: {e}",
+                        provider_name = row.provider
                     ))
                 })?;
 
@@ -1087,7 +1114,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                 "withdraw_prescribed_workout",
                 WithdrawWorkoutResult {
                     prescription_id,
-                    provider: CALENDAR_PROVIDER.to_owned(),
+                    provider: row.provider.clone(),
                     provider_event_id: event_id,
                     name: row.template_slug.clone(),
                     scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),

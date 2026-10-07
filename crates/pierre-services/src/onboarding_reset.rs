@@ -15,7 +15,8 @@
 //! The provider half disconnects every held provider through the same
 //! chokepoint [`crate::user_removal`] uses, so each grant is revoked at the
 //! provider rather than orphaned there. A coaching platform
-//! ([`coach_platform`]: `TrainingPeaks`, Intervals.icu) is the exception and
+//! ([`coach_platform`]: a provider declaring a coach roster, such as
+//! `TrainingPeaks` or Intervals.icu) is the exception and
 //! is kept: its disconnect ends every delegated coach and member link — and
 //! for `TrainingPeaks` revokes an earned `manages_roster` — which is group
 //! state a reset must not touch. A provider this build cannot revoke is kept too, since only the
@@ -33,6 +34,7 @@ use std::collections::BTreeMap;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::registry::global_registry;
 use serde::Serialize;
 use tracing::info;
 use uuid::Uuid;
@@ -100,6 +102,18 @@ pub fn describe_interruption(interruption: &Interruption, cause: &str) -> String
     )
 }
 
+/// Whether an onboarding reset keeps `provider` connected because groups
+/// rely on it: it is a coaching platform ([`coach_platform`]).
+///
+/// `provider` may be the user-facing name a held provider carries, which a
+/// coaching platform is found by as well as by its backend. The build's
+/// provider descriptors, which the global registry holds as every server's
+/// registry does, say which providers are coaching platforms.
+#[must_use]
+pub fn kept_for_groups(provider: &str) -> bool {
+    coach_platform(&global_registry(), provider).is_some()
+}
+
 /// Reset a user's onboarding.
 ///
 /// Disconnects every held provider except `TrainingPeaks` and any this build
@@ -124,9 +138,7 @@ pub async fn reset_onboarding(
         held_providers(repos, user_id)
             .await?
             .into_iter()
-            // Held providers carry their user-facing name, which a coaching
-            // platform is found by as well as by its backend.
-            .partition(|target| coach_platform(&target.provider).is_some());
+            .partition(|target| kept_for_groups(&target.provider));
 
     let mut report = OnboardingResetReport {
         kept_for_groups,

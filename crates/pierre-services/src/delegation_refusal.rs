@@ -14,9 +14,10 @@
 //! an API caller.
 
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_providers::registry::global_registry;
 use serde_json::{json, Map, Value};
 
-use crate::coach_platform::{CoachPlatform, COACH_PLATFORMS};
+use crate::coach_platform::{coach_platforms, CoachPlatform};
 use crate::trainingpeaks_accounts::EmailBinding;
 
 /// Why a linking step was refused.
@@ -193,8 +194,11 @@ impl Refusal {
 }
 
 /// Every coaching platform's brand, joined by `separator`.
+///
+/// Words only: the build's provider descriptors, which the global registry
+/// holds as every server's registry does, name the platforms.
 fn platform_brands(separator: &str) -> String {
-    COACH_PLATFORMS
+    coach_platforms(&global_registry())
         .iter()
         .map(|platform| platform.brand())
         .collect::<Vec<_>>()

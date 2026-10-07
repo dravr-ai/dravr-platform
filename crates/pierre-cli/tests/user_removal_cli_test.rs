@@ -1,4 +1,4 @@
-// ABOUTME: carnet#502 — `user disconnect`, `user delete` and `strava-pool seats` against a stub admin API
+// ABOUTME: carnet#502 — `user disconnect`, `user delete`, `user reset-onboarding` and `strava-pool seats` against a stub admin API
 // ABOUTME: Pins the requests each verb sends, that delete without --yes deletes nothing, and what gets printed
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -441,4 +441,61 @@ fn strava_pool_seats_prints_one_row_per_holder() {
         stdout.contains("Seats: 2/20 used, 18 free (env app + enabled pool apps)"),
         "the summary line: {stdout}"
     );
+}
+
+#[test]
+fn reset_onboarding_without_yes_keeps_what_the_server_says_groups_rely_on() {
+    let id = Uuid::new_v4().to_string();
+    let stub = StubServer::serve(vec![
+        route("GET /admin/users?status=all", 200, listing(&[(EMAIL, &id)])),
+        route(
+            format!("GET /admin/users/{id} "),
+            200,
+            json!({
+                "success": true,
+                "data": {
+                    "id": id,
+                    "email": EMAIL,
+                    "connected_providers": [
+                        { "tenant_id": TENANT, "provider": "strava" },
+                        { "tenant_id": TENANT, "provider": "coachhub" },
+                    ],
+                    // A coaching platform is one by the server's provider
+                    // descriptors, which this CLI build may not compile.
+                    "kept_on_onboarding_reset": ["coachhub"],
+                },
+            }),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "reset-onboarding",
+            "--email",
+            EMAIL,
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_ne!(
+        code, 0,
+        "an unconfirmed reset must exit non-zero: {stdout}{stderr}"
+    );
+    assert!(
+        stdout.contains(&format!("coachhub (tenant {TENANT}) would be kept")),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!(
+            "strava (tenant {TENANT}) would be disconnected and revoked at the provider"
+        )),
+        "{stdout}"
+    );
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2, "one lookup, one read: {requests:?}");
 }

@@ -378,12 +378,19 @@ impl DelegatedConnectionRoutes {
         let (group, tenant) = Self::open_group(&resources, &auth, &group_id).await?;
         Self::require_coach(&group, auth.user_id)?;
         let repos = MiddlewareCtx::repos(resources.as_ref());
-        let platform =
-            roster_platform(repos, auth.user_id, tenant, query.provider.as_deref()).await?;
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let platform = roster_platform(
+            repos,
+            registry,
+            auth.user_id,
+            tenant,
+            query.provider.as_deref(),
+        )
+        .await?;
+        let platform = platform.as_ref();
         // The roster is the coach's platform data, with no provenance of its
         // own per athlete: refused whole over an external transport when the
         // platform's terms keep its data first-party (carnet#724).
-        let registry = ToolRuntime::provider_registry(resources.as_ref());
         for name in [platform.user_facing(), platform.backend()] {
             ai_scope::first_party_only_read(registry.as_ref(), name, None)?;
         }
@@ -494,14 +501,7 @@ impl DelegatedConnectionRoutes {
             return Err(AppError::not_found("Pending link"));
         }
 
-        let confirmed = confirm(
-            repos,
-            GroupsCtx::notification_service(resources.as_ref()),
-            &group,
-            &link,
-            tenant,
-        )
-        .await?;
+        let confirmed = confirm(Self::services(&resources), &group, &link, tenant).await?;
         Self::spawn_warm_up(
             &resources,
             confirmed.provider.clone(),

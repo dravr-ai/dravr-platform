@@ -1,13 +1,14 @@
 // ABOUTME: A group's coach links a coaching-platform roster athlete to a member, the member confirms, either side ends it
-// ABOUTME: Reads the coach's roster through their own TrainingPeaks session or Intervals.icu key, enforces each step and tells the other side
+// ABOUTME: Reads the coach's roster through their own platform credential, enforces each step and tells the other side
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Delegated connections
 //!
-//! A coaching platform ([`CoachPlatform`]: `TrainingPeaks`, Intervals.icu)
-//! lets a coach's own account read the athletes who share with it. A group's
+//! A coaching platform ([`CoachPlatform`]: a provider declaring a coach
+//! roster, such as `TrainingPeaks` or Intervals.icu) lets a coach's own
+//! account read the athletes who share with it. A group's
 //! human coach links one of those roster athletes to a live member of the
 //! group ([`propose`]); the member confirms ([`confirm`]), and that
 //! confirmation is their consent to having their workouts on that platform
@@ -56,7 +57,7 @@ use pierre_groups::delegation::DelegationStore;
 use pierre_notifications::triggers::{self, LinkPlatform};
 use pierre_notifications::{NotificationService, TenantId as NoticeTenantId};
 use pierre_providers::backend_resolver::user_facing_name;
-use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::registry::{global_registry, ProviderRegistry};
 use serde_json::json;
 use tracing::{info, warn};
 use unicode_normalization::char::is_combining_mark;
@@ -560,8 +561,9 @@ pub async fn propose(
     proposal: Proposal<'_>,
 ) -> AppResult<DelegatedConnection> {
     let repos = services.repos;
-    let platform = coach_platform(proposal.provider)
+    let platform = coach_platform(services.registry, proposal.provider)
         .ok_or_else(|| Refusal::UnsupportedProvider.error(None))?;
+    let platform = platform.as_ref();
     let backend = platform.backend();
     let athlete = proposal.provider_athlete_id;
     services
@@ -640,14 +642,20 @@ pub async fn propose(
 /// not-found error when `link` is no longer a proposal; or a repository
 /// error.
 pub async fn confirm(
-    repos: &RepositoryRegistry,
-    notifications: Option<&Arc<NotificationService>>,
+    services: DelegationServices<'_>,
     group: &CoachingGroup,
     link: &DelegatedConnection,
     member_tenant: TenantId,
 ) -> AppResult<DelegatedConnection> {
+    let DelegationServices {
+        repos,
+        registry,
+        notifications,
+        ..
+    } = services;
     let member = link.member_user_id;
-    let platform = coach_platform(&link.provider);
+    let platform = coach_platform(registry, &link.provider);
+    let platform = platform.as_deref();
     if holds_own_connection(repos, member, member_tenant, &link.provider).await? {
         return Err(Refusal::OwnConnection.error(platform));
     }
@@ -1069,11 +1077,15 @@ impl<'a> Notices<'a> {
 
 /// The coaching platform `link` reads through, as a notice names it: the
 /// card it opens and the brand its words carry.
+///
+/// Words only: the build's provider descriptors, which the global registry
+/// holds as every server's registry does, name the platform.
 fn link_platform(link: &DelegatedConnection) -> LinkPlatform<'_> {
     let provider = user_facing_name(&link.provider);
     LinkPlatform {
         provider,
-        name: coach_platform(&link.provider).map_or(provider, |platform| platform.brand()),
+        name: coach_platform(&global_registry(), &link.provider)
+            .map_or(provider, |platform| platform.brand()),
     }
 }
 

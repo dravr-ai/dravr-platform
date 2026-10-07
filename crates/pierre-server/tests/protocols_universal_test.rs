@@ -24,6 +24,7 @@ use pierre_config::environment::{self, *};
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::{ConnectionType, Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -1755,7 +1756,11 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
 #[tokio::test]
 async fn test_get_stats_async_no_token() -> Result<()> {
     common::init_server_config();
-    let executor = create_test_executor().await?;
+    // The athlete's own app: over an external transport Strava's terms refuse
+    // the read before any token is looked up (carnet#765).
+    let executor = create_test_executor()
+        .await?
+        .with_transport(Transport::WebApp);
 
     // Create tenant and user for testing (user first, then tenant)
     let user_id = Uuid::new_v4();

@@ -12,7 +12,9 @@
 //! recovery readings, the week-long alerts once averaged all of them: a good
 //! week behind a bad month read as a deficit, and a bad week behind a good
 //! month read as fine. These tests seed the athlete's series in the database
-//! and read the alerts where the agent reads them, in the plan's state block.
+//! and read the alerts where the agent reads them, in the plan's state block,
+//! on one of Dravr's own surfaces: the wearable is a WHOOP strap, whose terms
+//! keep its records off every external transport (carnet#766).
 
 use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
@@ -22,6 +24,7 @@ use pierre_core::models::{
     StoredSleepSession, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -37,7 +40,9 @@ async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
     Ok(Arc::new(
-        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::Messaging),
     ))
 }
 

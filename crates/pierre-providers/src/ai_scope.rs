@@ -47,12 +47,9 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::future::Future;
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
-use chrono::NaiveDate;
 use pierre_core::ai_policy::{
     filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
 };
@@ -60,25 +57,21 @@ use pierre_core::constants::oauth_providers::{
     garmin_device, source_attribution, GARMIN_ATTRIBUTION,
 };
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
-};
-use pierre_core::pagination::{CursorPage, PaginationParams};
+use pierre_core::models::{Activity, PlannedWorkout};
 use pierre_core::transport::{Transport, TransportPolicy};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::LocalKey;
 
-use crate::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
-};
-
 /// The athlete's withdrawable consent to AI use of each provider's data.
 mod consent;
+/// The decorator that applies the provider-terms filters to every read.
+mod governed;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
 pub use consent::{ai_consent_withheld, consented_read, with_ai_consent};
+pub use governed::AiGovernedProvider;
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
 tokio::task_local! {
@@ -524,184 +517,22 @@ pub fn first_party_only_read(
     Ok(())
 }
 
-/// A provider whose reads return only what each provider's terms let the
-/// reader see.
-///
-/// Under a gate, the reader is a model (AI policy) or a caller over an
-/// external transport (transport policy). Writes and auth pass straight
-/// through, and where no gate applies so does everything.
-pub struct AiGovernedProvider {
-    inner: Box<dyn FitnessProvider>,
-    policies: Arc<dyn ProviderTerms>,
-}
-
-impl AiGovernedProvider {
-    /// Govern `inner`'s reads by the policies `policies` declares (the provider registry).
-    #[must_use]
-    pub fn wrap(
-        inner: Box<dyn FitnessProvider>,
-        policies: Arc<dyn ProviderTerms>,
-    ) -> Box<dyn FitnessProvider> {
-        Box::new(Self { inner, policies })
-    }
-
-    fn lookup(&self) -> &dyn ProviderTerms {
-        self.policies.as_ref()
-    }
-
-    fn governed_one(&self, id: &str, activity: Activity) -> AppResult<Activity> {
-        first_party_only_read(self.lookup(), activity.provider(), activity.source())?;
-        filter_one(self.lookup(), activity).ok_or_else(|| withheld_error(id))
-    }
-
-    fn untagged_read(&self) -> AppResult<()> {
-        first_party_only_read(self.lookup(), self.inner.name(), None)?;
-        consented_read(self.inner.name())
-    }
-}
-
-#[async_trait]
-impl FitnessProvider for AiGovernedProvider {
-    fn name(&self) -> &'static str {
-        self.inner.name()
-    }
-
-    fn config(&self) -> &ProviderConfig {
-        self.inner.config()
-    }
-
-    async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
-        self.inner.set_credentials(credentials).await
-    }
-
-    async fn is_authenticated(&self) -> bool {
-        self.inner.is_authenticated().await
-    }
-
-    async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        self.inner.refresh_token_if_needed().await
-    }
-
-    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        self.inner.set_token_refresh_callback(callback);
-    }
-
-    async fn get_athlete(&self) -> AppResult<Athlete> {
-        self.untagged_read()?;
-        self.inner.get_athlete().await
-    }
-
-    async fn get_activities(
-        &self,
-        limit: Option<usize>,
-        offset: Option<usize>,
-    ) -> AppResult<Vec<Activity>> {
-        let activities = self.inner.get_activities(limit, offset).await?;
-        Ok(filter_activities(self.lookup(), activities))
-    }
-
-    async fn get_activities_with_params(
-        &self,
-        params: &ActivityQueryParams,
-    ) -> AppResult<Vec<Activity>> {
-        let activities = self.inner.get_activities_with_params(params).await?;
-        Ok(filter_activities(self.lookup(), activities))
-    }
-
-    fn head_complete(&self) -> bool {
-        self.inner.head_complete()
-    }
-
-    async fn get_activities_cursor(
-        &self,
-        params: &PaginationParams,
-    ) -> AppResult<CursorPage<Activity>> {
-        let mut page = self.inner.get_activities_cursor(params).await?;
-        page.items = filter_activities(self.lookup(), mem::take(&mut page.items));
-        page.count = page.items.len();
-        Ok(page)
-    }
-
-    async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let activity = self.inner.get_activity(id).await?;
-        self.governed_one(id, activity)
-    }
-
-    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
-        let activity = self.inner.get_activity_detailed(id).await?;
-        self.governed_one(id, activity)
-    }
-
-    fn serves_activity_streams(&self) -> bool {
-        self.inner.serves_activity_streams()
-    }
-
-    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
-        let activity = self.inner.get_activity_with_streams(id).await?;
-        self.governed_one(id, activity)
-    }
-
-    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
-        if !policies_apply() {
-            return self.inner.get_activity_streams(id).await;
-        }
-        // Streams carry no provenance of their own: read the activity they
-        // belong to and let its policy decide.
-        let activity = self.get_activity_with_streams(id).await?;
-        Ok(activity.time_series_data().cloned())
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        self.untagged_read()?;
-        self.inner.get_stats().await
-    }
-
-    async fn list_planned_workouts(
-        &self,
-        after: NaiveDate,
-        before: NaiveDate,
-    ) -> AppResult<Vec<PlannedWorkout>> {
-        let workouts = self.inner.list_planned_workouts(after, before).await?;
-        Ok(filter_planned_workouts(self.lookup(), workouts))
-    }
-
-    async fn list_calendar_events(
-        &self,
-        from: NaiveDate,
-        to: NaiveDate,
-    ) -> AppResult<Vec<CalendarEventRef>> {
-        self.untagged_read()?;
-        self.inner.list_calendar_events(from, to).await
-    }
-
-    async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
-        self.inner.push_planned_session(session).await
-    }
-
-    async fn update_planned_session(
-        &self,
-        provider_event_id: &str,
-        session: &PlannedSession,
-    ) -> AppResult<()> {
-        self.inner
-            .update_planned_session(provider_event_id, session)
-            .await
-    }
-
-    async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
-        self.inner.delete_planned_sessions(provider_event_ids).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT};
+    use async_trait::async_trait;
     use chrono::{TimeZone, Utc};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{ActivityBuilder, SportType};
+    use pierre_core::models::{Athlete, Stats};
+    use pierre_core::pagination::{CursorPage, PaginationParams};
     use pierre_core::transport::TransportPolicy;
+
+    #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
+    use crate::registry::ProviderRegistry;
 
     struct NolioOnly;
 
@@ -1121,5 +952,89 @@ mod tests {
             cache_write.attributions().is_empty(),
             "a cache write serves no one"
         );
+    }
+
+    /// The same Strava session read through the API and through the sciotte
+    /// Strava backend, which stamps it `sciotte` with `source = "strava"`.
+    #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
+    fn strava_sessions() -> Vec<Activity> {
+        let start = Utc.with_ymd_and_hms(2026, 10, 6, 6, 0, 0).unwrap();
+        vec![
+            ActivityBuilder::new("api", "Tempo", SportType::Run, start, 3600, "strava").build(),
+            ActivityBuilder::new("scraped", "Tempo", SportType::Run, start, 3600, "sciotte")
+                .source("strava")
+                .build(),
+        ]
+    }
+
+    /// Strava API Policy §5.16 and §2.3 (carnet#765), through the registry
+    /// the server builds: no MCP, A2A or API-key caller gets Strava data,
+    /// whichever backend read it; Dravr's own surfaces get all of it.
+    #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
+    #[tokio::test]
+    async fn strava_data_direct_or_scraped_is_served_only_to_dravrs_own_surfaces() {
+        let registry = ProviderRegistry::new();
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            let served = serve_over(transport, async {
+                filter_activities(&registry, strava_sessions())
+            })
+            .await;
+            assert!(served.is_empty(), "{transport:?}: an API read");
+
+            let (for_model, withheld) = serve_over(
+                transport,
+                with_ai_consent(
+                    BTreeSet::new(),
+                    ai_read(async { filter_activities(&registry, strava_sessions()) }),
+                ),
+            )
+            .await;
+            assert!(for_model.is_empty(), "{transport:?}: an AI read");
+            assert_eq!(withheld.off_interface, 2, "{transport:?}");
+
+            for backend in ["strava", "sciotte"] {
+                let untagged = serve_over(transport, async {
+                    first_party_only_read(&registry, backend, None)
+                })
+                .await;
+                assert_eq!(
+                    untagged.expect_err("an unstamped read is refused").code,
+                    ErrorCode::UnavailableOverTransport,
+                    "{transport:?}: {backend}"
+                );
+            }
+        }
+
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+            Transport::PlatformJob,
+        ] {
+            let served = serve_over(transport, async {
+                filter_activities(&registry, strava_sessions())
+            })
+            .await;
+            assert_eq!(ids(&served), vec!["api", "scraped"], "{transport:?}");
+
+            let (for_model, withheld) = serve_over(
+                transport,
+                with_ai_consent(
+                    BTreeSet::new(),
+                    ai_read(async { filter_activities(&registry, strava_sessions()) }),
+                ),
+            )
+            .await;
+            assert_eq!(ids(&for_model), vec!["api", "scraped"], "{transport:?}");
+            assert!(withheld.is_empty(), "{transport:?}");
+
+            for backend in ["strava", "sciotte"] {
+                let untagged = serve_over(transport, async {
+                    first_party_only_read(&registry, backend, None)
+                })
+                .await;
+                assert!(untagged.is_ok(), "{transport:?}: {backend}");
+            }
+        }
     }
 }

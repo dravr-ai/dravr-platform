@@ -16,6 +16,7 @@ use common::{create_test_server_resources, create_test_user};
 use embacle_tool_host::ToolSurface;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_llm::{ChatMessage, FunctionResponse};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -327,6 +328,9 @@ fn loopback_executor(resources: &Arc<ServerContext>) -> Arc<UniversalToolExecuto
     Arc::new(
         UniversalToolExecutor::new(resources.clone())
             .with_scopes(OAuthScope::self_grant())
+            // A turn's executor serves the transport its turn declared: here
+            // the web app, so the Strava rides reach it (carnet#765).
+            .with_transport(Transport::WebApp)
             .with_conversation_id("conv-projection".into()),
     )
 }

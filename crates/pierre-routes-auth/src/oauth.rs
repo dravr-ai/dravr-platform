@@ -28,7 +28,7 @@ use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::connect_prefetch::PrefetchWait;
-use pierre_services::coach_platform::COACH_PLATFORMS;
+use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
@@ -442,7 +442,8 @@ pub async fn compute_providers_status(
     // reported it: the one the user signed in to most recently. A delegated
     // row is read through someone else's account and says nothing about the
     // user's own.
-    let account_roles: HashMap<&str, ProviderAccountRole> = COACH_PLATFORMS
+    let platforms = coach_platforms(&registry);
+    let account_roles: HashMap<&str, ProviderAccountRole> = platforms
         .iter()
         .filter_map(|platform| {
             connections
@@ -461,7 +462,7 @@ pub async fn compute_providers_status(
     // platform for them. A failed read shows no link rather than failing the
     // page.
     let mut delegations: HashMap<&str, ProviderDelegation> = HashMap::new();
-    for platform in COACH_PLATFORMS {
+    for platform in &platforms {
         match member_delegation(&resources.repos, user_id, platform.backend()).await {
             Ok(Some(delegation)) => {
                 delegations.insert(platform.backend(), provider_delegation(delegation));

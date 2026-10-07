@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
+use crate::core::{FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory};
 use crate::delegation::DelegatedReads;
 use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
@@ -51,7 +51,7 @@ use crate::intervals_icu_provider::{
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
     SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProviderFactory,
-    SciotteTrainingPeaksProviderFactory,
+    SciotteTarget, SciotteTrainingPeaksProviderFactory,
 };
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
@@ -565,13 +565,62 @@ impl ProviderRegistry {
     }
 }
 
+impl ProviderRegistry {
+    /// The descriptor whose terms govern data stamped `name`: the one
+    /// registered under it, or else the one whose backend reads that service
+    /// ([`ProviderDescriptor::origin`]) — `trainingpeaks` planned workouts and
+    /// `coros` sources answer to the scraper that reads them (carnet#767).
+    /// Several readers of one service are first in name order; the registry
+    /// test pins that they declare the same terms.
+    fn terms_descriptor(&self, name: &str) -> Option<&dyn ProviderDescriptor> {
+        if let Some(descriptor) = self.descriptors.get(name) {
+            return Some(descriptor.as_ref());
+        }
+        self.descriptors
+            .iter()
+            .filter(|(_, d)| d.origin().is_some_and(|origin| origin == name))
+            .min_by_key(|(registered, _)| **registered)
+            .map(|(_, d)| d.as_ref())
+    }
+}
+
 impl ProviderTerms for ProviderRegistry {
     fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
-        self.descriptors.get(provider).map(|d| d.ai_policy())
+        self.terms_descriptor(provider)
+            .map(ProviderDescriptor::ai_policy)
     }
 
     fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
-        self.descriptors.get(provider).map(|d| d.transport_policy())
+        self.terms_descriptor(provider)
+            .map(ProviderDescriptor::transport_policy)
+    }
+
+    fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
+        self.terms_descriptor(relay)?
+            .transport_by_source()
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(source))
+            .map(|(_, policy)| *policy)
+    }
+
+    /// Every sciotte backend stamps its items `sciotte` with the scraped
+    /// service as `source`, while `sciotte` is also the name of its Strava
+    /// backend: a Garmin activity it scraped is the `sciotte_garmin` backend's
+    /// to govern, not the Strava one's (carnet#765). An unstamped read names
+    /// its backend itself.
+    #[cfg(feature = "provider-sciotte")]
+    fn item_transport_policy(
+        &self,
+        provider: &str,
+        source: Option<&str>,
+    ) -> Option<TransportPolicy> {
+        let backend = match source {
+            Some(scraped) if provider == oauth_providers::SCIOTTE => {
+                SciotteTarget::from_target_param(&scraped.to_ascii_lowercase()).provider_name()
+            }
+            _ => provider,
+        };
+        self.transport_policy(backend)
     }
 }
 
@@ -624,6 +673,21 @@ impl ProviderRegistry {
             .descriptors
             .iter()
             .filter(|(_, d)| d.capabilities().supports_planned_workouts())
+            .map(|(name, _)| *name)
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// Get all providers whose training calendar accepts writes, by
+    /// registered name, sorted: the order a caller picks a push target by
+    /// when an athlete has several connected.
+    #[must_use]
+    pub fn calendar_write_providers(&self) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = self
+            .descriptors
+            .iter()
+            .filter(|(_, d)| d.capabilities().supports_calendar_write())
             .map(|(name, _)| *name)
             .collect();
         names.sort_unstable();
@@ -683,22 +747,29 @@ impl ProviderRegistry {
             .check_athlete_id(athlete_id)
     }
 
-    /// Create a provider that reads one coached athlete through a coach
-    /// account's credential, which the caller then sets on it.
+    /// Create a provider that reads one coached athlete, `athlete_id`,
+    /// through `coach_credentials`: the coach account's own stored
+    /// credential, an OAuth grant or an API key alike
+    /// ([`CredentialKind`](crate::core::CredentialKind)).
     ///
-    /// A coaching platform's coach account reads each athlete who shares with
-    /// it by that athlete's id. The provider it builds names `athlete_id` on
-    /// every read and refuses a detail id outside that athlete.
+    /// Only a provider whose descriptor declares
+    /// [`ProviderCapabilities::COACH_ROSTER`] is built this way. A coaching
+    /// platform's coach account reads each athlete who shares with it by that
+    /// athlete's id; the provider built names `athlete_id` on every read and
+    /// refuses a detail id outside that athlete. The athlete id is checked
+    /// before the provider is built, so a refused id reaches no URL.
     ///
     /// # Errors
     ///
     /// Returns an invalid-input error for a provider that cannot be read on
     /// anyone's behalf, for an athlete id it refuses, or when the provider
-    /// has no default configuration.
-    pub fn create_delegated_provider(
+    /// has no default configuration; or the provider's refusal of the
+    /// credentials.
+    pub async fn create_delegated_provider(
         &self,
         provider_name: &str,
         athlete_id: &str,
+        coach_credentials: OAuth2Credentials,
     ) -> AppResult<Box<dyn FitnessProvider>> {
         let reads = self.delegated_reads(provider_name)?;
         let config = self
@@ -710,17 +781,44 @@ impl ProviderRegistry {
                 ))
             })?
             .clone();
-        reads.create_delegated(config, athlete_id)
+        let provider = reads.create_delegated(config, athlete_id)?;
+        provider.set_credentials(coach_credentials).await?;
+        Ok(provider)
     }
 
-    /// The delegated-read capability of `provider_name`'s factory.
+    /// Every provider a coach account reads its athletes through (those whose
+    /// descriptor declares [`ProviderCapabilities::COACH_ROSTER`]) by
+    /// registered name, sorted so every call lists them in one order.
+    #[must_use]
+    pub fn coach_roster_providers(&self) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = self
+            .descriptors
+            .iter()
+            .filter(|(_, d)| d.capabilities().supports_coach_roster())
+            .map(|(name, _)| *name)
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// The delegated-read capability of `provider_name`: its descriptor
+    /// declares [`ProviderCapabilities::COACH_ROSTER`], and its factory says
+    /// how to build the provider fixed to one athlete.
     fn delegated_reads(&self, provider_name: &str) -> AppResult<&dyn DelegatedReads> {
+        let declared = self
+            .get_capabilities(provider_name)
+            .is_some_and(|caps| caps.supports_coach_roster());
+        if !declared {
+            return Err(AppError::invalid_input(format!(
+                "{provider_name} cannot be read on behalf of a coached athlete"
+            )));
+        }
         self.factories
             .get(provider_name)
             .and_then(|factory| factory.delegated_reads())
             .ok_or_else(|| {
-                AppError::invalid_input(format!(
-                    "{provider_name} cannot be read on behalf of a coached athlete"
+                AppError::internal(format!(
+                    "{provider_name} declares a coach roster but its factory builds no delegated reads"
                 ))
             })
     }
@@ -885,4 +983,27 @@ pub fn global_terra_cache() -> Arc<TerraDataCache> {
     TERRA_CACHE
         .get_or_init(|| Arc::new(TerraDataCache::new_in_memory()))
         .clone() // Safe: Arc clone for shared cache access
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A built-in factory that builds delegated reads is read on a coached
+    /// athlete's behalf only through its descriptor's `COACH_ROSTER`, so one
+    /// that declares nothing would build reads no one can reach.
+    #[test]
+    fn every_built_in_delegated_factory_declares_a_coach_roster() {
+        let registry = ProviderRegistry::new();
+        for (name, factory) in &registry.factories {
+            if factory.delegated_reads().is_some() {
+                assert!(
+                    registry
+                        .get_capabilities(name)
+                        .is_some_and(|caps| caps.supports_coach_roster()),
+                    "{name} builds delegated reads but declares no coach roster"
+                );
+            }
+        }
+    }
 }

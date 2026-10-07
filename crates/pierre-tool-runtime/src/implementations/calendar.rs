@@ -9,8 +9,10 @@ use std::collections::HashMap;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{RelativeIntensity, TenantId, WorkoutStep};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_providers::backend_resolver::resolve_backend;
 use pierre_providers::core::FitnessProvider;
-use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
+use pierre_services::plan_calendar_push::{calendar_read_target, resolve_calendar_target};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::context::ToolExecutionContext;
@@ -28,22 +30,131 @@ pub(super) fn destructive_annotations() -> ToolAnnotations {
     }
 }
 
-/// Build the athlete's authenticated calendar provider, or the refusal a
-/// calendar-less athlete gets.
+/// The `provider` property `push_training_plan`, `prescribe_workout` and
+/// `withdraw_prescribed_workout` share.
+pub(super) fn provider_property() -> PropertySchema {
+    PropertySchema {
+        property_type: "string".to_owned(),
+        description: Some(
+            "Calendar provider to write to, by name (e.g. intervals_icu). Optional: omitted, \
+             the athlete's connected provider that writes a training calendar is used, the \
+             first in alphabetical order when several are connected."
+                .to_owned(),
+        ),
+        ..Default::default()
+    }
+}
+
+/// The `provider` property of `withdraw_prescribed_workout`, which acts on
+/// the provider the ledger filed the entry under. That tool ships with the
+/// data tools.
+#[cfg(feature = "tools-data")]
+pub(super) fn entry_provider_property() -> PropertySchema {
+    PropertySchema {
+        property_type: "string".to_owned(),
+        description: Some(
+            "Provider the entry is on. Optional: the ledger already knows it; naming a \
+             different provider is refused."
+                .to_owned(),
+        ),
+        ..Default::default()
+    }
+}
+
+/// The `provider` argument, when the caller stated one.
+pub(super) fn provider_arg(args: &Value) -> Option<&str> {
+    args.get("provider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+}
+
+/// The backends `user_id` holds a connection to.
+async fn connected_backends(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Vec<String>> {
+    Ok(context
+        .resources
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await?
+        .into_iter()
+        .map(|connection| connection.provider)
+        .collect())
+}
+
+/// The backend a calendar write goes to: the one the caller named, else the
+/// athlete's connected provider that declares calendar-write.
+///
+/// # Errors
+///
+/// Returns the refusal [`resolve_calendar_target`] gives: an unsuitable named
+/// provider, or an athlete with no calendar-capable connection.
+pub(super) async fn calendar_target(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    requested: Option<&str>,
+) -> AppResult<String> {
+    let registry = context.resources.provider_registry();
+    let requested = match requested {
+        Some(name) => Some(
+            resolve_backend(
+                &context.resources.repos().auth_repos(),
+                user_id,
+                Some(tenant_id),
+                name,
+            )
+            .await,
+        ),
+        None => None,
+    };
+    let connected = connected_backends(context, tenant_id, user_id).await?;
+    let connected: Vec<&str> = connected.iter().map(String::as_str).collect();
+    resolve_calendar_target(registry, &connected, requested.as_deref())
+}
+
+/// The calendar a read of the push ledger looks under: the athlete's
+/// connected target, falling back to the first calendar-write provider so an
+/// athlete who never connected one reads an empty ledger, not an error.
+///
+/// # Errors
+///
+/// Returns an error when the connections cannot be read or no provider
+/// declares calendar-write at all.
+pub(super) async fn calendar_ledger_target(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<String> {
+    let connected = connected_backends(context, tenant_id, user_id).await?;
+    let connected: Vec<&str> = connected.iter().map(String::as_str).collect();
+    calendar_read_target(context.resources.provider_registry(), &connected)
+}
+
+/// Build the athlete's authenticated provider for the calendar `backend`, or
+/// the refusal an athlete who has not connected it gets.
 pub(super) async fn calendar_provider(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
+    backend: &str,
 ) -> AppResult<Box<dyn FitnessProvider>> {
     let tenant_str = tenant_id.to_string();
     AuthService::new(context.resources.clone())
-        .create_authenticated_provider(CALENDAR_PROVIDER, user_id, Some(tenant_str.as_str()))
+        .create_authenticated_provider(backend, user_id, Some(tenant_str.as_str()))
         .await
         .map_err(|resp| {
             AppError::invalid_input(resp.error.unwrap_or_else(|| {
-                "Connect an Intervals.icu account first — it is the only calendar this \
-                 platform can write to"
-                    .to_owned()
+                let brand = context
+                    .resources
+                    .provider_registry()
+                    .get_display_name(backend)
+                    .unwrap_or(backend);
+                format!("Connect a {brand} account first — it is the calendar being written to")
             }))
         })
 }

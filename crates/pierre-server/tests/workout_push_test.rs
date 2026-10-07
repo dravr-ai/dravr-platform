@@ -1214,8 +1214,8 @@ async fn an_athlete_without_intervals_icu_is_told_to_connect_it() -> Result<()> 
         Err(err) => format!("{err:?}"),
     };
     assert!(
-        rendered.to_lowercase().contains("intervals"),
-        "the refusal must name the account to connect; got: {rendered}"
+        rendered.contains("calendar_write") && rendered.contains(INTERVALS_ICU),
+        "the refusal must name the missing capability and who has it; got: {rendered}"
     );
     assert!(
         stub.requests().await.is_empty(),

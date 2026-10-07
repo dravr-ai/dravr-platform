@@ -553,7 +553,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 // — and plan entries of a plan since abandoned, which the
                 // block's `pending.remove` counts.
                 let calendar =
-                    calendar_block(repos, tenant, scope.user_id, &[], today, &fueling).await?;
+                    calendar_block(&context, tenant, scope.user_id, &[], today, &fueling).await?;
                 return ok_typed(
                     "get_training_plan",
                     GetTrainingPlanResult {
@@ -586,7 +586,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .cloned()
                 .collect();
             let calendar =
-                calendar_block(repos, tenant, scope.user_id, &active_weeks, today, &fueling)
+                calendar_block(&context, tenant, scope.user_id, &active_weeks, today, &fueling)
                     .await?;
 
             // Both rails have measured every save since they shipped and
@@ -1027,7 +1027,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // plan, say what a push would now change so the athlete learns
             // the calendar is behind — without pushing on anyone's behalf.
             let calendar = calendar_preview_after_save(
-                repos,
+                &context,
                 tenant,
                 scope.user_id,
                 &bundle.plan.id,

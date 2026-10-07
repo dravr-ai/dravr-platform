@@ -11,10 +11,13 @@
 //! coach linked, and who confirmed the link, is read that way: through the
 //! coach's stored credential, naming the member's athlete id on every read.
 //!
-//! A provider that can be read this way says so through its factory's
-//! [`DelegatedReads`] capability, which builds a provider fixed to one
-//! athlete. Such a provider reads nothing outside that athlete, and its
-//! failures take one of two shapes a caller acts on:
+//! A provider that can be read this way says so in its descriptor, which
+//! declares [`ProviderCapabilities::COACH_ROSTER`], and its factory's
+//! [`DelegatedReads`] capability builds a provider fixed to one athlete from
+//! the coach's credential, an OAuth grant or an API key alike
+//! ([`ProviderRegistry::create_delegated_provider`]). Such a provider reads
+//! nothing outside that athlete, and its failures take one of two shapes a
+//! caller acts on:
 //!
 //! - [`coach_credential_expired`]: the coach's credential no longer works.
 //!   Only the coach can renew it, so it is not the reader's reconnect error.
@@ -29,8 +32,12 @@ use serde_json::{Map, Value};
 use crate::core::{FitnessProvider, ProviderConfig};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::models::RosterAthlete;
+#[cfg(doc)]
+use crate::registry::ProviderRegistry;
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_error::sciotte_refusal;
+#[cfg(doc)]
+use crate::spi::ProviderCapabilities;
 
 /// Details key marking an error as the failure of the coach's credential
 /// behind a delegated read, read back by [`is_coach_credential_expired`].
@@ -58,8 +65,9 @@ pub struct CoachRoster {
 /// athlete through a coach's own credential.
 ///
 /// A factory offers it through
-/// [`ProviderFactory::delegated_reads`](crate::core::ProviderFactory::delegated_reads);
-/// one that does not cannot be read on behalf of anyone.
+/// [`ProviderFactory::delegated_reads`](crate::core::ProviderFactory::delegated_reads),
+/// and its descriptor declares [`ProviderCapabilities::COACH_ROSTER`]; a
+/// provider without both cannot be read on behalf of anyone.
 pub trait DelegatedReads: Send + Sync {
     /// Refuse an athlete id the platform could not have issued, before it
     /// reaches a URL or a stored link.

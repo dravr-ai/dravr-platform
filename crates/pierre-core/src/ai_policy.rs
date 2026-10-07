@@ -27,6 +27,11 @@
 //! [`TransportPolicy::FirstPartyOnly`]; on a call served over an external
 //! [`Transport`](crate::transport::Transport), its items are dropped whole —
 //! whether a model reads them or not — by the same relay-then-origin lookup.
+//! The relay's policy is resolved per item where one name serves several
+//! backends' data: a sciotte item answers to the backend that scraped it
+//! (carnet#765). A relay whose terms name a source settles that source's
+//! items by its own rule alone (carnet#767): intervals.icu licenses the
+//! Garmin-recorded data it relays on its own terms.
 
 use std::collections::BTreeSet;
 
@@ -101,6 +106,38 @@ pub trait ProviderTerms: Send + Sync {
     /// Where `provider`'s terms let its data be served, or `None` when the
     /// provider is unknown.
     fn transport_policy(&self, provider: &str) -> Option<TransportPolicy>;
+
+    /// Where an item `provider` served, recorded upstream by `source`, may be
+    /// served by the terms of the provider that served it, or `None` when that
+    /// provider is unknown.
+    ///
+    /// A relay's own terms bind everything it serves, so this is `provider`'s
+    /// [`Self::transport_policy`] unless a provider serves several backends'
+    /// data under one name: the sciotte scrapers stamp every item `sciotte`
+    /// with the scraped service as its `source`, and the backend that scraped
+    /// it is the one whose policy holds (carnet#765). `source` arrives as
+    /// stamped, in any case.
+    fn item_transport_policy(
+        &self,
+        provider: &str,
+        source: Option<&str>,
+    ) -> Option<TransportPolicy> {
+        let _ = source;
+        self.transport_policy(provider)
+    }
+
+    /// Where `relay`'s terms let an item it relays from `source` be served,
+    /// when those terms settle that source by name — the transport
+    /// counterpart of [`SourcePolicy::by_source`] (carnet#767). `None` (the
+    /// default) leaves the item to the relay's own policy and the origin's.
+    ///
+    /// A named rule decides alone: the relay is the party Dravr holds terms
+    /// with for that data, and its terms address the source explicitly.
+    /// `source` arrives lowercased.
+    fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
+        let _ = (relay, source);
+        None
+    }
 }
 
 /// A provider's terms, with the athlete's AI consent on top.
@@ -127,6 +164,18 @@ impl ProviderTerms for WithConsent<'_> {
     fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
         self.terms.transport_policy(provider)
     }
+
+    fn item_transport_policy(
+        &self,
+        provider: &str,
+        source: Option<&str>,
+    ) -> Option<TransportPolicy> {
+        self.terms.item_transport_policy(provider, source)
+    }
+
+    fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
+        self.terms.relayed_transport_policy(relay, source)
+    }
 }
 
 /// Which gates a read crosses: the AI rules when a model reads it, the
@@ -149,16 +198,27 @@ impl Exposure {
 }
 
 /// Whether an item from `provider` whose upstream is `source` must stay off
-/// an external transport: the relay's terms keep its data first-party, or the
-/// source is itself a provider whose terms do.
+/// an external transport.
+///
+/// A relayed item whose source the relay's terms name decides by that rule
+/// alone ([`ProviderTerms::relayed_transport_policy`]). Otherwise it stays
+/// off when the relay's terms keep the item first-party
+/// ([`ProviderTerms::item_transport_policy`]), or the source is itself a
+/// provider whose terms do.
 #[must_use]
 pub fn first_party_only(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) -> bool {
-    let keeps_first_party =
-        |name: &str| lookup.transport_policy(name) == Some(TransportPolicy::FirstPartyOnly);
-    keeps_first_party(provider)
-        || source
-            .filter(|src| !src.eq_ignore_ascii_case(provider))
-            .is_some_and(|src| keeps_first_party(&src.to_ascii_lowercase()))
+    let first_party = Some(TransportPolicy::FirstPartyOnly);
+    let relay_keeps_first_party = || lookup.item_transport_policy(provider, source) == first_party;
+    let Some(src) = source
+        .filter(|src| !src.eq_ignore_ascii_case(provider))
+        .map(str::to_ascii_lowercase)
+    else {
+        return relay_keeps_first_party();
+    };
+    lookup.relayed_transport_policy(provider, &src).map_or_else(
+        || relay_keeps_first_party() || lookup.transport_policy(&src) == first_party,
+        TransportPolicy::is_first_party_only,
+    )
 }
 
 /// The rules governing an item from `provider` whose upstream is `source`,
@@ -523,10 +583,15 @@ mod tests {
 
         fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
             match provider {
-                "nolio" => Some(TransportPolicy::FirstPartyOnly),
-                "whoop" | "garmin" | "strava" => Some(TransportPolicy::AnyTransport),
+                "nolio" | "coros" => Some(TransportPolicy::FirstPartyOnly),
+                "whoop" | "garmin" | "strava" | "intervals" => Some(TransportPolicy::AnyTransport),
                 _ => None,
             }
+        }
+
+        /// The relay `intervals` settles `coros` by name; nothing else.
+        fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
+            (relay == "intervals" && source == "coros").then_some(TransportPolicy::AnyTransport)
         }
     }
 
@@ -700,6 +765,85 @@ mod tests {
         assert!(!first_party_only(&Lookup, "strava", None));
         assert!(!first_party_only(&Lookup, "garmin", Some("strava")));
         assert!(!first_party_only(&Lookup, "unknown", Some("other")));
+    }
+
+    /// One name serving two backends' data, as the sciotte scrapers do: its
+    /// `strava` backend keeps its data first-party, its `garmin` one does not.
+    struct Scrapers;
+
+    impl ProviderTerms for Scrapers {
+        fn ai_policy(&self, _provider: &str) -> Option<&'static SourcePolicy> {
+            None
+        }
+
+        fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+            match provider {
+                "scraper" => Some(TransportPolicy::FirstPartyOnly),
+                "scraper_garmin" | "garmin" => Some(TransportPolicy::AnyTransport),
+                _ => None,
+            }
+        }
+
+        fn item_transport_policy(
+            &self,
+            provider: &str,
+            source: Option<&str>,
+        ) -> Option<TransportPolicy> {
+            match (provider, source) {
+                ("scraper", Some("garmin")) => self.transport_policy("scraper_garmin"),
+                _ => self.transport_policy(provider),
+            }
+        }
+    }
+
+    #[test]
+    fn a_relay_serving_several_backends_is_judged_by_the_backend_that_read_the_item() {
+        assert!(first_party_only(&Scrapers, "scraper", None));
+        assert!(first_party_only(&Scrapers, "scraper", Some("strava")));
+        assert!(
+            !first_party_only(&Scrapers, "scraper", Some("garmin")),
+            "the garmin backend's policy, not the strava backend's"
+        );
+
+        let none = BTreeSet::new();
+        let consented = WithConsent {
+            terms: &Scrapers,
+            withheld: &none,
+        };
+        assert!(
+            !first_party_only(&consented, "scraper", Some("garmin")),
+            "consent forwards the per-item resolution"
+        );
+        assert!(first_party_only(&consented, "scraper", None));
+    }
+
+    #[test]
+    fn a_relay_rule_naming_the_source_decides_alone() {
+        assert!(
+            !first_party_only(&Lookup, "intervals", Some("COROS")),
+            "the relay's terms settle a source they name, whatever the origin declares"
+        );
+        assert!(
+            first_party_only(&Lookup, "coros", None),
+            "the origin's own data keeps its own policy"
+        );
+        assert!(
+            first_party_only(&Lookup, "intervals", Some("nolio")),
+            "a source the relay does not name keeps the origin rule"
+        );
+        assert!(
+            first_party_only(&Lookup, "nolio", Some("coros")),
+            "a relay without a rule for the source keeps its own policy"
+        );
+        let none = BTreeSet::new();
+        let consented = WithConsent {
+            terms: &Lookup,
+            withheld: &none,
+        };
+        assert!(
+            !first_party_only(&consented, "intervals", Some("coros")),
+            "the consent wrapper forwards the relay's rule"
+        );
     }
 
     fn mixed_items() -> Vec<Item> {
