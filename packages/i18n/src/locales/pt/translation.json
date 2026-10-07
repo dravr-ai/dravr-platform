@@ -1128,7 +1128,15 @@
     "verdictReadStudy": "Ler o estudo",
     "verdictStudyN": "Estudo {{n}}",
     "verdictSeeInConversation": "Ver na conversa",
-    "whatItDoesSection": "O que faz"
+    "whatItDoesSection": "O que faz",
+    "verdictCategoryPhysiological": "fisiologia",
+    "verdictCategoryTrainingPrescription": "prescrição de treino",
+    "verdictCategoryNutrition": "nutrição",
+    "verdictCategoryRecovery": "recuperação",
+    "verdictCategorySupplement": "suplementos",
+    "verdictCategoryInjuryRehab": "reabilitação de lesões",
+    "verdictCategoryAthleteData": "teus dados",
+    "verdictCategoryOther": "outra"
   },
   "commands": {
     "agent": {
@@ -1892,7 +1900,9 @@
       "routeCta": "Encontrar um percurso para esta sessão",
       "routeDraft": "Sugere-me um percurso perto de onde estou para a minha sessão de {{date}}: {{workout}}",
       "routeDistanceDraft": "Sugere-me um percurso de {{distance}} perto de onde estou para a minha sessão de {{date}}: {{workout}}",
-      "loadFailed": "Não foi possível carregar o teu plano."
+      "loadFailed": "Não foi possível carregar o teu plano.",
+      "hideSuggestion": "Ocultar",
+      "hideSuggestionAria": "Ocultar a sugestão de plano"
     },
     "activities": {
       "heading": "Atividades recentes",
@@ -1987,6 +1997,43 @@
       "todayShow": "Mostrar Hoje",
       "todayHide": "Ocultar Hoje",
       "todayOpen": "Abrir Hoje"
+    },
+    "volume": {
+      "heading": "Volume semanal",
+      "thisWeek": "Esta semana",
+      "filterLabel": "Desporto",
+      "allSports": "Todos os desportos",
+      "distance": "Distância",
+      "time": "Tempo",
+      "elevation": "Desnível",
+      "activitiesOne": "1 atividade",
+      "activitiesMany": "{{count}} atividades",
+      "chartDistance": "Distância por semana, últimas {{count}} semanas",
+      "chartTime": "Tempo por semana, últimas {{count}} semanas",
+      "chartAlt": "{{label}}: de {{first}} na semana de {{from}} a {{last}} esta semana",
+      "weekReadout": "Semana de {{date}}: {{value}}",
+      "trendTooShort": "A tua tendência semanal aparece aqui à medida que as semanas se somam.",
+      "empty": "Ainda não há atividades guardadas. O teu volume semanal aparece aqui quando forem sincronizadas.",
+      "loadFailed": "Não foi possível carregar o teu volume semanal."
+    },
+    "calendar": {
+      "previousWeek": "Semana anterior",
+      "nextWeek": "Semana seguinte",
+      "showMonth": "Vista do mês",
+      "previousMonth": "Mês anterior",
+      "nextMonth": "Mês seguinte",
+      "noPlan": "Ainda sem plano: aqui só aparece o que você já fez.",
+      "historyStart": "Suas atividades guardadas começam em {{date}}; os dias anteriores não são mantidos.",
+      "notKept": "Este dia é anterior às suas atividades guardadas.",
+      "loadFailed": "Não foi possível carregar estes dias.",
+      "noActivity": "Nenhuma atividade neste dia.",
+      "done": "Feito",
+      "planned": "Previsto"
+    },
+    "settings": {
+      "title": "Início",
+      "planSuggestion": "Sugerir criar um plano de treino",
+      "planSuggestionHint": "Aparece no Início enquanto não tiveres um plano."
     }
   },
   "hosted": {
@@ -2107,7 +2154,12 @@
     "roomHint": "O agente de IA responde nesta sala; um coach humano também o pode supervisionar.",
     "trainingpeaksAccount": "Conta de treinador",
     "trainingpeaksAccountHint": "O TrainingPeaks não mantém calendário para uma conta de treinador. Associa os teus atletas a partir de um grupo que treinas.",
-    "youCoach": "Treinas este grupo"
+    "youCoach": "Treinas este grupo",
+    "requestAccess": "Pedir acesso de coach",
+    "requestAccessSending": "A enviar…",
+    "requestAccessPending": "Pedido enviado — a equipa Dravr vai analisá-lo.",
+    "requestAccessDeclined": "O teu último pedido foi recusado. Podes pedir de novo.",
+    "requestAccessFailed": "Não conseguimos enviar o teu pedido. Tenta de novo."
   },
   "impersonationLog": {
     "active": "Ativa",
@@ -3125,7 +3177,8 @@
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "Conta COROS",
     "corosEmail": "E-mail COROS",
-    "intervalsCredentialsHelp": "Encontra o teu ID de atleta e a tua chave de API no Intervals.icu: abre Settings e desce até Developer Settings, quase no fim da página."
+    "intervalsCredentialsHelp": "Encontra o teu ID de atleta e a tua chave de API no Intervals.icu: abre Settings e desce até Developer Settings, quase no fim da página.",
+    "notificationsBellUnread": "Notificações, {{count}} por ler"
   },
   "tokens": {
     "activeCount": "{{count}} tokens ativos para ligações de clientes de IA",

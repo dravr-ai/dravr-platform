@@ -1128,7 +1128,15 @@
     "verdictReadStudy": "Studie lesen",
     "verdictStudyN": "Studie {{n}}",
     "verdictSeeInConversation": "In der Unterhaltung ansehen",
-    "whatItDoesSection": "Was er macht"
+    "whatItDoesSection": "Was er macht",
+    "verdictCategoryPhysiological": "Physiologie",
+    "verdictCategoryTrainingPrescription": "Trainingsvorgabe",
+    "verdictCategoryNutrition": "Ernährung",
+    "verdictCategoryRecovery": "Erholung",
+    "verdictCategorySupplement": "Nahrungsergänzung",
+    "verdictCategoryInjuryRehab": "Verletzungsreha",
+    "verdictCategoryAthleteData": "deine Daten",
+    "verdictCategoryOther": "Sonstiges"
   },
   "commands": {
     "agent": {
@@ -1892,7 +1900,9 @@
       "routeCta": "Strecke für diese Einheit finden",
       "routeDraft": "Schlag mir eine Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
       "routeDistanceDraft": "Schlag mir eine {{distance}} lange Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
-      "loadFailed": "Dein Plan konnte nicht geladen werden."
+      "loadFailed": "Dein Plan konnte nicht geladen werden.",
+      "hideSuggestion": "Ausblenden",
+      "hideSuggestionAria": "Planvorschlag ausblenden"
     },
     "activities": {
       "heading": "Letzte Aktivitäten",
@@ -1987,6 +1997,43 @@
       "todayShow": "Heute einblenden",
       "todayHide": "Heute ausblenden",
       "todayOpen": "Heute öffnen"
+    },
+    "volume": {
+      "heading": "Wochenumfang",
+      "thisWeek": "Diese Woche",
+      "filterLabel": "Sportart",
+      "allSports": "Alle Sportarten",
+      "distance": "Distanz",
+      "time": "Zeit",
+      "elevation": "Höhenmeter",
+      "activitiesOne": "1 Aktivität",
+      "activitiesMany": "{{count}} Aktivitäten",
+      "chartDistance": "Distanz pro Woche, letzte {{count}} Wochen",
+      "chartTime": "Zeit pro Woche, letzte {{count}} Wochen",
+      "chartAlt": "{{label}}: von {{first}} in der Woche vom {{from}} bis {{last}} diese Woche",
+      "weekReadout": "Woche vom {{date}}: {{value}}",
+      "trendTooShort": "Dein Wochenverlauf erscheint hier, sobald mehr Wochen zusammenkommen.",
+      "empty": "Noch keine Aktivitäten gespeichert. Dein Wochenumfang erscheint hier, sobald sie synchronisiert sind.",
+      "loadFailed": "Dein Wochenumfang konnte nicht geladen werden."
+    },
+    "calendar": {
+      "previousWeek": "Vorherige Woche",
+      "nextWeek": "Folgende Woche",
+      "showMonth": "Monatsansicht",
+      "previousMonth": "Vorheriger Monat",
+      "nextMonth": "Nächster Monat",
+      "noPlan": "Noch kein Plan – hier steht nur, was du schon gemacht hast.",
+      "historyStart": "Deine gespeicherten Aktivitäten beginnen am {{date}}; frühere Tage werden nicht aufbewahrt.",
+      "notKept": "Dieser Tag liegt vor deinen gespeicherten Aktivitäten.",
+      "loadFailed": "Diese Tage konnten nicht geladen werden.",
+      "noActivity": "Keine Aktivität an diesem Tag.",
+      "done": "Erledigt",
+      "planned": "Geplant"
+    },
+    "settings": {
+      "title": "Start",
+      "planSuggestion": "Vorschlagen, einen Trainingsplan zu erstellen",
+      "planSuggestionHint": "Wird auf der Startseite angezeigt, solange du keinen Plan hast."
     }
   },
   "hosted": {
@@ -2107,7 +2154,12 @@
     "roomHint": "Der KI-Agent antwortet in diesem Raum; ein menschlicher Coach kann ihn ebenfalls betreuen.",
     "trainingpeaksAccount": "Coach-Konto",
     "trainingpeaksAccountHint": "TrainingPeaks führt für ein Coach-Konto keinen Kalender. Verknüpfe deine Athleten aus einer Gruppe, die du coachst.",
-    "youCoach": "Du coachst diese Gruppe"
+    "youCoach": "Du coachst diese Gruppe",
+    "requestAccess": "Coach-Zugang anfragen",
+    "requestAccessSending": "Wird gesendet…",
+    "requestAccessPending": "Anfrage gesendet – das Dravr-Team prüft sie.",
+    "requestAccessDeclined": "Deine letzte Anfrage wurde abgelehnt. Du kannst erneut anfragen.",
+    "requestAccessFailed": "Wir konnten deine Anfrage nicht senden. Bitte versuche es erneut."
   },
   "impersonationLog": {
     "active": "Aktiv",
@@ -3125,7 +3177,8 @@
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "COROS-Konto",
     "corosEmail": "COROS-E-Mail",
-    "intervalsCredentialsHelp": "Deine Athleten-ID und deinen API-Schlüssel findest du in Intervals.icu: Öffne Settings und scrolle zu Developer Settings, fast ganz unten auf der Seite."
+    "intervalsCredentialsHelp": "Deine Athleten-ID und deinen API-Schlüssel findest du in Intervals.icu: Öffne Settings und scrolle zu Developer Settings, fast ganz unten auf der Seite.",
+    "notificationsBellUnread": "Benachrichtigungen, {{count}} ungelesen"
   },
   "tokens": {
     "activeCount": "{{count}} aktive Token für KI-Client-Verbindungen",

@@ -1128,7 +1128,15 @@
     "verdictReadStudy": "Read the study",
     "verdictStudyN": "Study {{n}}",
     "verdictSeeInConversation": "See it in the conversation",
-    "whatItDoesSection": "What it does"
+    "whatItDoesSection": "What it does",
+    "verdictCategoryPhysiological": "physiology",
+    "verdictCategoryTrainingPrescription": "training prescription",
+    "verdictCategoryNutrition": "nutrition",
+    "verdictCategoryRecovery": "recovery",
+    "verdictCategorySupplement": "supplements",
+    "verdictCategoryInjuryRehab": "injury rehab",
+    "verdictCategoryAthleteData": "your data",
+    "verdictCategoryOther": "other"
   },
   "commands": {
     "agent": {
@@ -1892,7 +1900,9 @@
       "routeCta": "Find a route for this session",
       "routeDraft": "Suggest a route close to where I am for my session on {{date}}: {{workout}}",
       "routeDistanceDraft": "Suggest a {{distance}} route close to where I am for my session on {{date}}: {{workout}}",
-      "loadFailed": "Your plan couldn't be loaded."
+      "loadFailed": "Your plan couldn't be loaded.",
+      "hideSuggestion": "Hide",
+      "hideSuggestionAria": "Hide the plan suggestion"
     },
     "activities": {
       "heading": "Recent activities",
@@ -1987,6 +1997,43 @@
       "todayShow": "Show Today",
       "todayHide": "Hide Today",
       "todayOpen": "Open Today"
+    },
+    "volume": {
+      "heading": "Weekly volume",
+      "thisWeek": "This week",
+      "filterLabel": "Sport",
+      "allSports": "All sports",
+      "distance": "Distance",
+      "time": "Time",
+      "elevation": "Elevation",
+      "activitiesOne": "1 activity",
+      "activitiesMany": "{{count}} activities",
+      "chartDistance": "Distance per week, last {{count}} weeks",
+      "chartTime": "Time per week, last {{count}} weeks",
+      "chartAlt": "{{label}}: from {{first}} in the week of {{from}} to {{last}} this week",
+      "weekReadout": "Week of {{date}}: {{value}}",
+      "trendTooShort": "Your weekly trend shows up here as the weeks add up.",
+      "empty": "No activities stored yet. Your weekly volume shows up here once they sync.",
+      "loadFailed": "Your weekly volume couldn't be loaded."
+    },
+    "calendar": {
+      "previousWeek": "Previous week",
+      "nextWeek": "Following week",
+      "showMonth": "Month view",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "noPlan": "No plan yet, so only what you've done shows here.",
+      "historyStart": "Your stored activities start on {{date}}; earlier days aren't kept.",
+      "notKept": "This day is older than your stored activities.",
+      "loadFailed": "These days couldn't be loaded.",
+      "noActivity": "No activity this day.",
+      "done": "Done",
+      "planned": "Planned"
+    },
+    "settings": {
+      "title": "Home",
+      "planSuggestion": "Suggest building a training plan",
+      "planSuggestionHint": "Shown on Home while you have no plan."
     }
   },
   "hosted": {
@@ -2107,7 +2154,12 @@
     "roomHint": "The AI agent answers in this room; a human coach can oversee it too.",
     "trainingpeaksAccount": "Coach account",
     "trainingpeaksAccountHint": "TrainingPeaks keeps no calendar for a coach account. Link your athletes from a group you coach.",
-    "youCoach": "You coach this group"
+    "youCoach": "You coach this group",
+    "requestAccess": "Request coach access",
+    "requestAccessSending": "Sending…",
+    "requestAccessPending": "Request sent — the Dravr team will review it.",
+    "requestAccessDeclined": "Your last request was declined. You can ask again.",
+    "requestAccessFailed": "We couldn't send your request. Please try again."
   },
   "impersonationLog": {
     "active": "Active",
@@ -3125,7 +3177,8 @@
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "COROS Account",
     "corosEmail": "COROS email",
-    "intervalsCredentialsHelp": "Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page."
+    "intervalsCredentialsHelp": "Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page.",
+    "notificationsBellUnread": "Notifications, {{count}} unread"
   },
   "tokens": {
     "activeCount": "{{count}} active tokens for AI client connections",

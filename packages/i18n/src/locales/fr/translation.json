@@ -1128,7 +1128,15 @@
     "verdictReadStudy": "Lire l’étude",
     "verdictStudyN": "Étude {{n}}",
     "verdictSeeInConversation": "Voir dans la conversation",
-    "whatItDoesSection": "Ce qu’il fait"
+    "whatItDoesSection": "Ce qu’il fait",
+    "verdictCategoryPhysiological": "physiologie",
+    "verdictCategoryTrainingPrescription": "prescription d’entraînement",
+    "verdictCategoryNutrition": "nutrition",
+    "verdictCategoryRecovery": "récupération",
+    "verdictCategorySupplement": "suppléments",
+    "verdictCategoryInjuryRehab": "réadaptation de blessure",
+    "verdictCategoryAthleteData": "tes données",
+    "verdictCategoryOther": "autre"
   },
   "commands": {
     "agent": {
@@ -1892,7 +1900,9 @@
       "routeCta": "Trouver un parcours pour cette séance",
       "routeDraft": "Propose-moi un parcours près d'où je suis pour ma séance du {{date}} : {{workout}}",
       "routeDistanceDraft": "Propose-moi un parcours de {{distance}} près d'où je suis pour ma séance du {{date}} : {{workout}}",
-      "loadFailed": "Impossible de charger ton plan."
+      "loadFailed": "Impossible de charger ton plan.",
+      "hideSuggestion": "Masquer",
+      "hideSuggestionAria": "Masquer la suggestion de plan"
     },
     "activities": {
       "heading": "Activités récentes",
@@ -1987,6 +1997,43 @@
       "todayShow": "Afficher Aujourd’hui",
       "todayHide": "Masquer Aujourd’hui",
       "todayOpen": "Ouvrir Aujourd’hui"
+    },
+    "volume": {
+      "heading": "Volume hebdomadaire",
+      "thisWeek": "Cette semaine",
+      "filterLabel": "Sport",
+      "allSports": "Tous les sports",
+      "distance": "Distance",
+      "time": "Temps",
+      "elevation": "Dénivelé",
+      "activitiesOne": "1 activité",
+      "activitiesMany": "{{count}} activités",
+      "chartDistance": "Distance par semaine, {{count}} dernières semaines",
+      "chartTime": "Temps par semaine, {{count}} dernières semaines",
+      "chartAlt": "{{label}} : de {{first}} la semaine du {{from}} à {{last}} cette semaine",
+      "weekReadout": "Semaine du {{date}} : {{value}}",
+      "trendTooShort": "Ta tendance hebdomadaire s’affichera ici au fil des semaines.",
+      "empty": "Aucune activité enregistrée pour l’instant. Ton volume hebdomadaire s’affichera ici dès qu’elles seront synchronisées.",
+      "loadFailed": "Impossible de charger ton volume hebdomadaire."
+    },
+    "calendar": {
+      "previousWeek": "Semaine précédente",
+      "nextWeek": "Semaine suivante",
+      "showMonth": "Vue du mois",
+      "previousMonth": "Mois précédent",
+      "nextMonth": "Mois suivant",
+      "noPlan": "Pas encore de plan : seules vos activités s'affichent ici.",
+      "historyStart": "Vos activités conservées commencent le {{date}} ; les jours précédents ne sont pas gardés.",
+      "notKept": "Ce jour est plus ancien que vos activités conservées.",
+      "loadFailed": "Ces jours n'ont pas pu être chargés.",
+      "noActivity": "Aucune activité ce jour-là.",
+      "done": "Réalisé",
+      "planned": "Prévu"
+    },
+    "settings": {
+      "title": "Accueil",
+      "planSuggestion": "Suggérer de construire un plan d’entraînement",
+      "planSuggestionHint": "Affiché sur l’accueil tant que tu n’as pas de plan."
     }
   },
   "hosted": {
@@ -2107,7 +2154,12 @@
     "roomHint": "L'agent IA répond dans ce salon ; un coach humain peut aussi le superviser.",
     "trainingpeaksAccount": "Compte coach",
     "trainingpeaksAccountHint": "TrainingPeaks ne tient aucun calendrier pour un compte coach. Associe tes athlètes depuis un groupe que tu entraînes.",
-    "youCoach": "Tu entraînes ce groupe"
+    "youCoach": "Tu entraînes ce groupe",
+    "requestAccess": "Demander l'accès coach",
+    "requestAccessSending": "Envoi…",
+    "requestAccessPending": "Demande envoyée — l'équipe Dravr va l'examiner.",
+    "requestAccessDeclined": "Ta dernière demande a été refusée. Tu peux redemander.",
+    "requestAccessFailed": "Impossible d'envoyer ta demande. Réessaie."
   },
   "impersonationLog": {
     "active": "En cours",
@@ -3125,7 +3177,8 @@
     "sciotteProviderCoros": "COROS",
     "sciotteCorosAccount": "Compte COROS",
     "corosEmail": "E-mail COROS",
-    "intervalsCredentialsHelp": "Trouve ton identifiant athlète et ta clé API dans Intervals.icu : ouvre Settings et descends jusqu’à Developer Settings, vers le bas de la page."
+    "intervalsCredentialsHelp": "Trouve ton identifiant athlète et ta clé API dans Intervals.icu : ouvre Settings et descends jusqu’à Developer Settings, vers le bas de la page.",
+    "notificationsBellUnread": "Notifications, {{count}} non lues"
   },
   "tokens": {
     "activeCount": "{{count}} jetons actifs pour les connexions client IA",
