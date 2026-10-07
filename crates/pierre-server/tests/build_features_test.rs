@@ -98,10 +98,9 @@ fn server_production_includes_runtime_dependencies() {
     //   - Without it, every chat turn emits the "health-sync feature
     //     not enabled" warning and provider data goes stale silently.
     //
-    // Provider list pinned to the active production set after a3ecd1b6
-    // narrowed server-production from `production-providers` (umbrella)
-    // to the three providers actually wired into the UI: Strava, Whoop,
-    // Sciotte. Adding a new shipping provider means adding it here.
+    // Provider list pinned to every provider server-production ships, an
+    // explicit list rather than the `production-providers` umbrella.
+    // Adding a new shipping provider means adding it here.
     assert_profile_contains(
         "server-production",
         &[
@@ -111,8 +110,11 @@ fn server_production_includes_runtime_dependencies() {
             "client-messaging",
             "oauth",
             "provider-strava",
+            "provider-garmin",
             "provider-whoop",
             "provider-sciotte",
+            "provider-intervals-icu",
+            "provider-wahoo",
             "tools-all",
             "toon",
             "health-sync",
@@ -127,9 +129,8 @@ fn server_full_includes_runtime_dependencies() {
     // also want a screaming failure rather than silently degraded local
     // development.
     //
-    // Provider list mirrors server-production after a3ecd1b6 — both
-    // ship the same Strava/Whoop/Sciotte trio rather than the broader
-    // `all-providers` umbrella the old shape used.
+    // Pins the core of the provider set server-production also ships,
+    // rather than the broader `all-providers` umbrella the old shape used.
     assert_profile_contains(
         "server-full",
         &[
