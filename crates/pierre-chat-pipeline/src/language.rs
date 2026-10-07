@@ -1,0 +1,481 @@
+// ABOUTME: Resolves which of the five platform languages a text is in: lingua when compiled in, the LLM otherwise
+// ABOUTME: One resolver for the turn's locale and the reply-note locale, so the two cannot disagree
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! The language a text is written in, among the five the platform speaks.
+//!
+//! The reply answers in the language of the question (carnet#825), and a
+//! question is usually one short sentence. Two resolvers serve that:
+//!
+//! - **`lingua`**, behind the `language-detection` feature: local and
+//!   deterministic, but its language models add about 22 MB to the binary.
+//!   Restricted to the five languages, in high-accuracy mode with a minimum
+//!   relative distance of 0.1 between the two best candidates, it resolved 69
+//!   of 73 short athlete messages, left 2 undecided and mislabelled 2 — "E o
+//!   meu `VO2max`?" and "J'ai couru le trail de Sherbrooke", where the only
+//!   words are shared ones. A trigram detector such as `whatlang` resolved 6:
+//!   it calls a verdict reliable only from about 130 characters.
+//! - **The LLM**, asked for one language code: what a build without the
+//!   feature uses, and what a build with it asks when `lingua` cannot decide.
+//!
+//! A message under `MIN_DETECTABLE_CHARS` ("ok", "oui", "Yes") is an
+//! acknowledgement, and keeps the language the conversation already runs in.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
+use pierre_tool_runtime::llm_call_record::{
+    emit_call_record_with_text, CallRecordInputs, LlmCallRecorder,
+};
+use tokio::time::timeout;
+use tracing::warn;
+
+/// Below this many characters a message is an acknowledgement, and the
+/// language the conversation already runs in is what the athlete wants.
+const MIN_DETECTABLE_CHARS: usize = 12;
+
+/// How long the turn waits on the LLM's answer before keeping the stored
+/// locale: the classification runs before the reply, so it bounds latency
+/// the athlete sees.
+const CLASSIFICATION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How much of the message the LLM is shown. A language shows in its first
+/// sentences; the rest would only cost tokens.
+const CLASSIFICATION_EXCERPT_CHARS: usize = 600;
+
+/// The `call_type` of the `llm_usage` row the classification call writes, so
+/// its cost is counted apart from the reply's own calls.
+pub(crate) const LANGUAGE_CLASSIFICATION_CALL_TYPE: &str = "language_classification";
+
+/// The LLM a turn may ask for its language, and where that call's usage goes.
+#[derive(Clone, Copy)]
+pub struct LocaleClassifier<'a> {
+    /// The turn's own provider.
+    pub provider: &'a ChatProvider,
+    /// Receives one record for the classification call; `None` writes no
+    /// usage row.
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+}
+
+/// The language of `text` when it can be read locally: `lingua` in a build
+/// with the `language-detection` feature. `None` when the text is too
+/// ambiguous to call or in none of the five languages.
+#[cfg(feature = "language-detection")]
+#[must_use]
+pub fn detect_locale(text: &str) -> Option<&'static str> {
+    lingua_detector::detect(text)
+}
+
+/// The language of `text` when it can be read locally. This build carries no
+/// local detector (the `language-detection` feature is off), so it is always
+/// `None` and [`resolve_turn_locale`] asks the LLM.
+#[cfg(not(feature = "language-detection"))]
+#[must_use]
+pub const fn detect_locale(_text: &str) -> Option<&'static str> {
+    None
+}
+
+/// The locale a turn is conducted in: the language of the athlete's message,
+/// read locally when possible and by the LLM otherwise, else `fallback` — the
+/// locale the surface resolved before the turn.
+pub async fn resolve_turn_locale(
+    classifier: Option<LocaleClassifier<'_>>,
+    text: &str,
+    fallback: &str,
+) -> String {
+    if text.trim().chars().count() < MIN_DETECTABLE_CHARS {
+        return fallback.to_owned();
+    }
+    if let Some(locale) = detect_locale(text) {
+        return locale.to_owned();
+    }
+    let Some(classifier) = classifier else {
+        return fallback.to_owned();
+    };
+    classify_locale_with_llm(classifier, text)
+        .await
+        .map_or_else(|| fallback.to_owned(), str::to_owned)
+}
+
+/// Ask the LLM which of the five languages `text` is in, recording the call's
+/// usage like any other LLM call the turn makes.
+///
+/// Fail-open: an error, a timeout or an answer that names no platform
+/// language is `None`, and the turn keeps its stored locale — a language
+/// guess is never worth refusing the turn over.
+async fn classify_locale_with_llm(
+    classifier: LocaleClassifier<'_>,
+    text: &str,
+) -> Option<&'static str> {
+    let LocaleClassifier { provider, recorder } = classifier;
+    let excerpt: String = text.chars().take(CLASSIFICATION_EXCERPT_CHARS).collect();
+    // One user message: several embacle runners drop a system message.
+    let prompt = format!(
+        "Which language is the message below written in? Answer with exactly one code and \
+         nothing else: en, fr, es, de or pt — or other when it is none of these.\n\n\
+         MESSAGE:\n{excerpt}"
+    );
+    let request = ChatRequest::new(vec![ChatMessage::user(prompt.clone())]);
+    let started = Instant::now();
+    let outcome = timeout(CLASSIFICATION_TIMEOUT, provider.complete(&request)).await;
+    let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    let record = |model: &str, usage, success, completion: Option<&str>| {
+        emit_call_record_with_text(
+            CallRecordInputs {
+                recorder,
+                provider: provider.name(),
+                model,
+                usage,
+                latency_ms,
+                success,
+                call_sequence: None,
+                tools_called: Vec::new(),
+            },
+            Some(&prompt),
+            completion,
+        );
+    };
+    match outcome {
+        Ok(Ok(reply)) => {
+            record(
+                &reply.model,
+                reply.usage.as_ref(),
+                true,
+                Some(&reply.content),
+            );
+            parse_locale_answer(&reply.content)
+        }
+        Ok(Err(e)) => {
+            record(provider.default_model(), None, false, None);
+            warn!(error = %e, "language classification failed; the turn keeps its stored locale");
+            None
+        }
+        Err(_) => {
+            // The request may already have been billed when the wait ends.
+            record(provider.default_model(), None, false, None);
+            warn!(
+                timeout_secs = CLASSIFICATION_TIMEOUT.as_secs(),
+                "language classification timed out; the turn keeps its stored locale"
+            );
+            None
+        }
+    }
+}
+
+/// The platform locale an LLM's one-word answer names, tolerating the
+/// punctuation, quoting and casing a model wraps around it.
+fn parse_locale_answer(answer: &str) -> Option<&'static str> {
+    let word = answer
+        .split_whitespace()
+        .next()?
+        .trim_matches(|c: char| !c.is_alphabetic())
+        .to_lowercase();
+    match word.as_str() {
+        "en" | "english" => Some("en"),
+        "fr" | "french" | "français" => Some("fr"),
+        "es" | "spanish" | "español" => Some("es"),
+        "de" | "german" | "deutsch" => Some("de"),
+        "pt" | "portuguese" | "português" => Some("pt"),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "language-detection")]
+mod lingua_detector {
+    use std::sync::LazyLock;
+
+    use lingua::{Language, LanguageDetector, LanguageDetectorBuilder};
+
+    /// The platform's languages, and the only candidates the detector weighs.
+    const PLATFORM_LANGUAGES: [Language; 5] = [
+        Language::English,
+        Language::French,
+        Language::Spanish,
+        Language::German,
+        Language::Portuguese,
+    ];
+
+    /// How far apart the two best candidates' confidences must be before the
+    /// best one counts; closer than this, the text is ambiguous. 0.1 is where
+    /// the measurement stopped mislabelling "Muéstrame mis últimas cinco
+    /// actividades" (Spanish and Portuguese tie at 0.50) without dropping any
+    /// message it already resolved.
+    const MINIMUM_RELATIVE_DISTANCE: f64 = 0.1;
+
+    /// Built once: the language models load on the first detection and stay
+    /// resident (about 28 MB for the five languages).
+    static DETECTOR: LazyLock<LanguageDetector> = LazyLock::new(|| {
+        LanguageDetectorBuilder::from_languages(&PLATFORM_LANGUAGES)
+            .with_minimum_relative_distance(MINIMUM_RELATIVE_DISTANCE)
+            .build()
+    });
+
+    pub(super) fn detect(text: &str) -> Option<&'static str> {
+        DETECTOR
+            .detect_language_of(text)
+            .map(|language| match language {
+                Language::English => "en",
+                Language::French => "fr",
+                Language::Spanish => "es",
+                Language::German => "de",
+                Language::Portuguese => "pt",
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem;
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use async_trait::async_trait;
+    use pierre_core::errors::AppError;
+    use pierre_core::llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+    use pierre_llm::ChatProvider;
+    use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
+
+    use super::{
+        classify_locale_with_llm, parse_locale_answer, resolve_turn_locale, LocaleClassifier,
+    };
+
+    /// Answers every completion with a fixed text, or fails when it has none.
+    struct FixedAnswer(Option<&'static str>);
+
+    #[async_trait]
+    impl LlmProvider for FixedAnswer {
+        fn name(&self) -> &'static str {
+            "fixed_answer"
+        }
+        fn display_name(&self) -> &'static str {
+            "Fixed-answer mock (language classification)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::empty()
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let Some(content) = self.0 else {
+                return Err(AppError::internal("provider down"));
+            };
+            Ok(ChatResponse {
+                content: content.to_owned(),
+                model: "mock-model".to_owned(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming is not used here"))
+        }
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    fn answering(content: Option<&'static str>) -> ChatProvider {
+        ChatProvider::Custom(Arc::new(FixedAnswer(content)))
+    }
+
+    fn unrecorded(provider: &ChatProvider) -> LocaleClassifier<'_> {
+        LocaleClassifier {
+            provider,
+            recorder: None,
+        }
+    }
+
+    /// Keeps every record it is handed.
+    #[derive(Default)]
+    struct Captured(Mutex<Vec<LlmCallRecord>>);
+
+    impl LlmCallRecorder for Captured {
+        fn record(&self, record: LlmCallRecord) {
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(record);
+        }
+    }
+
+    impl Captured {
+        fn taken(&self) -> Vec<LlmCallRecord> {
+            mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+        }
+    }
+
+    #[test]
+    fn a_model_answer_is_read_through_its_wrapping() {
+        assert_eq!(parse_locale_answer("en"), Some("en"));
+        assert_eq!(parse_locale_answer(" FR.\n"), Some("fr"));
+        assert_eq!(parse_locale_answer("`de`"), Some("de"));
+        assert_eq!(parse_locale_answer("Portuguese"), Some("pt"));
+        assert_eq!(parse_locale_answer("other"), None);
+        assert_eq!(parse_locale_answer("ja"), None);
+        assert_eq!(parse_locale_answer(""), None);
+    }
+
+    #[tokio::test]
+    async fn the_llm_names_the_language_when_asked() {
+        let provider = answering(Some("es"));
+        assert_eq!(
+            classify_locale_with_llm(
+                unrecorded(&provider),
+                "¿Puedo hacer una tirada larga mañana?"
+            )
+            .await,
+            Some("es")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_classification_keeps_the_stored_locale() {
+        let provider = answering(None);
+        assert_eq!(
+            resolve_turn_locale(
+                Some(unrecorded(&provider)),
+                "Muéstrame mis últimas cinco actividades",
+                "fr"
+            )
+            .await,
+            "fr"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_acknowledgement_keeps_the_stored_locale_without_asking() {
+        // A provider that would answer "de" is never consulted for "oui".
+        let provider = answering(Some("de"));
+        assert_eq!(
+            resolve_turn_locale(Some(unrecorded(&provider)), "oui", "en").await,
+            "en"
+        );
+    }
+
+    /// Lingua cannot call a Spanish/Portuguese tie, so the LLM decides — in a
+    /// build with the feature and one without it alike.
+    #[tokio::test]
+    async fn what_the_local_detector_cannot_call_goes_to_the_llm() {
+        let provider = answering(Some("es"));
+        assert_eq!(
+            resolve_turn_locale(
+                Some(unrecorded(&provider)),
+                "Muéstrame mis últimas cinco actividades",
+                "fr"
+            )
+            .await,
+            "es"
+        );
+    }
+
+    /// The classification is an LLM call the turn pays for, so it is
+    /// accounted like one: a record whether it answers or fails, with token
+    /// counts estimated when the provider reports none, and none at all when
+    /// the provider is never asked.
+    #[tokio::test]
+    async fn every_classification_call_is_recorded() {
+        let captured = Arc::new(Captured::default());
+        let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+        let ask = "Muéstrame mis últimas cinco actividades";
+
+        let answers = answering(Some("es"));
+        let classifier = LocaleClassifier {
+            provider: &answers,
+            recorder: Some(&recorder),
+        };
+        assert_eq!(resolve_turn_locale(Some(classifier), ask, "fr").await, "es");
+        let records = captured.taken();
+        assert_eq!(records.len(), 1, "one call, one record: {records:?}");
+        let call = &records[0];
+        assert!(call.success);
+        assert_eq!(call.provider, "fixed_answer");
+        assert_eq!(call.model, "mock-model");
+        assert!(
+            call.token_counts_estimated && call.prompt_tokens > 0,
+            "a provider that reports no usage is estimated, never recorded as free: {call:?}"
+        );
+
+        let fails = answering(None);
+        let classifier = LocaleClassifier {
+            provider: &fails,
+            recorder: Some(&recorder),
+        };
+        assert_eq!(resolve_turn_locale(Some(classifier), ask, "fr").await, "fr");
+        let records = captured.taken();
+        assert_eq!(
+            records.len(),
+            1,
+            "a failed call is recorded too: {records:?}"
+        );
+        assert!(!records[0].success);
+        assert!(!records[0].is_unaccounted(), "{:?}", records[0]);
+
+        let classifier = LocaleClassifier {
+            provider: &answers,
+            recorder: Some(&recorder),
+        };
+        assert_eq!(
+            resolve_turn_locale(Some(classifier), "oui", "en").await,
+            "en"
+        );
+        assert!(
+            captured.taken().is_empty(),
+            "an acknowledgement asks nothing, so nothing is recorded"
+        );
+    }
+
+    #[cfg(feature = "language-detection")]
+    mod lingua {
+        use super::super::detect_locale;
+
+        #[test]
+        fn short_questions_resolve_to_their_own_language() {
+            // The three probes from the 2026-10-07 dev check, then one short
+            // question per language.
+            for (text, expected) in [
+                (
+                    "How much does a Big Mac cost in San Francisco these days?",
+                    "en",
+                ),
+                ("Should I sell my Apple stock this week", "en"),
+                (
+                    "I have severe chest pain right now and feel dizzy. What's wrong with me?",
+                    "en",
+                ),
+                ("How was my run yesterday?", "en"),
+                ("Merci, ça m'aide beaucoup", "fr"),
+                ("¿Cómo fue mi carrera de ayer?", "es"),
+                ("Mein Knie tut nach dem Laufen weh", "de"),
+                ("Obrigado, isso ajuda muito", "pt"),
+            ] {
+                assert_eq!(detect_locale(text), Some(expected), "{text}");
+            }
+        }
+
+        #[test]
+        fn a_tie_between_two_languages_is_left_to_the_caller() {
+            assert_eq!(
+                detect_locale("Muéstrame mis últimas cinco actividades"),
+                None
+            );
+        }
+
+        #[test]
+        fn a_script_none_of_the_five_languages_uses_is_not_called() {
+            assert_eq!(
+                detect_locale(
+                    "これは日本語のテストメッセージです。トレーニングについて質問があります。"
+                ),
+                None
+            );
+        }
+    }
+}

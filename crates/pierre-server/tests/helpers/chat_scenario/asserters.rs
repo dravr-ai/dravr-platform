@@ -20,6 +20,8 @@
 
 use std::fmt::{self, Display, Formatter};
 
+use pierre_chat_pipeline::language::detect_locale;
+
 use super::format::AssertionSpec;
 use super::vocabulary_contract::VocabularyContractRegistry;
 use super::TurnContext;
@@ -173,14 +175,12 @@ fn assert_no_substring(
     })
 }
 
-/// The floor below which a reply is refused without consulting whatlang.
+/// The floor below which a reply is refused without consulting the detector.
 ///
-/// Mirrors `chat_pipeline::turn_service::detect_turn_locale`'s own floor, so
+/// Mirrors `pierre_chat_pipeline::language`'s `MIN_DETECTABLE_CHARS` floor, so
 /// the test and the code under test agree on when a language claim is
-/// meaningful at all. It is a fast reject with a better error message, NOT
-/// the real gate: whatlang stays unreliable well above 12 characters, and
-/// `Info::is_reliable` is what actually refuses that band. See the envelope
-/// documented on [`assert_reply_language`].
+/// meaningful at all. Above it, the detector's own ambiguity verdict is the
+/// gate. See the envelope documented on [`assert_reply_language`].
 const MIN_JUDGEABLE_CHARS: usize = 12;
 
 /// Assert the reply is WRITTEN IN the expected language.
@@ -191,17 +191,14 @@ const MIN_JUDGEABLE_CHARS: usize = 12;
 /// have, which is exactly how the five `*_fr.yaml` scenarios came to look like
 /// they were guarding the language when they were only matching substrings.
 ///
-/// **Operating envelope**, measured across the five shipped locales at real
-/// reply lengths: at roughly 130 characters and up whatlang returns the right
-/// language at confidence 1.00 and `is_reliable()`, in every locale. Below
-/// about 60 it is noise — plain English scores as Danish, French as Catalan —
-/// and `is_reliable()` correctly refuses all of it. There is no configuration
-/// that rescues the short band: restricting the detector to the five platform
-/// languages moves the wrong answers around (English reads as French instead
-/// of Danish) without making one verdict trustworthy, so this deliberately
-/// runs the plain detector and lets the reliability flag do the gating.
-/// A turn that cannot produce ~130 characters of prose belongs in
-/// `skip_language_check`, not in a weakened assertion.
+/// **Operating envelope**: the reply is judged by the production detector,
+/// [`pierre_chat_pipeline::language::detect_locale`] — the one that picks the
+/// turn's language, so the suite grades replies with the same eyes the
+/// platform uses. It reads one-sentence messages in all five locales
+/// (measured on 73 short athlete messages, carnet#825) and answers `None`
+/// when two languages are too close to call. A turn whose reply is too short
+/// or too ambiguous to judge belongs in `skip_language_check`, not in a
+/// weakened assertion.
 fn assert_reply_language(
     ctx: &TurnContext<'_>,
     expected: Option<&str>,
@@ -227,46 +224,22 @@ fn assert_reply_language(
         ));
     }
 
-    let Some(info) = whatlang::detect(reply) else {
-        return fail(format!("could not detect any language in reply: {reply:?}"));
-    };
-
-    let detected = match info.lang() {
-        whatlang::Lang::Fra => "fr",
-        whatlang::Lang::Eng => "en",
-        whatlang::Lang::Spa => "es",
-        whatlang::Lang::Deu => "de",
-        whatlang::Lang::Por => "pt",
-        other => {
-            return fail(format!(
-                "reply detected as {other:?}, which is not a language the platform speaks; \
-                 expected {expected}"
-            ))
-        }
+    let Some(detected) = detect_locale(reply) else {
+        return fail(format!(
+            "could not tell which of the platform's languages the reply is written in — two \
+             are too close to call, or it is in none of them; expected {expected}. If the turn \
+             cannot produce prose, set `skip_language_check: true` on it. Reply: {reply:?}"
+        ));
     };
 
     if detected != expected {
         return fail(format!(
-            "reply is written in {detected}, expected {expected} (confidence {:.2}). \
+            "reply is written in {detected}, expected {expected}. \
              This is the carnet#159 shape: the turn resolved one language and the coach \
              answered in another. Every turn is checked against its scenario's `locales:` \
              whether or not it declares an assertion, so this fires on turns whose YAML \
              looks empty. First 160 chars: {:?}",
-            info.confidence(),
             reply.chars().take(160).collect::<String>()
-        ));
-    }
-
-    // A correct-language verdict that whatlang itself calls unreliable is not
-    // evidence. Report it rather than bank it.
-    if !info.is_reliable() {
-        return fail(format!(
-            "reply reads as {detected} (the expected language) but whatlang rates the verdict \
-             unreliable at confidence {:.2}, so this turn proves nothing about the language. \
-             Replies get reliable below roughly 130 chars; this one is {}. If the turn cannot \
-             produce prose, set `skip_language_check: true` on it",
-            info.confidence(),
-            reply.chars().count()
         ));
     }
 
@@ -664,7 +637,7 @@ mod tests {
     /// A full-length coaching reply is judged correctly in all five locales.
     ///
     /// Every turn in the suite is graded through this asserter since
-    /// carnet#162, so its envelope is load-bearing: if whatlang could not read
+    /// carnet#162, so its envelope is load-bearing: if the detector could not read
     /// ordinary Spanish or Portuguese coaching prose, making the check
     /// automatic would have turned the nightly into a language-detector bug
     /// report. Each string here is the length and register of a real reply.
@@ -723,40 +696,83 @@ mod tests {
         );
     }
 
-    /// The short band is refused, not guessed at — in every locale.
+    /// A one-sentence reply is judged, in its own language and against
+    /// another — in every locale.
     ///
-    /// One sentence is below where whatlang means anything: plain English
-    /// scores as Danish, French as Catalan. The assertion must report that as
-    /// a failure the author resolves with `skip_language_check`, never as a
-    /// pass. A single reply that slipped through here would be coverage the
-    /// suite does not have, on the exact turns most likely to be terse.
+    /// The production detector reads this band (carnet#825), so terse turns
+    /// are coverage rather than opt-outs: the right language passes and the
+    /// wrong one is caught.
     #[test]
-    fn a_one_sentence_reply_is_refused_rather_than_guessed() {
+    fn a_one_sentence_reply_is_judged_in_every_locale() {
         let vocab = VocabularyContractRegistry::empty();
         let short = [
-            ("en", "Hello — your training week looks steady so far."),
-            ("fr", "Voici ta semaine : 50 km au total, rien d'alarmant."),
-            ("es", "Esta semana llevas 50 km en total, nada preocupante."),
-            ("pt", "Esta semana tens 50 km no total, nada preocupante."),
+            (
+                "en",
+                "fr",
+                "Hello — your training week looks steady so far.",
+            ),
+            (
+                "fr",
+                "en",
+                "Voici ta semaine : 50 km au total, rien d'alarmant.",
+            ),
+            (
+                "es",
+                "fr",
+                "Esta semana llevas 50 km en total, nada preocupante.",
+            ),
+            (
+                "pt",
+                "en",
+                "Esta semana tens 50 km no total, nada preocupante.",
+            ),
         ];
-        for (locale, reply) in short {
-            let ctx = TurnContext {
+        for (locale, other, reply) in short {
+            let in_locale = TurnContext {
                 reply,
                 tools_called: Vec::new(),
                 locale,
                 written_plan: None,
             };
             let spec = AssertionSpec::ReplyLanguage { locale: None };
-            let Err(err) = evaluate(&spec, &ctx, &vocab) else {
-                panic!("[{locale}] a one-sentence reply must not produce a verdict: {reply:?}")
+            if let Err(err) = evaluate(&spec, &in_locale, &vocab) {
+                panic!(
+                    "[{locale}] a one-sentence reply in the turn's language must pass: {}",
+                    err.reason
+                )
+            }
+            let against_other = TurnContext {
+                locale: other,
+                ..in_locale
+            };
+            let Err(err) = evaluate(&spec, &against_other, &vocab) else {
+                panic!("[{locale}] a {locale} reply must fail a {other} turn: {reply:?}")
             };
             assert!(
-                err.reason.contains("skip_language_check")
-                    || err.reason.contains("not a language the platform speaks"),
-                "[{locale}] the refusal must tell the author what to do: {}",
+                err.reason
+                    .contains(&format!("written in {locale}, expected {other}")),
+                "[{locale}] {}",
                 err.reason
             );
         }
+    }
+
+    /// A reply two languages tie on is refused, not guessed at.
+    #[test]
+    fn a_reply_too_ambiguous_to_call_is_refused_rather_than_guessed() {
+        let vocab = VocabularyContractRegistry::empty();
+        let ctx = TurnContext {
+            // Spanish, but every word is also Portuguese: the two tie at 0.50.
+            reply: "Muéstrame mis últimas cinco actividades",
+            tools_called: Vec::new(),
+            locale: "es",
+            written_plan: None,
+        };
+        let spec = AssertionSpec::ReplyLanguage { locale: None };
+        let Err(err) = evaluate(&spec, &ctx, &vocab) else {
+            panic!("an ambiguous reply must not produce a verdict")
+        };
+        assert!(err.reason.contains("skip_language_check"), "{}", err.reason);
     }
 
     /// An explicit `locale:` overrides the turn's own.

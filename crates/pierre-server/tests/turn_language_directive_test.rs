@@ -32,7 +32,7 @@
 //! These tests pin the fix: a directive rendered from the resolved locale,
 //! authored in that locale, present for all five.
 
-use pierre_chat_pipeline::turn_service::detect_turn_locale;
+use pierre_chat_pipeline::language::resolve_turn_locale;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_LANGUAGE};
 
 /// Every locale carries a directive, and each is written in its own language.
@@ -117,10 +117,10 @@ fn the_non_english_directives_forbid_passing_english_through() {
 /// It is French carrying English technical vocabulary — "high non activity
 /// stress", "whoop", "ride" — which is exactly the shape that would make a
 /// language detector waver. It does not: the detector was never the bug, and
-/// pinning the real text keeps a future tweak to `detect_turn_locale` from
+/// pinning the real text keeps a future tweak to `resolve_turn_locale` from
 /// quietly making it one.
-#[test]
-fn the_incident_message_resolves_to_french() {
+#[tokio::test]
+async fn the_incident_message_resolves_to_french() {
     let message = "En regardant mon high non activity stress qui est à la hausse sur whoop, \
                    devrais je m'inquiéter? Je me sens anormalement fatigué, j'ai de la misère \
                    à bien dormir, j'ai un peu plus de difficulté à uriner que d'habitude et \
@@ -129,19 +129,19 @@ fn the_incident_message_resolves_to_french() {
                    Magog pour être capable de finir";
 
     assert_eq!(
-        detect_turn_locale(message, "fr"),
+        resolve_turn_locale(None, message, "fr").await,
         "fr",
         "the incident message is French and must resolve to fr"
     );
     // And it stays French even against an English stored preference, which is
     // the property that makes the directive below it trustworthy.
-    assert_eq!(detect_turn_locale(message, "en"), "fr");
+    assert_eq!(resolve_turn_locale(None, message, "en").await, "fr");
 
     // The follow-up that got the correct French reply is the English word
     // "Yes" — below the reliability floor, so it rides the stored preference.
     // Both turns therefore resolved to fr, which is what makes the English
     // first answer a prompt failure rather than a detection failure.
-    assert_eq!(detect_turn_locale("Yes", "fr"), "fr");
+    assert_eq!(resolve_turn_locale(None, "Yes", "fr").await, "fr");
 }
 
 /// The French directive is what a French turn gets, and it is not the English
@@ -149,13 +149,15 @@ fn the_incident_message_resolves_to_french() {
 ///
 /// The narrow end-to-end claim the incident needs: ask the registry with the
 /// locale the turn resolved, receive French.
-#[test]
-fn a_french_turn_receives_the_french_directive() {
+#[tokio::test]
+async fn a_french_turn_receives_the_french_directive() {
     let reg = MessagingStringsRegistry::new();
-    let locale = detect_turn_locale(
+    let locale = resolve_turn_locale(
+        None,
         "Je me sens anormalement fatigué et j'ai de la misère à bien dormir depuis une semaine.",
         "en",
-    );
+    )
+    .await;
     assert_eq!(locale, "fr");
 
     let directive = reg.get(KEY_TURN_LANGUAGE, &locale);

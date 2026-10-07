@@ -124,6 +124,9 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
 transport-sse = ["dep:pierre-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
+# Local language detection (lingua, ~22 MB of language models). Off in the
+# shipped build, which asks the LLM instead; carnet#825.
+language-detection = ["pierre-chat-pipeline?/language-detection"]
 transport-stdio = []
 
 transport-all = ["transport-http", "transport-sse", "transport-stdio"]
@@ -317,6 +320,9 @@ cron = "0.15.0"
 # PostHog capture API is called directly via the existing reqwest 0.12 dependency.
 
 [dev-dependencies]
+# The chat-scenario `reply_language` asserter grades replies with the local
+# detector, so the test build carries it even though the shipped one does not.
+pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", features = ["language-detection"] }
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
@@ -324,11 +330,6 @@ pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.5", default-features = false }
-# Test-only: `verification_banner_locale_test` probes `resolve_banner_locale`
-# (pub(crate) in the pipeline crate) by re-running the same whatlang call
-# against the same inputs. Production language detection lives in
-# pierre-chat-pipeline's turn service, which carries its own dependency.
-whatlang = "0.16"
 embacle = { version = "0.34.0" }
 tempfile = "3.26"
 serial_test = "3.4"

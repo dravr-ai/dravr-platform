@@ -241,9 +241,8 @@ fn runner_executes_a_scenario_against_the_mock_driver() {
         current_date: None,
     };
     // English prose, not a bare "pong!": every turn is language-checked
-    // against its run locale, and whatlang does not return a reliable verdict
-    // until roughly 130 characters. A fixture shorter than that fails on the
-    // detector rather than on the wiring this test is here to prove.
+    // against its run locale, and a reply under the 12-character floor fails
+    // on the detector rather than on the wiring this test is here to prove.
     let mut driver = MockScenarioDriver::new(
         vec![
             "Pong! The server is up and answering normally, dispatching this turn \

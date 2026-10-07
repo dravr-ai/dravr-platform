@@ -387,9 +387,9 @@ pub enum QuotaState {
 /// attribution with no visible symptom.
 #[derive(Debug, Clone)]
 pub struct TurnTelemetry {
-    /// Model identifier actually used on this turn — may differ from the
-    /// conversation's stored model when [`crate::ModelPolicy::OverrideWithEnv`]
-    /// is in effect.
+    /// Model identifier actually used on this turn — the configured model,
+    /// which differs from the conversation's stored model once the
+    /// configuration has moved since the conversation was created.
     pub model: String,
     /// Name of the LLM provider used (e.g. `"gemini"`, `"copilot_headless"`).
     pub provider_name: String,

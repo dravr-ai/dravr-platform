@@ -113,7 +113,9 @@ async fn the_in_app_rows_are_identical_and_complete() -> Result<(), Box<dyn Erro
     assert!(web["max_reply_chars"].is_null());
     assert_eq!(web["progressive"], "delta_channel");
     assert_eq!(web["streams_text_deltas"], true);
-    assert_eq!(web["model_policy"], "use_stored");
+    // Every surface runs the configured model (carnet#824): no per-surface
+    // model policy is left to report.
+    assert!(web.get("model_policy").is_none());
     assert!(web["max_tool_iterations"].is_null());
     assert_eq!(web["call_type"], "chat");
     Ok(())
@@ -129,7 +131,7 @@ async fn messaging_rows_carry_their_real_transport_ceilings() -> Result<(), Box<
     assert_eq!(telegram["progressive"], "complete");
     assert_eq!(telegram["streams_text_deltas"], false);
     assert_eq!(telegram["max_tool_iterations"], 5);
-    assert_eq!(telegram["model_policy"], "override_with_env");
+    assert!(telegram.get("model_policy").is_none());
     assert_eq!(telegram["call_type"], "messaging");
     assert!(
         !blocks(telegram).contains(&"scene".to_owned()),

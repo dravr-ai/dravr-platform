@@ -61,6 +61,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 /// answers in its place.
 const OPENER: &str = "Salut ! Tu peux m'aider à préparer mon premier trail ?";
 const FOLLOW_UP: &str = "Merci ! Et pour rester motivé ?";
+const ENGLISH_FOLLOW_UP: &str = "Thanks! And how do I stay motivated through the winter?";
 
 /// The persona of the agents these tests bind. It says what the agent does
 /// and never who the assistant is, which is the shape that made the anchor
@@ -318,7 +319,7 @@ async fn an_agent_bound_turn_closes_with_the_same_anchor() {
         .await;
     let conv = fx.conversation(Some(&agent)).await;
 
-    let prompt = fx.turn(&conv, OPENER, "en").await;
+    let prompt = fx.turn(&conv, OPENER, "fr").await;
 
     assert!(
         prompt.contains(AGENT_PERSONA),
@@ -331,7 +332,7 @@ async fn an_agent_bound_turn_closes_with_the_same_anchor() {
             "{}{TURN_DIRECTIVE}{}\n\n{}\n\n{}\n\n{IDENTITY_ANCHOR}",
             fx.ctx.tool_discipline_prompt,
             introduction_directive(&agent.title),
-            fx.language("en"),
+            fx.language("fr"),
             agent_voice_anchor(&agent.slug),
         ),
     );
@@ -342,13 +343,15 @@ async fn an_agent_bound_turn_closes_with_the_same_anchor() {
     );
 }
 
-/// The turn's language follows the surface's resolved locale, on every turn.
+/// The turn's language is the language of this turn's question, on every turn.
 ///
 /// carnet#159: a francophone athlete got an English answer on a surface that
 /// carried no language rule at all, because the rule was inferred from the
 /// athlete's words and outweighed by tens of KB of English scaffolding.
+/// carnet#825: the rule names the question's language, even when the surface
+/// resolved another one, and it is read again on every turn.
 #[tokio::test]
-async fn the_language_named_is_the_surfaces_locale() {
+async fn the_language_named_is_the_questions_language() {
     let fx = setup("wire-language@test.com").await;
     let (french, english) = (fx.language("fr"), fx.language("en"));
     assert_ne!(
@@ -357,13 +360,16 @@ async fn the_language_named_is_the_surfaces_locale() {
     );
 
     let conv = fx.conversation(None).await;
-    let first = fx.turn(&conv, OPENER, "fr").await;
-    assert!(first.contains(&french) && !first.contains(&english));
+    let first = fx.turn(&conv, OPENER, "en").await;
+    assert!(
+        first.contains(&french) && !first.contains(&english),
+        "a French question on an English surface is answered in French"
+    );
 
-    let second = fx.turn(&conv, FOLLOW_UP, "en").await;
+    let second = fx.turn(&conv, ENGLISH_FOLLOW_UP, "fr").await;
     assert!(
         second.contains(&english) && !second.contains(&french),
-        "the language comes from this turn's locale, not from the thread's first turn"
+        "the language comes from this turn's question, not from the thread's first turn"
     );
 }
 

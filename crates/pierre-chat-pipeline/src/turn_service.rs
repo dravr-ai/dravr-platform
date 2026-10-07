@@ -44,13 +44,17 @@ use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
+use pierre_tool_runtime::llm_call_record::LlmCallRecorder;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
+use crate::chat_provider_from_resources_arc;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
+use crate::language::{resolve_turn_locale, LocaleClassifier, LANGUAGE_CLASSIFICATION_CALL_TYPE};
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
+use crate::recorders::UsageRepoCallRecorder;
 use crate::stages::agent_mention::resolve_agent_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
@@ -348,11 +352,39 @@ async fn execute_turn(
         .await?;
     }
 
+    let mut ctx_for_turn = ctx.clone();
+    if let Some(provider) =
+        resolve_byo_chat_provider(ctx, request.tool_tenant_id, request.user_id).await
+    {
+        ctx_for_turn.chat_provider = Some(provider);
+    }
+
     // The athlete's current message decides the turn's language, over their
-    // stored preference: a model answers in the language it was addressed in,
-    // and every platform string this turn renders has to match it.
+    // stored preference: the reply answers in the language of the question
+    // (carnet#825), and every platform string this turn renders has to match
+    // it. When no local detector can tell, the turn's own provider is asked,
+    // and that call writes its own `llm_usage` row on the turn.
+    let classifier_provider = chat_provider_from_resources_arc(
+        ctx_for_turn.chat_provider.as_ref(),
+        ctx_for_turn.llm_provider.as_ref(),
+    )
+    .ok();
+    let classification_recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
+        Arc::clone(&ctx.repos.llm_usage),
+        request.conversation_tenant_id.to_string(),
+        user_id_str.clone(),
+        Some(request.conversation_id.clone()),
+        request.turn_id,
+        LANGUAGE_CLASSIFICATION_CALL_TYPE,
+    ));
+    let classifier = classifier_provider
+        .as_deref()
+        .map(|provider| LocaleClassifier {
+            provider,
+            recorder: Some(&classification_recorder),
+        });
     let profile = SurfaceProfile {
-        locale: detect_turn_locale(&request.content, &profile.locale),
+        locale: resolve_turn_locale(classifier, &request.content, &profile.locale).await,
         ..profile.clone()
     };
 
@@ -387,13 +419,6 @@ async fn execute_turn(
         quota,
         mentioned_agent: mentioned_agent.map(Box::new),
     };
-
-    let mut ctx_for_turn = ctx.clone();
-    if let Some(provider) =
-        resolve_byo_chat_provider(ctx, request.tool_tenant_id, request.user_id).await
-    {
-        ctx_for_turn.chat_provider = Some(provider);
-    }
 
     let run = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks);
     let envelope = match &request.hooks.stop {
@@ -733,43 +758,6 @@ async fn fan_out_room_visible_turn(
                 "room-visible command turn could not reach the group transcript"
             );
         }
-    }
-}
-
-/// Resolve the language this turn is conducted in.
-///
-/// Prefers the language of the message the athlete just typed over their
-/// stored preference, because a model mirrors the language it was addressed
-/// in — and every platform string around the reply (a verification banner, a
-/// scope refusal, a status placeholder, a chart axis) has to speak the same
-/// language as the coaching text beside it.
-///
-/// `fallback` is whatever the surface resolved before the turn: the channel
-/// link's override then `users.locale` on a messaging channel, `users.locale`
-/// in the app. It is returned unchanged when the message is too short for a
-/// reliable signal (whatlang guesses badly on "ok", "oui") or the detected
-/// language is not one the platform speaks.
-#[must_use]
-pub fn detect_turn_locale(text: &str, fallback: &str) -> String {
-    /// Below this many characters whatlang's verdict is noise, and the stored
-    /// preference is almost always what the athlete wants.
-    const MIN_LEN: usize = 12;
-    if text.trim().chars().count() < MIN_LEN {
-        return fallback.to_owned();
-    }
-    let Some(info) = whatlang::detect(text) else {
-        return fallback.to_owned();
-    };
-    if !info.is_reliable() {
-        return fallback.to_owned();
-    }
-    match info.lang() {
-        whatlang::Lang::Fra => "fr".to_owned(),
-        whatlang::Lang::Eng => "en".to_owned(),
-        whatlang::Lang::Spa => "es".to_owned(),
-        whatlang::Lang::Deu => "de".to_owned(),
-        whatlang::Lang::Por => "pt".to_owned(),
-        _ => fallback.to_owned(),
     }
 }
 

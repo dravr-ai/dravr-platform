@@ -170,7 +170,9 @@ pub struct CreateConversationRequest {
     /// title, else a dated stamp in the caller's language.
     #[serde(default)]
     pub title: Option<String>,
-    /// LLM model to use (optional, defaults to provider's default model)
+    /// Model recorded on the conversation (optional, defaults to
+    /// `PIERRE_LLM_MODEL`). A turn runs on the configured model and falls
+    /// back to this one only when none is configured (carnet#824).
     #[serde(default)]
     pub model: Option<String>,
     /// Agent ID to attach to this conversation (optional). The agent's

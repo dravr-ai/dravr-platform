@@ -83,7 +83,9 @@ pub struct ForgeParams<'a> {
     /// named after — the dated stamp in the surface's language. See
     /// [`counterpart_title`] for the rule that runs first.
     pub title_fallback: &'a str,
-    /// Model to run the thread on. `None` falls back to `PIERRE_LLM_MODEL`.
+    /// Model recorded on the thread. `None` falls back to `PIERRE_LLM_MODEL`.
+    /// A turn runs on the configured model and reads this one only when none
+    /// is configured (carnet#824).
     pub model: Option<&'a str>,
     /// Which agent to bind.
     pub agent: ForgeAgent<'a>,
@@ -313,8 +315,9 @@ async fn resolved_cap(
     (cap != UNLIMITED_CONVERSATIONS).then_some(cap)
 }
 
-/// The model a new conversation runs on: the one asked for, else
-/// `PIERRE_LLM_MODEL`.
+/// The model recorded on a new conversation: the one asked for, else
+/// `PIERRE_LLM_MODEL`. Turns run on the configured model; this record is
+/// their fallback when none is configured (carnet#824).
 ///
 /// # Errors
 ///

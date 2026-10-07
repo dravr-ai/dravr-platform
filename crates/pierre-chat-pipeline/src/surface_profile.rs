@@ -311,24 +311,6 @@ pub enum TurnBudget {
     AgentOrAdminDefault,
 }
 
-/// Policy for resolving the active LLM model on a turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelPolicy {
-    /// Use the model stored on the conversation record unchanged.
-    ///
-    /// Applies to the in-app surface, where users explicitly pick a model at
-    /// conversation creation time and expect per-conversation stability.
-    UseStored,
-    /// Override the stored model with the current `PIERRE_LLM_MODEL` env
-    /// value on every turn, falling back to the stored model if the env
-    /// var is unset.
-    ///
-    /// Applies to messaging surfaces, where users never pick their LLM
-    /// and a production config bump (e.g. sonnet → opus) must take effect
-    /// for long-lived conversations, not just new ones.
-    OverrideWithEnv,
-}
-
 /// What a messaging transport can carry, read from canot's declared channel
 /// capabilities at the ingress boundary.
 ///
@@ -383,8 +365,6 @@ pub struct SurfaceProfile {
     pub render: RenderCapabilities,
     /// Tool-loop iteration budget.
     pub budget: TurnBudget,
-    /// LLM model resolution policy.
-    pub model_policy: ModelPolicy,
     /// Prompt suffix appended after all dynamic injections and before canary
     /// hardening: the live contract from [`SurfaceRequest::prose_contract`],
     /// followed by the derived hard-ceiling sentence.
@@ -399,19 +379,12 @@ impl SurfaceProfile {
     /// never be true on one code path and false on another.
     #[must_use]
     pub fn resolve(request: &SurfaceRequest) -> Self {
-        let (render, budget, model_policy) = request.transport.map_or_else(
-            || {
-                (
-                    in_app_capabilities(),
-                    TurnBudget::AgentOrAdminDefault,
-                    ModelPolicy::UseStored,
-                )
-            },
+        let (render, budget) = request.transport.map_or_else(
+            || (in_app_capabilities(), TurnBudget::AgentOrAdminDefault),
             |transport| {
                 (
                     messaging_capabilities(transport),
                     TurnBudget::Fixed(MESSAGING_MAX_TOOL_ITERATIONS),
-                    ModelPolicy::OverrideWithEnv,
                 )
             },
         );
@@ -420,7 +393,6 @@ impl SurfaceProfile {
             locale: request.locale.clone(),
             render,
             budget,
-            model_policy,
             prose_contract: request
                 .prose_contract
                 .as_deref()

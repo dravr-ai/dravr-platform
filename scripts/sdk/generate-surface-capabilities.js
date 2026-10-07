@@ -89,7 +89,6 @@ function surfaceEntry(surface) {
     max_tool_iterations: ${
       surface.max_tool_iterations === null ? 'null' : surface.max_tool_iterations
     },
-    model_policy: ${lit(surface.model_policy)},
     blocks: [${blocks}],
   },`;
 }
@@ -147,8 +146,6 @@ export interface SurfaceCapabilities {
   streams_text_deltas: boolean;
   /** Fixed tool-loop budget, or null when coach/admin configuration resolves it. */
   max_tool_iterations: number | null;
-  /** How the active model is resolved for a turn. */
-  model_policy: 'use_stored' | 'override_with_env';
   /** Reply-block kinds this surface can be handed, in reply order. */
   blocks: readonly ReplyBlockKind[];
 }

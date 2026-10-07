@@ -3,7 +3,7 @@
 //
 // Surfaces: 7 · Reply-block kinds: 9 · Notification screens: 4
 // capability-digest: 6100756fdd790e2f
-// content-digest: e3fe792aab8ef97e
+// content-digest: 00526794e1c4929a
 // To regenerate: bun run generate (from packages/shared-constants)
 
 /**
@@ -61,8 +61,6 @@ export interface SurfaceCapabilities {
   streams_text_deltas: boolean;
   /** Fixed tool-loop budget, or null when coach/admin configuration resolves it. */
   max_tool_iterations: number | null;
-  /** How the active model is resolved for a turn. */
-  model_policy: 'use_stored' | 'override_with_env';
   /** Reply-block kinds this surface can be handed, in reply order. */
   blocks: readonly ReplyBlockKind[];
 }
@@ -78,7 +76,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'delta_channel',
     streams_text_deltas: true,
     max_tool_iterations: null,
-    model_policy: 'use_stored',
     blocks: ['prose', 'activity_list', 'workout_plan', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
   },
   'mobile_chat': {
@@ -90,7 +87,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'delta_channel',
     streams_text_deltas: true,
     max_tool_iterations: null,
-    model_policy: 'use_stored',
     blocks: ['prose', 'activity_list', 'workout_plan', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
   },
   'telegram': {
@@ -102,7 +98,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
-    model_policy: 'override_with_env',
     blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
   'whatsapp': {
@@ -114,7 +109,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
-    model_policy: 'override_with_env',
     blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
   'discord': {
@@ -126,7 +120,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
-    model_policy: 'override_with_env',
     blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
   'slack': {
@@ -138,7 +131,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
-    model_policy: 'override_with_env',
     blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
   'messenger': {
@@ -150,7 +142,6 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'complete',
     streams_text_deltas: false,
     max_tool_iterations: 5,
-    model_policy: 'override_with_env',
     blocks: ['prose', 'scene_image', 'reconnect', 'actions', 'notice'],
   },
 };

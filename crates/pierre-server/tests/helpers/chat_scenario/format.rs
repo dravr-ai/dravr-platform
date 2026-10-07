@@ -178,8 +178,8 @@ pub struct TurnSpec {
     /// which is the carnet#159 shape the suite exists to catch.
     ///
     /// Set this ONLY when the turn cannot produce a judgeable reply — a bare
-    /// figure, a one-word acknowledgement, or anything else too short for
-    /// whatlang to rate reliably (roughly 130 characters; the envelope is
+    /// figure, a one-word acknowledgement, or anything else too short or too
+    /// ambiguous for the language detector to call (the envelope is
     /// documented on `asserters::assert_reply_language`). It is not an escape
     /// hatch for a turn that answers in the wrong language: that is the
     /// finding, and silencing it deletes the coverage.

@@ -42,6 +42,7 @@ pub mod envelope;
 /// What a turn still owes once its reply is persisted.
 mod follow_through;
 pub mod hooks;
+pub mod language;
 pub mod mcp_bridge;
 pub mod quota_policy;
 pub mod recorders;
@@ -69,11 +70,11 @@ pub use hooks::{
 pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChatScope};
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
-    BlockSupport, MessagingTransportCaps, ModelPolicy, ProgressiveSupport, ProseFormat,
-    ProviderStreaming, RenderCapabilities, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+    BlockSupport, MessagingTransportCaps, ProgressiveSupport, ProseFormat, ProviderStreaming,
+    RenderCapabilities, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
 };
 pub use turn_service::{
-    detect_turn_locale, dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
+    dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
 };
 pub use usage_counters::{increment_usage_counters_scoped, UsageIncrementScope};
 // Re-exported so that flows which build `ToolLoopParams` directly (the
@@ -580,9 +581,12 @@ async fn run_turn(
     turn_stop::question_stored(hooks, &user_message);
     let conv = msg_result.conversation;
 
-    // Stage 3: Resolve active model per channel policy.
-    let active_model =
-        resolve_active_model(profile.model_policy, &input.conversation_id, &conv.model);
+    // Stage 3: Resolve the model this turn runs on.
+    let active_model = resolve_active_model(
+        LlmProviderType::model_from_env(),
+        &input.conversation_id,
+        &conv.model,
+    );
 
     // Stage 4: Ensure a long-lived agent session exists and is attached.
     let conv = ensure_agent_session_attached(&ctx.data, conv, input.conversation_tenant_id).await;
@@ -1041,22 +1045,50 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     }
 }
 
-/// Resolve the active LLM model for a turn per the channel's [`ModelPolicy`].
-fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model: &str) -> String {
-    match policy {
-        ModelPolicy::UseStored => stored_model.to_owned(),
-        ModelPolicy::OverrideWithEnv => {
-            let active =
-                LlmProviderType::model_from_env().unwrap_or_else(|| stored_model.to_owned());
-            if active != stored_model {
-                info!(
-                    conversation_id = %conversation_id,
-                    stored_model = %stored_model,
-                    active_model = %active,
-                    "Overriding stored conversation model with current env default"
-                );
-            }
-            active
-        }
+/// The model a turn runs on: the configured `PIERRE_LLM_MODEL` on every
+/// surface, so a configuration change reaches existing conversations too,
+/// not only the ones created after it (carnet#824). The conversation's
+/// stored model is the answer only when nothing is configured.
+fn resolve_active_model(
+    configured: Option<String>,
+    conversation_id: &str,
+    stored_model: &str,
+) -> String {
+    let active = configured.unwrap_or_else(|| stored_model.to_owned());
+    if active != stored_model {
+        info!(
+            conversation_id = %conversation_id,
+            stored_model = %stored_model,
+            active_model = %active,
+            "Overriding stored conversation model with the configured model"
+        );
+    }
+    active
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_active_model;
+
+    #[test]
+    fn a_configured_model_replaces_the_one_the_conversation_was_created_with() {
+        // dev moved to claude-sonnet-5.5 on 2026-10-01; a conversation created
+        // before kept answering on claude-sonnet-5 (carnet#824).
+        assert_eq!(
+            resolve_active_model(
+                Some("claude-sonnet-5.5".to_owned()),
+                "conv",
+                "claude-sonnet-5"
+            ),
+            "claude-sonnet-5.5"
+        );
+    }
+
+    #[test]
+    fn the_stored_model_answers_only_when_nothing_is_configured() {
+        assert_eq!(
+            resolve_active_model(None, "conv", "claude-sonnet-5"),
+            "claude-sonnet-5"
+        );
     }
 }

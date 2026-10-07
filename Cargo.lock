@@ -64,7 +64,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "strum",
+ "strum 0.28.0",
 ]
 
 [[package]]
@@ -929,6 +929,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "counter"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66e8e052be91f1c8aae2c1d81307d9f6e67f5f37001e3ddee419e971e73f03bc"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "cpp_demangle"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -992,7 +1001,7 @@ dependencies = [
  "criterion-plot",
  "futures",
  "is-terminal",
- "itertools",
+ "itertools 0.10.5",
  "num-traits",
  "once_cell",
  "oorandom",
@@ -1014,7 +1023,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
 dependencies = [
  "cast",
- "itertools",
+ "itertools 0.10.5",
 ]
 
 [[package]]
@@ -1200,6 +1209,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
 dependencies = [
  "cfg-if",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "dashmap"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
@@ -1836,6 +1859,9 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+dependencies = [
+ "getrandom 0.3.4",
+]
 
 [[package]]
 name = "ff"
@@ -1982,6 +2008,12 @@ dependencies = [
  "lazy_static",
  "num",
 ]
+
+[[package]]
+name = "fst"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ab85b9b05e3978cc9a9cf8fea7f01b494e1a09ed3037e16ba39edc7a29eb61a"
 
 [[package]]
 name = "futures"
@@ -2260,10 +2292,6 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-dependencies = [
- "ahash",
- "allocator-api2",
-]
 
 [[package]]
 name = "hashbrown"
@@ -2655,6 +2683,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "include_dir"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd"
+dependencies = [
+ "include_dir_macros",
+]
+
+[[package]]
+name = "include_dir_macros"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2751,6 +2798,15 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
@@ -2923,6 +2979,78 @@ dependencies = [
 ]
 
 [[package]]
+name = "lingua"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f40d9129bb9fe42c95d1bd420d6891607eaff17df16ee15674aed2d05b0ec8f4"
+dependencies = [
+ "counter",
+ "dashmap 6.2.1",
+ "fastrand",
+ "fst",
+ "include_dir",
+ "itertools 0.14.0",
+ "lingua-english-language-model",
+ "lingua-french-language-model",
+ "lingua-german-language-model",
+ "lingua-portuguese-language-model",
+ "lingua-spanish-language-model",
+ "maplit",
+ "rayon",
+ "regex",
+ "serde",
+ "serde-wasm-bindgen",
+ "strum 0.27.2",
+ "strum_macros 0.27.2",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "lingua-english-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97102de08b134a49f1cce05a1b6f5bf08ef21fe858074ae2b794e7892c43dd4b"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-french-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45508227e42c9cc5eb202e17c4c40e38ea7b9be9421faeb3ab0fb7ac37d9c681"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-german-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f584da803e8c135ea22dd3ed321a6b3e2ff3465559606be0a597924ecd465cb2"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-portuguese-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "432eda7984456055033ffa168037be9afe0f5c9ecd891bf5f27435247d496b47"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
+name = "lingua-spanish-language-model"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56395a8d96c892130a9efb433c5f042977fb75ae5fb6e0058c8814a947459137"
+dependencies = [
+ "include_dir",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2969,6 +3097,12 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "maplit"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
 name = "matchers"
@@ -3584,7 +3718,7 @@ name = "pierre-agui"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dashmap",
+ "dashmap 5.5.3",
  "pierre-core",
  "serde",
  "serde_json",
@@ -3664,6 +3798,7 @@ dependencies = [
  "embacle-tool-host",
  "futures-util",
  "jsonschema",
+ "lingua",
  "pierre-agui",
  "pierre-commands",
  "pierre-config",
@@ -3688,7 +3823,6 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "uuid",
- "whatlang",
 ]
 
 [[package]]
@@ -4098,7 +4232,7 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.11.1",
  "chrono",
- "dashmap",
+ "dashmap 5.5.3",
  "dravr-cageux",
  "dravr-equilibre",
  "dravr-sciotte",
@@ -4383,7 +4517,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "chrono-tz",
- "dashmap",
+ "dashmap 5.5.3",
  "dravr-cageux",
  "dravr-canot",
  "dravr-enforme",
@@ -4440,7 +4574,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "dashmap",
+ "dashmap 5.5.3",
  "futures-util",
  "pierre-auth",
  "pierre-config",
@@ -4547,7 +4681,7 @@ dependencies = [
  "clap",
  "criterion",
  "cron",
- "dashmap",
+ "dashmap 5.5.3",
  "dirs 5.0.1",
  "dravr-cageux",
  "dravr-canot",
@@ -4646,7 +4780,6 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "whatlang",
  "zeroize",
 ]
 
@@ -4827,7 +4960,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn",
@@ -5569,6 +5702,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6111,11 +6255,29 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+
+[[package]]
+name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.28.0",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -7123,16 +7285,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "whatlang"
-version = "0.16.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "471d1c1645d361eb782a1650b1786a8fb58dd625e681a04c09f5ff7c8764a7b0"
-dependencies = [
- "hashbrown 0.14.5",
- "once_cell",
 ]
 
 [[package]]

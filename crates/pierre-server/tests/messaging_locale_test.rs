@@ -19,7 +19,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use std::collections::HashMap;
 
-use pierre_chat_pipeline::detect_turn_locale;
+use pierre_chat_pipeline::language::resolve_turn_locale;
 use pierre_commands::status::StatusHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
@@ -168,39 +168,45 @@ fn registry_exposes_agent_scope_carve_outs_for_every_locale() {
     }
 }
 
-/// The turn service's `detect_turn_locale` picks the message-content language
+/// The turn service's `resolve_turn_locale` picks the message-content language
 /// over the stored fallback, so every platform string a turn renders matches
 /// the language the model will reply in even when the athlete is writing in a
 /// language different from their saved preference. One implementation for
 /// every surface — web chat used to import this from the messaging ingress,
 /// which is the plainest evidence it never belonged to a channel.
-#[test]
-fn detect_turn_locale_matches_message_language_over_fallback() {
+#[tokio::test]
+async fn resolve_turn_locale_matches_message_language_over_fallback() {
     // English sentence, user.locale = "fr" → detected "en".
-    let l = detect_turn_locale(
+    let l = resolve_turn_locale(
+        None,
         "Are my latest workouts making me on track for the race on May 29?",
         "fr",
-    );
+    )
+    .await;
     assert_eq!(l, "en", "English message must override French fallback");
 
     // French sentence, user.locale = "en" → detected "fr".
-    let l = detect_turn_locale(
+    let l = resolve_turn_locale(
+        None,
         "Peux-tu analyser ma dernière sortie et me dire si je suis sur la bonne voie?",
         "en",
-    );
+    )
+    .await;
     assert_eq!(l, "fr", "French message must override English fallback");
 
     // Short message (<12 chars) → fallback regardless of content.
-    assert_eq!(detect_turn_locale("ok", "fr"), "fr");
-    assert_eq!(detect_turn_locale("oui", "en"), "en");
+    assert_eq!(resolve_turn_locale(None, "ok", "fr").await, "fr");
+    assert_eq!(resolve_turn_locale(None, "oui", "en").await, "en");
 
     // Message in an unsupported locale → fallback.
     // Japanese text is clearly detected but not in our locale set.
     assert_eq!(
-        detect_turn_locale(
+        resolve_turn_locale(
+            None,
             "これは日本語のテストメッセージです。トレーニングについて質問があります。",
             "fr"
-        ),
+        )
+        .await,
         "fr"
     );
 }

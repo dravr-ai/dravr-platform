@@ -15,8 +15,7 @@ use dravr_canot::channels::telegram::TelegramDescriptor;
 use dravr_canot::channels::whatsapp::WhatsAppDescriptor;
 use dravr_canot::descriptor::ChannelDescriptor;
 use pierre_chat_pipeline::{
-    ModelPolicy, ProgressiveSupport, ProseFormat, SurfaceId, SurfaceProfile, SurfaceRequest,
-    TurnBudget,
+    ProgressiveSupport, ProseFormat, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_mcp_server::services::messaging_ingress::surface::{
@@ -56,7 +55,6 @@ fn telegram_resolves_its_real_transport_ceiling_and_block_set() {
     assert_eq!(profile.render.progressive, ProgressiveSupport::Complete);
     assert!(!profile.render.progressive.has_delta_channel());
     assert_eq!(profile.budget, TurnBudget::Fixed(5));
-    assert_eq!(profile.model_policy, ModelPolicy::OverrideWithEnv);
     assert_eq!(profile.locale, "fr");
 }
 
@@ -112,7 +110,6 @@ fn in_app_surface_renders_markdown_cards_and_inline_scenes() {
     assert_eq!(profile.render.progressive, ProgressiveSupport::DeltaChannel);
     assert_eq!(profile.render.max_reply_chars, usize::MAX);
     assert_eq!(profile.budget, TurnBudget::AgentOrAdminDefault);
-    assert_eq!(profile.model_policy, ModelPolicy::UseStored);
     assert_eq!(profile.prose_contract, None);
 }
 
@@ -298,7 +295,6 @@ fn web_and_mobile_are_separate_identities_over_one_capability_set() {
     // reds this line rather than hiding behind a shared variant.
     assert_eq!(web.render, mobile.render);
     assert_eq!(web.budget, mobile.budget);
-    assert_eq!(web.model_policy, mobile.model_policy);
     assert_eq!(mobile.render.prose, ProseFormat::Markdown);
     assert!(mobile.render.blocks.scene_inline);
     assert!(mobile.render.blocks.workout_plan_card);

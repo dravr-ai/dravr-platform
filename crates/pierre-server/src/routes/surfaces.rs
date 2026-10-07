@@ -27,8 +27,8 @@
 use axum::routing::get;
 use axum::{Json, Router};
 use pierre_chat_pipeline::{
-    ModelPolicy, ProgressiveSupport, ProseFormat, ProviderStreaming, ReplyBlockKind, SurfaceId,
-    SurfaceProfile, SurfaceRequest, TurnBudget,
+    ProgressiveSupport, ProseFormat, ProviderStreaming, ReplyBlockKind, SurfaceId, SurfaceProfile,
+    SurfaceRequest, TurnBudget,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::NotificationScreen;
@@ -101,8 +101,6 @@ pub struct SurfaceCapabilityRow {
     /// Fixed tool-loop budget, or `null` when it resolves from agent/admin
     /// configuration.
     pub max_tool_iterations: Option<usize>,
-    /// `"use_stored"` or `"override_with_env"`.
-    pub model_policy: String,
     /// Reply-block kinds this surface can be handed, in reply order.
     pub blocks: Vec<String>,
 }
@@ -191,11 +189,6 @@ fn row(profile: &SurfaceProfile) -> SurfaceCapabilityRow {
             TurnBudget::Fixed(iterations) => Some(iterations),
             TurnBudget::AgentOrAdminDefault => None,
         },
-        model_policy: match profile.model_policy {
-            ModelPolicy::UseStored => "use_stored",
-            ModelPolicy::OverrideWithEnv => "override_with_env",
-        }
-        .to_owned(),
         blocks: render
             .renderable_blocks()
             .into_iter()

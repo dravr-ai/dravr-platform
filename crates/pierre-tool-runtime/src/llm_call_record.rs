@@ -152,45 +152,49 @@ pub(crate) const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -
     }
 }
 
-/// Hand one [`LlmCallRecord`] to the optional sink. Centralises token
-/// extraction so the three tool-loop variants can share the same
-/// recording contract. `cached_tokens` is zero unless the provider
-/// wrapped its usage in
-/// the provider's own [`pierre_core::llm::TokenUsage`] and forwarded it through
-/// the caller. `call_sequence` is the 1-based turn-local position of
-/// the call (1, 2, 3, ...).
-/// Shared parameters for the [`emit_call_record`] / [`emit_call_record_with_text`]
-/// pair. Bundles every field a recorder needs to capture a single LLM call so
-/// the call sites don't carry a nine/eleven-arg positional signature.
-pub(crate) struct CallRecordInputs<'a> {
+/// Every field a recorder needs to capture a single LLM call.
+///
+/// Shared by [`emit_call_record`] and [`emit_call_record_with_text`] so the
+/// call sites don't carry a nine/eleven-arg positional signature.
+pub struct CallRecordInputs<'a> {
     /// Optional recorder; `None` short-circuits the call (no row written).
-    pub(crate) recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
     /// Provider name (e.g. `"groq"`, `"gemini"`).
-    pub(crate) provider: &'a str,
+    pub provider: &'a str,
     /// Model identifier as reported by the provider.
-    pub(crate) model: &'a str,
+    pub model: &'a str,
     /// Token-usage payload reported by the provider; `None` when the provider
     /// emits no usage and the caller will fall back to text-based estimation.
-    pub(crate) usage: Option<&'a TokenUsage>,
+    pub usage: Option<&'a TokenUsage>,
     /// End-to-end call latency in milliseconds.
-    pub(crate) latency_ms: i64,
+    pub latency_ms: i64,
     /// `true` when the call completed without a provider-side error.
-    pub(crate) success: bool,
+    pub success: bool,
     /// 1-based turn-local position of the call.
-    pub(crate) call_sequence: Option<i64>,
+    pub call_sequence: Option<i64>,
     /// Tool function names invoked during the call.
-    pub(crate) tools_called: Vec<String>,
+    pub tools_called: Vec<String>,
 }
 
+/// Hand one [`LlmCallRecord`] to the optional sink.
+///
+/// Centralises token extraction so the three tool-loop variants share the
+/// same recording contract. `cached_tokens` is zero unless the provider
+/// wrapped its usage in its own [`pierre_core::llm::TokenUsage`] and forwarded
+/// it through the caller. `call_sequence` is the 1-based turn-local position
+/// of the call (1, 2, 3, ...).
 pub(crate) fn emit_call_record(inputs: CallRecordInputs<'_>) {
     emit_call_record_with_text(inputs, None, None);
 }
 
-/// Variant of [`emit_call_record`] that estimates token counts from
-/// character-based prompt/completion text when the provider returns
-/// no usage, so CLI runners (Claude Code, Copilot, Cursor, etc.) produce
-/// non-zero usage rows instead of silently dropping.
-pub(crate) fn emit_call_record_with_text(
+/// Hand one [`LlmCallRecord`] to the optional sink, estimating its tokens.
+///
+/// When the provider returns no usage, the counts are estimated from the
+/// character length of the prompt and completion text, so CLI runners
+/// (Claude Code, Copilot, Cursor, etc.) produce non-zero usage rows instead
+/// of silently dropping. Also the path for an LLM call made outside the tool
+/// loop, such as the turn's language classification.
+pub fn emit_call_record_with_text(
     inputs: CallRecordInputs<'_>,
     prompt_text: Option<&str>,
     completion_text: Option<&str>,

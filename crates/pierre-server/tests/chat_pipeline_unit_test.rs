@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-// Surface capabilities (what a surface renders, how long a reply may be, which
-// model policy applies) are pinned in `surface_profile_test.rs`. What is left
+// Surface capabilities (what a surface renders, how long a reply may be, how
+// many tool iterations it gets) are pinned in `surface_profile_test.rs`. What is left
 // here is the other half of per-surface behaviour: the hooks a caller installs
 // for side effects the pipeline itself must not know about.
 use pierre_chat_pipeline::hooks::{IdentityPostProcess, PipelineHooks, ResponsePostProcess};
