@@ -29,7 +29,7 @@ use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
-    RosterScope,
+    RosterScope, StyleEditor,
 };
 use super::plan_block::{append_block, plan_block_for_turn};
 use super::prompt_assembly::resolve_user_persona;
@@ -108,6 +108,11 @@ pub(crate) struct PostProcessInputs<'a> {
     /// the appeal scrub applies: the agent may still answer, it just cannot cite
     /// a lookup it did not perform (registre#202).
     pub turn_was_grounded: bool,
+    /// Whether a coached athlete's data reached this turn — a roster tool ran,
+    /// or a group room's member cards were in the prompt. Only then can a data
+    /// block in the reply be someone else's, which is when the persona's
+    /// athlete-attribution rule binds.
+    pub roster_data_read: bool,
     /// The model this turn actually ran on.
     ///
     /// Needed because the persona repair re-prompts the SAME provider. Without
@@ -177,6 +182,7 @@ async fn resolve_roster_scope(
 async fn apply_style_stages(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
+    roster_data_read: bool,
     content: String,
     locale: &str,
     active_model: &str,
@@ -193,6 +199,7 @@ async fn apply_style_stages(
         persona,
         &content,
         roster.as_ref(),
+        roster_data_read,
     );
     tracing::debug!(
         persona = persona.as_str(),
@@ -209,14 +216,18 @@ async fn apply_style_stages(
         roster.as_ref(),
         locale,
     );
+    let editor = StyleEditor {
+        provider: ctx.chat_provider.as_ref(),
+        prompts: &ctx.prompt_registry,
+        model: active_model,
+    };
     enforce_conformance(
-        ctx.chat_provider.as_ref(),
-        &ctx.prompt_registry,
+        editor,
         &ctx.persona_contract_registry,
         persona,
         content,
         &conformance_violations,
-        active_model,
+        roster_data_read,
     )
     .await
 }
@@ -431,6 +442,7 @@ pub(crate) async fn post_process_assistant_reply(
         profile,
         tools_called,
         turn_was_grounded,
+        roster_data_read,
         active_model,
         provider_stop,
     } = inputs;
@@ -556,7 +568,7 @@ pub(crate) async fn post_process_assistant_reply(
     // Stages 16a-16b: acronym gloss, then per-persona output-format conformance.
     // Cloned for the one comparison below — a few KB once per turn.
     let before_style = content.clone();
-    content = apply_style_stages(ctx, input, content, locale, active_model).await;
+    content = apply_style_stages(ctx, input, roster_data_read, content, locale, active_model).await;
     let provider_stop = provider_stop::kept_through(provider_stop, &before_style, &content);
 
     // Stage 17: claim verification (gated behind tools-verification).

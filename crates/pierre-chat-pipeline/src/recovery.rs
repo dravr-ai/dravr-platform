@@ -331,6 +331,10 @@ pub async fn run_recovery_and_post_process(
             // Either way the reply has evidence behind it and may cite it.
             turn_was_grounded: !tools_called.is_empty()
                 || stages::capability_recovery::turn_carries_activity_block(llm_messages),
+            // A roster tool ran, or the room's member cards were in the prompt:
+            // either way a data block in the reply may be another athlete's.
+            roster_data_read: !peer_roster.is_empty()
+                || stages::persona_conformance::turn_read_roster_data(&tools_called),
             active_model,
             provider_stop,
         },

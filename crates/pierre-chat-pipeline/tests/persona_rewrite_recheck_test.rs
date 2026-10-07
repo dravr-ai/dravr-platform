@@ -11,7 +11,9 @@ use std::io::{Result as IoResult, Write};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use pierre_chat_pipeline::stages::persona_conformance::{enforce_conformance, ContractViolation};
+use pierre_chat_pipeline::stages::persona_conformance::{
+    enforce_conformance, ContractViolation, StyleEditor,
+};
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppError;
@@ -121,26 +123,59 @@ impl<'a> MakeWriter<'a> for LogSink {
     }
 }
 
+/// One strict repair: the contract, the reply and what it violated, the
+/// editor's scripted rewrite, and whether the turn read a coached athlete's
+/// data.
+struct Repair<'a> {
+    registry: Arc<PersonaContractRegistry>,
+    persona: CoachingPersona,
+    original: &'a str,
+    violation: ContractViolation,
+    rewrite: &'a str,
+    roster_data_read: bool,
+}
+
 /// Run one strict repair whose editor returns `rewrite`; return the log.
 async fn repair_log(rewrite: &str) -> String {
+    run_repair(Repair {
+        registry: strict_registry(),
+        persona: CoachingPersona::Casual,
+        original: "Run 5k easy today, and remember to hydrate well afterwards.",
+        violation: a_violation(),
+        rewrite,
+        roster_data_read: false,
+    })
+    .await
+}
+
+async fn run_repair(repair: Repair<'_>) -> String {
     let sink = LogSink::default();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(sink.clone())
         .with_ansi(false)
         .finish();
     let _guard = set_default(subscriber);
-    let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(rewrite))));
+    let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(
+        repair.rewrite,
+    ))));
+    let editor = StyleEditor {
+        provider: Some(&provider),
+        prompts: &PromptRegistry::new(),
+        model: "claude-sonnet-5",
+    };
     let out = enforce_conformance(
-        Some(&provider),
-        &PromptRegistry::new(),
-        &strict_registry(),
-        CoachingPersona::Casual,
-        "Run 5k easy today, and remember to hydrate well afterwards.".to_owned(),
-        &[a_violation()],
-        "claude-sonnet-5",
+        editor,
+        &repair.registry,
+        repair.persona,
+        repair.original.to_owned(),
+        &[repair.violation],
+        repair.roster_data_read,
     )
     .await;
-    assert_eq!(out, rewrite, "the repair must have gone through the editor");
+    assert_eq!(
+        out, repair.rewrite,
+        "the repair must have gone through the editor"
+    );
     let bytes = sink.0.lock().expect("sink lock").clone();
     String::from_utf8(bytes).expect("utf-8 log")
 }
@@ -167,6 +202,84 @@ async fn the_rewrite_is_rechecked_against_the_contract() {
         "a rewrite still over the cap must report the residual rule, got: {residual}"
     );
     assert_no_second_alert(&residual);
+}
+
+/// A strict coach, armed through the Power-athlete overlay as in production.
+fn strict_coach_registry() -> Arc<PersonaContractRegistry> {
+    let registry = Arc::new(PersonaContractRegistry::new());
+    registry
+        .apply_overlay(
+            r"
+version: 2
+personas:
+  power_athlete:
+    require_line_by_line_block: true
+    strict_mode: true
+  coach:
+    inherits: power_athlete
+    require_athlete_id_prefix: true
+    require_tenant_isolation: true
+    strict_mode: false
+",
+        )
+        .expect("overlay applies");
+    registry
+}
+
+/// A coach's own ride report, before and after the editor adds the
+/// line-by-line block Power-athlete asks for.
+const OWN_RIDE_PROSE: &str = "The Sutton loop is 42 km with 650 m of climbing.";
+const OWN_RIDE_BLOCK: &str = "Sutton loop\nDistance: 42 km\nClimbing: 650 m";
+
+fn missing_block() -> ContractViolation {
+    ContractViolation {
+        rule: "require_line_by_line_block",
+        detail: "no label:value block found".to_owned(),
+    }
+}
+
+/// Live 2026-10-07: a coach asked for rides near home, the editor added the
+/// block `require_line_by_line_block` asked for, and the re-check then flagged
+/// that block under `require_athlete_id_prefix` — two rules of one contract
+/// that no rewrite could satisfy together. The block is the coach's own data
+/// on a turn that read no athlete's, and must stand.
+#[tokio::test]
+async fn a_coachs_own_block_satisfies_the_contract() {
+    let log = run_repair(Repair {
+        registry: strict_coach_registry(),
+        persona: CoachingPersona::Coach,
+        original: OWN_RIDE_PROSE,
+        violation: missing_block(),
+        rewrite: OWN_RIDE_BLOCK,
+        roster_data_read: false,
+    })
+    .await;
+    assert!(
+        log.contains("0 of 1 violation(s) remain"),
+        "the coach's own block needs no athlete citation, got: {log}"
+    );
+    assert_no_second_alert(&log);
+}
+
+/// The same block on a turn that read a roster athlete's data is an athlete
+/// report, and still has to say whose it is.
+#[tokio::test]
+async fn an_uncited_block_after_a_roster_read_remains_a_residual() {
+    let log = run_repair(Repair {
+        registry: strict_coach_registry(),
+        persona: CoachingPersona::Coach,
+        original: OWN_RIDE_PROSE,
+        violation: missing_block(),
+        rewrite: OWN_RIDE_BLOCK,
+        roster_data_read: true,
+    })
+    .await;
+    assert!(
+        log.contains("1 of 1 violation(s) remain")
+            && log.contains("residual_rules=require_athlete_id_prefix"),
+        "an athlete report without a citation must be measured, got: {log}"
+    );
+    assert_no_second_alert(&log);
 }
 
 /// WARN and ERROR are forwarded to Slack; the turn's violations already

@@ -27,7 +27,19 @@ fn rules(
     reply: &str,
     roster: Option<&RosterScope>,
 ) -> Vec<String> {
-    check_reply_conformance(&registry(yaml), persona, reply, roster)
+    rules_for_turn(yaml, persona, reply, roster, false)
+}
+
+/// The rules a reply breaks on a turn that read a coached athlete's data
+/// (`roster_data_read`) or not.
+fn rules_for_turn(
+    yaml: &str,
+    persona: CoachingPersona,
+    reply: &str,
+    roster: Option<&RosterScope>,
+    roster_data_read: bool,
+) -> Vec<String> {
+    check_reply_conformance(&registry(yaml), persona, reply, roster, roster_data_read)
         .into_iter()
         .map(|v| v.rule.to_owned())
         .collect()
@@ -458,12 +470,12 @@ personas:
 ";
 
 #[test]
-fn data_block_without_athlete_prefix_violates() {
+fn data_block_without_athlete_prefix_violates_after_a_roster_read() {
     let reply = "Distance: 42 km\nTime: 3h30";
-    let found = rules(COACH, CoachingPersona::Coach, reply, None);
+    let found = rules_for_turn(COACH, CoachingPersona::Coach, reply, None, true);
     assert!(
         found.contains(&"require_athlete_id_prefix".to_owned()),
-        "an unattributed data block must fire, got {found:?}"
+        "an unattributed athlete data block must fire, got {found:?}"
     );
 }
 
@@ -471,10 +483,54 @@ fn data_block_without_athlete_prefix_violates() {
 fn prefixed_data_block_passes() {
     let scope = RosterScope::from_athlete_ids(["11111111-2222-3333-4444-555566667a1b"]);
     let reply = "Alice · 7a1b\nDistance: 42 km\nTime: 3h30";
-    let found = rules(COACH, CoachingPersona::Coach, reply, Some(&scope));
+    let found = rules_for_turn(COACH, CoachingPersona::Coach, reply, Some(&scope), true);
     assert!(
         found.is_empty(),
         "an attributed block from a rostered athlete is clean, got {found:?}"
+    );
+}
+
+#[test]
+fn the_coachs_own_data_block_needs_no_athlete_prefix() {
+    // No roster read this turn, so the block is the coach's own numbers.
+    let reply = "Distance: 42 km\nTime: 3h30";
+    let found = rules(COACH, CoachingPersona::Coach, reply, None);
+    assert!(
+        !found.contains(&"require_athlete_id_prefix".to_owned()),
+        "the coach's own block is not an athlete report, got {found:?}"
+    );
+}
+
+/// Coach as shipped: inheriting Power-athlete's line-by-line rule.
+const COACH_INHERITING: &str = r"
+version: 2
+personas:
+  power_athlete:
+    require_line_by_line_block: true
+  coach:
+    inherits: power_athlete
+    require_athlete_id_prefix: true
+    require_tenant_isolation: true
+";
+
+#[test]
+fn the_inherited_line_by_line_rule_and_the_prefix_agree_on_the_coachs_own_data() {
+    // 2026-10-07: these two rules demanded opposite things of a coach's own
+    // ride report — a block, then a roster citation on that block. The block
+    // alone satisfies the contract.
+    let block = "Sutton loop\nDistance: 42 km\nClimbing: 650 m";
+    let found = rules(COACH_INHERITING, CoachingPersona::Coach, block, None);
+    assert!(
+        found.is_empty(),
+        "the own-data block is compliant, got {found:?}"
+    );
+
+    let prose = "The Sutton loop is 42 km with 650 m of climbing.";
+    let found = rules(COACH_INHERITING, CoachingPersona::Coach, prose, None);
+    assert_eq!(
+        found,
+        vec!["require_line_by_line_block".to_owned()],
+        "the report still has to be a block"
     );
 }
 

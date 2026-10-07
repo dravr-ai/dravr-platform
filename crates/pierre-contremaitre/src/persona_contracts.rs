@@ -173,13 +173,13 @@ pub struct PersonaContract {
     pub require_p0_p3_ladder: bool,
 
     /// When `true`, replies referencing a specific athlete must prefix
-    /// the data block with `<display_name> · <last4uuid>` so the agent
+    /// the data block with `<display_name> · <last4uuid>` so the coach
     /// can keep multiple athletes straight in scrollback.
     #[serde(default)]
     pub require_athlete_id_prefix: bool,
 
     /// When `true`, the conformance stage refuses to surface data
-    /// outside the agent's roster (treat as tenant-isolation violation).
+    /// outside the coach's roster (treat as tenant-isolation violation).
     #[serde(default)]
     pub require_tenant_isolation: bool,
 
@@ -193,9 +193,11 @@ pub struct PersonaContract {
     #[serde(default)]
     pub notification: NotificationPolicy,
 
-    /// When `true`, conformance violations BLOCK the reply and
-    /// re-prompt the LLM with a "fix this" delta. When `false`,
-    /// violations are advisory `warn!` logs only. Per-persona opt-in.
+    /// When `true`, conformance violations log at `error!` and the LLM
+    /// is re-prompted to rewrite the reply against the violated style
+    /// rules, keeping the original if the rewrite fails. When `false`,
+    /// violations are advisory `warn!` logs only. Per-persona opt-in, and
+    /// inherited: an `inherits` child is strict whenever its parent is.
     #[serde(default)]
     pub strict_mode: bool,
 }
@@ -374,7 +376,7 @@ impl PersonaContractRegistry {
 /// parent's; a child leaving an Option/Vec at default keeps the
 /// parent's value. This is what lets the YAML express
 /// "Coach inherits Power-athlete plus roster framing" without copying
-/// every Power-athlete rule into Agent's block.
+/// every Power-athlete rule into Coach's block.
 fn resolve_inheritance(
     mut raw: HashMap<String, PersonaContract>,
 ) -> AppResult<HashMap<String, PersonaContract>> {

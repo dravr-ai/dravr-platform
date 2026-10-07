@@ -10,7 +10,9 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use pierre_chat_pipeline::stages::persona_conformance::{enforce_conformance, ContractViolation};
+use pierre_chat_pipeline::stages::persona_conformance::{
+    enforce_conformance, ContractViolation, StyleEditor,
+};
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppError;
@@ -31,13 +33,16 @@ async fn no_violations_returns_reply_unchanged() {
     let registry = Arc::new(PersonaContractRegistry::new());
     let original = "Run 5k easy today.".to_owned();
     let out = enforce_conformance(
-        None,
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: None,
+            prompts: &PromptRegistry::new(),
+            model: "claude-sonnet-5",
+        },
         &registry,
         CoachingPersona::Coach,
         original.clone(),
         &[],
-        "claude-sonnet-5",
+        false,
     )
     .await;
     assert_eq!(out, original);
@@ -51,13 +56,16 @@ async fn non_strict_contract_is_shadow_mode_only() {
     let original = "Run 5k easy today, and remember to hydrate well.".to_owned();
     let violations = vec![a_violation()];
     let out = enforce_conformance(
-        None,
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: None,
+            prompts: &PromptRegistry::new(),
+            model: "claude-sonnet-5",
+        },
         &registry,
         CoachingPersona::Coach,
         original.clone(),
         &violations,
-        "claude-sonnet-5",
+        false,
     )
     .await;
     assert_eq!(
@@ -187,13 +195,16 @@ async fn the_repair_runs_on_the_same_model_as_the_turn() {
     })));
 
     let out = enforce_conformance(
-        Some(&provider),
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: Some(&provider),
+            prompts: &PromptRegistry::new(),
+            model: "claude-opus-4.8",
+        },
         &strict_registry(),
         CoachingPersona::Casual,
         "Run 5k easy today, and remember to hydrate well afterwards.".to_owned(),
         &[a_violation()],
-        "claude-opus-4.8",
+        false,
     )
     .await;
     assert_eq!(
@@ -273,15 +284,18 @@ async fn the_editor_is_told_to_keep_an_opening_introduction() {
     })));
 
     let out = enforce_conformance(
-        Some(&provider),
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: Some(&provider),
+            prompts: &PromptRegistry::new(),
+            model: "claude-sonnet-5",
+        },
         &strict_registry(),
         CoachingPersona::Casual,
         "Salut, je suis l'Agent Semi-Marathon, là pour préparer ton 21,1 km avec toi. \
          Mars a été un mois de fond plutôt que de spécifique semi."
             .to_owned(),
         &[a_violation()],
-        "claude-sonnet-5",
+        false,
     )
     .await;
     assert_eq!(
@@ -312,13 +326,16 @@ async fn the_editor_reads_its_instructions_from_the_catalogue() {
     let reply = "Run 5k easy today, and remember to hydrate well afterwards.";
 
     let _ = enforce_conformance(
-        Some(&provider),
-        &prompts,
+        StyleEditor {
+            provider: Some(&provider),
+            prompts: &prompts,
+            model: "claude-sonnet-5",
+        },
         &strict_registry(),
         CoachingPersona::Casual,
         reply.to_owned(),
         &[a_violation()],
-        "claude-sonnet-5",
+        false,
     )
     .await;
     prompts.update_system_prompt(
@@ -327,13 +344,16 @@ async fn the_editor_reads_its_instructions_from_the_catalogue() {
         "sha-edited".to_owned(),
     );
     let _ = enforce_conformance(
-        Some(&provider),
-        &prompts,
+        StyleEditor {
+            provider: Some(&provider),
+            prompts: &prompts,
+            model: "claude-sonnet-5",
+        },
         &strict_registry(),
         CoachingPersona::Casual,
         reply.to_owned(),
         &[a_violation()],
-        "claude-sonnet-5",
+        false,
     )
     .await;
 
@@ -393,13 +413,16 @@ async fn strict_contract_rewrites_the_reply_through_the_editor() {
     let original = "Run 5k easy today, and remember to hydrate well afterwards.".to_owned();
 
     let out = enforce_conformance(
-        Some(&provider),
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: Some(&provider),
+            prompts: &PromptRegistry::new(),
+            model: "claude-sonnet-5",
+        },
         &registry,
         CoachingPersona::Casual,
         original.clone(),
         &[a_violation()],
-        "claude-sonnet-5",
+        false,
     )
     .await;
 
@@ -418,13 +441,16 @@ async fn strict_contract_without_a_provider_keeps_the_original() {
     let original = "Run 5k easy today, and remember to hydrate well afterwards.".to_owned();
 
     let out = enforce_conformance(
-        None,
-        &PromptRegistry::new(),
+        StyleEditor {
+            provider: None,
+            prompts: &PromptRegistry::new(),
+            model: "claude-sonnet-5",
+        },
         &registry,
         CoachingPersona::Casual,
         original.clone(),
         &[a_violation()],
-        "claude-sonnet-5",
+        false,
     )
     .await;
 

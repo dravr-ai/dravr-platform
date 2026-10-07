@@ -7,7 +7,7 @@
 //! Persona conformance stage.
 //!
 //! Each user has a [`CoachingPersona`] (Casual / Enthusiast / Power-athlete /
-//! Agent). The "Coaching Persona Architecture" vault doc defines per-persona
+//! Coach). The "Coaching Persona Architecture" vault doc defines per-persona
 //! rules for cadence, citation density, structured-block usage, softeners, and
 //! word budget. This stage checks the LLM reply against the active
 //! [`PersonaContract`] (loaded from contremaitre via
@@ -28,8 +28,9 @@
 //!
 //! Per-persona `strict_mode` defaults to `false` — violations log and the
 //! reply ships unchanged. `power_athlete` has been strict since 2026-08-12,
-//! and `agent` inherits strict through the `child || parent` contract overlay;
-//! `casual` and `enthusiast` remain shadow-mode.
+//! and `coach` inherits strict through the `child || parent` contract overlay
+//! (its own `strict_mode: false` cannot clear it); `casual` and `enthusiast`
+//! remain shadow-mode.
 //!
 //! `strict_mode: true` raises the log to `error!` **and** runs the re-prompt
 //! recovery in [`enforce_conformance`], which asks the model to rewrite the
@@ -71,6 +72,8 @@ use pierre_contremaitre::persona_contracts::{
 };
 use pierre_contremaitre::PromptRegistry;
 
+use super::peer_grounding::PEER_FETCH_TOOL;
+
 mod text;
 
 pub use text::{
@@ -95,6 +98,11 @@ pub struct ContractViolation {
 
 /// Run every applicable rule in the persona's contract against `reply`.
 ///
+/// `roster_data_read` is whether a coached athlete's data reached the turn: a
+/// roster tool ran (`turn_read_roster_data`), or a group room's member cards
+/// were in the prompt. Only then can a data block in the reply be someone
+/// else's rather than the caller's own.
+///
 /// Returns the violations alongside emitting structured logs. Empty
 /// [`Vec`] means either (a) the contract registry is unhydrated (boot
 /// before first contremaitre sync) or (b) the reply passed every active
@@ -107,6 +115,7 @@ pub fn check_reply_conformance(
     persona: CoachingPersona,
     reply: &str,
     roster: Option<&RosterScope>,
+    roster_data_read: bool,
 ) -> Vec<ContractViolation> {
     let snapshot = registry.snapshot();
     if snapshot.is_empty() {
@@ -116,7 +125,7 @@ pub fn check_reply_conformance(
         return Vec::new();
     };
 
-    let mut violations = style_violations(reply, contract, &snapshot.glossary);
+    let mut violations = style_violations(reply, contract, &snapshot.glossary, roster_data_read);
     check_tenant_isolation(reply, contract, roster, &mut violations);
 
     log_violations(persona, contract.strict_mode, &violations);
@@ -131,6 +140,7 @@ fn style_violations(
     reply: &str,
     contract: &PersonaContract,
     glossary: &HashMap<String, HashMap<String, String>>,
+    roster_data_read: bool,
 ) -> Vec<ContractViolation> {
     let mut violations = Vec::new();
     check_max_words(reply, contract, &mut violations);
@@ -146,11 +156,27 @@ fn style_violations(
     check_framework_citation_per_numeric(reply, contract, &mut violations);
     check_structured_block_size(reply, contract, &mut violations);
     check_acronyms_first_use(reply, contract, glossary, &mut violations);
-    check_athlete_id_prefix(reply, contract, &mut violations);
+    check_athlete_id_prefix(reply, contract, roster_data_read, &mut violations);
     violations
 }
 
-/// The set of athlete identifiers an agent reply may legitimately cite.
+/// Tools whose every result is a coached athlete's data: the roster overview
+/// and the consent-gated member fetch. The member fetch is also the name the
+/// pipeline records when it fetches a named peer itself
+/// ([`super::peer_grounding`], [`super::capability_subject`]), so
+/// `tools_called` carries it whichever side made the call.
+const ROSTER_READ_TOOLS: &[&str] = &["get_roster_overview", PEER_FETCH_TOOL];
+
+/// `true` when the turn read a coached athlete's data, judged from the names
+/// of the tools that ran.
+#[must_use]
+pub(crate) fn turn_read_roster_data(tools_called: &[String]) -> bool {
+    tools_called
+        .iter()
+        .any(|tool| ROSTER_READ_TOOLS.contains(&tool.as_str()))
+}
+
+/// The set of athlete identifiers a coach reply may legitimately cite.
 ///
 /// Built by [`coach_roster_scope`] from the athletes the chatting coach
 /// coaches, and consumed by [`check_tenant_isolation`]. Identity is carried as the lowercased last four
@@ -217,6 +243,21 @@ fn athlete_suffix(id: &str) -> Option<String> {
     (cleaned.len() >= 4).then(|| cleaned[cleaned.len() - 4..].to_lowercase())
 }
 
+/// Who rewrites a reply under a strict contract.
+///
+/// The provider the turn ran on, the catalogue holding the
+/// `persona_style_editor` prompt (resolved at the call, so an edit
+/// hot-reloads), and the turn's own model id.
+#[derive(Clone, Copy)]
+pub struct StyleEditor<'a> {
+    /// Provider the rewrite runs on; `None` keeps the original reply.
+    pub provider: Option<&'a Arc<ChatProvider>>,
+    /// Catalogue the editor's instructions are read from.
+    pub prompts: &'a PromptRegistry,
+    /// Model id the turn ran on, which the rewrite is pinned to.
+    pub model: &'a str,
+}
+
 /// Enforce a persona's output-format contract.
 ///
 /// Two repair regimes, chosen by the violated rule:
@@ -235,24 +276,23 @@ fn athlete_suffix(id: &str) -> Option<String> {
 /// The style path fails OPEN (no strict contract, no chat provider, or a
 /// failed/empty rewrite returns the reply unchanged — a style miss must never
 /// drop or blank the user's answer). `power_athlete` ships strict (armed
-/// 2026-08-12) and `agent` inherits strict through the contract overlay;
+/// 2026-08-12) and `coach` inherits strict through the contract overlay;
 /// `casual` and `enthusiast` remain shadow-mode.
 ///
-/// The editor's instructions are the catalogue's `persona_style_editor`
-/// prompt, resolved from `prompts` at the call so an edit hot-reloads.
+/// The rewrite is re-checked against the same contract, with the same
+/// `roster_data_read` the turn's check used ([`check_reply_conformance`]).
 ///
 /// Callers run [`apply_isolation_redaction`] first; this function excludes
 /// isolation violations from the style path regardless, so a leak can never
 /// reach the fact-preserving rewrite even through a direct call.
 #[must_use]
 pub async fn enforce_conformance(
-    chat_provider: Option<&Arc<ChatProvider>>,
-    prompts: &PromptRegistry,
+    editor: StyleEditor<'_>,
     registry: &Arc<PersonaContractRegistry>,
     persona: CoachingPersona,
     content: String,
     violations: &[ContractViolation],
-    active_model: &str,
+    roster_data_read: bool,
 ) -> String {
     let to_repair: Vec<ContractViolation> = violations
         .iter()
@@ -266,7 +306,7 @@ pub async fn enforce_conformance(
     let Some(contract) = snapshot.contract(persona).filter(|c| c.strict_mode) else {
         return content;
     };
-    let Some(provider) = chat_provider else {
+    let Some(provider) = editor.provider else {
         warn!(
             persona = persona.as_str(),
             violations = to_repair.len(),
@@ -277,17 +317,17 @@ pub async fn enforce_conformance(
 
     let Some(rewrite) = rewrite_to_satisfy_contract(
         provider,
-        prompts,
+        editor.prompts,
         persona,
         &content,
         &to_repair,
-        active_model,
+        editor.model,
     )
     .await
     else {
         return content;
     };
-    let residual = style_violations(&rewrite, contract, &snapshot.glossary);
+    let residual = style_violations(&rewrite, contract, &snapshot.glossary, roster_data_read);
     log_rewrite_outcome(persona, &to_repair, &residual);
     rewrite
 }
@@ -805,17 +845,25 @@ fn check_acronyms_first_use(
     }
 }
 
-/// Enforce [`PersonaContract::require_athlete_id_prefix`]. An agent reply
+/// Enforce [`PersonaContract::require_athlete_id_prefix`]. A coach reply
 /// carrying an athlete data block must name whose data it is, in the
 /// `<display_name> · <last4uuid>` shape, so two athletes never blur together in
 /// scrollback. The data block is the trigger: prose with no block is a general
 /// answer and needs no attribution.
+///
+/// A block is an athlete's only on a turn that read a coached athlete's data
+/// (`roster_data_read`). On any other turn it is the caller's own — a coach
+/// asking about their own rides — and the line-by-line rule they inherit from
+/// Power-athlete requires exactly that block, so demanding a roster citation
+/// on it would set the two rules against each other: the 2026-10-07 style
+/// rewrite added the block one rule asked for and the other then flagged it.
 fn check_athlete_id_prefix(
     reply: &str,
     contract: &PersonaContract,
+    roster_data_read: bool,
     out: &mut Vec<ContractViolation>,
 ) {
-    if !contract.require_athlete_id_prefix {
+    if !contract.require_athlete_id_prefix || !roster_data_read {
         return;
     }
     if detects_label_value_block(reply) && athlete_citations(reply).is_empty() {
@@ -827,7 +875,7 @@ fn check_athlete_id_prefix(
 }
 
 /// Enforce [`PersonaContract::require_tenant_isolation`]. Every athlete cited
-/// in an agent reply must belong to that agent's roster.
+/// in a coach reply must belong to that coach's roster.
 ///
 /// This is a **detective** control, not the primary one: tenant isolation is
 /// enforced at the query layer, where every statement carries `tenant_id`. This
@@ -974,4 +1022,53 @@ fn is_framework_bound_metric_sentence(sentence: &str) -> bool {
                 .iter()
                 .any(|stem| word.starts_with(stem))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn called(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_roster_read_marks_the_turn() {
+        assert!(turn_read_roster_data(&called(&["get_roster_overview"])));
+        assert!(turn_read_roster_data(&called(&[
+            "get_activities",
+            PEER_FETCH_TOOL
+        ])));
+    }
+
+    #[test]
+    fn the_callers_own_reads_do_not() {
+        assert!(!turn_read_roster_data(&called(&[])));
+        assert!(!turn_read_roster_data(&called(&[
+            "get_activities",
+            "discover_routes",
+            "get_training_plan"
+        ])));
+    }
+
+    /// The names are matched as strings, so a renamed tool would silently
+    /// switch the attribution rule off; pin them to the tools' own definitions.
+    #[cfg(feature = "tools-groups")]
+    #[test]
+    fn roster_read_tools_are_the_registered_names() {
+        use dravr_tronc::mcp::tool::McpTool;
+        use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
+        use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
+
+        let registered = [
+            GetRosterOverviewTool.definition().name,
+            GetGroupMemberActivitiesTool.definition().name,
+        ];
+        for name in ROSTER_READ_TOOLS {
+            assert!(
+                registered.iter().any(|r| r == name),
+                "{name} is not a registered roster tool: {registered:?}"
+            );
+        }
+    }
 }

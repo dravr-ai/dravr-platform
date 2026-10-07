@@ -17,7 +17,7 @@
 //! - `rules` — one localized sentence per contract field that is set,
 //!   in contract-field declaration order
 //! - `enforcement` — `"verified"` when the flattened contract runs
-//!   `strict_mode` (Agent inherits it from Power-athlete through the
+//!   `strict_mode` (Coach inherits it from Power-athlete through the
 //!   registry's `inherits` overlay; this module never re-derives
 //!   inheritance), `"advisory"` otherwise
 //!

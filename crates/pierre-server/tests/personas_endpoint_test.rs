@@ -179,14 +179,14 @@ async fn enforcement_follows_strict_mode_including_coach_inheritance() {
         enforcement_of("power_athlete")["enforcement_label"],
         "Vérifié à chaque réponse"
     );
-    // Agent declares strict_mode: false in the YAML but inherits strict
-    // from power_athlete through the registry's overlay (child || parent).
-    // Reading the flattened snapshot — never re-deriving — is what this
+    // Coach is strict through power_athlete: strict_mode resolves child ||
+    // parent in the registry's overlay, so no value coach declares can clear
+    // it. Reading the flattened snapshot — never re-deriving — is what this
     // asserts.
     assert_eq!(enforcement_of("coach")["enforcement"], "verified");
 
-    // The inherited Power-athlete rules surface on the agent card too,
-    // alongside agent-only roster framing.
+    // The inherited Power-athlete rules surface on the coach card too,
+    // alongside coach-only roster framing.
     let coach_keys: Vec<&str> = enforcement_of("coach")["rules"]
         .as_array()
         .expect("coach rules")

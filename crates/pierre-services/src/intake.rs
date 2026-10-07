@@ -355,6 +355,10 @@ where
 
 /// The persona to store for an answer, or `None` when there is nothing to store.
 ///
+/// LIMITATION(registre#827): `persona_to_store` writes the coach role answer into `coaching_persona`,
+/// the same column that picks the reply style contract, so a coach's own training talk is held to
+/// the strict Coach contract.
+///
 /// Mirrors the web step exactly: "I coach others" sets
 /// [`CoachingPersona::Coach`], and the athlete branch writes nothing to the user
 /// row, because `coaching_persona` has no athlete variant — `Casual` *is* the
