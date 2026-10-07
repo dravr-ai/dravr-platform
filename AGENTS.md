@@ -1,6 +1,6 @@
 # Dravr
 
-**Multi-tenant fitness intelligence API** exposing fitness data via MCP/A2A/REST — provider integrations (Strava, Garmin, Whoop, Intervals.icu, Sciotte — the set the shipped `server-production` build compiles), LLM-powered analytics (training load, recovery, patterns), agent marketplace + admin tools, and a multi-transport MCP server (stdio, HTTP/SSE, A2A) with auth-gated tool discovery. See [README.md](README.md) for architecture.
+**Multi-tenant fitness intelligence API** exposing fitness data via MCP/A2A/REST — provider integrations (Strava, Garmin, Whoop, Intervals.icu, Wahoo, Sciotte — the set the shipped `server-production` build compiles), LLM-powered analytics (training load, recovery, patterns), agent marketplace + admin tools, and a multi-transport MCP server (stdio, HTTP/SSE, A2A) with auth-gated tool discovery. See [README.md](README.md) for architecture.
 
 ## Project map
 
