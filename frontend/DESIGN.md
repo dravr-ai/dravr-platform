@@ -503,9 +503,9 @@ greys.
 
 **The aside's ink is bound to its ground, in both schemes.** §2 pairs
 `primary-container` with `on-primary-container`, so in light the headline is
-`on-primary-container` (9.8:1), the blurb and the pillar row are that same ink
-at 85% (6.6:1 composited) and the separators between the pillar words are it at
-50% (2.7:1 — `aria-hidden` punctuation, not text). In dark the aside is
+`on-primary-container` (9.8:1), the pillar row is that same ink at 85% (6.6:1
+composited) and the separators between the pillar words are it at 50% (2.7:1
+— `aria-hidden` punctuation, not text). In dark the aside is
 `surface-container-low` and those three roles are `on-surface`,
 `on-surface-variant` and `outline`. The one foreground the aside does not bind
 is the lockup's wordmark: it is `primary` ink, the way §1 and §3 set the lockup
@@ -521,11 +521,13 @@ The other auth pages are one white card with a hairline on `surface`, and
 every onboarding step is a bare column on `surface` under a row of small
 dots and sentence-case step labels. There is no gradient strip anywhere.
 
-The copy on the login aside says what the product is, in the athlete's
-words: an agent that reads their training and shows its work, over the
-providers they can connect and the four pillars they can ask about. It
-never describes the design ("rendered in ink") or the company. The AI is an
-**agent**; a human professional is a **coach** — ADR-026 in the vault.
+The login aside carries one serif line, the same hero the dravr.ai landing
+page uses: "It reads your training the way a draveur reads the river." Under
+it sit only the four pillars the athlete can ask about. There is no blurb,
+and no provider is named: Strava's brand guidelines govern how its name and
+mark appear, and a list of providers dates itself faster than the rest of the
+copy. It never describes the design ("rendered in ink") or the company. The AI is an **agent**; a human professional is a **coach** — ADR-026
+in the vault.
 
 ### Server-rendered hosted pages
 

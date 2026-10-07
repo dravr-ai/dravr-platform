@@ -2,7 +2,7 @@ Dravr Boreal is the design system of Dravr, fitness intelligence for athletes an
 
 ## Content fundamentals
 
-- **Say what the product does, in the athlete's words.** The login aside reads: *"An agent that reads your training and shows its work."* Never describe the design ("rendered in ink") or the company.
+- **Say what the product does, in the athlete's words.** The login aside reads: *"It reads your training the way a draveur reads the river."* It is the same line as the dravr.ai hero. Never name a provider there, and never describe the design ("rendered in ink") or the company.
 - **The AI is an agent; a human professional is a coach.** Never swap them. Address the athlete as *you*, and refer to the agent as *your agent*.
 - **Sentence case everywhere**: headings, buttons, tabs, labels. Nothing is uppercase or tracked except the `wordmark`. Write "Register your first app", not "Register Your First App". Some older strings still use title case; don't copy them.
 - **Empty states are one sentence**, optionally followed by one ink action. Examples from the product:

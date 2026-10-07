@@ -184,16 +184,13 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         </div>
 
         {/* The mark, large, and the one serif line in the product */}
-        <div className="max-w-xl">
+        <div className="max-w-xl xl:max-w-2xl">
           <DravrLogo size={220} />
           <h2 className="mt-8 font-serif text-4xl italic leading-tight text-on-primary-container dark:text-on-surface xl:text-5xl">
             {t('auth.taglineLead')}
             <br />
             {t('auth.taglineTail')}
           </h2>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-on-primary-container/85 dark:text-on-surface-variant">
-            {t('auth.landingBlurb')}
-          </p>
         </div>
 
         {/* The four pillars, in sentence case */}

@@ -51,6 +51,12 @@ test.describe('Login Page', () => {
     // DRAVR brand wordmark lives in the hero aside (desktop) and as a label on mobile
     await expect(page.getByText('DRAVR').first()).toBeVisible();
 
+    // The aside is the hero line and the four pillars: no blurb under the
+    // line, and no provider named anywhere in it (DESIGN.md, auth section).
+    const aside = page.locator('aside');
+    await expect(aside.locator('h2')).toBeVisible();
+    await expect(aside).not.toContainText(/strava|garmin|trainingpeaks|coros|whoop|wahoo|intervals\.icu/i);
+
     await expect(page.getByRole('button', { name: 'Sign in with email' })).toBeVisible();
     await expect(page.getByRole('button', { name: /forgot password/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /create one/i })).toBeVisible();

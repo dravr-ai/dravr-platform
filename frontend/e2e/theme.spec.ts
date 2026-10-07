@@ -287,8 +287,8 @@ test.describe('Boreal Theme — visible layout elements', () => {
     // on-primary-container #143d30, the ink primary-container binds — not
     // on-surface #1a1c1b, the body ink of the page canvas.
     expect(await ink(aside.locator('h2'))).toBe('rgb(20, 61, 48)');
-    // The blurb is that same ink at 85%: 6.6:1 composited on the tint.
-    expect(await ink(aside.locator('p'))).toBe('rgba(20, 61, 48, 0.85)');
+    // The pillar row is that same ink at 85%: 6.6:1 composited on the tint.
+    expect(await ink(aside.getByText('Nutrition', { exact: true }))).toBe('rgba(20, 61, 48, 0.85)');
   });
 
   // The aside swaps ground between schemes, so its ink swaps with it: dark
@@ -313,7 +313,7 @@ test.describe('Boreal Theme — visible layout elements', () => {
     // on-surface #e1e3de and on-surface-variant #c0c8c3 — light ink, not the
     // dark forest on-primary-container carries in this scheme.
     expect(await ink(aside.locator('h2'))).toBe('rgb(225, 227, 222)');
-    expect(await ink(aside.locator('p'))).toBe('rgb(192, 200, 195)');
+    expect(await ink(aside.getByText('Nutrition', { exact: true }))).toBe('rgb(192, 200, 195)');
   });
 
   test('dashboard renders the editorial layout', async ({ page }) => {
