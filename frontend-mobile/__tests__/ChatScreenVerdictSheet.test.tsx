@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins what the chat screen hands the verdict sheet — the thread's own name and the reply the chip hangs under
-// ABOUTME: And the reference support gets from the sheet's menu: the verdict, message and conversation ids, as copied
+// ABOUTME: And what its menu copies for support (verdict, message, conversation ids); a claim sent back for evidence is a draft
 
 import React from 'react';
 import { Alert } from 'react-native';
@@ -103,6 +103,7 @@ const mockVerdicts = [
     created_at: '2026-10-05T13:52:01Z',
   },
 ];
+const mockSendTurn = jest.fn();
 jest.mock('../src/screens/chat/useMessages', () => ({
   useMessages: () => ({
     messages: mockMessages,
@@ -118,7 +119,7 @@ jest.mock('../src/screens/chat/useMessages', () => ({
     roomUnavailable: false,
     loadMessages: jest.fn().mockResolvedValue(undefined),
     refreshVerdicts: jest.fn(),
-    sendTurn: jest.fn(),
+    sendTurn: (...args: unknown[]) => mockSendTurn(...args),
     retryMessage: jest.fn(),
     handleThumbsUp: jest.fn(),
     handleThumbsDown: jest.fn(),
@@ -229,5 +230,20 @@ describe('ChatScreen verdict sheet', () => {
     copyFromMenu(view);
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Copy failed'));
+  });
+
+  // carnet#828: asking to back a claim up pre-fills the composer, so what the
+  // athlete sends from it is reported as a draft, as it is on web.
+  it('sends the back-up request it pre-filled as a draft', async () => {
+    mockSendTurn.mockResolvedValue(null);
+    const view = renderScreen();
+
+    fireEvent.press(view.getByTestId('verdict-chip'));
+    fireEvent.press(view.getByTestId('verdict-ask'));
+    fireEvent.press(view.getByTestId('send-button'));
+
+    await waitFor(() => expect(mockSendTurn).toHaveBeenCalledTimes(1));
+    expect(mockSendTurn.mock.calls[0][1]).toContain('If it felt smooth, count the session as a good one.');
+    expect(mockSendTurn.mock.calls[0][2]).toEqual({ origin: 'draft' });
   });
 });

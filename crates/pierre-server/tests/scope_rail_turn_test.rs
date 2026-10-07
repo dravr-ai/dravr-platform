@@ -29,7 +29,9 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures_util::stream;
-use pierre_chat_pipeline::{PipelineHooks, QuotaState, SurfaceProfile, TurnInput, TurnOrigin};
+use pierre_chat_pipeline::{
+    InputSource, PipelineHooks, QuotaState, SurfaceProfile, TurnInput, TurnOrigin,
+};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_GUARDRAIL_MEDICAL_EMERGENCY, KEY_SCOPE_REFUSAL,
 };
@@ -216,6 +218,7 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         .unwrap();
     let input = TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation.id.clone(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,

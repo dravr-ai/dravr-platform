@@ -28,6 +28,7 @@ use std::fmt::Write as _;
 
 use dravr_canot::rich_text::{escape_markdown, parse_markdown, render_rich_text};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
+use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, MessageContent};
 use pierre_core::models::{ColorScheme, TenantId};
@@ -169,7 +170,8 @@ pub fn target(
 /// actions out as controls ([`pierre_chat_pipeline::BlockSupport::action_buttons`]),
 /// otherwise a [`MessageContent::RichText`] fallback: bold title (when
 /// non-empty), the body, then one `label: value` line per action — a bare URL
-/// value stays tappable as autolinked text where buttons do not render.
+/// value stays tappable as autolinked text where buttons do not render, and a
+/// suggestion's opaque postback is left out, its label standing alone.
 ///
 /// Card-emitting paths consult the capability to pick the content shape up
 /// front: canot's renderers do degrade an unsupported Card, but only
@@ -196,12 +198,16 @@ pub fn card_or_rich_text(
     };
     for action in &actions {
         // Writing to a String is infallible; the discarded Result is fmt noise.
-        let _ = write!(
-            text,
-            "\n\n{}: {}",
-            escape_markdown(&action.label),
-            escape_markdown(&action.value)
-        );
+        let _ = if is_postback(&action.value) {
+            write!(text, "\n\n{}", escape_markdown(&action.label))
+        } else {
+            write!(
+                text,
+                "\n\n{}: {}",
+                escape_markdown(&action.label),
+                escape_markdown(&action.value)
+            )
+        };
     }
     MessageContent::RichText {
         body: render_rich_text(&parse_markdown(&text)),

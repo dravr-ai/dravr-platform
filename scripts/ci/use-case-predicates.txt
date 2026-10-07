@@ -1,0 +1,16 @@
+# ABOUTME: The athlete-state predicates a use case's `requires:` may name in dravr-contremaitre's catalogue
+# ABOUTME: Read by check-contremaitre-sync.sh Check 9; the platform's predicate enum is held to this same list
+#
+# One predicate per line, sorted. A trailing `>=N` marks a predicate that takes a
+# threshold (`weeks_of_data>=4`); every other predicate takes none. A `requires:`
+# entry may join predicates with ` | ` for "any of" (carnet#828).
+calendar_writable
+dossier_empty
+has_activities
+has_recovery_source
+no_provider
+no_season
+pillars_done
+plan_active
+season_set
+weeks_of_data>=N

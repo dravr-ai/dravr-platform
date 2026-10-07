@@ -32,9 +32,10 @@ use futures_util::stream;
 use uuid::Uuid;
 
 use common::{create_test_server_resources_with_llm, create_test_user_with_plan};
+use helpers::notify_capture::{capture_notify, only};
 use pierre_chat_pipeline::{
-    CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
-    TurnOrigin, TurnRequest,
+    CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
+    SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -208,6 +209,7 @@ fn web_profile() -> SurfaceProfile {
 fn request(fx: &Fixture, origin: TurnOrigin, content: &str) -> TurnRequest<'static> {
     TurnRequest {
         origin,
+        input_source: InputSource::Typed,
         conversation_id: fx.conversation_id.clone(),
         user_id: fx.user_id,
         conversation_tenant_id: fx.tenant_id,
@@ -349,5 +351,35 @@ async fn an_athlete_turn_still_writes_the_message_they_sent() {
         seen.last().map(String::as_str),
         Some("et en 2023?"),
         "and it is still the message the model answers: {seen:?}"
+    );
+}
+
+/// Analytics counts how athletes produce their questions (carnet#828), and a
+/// prompt the platform composed is none of them: it reports `platform`,
+/// whatever input source the request carries.
+#[tokio::test]
+async fn a_platform_turn_reports_its_origin_as_platform() {
+    let fx = setup().await;
+    let ctx = fx.resources.chat_pipeline_context();
+    let (events, _guard) = capture_notify();
+
+    pierre_chat_pipeline::execute(
+        &ctx,
+        TurnRequest {
+            input_source: InputSource::Draft,
+            ..request(&fx, TurnOrigin::Platform, "montre-moi mes sorties de 2022")
+        },
+        &web_profile(),
+    )
+    .await
+    .expect("the proactive turn is served");
+
+    assert_eq!(
+        only(&events, "chat.question_asked").field("origin"),
+        "platform"
+    );
+    assert_eq!(
+        only(&events, "chat.answer_delivered").field("origin"),
+        "platform"
     );
 }

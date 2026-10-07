@@ -17,7 +17,8 @@ use tracing::{error, info, warn};
 
 use super::scene_publisher::{athlete_color_scheme, MessagingScenePublisher};
 use pierre_chat_pipeline::{
-    self, CommandPersistence, PipelineHooks, ServedTurn, SurfaceProfile, TurnOrigin, TurnRequest,
+    self, CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceProfile, TurnOrigin,
+    TurnRequest,
 };
 use pierre_contremaitre::messaging_strings::{
     format_template, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC, KEY_QUOTA_EXCEEDED, KEY_TURN_INTERRUPTED,
@@ -825,6 +826,9 @@ async fn serve_turn(
         // athlete's own tenant, never the bot's (registre#9).
         tool_tenant_id: dispatch.user_tenant_id,
         content: dispatch.text_content.clone(),
+        // Messaging welcomes list their starters as text, so whatever arrives
+        // was typed (a starter typed back is still typed, by the athlete).
+        input_source: InputSource::Typed,
         // Reuse the turn id canot generated at the webhook boundary: a single
         // inbound message plus its full LLM/tool chain is one turn, and
         // canot's log spans already key off this id.

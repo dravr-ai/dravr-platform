@@ -33,6 +33,7 @@ use super::otp::apply_conversation_recipient;
 use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
 use super::session::rebind_conversation_agent;
 use super::slash::welcome_content;
+use super::surface::surface_id;
 use super::ResolvedSession;
 use crate::mcp::resources::ServerContext;
 
@@ -248,6 +249,7 @@ async fn welcome_chosen_agent(
         agent_id,
         agent_tenant_id: params.user_tenant_id,
         locale: params.locale,
+        surface: surface_id(params.channel_type),
     };
     match post_agent_welcome(
         repos,

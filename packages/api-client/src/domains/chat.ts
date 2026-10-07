@@ -15,6 +15,7 @@ import type {
   ConversationParticipantsResponse,
   Message,
   MessageFeedbackEntry,
+  MessageOrigin,
   TurnEnvelope,
 } from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
@@ -111,6 +112,11 @@ export interface SendTurnOptions extends TurnCallbacks {
    * rather than the runtime's own abort text.
    */
   signal?: AbortSignal;
+  /**
+   * How the athlete produced the message: a pre-filled draft, a chip beside
+   * their data, or typed (the default, and what an absent value means).
+   */
+  origin?: MessageOrigin;
 }
 
 /**
@@ -370,7 +376,9 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
           {
             method: 'POST',
             headers: await turnHeaders(adapter),
-            body: JSON.stringify({ content }),
+            body: JSON.stringify(
+              options?.origin ? { content, origin: options.origin } : { content },
+            ),
             credentials: adapter.turnCredentials,
             signal: options?.signal,
           },

@@ -18,21 +18,36 @@
 //! records off every external transport (carnet#766), which the last test pins.
 
 use anyhow::Result;
+use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, Utc};
+use futures_util::stream;
+use pierre_chat_pipeline::{
+    execute, CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
+    SurfaceRequest, TurnOrigin, TurnRequest,
+};
 use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::errors::AppError;
+use pierre_core::llm::{
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
+};
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, DataSource, DeviceType, SportType, StoredRecoveryMetrics,
-    StoredSleepSession, TenantId,
+    ActivityBuilder, ConnectionType, ConversationTurnId, DataSource, DeviceType, SportType,
+    StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::untrusted::fence_athlete_text;
+use pierre_providers::ai_scope::{tracking, Provenance};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
 mod common;
+mod helpers;
+
+use helpers::notify_capture::{capture_notify, only};
 
 /// An executor serving the athlete's own web app.
 async fn executor() -> Result<Arc<UniversalToolExecutor>> {
@@ -540,5 +555,187 @@ async fn intervals_wellness_is_quoted_with_the_athletes_garmin_device() -> Resul
             );
         }
     }
+    Ok(())
+}
+
+/// The executor a chat turn builds inside its own provenance scope, over the
+/// same runtime as `base`.
+fn executor_in_turn(base: &UniversalToolExecutor) -> UniversalToolExecutor {
+    UniversalToolExecutor::new(Arc::clone(&base.resources))
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+}
+
+/// carnet#828: a tool call that serves the athlete's provider items to the model
+/// grounds the turn's answer — reported on the turn's provenance, which the
+/// executor carries onto the task a Copilot loopback call runs on. A read that
+/// serves nothing, or a tool that reads no provider items, grounds nothing.
+#[tokio::test]
+async fn a_tool_grounds_the_turn_only_when_it_serves_provider_items() -> Result<()> {
+    let base = executor().await?;
+    let (stored, stored_tenant) = whoop_and_other_night_and_morning(&base, "garmin").await?;
+    let (empty, empty_tenant) = connected_user(&base).await?;
+
+    for (user_id, tenant, tool, grounded) in [
+        (stored, stored_tenant, "get_recovery_metrics", true),
+        (empty, empty_tenant, "get_recovery_metrics", false),
+        (stored, stored_tenant, "get_connection_status", false),
+    ] {
+        let turn = Provenance::new();
+        // Built inside the turn, as the chat turn builds its tool surface …
+        let executor = tracking(turn.clone(), async { executor_in_turn(&base) }).await;
+        // … and called from another task, as a Copilot loopback call arrives.
+        let response = tokio::spawn(async move {
+            executor
+                .execute_tool(request(tool, json!({}), user_id, &tenant))
+                .await
+        })
+        .await??;
+        assert!(response.success, "{tool}: {:?}", response.error);
+        assert_eq!(
+            turn.served_provider_data(),
+            grounded,
+            "{tool} returned {}",
+            response.result.unwrap_or(Value::Null)
+        );
+    }
+    Ok(())
+}
+
+/// A model that asks for the athlete's recovery once, then answers in prose.
+/// It declares no function calling, so the turn takes the text tool loop, which
+/// reads the `<tool_call>` block out of its first reply.
+#[derive(Default)]
+struct AsksForRecovery {
+    calls: AtomicUsize,
+}
+
+#[async_trait]
+impl LlmProvider for AsksForRecovery {
+    fn name(&self) -> &'static str {
+        "asks_for_recovery_mock"
+    }
+    fn display_name(&self) -> &'static str {
+        "Asks For Recovery Mock LLM (grounding e2e)"
+    }
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::SYSTEM_MESSAGES
+    }
+    fn default_model(&self) -> &'static str {
+        "mock-model"
+    }
+    fn available_models(&self) -> &[String] {
+        &[]
+    }
+
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        let content = if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            r#"Let me look. <tool_call>{"name":"get_recovery_metrics","arguments":{}}</tool_call>"#
+                .to_owned()
+        } else {
+            "Your recovery held steady this week.".to_owned()
+        };
+        Ok(ChatResponse {
+            content,
+            model: "mock-model".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+
+    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+        let response = self.complete(request).await?;
+        Ok(Box::pin(stream::iter(vec![Ok(StreamChunk {
+            delta: response.content,
+            is_final: true,
+            finish_reason: Some("stop".to_owned()),
+        })])))
+    }
+
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// carnet#828, end to end: a turn whose model reads the athlete's stored
+/// recovery reports its answer as grounded on `chat.answer_delivered`.
+#[tokio::test]
+async fn an_answer_built_on_a_recovery_read_is_reported_grounded() -> Result<()> {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources_with_chat_provider(Arc::new(
+        AsksForRecovery::default(),
+    ))
+    .await?;
+    let seeding = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp);
+    let (user_id, tenant) = whoop_and_other_night_and_morning(&seeding, "garmin").await?;
+    let conversation = resources
+        .common
+        .repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "Recovery",
+            "mock-model",
+            None,
+            None,
+        )
+        .await?
+        .id;
+
+    let (events, _guard) = capture_notify();
+    let served = execute(
+        &resources.chat_pipeline_context(),
+        TurnRequest {
+            origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
+            conversation_id: conversation,
+            user_id,
+            conversation_tenant_id: tenant,
+            tool_tenant_id: tenant,
+            content: "How is my recovery this week?".to_owned(),
+            turn_id: ConversationTurnId::new(),
+            ambient_context: None,
+            channel_type: "web",
+            transport: Transport::WebApp,
+            is_direct_message: true,
+            ambient_group_fallback: false,
+            command_persistence: CommandPersistence::Always,
+            sender_id: None,
+            hooks: PipelineHooks::none(),
+        },
+        &SurfaceProfile::resolve(&SurfaceRequest {
+            surface: SurfaceId::Web,
+            locale: "en".to_owned(),
+            transport: None,
+            prose_contract: None,
+        }),
+    )
+    .await?;
+    let ServedTurn::Pipeline(envelope) = served else {
+        panic!("a coaching turn, not a command");
+    };
+    assert!(
+        envelope
+            .telemetry
+            .tools_called
+            .iter()
+            .any(|tool| tool == "get_recovery_metrics"),
+        "the model's recovery read ran: {:?}",
+        envelope.telemetry.tools_called
+    );
+    assert!(
+        !envelope.telemetry.activities_prefetched && !envelope.telemetry.activity_list_captured,
+        "no activities were in front of the model: only the recovery read grounds this answer"
+    );
+    assert_eq!(
+        only(&events, "chat.answer_delivered").field("grounded"),
+        "true"
+    );
     Ok(())
 }

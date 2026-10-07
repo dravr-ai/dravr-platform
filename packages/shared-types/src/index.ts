@@ -97,6 +97,8 @@ export type {
 // Chat turn envelope (the terminal document of one turn, on every surface)
 export type {
   ChatMessageAction,
+  MessageOrigin,
+  TurnSendOptions,
   ReplyVerdictChip,
   ReplyNotice,
   ReplyBlock,

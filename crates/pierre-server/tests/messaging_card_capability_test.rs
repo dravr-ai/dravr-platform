@@ -134,3 +134,41 @@ fn test_a_card_incapable_surface_yields_no_empty_bold_marker() {
         other => panic!("expected RichText, got {other:?}"),
     }
 }
+
+#[test]
+fn test_a_suggestion_postback_falls_back_to_its_label_alone() {
+    // A suggestion's postback is an opaque id the platform resolves back into
+    // its question (carnet#828): written out as `label: value` it would show
+    // the athlete a code nobody can type back. A command's value is the line
+    // to type, so it stays.
+    let mut caps = render(ChannelType::Telegram);
+    caps.blocks.action_buttons = false;
+    let content = card_or_rich_text(
+        &caps,
+        String::new(),
+        "You can ask me:".to_owned(),
+        vec![
+            CardAction {
+                label: "How do I carb load?".to_owned(),
+                action_type: "postback".to_owned(),
+                value: "ex:0:1".to_owned(),
+            },
+            CardAction {
+                label: "Plan".to_owned(),
+                action_type: "postback".to_owned(),
+                value: "/plan".to_owned(),
+            },
+        ],
+    );
+    match content {
+        MessageContent::RichText { body } => {
+            assert!(
+                body.contains("How do I carb load?"),
+                "the question stays: {body}"
+            );
+            assert!(!body.contains("ex:"), "the postback never shows: {body}");
+            assert!(body.contains("/plan"), "a command keeps its line: {body}");
+        }
+        other => panic!("expected RichText, got {other:?}"),
+    }
+}

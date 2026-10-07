@@ -48,6 +48,7 @@ pub mod quota_policy;
 pub mod recorders;
 pub(crate) mod recovery;
 pub mod stages;
+pub mod suggestions;
 pub mod surface_profile;
 mod tool_budget;
 pub mod turn;
@@ -84,7 +85,7 @@ pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
 // Defined in `pierre-core` so the command dispatcher, which this crate
 // depends on, reads the same type; re-exported because [`TurnRequest`] and
 // [`SlashRequest`] carry it.
-pub use pierre_core::models::TurnOrigin;
+pub use pierre_core::models::{InputSource, TurnOrigin};
 pub use turn::{TurnInput, UserMessageResult};
 
 #[cfg(feature = "tools-verification")]
@@ -94,6 +95,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use dravr_canot::commands::CommandRegistry;
 use pierre_agui::AgUiEvent;
 use pierre_commands::CommandHandlerRegistry;
@@ -107,7 +109,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    AddMessageParams, AgentRuntimeContext, GuidedFlow, MemberFitnessSnapshot,
+    AddMessageParams, AgentRuntimeContext, CoachingPersona, GuidedFlow, MemberFitnessSnapshot,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -125,7 +127,7 @@ use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::field::Empty;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
 use stages::followups::{ensure_agent_session_attached, finalize_session_state};
@@ -449,13 +451,17 @@ pub async fn run(
             .await;
     }
 
-    let persona =
-        stages::prompt_assembly::resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id)
-            .await;
+    let (persona, asker_created_at) = stages::prompt_assembly::resolve_user_persona_and_created_at(
+        ctx.repos.users.as_ref(),
+        &input.user_id,
+    )
+    .await;
+    let origin = input.analytics_origin();
     info!(
         target: "notify",
         event = "chat.question_asked",
         persona = persona.as_str(),
+        origin = origin,
         "user asked a question"
     );
 
@@ -501,11 +507,18 @@ pub async fn run(
     ))
     .await;
 
-    if outcome.is_ok() {
+    if let Ok(envelope) = &outcome {
         // A real served turn is the strongest proof the LLM provider is
         // live — stamp it so the periodic health probe can skip its billed
         // synthetic `copilot --acp` round-trip while real traffic flows.
         ctx.llm_health.note_success();
+        emit_answer_delivered(
+            persona,
+            origin,
+            asker_created_at,
+            &envelope.telemetry,
+            ai_scope::current_provenance().is_some_and(|p| p.served_provider_data()),
+        );
     }
 
     if let Some(agui) = &hooks.agui {
@@ -531,6 +544,43 @@ pub async fn run(
     }
 
     outcome
+}
+
+/// Record that a turn's reply was persisted (carnet#828).
+///
+/// What the activation funnel reads: whether the athlete's own provider data
+/// was in front of the model, and how old the account was, which places the
+/// answer in the athlete's first session without a signup event.
+///
+/// Grounded is any of: activities the model fetched, activities prefetched
+/// for it, or a tool call during the turn that served the athlete's provider
+/// items to the model — sleep, recovery, load, goals — which the dispatch
+/// chokepoint marks on the turn's provenance (`provider_data_served`). The
+/// turn's own prompt context does not count. Skipped when the asker
+/// could not be read: an answer with no account age cannot be placed in any
+/// session.
+fn emit_answer_delivered(
+    persona: CoachingPersona,
+    origin: &str,
+    asker_created_at: Option<DateTime<Utc>>,
+    telemetry: &TurnTelemetry,
+    provider_data_served: bool,
+) {
+    let Some(created_at) = asker_created_at else {
+        debug!("asker unreadable; chat.answer_delivered not emitted");
+        return;
+    };
+    info!(
+        target: "notify",
+        event = "chat.answer_delivered",
+        persona = persona.as_str(),
+        origin = origin,
+        grounded = telemetry.activity_list_captured
+            || telemetry.activities_prefetched
+            || provider_data_served,
+        account_age_hours = Utc::now().signed_duration_since(created_at).num_hours(),
+        "answer delivered"
+    );
 }
 
 /// The `finish_reason` to persist for this turn's assistant row.

@@ -428,7 +428,7 @@ else
     # coach on warm-ups, are unrelated to the ratio. Lines that *forbid* the
     # framing ("never present it as an injury risk") are excluded too.
     FRAMING_HITS="$(python3 - "$CM_ROOT" <<'PYCHECK'
-import pathlib, re, sys
+import json, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 INJURY = re.compile(r"injury risk|injury probabilit|risque de blessure|probabilit\w* de blessure", re.I)
 LOAD = re.compile(r"acwr|load spike|load increase|acute:chronic|charge aigu|pic de charge|hausses soudaines", re.I)
@@ -436,6 +436,16 @@ NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re
 GREEN = re.compile(r"green band|bande verte", re.I)
 ABS_TSB = re.compile(r"TSB\s*[<>\u2264\u2265]\s*[-\u2212+]?\d", re.I)
 hits = []
+
+def classify(text):
+    if INJURY.search(text) and LOAD.search(text) and not NEGATED.search(text):
+        return "ACWR presented as injury risk"
+    if GREEN.search(text):
+        return "red/green safety verdict"
+    if ABS_TSB.search(text):
+        return "absolute TSB band (use % of CTL)"
+    return None
+
 # The personas directory is being renamed coaches -> agents in
 # dravr-contremaitre, and the two repositories deploy independently, so either
 # name may be the one on disk. Accept both -- and refuse to pass when neither
@@ -453,15 +463,26 @@ for sub in ("tools", "prompts/personas", *PERSONAS):
         if f.suffix not in (".md", ".yaml", ".yml"):
             continue
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            why = None
-            if INJURY.search(line) and LOAD.search(line) and not NEGATED.search(line):
-                why = "ACWR presented as injury risk"
-            elif GREEN.search(line):
-                why = "red/green safety verdict"
-            elif ABS_TSB.search(line):
-                why = "absolute TSB band (use % of CTL)"
+            why = classify(line)
             if why:
                 hits.append(f"{f}:{n}: [{why}] {line.strip()[:160]}")
+
+# The label and prompt of a use case are offered to the athlete as their own words
+# and sent to the model as their question (carnet#828), so they answer to the
+# same framing as a prompt -- in every locale.
+def leaves(node, path):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from leaves(value, f"{path}.{key}")
+    elif isinstance(node, str):
+        yield path, node
+
+for f in sorted((root / "strings").glob("*.json")):
+    catalogue = json.loads(f.read_text(encoding="utf-8"))
+    for key, value in leaves(catalogue.get("use_cases", {}), "use_cases"):
+        why = classify(value)
+        if why:
+            hits.append(f"{f}:{key}: [{why}] {value.strip()[:160]}")
 print("\n".join(hits))
 PYCHECK
 )"
@@ -718,6 +739,115 @@ else
         FAILED=true
     else
         echo -e "${GREEN}✅ Pin ownership: no commit here moves the contremaitre pin or the string copy.${NC}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 9: the use-case catalogue names only predicates and commands the
+# platform knows (carnet#828)
+# ---------------------------------------------------------------------------
+# A use case is offered when its `requires:` predicates hold for the athlete and
+# runs its `command:` when tapped. Both are platform vocabulary: a predicate the
+# ranker cannot evaluate, or a command no handler answers, compiles nowhere in
+# contremaitre and would only red platform main after the bump lane moved the
+# pin. contremaitre's pre-push runs this script against platform origin/main, so
+# the typo fails on the author's machine instead. The predicates are listed in
+# scripts/ci/use-case-predicates.txt, which the platform's predicate enum is
+# held to as well.
+if [[ -z "$CM_ROOT" ]]; then
+    echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the use-case check.${NC}"
+else
+    if USE_CASE_REPORT="$(python3 - "$CM_ROOT" "$PROJECT_ROOT" <<'PYUSECASE'
+import pathlib, re, sys
+cm, platform = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+catalogue = cm / "use_cases" / "catalogue.yaml"
+# Spelled by code point: a quote character in this heredoc unbalances the
+# command substitution around it for the shell that parses this script.
+QUOTES = chr(39) + chr(34)
+
+reads_it = any(
+    "USE_CASES_YAML" in f.read_text(encoding="utf-8", errors="ignore")
+    for f in (platform / "crates").rglob("*.rs")
+)
+if not catalogue.is_file():
+    if reads_it:
+        print(f"the platform reads USE_CASES_YAML but {catalogue} is missing")
+        sys.exit(1)
+    print("SKIP no use-case catalogue at this contremaitre rev yet")
+    sys.exit(0)
+
+vocabulary = {}
+for line in (platform / "scripts/ci/use-case-predicates.txt").read_text(encoding="utf-8").splitlines():
+    line = line.strip()
+    if line and not line.startswith("#"):
+        name, _, threshold = line.partition(">=")
+        vocabulary[name] = bool(threshold)
+
+commands = set()
+for f in (platform / "commands").rglob("*.md"):
+    m = re.search(r"^command:\s*(\S+)", f.read_text(encoding="utf-8"), re.M)
+    if m:
+        commands.add(m.group(1))
+
+def flow_items(text):
+    return [item.strip().strip(QUOTES) for item in text.strip()[1:-1].split(",") if item.strip()]
+
+problems, entries, requires_seen = [], 0, 0
+lines = catalogue.read_text(encoding="utf-8").splitlines()
+i = 0
+while i < len(lines):
+    line = lines[i]
+    if re.match(r"^\s*-\s+id:", line):
+        entries += 1
+    m = re.match(r"^(\s*)(?:-\s+)?requires:\s*(.*?)\s*(?:#.*)?$", line)
+    if m:
+        requires_seen += 1
+        indent, rest = len(m.group(1)), m.group(2)
+        if rest.startswith("["):
+            items = flow_items(rest)
+        else:
+            items = []
+            while i + 1 < len(lines) and re.match(r"^\s*-\s+\S", lines[i + 1]) and len(lines[i + 1]) - len(lines[i + 1].lstrip()) > indent:
+                i += 1
+                items.append(lines[i].strip()[1:].strip().strip(QUOTES))
+        for item in items:
+            for predicate in (p.strip() for p in item.split("|")):
+                name, has_threshold, value = predicate.partition(">=")
+                name = name.strip()
+                if name not in vocabulary:
+                    problems.append(f"{catalogue}:{i + 1}: unknown predicate '{name}'")
+                elif vocabulary[name] != bool(has_threshold) or (has_threshold and not value.strip().isdigit()):
+                    problems.append(f"{catalogue}:{i + 1}: '{predicate}' — {name} takes {'a >=N threshold' if vocabulary[name] else 'no threshold'}")
+    m = re.match(r"^\s*command:\s*(\S+)", line)
+    if m and m.group(1) not in ("null", "~"):
+        command = m.group(1).strip(QUOTES)
+        if command not in commands:
+            problems.append(f"{catalogue}:{i + 1}: command '{command}' is not a platform command")
+    i += 1
+
+if entries == 0 or requires_seen == 0:
+    problems.append(f"{catalogue}: no entries with 'requires:' were read — the check judged nothing")
+if problems:
+    print("\n".join(problems))
+    sys.exit(1)
+print(f"OK {entries}")
+PYUSECASE
+)"; then
+        case "$USE_CASE_REPORT" in
+            SKIP*) echo -e "${BLUE}ℹ️  Use-case catalogue: none at this contremaitre rev yet.${NC}" ;;
+            OK*) echo -e "${GREEN}✅ Use-case catalogue: ${USE_CASE_REPORT#OK } entries name only known predicates and commands.${NC}" ;;
+            *)
+                echo -e "${RED}❌ The use-case check exited cleanly without a verdict:${NC}"
+                printf '%s\n' "$USE_CASE_REPORT" | sed 's/^/   /'
+                FAILED=true
+                ;;
+        esac
+    else
+        echo -e "${RED}❌ The use-case catalogue names something the platform does not know:${NC}"
+        printf '%s\n' "$USE_CASE_REPORT" | sed 's/^/   /'
+        echo -e "${YELLOW}   A new predicate lands in the platform first (scripts/ci/use-case-predicates.txt and the${NC}"
+        echo -e "${YELLOW}   ranker), then contremaitre may name it.${NC}"
+        FAILED=true
     fi
 fi
 

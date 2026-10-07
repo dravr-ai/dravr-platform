@@ -29,8 +29,8 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
 use pierre_chat_pipeline::{
-    CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
-    TurnOrigin, TurnRequest,
+    CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
+    SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -696,6 +696,7 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
         &ctx,
         TurnRequest {
             origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
             conversation_id: conv.id.clone(),
             user_id: fx.owner_id,
             conversation_tenant_id: fx.tenant_id,

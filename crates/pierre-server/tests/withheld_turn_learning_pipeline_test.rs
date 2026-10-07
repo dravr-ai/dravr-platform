@@ -40,7 +40,7 @@ use uuid::Uuid;
 use common::{create_test_server_resources_with_chat_provider, create_test_user_with_plan};
 use helpers::recording_llm::{RecordedRequest, RecordingProvider};
 use pierre_chat_pipeline::{
-    ChatPipelineContext, CommandPersistence, PipelineHooks, SurfaceId, SurfaceProfile,
+    ChatPipelineContext, CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_contremaitre::messaging_strings::KEY_REPLY_WITHHELD;
@@ -122,6 +122,7 @@ impl Fixture {
             &self.ctx,
             TurnRequest {
                 origin: TurnOrigin::Athlete,
+                input_source: InputSource::Typed,
                 conversation_id: conversation_id.to_owned(),
                 user_id: self.user_id,
                 conversation_tenant_id: self.tenant_id,

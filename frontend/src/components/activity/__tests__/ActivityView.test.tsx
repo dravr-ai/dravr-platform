@@ -248,7 +248,12 @@ describe('ActivityView', () => {
 
     const date = formatInstant(START, 'en', DRAFT_DATE);
     expect(sentActions()).toEqual([
-      { kind: 'send', text: `What recovery do you advise after my activity “Morning Trail Run” from ${date}?` },
+      {
+        kind: 'send',
+        text: `What recovery do you advise after my activity “Morning Trail Run” from ${date}?`,
+        // carnet#828: analytics tells a chip's question from a typed one.
+        origin: 'chip',
+      },
     ]);
   });
 

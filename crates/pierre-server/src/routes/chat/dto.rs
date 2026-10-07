@@ -8,8 +8,8 @@ use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
-    is_turn_marker_block, ConversationParticipant, ParticipantRole, PersistedReplyBlock,
-    ACTIONS_BLOCK_TYPE,
+    is_turn_marker_block, ConversationParticipant, InputSource, ParticipantRole,
+    PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -333,6 +333,37 @@ pub struct ParticipantListResponse {
 pub struct SendMessageRequest {
     /// Message content
     pub content: String,
+    /// How the athlete produced [`Self::content`]; absent means typed
+    /// (carnet#828).
+    #[serde(default)]
+    pub origin: ClientInputSource,
+}
+
+/// How a client says the athlete produced a message (carnet#828).
+///
+/// Deliberately narrower than [`InputSource`]: a resolved suggestion is the
+/// server's finding, never a client's claim, so `use_case` is refused here
+/// rather than trusted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientInputSource {
+    /// Written in the composer.
+    #[default]
+    Typed,
+    /// Sent from a composer a draft affordance pre-filled.
+    Draft,
+    /// Sent in one tap from a chip beside the athlete's data.
+    Chip,
+}
+
+impl From<ClientInputSource> for InputSource {
+    fn from(source: ClientInputSource) -> Self {
+        match source {
+            ClientInputSource::Typed => Self::Typed,
+            ClientInputSource::Draft => Self::Draft,
+            ClientInputSource::Chip => Self::Chip,
+        }
+    }
 }
 
 /// Response for a message

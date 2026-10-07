@@ -240,7 +240,8 @@ describe('ActivityScreen', () => {
     expect(mockPush).not.toHaveBeenCalled();
     expect(screen.getByTestId('activity-figures')).toBeTruthy();
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockSendTurn).toHaveBeenLastCalledWith(THREAD, compare, expect.anything());
+    // carnet#828: a chip's question is reported as one, not as typed.
+    expect(mockSendTurn).toHaveBeenLastCalledWith(THREAD, compare, expect.objectContaining({ origin: 'chip' }));
     expect(mockLinkActivityConversation).toHaveBeenCalledWith('strava', '9000', THREAD);
 
     await act(async () => {
@@ -250,7 +251,7 @@ describe('ActivityScreen', () => {
     expect(mockSendTurn).toHaveBeenLastCalledWith(
       THREAD,
       `What recovery do you advise after my activity “Tempo Thursday” from ${TEMPO_DAY}?`,
-      expect.anything(),
+      expect.objectContaining({ origin: 'chip' }),
     );
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
     // Both turns are rows of the one thread: the first question and its reply stay.

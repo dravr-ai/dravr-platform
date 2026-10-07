@@ -45,8 +45,8 @@ mod guided_turn {
     use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
     use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
     use pierre_chat_pipeline::{
-        CommandPersistence, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest,
-        TurnOrigin, TurnRequest,
+        CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
+        SurfaceRequest, TurnOrigin, TurnRequest,
     };
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -251,6 +251,7 @@ mod guided_turn {
             &fx.resources.chat_pipeline_context(),
             TurnRequest {
                 origin: TurnOrigin::Athlete,
+                input_source: InputSource::Typed,
                 conversation_id: fx.conversation_id.clone(),
                 user_id: fx.user_id,
                 conversation_tenant_id: fx.tenant_id,

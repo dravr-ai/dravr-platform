@@ -226,6 +226,11 @@ pub const KEY_AGENT_WELCOME_GREETING_NO_ROLE: &str = "messaging.agent_welcome.gr
 /// Key: the lead-in above the starter questions. No placeholders.
 pub const KEY_AGENT_WELCOME_STARTERS_TITLE: &str = "messaging.agent_welcome.starters_title";
 
+/// Key: the reply to a tapped suggestion that no longer resolves — the thread
+/// lost its agent, or the agent's examples changed since it was posted
+/// (carnet#828). No placeholders.
+pub const KEY_USE_CASES_UNAVAILABLE: &str = "use_cases.unavailable";
+
 /// Key: account-approval welcome, sent on each linked messaging channel when a
 /// user's account is approved. No placeholders.
 pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_approved";

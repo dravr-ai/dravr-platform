@@ -46,7 +46,7 @@ use pierre_chat_pipeline::stages::prompt_assembly::{
 };
 use pierre_chat_pipeline::stages::prompt_builder::{render_tool_index, TOOL_BOUNDARY};
 use pierre_chat_pipeline::{
-    ChatPipelineContext, CommandPersistence, PipelineHooks, SurfaceId, SurfaceProfile,
+    ChatPipelineContext, CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
@@ -198,6 +198,7 @@ impl Fixture {
             &self.ctx,
             TurnRequest {
                 origin: TurnOrigin::Athlete,
+                input_source: InputSource::Typed,
                 conversation_id: conversation_id.to_owned(),
                 user_id: self.user_id,
                 conversation_tenant_id: self.tenant_id,

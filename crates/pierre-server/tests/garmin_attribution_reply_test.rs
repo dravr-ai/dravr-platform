@@ -30,7 +30,8 @@ use chrono::{Duration, Utc};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use pierre_chat_pipeline::{
-    PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, TurnInput, TurnOrigin,
+    InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, TurnInput,
+    TurnOrigin,
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_REPLY_GARMIN_ATTRIBUTION,
@@ -236,6 +237,7 @@ async fn delivered_reply(
         .unwrap();
     let input = TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation.id.clone(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,

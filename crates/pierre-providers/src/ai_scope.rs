@@ -87,6 +87,10 @@ tokio::task_local! {
     static TRANSPORT: Transport;
     /// What the current derivation has served, for the row it will write.
     static PROVENANCE: Provenance;
+    /// Set when the terms filter serves a provider item inside the innermost
+    /// [`serving_items`] scope: whether one tool call served the athlete's
+    /// data (carnet#828).
+    static SERVED_ITEMS: Arc<AtomicBool>;
 }
 
 /// Whether a turn, or any other derivation, has served data whose terms keep
@@ -104,6 +108,13 @@ pub struct Provenance {
     /// device-sourced data): what a reply derived from it must say it drew on
     /// (carnet#521). Shared the same way as the flag.
     attributions: Arc<Mutex<BTreeSet<&'static str>>>,
+    /// Set once a tool call served the athlete's provider items to the model:
+    /// their own data was put in front of whatever this derivation produces.
+    /// Read by the chat turn as `chat.answer_delivered`'s `grounded`
+    /// (carnet#828). Set by the dispatch chokepoint when a call's
+    /// [`serving_items`] scope served an item, and handed up to the enclosing
+    /// derivation.
+    served_provider_data: Arc<AtomicBool>,
 }
 
 impl Provenance {
@@ -123,6 +134,17 @@ impl Provenance {
         if let Ok(mut attributions) = self.attributions.lock() {
             attributions.insert(attribution);
         }
+    }
+
+    /// Record that a provider-backed read was served.
+    pub fn mark_provider_data(&self) {
+        self.served_provider_data.store(true, Ordering::Release);
+    }
+
+    /// Whether a tool call served provider items to the model so far.
+    #[must_use]
+    pub fn served_provider_data(&self) -> bool {
+        self.served_provider_data.load(Ordering::Acquire)
     }
 
     /// The attributions of everything served so far.
@@ -145,7 +167,8 @@ impl Provenance {
 ///
 /// Whatever the enclosing derivation was accumulating is marked too when
 /// `fut` serves first-party-only data: content derived inside derived content
-/// taints both.
+/// taints both. A tool call's grounding mark (`served_provider_data`) reaches
+/// the enclosing derivation the same way.
 pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
     let enclosing = current_provenance();
     let output = PROVENANCE.scope(provenance.clone(), fut).await;
@@ -153,11 +176,28 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
         if provenance.policy().is_first_party_only() {
             enclosing.mark();
         }
+        if provenance.served_provider_data() {
+            enclosing.mark_provider_data();
+        }
         for attribution in provenance.attributions() {
             enclosing.attribute(attribution);
         }
     }
     output
+}
+
+/// Run `fut`, returning whether the terms filter served it any provider item.
+///
+/// The dispatch chokepoint wraps each tool call in this, so a call that put
+/// the athlete's own data in front of the model is told apart from everything
+/// else the turn read — its prompt context reads provider items too, and those
+/// are not an answer a tool grounded (carnet#828). A scope of its own rather
+/// than a field of [`Provenance`]: the call keeps running under the turn's
+/// provenance, which is what every row it writes is stamped from.
+pub async fn serving_items<F: Future>(fut: F) -> (F::Output, bool) {
+    let served = Arc::new(AtomicBool::new(false));
+    let output = SERVED_ITEMS.scope(Arc::clone(&served), fut).await;
+    (output, served.load(Ordering::Acquire))
 }
 
 /// Run `fut` under a fresh accumulator, returning the policy what it derived
@@ -198,6 +238,11 @@ pub fn mark_first_party_only_served() {
 fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>) {
     if PROVENANCE.try_with(|_| ()).is_ok() && first_party_only(lookup, provider, source) {
         mark_first_party_only_served();
+    }
+    // That an item was served at all, for the chokepoint's grounding read
+    // (carnet#828). Not under `unfiltered`, for the reason marking is not.
+    if !flag(&UNFILTERED) {
+        let _ = SERVED_ITEMS.try_with(|served| served.store(true, Ordering::Release));
     }
     // What it was recorded by, for the attribution its derivation owes
     // (carnet#521).
@@ -534,6 +579,35 @@ mod tests {
     #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
     use crate::registry::ProviderRegistry;
 
+    // carnet#828: a provider read inside a nested derivation still tells the
+    // turn that the athlete's own data reached it.
+    #[tokio::test]
+    async fn a_provider_read_reaches_the_enclosing_turn() {
+        let turn = Provenance::new();
+        let seen_while_running = tracking(turn.clone(), async {
+            let ((), _) = derived(async {
+                if let Some(nested) = current_provenance() {
+                    nested.mark_provider_data();
+                }
+            })
+            .await;
+            current_provenance().is_some_and(|p| p.served_provider_data())
+        })
+        .await;
+        assert!(
+            seen_while_running,
+            "the turn sees the nested read while it runs"
+        );
+        assert!(
+            turn.served_provider_data(),
+            "and keeps it once the turn returns"
+        );
+        assert!(
+            !Provenance::new().served_provider_data(),
+            "an accumulator starts clear"
+        );
+    }
+
     struct NolioOnly;
 
     impl ProviderTerms for NolioOnly {
@@ -811,6 +885,38 @@ mod tests {
             ErrorCode::InternalError,
             "a first-party read reaches the provider"
         );
+    }
+
+    // carnet#828: a read that serves provider items says so to the scope that
+    // counted it; an empty read, or one under `unfiltered`, does not.
+    #[tokio::test]
+    async fn serving_items_reports_whether_the_read_served_any() {
+        let provider = Relay::governed();
+        let (_, served) =
+            serving_items(first_party(ai_read(provider.get_activities(None, None)))).await;
+        assert!(served, "the relayed sessions were served");
+
+        let (_, empty) = serving_items(first_party(ai_read(async {
+            filter_activities(&NolioOnly, Vec::new())
+        })))
+        .await;
+        assert!(!empty, "an empty read serves nothing");
+
+        let (_, cache_write) = serving_items(first_party(ai_read(unfiltered(
+            provider.get_activities(None, None),
+        ))))
+        .await;
+        assert!(!cache_write, "a read under unfiltered serves no one");
+    }
+
+    // A call counted for its items still derives under the turn's provenance:
+    // what it writes is stamped from everything the turn served before it.
+    #[tokio::test]
+    async fn counting_a_calls_items_keeps_the_turns_provenance() {
+        let turn = Provenance::new();
+        turn.mark();
+        let (inside, _) = tracking(turn.clone(), serving_items(async { derived_policy() })).await;
+        assert_eq!(inside, TransportPolicy::FirstPartyOnly);
     }
 
     #[tokio::test]

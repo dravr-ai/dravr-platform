@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -18,6 +18,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use chrono::Utc;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
+use pierre_chat_pipeline::SurfaceId;
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
@@ -39,6 +40,7 @@ use super::dto::{
     CreateConversationRequest, LastMessageResponse, ListConversationsQuery, MessageFeedbackEntry,
     MessageResponse, MessagesListResponse, UpdateConversationRequest,
 };
+use super::send_message::client_surface;
 
 /// Best-effort `agent_assignments.use_count++` for REST-created conversations,
 /// via the shared selection recorder that also emits `agent.selected`.
@@ -74,6 +76,7 @@ async fn post_welcome_best_effort(
     agent_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
+    surface: SurfaceId,
 ) {
     let repos = &resources.common.repos;
     let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
@@ -85,6 +88,7 @@ async fn post_welcome_best_effort(
         agent_id,
         agent_tenant_id: tenant_id,
         locale: &locale,
+        surface,
     };
     if let Err(e) =
         post_agent_welcome(repos, &resources.mcp.messaging_strings_registry, target).await
@@ -97,6 +101,7 @@ async fn post_welcome_best_effort(
 pub async fn create_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
+    headers: HeaderMap,
     Json(request): Json<CreateConversationRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
@@ -181,7 +186,15 @@ pub async fn create_conversation(
     // created with an `agent_id`; a thread created without one opens empty.
     if let Some(agent_id) = request.agent_id.as_deref() {
         record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
-        post_welcome_best_effort(&resources, &conv, agent_id, auth.user_id, tenant_id).await;
+        post_welcome_best_effort(
+            &resources,
+            &conv,
+            agent_id,
+            auth.user_id,
+            tenant_id,
+            client_surface(&headers),
+        )
+        .await;
     }
 
     let response = ConversationResponse {

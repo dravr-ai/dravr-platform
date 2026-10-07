@@ -36,6 +36,7 @@ use uuid::Uuid;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
+use pierre_chat_pipeline::SurfaceId;
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_WELCOME_GREETING, KEY_AGENT_WELCOME_GREETING_NO_ROLE,
     KEY_AGENT_WELCOME_STARTERS_TITLE,
@@ -302,7 +303,9 @@ fn render(resources: &Arc<ServerContext>, key: &str, locale: &str, args: &[&str]
         .render(key, locale, args)
 }
 
-/// The labels of a row's postback controls, asserting each sends its label.
+/// The labels of a row's postback controls, asserting each sends the opaque
+/// postback of its slot, which the turn resolves back into the label
+/// (carnet#828).
 fn starters(row: &MessageResponse) -> Vec<String> {
     let actions = row
         .actions
@@ -311,12 +314,14 @@ fn starters(row: &MessageResponse) -> Vec<String> {
     actions
         .actions
         .iter()
-        .map(|action| {
+        .enumerate()
+        .map(|(slot, action)| {
+            assert_eq!(action.action_type, "postback", "a starter is a postback");
             assert_eq!(
-                action.action_type, "postback",
-                "a starter sends its question"
+                action.value,
+                format!("ex:{slot}:{slot}"),
+                "a starter sends its postback, never its words"
             );
-            assert_eq!(action.label, action.value, "a starter sends what it reads");
             action.label.clone()
         })
         .collect()
@@ -654,6 +659,7 @@ async fn a_room_is_welcomed_once_per_agent() {
                 agent_id: &agent,
                 agent_tenant_id: tenant,
                 locale: "en",
+                surface: SurfaceId::Web,
             },
         )
         .await

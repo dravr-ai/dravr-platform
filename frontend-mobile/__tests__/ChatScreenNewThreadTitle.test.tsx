@@ -217,6 +217,8 @@ describe('ChatScreen new-thread title', () => {
     expect(mockSendTurn).toHaveBeenCalledWith(
       'conv-1',
       'Est-ce que je peux faire du seuil demain matin avant le boulot ?',
+      // Typed in the composer: no origin, which the server reads as typed.
+      { origin: undefined },
     );
   });
 });

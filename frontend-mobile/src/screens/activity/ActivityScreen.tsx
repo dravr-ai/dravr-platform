@@ -10,7 +10,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import type { ActivityDetailResponse } from '@pierre/shared-types';
+import type { ActivityDetailResponse, TurnSendOptions } from '@pierre/shared-types';
 import {
   ACTIVITY_PROMPTS,
   activityFigures,
@@ -238,7 +238,7 @@ function ActivityThread({
    * names the activity, since the new thread has no other word on which
    * activity it is about; a suggested question already names it.
    */
-  const send = useCallback(async (text: string, typed: boolean) => {
+  const send = useCallback(async (text: string, typed: boolean, options?: TurnSendOptions) => {
     const trimmed = text.trim();
     if (!trimmed || messagesHook.isSending) return;
     followRef.current = true;
@@ -264,7 +264,7 @@ function ActivityThread({
 
     try {
       trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
-      const rotatedTo = await messagesHook.sendTurn(target, line);
+      const rotatedTo = await messagesHook.sendTurn(target, line, options);
       // `/reset` archives this thread and continues on a fresh one; the
       // activity's thread is the fresh one from then on.
       if (rotatedTo && rotatedTo !== target) setConversationId(rotatedTo);
@@ -273,8 +273,15 @@ function ActivityThread({
     }
   }, [conversationId, conversations, messagesHook, naming, setConversationId, t, usageStatus]);
 
-  const sendTyped = useCallback((text: string) => send(text, true), [send]);
-  const sendPrompt = useCallback((text: string) => void send(text, false), [send]);
+  const sendTyped = useCallback(
+    (text: string, options?: TurnSendOptions) => send(text, true, options),
+    [send],
+  );
+  // carnet#828: analytics tells a chip's question from a typed one.
+  const sendPrompt = useCallback(
+    (text: string) => void send(text, false, { origin: 'chip' }),
+    [send],
+  );
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={headerHeight}>

@@ -13,7 +13,13 @@ import {
 } from '@pierre/shared-constants';
 import { chatApi, groupsApi } from '../../services/api';
 import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
-import type { ClaimVerdict, GroupTranscriptEntry, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
+import type {
+  ClaimVerdict,
+  GroupTranscriptEntry,
+  ReplyBlock,
+  ReplyNotice,
+  TurnSendOptions,
+} from '@pierre/shared-types';
 import {
   composeRoomThread,
   filterDisplayMessages,
@@ -105,7 +111,8 @@ export interface MessagesActions {
    */
   sendTurn: (
     conversationId: string,
-    messageText: string
+    messageText: string,
+    options?: TurnSendOptions,
   ) => Promise<string | null>;
   /**
    * Stop the turn that is running. The server ends it and closes the question
@@ -389,6 +396,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const sendTurn = useCallback(async (
     conversationId: string,
     messageText: string,
+    options: TurnSendOptions = {},
   ): Promise<string | null> => {
     if (!messageText.trim() || isSending) return null;
 
@@ -406,7 +414,7 @@ export function useMessages(): MessagesState & MessagesActions {
     const userMessage: Message = {
       id: `temp-${Date.now()}`,
       role: 'user',
-      content: messageText,
+      content: options.display ?? messageText,
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMessage]);
@@ -434,6 +442,7 @@ export function useMessages(): MessagesState & MessagesActions {
         // threshold holds a server instance open; the idle watch aborts it,
         // and the thread is re-read when the athlete returns.
         signal,
+        origin: options.origin,
         onProgress: progress => {
           const status = statusForProgress(progress);
           if (status !== null) setProgressText(t(status.key, status.params));
@@ -458,8 +467,13 @@ export function useMessages(): MessagesState & MessagesActions {
           setMessages(prev => {
             const filtered = prev.filter(m => m.id !== userMessage.id);
             const newMessages: Message[] = [];
-            if (turn.user_message?.id) {
+            // The athlete's line as the server wrote it — a tapped
+            // suggestion's words in place of its label. An empty echo (a stale
+            // suggestion: nothing was written) keeps what they were shown.
+            if (turn.user_message?.id && turn.user_message.content) {
               newMessages.push(turn.user_message);
+            } else if (turn.user_message?.id) {
+              newMessages.push(userMessage);
             }
             if (assistantId) {
               newMessages.push({

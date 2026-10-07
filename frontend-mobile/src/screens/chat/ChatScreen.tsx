@@ -24,6 +24,7 @@ import { NotificationBellButton } from '../../components/notifications/Notificat
 import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
 import { providerStatusLine } from '@pierre/chat-utils';
+import type { TurnSendOptions } from '@pierre/shared-types';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
@@ -207,7 +208,7 @@ export function ChatScreen() {
    * param an invite link or a t('app.newGroupChat') prompt arrives with — so quota
    * accounting and thread creation have exactly one implementation.
    */
-  const sendText = useCallback(async (text: string) => {
+  const sendText = useCallback(async (text: string, options?: TurnSendOptions) => {
     const trimmed = text.trim();
     if (!trimmed || messagesHook.isSending) return;
 
@@ -225,7 +226,7 @@ export function ChatScreen() {
 
     try {
       trackMobile({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
-      const rotatedTo = await messagesHook.sendTurn(conversationId, trimmed);
+      const rotatedTo = await messagesHook.sendTurn(conversationId, trimmed, options);
       // `/reset` archives this thread and continues on a fresh one. Resolve the
       // new row before navigating, so the screen lands on a thread it can
       // actually draw; `replace`, not `push`, because Back must not return the
@@ -244,12 +245,20 @@ export function ChatScreen() {
   // by COMMAND_DRAFTS, and each is honoured once per value so a re-render on
   // the same route never re-sends it.
   const draftedRef = useRef<string | null>(null);
+  // Whether the composer holds a draft a navigation put there, so its send
+  // is reported as one (carnet#828). A command line is not a question draft,
+  // and a draft the athlete erased entirely is no longer one.
+  const [draftSeeded, setDraftSeeded] = useState(false);
   useEffect(() => {
     const draft = typeof params.draft === 'string' ? params.draft : null;
     if (!draft || draftedRef.current === draft) return;
     draftedRef.current = draft;
+    setDraftSeeded(!draft.startsWith('/'));
     setInputText(draft);
   }, [params.draft]);
+  useEffect(() => {
+    if (inputText === '') setDraftSeeded(false);
+  }, [inputText]);
 
   const sentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -401,6 +410,7 @@ export function ChatScreen() {
           onChangeInputText={setInputText}
           inputRef={inputRef}
           sendText={sendText}
+          composerOrigin={draftSeeded ? 'draft' : undefined}
           routeDraft={routeDraft}
         />
 

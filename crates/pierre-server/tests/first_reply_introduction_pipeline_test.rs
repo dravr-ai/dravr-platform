@@ -38,8 +38,8 @@ use common::{create_test_server_resources_with_llm, create_test_user_with_plan};
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{
-    CommandPersistence, PipelineHooks, SurfaceId, SurfaceProfile, SurfaceRequest, TurnOrigin,
-    TurnRequest,
+    CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile, SurfaceRequest,
+    TurnOrigin, TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -348,6 +348,7 @@ async fn turn_prompt(
         &fx.resources.chat_pipeline_context(),
         TurnRequest {
             origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
             conversation_id: conversation_id.to_owned(),
             user_id: sender.user_id,
             conversation_tenant_id: fx.tenant_id,
@@ -795,6 +796,7 @@ async fn an_agent_that_welcomed_the_thread_is_not_introduced_again() {
             agent_id: &agent,
             agent_tenant_id: fx.tenant_id,
             locale: "fr",
+            surface: SurfaceId::Web,
         },
     )
     .await

@@ -61,7 +61,13 @@ import { useTodayRouteDraft } from '../hooks/useHome';
 import { Button, Sheet, useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
-import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
+import type {
+  ChatMessageAction,
+  ClaimVerdict,
+  MessageOrigin,
+  ReplyBlock,
+  TurnSendOptions,
+} from '@pierre/shared-types';
 import type {
   Message,
   MessageMetadata,
@@ -109,6 +115,11 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
 export interface PendingComposerAction {
   kind: 'draft' | 'send';
   text: string;
+  /**
+   * How a `send` was produced, when not typed: the activity view's chips say
+   * `chip`. A `draft` is reported as one when the athlete sends it.
+   */
+  origin?: MessageOrigin;
 }
 
 /**
@@ -215,7 +226,11 @@ export default function ChatTab({
   // turn refused before the server stored it stays on screen with a retry.
   const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<FailedTurnNote>, null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<{ text: string; origin?: MessageOrigin } | null>(null);
+  // Whether the composer holds text a draft affordance put there (Home Today,
+  // the route draft, "back up this claim"), so its send is reported as a
+  // draft rather than as typed. Cleared when the composer empties.
+  const draftSeededRef = useRef(false);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, MessageFeedback>>(new Map());
@@ -451,6 +466,7 @@ export default function ChatTab({
   );
 
   const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
+    draftSeededRef.current = true;
     setNewMessage(
       t('app.backUpClaim', { claim: verdict.claim_text }),
     );
@@ -659,8 +675,8 @@ export default function ChatTab({
    * caller that had to seed it and then wait for React to commit is what
    * produced the simulated button clicks this replaced.
    */
-  const sendTurn = useCallback(async (displayContent: string) => {
-    if (!displayContent || !selectedConversation || isStreaming) return;
+  const sendTurn = useCallback(async (content: string, options: TurnSendOptions = {}) => {
+    if (!content || !selectedConversation || isStreaming) return;
 
     setIsStreaming(true);
     streamingConversationRef.current = selectedConversation;
@@ -681,7 +697,7 @@ export default function ChatTab({
     const tempUserMessage: Message = {
       id: userMessageId,
       role: 'user',
-      content: displayContent,
+      content: options.display ?? content,
       created_at: new Date().toISOString(),
     };
 
@@ -707,11 +723,12 @@ export default function ChatTab({
     // in the `finally` below, so the idle threshold measures the quiet AFTER
     // the turn rather than racing the model.
     const releaseIdleHold = holdIdleWhileBusy();
-    await chatApi.sendTurn(selectedConversation, displayContent, {
+    await chatApi.sendTurn(selectedConversation, content, {
       // A turn left streaming into a tab abandoned mid-answer still holds a
       // server instance open; the hold above covers the athlete who is
       // waiting, the signal covers the one who walked away.
       signal: idleSignal(),
+      origin: options.origin,
       onDelta: delta => {
         assembled += delta;
         setStreamingContent(assembled);
@@ -733,6 +750,22 @@ export default function ChatTab({
         turnBlocks.push(block);
       },
       onDone: turn => {
+        // The athlete's line as the server wrote it — a tapped suggestion's
+        // words in place of the label shown while the turn ran, under the
+        // row's real id so a re-read of the thread does not draw it twice. An
+        // empty echo (a stale suggestion: nothing was written) keeps what
+        // the athlete was shown.
+        const echoed = turn.user_message;
+        if (echoed?.content) {
+          queryClient.setQueryData(conversationKey, (old: { messages: Message[] } | undefined) => ({
+            messages: (old?.messages ?? []).map(m =>
+              m.id === userMessageId
+                ? { ...m, id: echoed.id, content: echoed.content, created_at: echoed.created_at }
+                : m,
+            ),
+          }));
+        }
+
         const assistantMessageId = turn.assistant.message.id;
         const { model, execution_time_ms: executionTimeMs } = turn.telemetry;
 
@@ -907,9 +940,17 @@ export default function ChatTab({
   const handleSendMessage = useCallback(() => {
     const typed = newMessage.trim();
     if (!typed) return;
+    const origin: MessageOrigin | undefined = draftSeededRef.current ? 'draft' : undefined;
+    draftSeededRef.current = false;
     setNewMessage('');
-    void sendTurn(typed);
+    void sendTurn(typed, { origin });
   }, [newMessage, sendTurn]);
+
+  // A draft the athlete erased entirely is no longer a draft: what they type
+  // next is their own.
+  useEffect(() => {
+    if (newMessage === '') draftSeededRef.current = false;
+  }, [newMessage]);
 
   // A prompt queued while the conversation was still being created is sent
   // as soon as one exists. It goes straight to `sendTurn`; seeding the
@@ -918,7 +959,7 @@ export default function ChatTab({
     if (pendingPrompt && selectedConversation && !isStreaming) {
       const promptToSend = pendingPrompt;
       setPendingPrompt(null);
-      void sendTurn(promptToSend);
+      void sendTurn(promptToSend.text, { origin: promptToSend.origin });
     }
   }, [pendingPrompt, selectedConversation, isStreaming, sendTurn]);
 
@@ -931,17 +972,19 @@ export default function ChatTab({
    */
   const runComposerAction = useCallback((action: PendingComposerAction) => {
     if (action.kind === 'send' && selectedConversation) {
-      void sendTurn(action.text);
+      void sendTurn(action.text, { origin: action.origin });
       return;
     }
     if (action.kind === 'send') {
       // No thread yet: queue the text and let the pending-prompt effect send
       // it the moment the fresh conversation exists.
-      setPendingPrompt(action.text);
+      setPendingPrompt({ text: action.text, origin: action.origin });
       startConversation();
       return;
     }
     if (!selectedConversation) startConversation();
+    // A command line (`/`, the palette opener) is not a question draft.
+    draftSeededRef.current = !action.text.startsWith('/');
     setNewMessage(action.text);
     inputRef.current?.focus();
   }, [selectedConversation, startConversation, sendTurn]);
@@ -975,7 +1018,11 @@ export default function ChatTab({
    * Press handler for a control the reply's `actions` block carried.
    *
    * A `postback` sends its `value` as the next turn, so the press flows
-   * through the exact same pipeline a typed command would. A `url` opens its
+   * through the exact same pipeline a typed command would. A command's value
+   * is the line the athlete would type, so it is what their bubble shows; any
+   * other value is a suggestion's postback, which the server resolves into
+   * its words, so the bubble shows the label until the turn echoes them
+   * (carnet#828). A `url` opens its
    * `value` — but only after {@link trustedActionUrl} vouches for the host:
    * the value reaches the client inside a model-adjacent reply, so an
    * unvouched address is an open redirect wearing a button. A refused URL
@@ -987,7 +1034,7 @@ export default function ChatTab({
       if (target) window.open(target, '_blank', 'noopener,noreferrer');
       return;
     }
-    void sendTurn(action.value);
+    void sendTurn(action.value, action.value.startsWith('/') ? {} : { display: action.label });
   }, [sendTurn]);
 
   const handleShareMessage = useCallback((content: string) => {

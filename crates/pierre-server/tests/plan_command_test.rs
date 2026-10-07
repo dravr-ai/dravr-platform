@@ -16,7 +16,9 @@
 
 use anyhow::Result;
 use dravr_canot::rich_text::{parse_markdown, render_rich_text};
-use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest, TurnOrigin};
+use pierre_chat_pipeline::{
+    dispatch_slash, CommandPersistence, SlashRequest, SurfaceId, TurnOrigin,
+};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
@@ -1535,6 +1537,7 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         conversation_tenant_id: bot,
         channel_type: "telegram",
         transport: Transport::Messaging,
+        surface: SurfaceId::Telegram,
         locale: "en",
         is_direct_message: false,
         ambient_group_fallback: true,

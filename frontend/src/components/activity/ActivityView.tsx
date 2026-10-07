@@ -180,6 +180,7 @@ function ActivityChat({
     date: formatInstant(detail.activity.start_date, language, DRAFT_DATE),
   };
   const send = (text: string) => setAction({ kind: 'send', text });
+  const sendChip = (text: string) => setAction({ kind: 'send', text, origin: 'chip' });
   const consumed = useCallback(() => setAction(null), []);
 
   return (
@@ -190,7 +191,7 @@ function ActivityChat({
             key={prompt.id}
             type="button"
             data-testid={`activity-prompt-${prompt.id}`}
-            onClick={() => send(t(prompt.textKey, naming))}
+            onClick={() => sendChip(t(prompt.textKey, naming))}
             className="rounded-full border ghost-border bg-surface-container-lowest px-3 py-1.5 text-sm text-on-surface transition-colors hover:bg-surface-container-low focus-ring touch-target"
           >
             {t(prompt.labelKey)}

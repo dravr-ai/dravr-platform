@@ -288,6 +288,77 @@ describe('useMessages', () => {
       expect(result.current.progressText).toBeNull();
     });
 
+    // carnet#828: a starter sends its opaque postback and shows its label;
+    // the athlete's line becomes what the server wrote, unless it wrote none.
+    describe('a tapped suggestion', () => {
+      const LABEL = 'How many gels during a marathon?';
+      const turnWith = (userContent: string) => ({
+        user_message: { id: 'user-1', role: 'user', content: userContent, created_at: '2024-01-01T00:00:00Z' },
+        assistant: {
+          message: { id: 'asst-1', role: 'assistant', content: 'About one every 30 minutes.', created_at: '2024-01-01T00:00:01Z' },
+          blocks: [],
+          finish_reason: 'stop',
+        },
+        telemetry: { model: 'm', provider_name: 'p', tool_calls_count: 0, tools_called: [], execution_time_ms: 1 },
+      });
+
+      it('sends the postback, shows the label, then the echoed line', async () => {
+        const ECHO = 'How many gels during a marathon, and when?';
+        let finish: (() => void) | undefined;
+        mockSendTurn.mockImplementation(
+          (_c: string, _content: string, options: { onDone?: (turn: unknown) => void }) =>
+            new Promise<void>((resolve) => {
+              finish = () => {
+                options.onDone?.(turnWith(ECHO));
+                resolve();
+              };
+            }),
+        );
+        const { result } = renderHook(() => useMessages());
+
+        let sending: Promise<unknown> = Promise.resolve();
+        await act(async () => {
+          sending = result.current.sendTurn('conv-1', 'ex:2:2', { display: LABEL });
+        });
+        expect(mockSendTurn.mock.calls[0][1]).toBe('ex:2:2');
+        expect(result.current.messages[0].content).toBe(LABEL);
+
+        await act(async () => {
+          finish?.();
+          await sending;
+        });
+        expect(result.current.messages[0]).toMatchObject({ id: 'user-1', content: ECHO });
+      });
+
+      it('keeps the label when the server echoes nothing', async () => {
+        mockSendTurn.mockImplementation(
+          (_c: string, _content: string, options: { onDone?: (turn: unknown) => void }) => {
+            options.onDone?.(turnWith(''));
+            return Promise.resolve();
+          },
+        );
+        const { result } = renderHook(() => useMessages());
+
+        await act(async () => {
+          await result.current.sendTurn('conv-1', 'ex:0:9', { display: LABEL });
+        });
+
+        expect(result.current.messages[0].content).toBe(LABEL);
+        expect(result.current.messages.map(m => m.content)).not.toContain('ex:0:9');
+      });
+
+      it('passes how the message was produced on to the request', async () => {
+        mockSendTurn.mockResolvedValue(undefined);
+        const { result } = renderHook(() => useMessages());
+
+        await act(async () => {
+          await result.current.sendTurn('conv-1', 'How was my pacing?', { origin: 'chip' });
+        });
+
+        expect(mockSendTurn.mock.calls[0][2]).toMatchObject({ origin: 'chip' });
+      });
+    });
+
     it('reads the conversation\'s verdict rows once the turn completes', async () => {
       // The stream's `verdicts` block names only flagged claims, so a reply
       // whose claims all held streams none; its chip rail comes from the rows.

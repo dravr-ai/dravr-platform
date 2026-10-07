@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import type {
   ClaimVerdict,
   CoachingGroup,
@@ -15,7 +16,7 @@ import type {
   TurnEnvelope,
 } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ChatTab from '../ChatTab';
+import ChatTab, { type PendingComposerAction } from '../ChatTab';
 import { ToastProvider } from '../ui';
 
 const CONVERSATION_ID = 'conv-1';
@@ -107,6 +108,7 @@ function renderChatTab(
     onNavigate?: (route: string) => void;
     onSelectConversation?: (id: string | null) => void;
     layout?: 'shell' | 'personal';
+    pendingComposerAction?: PendingComposerAction | null;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -115,14 +117,34 @@ function renderChatTab(
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ChatTab
-          selectedConversation={CONVERSATION_ID}
+        <ComposerActionHost
+          initial={props.pendingComposerAction ?? null}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           onNavigate={props.onNavigate}
           layout={props.layout}
         />
       </ToastProvider>
     </QueryClientProvider>,
+  );
+}
+
+/** Holds a composer action and clears it once consumed, as the app's hosts do. */
+function ComposerActionHost(props: {
+  initial: PendingComposerAction | null;
+  onSelectConversation: (id: string | null) => void;
+  onNavigate?: (route: string) => void;
+  layout?: 'shell' | 'personal';
+}) {
+  const [action, setAction] = useState<PendingComposerAction | null>(props.initial);
+  return (
+    <ChatTab
+      selectedConversation={CONVERSATION_ID}
+      onSelectConversation={props.onSelectConversation}
+      onNavigate={props.onNavigate}
+      layout={props.layout}
+      pendingComposerAction={action}
+      onPendingComposerActionConsumed={() => setAction(null)}
+    />
   );
 }
 
@@ -586,6 +608,21 @@ describe('ChatTab verdict drawer', () => {
       expect(await screen.findByText('Copy failed')).toBeInTheDocument();
       expect(screen.queryByText('Copied')).toBeNull();
     });
+
+    // carnet#828: asking to back a claim up pre-fills the composer, so what
+    // the athlete sends from it is reported as a draft, not as typed.
+    it('sends the back-up request it pre-filled as a draft', async () => {
+      sendTurn.mockResolvedValue(undefined);
+      const { user, drawer } = await openDrawer();
+
+      await user.click(within(drawer).getByRole('button', { name: 'Ask me about this claim' }));
+      const input = await screen.findByPlaceholderText('Message Dravr...');
+      await waitFor(() => expect(input).toHaveValue(`Can you back up this claim with evidence? "${CLAIM}"`));
+      await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+      await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+      expect(sendTurn.mock.calls[0][2].origin).toBe('draft');
+    });
   });
 });
 
@@ -703,6 +740,151 @@ describe('ChatTab agent welcome', () => {
 
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(2));
     expect(sendTurn.mock.calls[1][1]).toBe(STARTERS[0]);
+  });
+
+  // carnet#828: a starter sends its opaque postback, which the server
+  // resolves into its words. The athlete's bubble never shows the postback:
+  // the label while the turn runs, then the line the server wrote.
+  it('sends a starter as its postback and shows its label, then the echoed line', async () => {
+    const ECHO = 'How long should a tempo run be for a marathon build?';
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'welcome-1',
+          role: 'assistant',
+          content: "Hi! Dravr's Tempo Agent here.",
+          finish_reason: 'agent_welcome',
+          created_at: '2026-08-23T10:01:03Z',
+          actions: {
+            title: 'To get started, you can ask me:',
+            actions: STARTERS.map((q, slot) => ({
+              label: q,
+              action_type: 'postback',
+              value: `ex:${slot}:${slot}`,
+            })),
+          },
+        },
+      ],
+    });
+    let finish: (() => void) | undefined;
+    sendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: { onDone?: (turn: TurnEnvelope) => void },
+      ) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        const turn = turnEnvelope();
+        turn.user_message = { ...turn.user_message, id: 'user-row-1', content: ECHO };
+        options.onDone?.(turn);
+      },
+    );
+
+    renderChatTab();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: STARTERS[2] }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('ex:2:2');
+    expect(screen.getAllByText(STARTERS[2]).length).toBeGreaterThan(1);
+    expect(screen.queryByText('ex:2:2')).not.toBeInTheDocument();
+
+    finish?.();
+    expect(await screen.findByText(ECHO)).toBeInTheDocument();
+    expect(screen.queryByText('ex:2:2')).not.toBeInTheDocument();
+  });
+
+  // A command button's value is the line the athlete would type, so that is
+  // what their bubble shows.
+  it('shows a command button as the command it sends', async () => {
+    sendTurn.mockResolvedValue(undefined);
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'help-1',
+          role: 'assistant',
+          content: 'Shortcuts',
+          finish_reason: 'command',
+          created_at: '2026-08-23T10:01:03Z',
+          actions: {
+            actions: [{ label: 'Plan', action_type: 'postback', value: '/plan' }],
+          },
+        },
+      ],
+    });
+
+    renderChatTab();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Plan' }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('/plan');
+    expect(await screen.findByText('/plan')).toBeInTheDocument();
+  });
+});
+
+describe('ChatTab message origin', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'New thread', agent_id: null }],
+      total: 1,
+    });
+    listCoaches.mockResolvedValue({ agents: [] });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+    sendTurn.mockResolvedValue(undefined);
+  });
+
+  // carnet#828: analytics tells a typed question from a pre-filled one.
+  it('reports a typed message as typed, by sending no origin', async () => {
+    renderChatTab();
+    await send('How was my week?');
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][2].origin).toBeUndefined();
+  });
+
+  it('reports a draft the athlete sends as a draft', async () => {
+    renderChatTab({
+      pendingComposerAction: { kind: 'draft', text: 'Suggest a route for today' },
+    });
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText('Message Dravr...');
+    await waitFor(() => expect(input).toHaveValue('Suggest a route for today'));
+    await user.type(input, ' near the river');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('Suggest a route for today near the river');
+    expect(sendTurn.mock.calls[0][2].origin).toBe('draft');
+  });
+
+  it('forgets a draft the athlete erased and retyped', async () => {
+    renderChatTab({ pendingComposerAction: { kind: 'draft', text: 'Draft' } });
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText('Message Dravr...');
+    await waitFor(() => expect(input).toHaveValue('Draft'));
+    await user.clear(input);
+    await user.type(input, 'My own words');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][2].origin).toBeUndefined();
+  });
+
+  it('passes a chip send on as a chip', async () => {
+    renderChatTab({
+      pendingComposerAction: { kind: 'send', text: 'How was my pacing?', origin: 'chip' },
+    });
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('How was my pacing?');
+    expect(sendTurn.mock.calls[0][2].origin).toBe('chip');
   });
 });
 

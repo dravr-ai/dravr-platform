@@ -10,7 +10,12 @@ import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
 import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
 import { noticeRequired } from '@pierre/shared-constants';
-import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
+import type {
+  ChatMessageAction,
+  ClaimVerdict,
+  MessageOrigin,
+  TurnSendOptions,
+} from '@pierre/shared-types';
 
 import { Sheet } from '../../components/ui';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
@@ -44,7 +49,12 @@ export interface ChatThreadProps {
    * opening one when there is none — so every turn, typed or pressed, goes
    * through its one implementation.
    */
-  sendText: (text: string) => Promise<void>;
+  sendText: (text: string, options?: TurnSendOptions) => Promise<void>;
+  /**
+   * How the composer's text came to be there: `draft` while it holds what a
+   * draft affordance put in (carnet#828). The host knows; absent means typed.
+   */
+  composerOrigin?: MessageOrigin;
   /** Drawn above the transcript, scrolling with it. */
   header?: React.ReactElement;
   /**
@@ -80,6 +90,7 @@ export function ChatThread({
   onChangeInputText,
   inputRef,
   sendText,
+  composerOrigin,
   header,
   routeDraft,
   onScrollToBottom,
@@ -116,13 +127,22 @@ export function ChatThread({
     if (quotaNotice) applyNotice(quotaNotice);
   }, [quotaNotice, applyNotice]);
 
+  // Whether the composer holds a draft this thread's own affordances put there
+  // — the suggested route, "back up this claim" — so its send is reported as
+  // one (carnet#828). A draft the athlete erased entirely is no longer one.
+  const [threadDrafted, setThreadDrafted] = useState(false);
+
   // The suggested question lands in the composer, focused, and the send is
   // left to the athlete — the shape a Home draft takes.
   const handleSuggestRoute = useCallback(() => {
     if (routeDraft === undefined) return;
+    setThreadDrafted(true);
     onChangeInputText(routeDraft);
     inputRef.current?.focus();
   }, [routeDraft, onChangeInputText, inputRef]);
+  useEffect(() => {
+    if (inputText === '') setThreadDrafted(false);
+  }, [inputText]);
 
   /**
    * Open a link a reply carries. A reply is model-authored, so it may only
@@ -155,14 +175,20 @@ export function ChatThread({
     const messageText = inputText.trim();
     if (!messageText) return;
     onChangeInputText('');
-    await sendText(messageText);
-  }, [inputText, onChangeInputText, sendText]);
+    await sendText(messageText, {
+      origin: composerOrigin ?? (threadDrafted ? 'draft' : undefined),
+    });
+  }, [inputText, onChangeInputText, sendText, composerOrigin, threadDrafted]);
 
   /**
    * Press handler for a control the reply's `actions` block carried.
    *
    * A `postback` sends its `value` as the next turn, so the press flows
-   * through the same dispatch pipeline a typed command would. A `url` opens
+   * through the same dispatch pipeline a typed command would. A command's
+   * value is the line the athlete would type, so it is what their bubble
+   * shows; any other value is a suggestion's postback, which the server
+   * resolves into its words, so the bubble shows the label until the turn
+   * echoes them (carnet#828). A `url` opens
    * its `value` in the system browser — but only after `trustedActionUrl`
    * vouches for the host: the value reaches the client inside a
    * model-adjacent reply, so an unvouched address is an open redirect wearing
@@ -177,7 +203,10 @@ export function ChatThread({
         if (target) await handleOpenUrl(target);
         return;
       }
-      await sendText(action.value);
+      await sendText(
+        action.value,
+        action.value.startsWith('/') ? undefined : { display: action.label },
+      );
     },
     [handleOpenUrl, sendText],
   );
@@ -217,6 +246,7 @@ export function ChatThread({
   }, [refreshVerdicts, conversationId]);
 
   const handleAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
+    setThreadDrafted(true);
     onChangeInputText(t('app.backUpClaim', { claim: verdict.claim_text }));
     setVerdictMessageId(null);
   }, [onChangeInputText, t]);

@@ -24,8 +24,8 @@ use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
 use pierre_chat_pipeline::{
-    AssistantTurn, CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
-    TurnTelemetry,
+    AssistantTurn, CommandPersistence, InputSource, PipelineHooks, ServedTurn, TurnOrigin,
+    TurnRequest, TurnTelemetry,
 };
 use pierre_contremaitre::messaging_strings::{KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL};
 use pierre_core::models::messaging::ChannelType;
@@ -204,6 +204,9 @@ impl ChatReentry for PipelineChatReentry {
             conversation_tenant_id: req.tenant_id,
             tool_tenant_id: req.tenant_id,
             content: req.prompt.to_owned(),
+            // Not the athlete's input at all: analytics reports a platform
+            // turn's origin as `platform`, whatever this says.
+            input_source: InputSource::Typed,
             // Fresh correlation id — this is a new (proactive) turn.
             turn_id: CoreTurnId::new(),
             // Proactive pushes land in the user's own DM conversation.

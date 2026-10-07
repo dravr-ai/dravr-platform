@@ -27,8 +27,8 @@ use chrono::{Datelike, Duration, Utc};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use pierre_chat_pipeline::{
-    PipelineHooks, QuotaState, ReplyBlock, SurfaceId, SurfaceProfile, SurfaceRequest, TurnInput,
-    TurnOrigin,
+    InputSource, PipelineHooks, QuotaState, ReplyBlock, SurfaceId, SurfaceProfile, SurfaceRequest,
+    TurnInput, TurnOrigin,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::ConversationTurnId;
@@ -220,6 +220,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         .unwrap();
     let input = TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation.id.clone(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,
@@ -326,6 +327,7 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
         .unwrap();
     let input = TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation.id.clone(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,
@@ -486,6 +488,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
 
     let turn = |content: &str| TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation.id.clone(),
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,

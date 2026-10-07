@@ -37,6 +37,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthMethod;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
+use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
@@ -71,7 +72,7 @@ const COMMAND_PROVIDER: &str = "platform";
 /// `PlatformCommandContext.channel_type` field and the persisted conversation
 /// origin. An ad-hoc caller that sets nothing is read as the browser, which is
 /// the shape a hand-written `curl` turn has.
-fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
+pub(super) fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
     let platform = headers
         .get(CLIENT_PLATFORM_HEADER)
         .and_then(|v| v.to_str().ok());
@@ -287,6 +288,7 @@ impl TurnEgress {
             conversation_tenant_id: self.tenant_id,
             tool_tenant_id: self.tenant_id,
             content: request.content.clone(),
+            input_source: request.origin.into(),
             turn_id: self.turn_id,
             // In-app conversations are single-user; no room transcript exists.
             ambient_context: None,
@@ -377,8 +379,16 @@ impl TurnEgress {
                 )
             } else {
                 let now = Utc::now().to_rfc3339();
+                // A suggestion's postback that no longer resolves means nothing
+                // to the athlete: the line is echoed empty, and the client keeps
+                // the label it showed for the tap (carnet#828).
+                let echoed = if is_postback(&request.content) {
+                    String::new()
+                } else {
+                    request.content.clone()
+                };
                 (
-                    unpersisted_message("user", request.content.clone(), now.clone()),
+                    unpersisted_message("user", echoed, now.clone()),
                     unpersisted_message("assistant", text.clone(), now),
                     self.conversation.updated_at.clone(),
                 )

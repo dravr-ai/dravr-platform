@@ -22,9 +22,30 @@ export interface ChatMessageAction {
   action_type: string;
   /**
    * For `postback`: the text to send as the next user message
-   * (e.g. `/agent add @handle`). For `url`: the absolute URL.
+   * (e.g. `/agent add @handle`), or a suggestion's opaque postback
+   * (`ex:0:1`) the server resolves into its words — show the `label` for it
+   * until the turn's `user_message` arrives. For `url`: the absolute URL.
    */
   value: string;
+}
+
+/**
+ * How the athlete produced a message, as the client saw it (carnet#828).
+ *
+ * Read by analytics only. There is no `use_case`: a tapped suggestion sends
+ * its postback and the server names it — a client never claims one.
+ */
+export type MessageOrigin = 'typed' | 'draft' | 'chip';
+
+/** How a client dispatches one message beyond its text. */
+export interface TurnSendOptions {
+  /**
+   * What the athlete's bubble shows until the server echoes the line it wrote
+   * — a tapped suggestion's label in place of the postback it sends.
+   */
+  display?: string;
+  /** How the athlete produced the message; absent means typed. */
+  origin?: MessageOrigin;
 }
 
 /** One flagged claim, ready to render as a chip. */

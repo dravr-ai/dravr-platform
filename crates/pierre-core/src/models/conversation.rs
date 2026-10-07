@@ -48,6 +48,43 @@ impl TurnOrigin {
     }
 }
 
+/// How the athlete produced the message an [`TurnOrigin::Athlete`] turn answers
+/// (carnet#828).
+///
+/// A tapped suggestion and a typed question arrive as the same text, so
+/// nothing downstream could tell whether suggestions are used at all. The
+/// surface that saw the gesture says which it was, and analytics reads it as
+/// the `origin` of `chat.question_asked` and `chat.answer_delivered`.
+///
+/// Only the server ever produces [`Self::UseCase`]: it is the outcome of
+/// resolving a suggestion's postback, never a claim a client may make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputSource {
+    /// Written in the composer from scratch.
+    Typed,
+    /// Sent from a composer a draft affordance pre-filled (Home Today, the
+    /// route draft, backing up a claim), edited or not.
+    Draft,
+    /// Sent in one tap from a chip beside the athlete's data (the activity
+    /// view's prompts).
+    Chip,
+    /// A suggestion the server posted and then resolved from its postback.
+    UseCase,
+}
+
+impl InputSource {
+    /// The analytics value for this source.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Typed => "typed",
+            Self::Draft => "draft",
+            Self::Chip => "chip",
+            Self::UseCase => "use_case",
+        }
+    }
+}
+
 /// Identifier for a single conversation turn.
 ///
 /// A *turn* is one inbound user utterance plus the full chain of LLM

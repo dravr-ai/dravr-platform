@@ -747,7 +747,17 @@ impl UniversalExecutor {
         // A call outside any turn still tracks what its own body served, so a
         // row the tool writes is stamped with it (carnet#769).
         let provenance = self.provenance.clone().unwrap_or_default();
-        let (response, read_side_withheld) = ai_scope::tracking(provenance.clone(), body).await;
+        // What *this call* served is counted apart from everything else the
+        // turn read: provider items a tool put in front of the model ground the
+        // turn's answer (carnet#828). The body still runs under the turn's own
+        // provenance, so what it writes is stamped from everything the turn
+        // served. The executor carries that provenance onto a Copilot loopback
+        // task, so the mark holds on every path.
+        let ((response, read_side_withheld), served_items) =
+            ai_scope::tracking(provenance.clone(), ai_scope::serving_items(body)).await;
+        if served_items && !response.is_error {
+            provenance.mark_provider_data();
+        }
 
         // Guardian POST. Taint was folded atomically with the dispatch decision
         // in `decide_and_reserve` above (before the body ran), so it is already

@@ -6,7 +6,7 @@
 
 //! Turn input and output types for [`super::run`].
 
-use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
+use pierre_core::models::{ConversationTurnId, InputSource, TenantId, TurnOrigin};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
@@ -62,6 +62,10 @@ pub struct TurnInput {
     ///
     /// Drives whether the turn writes a `user` row at all; see [`TurnOrigin`].
     pub origin: TurnOrigin,
+    /// How the athlete produced [`Self::content`] — typed, a draft, a chip or a
+    /// resolved suggestion. Read only by analytics; meaningless on a
+    /// [`TurnOrigin::Platform`] turn, which reports itself as `platform`.
+    pub input_source: InputSource,
     /// Conversation-turn correlation identifier generated at the inbound
     /// boundary (web chat handler, messaging ingress, CLI entry). Threaded
     /// through every downstream LLM call and the persisted LLM usage row so
@@ -101,6 +105,16 @@ pub struct TurnInput {
 }
 
 impl TurnInput {
+    /// The `origin` analytics reports for this turn: how the athlete produced
+    /// the message, or `platform` for a prompt the platform composed.
+    #[must_use]
+    pub(crate) const fn analytics_origin(&self) -> &'static str {
+        match self.origin {
+            TurnOrigin::Athlete => self.input_source.as_str(),
+            TurnOrigin::Platform => "platform",
+        }
+    }
+
     /// The agent this turn answers as: the mentioned agent when the athlete
     /// named one, otherwise the agent the conversation is bound to.
     ///

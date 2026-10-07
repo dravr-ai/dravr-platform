@@ -34,8 +34,8 @@ use futures_util::stream;
 use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use pierre_chat_pipeline::stages::agent_mention::resolve_agent_mention;
 use pierre_chat_pipeline::{
-    PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, ToolSessionTurn,
-    TurnInput, TurnOrigin,
+    InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest,
+    ToolSessionTurn, TurnInput, TurnOrigin,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -290,6 +290,7 @@ async fn store_author(resources: &ServerContext) -> (Uuid, TenantId) {
 fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: bool) -> TurnInput {
     TurnInput {
         origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
         conversation_id: conversation_id.to_owned(),
         user_id: user.to_string(),
         conversation_tenant_id: tenant,

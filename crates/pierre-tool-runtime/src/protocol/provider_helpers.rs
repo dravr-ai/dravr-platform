@@ -184,8 +184,9 @@ async fn elect_provider(
     else {
         return Ok(None);
     };
+    // A diagnostic line, not a catalogued business event: on the notify target
+    // it reached Slack and PostHog as a nameless event.
     info!(
-        target: "notify",
         user_id = %user_id,
         provider = %conn.provider,
         "resolved provider from user's most-recent connection"

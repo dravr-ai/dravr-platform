@@ -35,9 +35,12 @@
 use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
-use pierre_core::models::{ConversationTurnId, TenantId, TurnOrigin};
+use pierre_core::models::{
+    ConversationRecord, ConversationTurnId, InputSource, TenantId, TurnOrigin,
+};
 use pierre_core::transport::Transport;
 use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
@@ -60,7 +63,8 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::surface_profile::SurfaceProfile;
+use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME};
+use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
 use crate::usage_counters::{
@@ -96,6 +100,10 @@ pub struct TurnRequest<'a> {
     /// [`TurnOrigin::Platform`], which keeps the prompt out of the athlete's
     /// transcript and out of their guided flow.
     pub origin: TurnOrigin,
+    /// How the athlete produced [`Self::content`], as the surface saw it
+    /// (carnet#828). A suggestion's postback is resolved by [`execute`], which
+    /// overrides this with [`InputSource::UseCase`].
+    pub input_source: InputSource,
     /// Correlation id minted at the inbound boundary.
     pub turn_id: ConversationTurnId,
     /// Pre-rendered room transcript for a group turn; `None` for a DM or an
@@ -229,6 +237,9 @@ pub struct SlashRequest<'a> {
     pub origin: TurnOrigin,
     /// See [`TurnRequest::transport`].
     pub transport: Transport,
+    /// The chat surface the command was typed on, reported with the starters
+    /// of an agent welcome the command posts.
+    pub surface: SurfaceId,
 }
 
 /// Run one chat turn.
@@ -267,15 +278,16 @@ pub async fn execute(
 
 async fn execute_turn(
     ctx: &ChatPipelineContext,
-    request: TurnRequest<'_>,
+    mut request: TurnRequest<'_>,
     profile: &SurfaceProfile,
 ) -> AppResult<ServedTurn> {
     let user_id_str = request.user_id.to_string();
 
-    // The conversation row supplies the agent the per-agent cap is keyed on.
-    // A missing row is fine — the athlete may be opening a new conversation —
-    // so a lookup failure narrows the scope rather than refusing the turn.
-    let agent_id = ctx
+    // The conversation row supplies the agent the per-agent cap is keyed on,
+    // and the agent a tapped starter resolves against. A missing row is fine —
+    // the athlete may be opening a new conversation — so a lookup failure
+    // narrows the scope rather than refusing the turn.
+    let conversation = ctx
         .repos
         .chat
         .get_conversation(
@@ -285,8 +297,8 @@ async fn execute_turn(
         )
         .await
         .ok()
-        .flatten()
-        .and_then(|conv| conv.agent_id);
+        .flatten();
+    let agent_id = conversation.as_ref().and_then(|conv| conv.agent_id.clone());
 
     let quota = check_pre_chat_quotas_scoped(
         ctx,
@@ -298,6 +310,26 @@ async fn execute_turn(
         },
     )
     .await?;
+
+    // A tapped suggestion arrives as its postback. Resolved here, before the
+    // ladder reads the text, so everything after — the command dispatch, the
+    // persisted user row, the athlete's bubble — sees the words it stands for
+    // (carnet#828).
+    if let Some(notice) =
+        resolve_suggestion_tap(ctx, &mut request, conversation.as_ref(), profile).await?
+    {
+        let quota = settle_quota_notice(
+            ctx.repos.usage_counters.as_ref(),
+            request.tool_tenant_id,
+            &user_id_str,
+            quota,
+        )
+        .await;
+        return Ok(ServedTurn::Command {
+            command: Box::new(notice),
+            quota,
+        });
+    }
 
     if let Some(command) = dispatch_slash(
         ctx,
@@ -315,6 +347,7 @@ async fn execute_turn(
             text: &request.content,
             origin: request.origin,
             transport: request.transport,
+            surface: profile.surface,
         },
     )
     .await?
@@ -414,6 +447,7 @@ async fn execute_turn(
         is_direct_message: request.is_direct_message,
         content: request.content.clone(),
         origin: request.origin,
+        input_source: request.input_source,
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,
         quota,
@@ -621,6 +655,7 @@ async fn welcome_if_bound(
         agent_id,
         agent_tenant_id: request.tenant_id,
         locale: request.locale,
+        surface: request.surface,
     };
     match post_agent_welcome(&ctx.repos, &ctx.messaging_strings_registry, target).await {
         Ok(welcome) => welcome,
@@ -628,6 +663,75 @@ async fn welcome_if_bound(
             warn!(error = %e, agent_id, conversation_id, "agent welcome not posted after the bind");
             None
         }
+    }
+}
+
+/// Rewrite `request` in place when its text is a suggestion's postback: the
+/// words it stands for become the content, and the turn is reported as a
+/// tapped suggestion (carnet#828).
+///
+/// `Some` is the notice a postback that no longer resolves is answered with —
+/// no model runs and nothing is written; `None` means the turn goes on, with
+/// the text resolved or as it was sent.
+///
+/// # Errors
+///
+/// Returns the repository error when the thread's agent cannot be read.
+async fn resolve_suggestion_tap(
+    ctx: &ChatPipelineContext,
+    request: &mut TurnRequest<'_>,
+    conversation: Option<&ConversationRecord>,
+    profile: &SurfaceProfile,
+) -> AppResult<Option<CommandTurn>> {
+    let tap = TapContext {
+        conversation,
+        user_id: request.user_id,
+        agent_tenant_id: request.tool_tenant_id,
+        locale: &profile.locale,
+    };
+    match suggestions::resolve(&ctx.repos, &tap, &request.content).await? {
+        Resolution::NotAPostback => Ok(None),
+        Resolution::Resolved { content, postback } => {
+            let user_id = request.user_id.to_string();
+            suggestions::emit_tapped(
+                &SuggestionEvent {
+                    user_id: &user_id,
+                    tenant_id: request.conversation_tenant_id,
+                    surface: SURFACE_AGENT_WELCOME,
+                    channel: profile.surface.as_str(),
+                },
+                postback,
+            );
+            request.content = content;
+            request.input_source = InputSource::UseCase;
+            Ok(None)
+        }
+        Resolution::Unresolvable { postback } => {
+            warn!(
+                use_case = %postback.use_case(),
+                conversation_id = %request.conversation_id,
+                "a tapped suggestion no longer resolves; the athlete is told, no model runs"
+            );
+            Ok(Some(unavailable_suggestion(ctx, &profile.locale)))
+        }
+    }
+}
+
+/// The reply to a suggestion that no longer resolves: a notice in the
+/// athlete's language, no model call. Not written to the transcript — the
+/// athlete's line would be the postback, which means nothing to them.
+fn unavailable_suggestion(ctx: &ChatPipelineContext, locale: &str) -> CommandTurn {
+    CommandTurn {
+        command_name: None,
+        text: ctx
+            .messaging_strings_registry
+            .get(KEY_USE_CASES_UNAVAILABLE, locale),
+        is_rich_text: false,
+        card_title: None,
+        actions: Vec::new(),
+        rotated_to: None,
+        persisted: None,
+        welcome: None,
     }
 }
 

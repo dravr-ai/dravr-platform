@@ -7,7 +7,7 @@
 use pierre_providers::ai_scope;
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
@@ -20,7 +20,7 @@ use pierre_contremaitre::PromptRegistry;
 use pierre_core::civil_time::{clock_date, format_clock_stamp, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::AgentCategory;
-use pierre_core::models::{AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot};
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot, User};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -523,6 +523,27 @@ pub(crate) async fn resolve_user_persona(
     resolve_user_persona_and_timezone(users, user_id).await.0
 }
 
+/// The asker's coaching persona and when their account was created, in one
+/// read: the two facts a turn's analytics events carry about who asked.
+/// `None` for the creation time when the user cannot be read.
+pub(crate) async fn resolve_user_persona_and_created_at(
+    users: &dyn UserRepository,
+    user_id: &str,
+) -> (CoachingPersona, Option<DateTime<Utc>>) {
+    read_asker(users, user_id).await.map_or_else(
+        || (CoachingPersona::default(), None),
+        |user| (user.coaching_persona, Some(user.created_at)),
+    )
+}
+
+/// The asker's user row, or `None` when `user_id` is malformed, unknown, or
+/// the read failed — every caller degrades to defaults rather than blocking
+/// the turn on it.
+async fn read_asker(users: &dyn UserRepository, user_id: &str) -> Option<User> {
+    let user_uuid = parse_uuid(user_id).ok()?;
+    users.get_global(user_uuid).await.ok().flatten()
+}
+
 /// Look up the user's coaching persona and timezone in a single read.
 ///
 /// Reading both in one query keeps the caller-side cost the same as the
@@ -533,13 +554,10 @@ pub(crate) async fn resolve_user_persona_and_timezone(
     users: &dyn UserRepository,
     user_id: &str,
 ) -> (CoachingPersona, Option<String>) {
-    let Some(user_uuid) = parse_uuid(user_id).ok() else {
-        return (CoachingPersona::default(), None);
-    };
-    match users.get_global(user_uuid).await {
-        Ok(Some(user)) => (user.coaching_persona, user.timezone),
-        Ok(None) | Err(_) => (CoachingPersona::default(), None),
-    }
+    read_asker(users, user_id).await.map_or_else(
+        || (CoachingPersona::default(), None),
+        |user| (user.coaching_persona, user.timezone),
+    )
 }
 
 /// Resolve an agent's system prompt for the current turn.

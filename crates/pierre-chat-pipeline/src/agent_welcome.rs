@@ -37,17 +37,21 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
 use pierre_core::models::{
-    AddMessageParams, ConversationRecord, MessageRecord, TenantId, AGENT_WELCOME_FINISH_REASON,
+    AddMessageParams, Agent, ConversationRecord, MessageRecord, TenantId,
+    AGENT_WELCOME_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
 use crate::stages::introduction::{collapse_whitespace, display_title, introduction_thread};
 use crate::stages::persistence::fan_out_to_group_transcript;
+use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME};
+use crate::surface_profile::SurfaceId;
 
 /// The most starter questions a welcome offers. Three fit one glance and one
 /// row of chips on a phone; the rest of an agent's examples stay on Discover.
@@ -68,6 +72,8 @@ pub struct WelcomeTarget<'a> {
     pub agent_tenant_id: TenantId,
     /// Locale the greeting, title, role and starters are written in.
     pub locale: &'a str,
+    /// The chat surface the bind happened on, reported with each starter.
+    pub surface: SurfaceId,
 }
 
 /// A welcome that was written.
@@ -119,8 +125,8 @@ impl WelcomeText {
     /// Compose the welcome of the agent titled `title`.
     ///
     /// `role` is the agent's one-line description; a blank one renders the
-    /// greeting without it. `samples` are the agent's sample prompts: blanks
-    /// are dropped and the first [`MAX_STARTERS`] kept.
+    /// greeting without it. `samples` are the agent's sample prompts,
+    /// normalized by `starter_samples`, and the first [`MAX_STARTERS`] kept.
     ///
     /// LIMITATION(registre#828): `WelcomeText::compose` takes the agent's static
     /// Example Inputs in authored order; nothing ranks the starters from the
@@ -138,10 +144,8 @@ impl WelcomeText {
             || format_template(&templates.greeting_no_role, &[title]),
             |role| format_template(&templates.greeting, &[title, role]),
         );
-        let starters: Vec<String> = samples
-            .iter()
-            .map(|sample| collapse_whitespace(sample))
-            .filter(|sample| !sample.is_empty())
+        let starters: Vec<String> = starter_samples(samples)
+            .into_iter()
             .take(MAX_STARTERS)
             .collect();
         let starters_title = (!starters.is_empty()).then(|| templates.starters_title.clone());
@@ -152,16 +156,31 @@ impl WelcomeText {
         }
     }
 
-    /// The starters as the controls the row carries: each one sends its
-    /// question as the athlete's next message.
+    /// The starters' postbacks, slot by slot: the slot is also the example's
+    /// index, because the welcome offers the first examples in order.
+    #[must_use]
+    pub(crate) fn postbacks(&self) -> Vec<Postback> {
+        (0..self.starters.len())
+            .map(|slot| Postback::Example {
+                position: slot,
+                index: slot,
+            })
+            .collect()
+    }
+
+    /// The starters as the controls the row carries. Each shows its question
+    /// and sends its postback, which the turn resolves back into the question
+    /// (carnet#828) — so a tap reaches the transcript as the words, and is
+    /// counted as a tap rather than as typing.
     #[must_use]
     pub fn actions(&self) -> Vec<TurnAction> {
         self.starters
             .iter()
-            .map(|question| TurnAction {
+            .zip(self.postbacks())
+            .map(|(question, postback)| TurnAction {
                 label: question.clone(),
                 kind: ActionKind::Postback,
-                value: question.clone(),
+                value: postback.encode(),
             })
             .collect()
     }
@@ -242,6 +261,20 @@ pub async fn post_agent_welcome(
         starters = text.starters.len(),
         "agent welcome posted"
     );
+    // `suggestion.shown` counts a starter the athlete could tap. A messaging
+    // channel receives the welcome as text (`channel_text`), where a starter
+    // typed back is the athlete's own words, so only the app's surfaces count.
+    if matches!(target.surface, SurfaceId::Web | SurfaceId::Mobile) {
+        let shown = SuggestionEvent {
+            user_id: target.user_id,
+            tenant_id: target.conversation_tenant_id,
+            surface: SURFACE_AGENT_WELCOME,
+            channel: target.surface.as_str(),
+        };
+        for postback in text.postbacks() {
+            emit_shown(&shown, postback);
+        }
+    }
     Ok(Some(PostedWelcome {
         channel_text: text.channel_text(),
         message,
@@ -257,10 +290,14 @@ async fn welcome_text(
     target: &WelcomeTarget<'_>,
 ) -> AppResult<Option<WelcomeText>> {
     let user = parse_uuid(target.user_id)?;
-    let Some(canonical) = repos
-        .agents
-        .get_by_id(target.agent_id, user, target.agent_tenant_id)
-        .await?
+    let Some((canonical, localized)) = localized_agent(
+        repos,
+        target.agent_id,
+        user,
+        target.agent_tenant_id,
+        target.locale,
+    )
+    .await?
     else {
         info!(
             agent_id = target.agent_id,
@@ -268,12 +305,6 @@ async fn welcome_text(
         );
         return Ok(None);
     };
-    let mut localized = [canonical.clone()];
-    repos
-        .agents
-        .translate_agents(&mut localized, target.locale)
-        .await?;
-    let [localized] = localized;
     let Some(title) = display_title(Some(&localized.title), &canonical.title) else {
         warn!(
             agent_id = target.agent_id,
@@ -298,6 +329,41 @@ async fn welcome_text(
         return Ok(None);
     }
     Ok(Some(text))
+}
+
+/// `agent_id` as `user` sees it — canonical, and translated into `locale` —
+/// or `None` when it is not an agent they can see.
+///
+/// One read for the welcome and for resolving a tapped starter, so the
+/// examples a postback indexes are the ones the welcome offered.
+pub(crate) async fn localized_agent(
+    repos: &RepositoryRegistry,
+    agent_id: &str,
+    user: Uuid,
+    tenant_id: TenantId,
+    locale: &str,
+) -> AppResult<Option<(Agent, Agent)>> {
+    let Some(canonical) = repos.agents.get_by_id(agent_id, user, tenant_id).await? else {
+        return Ok(None);
+    };
+    let mut localized = [canonical.clone()];
+    repos
+        .agents
+        .translate_agents(&mut localized, locale)
+        .await?;
+    let [localized] = localized;
+    Ok(Some((canonical, localized)))
+}
+
+/// An agent's Example Inputs as starters: whitespace collapsed, blanks
+/// dropped, in authored order. A starter postback's index counts in this list.
+#[must_use]
+pub(crate) fn starter_samples(samples: &[String]) -> Vec<String> {
+    samples
+        .iter()
+        .map(|sample| collapse_whitespace(sample))
+        .filter(|sample| !sample.is_empty())
+        .collect()
 }
 
 /// Whether a guided walk (`/pillars`, a season or fortnight review) is
@@ -399,9 +465,30 @@ mod tests {
         );
         let actions = text.actions();
         assert_eq!(actions.len(), 3);
-        assert!(actions
-            .iter()
-            .all(|a| a.kind == ActionKind::Postback && a.label == a.value));
+        assert!(actions.iter().all(|a| a.kind == ActionKind::Postback));
+    }
+
+    #[test]
+    fn a_starter_shows_its_question_and_sends_its_postback() {
+        let text = WelcomeText::compose(
+            &templates(),
+            "Agent",
+            Some("Role."),
+            &samples(&["", "One?", "Two?"]),
+        );
+        let actions = text.actions();
+        let labels: Vec<&str> = actions.iter().map(|a| a.label.as_str()).collect();
+        let values: Vec<&str> = actions.iter().map(|a| a.value.as_str()).collect();
+        assert_eq!(labels, ["One?", "Two?"]);
+        assert_eq!(values, ["ex:0:0", "ex:1:1"]);
+    }
+
+    #[test]
+    fn a_postback_index_counts_in_the_normalized_examples() {
+        let authored = samples(&["", "  One?  ", " ", "Two\nlines?"]);
+        assert_eq!(starter_samples(&authored), samples(&["One?", "Two lines?"]));
+        let text = WelcomeText::compose(&templates(), "Agent", None, &authored);
+        assert_eq!(text.starters, starter_samples(&authored));
     }
 
     #[test]

@@ -126,7 +126,11 @@ describe("an activity's own screen over the wire", () => {
       ['/api/chat/conversations', {}],
       [
         `/api/chat/conversations/${THREAD}/messages`,
-        { content: 'Analyze my activity “Tempo Thursday” from Thursday, September 17: how did this effort go?' },
+        {
+          content: 'Analyze my activity “Tempo Thursday” from Thursday, September 17: how did this effort go?',
+          // carnet#828: a chip's question says it came from a chip, not the keyboard.
+          origin: 'chip',
+        },
       ],
     ]);
     // The thread is linked to the activity on the server, so any device resumes it.

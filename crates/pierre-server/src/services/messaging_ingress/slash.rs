@@ -351,6 +351,7 @@ pub(super) async fn try_handle_slash_command(
             channel_type: channel,
             locale: &locale,
             transport: Transport::Messaging,
+            surface: profile.surface,
             is_direct_message,
             // A DM with the bot is the athlete's one thread, so a `/group`
             // command typed there means the group they are in.

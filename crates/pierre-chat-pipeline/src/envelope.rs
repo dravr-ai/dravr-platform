@@ -40,6 +40,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::TokenUsage;
 use serde_json::Value;
 
+use crate::suggestions::is_postback;
 use crate::surface_profile::{RenderCapabilities, SurfaceProfile};
 
 /// The complete result of one chat turn.
@@ -684,7 +685,9 @@ fn push_scene_blocks(
 ///
 /// The text fallback is `label: value` lines under the group's title — a bare
 /// URL value stays tappable as autolinked text where buttons do not render,
-/// and a postback value is the command the athlete can type back.
+/// and a postback value is the command the athlete can type back. A
+/// suggestion's postback is an opaque id nobody could type back, so its line
+/// is the label alone: the question itself.
 fn push_actions(
     blocks: &mut Vec<ReplyBlock>,
     render: &RenderCapabilities,
@@ -704,7 +707,11 @@ fn push_actions(
         // Infallible: writing into a String never errors, and the alternative
         // (`push_str(&format!(…))` per line) allocates a second buffer per
         // control just to copy it in.
-        let _ = writeln!(rendered, "{}: {}", action.label, action.value);
+        let _ = if is_postback(&action.value) {
+            writeln!(rendered, "{}", action.label)
+        } else {
+            writeln!(rendered, "{}: {}", action.label, action.value)
+        };
     }
     let rendered = rendered.trim();
     if rendered.is_empty() {
@@ -765,4 +772,56 @@ fn append_paragraph(target: &mut String, addition: &str) {
         target.push_str("\n\n");
     }
     target.push_str(addition);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::surface_profile::{SurfaceId, SurfaceRequest};
+
+    /// The in-app surface with its controls switched off: what any surface
+    /// that cannot draw a button is handed instead.
+    fn without_buttons() -> RenderCapabilities {
+        let mut render = SurfaceProfile::resolve(&SurfaceRequest {
+            surface: SurfaceId::Web,
+            locale: "en".to_owned(),
+            transport: None,
+            prose_contract: None,
+        })
+        .render;
+        render.blocks.action_buttons = false;
+        render
+    }
+
+    fn postback(label: &str, value: &str) -> TurnAction {
+        TurnAction {
+            label: label.to_owned(),
+            kind: ActionKind::Postback,
+            value: value.to_owned(),
+        }
+    }
+
+    /// A suggestion's postback means nothing typed back, so its line is the
+    /// question alone; a command's line still names what to type (carnet#828).
+    #[test]
+    fn a_suggestion_falls_back_to_its_words_and_a_command_to_its_line() {
+        let mut blocks = vec![ReplyBlock::Prose {
+            text: "Hi.".to_owned(),
+        }];
+        push_actions(
+            &mut blocks,
+            &without_buttons(),
+            Some("You can ask me:".to_owned()),
+            vec![
+                postback("How do I carb load?", "ex:0:1"),
+                postback("Plan", "/plan"),
+            ],
+        );
+        assert_eq!(
+            blocks,
+            [ReplyBlock::Prose {
+                text: "Hi.\n\nYou can ask me:\nHow do I carb load?\nPlan: /plan".to_owned(),
+            }]
+        );
+    }
 }
