@@ -147,7 +147,8 @@ pub enum RevocationShape {
         revoke_url: String,
     },
     /// Per-user deregistration (WHOOP `DELETE /v2/user/access`, Garmin
-    /// Health API `DELETE /user/registration`): the user's access token as
+    /// Health API `DELETE /user/registration`, Wahoo
+    /// `DELETE /v1/permissions`): the user's access token as
     /// `Bearer`. Only a live access token is accepted, so an expired one is
     /// refreshed at `token_url` first; the refreshed token is spent and never
     /// persisted, because the row is deleted right after.
@@ -197,7 +198,10 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
                 token_url: garmin.token_url.clone(),
             })
         }
-        oauth_providers::WHOOP | oauth_providers::INTERVALS_ICU => {
+        // Wahoo's `DELETE /v1/permissions` withdraws every scope the athlete
+        // granted, and with the portal's cleanup flags on it also removes the
+        // workouts and plans Dravr scheduled on their account.
+        oauth_providers::WHOOP | oauth_providers::INTERVALS_ICU | oauth_providers::WAHOO => {
             let (revoke_url, token_url) = registry_endpoints(&service.data, backend)?;
             Some(RevocationShape::BearerDeregistration {
                 revoke_url,

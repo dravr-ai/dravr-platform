@@ -44,6 +44,7 @@ const PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
     ("provider-intervals-icu", "Intervals.icu"),
     ("provider-terra", "Terra"),
     ("provider-coros", "Coros"),
+    ("provider-wahoo", "Wahoo"),
 ];
 
 /// The AGENTS.md paragraph that summarises the platform in one sentence.

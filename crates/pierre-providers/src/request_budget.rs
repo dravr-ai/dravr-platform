@@ -55,6 +55,7 @@ use pierre_database::repositories::UsageCounterRepository;
     feature = "provider-intervals-icu",
     feature = "provider-strava",
     feature = "provider-terra",
+    feature = "provider-wahoo",
     feature = "provider-whoop",
 ))]
 use tokio::sync::RwLock;
@@ -66,6 +67,7 @@ use tracing::{debug, error, info, warn};
     feature = "provider-intervals-icu",
     feature = "provider-strava",
     feature = "provider-terra",
+    feature = "provider-wahoo",
     feature = "provider-whoop",
 ))]
 use crate::core::OAuth2Credentials;
@@ -75,6 +77,12 @@ pub const ONE_DAY: Duration = Duration::from_hours(24);
 
 /// Strava's short window.
 pub const FIFTEEN_MINUTES: Duration = Duration::from_mins(15);
+
+/// Wahoo's short window.
+pub const FIVE_MINUTES: Duration = Duration::from_mins(5);
+
+/// Wahoo's hourly window.
+pub const ONE_HOUR: Duration = Duration::from_hours(1);
 
 /// The share of every window, in percent, that work nobody is waiting on may
 /// spend: the walk of an athlete's whole Strava history for their personal
@@ -221,6 +229,26 @@ impl ProviderRateLimiter {
         budgets.insert(
             "terra".to_owned(),
             daily(rate_limits::TERRA_DEFAULT_DAILY_RATE_LIMIT),
+        );
+        // Wahoo: three windows per app, the production limits (a sandbox
+        // app's are an eighth to a twentieth of these, and Wahoo's own 429
+        // stops it first).
+        budgets.insert(
+            "wahoo".to_owned(),
+            vec![
+                Budget {
+                    max_calls: rate_limits::WAHOO_RATE_LIMIT_5MIN,
+                    window: FIVE_MINUTES,
+                },
+                Budget {
+                    max_calls: rate_limits::WAHOO_RATE_LIMIT_HOURLY,
+                    window: ONE_HOUR,
+                },
+                Budget {
+                    max_calls: rate_limits::WAHOO_RATE_LIMIT_DAILY,
+                    window: ONE_DAY,
+                },
+            ],
         );
 
         info!(
@@ -433,6 +461,7 @@ impl fmt::Debug for RequestBudget {
     feature = "provider-intervals-icu",
     feature = "provider-strava",
     feature = "provider-terra",
+    feature = "provider-wahoo",
     feature = "provider-whoop",
 ))]
 pub(crate) async fn carried_by(

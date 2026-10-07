@@ -176,6 +176,17 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # export WHOOP_REDIRECT_URI=http://localhost:8081/api/oauth/callback/whoop
 
 # ----------------------------------------------------------------------------
+# Wahoo Provider Configuration (carnet#34)
+# ----------------------------------------------------------------------------
+# From the app at https://developers.wahooligan.com. Keep the app confidential
+# ("Confidential? Yes"): the refresh grant authenticates with the secret.
+# Register http://localhost:8081/api/oauth/callback/wahoo as a redirect URI.
+# WAHOO_WEBHOOK_TOKEN is the portal's webhook_token, sent in each event body.
+# export WAHOO_CLIENT_ID=your-wahoo-client-id
+# export WAHOO_CLIENT_SECRET=your-wahoo-client-secret
+# export WAHOO_WEBHOOK_TOKEN=the-portal-webhook-token
+
+# ----------------------------------------------------------------------------
 # Intervals.icu Provider Configuration
 # ----------------------------------------------------------------------------
 # OAuth app from https://intervals.icu/oauth/apply. Without it athletes link

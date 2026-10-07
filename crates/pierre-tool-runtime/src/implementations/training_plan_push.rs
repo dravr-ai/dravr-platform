@@ -15,7 +15,8 @@ use pierre_core::models::TenantId;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::plan_calendar_push::{
-    desired_entries, diff_against_ledger, push_active_plan, PushPlanParams, PushReport,
+    calendar_holds_week_notes, desired_entries, diff_against_ledger, for_calendar,
+    push_active_plan, PushPlanParams, PushReport,
 };
 use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
@@ -72,7 +73,10 @@ pub(super) async fn calendar_block(
     // An entry pushed from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
-    let desired = desired_entries(user_id, active_weeks, today, fueling);
+    let desired = for_calendar(
+        desired_entries(user_id, active_weeks, today, fueling),
+        calendar_holds_week_notes(context.resources.provider_registry(), &target),
+    );
     let pending = diff_against_ledger(&desired, &live)?;
     let entries: Vec<CalendarEntry> = live
         .iter()
@@ -165,7 +169,10 @@ pub(super) async fn calendar_preview_after_save(
             .await,
         "plan weeks unreadable for the calendar preview",
     )?;
-    let desired = desired_entries(user_id, &weeks, today, fueling);
+    let desired = for_calendar(
+        desired_entries(user_id, &weeks, today, fueling),
+        calendar_holds_week_notes(context.resources.provider_registry(), &target),
+    );
     let pending = best_effort(
         diff_against_ledger(&desired, &live),
         "calendar preview could not be computed",
@@ -273,6 +280,10 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                     user_id,
                     provider: &target,
                     from,
+                    week_notes: calendar_holds_week_notes(
+                        context.resources.provider_registry(),
+                        &target,
+                    ),
                     cancel: cancel_flag.as_deref(),
                 },
             )

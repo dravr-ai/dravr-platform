@@ -16,6 +16,8 @@
 
 mod common;
 
+#[cfg(feature = "provider-wahoo")]
+use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
@@ -38,6 +40,8 @@ use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
     RefreshClientAuth,
 };
+#[cfg(feature = "provider-wahoo")]
+use pierre_providers::WahooDescriptor;
 use pierre_tool_runtime::protocol::auth::{AuthService, TokenData};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -287,19 +291,23 @@ async fn connected_to(vendor: &Arc<RotatingVendor>) -> (Arc<ServerContext>, Athl
         Box::new(RotatoDescriptor),
         RotatoDescriptor.to_config(),
         None,
+        true,
     )
     .await
 }
 
 /// [`connected_to`] for any registered provider: `descriptor` and `config`
 /// are what the registry holds for `provider`, with the token endpoint pointed
-/// at the mock, and the stored token carries `owner_id` when given.
+/// at the mock, and the stored token carries `owner_id` when given. With
+/// `own_app` the athlete's own app signs the refresh; without it the server's
+/// app the environment names does (`<PROVIDER>_CLIENT_ID` / `_SECRET`).
 async fn connected_as(
     vendor: &Arc<RotatingVendor>,
     provider: &'static str,
     descriptor: Box<dyn ProviderDescriptor>,
     config: ProviderConfig,
     owner_id: Option<&str>,
+    own_app: bool,
 ) -> (Arc<ServerContext>, Athlete) {
     let token_url = serve(Arc::clone(vendor)).await;
     let base = common::create_test_server_resources().await.unwrap();
@@ -323,17 +331,19 @@ async fn connected_as(
             .await
             .unwrap();
     let repos = Arc::clone(&resources.common.repos);
-    repos
-        .oauth_tokens
-        .store_user_oauth_app(
-            user_id,
-            provider,
-            CLIENT_ID,
-            CLIENT_SECRET,
-            "http://localhost/callback",
-        )
-        .await
-        .unwrap();
+    if own_app {
+        repos
+            .oauth_tokens
+            .store_user_oauth_app(
+                user_id,
+                provider,
+                CLIENT_ID,
+                CLIENT_SECRET,
+                "http://localhost/callback",
+            )
+            .await
+            .unwrap();
+    }
     let mut token = UserOAuthToken::new(
         user_id,
         tenant.to_string(),
@@ -600,6 +610,57 @@ async fn a_refused_refresh_no_winner_explains_needs_a_reconnect() {
     assert_eq!(athlete.connection().await, ConnectionStatus::NeedsReauth);
 }
 
+/// Wahoo sends no deauthorization event, so a refusal no winner explains is
+/// the athlete revoking Dravr in their Wahoo settings: the athlete is
+/// disconnected and their Wahoo data deleted, as the agreement requires on
+/// revocation (carnet#34), rather than left waiting for a reconnect.
+#[cfg(feature = "provider-wahoo")]
+#[tokio::test]
+async fn a_refused_wahoo_refresh_is_a_revocation_that_disconnects_the_athlete() {
+    // Wahoo's app is the server's (the BYO-app store takes no Wahoo row).
+    env::set_var("WAHOO_CLIENT_ID", CLIENT_ID);
+    env::set_var("WAHOO_CLIENT_SECRET", CLIENT_SECRET);
+    let vendor = Arc::new(RotatingVendor::new(StdDuration::ZERO, true));
+    let (resources, athlete) = connected_as(
+        &vendor,
+        "wahoo",
+        Box::new(WahooDescriptor),
+        WahooDescriptor.to_config(),
+        Some("60462"),
+        false,
+    )
+    .await;
+
+    assert!(
+        lookup(&resources, &athlete).await.is_none(),
+        "no usable token"
+    );
+    assert_eq!(
+        vendor.calls.load(Ordering::SeqCst),
+        1,
+        "the refresh was tried"
+    );
+    let token = athlete
+        .repos
+        .oauth_tokens
+        .get_token(athlete.user_id, athlete.tenant, "wahoo")
+        .await
+        .unwrap();
+    assert!(token.is_none(), "the revoked grant's token is deleted");
+    let connections = athlete
+        .repos
+        .provider_connections
+        .get_for_user(athlete.user_id, Some(athlete.tenant))
+        .await
+        .unwrap();
+    assert!(
+        connections
+            .iter()
+            .all(|connection| connection.provider != "wahoo"),
+        "and the connection with it, not just flagged"
+    );
+}
+
 /// Garmin refreshes from its descriptor (carnet#737), with exactly the request
 /// Garmin's "OAuth2.0 PKCE Specification" gives: `client_id`, `client_secret`,
 /// `grant_type=refresh_token` and the refresh token in the form body, no
@@ -616,6 +677,7 @@ async fn garmin_refreshes_with_the_spec_form_and_keeps_the_rotated_token() {
         Box::new(GarminDescriptor),
         GarminDescriptor.to_config(),
         Some(GARMIN_USER),
+        true,
     )
     .await;
 

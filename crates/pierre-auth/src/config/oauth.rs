@@ -754,6 +754,14 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
                 .map(|scope| (*scope).to_owned())
                 .collect(),
         ),
+        p if p == oauth_providers::WAHOO => (
+            "WAHOO_CLIENT_ID",
+            "WAHOO_CLIENT_SECRET",
+            oauth_providers::WAHOO_DEFAULT_SCOPES
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect(),
+        ),
         _ => {
             debug!(
                 "Unknown provider '{}', returning default config",
@@ -800,7 +808,7 @@ pub type ProviderEnvConfig = (String, String, String, Option<String>, Vec<String
 /// - `PIERRE_<PROVIDER>_TOKEN_URL` - OAuth token URL (optional)
 /// - `PIERRE_<PROVIDER>_API_BASE_URL` - Provider API base URL (optional)
 /// - `PIERRE_<PROVIDER>_REVOKE_URL` - Token revocation URL (optional)
-/// - `PIERRE_<PROVIDER>_SCOPES` - Comma-separated scopes (optional)
+/// - `PIERRE_<PROVIDER>_SCOPES` - Scopes separated by commas or spaces (optional)
 ///
 /// # Examples
 ///
@@ -836,13 +844,12 @@ pub fn load_provider_env_config(
         .ok()
         .or_else(|| default_revoke_url.map(ToOwned::to_owned));
 
-    // Load scopes with default
+    // Load scopes with default, read the way `get_oauth_config` reads the
+    // same variable: commas or whitespace, so a space-separated override
+    // (WHOOP's and Wahoo's own form) never collapses into one scope.
     let scopes = env::var(format!("PIERRE_{provider_upper}_SCOPES"))
         .ok()
-        .map_or_else(
-            || default_scopes.to_vec(),
-            |s| s.split(',').map(|scope| scope.trim().to_owned()).collect(),
-        );
+        .map_or_else(|| default_scopes.to_vec(), |s| parse_scopes(&s));
 
     (auth_url, token_url, api_base_url, revoke_url, scopes)
 }

@@ -97,6 +97,18 @@ pub mod trainingpeaks_plan;
 /// `TrainingPeaks` athlete self-report: the feeling rank (1 is the best face) and RPE, read off a scraped workout.
 #[cfg(feature = "provider-sciotte")]
 pub mod trainingpeaks_self_report;
+/// Wahoo plan rendering: a `PlannedSession` into `plan.json` and the plan/workout form fields.
+/// Wahoo provider descriptor: identity, capabilities, OAuth endpoints and its agreement's terms.
+#[cfg(feature = "provider-wahoo")]
+pub mod wahoo_descriptor;
+#[cfg(feature = "provider-wahoo")]
+pub mod wahoo_plan;
+/// Wahoo Cloud API provider: completed workouts and their FIT samples, and calendar writes.
+#[cfg(feature = "provider-wahoo")]
+pub mod wahoo_provider;
+/// Wahoo workout FIT files: the CDN activity file decoded into a time series, without position.
+#[cfg(feature = "provider-wahoo")]
+pub mod wahoo_streams;
 /// WHOOP provider for sleep, recovery, and workout data
 #[cfg(feature = "provider-whoop")]
 pub mod whoop_provider;
@@ -125,6 +137,8 @@ pub use spi::StravaDescriptor;
 #[cfg(feature = "provider-whoop")]
 pub use spi::WhoopDescriptor;
 pub use spi::{OAuthEndpoints, ProviderBundle, ProviderCapabilities, ProviderDescriptor};
+#[cfg(feature = "provider-wahoo")]
+pub use wahoo_descriptor::WahooDescriptor;
 
 #[cfg(feature = "provider-terra")]
 pub use terra::{

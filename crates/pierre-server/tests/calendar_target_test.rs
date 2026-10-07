@@ -9,7 +9,9 @@
 
 mod common;
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -45,6 +47,16 @@ use crate::common::{create_test_server_resources, create_test_user};
 const MOCK_A: &str = "mock_calendar_a";
 const MOCK_B: &str = "mock_calendar_b";
 const READ_ONLY: &str = "mock_read_only";
+/// A calendar that stores a derived key for each entry, as Wahoo does, and
+/// holds no week notes.
+const OPAQUE: &str = "mock_opaque_keys";
+
+/// The key `OPAQUE` stores for Dravr's key: deterministic and one-way.
+fn opaque_key(external_id: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    external_id.hash(&mut hasher);
+    format!("opaque-{:016x}", hasher.finish())
+}
 
 /// What a mock calendar holds: provider, event id, the session written.
 static CALENDARS: Mutex<Vec<(String, String, PlannedSession)>> = Mutex::new(Vec::new());
@@ -107,6 +119,13 @@ impl FitnessProvider for MockCalendar {
     fn config(&self) -> &ProviderConfig {
         &self.config
     }
+    fn calendar_key(&self, external_id: &str) -> String {
+        if self.name == OPAQUE {
+            opaque_key(external_id)
+        } else {
+            external_id.to_owned()
+        }
+    }
     async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
         Ok(())
     }
@@ -150,7 +169,7 @@ impl FitnessProvider for MockCalendar {
             .filter(|(name, _, s)| name == self.name && s.date >= from && s.date <= to)
             .map(|(_, id, s)| CalendarEventRef {
                 provider_event_id: id.clone(),
-                external_id: Some(s.external_id.clone()),
+                external_id: Some(self.calendar_key(&s.external_id)),
                 date: s.date,
                 updated_at: None,
             })
@@ -192,6 +211,7 @@ fn mock_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
     let name = match config.name.as_str() {
         MOCK_A => MOCK_A,
         MOCK_B => MOCK_B,
+        OPAQUE => OPAQUE,
         _ => READ_ONLY,
     };
     Box::new(MockCalendar { name, config })
@@ -212,8 +232,15 @@ async fn fixture(connected: &[&str]) -> Result<Fixture> {
     let mut registry = ProviderRegistry::new();
     let calendar = ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CALENDAR_WRITE);
     for (name, capabilities) in [
-        (MOCK_A, calendar),
-        (MOCK_B, calendar),
+        (
+            MOCK_A,
+            calendar.union(ProviderCapabilities::CALENDAR_WEEK_NOTES),
+        ),
+        (
+            MOCK_B,
+            calendar.union(ProviderCapabilities::CALENDAR_WEEK_NOTES),
+        ),
+        (OPAQUE, calendar),
         (
             READ_ONLY,
             ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::PLANNED_WORKOUTS),
@@ -307,6 +334,12 @@ impl Fixture {
     }
 
     async fn save_plan(&self) {
+        self.save_plan_with_focus("").await;
+    }
+
+    /// The two-session plan, with `focus` as its week's focus (a week note on
+    /// a calendar that holds them).
+    async fn save_plan_with_focus(&self, focus: &str) {
         let monday = {
             let mut day = Utc::now().date_naive() + Duration::days(7);
             while day.weekday() != Weekday::Mon {
@@ -380,7 +413,7 @@ impl Fixture {
                 }),
                 weeks: &[PlanWeekInput {
                     week_start: &week_start,
-                    focus: "",
+                    focus,
                     days: &days,
                     adjustment_reason: "",
                     phase_index: None,
@@ -560,6 +593,69 @@ async fn a_named_provider_that_does_not_write_a_calendar_is_refused() -> Result<
         .await;
     assert!(refusal.contains("calendar_write"), "{refusal}");
     assert!(events_of(READ_ONLY, fx.user_id).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_calendar_storing_derived_keys_adopts_entries_its_ledger_lost_instead_of_duplicating(
+) -> Result<()> {
+    let fx = fixture(&[OPAQUE]).await?;
+    fx.save_plan().await;
+    let first = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(first["created"].as_u64(), Some(2), "{first}");
+
+    // The writes landed but their ledger rows did not: the calendar still
+    // holds both entries, under the derived keys only.
+    let repos = fx.executor.resources.repos();
+    for row in fx.live(OPAQUE).await {
+        repos
+            .prescribed_workouts
+            .set_prescribed_workout_status(fx.tenant, row.id, PrescribedWorkout::STATUS_WITHDRAWN)
+            .await?;
+    }
+    assert!(fx.live(OPAQUE).await.is_empty());
+
+    let again = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(
+        again["created"].as_u64(),
+        Some(0),
+        "adopted, not created: {again}"
+    );
+    assert_eq!(again["updated"].as_u64(), Some(2), "{again}");
+    assert_eq!(events_of(OPAQUE, fx.user_id).len(), 2, "nothing duplicated");
+    assert_eq!(fx.live(OPAQUE).await.len(), 2, "the ledger has them back");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_week_note_goes_only_to_a_calendar_that_holds_week_notes() -> Result<()> {
+    let fx = fixture(&[OPAQUE]).await?;
+    fx.save_plan_with_focus("Aerobic base").await;
+    let pushed = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(
+        pushed["created"].as_u64(),
+        Some(2),
+        "sessions only: {pushed}"
+    );
+    assert!(
+        pushed["failed"].as_array().is_some_and(Vec::is_empty),
+        "{pushed}"
+    );
+    let plan = fx.ok("get_training_plan", json!({})).await?;
+    assert_eq!(
+        plan["calendar"]["stale"].as_bool(),
+        Some(false),
+        "a note the calendar cannot hold never reads as pending: {plan}"
+    );
+
+    let fx = fixture(&[MOCK_A]).await?;
+    fx.save_plan_with_focus("Aerobic base").await;
+    let pushed = fx.ok("push_training_plan", json!({})).await?;
+    assert_eq!(
+        pushed["created"].as_u64(),
+        Some(3),
+        "sessions and the note: {pushed}"
+    );
     Ok(())
 }
 

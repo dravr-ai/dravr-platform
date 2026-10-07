@@ -638,6 +638,10 @@ module "backend" {
     # real version lands, Whoop becomes 1-step identical to Strava.
     WHOOP_CLIENT_ID     = module.secrets.secret_ids["whoop_client_id"]
     WHOOP_CLIENT_SECRET = module.secrets.secret_ids["whoop_client_secret"]
+    # Wahoo Cloud API app (carnet#34). Placeholder until the portal's
+    # values are added to Secret Manager.
+    WAHOO_CLIENT_ID     = module.secrets.secret_ids["wahoo_client_id"]
+    WAHOO_CLIENT_SECRET = module.secrets.secret_ids["wahoo_client_secret"]
     # Intervals.icu OAuth app (carnet#47). Placeholder until the app is
     # approved; the API-key link needs neither.
     INTERVALS_ICU_CLIENT_ID     = module.secrets.secret_ids["intervals_icu_client_id"]
@@ -664,6 +668,9 @@ module "backend" {
     WHOOP_WEBHOOK_SECRET           = module.secrets.secret_ids["whoop_client_secret"]
     STRAVA_WEBHOOK_VERIFY_TOKEN    = module.secrets.secret_ids["strava_webhook_verify_token"]
     STRAVA_WEBHOOK_SUBSCRIPTION_ID = module.secrets.secret_ids["strava_webhook_subscription_id"]
+    # Wahoo sends its portal's webhook_token in the body of every workout
+    # event; the generated value is copied into the portal.
+    WAHOO_WEBHOOK_TOKEN = module.secrets.secret_ids["wahoo_webhook_token"]
 
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]

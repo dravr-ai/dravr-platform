@@ -39,9 +39,11 @@ use crate::protocol::refresh_failure::classify_refresh_failure;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use pierre_providers::owner_id::owner_id_for_access_token;
-use pierre_providers::spi::OAuthRefresh;
+use pierre_providers::spi::{OAuthRefresh, ProviderDescriptor};
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_providers::CredentialKind;
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -469,6 +471,8 @@ impl AuthService {
         }
         if self.flip_to_needs_reauth(stored, error_code).await {
             notify_needs_reauth(&self.resources, user_id, tenant, provider).await;
+            self.disconnect_if_refusal_revokes(user_id, tenant, provider)
+                .await;
         }
         // The flip is guarded on the row: one that changed between the last
         // re-read and the flip left the connection alone, and is the answer.
@@ -606,6 +610,51 @@ impl AuthService {
                 warn!("Failed to persist needs_reauth for user {user_id} provider {provider}: {e}");
                 false
             }
+        }
+    }
+
+    /// Disconnect a connection whose confirmed refusal is the athlete's
+    /// revocation, deleting what the provider contributed.
+    ///
+    /// Only for a provider whose descriptor says a refused refresh is one
+    /// ([`refused_refresh_is_revocation`]): with no deauthorization notice,
+    /// that refusal is the only word the athlete withdrew the grant (Wahoo),
+    /// and the provider's terms require their data deleted when they do. Runs
+    /// once, on the refusal that flipped the connection, so a row a reconnect
+    /// replaced is never touched. Best-effort, like the flip: a failure is
+    /// logged and the athlete's request goes on.
+    ///
+    /// [`refused_refresh_is_revocation`]: pierre_providers::spi::ProviderDescriptor::refused_refresh_is_revocation
+    async fn disconnect_if_refusal_revokes(&self, user_id: Uuid, tenant: TenantId, provider: &str) {
+        let revokes = self
+            .resources
+            .provider_registry()
+            .get_descriptor(provider)
+            .is_some_and(ProviderDescriptor::refused_refresh_is_revocation);
+        if !revokes {
+            return;
+        }
+        let service = OAuthService::new(self.resources.data(), self.resources.config().clone());
+        match service
+            .disconnect_provider(
+                user_id,
+                provider,
+                Some(tenant.as_uuid()),
+                DisconnectReason::ProviderRevoked,
+            )
+            .await
+        {
+            Ok(_) => info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Refused refresh read as the athlete's revocation: disconnected and the provider's data deleted"
+            ),
+            Err(e) => warn!(
+                user_id = %user_id,
+                provider = %provider,
+                error = %e,
+                "Refused refresh read as a revocation, but the disconnect failed; the provider's data may remain"
+            ),
         }
     }
 

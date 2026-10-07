@@ -1,5 +1,5 @@
 # ABOUTME: Cargo manifest for pierre-providers crate
-# ABOUTME: Fitness data provider implementations (Strava, Garmin, WHOOP, COROS, Terra)
+# ABOUTME: Fitness data provider implementations (Strava, Garmin, WHOOP, COROS, Terra, Wahoo)
 
 [package]
 name = "pierre-providers"
@@ -19,6 +19,7 @@ provider-whoop = []
 provider-coros = []
 provider-sciotte = ["dep:dravr-sciotte"]
 provider-intervals-icu = []
+provider-wahoo = ["dep:base64", "dep:dravr-cageux", "dep:fitparser"]
 all-providers = [
     "provider-strava",
     "provider-garmin",
@@ -27,6 +28,7 @@ all-providers = [
     "provider-coros",
     "provider-sciotte",
     "provider-intervals-icu",
+    "provider-wahoo",
 ]
 
 [dependencies]
@@ -50,6 +52,12 @@ futures-util = "0.3"
 num-traits = "0.2"
 ring = "0.17"
 hex = "0.4"
+# Wahoo plan uploads travel as a base64 data URI (`plan[file]`).
+base64 = { version = "0.22", optional = true }
+# Power-zone bounds the Wahoo plan file states as fractions of FTP.
+dravr-cageux = { workspace = true, optional = true }
+# Wahoo serves a completed workout's samples only as an activity FIT file.
+fitparser = { version = "0.11", optional = true }
 dravr-equilibre = { workspace = true }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }

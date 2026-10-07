@@ -1,4 +1,4 @@
-// ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava) — validate, resolve the owner, sync
+// ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava, Wahoo) — validate, resolve the owner, sync
 // ABOUTME: Strava: a write fetches and scans new runs, a delete evicts the row, a deauthorization disconnects; WHOOP syncs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,6 +13,8 @@ use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::get;
+#[cfg(feature = "provider-wahoo")]
+use axum::routing::post;
 use axum::{Json, Router};
 use chrono::Utc;
 use dravr_enforme::error::EnformeError;
@@ -35,6 +37,8 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
+#[cfg(feature = "provider-wahoo")]
+use crate::routes::wahoo_webhook::wahoo_event;
 use crate::services::personal_best_seed::strava_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
@@ -73,7 +77,7 @@ impl WebhookRoutes {
     /// work themselves (the Strava sync is spawned), so they are plain
     /// functions wrapped in [`ready`]; only the WHOOP event handler awaits.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
-        Router::new()
+        let router = Router::new()
             .route(
                 "/webhooks/whoop",
                 get(|query: Query<HashMap<String, String>>| {
@@ -91,8 +95,18 @@ impl WebhookRoutes {
                         ready(Self::strava_event(&resources, &body))
                     },
                 ),
-            )
-            .with_state(resources)
+            );
+        // Wahoo posts workout summaries to a sub-path: the billing router
+        // claims the single segment `/webhooks/{provider}`. The developer
+        // portal's `webhook_url` names this path.
+        #[cfg(feature = "provider-wahoo")]
+        let router = router.route(
+            "/webhooks/wahoo/workouts",
+            post(|State(resources): State<Arc<ServerContext>>, body: Bytes| {
+                ready(wahoo_event(&resources, &body))
+            }),
+        );
+        router.with_state(resources)
     }
 
     /// WHOOP webhook verification challenge (GET).
@@ -335,7 +349,7 @@ fn distinct_owners(events: &[WebhookEvent]) -> Vec<String> {
 /// rather than synced with a token that does not exist. An unknown owner is
 /// skipped and logged too — a push event is never broadcast to every
 /// connected user.
-async fn resolve_owner(
+pub(super) async fn resolve_owner(
     resources: &ServerContext,
     provider: &str,
     provider_user_id: &str,
@@ -376,7 +390,7 @@ async fn resolve_owner(
 }
 
 /// Stamp the provider's `last_sync` for the owner: the sync happened now.
-async fn stamp_last_sync(
+pub(super) async fn stamp_last_sync(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: &str,
@@ -402,7 +416,7 @@ async fn stamp_last_sync(
 
 /// Report a webhook sync's outcome to the sync-failure notices: a landed sync
 /// re-arms the notice, a failed one tells the athlete once.
-async fn report_sync(
+pub(super) async fn report_sync(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: &str,
@@ -422,7 +436,12 @@ async fn report_sync(
 }
 
 /// Tell the owner's live SSE stream what a webhook sync landed.
-async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, message: String) {
+pub(super) async fn notify_owner(
+    resources: &ServerContext,
+    user_id: Uuid,
+    provider: &str,
+    message: String,
+) {
     let notification = OAuthNotification {
         id: Uuid::new_v4().to_string(),
         user_id: user_id.to_string(),

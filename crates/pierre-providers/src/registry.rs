@@ -12,6 +12,7 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
     feature = "provider-strava",
     feature = "provider-garmin",
     feature = "provider-terra",
+    feature = "provider-wahoo",
     feature = "provider-whoop",
     feature = "provider-coros"
 ))]
@@ -24,7 +25,8 @@ use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
     feature = "provider-whoop",
     feature = "provider-coros",
     feature = "provider-sciotte",
-    feature = "provider-intervals-icu"
+    feature = "provider-intervals-icu",
+    feature = "provider-wahoo"
 ))]
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
@@ -76,6 +78,10 @@ use crate::terra::constants::{
 };
 #[cfg(feature = "provider-terra")]
 use crate::terra::{TerraDataCache, TerraDescriptor, TerraProviderFactory};
+#[cfg(feature = "provider-wahoo")]
+use crate::wahoo_descriptor::WahooDescriptor;
+#[cfg(feature = "provider-wahoo")]
+use crate::wahoo_provider::WahooProviderFactory;
 #[cfg(feature = "provider-whoop")]
 use crate::whoop_provider::WhoopProviderFactory;
 
@@ -129,6 +135,7 @@ impl ProviderRegistry {
         Self::register_sciotte_trainingpeaks(&mut registry);
         Self::register_sciotte_coros(&mut registry);
         Self::register_intervals_icu(&mut registry);
+        Self::register_wahoo(&mut registry);
 
         // Log registered providers at startup
         let providers = registry.supported_providers().join(", ");
@@ -451,6 +458,40 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-intervals-icu"))]
     fn register_intervals_icu(_registry: &mut Self) {}
+
+    /// Register the Wahoo provider with environment-based configuration
+    /// (`PIERRE_WAHOO_*` overrides, as every OAuth provider reads them).
+    #[cfg(feature = "provider-wahoo")]
+    fn register_wahoo(registry: &mut Self) {
+        registry.register_factory(oauth_providers::WAHOO, Box::new(WahooProviderFactory));
+        registry.register_descriptor(oauth_providers::WAHOO, Box::new(WahooDescriptor));
+        let scopes: Vec<String> = oauth_providers::WAHOO_DEFAULT_SCOPES
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect();
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::WAHOO,
+            oauth_providers::WAHOO_AUTH_URL,
+            oauth_providers::WAHOO_TOKEN_URL,
+            oauth_providers::WAHOO_API_BASE_URL,
+            Some(oauth_providers::WAHOO_DEAUTHORIZE_URL),
+            &scopes,
+        );
+        registry.set_default_config(
+            oauth_providers::WAHOO,
+            ProviderConfig {
+                name: oauth_providers::WAHOO.to_owned(),
+                auth_url,
+                token_url,
+                api_base_url,
+                revoke_url,
+                default_scopes: scopes,
+            },
+        );
+    }
+
+    #[cfg(not(feature = "provider-wahoo"))]
+    fn register_wahoo(_registry: &mut Self) {}
 
     /// Register a provider factory
     pub fn register_factory(

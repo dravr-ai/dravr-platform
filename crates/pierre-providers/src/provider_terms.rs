@@ -331,7 +331,14 @@ mod tests {
             registry.cache_ttls().is_empty(),
             "no shipped provider caps how long a copy is held"
         );
-        assert_eq!(registry.cross_athlete_learning_barred(), ["whoop"]);
+        // WHOOP's §4 bars training on its data; Wahoo's restriction (iii)
+        // bars aggregating user information until a lawyer reads it.
+        let barred: &[&str] = if cfg!(feature = "provider-wahoo") {
+            &["wahoo", "whoop"]
+        } else {
+            &["whoop"]
+        };
+        assert_eq!(registry.cross_athlete_learning_barred(), barred);
     }
 
     /// The sciotte Strava backend is registered as `sciotte`, and every

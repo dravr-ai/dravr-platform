@@ -59,10 +59,11 @@ provider-terra = ["pierre-providers/provider-terra"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
+provider-wahoo = ["pierre-providers/provider-wahoo"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "pierre-routes-auth?/provider-sciotte"]
 health-sync = ["dep:dravr-enforme", "dravr-enforme/provider-whoop", "dravr-enforme/provider-garmin", "dravr-enforme/provider-coros", "dravr-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
-all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
-production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
+all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte", "provider-wahoo"]
+production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte", "provider-wahoo"]
 
 # Tool feature flags - enable/disable MCP tool categories
 # All tools (default)
@@ -181,7 +182,7 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
 
 [dependencies]

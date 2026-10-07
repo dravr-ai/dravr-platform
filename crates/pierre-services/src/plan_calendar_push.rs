@@ -132,6 +132,29 @@ pub fn calendar_read_target(registry: &ProviderRegistry, connected: &[&str]) -> 
     })
 }
 
+/// Whether `backend`'s calendar holds week notes as well as sessions
+/// ([`CALENDAR_WEEK_NOTES`](pierre_providers::spi::ProviderCapabilities::CALENDAR_WEEK_NOTES)).
+#[must_use]
+pub fn calendar_holds_week_notes(registry: &ProviderRegistry, backend: &str) -> bool {
+    registry
+        .get_capabilities(backend)
+        .is_some_and(|caps| caps.supports_calendar_week_notes())
+}
+
+/// The entries a calendar can hold: every session, and the week notes only
+/// when it holds them — a calendar of workouts is never sent a note it would
+/// refuse on every push, nor counted as behind for one.
+#[must_use]
+pub fn for_calendar(desired: Vec<DesiredEntry>, week_notes: bool) -> Vec<DesiredEntry> {
+    if week_notes {
+        return desired;
+    }
+    desired
+        .into_iter()
+        .filter(|entry| entry.session.kind != PlannedSessionKind::WeekNote)
+        .collect()
+}
+
 fn calendar_write_names(registry: &ProviderRegistry) -> String {
     registry.calendar_write_providers().join(", ")
 }
@@ -535,6 +558,9 @@ pub struct PushPlanParams<'a> {
     /// First date to consider — today in the athlete's calendar. Nothing
     /// before it is created, updated, or removed.
     pub from: NaiveDate,
+    /// Whether the provider's calendar holds week notes
+    /// ([`calendar_holds_week_notes`]); without them only sessions are pushed.
+    pub week_notes: bool,
     /// Cooperative cancel flag, observed between entries. `None` for callers
     /// with no cancellation channel (the push runs to completion).
     pub cancel: Option<&'a AtomicBool>,
@@ -584,7 +610,10 @@ pub async fn push_active_plan(
         .list_plan_weeks(&tenant_str, &user_str, &plan.id, false)
         .await?;
     let fueling = FuelingDisclosure::for_athlete(repos, params.tenant, params.user_id).await?;
-    let desired = desired_entries(params.user_id, &weeks, params.from, &fueling);
+    let desired = for_calendar(
+        desired_entries(params.user_id, &weeks, params.from, &fueling),
+        params.week_notes,
+    );
     let live_rows: Vec<PrescribedWorkout> = repos
         .prescribed_workouts
         .list_live_calendar_events(
@@ -617,7 +646,9 @@ pub async fn push_active_plan(
     // What the calendar actually holds in the window, by provider id — and,
     // among those, the entries carrying this athlete's plan keys that the
     // ledger has no live row for (a write that landed while its ledger row
-    // did not). Those are adopted, never duplicated.
+    // did not). Those are adopted, never duplicated. A calendar stores each
+    // entry under its `calendar_key` — Dravr's key, or the opaque one a
+    // provider derives from it — so the keys are compared in that form.
     let observed: HashMap<String, CalendarEventRef> = calendar
         .list_calendar_events(params.from, window_end)
         .await?
@@ -629,12 +660,17 @@ pub async fn push_active_plan(
         .filter_map(|row| row.external_id.clone().map(|key| (key, row.clone())))
         .collect();
     let plan_prefix = CalendarKey::plan_prefix(params.user_id);
+    let adoptable: HashMap<String, String> = desired
+        .iter()
+        .map(|entry| &entry.session.external_id)
+        .filter(|key| key.starts_with(&plan_prefix) && !live_by_key.contains_key(*key))
+        .map(|key| (calendar.calendar_key(key), key.clone()))
+        .collect();
     let orphans: HashMap<String, CalendarEventRef> = observed
         .values()
         .filter_map(|event| {
-            let key = event.external_id.clone()?;
-            (key.starts_with(&plan_prefix) && !live_by_key.contains_key(&key))
-                .then(|| (key, event.clone()))
+            let key = adoptable.get(event.external_id.as_deref()?)?;
+            Some((key.clone(), event.clone()))
         })
         .collect();
     let edit_slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);

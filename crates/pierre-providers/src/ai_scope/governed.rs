@@ -165,6 +165,10 @@ impl FitnessProvider for AiGovernedProvider {
         Ok(filter_planned_workouts(self.lookup(), workouts))
     }
 
+    fn calendar_key(&self, external_id: &str) -> String {
+        self.inner.calendar_key(external_id)
+    }
+
     async fn list_calendar_events(
         &self,
         from: NaiveDate,

@@ -1053,3 +1053,52 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
         .await
         .expect("disconnecting a never-connected provider is a no-op");
 }
+
+/// Wahoo (carnet#34): a disconnect `DELETE`s the athlete's permissions with
+/// their access token as `Bearer` — with the portal's cleanup flags on, that
+/// also removes the workouts and plans Dravr scheduled on their account — and
+/// the rows and cached activities die locally.
+#[cfg(feature = "provider-wahoo")]
+#[tokio::test]
+async fn disconnect_wahoo_deletes_the_athletes_permissions() {
+    let mut upstream = ScriptedUpstream::serve(vec![OK_204.to_owned()]).await;
+    env::set_var(
+        "PIERRE_WAHOO_REVOKE_URL",
+        format!("{}/v1/permissions", upstream.base_url),
+    );
+    env::set_var(
+        "PIERRE_WAHOO_TOKEN_URL",
+        format!("{}/oauth/token", upstream.base_url),
+    );
+    env::set_var("WAHOO_CLIENT_ID", "wahoo-test-client");
+    env::set_var("WAHOO_CLIENT_SECRET", "wahoo-test-secret");
+
+    let resources = create_test_server_resources().await.unwrap();
+    let service = oauth_service(&resources, (*resources.common.config).clone());
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "wahoo",
+        "wahoo-access-live-do-not-log",
+        Some("wahoo-refresh-do-not-log"),
+        Utc::now() + Duration::hours(1),
+    )
+    .await;
+    service
+        .disconnect_provider(
+            user_id,
+            "wahoo",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("disconnect succeeds");
+    let request = upstream.next_request("Wahoo deauthorization").await;
+    assert_eq!(request.method, "DELETE");
+    assert_eq!(request.target, "/v1/permissions");
+    assert_eq!(
+        request.header("authorization"),
+        Some("Bearer wahoo-access-live-do-not-log"),
+        "Wahoo deauthorizes with the athlete's own access token"
+    );
+    assert_locally_disconnected(&resources, user_id, tenant_id, "wahoo").await;
+}

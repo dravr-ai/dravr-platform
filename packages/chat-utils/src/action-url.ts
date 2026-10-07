@@ -18,6 +18,8 @@ const TRUSTED_ACTION_DOMAINS: readonly string[] = [
   'strava.com',
   'garmin.com',
   'whoop.com',
+  // Wahoo's OAuth host (`api.wahooligan.com/oauth/authorize`), carnet#34.
+  'wahooligan.com',
   'tryterra.co',
   'dravr.ai',
 ];

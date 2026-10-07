@@ -145,6 +145,9 @@ pub mod request_transport;
 pub mod strava_webhook_gate;
 /// Chart images for messaging channels: signed short-TTL PNG URLs.
 pub mod viz;
+/// The Wahoo workout webhook: the body's token, the owner, a fetch of their recent workouts.
+#[cfg(all(feature = "health-sync", feature = "provider-wahoo"))]
+pub mod wahoo_webhook;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).
 #[cfg(feature = "health-sync")]
 pub mod webhooks;

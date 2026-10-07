@@ -590,6 +590,17 @@ pub trait FitnessProvider: Send + Sync {
     // implements the same four. The reconciler in
     // `pierre_services::plan_calendar_push` is written against these alone.
 
+    /// The key this provider's calendar stores for the entry Dravr keys
+    /// `external_id` — what a reconcile compares a listed event's
+    /// `external_id` with when it adopts an entry its ledger lost track of.
+    ///
+    /// Dravr's own key by default. A provider whose terms give it rights over
+    /// whatever Dravr writes into it (Wahoo) stores an opaque derivative
+    /// instead, since Dravr's key names the athlete's user id.
+    fn calendar_key(&self, external_id: &str) -> String {
+        external_id.to_owned()
+    }
+
     /// Read the calendar events in `[from, to]` (inclusive) as
     /// [`CalendarEventRef`]s — the identity and freshness a reconcile needs to
     /// compare Dravr's ledger against what is actually on the calendar.

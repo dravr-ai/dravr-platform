@@ -391,6 +391,13 @@ pub mod rate_limits {
     pub const WHOOP_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
     /// Terra default daily rate limit
     pub const TERRA_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
+    /// Wahoo's production budget per 5-minute window, per app (Wahoo Cloud
+    /// API, "Rate Limiting"; a sandbox app gets 25).
+    pub const WAHOO_RATE_LIMIT_5MIN: u32 = 200;
+    /// Wahoo's production budget per hour, per app (sandbox: 100).
+    pub const WAHOO_RATE_LIMIT_HOURLY: u32 = 1000;
+    /// Wahoo's production budget per day, per app (sandbox: 250).
+    pub const WAHOO_RATE_LIMIT_DAILY: u32 = 5000;
     /// Default burst limit
     pub const DEFAULT_BURST_LIMIT: u32 = 10;
 }
@@ -474,6 +481,17 @@ pub mod api_provider_limits {
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
         /// Maximum workouts per single API request
         pub const MAX_ACTIVITIES_PER_REQUEST: usize = 25;
+    }
+
+    /// Wahoo Cloud API limits
+    pub mod wahoo {
+        /// Estimated rate-limit block duration (seconds): Wahoo's shortest
+        /// window is five minutes.
+        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 300;
+        /// Default workouts per list request when the caller names no limit
+        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 30;
+        /// Workouts asked for per `GET /v1/workouts` page (Wahoo's default is 30)
+        pub const WORKOUTS_PER_PAGE: usize = 50;
     }
 
     /// COROS API limits

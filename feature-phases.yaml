@@ -97,3 +97,8 @@ features:
     current: two-week pilot of the carnet#660 split — AGENTS.md holds acting rules and seven hard stops, the coding standards live in docs/coding-standards.md and are read only by the review-standards skill before every squash, and bilan caps at 8 on a pushed commit with no Reviewed-Standards trailer
     advance_when: after two weeks, standards-related CI reds and post-squash rework have not risen and review findings are fixed before merge — then adopt; revert (one commit, the text only moved) if a violation reaches main that the old AGENTS.md would have prevented
     review_by: 2026-10-14
+  - name: wahoo-provider
+    surface: crates/pierre-server/Cargo.toml
+    current: provider-wahoo compiles into server-full (local dev) and every all-features test build but not server-production, so the deployed app lists no Wahoo card. The provider, the neutral plan push, the workout webhook at /webhooks/wahoo/workouts and the revocation purge are complete (carnet#34); the Secret Manager entries hold placeholders until the portal values are added
+    advance_when: WAHOO_CLIENT_ID and WAHOO_CLIENT_SECRET hold the portal values in Secret Manager and terraform is applied, and the sandbox run passes (OAuth with the scope set, webhook ingest, FIT streams, a pushed session in the ELEMNT app, a re-push that updates rather than duplicates, disconnect purge). Then add provider-wahoo to server-production, name Wahoo in the AGENTS.md headline and delete this entry
+    review_by: 2026-10-21

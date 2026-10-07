@@ -13,6 +13,12 @@ describe('trustedActionUrl', () => {
     ).toBe('https://www.strava.com/oauth/authorize?client_id=1&scope=read');
   });
 
+  it('vouches for Wahoo\'s OAuth host, where a Wahoo reconnect sends the athlete', () => {
+    const authorize = 'https://api.wahooligan.com/oauth/authorize?client_id=1&scope=user_read';
+    expect(trustedActionUrl(authorize)).toBe(authorize);
+    expect(trustedActionUrl('https://wahooligan.com.attacker.example/oauth')).toBeNull();
+  });
+
   it('vouches for the running app\'s own origin, which mints reconnect links', () => {
     expect(
       trustedActionUrl(`${APP_ORIGIN}/providers/sciotte/login?token=abc`, [APP_ORIGIN]),

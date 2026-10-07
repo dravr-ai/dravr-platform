@@ -53,6 +53,53 @@ pub const INTERVALS_ICU_DEFAULT_SCOPES: &[&str] = &[
     "SETTINGS:READ",
 ];
 
+/// Wahoo Cloud API provider identifier (ELEMNT, KICKR, RIVAL).
+///
+/// `OAuth2` at `api.wahooligan.com`, gated behind `provider-wahoo` feature.
+/// The redirect URI registered with Wahoo ends in this name
+/// (`{BASE_URL}/api/oauth/callback/wahoo`), so it must never change.
+pub const WAHOO: &str = "wahoo";
+
+/// Wahoo default `OAuth2` scopes, space-separated on `/oauth/authorize`
+/// (carnet#34, Directive from Phil 2026-10-07).
+///
+/// Wahoo takes the scopes from its developer portal or from this parameter,
+/// so the portal's defaults list the same set. Read: the profile and email,
+/// completed workouts, power zones (whose FTP the pushed plans' targets are a
+/// fraction of) and saved routes; `offline_data` for the workout webhook.
+/// Write: `plans_write` uploads a structured workout to the athlete's library
+/// and `workouts_write` schedules it, with `plans_read` to find Dravr's own
+/// plans again by `external_id` rather than duplicate them. `user_write`,
+/// `power_zones_write` and `routes_write` are deliberately absent: Wahoo's
+/// agreement asks an app to request only what it uses.
+pub const WAHOO_DEFAULT_SCOPES: &[&str] = &[
+    "user_read",
+    "email",
+    "workouts_read",
+    "power_zones_read",
+    "offline_data",
+    "plans_write",
+    "workouts_write",
+    "plans_read",
+    "routes_read",
+];
+
+/// Wahoo's `OAuth2` authorization endpoint.
+pub const WAHOO_AUTH_URL: &str = "https://api.wahooligan.com/oauth/authorize";
+
+/// Wahoo's `OAuth2` token endpoint, for the code exchange and the refresh
+/// grant. Refresh tokens rotate: the previous pair is revoked once an API
+/// call is made with the refreshed access token.
+pub const WAHOO_TOKEN_URL: &str = "https://api.wahooligan.com/oauth/token";
+
+/// Wahoo Cloud API base URL; calls carry the access token as `Bearer`.
+pub const WAHOO_API_BASE_URL: &str = "https://api.wahooligan.com/v1";
+
+/// Wahoo's deauthorization endpoint: a `DELETE` revokes every permission the
+/// athlete granted the app, and with the portal's cleanup flags on, removes
+/// the workouts and plans the app scheduled.
+pub const WAHOO_DEAUTHORIZE_URL: &str = "https://api.wahooligan.com/v1/permissions";
+
 /// Sciotte web scraping provider identifier.
 ///
 /// Browser-based data extraction, gated behind `provider-sciotte` feature.

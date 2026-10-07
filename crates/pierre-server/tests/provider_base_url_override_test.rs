@@ -1,4 +1,4 @@
-// ABOUTME: Verifies Strava/Garmin provider api_base_url is overridable via env (PIERRE_<P>_API_BASE_URL)
+// ABOUTME: Verifies provider config is overridable via env (PIERRE_<P>_API_BASE_URL, PIERRE_<P>_SCOPES)
 // ABOUTME: Foundation for the dev fixture API — dev points providers at a local server, prod unchanged
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -42,4 +42,27 @@ fn strava_api_base_url_honors_env_override() {
         "https://www.strava.com/api/v3",
         "without the override, the real Strava API base URL is used"
     );
+}
+
+/// `PIERRE_<PROVIDER>_SCOPES` reads commas or whitespace, so an override in a
+/// provider's own space-separated form (WHOOP's, Wahoo's) stays one scope per
+/// entry rather than collapsing into a single scope named by the whole string.
+#[test]
+#[serial]
+fn provider_scopes_override_splits_on_commas_or_spaces() {
+    let key = "PIERRE_STRAVA_SCOPES";
+    for value in [
+        "read activity:read_all",
+        "read,activity:read_all",
+        " read ,  activity:read_all ",
+    ] {
+        env::set_var(key, value);
+        let registry = ProviderRegistry::new();
+        let scopes = &registry
+            .default_config("strava")
+            .expect("strava provider should be registered")
+            .default_scopes;
+        assert_eq!(scopes, &["read", "activity:read_all"], "from {value:?}");
+    }
+    env::remove_var(key);
 }

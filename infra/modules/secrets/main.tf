@@ -208,6 +208,50 @@ resource "google_secret_manager_secret_version" "whoop_client_secret_placeholder
   }
 }
 
+# Wahoo Cloud API app (carnet#34), registered at https://developers.wahooligan.com.
+# Real values land out-of-band (`gcloud secrets versions add`) from the
+# portal's client id and secret; the portal's redirect URI is
+# https://app.dravr.ai/api/oauth/callback/wahoo.
+resource "google_secret_manager_secret" "wahoo_client_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-wahoo-client-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "wahoo_client_id_placeholder" {
+  secret      = google_secret_manager_secret.wahoo_client_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "wahoo_client_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-wahoo-client-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "wahoo_client_secret_placeholder" {
+  secret      = google_secret_manager_secret.wahoo_client_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 # Intervals.icu OAuth app (carnet#47), issued at https://intervals.icu/oauth/apply.
 # Real values land out-of-band (`gcloud secrets versions add`); until then
 # athletes link by pasting their API key, the only path the clients offer.
@@ -501,6 +545,31 @@ resource "google_secret_manager_secret" "strava_webhook_verify_token" {
 resource "google_secret_manager_secret_version" "strava_webhook_verify_token" {
   secret      = google_secret_manager_secret.strava_webhook_verify_token.id
   secret_data = random_password.strava_webhook_verify_token.result
+}
+
+# WAHOO_WEBHOOK_TOKEN — the `webhook_token` Wahoo's developer portal sends in
+# the body of every workout event to /webhooks/wahoo/workouts. It is ours to
+# choose, so it is generated here and real from the first apply; copy it into
+# the portal with `gcloud secrets versions access latest --secret=<id>`.
+resource "random_password" "wahoo_webhook_token" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "wahoo_webhook_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-wahoo-webhook-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "wahoo_webhook_token" {
+  secret      = google_secret_manager_secret.wahoo_webhook_token.id
+  secret_data = random_password.wahoo_webhook_token.result
 }
 
 # STRAVA_WEBHOOK_SUBSCRIPTION_ID — the id Strava returns to `pierre-cli

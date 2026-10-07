@@ -212,6 +212,11 @@ bitflags::bitflags! {
         /// Distinct from `PLANNED_WORKOUTS`, which only reads: a provider can
         /// show the athlete's planned workouts without accepting ours.
         const CALENDAR_WRITE = 0b0000_0010_0000_0000;
+        /// Provider's training calendar holds a note pinned to a whole week
+        /// (a plan week's focus) as well as sessions. Without it a plan push
+        /// sends only the sessions: a calendar of workouts (Wahoo) is never
+        /// sent a week note it would refuse on every push.
+        const CALENDAR_WEEK_NOTES = 0b0000_0100_0000_0000;
     }
 }
 
@@ -289,6 +294,12 @@ impl ProviderCapabilities {
     pub const fn supports_calendar_write(&self) -> bool {
         self.contains(Self::CALENDAR_WRITE)
     }
+
+    /// Check if the provider's calendar holds week notes
+    #[must_use]
+    pub const fn supports_calendar_week_notes(&self) -> bool {
+        self.contains(Self::CALENDAR_WEEK_NOTES)
+    }
 }
 
 /// Describes a provider's identity and capabilities
@@ -334,6 +345,19 @@ pub trait ProviderDescriptor: Send + Sync {
     /// ([`crate::owner_id::owner_id_for_access_token`]) and store it with the
     /// token. `false` by default: Strava returns the owner inline.
     fn owner_id_from_api(&self) -> bool {
+        false
+    }
+
+    /// Whether a refresh this provider refuses is the athlete withdrawing the
+    /// grant on the provider's side.
+    ///
+    /// A provider that sends no deauthorization notice says so no other way,
+    /// and its terms can still require the athlete's data deleted when they
+    /// revoke (Wahoo). When `true`, a refusal the platform's refresh confirms
+    /// disconnects the athlete and deletes the provider's data, as a
+    /// deauthorization notice would; otherwise the connection only waits for
+    /// a reconnect. `false` by default.
+    fn refused_refresh_is_revocation(&self) -> bool {
         false
     }
 
@@ -1047,6 +1071,7 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
             .union(ProviderCapabilities::HEALTH_METRICS)
             .union(ProviderCapabilities::COACH_ROSTER)
             .union(ProviderCapabilities::CALENDAR_WRITE)
+            .union(ProviderCapabilities::CALENDAR_WEEK_NOTES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
