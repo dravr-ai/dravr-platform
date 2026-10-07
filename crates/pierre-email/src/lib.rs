@@ -78,10 +78,16 @@ impl ResendEmailService {
         };
         // The recipient is PII, so only DEBUG carries it; INFO and WARN name the
         // message by subject, and the caller's own log names the user by id.
+        // `resend_id` is the key Resend's dashboard lists this email under; it is
+        // left off the event when Resend's success answer carried no readable id.
         debug!(to, subject, "Sending email via Resend");
-        match self.client.send(&email).await {
-            Ok(()) => {
-                info!(subject, "Email sent successfully via Resend");
+        match self.client.send_with_receipt(&email).await {
+            Ok(receipt) => {
+                info!(
+                    subject,
+                    resend_id = receipt.id.as_deref(),
+                    "Email sent successfully via Resend"
+                );
                 Ok(())
             }
             Err(e) => {

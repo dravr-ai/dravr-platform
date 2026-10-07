@@ -304,6 +304,39 @@ pub fn mask_email(email: &str) -> String {
     )
 }
 
+/// Mask an email address for showing back to its owner — keep the first
+/// character and the whole domain (`jane@dravr.ai` → `j***@dravr.ai`).
+///
+/// For a reply such as "code sent to j***@dravr.ai", where the person needs
+/// the domain to recognise which mailbox to check. Logs use [`mask_email`],
+/// which masks the domain too.
+///
+/// An address with a single-character local part, or no `@`, is fully masked
+/// to `***`. The first character is taken as a Unicode scalar value, never a
+/// byte, so a multibyte first letter cannot panic on a char boundary.
+///
+/// # Examples
+///
+/// ```
+/// use pierre_middleware::redaction::mask_email_for_display;
+///
+/// assert_eq!(mask_email_for_display("jane@dravr.ai"), "j***@dravr.ai");
+/// assert_eq!(mask_email_for_display("élise@dravr.ai"), "é***@dravr.ai");
+/// assert_eq!(mask_email_for_display("j@dravr.ai"), "***");
+/// assert_eq!(mask_email_for_display("not-an-address"), "***");
+/// ```
+#[must_use]
+pub fn mask_email_for_display(email: &str) -> String {
+    let Some((local, domain)) = email.split_once('@') else {
+        return "***".to_owned();
+    };
+    let mut chars = local.chars();
+    match (chars.next(), chars.next()) {
+        (Some(first), Some(_)) => format!("{first}***@{domain}"),
+        _ => "***".to_owned(),
+    }
+}
+
 /// Mask a recipient phone id for INFO+ logs — keep only the last 4 characters.
 ///
 /// Used for messaging delivery-status logs (e.g. Meta `WhatsApp` `recipient_id`,

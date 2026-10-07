@@ -10,7 +10,9 @@
 //! trait) into every approval path so REST, web-admin, the Slack ops button,
 //! and registration auto-approve all notify the user the same way. Every step
 //! is best-effort — failures are logged, never propagated, so a notification
-//! can't fail the approval.
+//! can't fail the approval. Every outcome — sent, skipped, failed — is logged
+//! at INFO or WARN with the masked recipient, since the deployed server runs
+//! at INFO and an operator needs to tell "sent" from "skipped" there.
 
 use std::sync::Arc;
 
@@ -18,9 +20,10 @@ use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_REGISTRATION_APPROVED};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_middleware::redaction::mask_email;
 use pierre_services::messaging_broadcast::send_to_linked_channels;
 use pierre_services::user_approval::UserApprovalNotifier;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -48,15 +51,17 @@ impl ApprovalNotifier {
 
     /// Send the account-approved email; no-op (logged) when email is unconfigured.
     async fn send_email(&self, email: &str, display_name: Option<&str>) {
+        let recipient = mask_email(email);
         let Some(svc) = &self.email_service else {
-            warn!("Email service not configured — skipping account-approved email");
+            warn!(%recipient, "Email service not configured — skipping account-approved email");
             return;
         };
-        if let Err(e) = svc
+        match svc
             .send_registration_approved(email, display_name, self.frontend_url.as_deref())
             .await
         {
-            warn!(error = %e, "Failed to send account-approved email");
+            Ok(()) => info!(%recipient, "Account-approved email sent"),
+            Err(e) => warn!(%recipient, error = %e, "Failed to send account-approved email"),
         }
     }
 
@@ -83,16 +88,18 @@ impl UserApprovalNotifier for ApprovalNotifier {
     }
 
     async fn notify_user_invited(&self, email: &str) {
+        let recipient = mask_email(email);
         let Some(svc) = &self.email_service else {
-            warn!("Email service not configured — skipping invitation email");
+            warn!(%recipient, "Email service not configured — skipping invitation email");
             return;
         };
         let Some(signup_url) = self.frontend_url.as_deref() else {
-            warn!("No frontend URL configured — skipping invitation email");
+            warn!(%recipient, "No frontend URL configured — skipping invitation email");
             return;
         };
-        if let Err(e) = svc.send_invitation(email, signup_url).await {
-            warn!(error = %e, "Failed to send invitation email");
+        match svc.send_invitation(email, signup_url).await {
+            Ok(()) => info!(%recipient, "Invitation email sent"),
+            Err(e) => warn!(%recipient, error = %e, "Failed to send invitation email"),
         }
     }
 }

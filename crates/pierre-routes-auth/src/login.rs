@@ -23,7 +23,7 @@ use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
 
 use pierre_auth::dto::auth::{
@@ -33,6 +33,7 @@ use pierre_auth::dto::auth::{
     UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
 };
 
+use pierre_email::ResendEmailService;
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
 use pierre_services::link_token::{generate_link_token, split_link_token};
@@ -143,9 +144,31 @@ async fn send_post_registration_email(
         return;
     };
 
+    let sign_in_url = resources.config.frontend_url.as_deref();
+    match send_registration_email(email_svc, email, response, sign_in_url).await {
+        Ok(()) => info!(
+            user_id = %response.user_id,
+            status = ?response.user_status,
+            "Registration confirmation email sent"
+        ),
+        Err(e) => warn!(
+            user_id = %response.user_id,
+            error = %e,
+            "Failed to send registration confirmation email — user not notified"
+        ),
+    }
+}
+
+/// Send the email matching the new account's status: "account approved" for
+/// one auto-approved at registration, "pending review" otherwise.
+async fn send_registration_email(
+    email_svc: &ResendEmailService,
+    email: &str,
+    response: &RegisterResponse,
+    sign_in_url: Option<&str>,
+) -> AppResult<()> {
     let display_name = response.display_name.as_deref();
-    let result = if response.user_status == UserStatus::Active {
-        let sign_in_url = resources.config.frontend_url.as_deref();
+    if response.user_status == UserStatus::Active {
         email_svc
             .send_registration_approved(email, display_name, sign_in_url)
             .await
@@ -153,14 +176,6 @@ async fn send_post_registration_email(
         email_svc
             .send_registration_pending(email, display_name)
             .await
-    };
-
-    if let Err(e) = result {
-        warn!(
-            user_id = %response.user_id,
-            error = %e,
-            "Failed to send registration confirmation email — user not notified"
-        );
     }
 }
 

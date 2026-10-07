@@ -372,6 +372,11 @@ async fn announce_approval(
         notifier
             .notify_user_approved(user_uuid, email, display_name)
             .await;
+    } else {
+        warn!(
+            recipient = %mask_email(email),
+            "No approval notifier wired — account-approved email not sent"
+        );
     }
 }
 
@@ -991,25 +996,13 @@ pub(crate) async fn handle_allow_email(
         .await;
     }
 
-    // Only an address with no account is invited. A pending one was just
-    // approved above and gets that announcement instead; an active or
-    // suspended account already exists, so a "create your account" link would
-    // be wrong.
-    let invited = request.send_invite
-        && matches!(
-            result.outcome,
-            AllowOutcome::Recorded | AllowOutcome::AlreadyAllowed
-        );
-    if invited {
-        if let Some(notifier) = ctx.approval_notifier.as_ref() {
-            notifier.notify_user_invited(&result.email).await;
-        } else {
-            warn!("No approval notifier wired — invitation email not sent");
-        }
-    }
+    let invited = send_invite_if_eligible(ctx, &result, request.send_invite).await;
+    let recipient = mask_email(&result.email);
 
     info!(
+        %recipient,
         outcome = ?result.outcome,
+        send_invite = request.send_invite,
         invited,
         token_id = %admin_token.token_id,
         "Pre-approval allow recorded"
@@ -1030,6 +1023,41 @@ pub(crate) async fn handle_allow_email(
         StatusCode::OK,
     )
     .into_response())
+}
+
+/// Email the sign-up link when it was asked for and the address has no
+/// account, logging which way it went. Returns whether the invite was handed
+/// to the notifier.
+///
+/// Only an address with no account is invited. A pending one was just
+/// approved by the allow and gets that announcement instead; an active or
+/// suspended account already exists, so a "create your account" link would be
+/// wrong.
+async fn send_invite_if_eligible(
+    ctx: &AdminApiContext,
+    result: &pre_approval::AllowResult,
+    send_invite: bool,
+) -> bool {
+    let invited = send_invite
+        && matches!(
+            result.outcome,
+            AllowOutcome::Recorded | AllowOutcome::AlreadyAllowed
+        );
+    let recipient = mask_email(&result.email);
+    if invited {
+        if let Some(notifier) = ctx.approval_notifier.as_ref() {
+            notifier.notify_user_invited(&result.email).await;
+        } else {
+            warn!(%recipient, "No approval notifier wired — invitation email not sent");
+        }
+    } else if send_invite {
+        info!(
+            %recipient,
+            outcome = ?result.outcome,
+            "Invitation requested but not sent: the address already has an account"
+        );
+    }
+    invited
 }
 
 /// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow.

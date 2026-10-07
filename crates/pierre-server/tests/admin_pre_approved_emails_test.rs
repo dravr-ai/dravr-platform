@@ -41,7 +41,11 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex, PoisonError};
+use tracing::subscriber::set_default;
+use tracing::Level;
+use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
 use uuid::Uuid;
 
 const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
@@ -608,6 +612,109 @@ async fn an_active_account_is_never_sent_a_sign_up_link() -> Result<()> {
         harness.invited().is_empty(),
         "no invite may be sent to an existing account: {:?}",
         harness.invited()
+    );
+    Ok(())
+}
+
+/// Every formatted log line, as JSON, captured for one test's thread.
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+impl LogBuffer {
+    fn lines(&self) -> Vec<Value> {
+        let bytes = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        String::from_utf8(bytes)
+            .expect("valid utf8")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_str::<Value>(l).expect("valid json line"))
+            .collect()
+    }
+
+    fn line_with_message(&self, message: &str) -> Option<Value> {
+        self.lines()
+            .into_iter()
+            .find(|l| l["fields"]["message"].as_str() == Some(message))
+    }
+}
+
+impl Write for LogBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for LogBuffer {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// The deployed server logs at INFO, so an invite that was asked for and not
+/// sent must say so at INFO — naming the recipient masked, never in full.
+#[tokio::test]
+async fn a_skipped_invite_is_logged_at_info_with_the_recipient_masked() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "already-here@example.com";
+    seed_user(&harness.repos, email, UserStatus::Active, UserRole::User).await?;
+
+    let buffer = LogBuffer::default();
+    let subscriber = log_fmt()
+        .json()
+        .with_max_level(Level::INFO)
+        .with_writer(buffer.clone())
+        .finish();
+    let (status, body) = {
+        let _guard = set_default(subscriber);
+        harness.allow_with_invite(&token, email).await
+    };
+    assert_eq!(status, 200, "allow must succeed: {body}");
+
+    let skipped = buffer
+        .line_with_message("Invitation requested but not sent: the address already has an account")
+        .expect("a requested-but-skipped invite must be logged");
+    assert_eq!(skipped["level"].as_str(), Some("INFO"), "{skipped}");
+    assert_eq!(
+        skipped["fields"]["recipient"].as_str(),
+        Some("a***@e***.com"),
+        "{skipped}"
+    );
+
+    let recorded = buffer
+        .line_with_message("Pre-approval allow recorded")
+        .expect("the allow itself must be logged");
+    assert_eq!(
+        recorded["fields"]["send_invite"].as_bool(),
+        Some(true),
+        "{recorded}"
+    );
+    assert_eq!(
+        recorded["fields"]["invited"].as_bool(),
+        Some(false),
+        "{recorded}"
+    );
+
+    let leaked: Vec<Value> = buffer
+        .lines()
+        .into_iter()
+        .filter(|l| l.to_string().contains(email))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "the full address must never reach the log: {leaked:?}"
     );
     Ok(())
 }

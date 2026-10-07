@@ -31,6 +31,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_LINK_SIGNUP_OFFER, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
 };
 use pierre_core::errors::AppError;
+use pierre_middleware::redaction::mask_email_for_display;
 use pierre_services::auth::AuthService;
 use pierre_services::messaging_broadcast::proactive_text;
 
@@ -118,18 +119,6 @@ fn hash_otp(code: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(code.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-/// Mask an email address for display (e.g., "j***@dravr.ai")
-fn mask_email(email: &str) -> String {
-    if let Some(at_pos) = email.find('@') {
-        if at_pos > 1 {
-            let first = &email[..1];
-            let domain = &email[at_pos..];
-            return format!("{first}***{domain}");
-        }
-    }
-    "***".to_owned()
 }
 
 /// Create a text reply message for OTP flow responses
@@ -403,7 +392,7 @@ async fn generate_and_send_otp(
         )));
     }
 
-    Ok(mask_email(email))
+    Ok(mask_email_for_display(email))
 }
 
 /// Handle the email collection step of the OTP flow
