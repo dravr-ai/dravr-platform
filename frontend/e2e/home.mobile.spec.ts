@@ -5,7 +5,7 @@
 // ABOUTME: Tapping an activity opens chat with the draft at this width too; whatever is topmost (page, banner, admin header) clears the notch
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, setupAndLoginAsAdmin } from './test-helpers';
+import { fulfillCalendar, setupDashboardMocks, loginToDashboard, setupAndLoginAsAdmin } from './test-helpers';
 
 /**
  * What `viewport-fit=cover` plus a black-translucent status bar hands an
@@ -162,6 +162,9 @@ async function mockHome(page: Page, providers = [provider('strava', 'Strava'), p
   await page.route('**/api/me/training-status', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STATUS) });
   });
+  await page.route('**/api/me/calendar**', (route) =>
+    fulfillCalendar(route, { today: TODAY, plan: PLAN, activities: ACTIVITIES }),
+  );
   await page.route('**/api/me/activities/recent**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -216,7 +219,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     const names = await nav.getByRole('button').evaluateAll((buttons) =>
       buttons.map((button) => button.getAttribute('aria-label')),
     );
-    expect(names).toEqual(['Home', 'Groups', 'Discover', 'Notifications', 'Open menu']);
+    expect(names).toEqual(['Home', 'Groups', 'Discover', 'Open menu']);
     await expect(nav.getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await openToday(page);
     await expect(page.getByTestId('home-today-session')).toContainText('Tempo run');
@@ -232,7 +235,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     const viewport = page.viewportSize();
     expect(viewport).not.toBeNull();
     await openToday(page);
-    const cells = page.getByTestId('home-week').getByRole('button');
+    const cells = page.getByTestId('home-week').getByRole('list').getByRole('button');
     await expect(cells).toHaveCount(7);
     for (const box of await cells.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))) {
       expect(box.left).toBeGreaterThanOrEqual(0);

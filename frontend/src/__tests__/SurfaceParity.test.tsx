@@ -327,7 +327,9 @@ describe('surface parity — web', () => {
     // rendered in English, as the sweep sees it, and each registry label is
     // pressed: it must be there, and it must lead to the surface it names.
     const labelled = USER_SURFACES.filter((s) => s.webNav !== null);
-    expect(labelled.length).toBeGreaterThanOrEqual(5);
+    // Home, Groups, Discover and Usage; Notifications is the header bell's
+    // sheet, not a rail destination (carnet#820).
+    expect(labelled.length).toBeGreaterThanOrEqual(4);
 
     await renderDashboardAt('', 'user');
     const rail = screen.getByRole('list');

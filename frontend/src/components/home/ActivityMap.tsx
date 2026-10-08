@@ -7,9 +7,11 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { HomeActivity } from '@pierre/shared-types';
+import { sportIsOnFoot } from '@pierre/shared-constants';
 import { EmptyState } from '../ui/EmptyState';
 import RouteView from '../chat/RouteView';
 import { useActivityRoute } from '../../hooks/useHome';
+import { FEATURE_KEYS, useFeatureFlags } from '../../hooks/useFeatureFlags';
 
 /** The frame the map fills, holding a line of text while there is no map in it. */
 function MapNote({ children, compact }: { children: ReactNode; compact: boolean }) {
@@ -29,15 +31,20 @@ function MapNote({ children, compact }: { children: ReactNode; compact: boolean 
  * recording held no GPS, so it costs no request. Every other activity asks
  * the route endpoint once — its route may never have been read, and the
  * answer is what says whether there is a track — and draws what comes back
- * with the chat's own map component, unchanged. `burst` marks Home's map, one
- * of its page's burst of route reads.
+ * with the chat's own map component. `burst` marks Home's map, one of its
+ * page's burst of route reads.
+ *
+ * A run, trail run, walk or hike is drawn with its start, finish and distance
+ * marks — the beta the `route_km_markers` flag arms per athlete. Counted in
+ * kilometres: the platform holds no unit preference, and every distance it
+ * prints is metric.
  */
 export function ActivityMap({
   activity,
   burst = false,
   compact = false,
 }: {
-  activity: Pick<HomeActivity, 'provider' | 'id' | 'has_gps'>;
+  activity: Pick<HomeActivity, 'provider' | 'id' | 'has_gps' | 'sport_type'>;
   /** The map is Home's, read in the page's burst of route reads; the activity view's is not. */
   burst?: boolean;
   /** A shorter frame, for Home's Today panel beside the conversation. */
@@ -45,6 +52,9 @@ export function ActivityMap({
 }) {
   const { t } = useTranslation();
   const route = useActivityRoute(activity.provider, activity.id, activity.has_gps, { burst });
+  const { flags } = useFeatureFlags();
+  // LIMITATION(registre#835): markerUnit is metric for everyone — no per-user unit preference exists.
+  const markerUnit = flags[FEATURE_KEYS.routeKmMarkers] && sportIsOnFoot(activity.sport_type) ? 'metric' : null;
 
   if (!activity.has_gps) {
     return <p className="py-3 text-sm text-on-surface-variant">{t('chat.routeNoTrack')}</p>;
@@ -70,7 +80,7 @@ export function ActivityMap({
     );
   }
   if (route.data.route !== null) {
-    return <RouteView view={route.data.route} compact={compact} />;
+    return <RouteView view={route.data.route} compact={compact} markerUnit={markerUnit} />;
   }
   return (
     <p className="py-3 text-sm text-on-surface-variant">

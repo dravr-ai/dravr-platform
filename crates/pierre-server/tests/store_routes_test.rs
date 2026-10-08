@@ -16,7 +16,7 @@ use common::{
 };
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_core::models::{CoachingPersona, TenantId};
+use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{
     AgentCategory, AgentVisibility, CreateSystemAgentRequest, PublishStatus,
@@ -1442,7 +1442,7 @@ async fn test_store_shows_coach_facing_agents_to_coaches_only() {
         .common
         .repos
         .users
-        .set_coaching_persona(user_id, CoachingPersona::Coach)
+        .set_coaches_others(user_id, true)
         .await
         .unwrap();
     let mut coach_browse = browse_ids(router.clone(), auth_token.clone()).await;

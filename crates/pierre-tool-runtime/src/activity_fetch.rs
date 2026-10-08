@@ -320,7 +320,7 @@ pub async fn serve_without_primary(
 
 /// Record that `provider` just served this athlete's data.
 ///
-/// `resolve_most_recent` orders on `last_used_at` ahead of `connected_at`, so
+/// The election orders on `last_used_at` ahead of `connected_at`, so
 /// this write is what makes the resolver mean "the backend the athlete is
 /// actually training on" instead of "the connection added last". Called at the
 /// serve chokepoint for the ELECTED provider only — touching every connection a

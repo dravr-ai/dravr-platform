@@ -584,6 +584,28 @@ async fn an_api_key_reads_home_without_the_relay_and_a_session_reads_all_of_it()
     );
     assert!(text.contains("Open Long Ride"), "{text}");
 
+    // The weekly volume sums the same rows: the relay's ride and its distance
+    // count in the athlete's app, and are dropped before the sum over a key.
+    let rides = |body: &Value| -> (u64, f64) {
+        body["weeks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|week| week["sports"].as_array().unwrap().iter())
+            .fold((0, 0.0), |(count, metres), sport| {
+                (
+                    count + sport["activities"].as_u64().unwrap(),
+                    metres + sport["distance_meters"].as_f64().unwrap(),
+                )
+            })
+    };
+    let (status, own_volume) = get(&app, "/api/me/training-volume", &session).await;
+    assert_eq!(status, StatusCode::OK, "{own_volume}");
+    assert_eq!(rides(&own_volume), (2, 42_000.0), "{own_volume}");
+    let (status, external_volume) = get(&app, "/api/me/training-volume", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external_volume}");
+    assert_eq!(rides(&external_volume), (1, 0.0), "{external_volume}");
+
     let detail = format!("/api/me/activities/{RELAY}/n-only");
     let (status, refused) = get(&app, &detail, &key).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");

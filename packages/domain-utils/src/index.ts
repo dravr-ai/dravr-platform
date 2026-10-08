@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/domain-utils package
-// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches and the form trend
+// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches, the form trend and the weekly volume
 
 // Formatting utilities
 export {
@@ -36,6 +36,21 @@ export {
   nearestTrendIndex,
   projectFormTrend,
 } from './form-trend';
+
+// Weekly training volume (sports, a week's totals, the trend's bars)
+export {
+  type SportVolumeInput,
+  type VolumeBar,
+  type VolumeMetric,
+  type VolumeTotals,
+  type VolumeWeekInput,
+  metricValue,
+  projectVolumeBars,
+  volumeBarAt,
+  volumeMetric,
+  volumeSports,
+  weekTotals,
+} from './training-volume';
 
 // Category utilities
 export {

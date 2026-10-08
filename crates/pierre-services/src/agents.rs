@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::{Agent, AgentPrerequisites};
-use pierre_core::models::{CoachingPersona, SportProfile};
+use pierre_core::models::SportProfile;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -511,19 +511,16 @@ pub fn capitalize_provider(provider: &str) -> String {
 /// Whether this user may see coach-facing agents (tagged
 /// [`Agent::COACH_TOOL_TAG`]).
 ///
-/// Only users operating in the [`CoachingPersona::Coach`] mode — professional
-/// coaches running their athletes — get them. Athletes never see, find, or get
-/// recommended a coach-facing agent, on any surface that lists the catalogue.
+/// Only users who coach others (`users.coaches_others`, the onboarding role
+/// answer) get them. Athletes never see, find, or get recommended a
+/// coach-facing agent, on any surface that lists the catalogue. The reply
+/// style (`coaching_persona`) plays no part: it is a voice, not a role
+/// (carnet#827).
 ///
 /// Fails closed: any user-lookup error resolves to `false`, so a transient
 /// failure hides coach tools rather than leaking them to an athlete.
 pub async fn user_sees_coach_tools(users: &dyn UserRepository, user_id: Uuid) -> bool {
-    users
-        .get_global(user_id)
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|user| user.coaching_persona == CoachingPersona::Coach)
+    users.coaches_others(user_id).await.unwrap_or(false)
 }
 
 /// [`user_sees_coach_tools`] as the audience a catalogue read takes.

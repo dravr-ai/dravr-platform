@@ -11,15 +11,18 @@ import type { ReactTestInstance } from 'react-test-renderer';
 
 import { installHttpStub, type HttpStub, type StubRoutes } from './helpers/httpStub';
 import {
+  CALENDAR_URL,
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
   STATUS_RESPONSE,
+  VOLUME_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_ONLY_FLAGGED,
   PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
+  calendarAnswer,
 } from './helpers/homeFixtures';
 
 const mockPush = jest.fn();
@@ -68,6 +71,8 @@ function server(providers: typeof PROVIDERS_CONNECTED): StubRoutes {
     'GET /api/notifications/unread-count': { data: { unread_count: 0 } },
     'GET /api/me/training-plan?locale=en': { data: PLAN_RESPONSE },
     'GET /api/me/training-status': { data: STATUS_RESPONSE },
+    'GET /api/me/training-volume': { data: VOLUME_RESPONSE },
+    [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
     'GET /api/me/activities/recent': { data: recentResponse() },
     'GET /api/me/activities/strava/9001/route?burst=true': { data: LATEST_ROUTE_RESPONSE },
     'GET /api/me/activities/intervals_icu/i77/route?burst=true': { data: TRAIL_ROUTE_RESPONSE },

@@ -11,6 +11,7 @@ import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { chatApi, storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
 import { SearchField, TabHeader } from './ui';
+import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
@@ -404,6 +405,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            <NotificationBell onNavigate={onNavigate} />
           </>
         }
       />

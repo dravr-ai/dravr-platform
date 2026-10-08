@@ -9,17 +9,20 @@ import { HOME_STALE_REFETCH_DELAYS_MS, QUERY_KEYS } from '@pierre/shared-constan
 
 import { installHttpStub, type HttpStub, type StubRoutes } from './helpers/httpStub';
 import {
+  CALENDAR_URL,
   ACTIVITIES,
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
   STATUS_RESPONSE,
+  VOLUME_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
   PROVIDERS_ONLY_FLAGGED,
   PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
+  calendarAnswer,
 } from './helpers/homeFixtures';
 
 const mockPush = jest.fn();
@@ -50,6 +53,7 @@ import { HOME_ROUTE } from '../../src/navigation/routes';
 
 const PLAN_URL = 'GET /api/me/training-plan?locale=en';
 const STATUS_URL = 'GET /api/me/training-status';
+const VOLUME_URL = 'GET /api/me/training-volume';
 const RECENT_URL = 'GET /api/me/activities/recent';
 // Home's route reads are one burst: each carries the `burst` flag the server
 // reads to hand its provider turn to the newest activity first.
@@ -89,11 +93,15 @@ function homeServer(overrides: StubRoutes = {}): StubRoutes {
   return {
     [PLAN_URL]: { data: PLAN_RESPONSE },
     [STATUS_URL]: { data: STATUS_RESPONSE },
+    [VOLUME_URL]: { data: VOLUME_RESPONSE },
     [RECENT_URL]: { data: recentResponse() },
     [LATEST_ROUTE_URL]: { data: LATEST_ROUTE_RESPONSE },
     [TRAIL_ROUTE_URL]: { data: TRAIL_ROUTE_RESPONSE },
     [GYM_ROUTE_URL]: { data: NO_GPS_ROUTE_RESPONSE },
     [PROVIDERS_URL]: { data: PROVIDERS_CONNECTED },
+    [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
+    // The route maps ask whether distance markers are armed (carnet#807); off here.
+    'GET /api/me/features': { data: { flags: { route_km_markers: false }, known: [] } },
     ...overrides,
   };
 }
@@ -149,7 +157,7 @@ describe('the Home tab over the wire', () => {
 
     expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(8));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(11));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
@@ -161,8 +169,11 @@ describe('the Home tab over the wire', () => {
         '/api/me/activities/recent',
         '/api/me/activities/strava/8998/route?burst=true',
         '/api/me/activities/strava/9001/route?burst=true',
+        '/api/me/calendar?from=2026-09-21&to=2026-09-27',
+        '/api/me/features',
         '/api/me/training-plan?locale=en',
         '/api/me/training-status',
+        '/api/me/training-volume',
         '/api/providers',
       ].sort(),
     );

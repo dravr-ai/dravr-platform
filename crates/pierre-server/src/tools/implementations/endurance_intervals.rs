@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -90,11 +91,13 @@ async fn fetch_activity(
 ) -> AppResult<Activity> {
     let provider_name = if let Some(p) = default_provider() {
         p
-    } else if let Some(conn) = resources
-        .repos()
-        .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
-        .await?
+    } else if let Some(conn) = resolve_activity_source(
+        resources.repos().provider_connections.as_ref(),
+        resources.provider_registry(),
+        user_id,
+        Some(tenant_id),
+    )
+    .await?
     {
         conn.provider
     } else {

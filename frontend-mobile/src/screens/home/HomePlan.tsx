@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home plan sections — today's session enlarged with tomorrow under it, then the Monday-to-Sunday strip and next week
-// ABOUTME: A rest day and a day the plan never reached read differently; a tap on a day opens a chat drafted about it
+// ABOUTME: The Home plan section — today's session enlarged with tomorrow under it; the week strip is HomeWeek's
+// ABOUTME: A rest day and a day the plan never reached read differently; a tap on today opens a chat drafted about it
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import {
@@ -15,42 +15,23 @@ import {
   type PlanDay,
   type PlanDayLookup,
   type PlanPhase,
-  type PlanWeek,
   type TrainingPlanResponse,
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { Button, EmptyState, Section } from '../../components/ui';
+import { EmptyState, Section } from '../../components/ui';
+import { useHomePreferences } from '../../hooks/useHome';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { DayRow, Figure, WeekHeading } from '../chat/WorkoutPlanCard';
-import {
-  civilDayOfMonth,
-  civilWeekdayLong,
-  civilWeekdayNarrow,
-  planDayDraft,
-  planDayRouteDraft,
-  sportLabel,
-  type Translate,
-} from './homeFormat';
-
-const DAYS_PER_WEEK = 7;
-
-/** One cell of the strip: a date and what the plan holds on it. */
-interface StripDay {
-  date: string;
-  lookup: PlanDayLookup;
-}
+import { Figure } from '../chat/WorkoutPlanCard';
+import { planDayDraft, planDayRouteDraft, sportLabel } from './homeFormat';
 
 /** Everything the plan sections read, derived once from the plan and the athlete's today. */
 interface HomeCalendar {
   today: string;
   todayLookup: PlanDayLookup;
   tomorrowLookup: PlanDayLookup;
-  strip: StripDay[];
   /** The phase covering today and which of its weeks today falls in, when the plan has one. */
   phaseWeek: { phase: PlanPhase; week: number } | null;
-  /** The shown week after the one covering today, for the "Next week" line. */
-  nextWeek: { week: PlanWeek; index: number; currentIndex: number } | null;
 }
 
 /** The phase the server flagged current, else the one whose dates cover today. */
@@ -74,24 +55,14 @@ function phaseOn(plan: WorkoutPlan, today: string): { phase: PlanPhase; week: nu
  *   caller shows as the plan failing to load rather than as a guessed week.
  */
 export function buildHomeCalendar(plan: WorkoutPlan, today: string): HomeCalendar {
-  const monday = mondayOf(today);
-  const strip = Array.from({ length: DAYS_PER_WEEK }, (_, offset) => {
-    const date = addCivilDays(monday, offset);
-    return { date, lookup: planDayOn(plan, date) };
-  });
-
-  const byCurrent = plan.weeks.findIndex((week) => week.current);
-  const currentIndex =
-    byCurrent >= 0 ? byCurrent : plan.weeks.findIndex((week) => week.week_start === monday);
-  const next = currentIndex >= 0 ? plan.weeks[currentIndex + 1] : undefined;
-
+  // The week's Monday is checked here too: a today the calendar cannot place
+  // is the plan failing to load, never a guessed day.
+  mondayOf(today);
   return {
     today,
     todayLookup: planDayOn(plan, today),
     tomorrowLookup: planDayOn(plan, addCivilDays(today, 1)),
-    strip,
     phaseWeek: phaseOn(plan, today),
-    nextWeek: next === undefined ? null : { week: next, index: currentIndex + 1, currentIndex },
   };
 }
 
@@ -230,170 +201,44 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
 }
 
 /**
- * The mark under a strip cell's date: a filled bar for a session, a hollow
- * one for rest, nothing where the plan is silent. Filled against hollow, not
- * one colour against another, so the difference survives any colour vision;
- * the cell's spoken label says it in words.
- */
-function DayMark({ lookup }: { lookup: PlanDayLookup }) {
-  switch (lookup.kind) {
-    case 'session':
-      return <View className="h-1 w-4 rounded-sm bg-primary" testID="home-week-mark-session" />;
-    case 'rest':
-      return <View className="h-1 w-4 rounded-sm border border-outline" testID="home-week-mark-rest" />;
-    case 'uncovered':
-      return <View className="h-1 w-4" />;
-  }
-}
-
-/** What a strip cell is, in words, for a screen reader that cannot see the mark. */
-function stripCellLabel(cell: StripDay, language: string, t: Translate): string {
-  const when = `${civilWeekdayLong(cell.date, language)} ${civilDayOfMonth(cell.date)}`;
-  switch (cell.lookup.kind) {
-    case 'session':
-      return `${when}, ${cell.lookup.day.workout}`;
-    case 'rest':
-      return `${when}, ${t('chat.restDay')}`;
-    case 'uncovered':
-      return `${when}, ${t('home.plan.notCovered')}`;
-  }
-}
-
-/**
- * Monday to Sunday of the week covering today, today ringed. A tap selects a
- * day and shows its session — steps and fuel included — under the strip; a
- * tap on that session opens a chat about it.
- */
-function WeekStrip({ calendar, openDraft }: { calendar: HomeCalendar; openDraft: OpenDraft }) {
-  const { t, language } = useTranslation();
-  const [selected, setSelected] = useState(calendar.today);
-  const selectedCell = calendar.strip.find((cell) => cell.date === selected) ?? calendar.strip[0];
-
-  return (
-    <View className="px-4">
-      <View className="flex-row" testID="home-week-strip">
-        {calendar.strip.map((cell) => {
-          const isToday = cell.date === calendar.today;
-          const isSelected = cell.date === selectedCell.date;
-          return (
-            <Pressable
-              key={cell.date}
-              onPress={() => setSelected(cell.date)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
-              accessibilityLabel={stripCellLabel(cell, language, t)}
-              className={`flex-1 items-center py-2 min-h-11 rounded-lg ${
-                isSelected ? 'bg-primary-container' : ''
-              } ${isToday ? 'border border-primary' : ''}`}
-              testID={`home-week-day-${cell.date}`}
-            >
-              <Text className="text-xs text-text-secondary">{civilWeekdayNarrow(cell.date, language)}</Text>
-              <Text
-                className={`text-sm font-mono tabular-nums ${
-                  cell.lookup.kind === 'uncovered' ? 'text-text-tertiary' : 'text-text-primary'
-                }`}
-              >
-                {civilDayOfMonth(cell.date)}
-              </Text>
-              <View className="mt-1">
-                <DayMark lookup={cell.lookup} />
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View className="mt-2" testID="home-week-detail">
-        {selectedCell.lookup.kind === 'uncovered' ? (
-          <Text className="text-sm text-text-secondary py-2">
-            <Figure>{selectedCell.date}</Figure> {t('home.plan.notCovered')}
-          </Text>
-        ) : (
-          <PlanDayButton day={selectedCell.lookup.day} openDraft={openDraft} />
-        )}
-      </View>
-    </View>
-  );
-}
-
-/** A plan day drawn the way the chat card draws it, pressable into a drafted chat about it. */
-function PlanDayButton({ day, openDraft }: { day: PlanDay; openDraft: OpenDraft }) {
-  const { t, language } = useTranslation();
-  return (
-    <Pressable
-      onPress={() => openDraft(planDayDraft(t, day, language))}
-      accessibilityRole="button"
-      className="min-h-11 pb-2"
-      testID={`home-plan-day-${day.date}`}
-    >
-      <DayRow day={day} />
-    </Pressable>
-  );
-}
-
-/**
- * The next shown week: its heading with the focus the plan gave it, folded
- * by default so Home stays about today. Opening it lists its days, each one a
- * way into a chat about it.
- */
-function NextWeek({
-  next,
-  openDraft,
-}: {
-  next: NonNullable<HomeCalendar['nextWeek']>;
-  openDraft: OpenDraft;
-}) {
-  const colors = useThemeColors();
-  const [open, setOpen] = useState(false);
-  return (
-    <View className="px-4 mt-3">
-      <Pressable
-        onPress={() => setOpen((value) => !value)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        className="min-h-11 flex-row items-center"
-        testID="home-next-week"
-      >
-        <View className="flex-1">
-          <WeekHeading week={next.week} index={next.index} currentIndex={next.currentIndex} />
-        </View>
-        <Feather
-          name={open ? 'chevron-down' : 'chevron-right'}
-          size={18}
-          color={colors.text.secondary}
-          style={{ marginLeft: spacing.sm }}
-        />
-      </Pressable>
-      {open ? (
-        <View testID="home-next-week-days">
-          {next.week.days.map((day) => (
-            <PlanDayButton key={day.date} day={day} openDraft={openDraft} />
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-/**
- * No active plan: say so, and offer the one thing to do about it. Home is
- * built around the plan, so this is the page's one call to action and the
- * one filled button the view carries (the approved Home layout), where a
- * list's empty state is a sentence with an ink link.
+ * No active plan: say so, and offer to build one as a quiet ink link beside
+ * a way to set the offer aside — not every athlete wants a plan, and a
+ * suggestion they cannot get rid of becomes the page's loudest thing
+ * (carnet#820). The choice is stored on the server, so the web honours it
+ * too, and Settings brings it back. Set aside, the section keeps its one
+ * plain sentence; while the choice is unknown, the links wait for it.
  */
 function EmptyPlan({ openDraft }: { openDraft: OpenDraft }) {
   const { t } = useTranslation();
+  const home = useHomePreferences();
+  const preferences = home.preferences ?? (home.isError ? { plan_suggestion_hidden: false } : null);
   return (
     <View className="px-4" testID="home-plan-empty">
-      <Text className="text-lg font-semibold text-text-primary">{t('home.plan.emptyTitle')}</Text>
-      <Text className="mt-1 text-sm text-text-secondary">{t('home.plan.emptyBody')}</Text>
-      <View className="mt-4 items-start">
-        <Button
-          title={t('home.plan.buildCta')}
-          onPress={() => openDraft(t('home.plan.buildDraft'))}
-          testID="home-plan-build"
-        />
-      </View>
+      <Text className="text-sm font-medium text-text-primary">{t('home.plan.emptyTitle')}</Text>
+      {preferences !== null && !preferences.plan_suggestion_hidden ? (
+        <>
+          <Text className="mt-1 text-sm text-text-secondary">{t('home.plan.emptyBody')}</Text>
+          <View className="mt-1 flex-row flex-wrap items-center">
+            <Text
+              className="min-h-11 py-3 pr-5 text-sm font-medium text-primary"
+              onPress={() => openDraft(t('home.plan.buildDraft'))}
+              accessibilityRole="button"
+              testID="home-plan-build"
+            >
+              {t('home.plan.buildCta')}
+            </Text>
+            <Text
+              className="min-h-11 py-3 text-sm text-text-secondary"
+              onPress={() => home.update({ ...preferences, plan_suggestion_hidden: true })}
+              accessibilityRole="button"
+              accessibilityLabel={t('home.plan.hideSuggestionAria')}
+              testID="home-plan-hide"
+            >
+              {t('home.plan.hideSuggestion')}
+            </Text>
+          </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -460,8 +305,6 @@ export function HomePlan({ response, isError, onRetry, openDraft }: HomePlanProp
     today = <TodayPlan calendar={calendar} openDraft={openDraft} />;
   }
 
-  const week = calendar !== null && !(calendar instanceof RangeError) ? calendar : null;
-
   return (
     <>
       <Section title={t('chat.dayToday')} testID="home-section-today">
@@ -475,12 +318,6 @@ export function HomePlan({ response, isError, onRetry, openDraft }: HomePlanProp
           </EmptyState>
         ) : null}
       </Section>
-      {week !== null ? (
-        <Section title={t('plan.card.thisWeek')} testID="home-section-week">
-          <WeekStrip key={week.today} calendar={week} openDraft={openDraft} />
-          {week.nextWeek !== null ? <NextWeek next={week.nextWeek} openDraft={openDraft} /> : null}
-        </Section>
-      ) : null}
     </>
   );
 }

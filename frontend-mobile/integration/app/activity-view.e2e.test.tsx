@@ -8,14 +8,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { installHttpStub, type HttpStub, type StubRoutes } from './helpers/httpStub';
 import { PROSE_OPENING, assistantTurn } from './helpers/chatFixtures';
 import {
+  CALENDAR_URL,
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
   STATUS_RESPONSE,
+  VOLUME_RESPONSE,
   PROVIDERS_CONNECTED,
   TEMPO_DETAIL_RESPONSE,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
+  calendarAnswer,
 } from './helpers/homeFixtures';
 
 const mockPush = jest.fn();
@@ -54,6 +57,8 @@ function server(overrides: StubRoutes = {}): StubRoutes {
   return {
     'GET /api/me/training-plan?locale=en': { data: PLAN_RESPONSE },
     'GET /api/me/training-status': { data: STATUS_RESPONSE },
+    'GET /api/me/training-volume': { data: VOLUME_RESPONSE },
+    [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
     'GET /api/me/activities/recent': { data: recentResponse() },
     'GET /api/me/activities/strava/9001/route': { data: LATEST_ROUTE_RESPONSE },
     'GET /api/me/activities/intervals_icu/i77/route': { data: TRAIL_ROUTE_RESPONSE },

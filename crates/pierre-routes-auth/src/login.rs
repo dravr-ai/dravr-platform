@@ -29,8 +29,9 @@ use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SU
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
     ForgotPasswordRequest, ForgotPasswordResponse, LogoutRequest, RegisterRequest,
-    RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateLocaleRequest,
-    UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
+    RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateCoachingRoleRequest,
+    UpdateLocaleRequest, UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo,
+    UserStatsResponse,
 };
 
 use pierre_email::ResendEmailService;
@@ -976,12 +977,53 @@ pub async fn handle_update_coaching_persona(
         .users
         .set_coaching_persona(user_id, persona)
         .await?;
+    // The style never decides the role (carnet#827): the Coach style is a
+    // voice, and the role is recorded only by `PUT /api/user/coaching-role`.
 
     info!(user_id = %user_id, persona = persona.as_str(), "User coaching persona updated");
 
     Ok((
         StatusCode::OK,
         Json(json!({ "message": "Coaching persona updated", "persona": persona.as_str() })),
+    )
+        .into_response())
+}
+
+/// Handle the coaching-role update for authenticated users
+/// (`PUT /api/user/coaching-role`).
+///
+/// Records the onboarding profile-type answer — whether the user coaches
+/// others — and nothing else: the reply style in `coaching_persona` is left
+/// as it is, so a coach talking about their own training keeps their own
+/// voice (carnet#827). The role puts the group step in the user's onboarding
+/// and the coach-facing agents in their catalogue; it grants no coach access
+/// to any group (`manages_roster`, ADR-018).
+pub async fn handle_update_coaching_role(
+    State(resources): State<AuthRoutesContext>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateCoachingRoleRequest>,
+) -> Result<Response, AppError> {
+    let auth = resources
+        .auth_middleware
+        .authenticate_request_with_headers(&headers)
+        .await?;
+    let user_id = auth.user_id;
+
+    resources
+        .repos
+        .users
+        .set_coaches_others(user_id, request.coaches_others)
+        .await?;
+
+    info!(
+        user_id = %user_id,
+        coaches_others = request.coaches_others,
+        "User coaching role updated"
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "coaches_others": request.coaches_others })),
     )
         .into_response())
 }

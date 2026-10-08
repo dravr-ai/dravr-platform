@@ -613,7 +613,7 @@ impl ProviderRegistry {
     /// `coros` sources answer to the scraper that reads them (carnet#767).
     /// Several readers of one service are first in name order; the registry
     /// test pins that they declare the same terms.
-    fn terms_descriptor(&self, name: &str) -> Option<&dyn ProviderDescriptor> {
+    pub(crate) fn terms_descriptor(&self, name: &str) -> Option<&dyn ProviderDescriptor> {
         if let Some(descriptor) = self.descriptors.get(name) {
             return Some(descriptor.as_ref());
         }

@@ -64,7 +64,11 @@ BASELINE_WEB_LARGE_TEXT=64
 # literals by the same out-of-scope call Phase 2 made.
 BASELINE_MOBILE_HEX_LITERALS=0
 BASELINE_MOBILE_CARD_SITES=9
-BASELINE_MOBILE_ROUNDED_FULL=26
+# 28: the route map's start dot and distance-mark disc (carnet#807) — a dot
+# and a badge on the radius ladder's own `full` step.
+# 29: the Home week strip's done dot under a day that holds a workout
+# (carnet#708) — a dot, the same `full` step.
+BASELINE_MOBILE_ROUNDED_FULL=29
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

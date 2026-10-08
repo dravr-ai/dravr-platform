@@ -2,14 +2,17 @@
 // ABOUTME: Mirrors the /api/me/... contract: every key present, None as null, the polyline already trimmed by the server
 
 import type { RouteView } from '@pierre/scene-types';
+import { addCivilDays } from '@pierre/shared-types';
 import type {
   ActivityDetailResponse,
   ActivityRouteResponse,
+  CalendarResponse,
   HomeActivity,
   PlanDay,
   RecentActivitiesResponse,
   TrainingPlanResponse,
   TrainingStatusResponse,
+  TrainingVolumeResponse,
   WorkoutPlan,
 } from '@pierre/shared-types';
 
@@ -111,6 +114,28 @@ export const THIN_STATUS_RESPONSE: TrainingStatusResponse = {
   trend: [],
   load_ratio: null,
   recovery_days: null,
+};
+
+/**
+ * Three weeks of volume ending with the week of {@link TODAY}: runs, a quiet
+ * week, then a run week with a ride.
+ */
+export const VOLUME_RESPONSE: TrainingVolumeResponse = {
+  today: TODAY,
+  weeks: [
+    {
+      week_start: '2026-09-07',
+      sports: [{ sport_type: 'run', activities: 3, distance_meters: 21_000, duration_seconds: 6_300, elevation_gain_meters: 60 }],
+    },
+    { week_start: '2026-09-14', sports: [] },
+    {
+      week_start: '2026-09-21',
+      sports: [
+        { sport_type: 'ride', activities: 1, distance_meters: 40_000, duration_seconds: 7_230, elevation_gain_meters: 450 },
+        { sport_type: 'run', activities: 2, distance_meters: 15_000, duration_seconds: 5_400, elevation_gain_meters: 80 },
+      ],
+    },
+  ],
 };
 
 /** Google's reference polyline: (38.5, -120.2) → (40.7, -120.95) → (43.252, -126.453). */
@@ -329,3 +354,40 @@ export const TEMPO_DETAIL_RESPONSE: ActivityDetailResponse = {
   laps: [],
   conversation_id: null,
 };
+
+/** The first day the server's activity cache holds in full in these specs. */
+export const HISTORY_START = '2026-09-09';
+
+/** The calendar read of the strip's own week, as the screen asks for it on arrival. */
+export const CALENDAR_URL = 'GET /api/me/calendar?from=2026-09-21&to=2026-09-27';
+
+/**
+ * The calendar answer for `from..=to`, as the server gives it with `plan`
+ * active (null for none) and `activities` cached: each workout on the day of
+ * its start — mid-afternoon UTC, the same day in any zone — and the plan
+ * weeks overlapping the span.
+ */
+export function calendarAnswer(
+  from: string,
+  to: string,
+  {
+    plan = PLAN,
+    activities = ACTIVITIES,
+    historyStart = HISTORY_START,
+  }: { plan?: WorkoutPlan | null; activities?: HomeActivity[]; historyStart?: string } = {},
+): CalendarResponse {
+  return {
+    today: TODAY,
+    from,
+    to,
+    history_start: historyStart,
+    activities: activities
+      .map((activity) => ({ date: activity.start_date.slice(0, 10), activity }))
+      .filter((entry) => entry.date >= from && entry.date <= to && entry.date >= historyStart)
+      .sort((a, b) => a.activity.start_date.localeCompare(b.activity.start_date)),
+    plan_weeks:
+      plan === null
+        ? null
+        : plan.weeks.filter((week) => week.week_start <= to && addCivilDays(week.week_start, 6) >= from),
+  };
+}

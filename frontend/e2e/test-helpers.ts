@@ -4,7 +4,7 @@
 // ABOUTME: Shared test helper functions for Playwright E2E tests.
 // ABOUTME: Provides reusable authentication mocks and login helpers.
 
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 interface UserOptions {
   role?: 'user' | 'admin' | 'super_admin';
@@ -97,6 +97,23 @@ export async function applyTestStubs(page: Page) {
       }),
     });
   });
+  await page.route('**/api/me/training-volume', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ today: new Date().toISOString().slice(0, 10), weeks: [] }),
+    });
+  });
+  // Home's stored choices (carnet#820): the plan suggestion is offered; a
+  // PUT answers with what it stored.
+  await page.route('**/api/me/home-preferences', async (route) => {
+    const body = route.request().method() === 'PUT' ? route.request().postData() : null;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: body ?? JSON.stringify({ plan_suggestion_hidden: false }),
+    });
+  });
   await page.route('**/api/me/activities/recent**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -104,6 +121,9 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ activities: [], as_of: null, stale: false }),
     });
   });
+  await page.route('**/api/me/calendar**', (route) =>
+    fulfillCalendar(route, { today: new Date().toISOString().slice(0, 10), plan: null }),
+  );
   await page.route('**/api/me/activities/*/*/route', async (route) => {
     await route.fulfill({
       status: 200,
@@ -121,6 +141,61 @@ export async function applyTestStubs(page: Page) {
       contentType: 'application/json',
       body: JSON.stringify({ needs_provider_connection: false }),
     });
+  });
+}
+
+/** What a mocked `GET /api/me/calendar` answers from. */
+export interface CalendarMock {
+  today: string;
+  /** The plan card the spec mocks (anything with `weeks`), or null for no plan. */
+  plan: unknown;
+  /** Home rows the spec mocks; each is placed on the UTC day of its start. */
+  activities?: unknown;
+  /** The first day the mocked cache holds in full; 180 days before today when omitted. */
+  historyStart?: string;
+}
+
+function civilDaysAfter(date: string, days: number): string {
+  const ms = Date.parse(`${date}T00:00:00Z`) + days * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function startedRows(value: unknown): Array<{ start_date: string }> {
+  return Array.isArray(value)
+    ? value.filter((row): row is { start_date: string } => typeof row?.start_date === 'string')
+    : [];
+}
+
+function planWeeksOf(plan: unknown): Array<{ week_start: string }> | null {
+  if (typeof plan !== 'object' || plan === null || !Array.isArray((plan as { weeks?: unknown }).weeks)) return null;
+  return (plan as { weeks: unknown[] }).weeks.filter(
+    (week): week is { week_start: string } => typeof (week as { week_start?: unknown })?.week_start === 'string',
+  );
+}
+
+/**
+ * Answer a calendar read the way the server does from the spec's own plan
+ * and activity mocks: the activities on the asked days, oldest first, and the
+ * plan weeks overlapping them — so the week strip and the month sheet show
+ * what the spec's Today and activity list show. The fixtures start their
+ * activities away from midnight, so the UTC day is the athlete's day.
+ */
+export async function fulfillCalendar(route: Route, mock: CalendarMock) {
+  const url = new URL(route.request().url());
+  const from = url.searchParams.get('from') ?? mock.today;
+  const to = url.searchParams.get('to') ?? mock.today;
+  const historyStart = mock.historyStart ?? civilDaysAfter(mock.today, -180);
+  const activities = startedRows(mock.activities)
+    .map((activity) => ({ date: activity.start_date.slice(0, 10), activity }))
+    .filter((entry) => entry.date >= from && entry.date <= to && entry.date >= historyStart)
+    .sort((a, b) => a.activity.start_date.localeCompare(b.activity.start_date));
+  const planWeeks =
+    planWeeksOf(mock.plan)?.filter((week) => week.week_start <= to && civilDaysAfter(week.week_start, 6) >= from) ??
+    null;
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ today: mock.today, from, to, history_start: historyStart, activities, plan_weeks: planWeeks }),
   });
 }
 

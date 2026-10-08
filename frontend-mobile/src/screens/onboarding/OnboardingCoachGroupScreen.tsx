@@ -1,5 +1,5 @@
 // ABOUTME: Onboarding step (mobile) — a coach names their group, picks the agent its athletes talk to, leaves with the invite
-// ABOUTME: Mirrors the web OnboardingCoachGroup; coach access is never granted here (ADR-018)
+// ABOUTME: Mirrors the web OnboardingCoachGroup; coach access is never granted here (ADR-018), only requested in one tap
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,7 +22,7 @@ import { chatApi, coachesApi, groupsApi, userApi } from '../../services/api';
 import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { inviteLink } from '../../constants/inviteLink';
-import { openExternal } from '../../utils/openExternal';
+import { CoachAccessRequest } from '../../components/CoachAccessRequest';
 
 /**
  * How long the onboarding athlete invite stays valid — the web step's value:
@@ -40,7 +40,8 @@ const QR_INK = BOREAL_LIGHT.onSurface;
  * the athlete invite. The agent is chosen from the catalogue here rather than
  * inherited from the coach's own selection — a coach who does not train never
  * picked one. The server decides whether the coach is set as the group's
- * coach; a group that comes back without one is shown as access pending.
+ * coach; a group that comes back without one is shown as access pending, with
+ * a one-tap request a super-admin grants or declines (carnet#738).
  */
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
@@ -140,14 +141,7 @@ export function OnboardingCoachGroupScreen() {
               <Text className="mt-2 text-sm text-on-surface-variant">
                 {t('humanCoach.accessPendingBody')}
               </Text>
-              <Pressable
-                onPress={() => void openExternal('mailto:support@dravr.ai', t)}
-                accessibilityRole="link"
-              >
-                <Text className="mt-3 text-sm font-medium text-primary">
-                  {t('onboarding.groupAccessContact')}
-                </Text>
-              </Pressable>
+              <CoachAccessRequest groupId={created.id} />
             </View>
           )}
 

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -101,7 +102,7 @@ async fn fetch_window_activities(
 /// Resolve the user's active provider for non-LLM read paths (REST routes, MCP
 /// tools that don't accept a `provider` argument). Mirrors the chat-side
 /// `resolve_provider_for_request` priority chain minus the explicit-arg step:
-/// env override → user's most-recently-used connection → `AppError::no_provider_connected()`.
+/// env override → the elected activity source → `AppError::no_provider_connected()`.
 async fn resolve_provider_for_user(
     resources: &Arc<dyn ToolRuntime>,
     user_id: uuid::Uuid,
@@ -110,11 +111,13 @@ async fn resolve_provider_for_user(
     if let Some(env_p) = default_provider() {
         return Ok(env_p);
     }
-    match resources
-        .repos()
-        .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
-        .await
+    match resolve_activity_source(
+        resources.repos().provider_connections.as_ref(),
+        resources.provider_registry(),
+        user_id,
+        Some(tenant_id),
+    )
+    .await
     {
         Ok(Some(conn)) => Ok(conn.provider),
         Ok(None) => {

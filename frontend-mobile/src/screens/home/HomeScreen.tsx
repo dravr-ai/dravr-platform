@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home tab — today's session from the plan, the week around it, the training status, and the latest activities with their routes
+// ABOUTME: The Home tab — today's session from the plan, the week calendar around it, the training status, the latest activities
 // ABOUTME: Where the app lands after sign-in; a day on it opens a chat with a drafted question, an activity its own view
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -18,10 +18,13 @@ import {
   useRecentActivities,
   useTrainingPlan,
   useTrainingStatus,
+  useTrainingVolume,
 } from '../../hooks/useHome';
 import { CONNECTIONS_ROUTE, activityHref, threadHref } from '../../navigation/routes';
 import { HomePlan } from './HomePlan';
+import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
+import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
 
 export function HomeScreen() {
@@ -32,6 +35,7 @@ export function HomeScreen() {
   const plan = useTrainingPlan();
   const recent = useRecentActivities();
   const status = useTrainingStatus();
+  const volume = useTrainingVolume();
   const [refreshing, setRefreshing] = useState(false);
 
   // The activity list carries no provider flag, so the provider status says
@@ -39,16 +43,18 @@ export function HomeScreen() {
   // syncs. Which ones have to be reconnected is the shell banner's to say,
   // from this same status; the section never repeats it.
   const provider = useProviderConnected();
+  const queryClient = useQueryClient();
 
   // The queries fetch on mount; a later focus — back from a chat that built a
   // plan, from Connections, from a notification — reads them again so Home
   // shows what changed while it was out of sight: the provider status too,
   // since Connections is where the connect and reconnect prompts send the
-  // athlete. A drawn route is left alone — a completed activity's route does
-  // not change — while a route answered without one is asked again on its
-  // own (`routeAnswerStaleTime`), and a pull to refresh re-asks it at once.
+  // athlete, and the week's calendar, whose days move with both. A drawn
+  // route is left alone — a completed activity's route does not change —
+  // while a route answered without one is asked again on its own
+  // (`routeAnswerStaleTime`), and a pull to refresh re-asks it at once.
   //
-  // The four refetches keep their identity, and so does the focus callback:
+  // The refetches keep their identity, and so does the focus callback:
   // one whose identity changed would be run again by the router while the
   // tab is focused, and would read everything a second time.
   const focusedOnce = useRef(false);
@@ -56,6 +62,7 @@ export function HomeScreen() {
   const { refetch: refetchRecent } = recent;
   const { refetch: refetchProvider } = provider;
   const { refetch: refetchStatus } = status;
+  const { refetch: refetchVolume } = volume;
   useFocusEffect(
     useCallback(() => {
       if (!focusedOnce.current) {
@@ -66,10 +73,11 @@ export function HomeScreen() {
       void refetchRecent();
       void refetchProvider();
       void refetchStatus();
-    }, [refetchPlan, refetchRecent, refetchProvider, refetchStatus]),
+      void refetchVolume();
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.calendars });
+    }, [queryClient, refetchPlan, refetchRecent, refetchProvider, refetchStatus, refetchVolume]),
   );
 
-  const queryClient = useQueryClient();
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     const undrawnRoutes = queryClient.invalidateQueries({
@@ -81,9 +89,11 @@ export function HomeScreen() {
       refetchRecent(),
       refetchProvider(),
       refetchStatus(),
+      refetchVolume(),
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.calendars }),
       undrawnRoutes,
     ]).finally(() => setRefreshing(false));
-  }, [queryClient, refetchPlan, refetchRecent, refetchProvider, refetchStatus]);
+  }, [queryClient, refetchPlan, refetchRecent, refetchProvider, refetchStatus, refetchVolume]);
 
   // A plan day asks the agent about it, in a fresh thread, with the question
   // in the composer and the send left to the athlete; an activity opens its
@@ -130,7 +140,9 @@ export function HomeScreen() {
           onRetry={() => void refetchPlan()}
           openDraft={openDraft}
         />
+        <HomeWeek response={plan.response} openDraft={openDraft} openActivity={openActivity} />
         <HomeStatus response={status.response} isError={status.isError} onRetry={() => void refetchStatus()} />
+        <HomeVolume response={volume.response} isError={volume.isError} onRetry={() => void refetchVolume()} />
         <RecentActivities
           activities={recent.activities}
           hasData={recent.hasData}

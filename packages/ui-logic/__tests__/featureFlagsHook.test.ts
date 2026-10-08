@@ -33,7 +33,7 @@ describe('createFeatureFlagsHook', () => {
     const { result } = renderHook(() => useFeatureFlags(), { wrapper });
 
     expect(result.current.isLoading).toBe(true);
-    expect(result.current.flags).toEqual({ api_tokens: false, billing_header: false });
+    expect(result.current.flags).toEqual({ api_tokens: false, billing_header: false, route_km_markers: false });
   });
 
   it('reads the flags under the shared self key, fresh for five minutes', async () => {
@@ -82,6 +82,6 @@ describe('createFeatureFlagsHook', () => {
     const { result } = renderHook(() => useFeatureFlags(), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.flags).toEqual({ api_tokens: false, billing_header: false });
+    expect(result.current.flags).toEqual({ api_tokens: false, billing_header: false, route_km_markers: false });
   });
 });

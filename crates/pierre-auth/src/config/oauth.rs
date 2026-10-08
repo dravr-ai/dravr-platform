@@ -654,8 +654,8 @@ impl FirebaseConfig {
 /// `provider-synthetic` in).
 ///
 /// Per-request callers should resolve via
-/// `ProviderConnectionRepository::resolve_most_recent` to pick the user's
-/// most-recently-active backend, and surface `AppError::no_provider_connected`
+/// `pierre_providers::activity_source::resolve_activity_source` to pick the
+/// connection that answers the user's activity questions, and surface `AppError::no_provider_connected`
 /// when the user has no provider connections at all — the existing
 /// `auth_recovery` chat-pipeline stage mints a hosted-login URL and renders
 /// the FR/EN reconnect copy from that error.

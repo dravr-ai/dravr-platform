@@ -86,9 +86,11 @@ fn the_registry_serves_sciotte_coros_as_coros() {
     assert_eq!(descriptor.display_name(), "COROS");
     // Activities are scraped on demand; resting HR, sleep HRV and VO2max are
     // synced from the Training Hub's daily analysis, which holds no sleep.
+    // The activities are the watch's recordings (carnet#133).
     assert_eq!(
         descriptor.capabilities(),
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::RECOVERY_METRICS)
             .union(ProviderCapabilities::HEALTH_METRICS)
     );

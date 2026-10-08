@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
+import type { IControl, Map as MapLibreMap, Marker as MapLibreMarker } from 'maplibre-gl';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import type { RouteView as RouteViewData } from '@pierre/scene-types';
 import {
@@ -16,7 +16,9 @@ import {
   climbGrade,
   climbRange,
   routeFrame,
+  routeMarkers,
   trackGeometry,
+  type DistanceUnit,
 } from '@pierre/chat-utils';
 import {
   DEFAULT_MAP_LAYER,
@@ -28,6 +30,7 @@ import {
 } from '@pierre/shared-constants';
 import { useTheme } from '../../hooks/useTheme';
 import { addRouteLayers } from './routeLayers';
+import { addRouteMarkers } from './routeMarkers';
 
 /**
  * MapLibre's own control text, keyed as MapLibre names it, read from the
@@ -131,10 +134,17 @@ function ClimbSwatch() {
 export default function RouteView({
   view,
   compact = false,
+  markerUnit = null,
 }: {
   view: RouteViewData;
   /** A shorter inline frame, for a map in a side panel rather than a reading column. */
   compact?: boolean;
+  /**
+   * Draw the start, the finish and a distance mark counted in this unit — a
+   * recorded on-foot activity's map. Null, the default, draws the track alone,
+   * as a suggested route in the chat is drawn.
+   */
+  markerUnit?: DistanceUnit | null;
 }) {
   const { t, language } = useTranslation();
   const { scheme } = useTheme();
@@ -148,6 +158,10 @@ export default function RouteView({
     [view.coordinates, view.climbs]
   );
   const bounds = useMemo(() => routeFrame(view.bounds), [view.bounds]);
+  const markers = useMemo(
+    () => (markerUnit === null ? [] : routeMarkers(view.coordinates, view.distances_meters, markerUnit)),
+    [markerUnit, view.coordinates, view.distances_meters]
+  );
   const stage = useRef<HTMLDivElement | null>(null);
   // Every map opens on the default layer; a pick holds for this map only (carnet#699).
   const [layerId, pickLayer] = useState(DEFAULT_MAP_LAYER);
@@ -185,6 +199,7 @@ export default function RouteView({
 
     let live = true;
     let instance: MapLibreMap | null = null;
+    let pinned: MapLibreMarker[] = [];
 
     void (async () => {
       // Imported here rather than at the top of the module: MapLibre is by some
@@ -192,7 +207,7 @@ export default function RouteView({
       // and eighty kilobytes of control chrome — and a thread that has never
       // been sent a route must not pay for either. The stylesheet is awaited
       // alongside the code so the zoom stack is never painted unstyled.
-      const [{ AttributionControl, Map, NavigationControl, setWorkerUrl }, { default: workerUrl }] =
+      const [{ AttributionControl, Map, Marker, NavigationControl, setWorkerUrl }, { default: workerUrl }] =
         await Promise.all([
           import('maplibre-gl'),
           // MapLibre 6 looks for its tile worker beside its own module, and a
@@ -236,6 +251,10 @@ export default function RouteView({
         create,
       };
       created.addControl(new NavigationControl({ showCompass: false }), 'bottom-right');
+      // DOM markers sit above the canvas, outside the style, so a layer swap
+      // keeps them and the keyless imagery — which has no glyphs to set a
+      // symbol layer's numbers in — carries them as the basemap does.
+      pinned = addRouteMarkers(created, Marker, markers);
       // The compact credit opens itself expanded on load; a basemap's is
       // folded on the map's one load. An imagery credit stays open.
       created.on('load', () => {
@@ -256,12 +275,13 @@ export default function RouteView({
 
     return () => {
       live = false;
+      for (const marker of pinned) marker.remove();
       instance?.remove();
       map.current = null;
       credit.current = null;
       frame?.removeAttribute('data-route-drawn');
     };
-  }, [bounds, climbs, track]);
+  }, [bounds, climbs, markers, track]);
 
   // A scheme flip or a layer pick swaps the style; the route repaints on the
   // style load that follows. The first run is the style the map was built on.

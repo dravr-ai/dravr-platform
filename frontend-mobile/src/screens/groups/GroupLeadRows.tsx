@@ -13,6 +13,7 @@ import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { RosterRow } from './RosterRow';
+import { CoachAccessRequest } from '../../components/CoachAccessRequest';
 import type { CoachingGroup } from '../../types';
 
 export interface GroupLeadRowsProps {
@@ -25,6 +26,12 @@ export interface GroupLeadRowsProps {
   isRemovingCoach: boolean;
   /** No member row follows: the coach line draws no hairline under itself. */
   last?: boolean;
+  /**
+   * The caller owns this coachless group, coaches others and holds no coach
+   * access: the no-coach line offers the one-tap coach-access request
+   * (carnet#738), whose grant makes them this group's coach.
+   */
+  canRequestCoachAccess?: boolean;
 }
 
 /**
@@ -43,6 +50,7 @@ export function GroupLeadRows({
   onRemoveCoach,
   isRemovingCoach,
   last = false,
+  canRequestCoachAccess = false,
 }: GroupLeadRowsProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -87,10 +95,15 @@ export function GroupLeadRows({
           // An admin can bring a coach in from the Invites section; a member
           // cannot, so they are told only that there is none.
           name={isAdmin ? t('humanCoach.none') : t('humanCoach.noneMember')}
-          last={last}
+          last={last && !canRequestCoachAccess}
           testID="group-info-no-coach"
         />
       )}
+      {!group.coach_user_id && canRequestCoachAccess ? (
+        <View className="px-4 pb-3" testID="group-info-coach-access">
+          <CoachAccessRequest groupId={group.id} />
+        </View>
+      ) : null}
     </>
   );
 }

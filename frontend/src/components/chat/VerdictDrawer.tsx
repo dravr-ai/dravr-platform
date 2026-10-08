@@ -10,7 +10,11 @@ import { clsx } from 'clsx';
 import { BookOpen, ExternalLink, MessageCircle, MoreHorizontal } from 'lucide-react';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
-import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import {
+  EVIDENCE_STRENGTH_LABEL_KEY,
+  VERDICT_STATUS_LABEL_KEY,
+  verdictCategoryLabelKey,
+} from '@pierre/shared-constants';
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import type { EvidenceRef } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -58,14 +62,6 @@ interface VerdictDrawerProps {
    * operator card: every chip, and the raw ids under Provenance.
    */
   renderTriage?: (verdict: ClaimVerdict) => ReactNode;
-}
-
-/**
- * `training_prescription` reads as "Training Prescription" to a human.
- * LIMITATION(registre#800): `humanizeCategory` prints the English enum in every locale; verdict categories have no label keys.
- */
-function humanizeCategory(category: string): string {
-  return category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
 }
 
 /** Chip classes for the tone the shared rollup assigns a status. */
@@ -321,6 +317,7 @@ function VerdictCard({
   );
   const emittedLabel = formatDateTime(verdict.created_at, language);
   const statusLabel = t(VERDICT_STATUS_LABEL_KEY[verdict.status]);
+  const categoryLabel = t(verdictCategoryLabelKey(verdict.category));
   const evidenceLabel = t('chat.evidenceLabel', {
     strength: t(EVIDENCE_STRENGTH_LABEL_KEY[verdict.evidence_strength]),
   });
@@ -332,7 +329,7 @@ function VerdictCard({
         <div className="flex flex-wrap gap-2 text-xs">
           <span className={`rounded-full px-2 py-0.5 ${statusToneClass(verdict)}`}>{statusLabel}</span>
           <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
-            {humanizeCategory(verdict.category)}
+            {categoryLabel}
           </span>
           <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">{evidenceLabel}</span>
           <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
@@ -346,7 +343,7 @@ function VerdictCard({
             {statusLabel}
           </span>
           <span className="min-w-0 flex-1 text-xs text-outline" data-testid="verdict-meta">
-            {[humanizeCategory(verdict.category), evidenceLabel, confidenceLabel].join(' · ')}
+            {[categoryLabel, evidenceLabel, confidenceLabel].join(' · ')}
           </span>
           {onCopyReference ? <VerdictActions verdict={verdict} onCopyReference={onCopyReference} /> : null}
         </div>

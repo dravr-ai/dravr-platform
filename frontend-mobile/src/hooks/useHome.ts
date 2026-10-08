@@ -15,6 +15,7 @@ import { planDayOn, type ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   classifyApiError,
+  createHomePreferencesHook,
   readActivityRoute,
   recentActivitiesSync,
   useRequestsInFlight,
@@ -414,6 +415,25 @@ export function useTrainingStatus() {
 }
 
 /**
+ * The athlete's weekly volume: distance, time and climbing per sport for each
+ * of the last twelve weeks, summed by the server from its stored activities.
+ * `response` stays `null` until an answer arrives; `response.weeks` empty is
+ * the server saying nothing is stored yet, never a load that failed.
+ */
+export function useTrainingVolume() {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.home.trainingVolume(),
+    queryFn: () => athleteApi.getTrainingVolume(),
+  });
+
+  return {
+    response: query.data ?? null,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+}
+
+/**
  * The question the empty chat suggests: a route for today's session.
  *
  * When the plan holds a session today in a sport with routes, the draft names
@@ -498,3 +518,14 @@ export function useProviderConnected() {
     refetch: query.refetch,
   };
 }
+
+/**
+ * What the athlete chose about Home — whether it still offers to build a
+ * plan. Stored on the server, so the phone and the web agree. The API is
+ * reached when a read or write runs, like every other hook in this module,
+ * so importing it touches no client.
+ */
+export const useHomePreferences = createHomePreferencesHook({
+  getHomePreferences: () => athleteApi.getHomePreferences(),
+  updateHomePreferences: (prefs) => athleteApi.updateHomePreferences(prefs),
+});

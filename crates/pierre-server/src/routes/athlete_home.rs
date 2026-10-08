@@ -68,12 +68,30 @@
 //!   activities alone (see [`crate::services::training_status`]): the read
 //!   reaches no provider and starts no capture, and a day the stored history
 //!   cannot warm is absent, so a thin history answers `form: null`.
+//! - `GET /api/me/calendar?from=…&to=…` — the cached workouts and the plan's
+//!   weeks over a span of the athlete's days, for the week strip that pages
+//!   and expands to a month (see [`calendar`]).
+//!
+//! - `GET /api/me/training-volume` — the athlete's distance, time, climbing
+//!   and sessions per sport for each Monday-to-Sunday week of the last
+//!   twelve, on their own calendar, summed over the same merged workouts the
+//!   recent list shows (see [`crate::services::training_volume`]). Read from
+//!   the cache alone; a week before the stored history begins is absent,
+//!   never a zero.
+//! - `GET`/`PUT /api/me/home-preferences` — the athlete's choices about what
+//!   Home offers, stored per user so web and mobile agree (see
+//!   [`home_preferences`]).
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
 pub mod activity_view;
+pub mod calendar;
+/// The athlete's Home preferences: what Home offers or holds back.
+pub mod home_preferences;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
+/// The weekly training volume read.
+mod volume;
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
@@ -471,6 +489,12 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
         )
         .route("/api/me/training-plan", get(get_training_plan))
         .route("/api/me/training-status", get(get_training_status))
+        .route("/api/me/training-volume", get(volume::get_training_volume))
+        .route(
+            "/api/me/home-preferences",
+            get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
+        )
+        .route("/api/me/calendar", get(calendar::get_calendar))
 }
 
 async fn get_recent_activities(

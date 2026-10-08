@@ -59,6 +59,7 @@ import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
 import { useTodayRouteDraft } from '../hooks/useHome';
 import { Button, Sheet, useSuccessToast, useInfoToast, useErrorToast } from './ui';
+import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks } from '@pierre/api-client';
 import type {
@@ -1237,12 +1238,20 @@ export default function ChatTab({
 
   // The list's "+" knows which thread is open, so on a wide screen it offers
   // the same three ways in as the thread header's "+" beside it.
+  // The bell sits at the top right of every main surface (carnet#820): on
+  // Groups, the end of the list's header, where Home's sits in its own.
+  const bell = <NotificationBell onNavigate={onNavigate} />;
   const listColumn = (
     <ConversationList
       scope="groups"
       selectedConversation={selectedConversation}
       onSelectConversation={onSelectConversation}
-      compose={composeMenu(Boolean(selectedConversation))}
+      compose={
+        <>
+          {composeMenu(Boolean(selectedConversation))}
+          {bell}
+        </>
+      }
     />
   );
 
@@ -1425,6 +1434,7 @@ export default function ChatTab({
         onTodaySheetOpenChange={setTodaySheetOpen}
         historyOpen={historyOpen}
         onHistoryOpenChange={setHistoryOpen}
+        bell={bell}
         peekHidden={!atLatest || composing}
         onDraft={(text) => {
           setTodaySheetOpen(false);
@@ -1482,6 +1492,7 @@ export default function ChatTab({
   if (hasNoGroups && !selectedConversation) {
     return (
       <div className="relative h-full" data-testid="chat-shell">
+        <div className="absolute right-3 top-2.5 z-10">{bell}</div>
         <GroupsEmptyState onCreate={() => setNewGroupOpen(true)} disabled={createConversation.isPending} />
         <NewGroupDialog
           open={newGroupOpen}
@@ -1535,6 +1546,8 @@ interface PersonalSurfaceProps {
   onTodaySheetOpenChange: (open: boolean) => void;
   historyOpen: boolean;
   onHistoryOpenChange: (open: boolean) => void;
+  /** The notifications bell, the right-most control of the header. */
+  bell: ReactNode;
   peekHidden: boolean;
   onDraft: (text: string) => void;
   onSelectConversation: (id: string | null) => void;
@@ -1573,6 +1586,7 @@ function PersonalSurface({
   onTodaySheetOpenChange,
   historyOpen,
   onHistoryOpenChange,
+  bell,
   peekHidden,
   onDraft,
   onSelectConversation,
@@ -1626,7 +1640,13 @@ function PersonalSurface({
   if (selectedConversation) {
     centre = (
       <>
-        {renderHeader(historyButton, todayToggle)}
+        {renderHeader(
+          historyButton,
+          <>
+            {todayToggle}
+            {bell}
+          </>,
+        )}
         {peek}
         {thread}
       </>
@@ -1639,6 +1659,7 @@ function PersonalSurface({
           <div className="flex shrink-0 items-center gap-0.5">
             {historyButton}
             {todayToggle}
+            {bell}
           </div>
         </div>
         {peek}

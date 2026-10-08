@@ -2,7 +2,14 @@
 // ABOUTME: Pins the rest-day versus uncovered-date distinction and calendar arithmetic across month, year and DST edges
 
 import { describe, it, expect } from 'vitest';
-import { addCivilDays, mondayOf, phaseWeekOn, planDayDistanceMeters, planDayOn } from '../src/plan-calendar';
+import {
+  addCivilDays,
+  mondayOf,
+  phaseWeekOn,
+  planDayDistanceMeters,
+  planDayOn,
+  planWeeksDayOn,
+} from '../src/plan-calendar';
 import type { PlanDay, PlanPhase, WorkoutPlan } from '../src/workout-plan';
 
 const plan: WorkoutPlan = {
@@ -155,5 +162,13 @@ describe('planDayDistanceMeters', () => {
     expect(planDayDistanceMeters(session)).toBeNull();
     expect(planDayDistanceMeters({ ...session, steps: [] })).toBeNull();
     expect(planDayDistanceMeters({ ...session, rest: true })).toBeNull();
+  });
+});
+
+describe('planWeeksDayOn', () => {
+  it('reads any run of weeks as the plan card reads its own', () => {
+    expect(planWeeksDayOn(plan.weeks, '2026-09-24')).toMatchObject({ kind: 'session', day: { workout: 'Tempo run' } });
+    expect(planWeeksDayOn(plan.weeks, '2026-09-25').kind).toBe('rest');
+    expect(planWeeksDayOn([], '2026-09-24').kind).toBe('uncovered');
   });
 });

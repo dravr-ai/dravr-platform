@@ -12,9 +12,11 @@ import { Path } from 'react-native-svg';
 import { ROUTE_INK } from '@pierre/shared-constants';
 import type {
   ActivityRouteResponse,
+  CalendarResponse,
   RecentActivitiesResponse,
   TrainingPlanResponse,
   TrainingStatusResponse,
+  TrainingVolumeResponse,
 } from '@pierre/shared-types';
 
 import {
@@ -30,6 +32,8 @@ import {
   STATUS_RESPONSE,
   THIN_STATUS_RESPONSE,
   TRAIL_ROUTE_RESPONSE,
+  VOLUME_RESPONSE,
+  calendarAnswer,
   recentResponse,
 } from '../integration/app/helpers/homeFixtures';
 
@@ -61,11 +65,22 @@ const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [numb
 const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string, { retry?: boolean }?]>();
 const mockGetProvidersStatus = jest.fn();
 const mockGetTrainingStatus = jest.fn<Promise<TrainingStatusResponse>, []>();
+const mockGetTrainingVolume = jest.fn<Promise<TrainingVolumeResponse>, []>();
+const mockGetHomePreferences = jest.fn<Promise<{ plan_suggestion_hidden: boolean }>, []>();
+const mockUpdateHomePreferences = jest.fn<
+  Promise<{ plan_suggestion_hidden: boolean }>,
+  [{ plan_suggestion_hidden: boolean }]
+>();
+const mockGetCalendar = jest.fn<Promise<CalendarResponse>, [string, string]>();
 
 jest.mock('../src/services/api', () => ({
   athleteApi: {
     getTrainingPlan: (locale?: string) => mockGetTrainingPlan(locale),
     getTrainingStatus: () => mockGetTrainingStatus(),
+    getTrainingVolume: () => mockGetTrainingVolume(),
+    getHomePreferences: () => mockGetHomePreferences(),
+    updateHomePreferences: (prefs: { plan_suggestion_hidden: boolean }) => mockUpdateHomePreferences(prefs),
+    getCalendar: (from: string, to: string) => mockGetCalendar(from, to),
     getRecentActivities: (limit?: number, options?: { retry?: boolean }) =>
       options === undefined ? mockGetRecentActivities(limit) : mockGetRecentActivities(limit, options),
     // The query's abort signal is the transport's concern; the retry flag is
@@ -111,6 +126,10 @@ beforeEach(() => {
   mockGetActivityRoute.mockImplementation(async (provider, id) => routeFor(provider, id));
   mockGetProvidersStatus.mockResolvedValue(PROVIDERS_CONNECTED);
   mockGetTrainingStatus.mockResolvedValue(STATUS_RESPONSE);
+  mockGetTrainingVolume.mockResolvedValue(VOLUME_RESPONSE);
+  mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
+  // The strip's own workouts are the HomeWeek suite's; here the week holds none.
+  mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { activities: [] }));
 });
 
 describe('the Home header', () => {
@@ -184,16 +203,46 @@ describe('today and tomorrow', () => {
     expect(screen.getByTestId('home-tomorrow-value')).toHaveTextContent('Rest');
   });
 
-  it('offers to build a plan, as the one filled button, when there is none', async () => {
+  // carnet#820: not every athlete wants a plan, so the offer is a quiet ink
+  // link they can set aside, never the screen's one filled button.
+  it('offers to build a plan, as a quiet link, when there is none', async () => {
     mockGetTrainingPlan.mockResolvedValue(NO_PLAN_RESPONSE);
+    mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
+    mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan: null, activities: [] }));
     const screen = renderHome();
 
     const empty = await screen.findByTestId('home-plan-empty');
     expect(within(empty).getByText('No training plan yet')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('home-plan-build'));
+    fireEvent.press(await screen.findByTestId('home-plan-build'));
     expect(mockPush).toHaveBeenCalledWith(draftHref('Build me a training plan for my goal race.'));
-    // No week to show without a plan.
-    expect(screen.queryByTestId('home-section-week')).toBeNull();
+    // The week still renders without a plan, saying so in one line (carnet#708).
+    expect(await screen.findByTestId('home-week-no-plan')).toBeTruthy();
+  });
+
+  it('sets the plan suggestion aside on the server, keeping the one plain sentence', async () => {
+    mockGetTrainingPlan.mockResolvedValue(NO_PLAN_RESPONSE);
+    mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
+    mockUpdateHomePreferences.mockResolvedValue({ plan_suggestion_hidden: true });
+    const screen = renderHome();
+
+    const hide = await screen.findByTestId('home-plan-hide');
+    expect(hide.props.accessibilityLabel).toBe('Hide the plan suggestion');
+    fireEvent.press(hide);
+
+    await waitFor(() => expect(mockUpdateHomePreferences).toHaveBeenCalledWith({ plan_suggestion_hidden: true }));
+    await waitFor(() => expect(screen.queryByTestId('home-plan-build')).toBeNull());
+    expect(within(screen.getByTestId('home-plan-empty')).getByText('No training plan yet')).toBeTruthy();
+  });
+
+  it('offers no plan to an athlete who set the suggestion aside, on load', async () => {
+    mockGetTrainingPlan.mockResolvedValue(NO_PLAN_RESPONSE);
+    mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: true });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-plan-empty')).toBeTruthy();
+    await waitFor(() => expect(mockGetHomePreferences).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-plan-build')).toBeNull();
+    expect(screen.queryByTestId('home-plan-hide')).toBeNull();
   });
 
   it('shows a failed read as a failure with a retry, never as "no plan"', async () => {
@@ -326,7 +375,9 @@ describe('the week strip', () => {
   it('runs Monday to Sunday with today selected, marking sessions, rest and silence apart', async () => {
     const screen = renderHome();
 
-    const strip = await screen.findByTestId('home-week-strip');
+    // The strip's marks and labels arrive with the week's calendar answer.
+    await screen.findByTestId('home-week-detail');
+    const strip = screen.getByTestId('home-week-strip');
     const cells = within(strip).getAllByRole('button');
     expect(cells.map((cell) => cell.props.testID)).toEqual([
       'home-week-day-2026-09-21',
@@ -357,7 +408,8 @@ describe('the week strip', () => {
   it('shows a rest day as rest and drafts the question about it', async () => {
     const screen = renderHome();
 
-    fireEvent.press(await screen.findByTestId('home-week-day-2026-09-22'));
+    await screen.findByTestId('home-week-detail');
+    fireEvent.press(screen.getByTestId('home-week-day-2026-09-22'));
     const detail = screen.getByTestId('home-week-detail');
     expect(within(detail).getByText('Rest')).toBeTruthy();
 
@@ -368,7 +420,8 @@ describe('the week strip', () => {
   it('says the plan does not cover Sunday rather than calling it rest', async () => {
     const screen = renderHome();
 
-    fireEvent.press(await screen.findByTestId('home-week-day-2026-09-27'));
+    await screen.findByTestId('home-week-detail');
+    fireEvent.press(screen.getByTestId('home-week-day-2026-09-27'));
     const detail = screen.getByTestId('home-week-detail');
     expect(detail).toHaveTextContent("2026-09-27 Your plan doesn't cover this day.");
     expect(within(detail).queryByText('Rest')).toBeNull();
@@ -880,6 +933,7 @@ describe('coming back to Home', () => {
     await waitFor(() => expect(mockGetTrainingPlan).toHaveBeenCalledTimes(2));
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     expect(mockGetProvidersStatus).toHaveBeenCalledTimes(2);
+    expect(mockGetTrainingVolume).toHaveBeenCalledTimes(2);
     // A completed activity's route does not change, so none is asked for.
     expect(mockGetActivityRoute).not.toHaveBeenCalled();
   });
@@ -938,5 +992,6 @@ describe('pull to refresh', () => {
     await waitFor(() => expect(mockGetTrainingPlan).toHaveBeenCalledTimes(2));
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     expect(mockGetProvidersStatus).toHaveBeenCalledTimes(2);
+    expect(mockGetTrainingVolume).toHaveBeenCalledTimes(2);
   });
 });

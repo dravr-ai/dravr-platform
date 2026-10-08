@@ -1,36 +1,44 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Athlete domain API — the Home page's reads: recent activities, one activity's view and route, the plan for today
+// ABOUTME: Athlete domain API — the Home page's reads: recent activities, one activity's view and route, the plan, the calendar
 // ABOUTME: Each read checks the body with its shared-types parser, so a malformed answer is an error rather than a half-drawn card
 
 import type { AxiosInstance } from 'axios';
 import {
+  parseHomePreferences,
   parseActivityDetailResponse,
+  parseCalendarResponse,
   parseActivityRouteResponse,
   parseRecentActivitiesResponse,
   parseTrainingPlanResponse,
   parseTrainingStatusResponse,
+  parseTrainingVolumeResponse,
   type ActivityDetailResponse,
   type ActivityRouteAnswer,
   type ActivityRouteResponse,
   type ActivityRouteUnavailableReason,
+  type CalendarResponse,
   type HomeActivity,
+  type HomePreferences,
   type RecentActivitiesResponse,
   type TrainingPlanResponse,
   type TrainingStatusResponse,
+  type TrainingVolumeResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
 export type {
   ActivityDetailResponse,
+  CalendarResponse,
   ActivityRouteResponse,
   ActivityRouteUnavailableReason,
   HomeActivity,
   RecentActivitiesResponse,
   TrainingPlanResponse,
   TrainingStatusResponse,
+  TrainingVolumeResponse,
 };
 
 /**
@@ -199,6 +207,46 @@ export function createAthleteApi(axios: AxiosInstance) {
     async getTrainingStatus(): Promise<TrainingStatusResponse> {
       const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.TRAINING_STATUS);
       return requireShape(parseTrainingStatusResponse(response.data), ENDPOINTS.ATHLETE.TRAINING_STATUS);
+    },
+
+    /**
+     * The athlete's distance, time, climbing and sessions per sport for each
+     * Monday-to-Sunday week of the last twelve, on their own calendar.
+     *
+     * Summed by the server from its stored activities, one count per workout
+     * whichever providers hold a copy; reading it reaches no provider. A week
+     * before the stored history begins is absent from `weeks`, never a zero.
+     */
+    async getTrainingVolume(): Promise<TrainingVolumeResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.TRAINING_VOLUME);
+      return requireShape(parseTrainingVolumeResponse(response.data), ENDPOINTS.ATHLETE.TRAINING_VOLUME);
+    },
+
+    /**
+     * What the athlete chose about Home. An athlete who chose nothing reads
+     * the defaults: the plan suggestion is offered.
+     */
+    async getHomePreferences(): Promise<HomePreferences> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.HOME_PREFERENCES);
+      return requireShape(parseHomePreferences(response.data), ENDPOINTS.ATHLETE.HOME_PREFERENCES);
+    },
+
+    /** Store the athlete's Home choices; answers with what is now stored. */
+    async updateHomePreferences(prefs: HomePreferences): Promise<HomePreferences> {
+      const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.HOME_PREFERENCES, prefs);
+      return requireShape(parseHomePreferences(response.data), ENDPOINTS.ATHLETE.HOME_PREFERENCES);
+    },
+
+    /**
+     * The athlete's days `from..=to` (`YYYY-MM-DD`, at most 42 of them): the
+     * cached workouts on each day, the plan's weeks over them, and the first
+     * day the cache still holds in full (`history_start`). Served from the
+     * server's cache and plan store; reading an older span starts no provider
+     * fetch and no backfill.
+     */
+    async getCalendar(from: string, to: string): Promise<CalendarResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.CALENDAR, { params: { from, to } });
+      return requireShape(parseCalendarResponse(response.data), ENDPOINTS.ATHLETE.CALENDAR);
     },
   };
 }

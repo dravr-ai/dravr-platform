@@ -12,6 +12,7 @@ import { coachPlatformName, oneDecimal } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import {
   useCreateInvite,
   useDeactivateInvite,
@@ -139,6 +140,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
 
   const isOwner = myMembership?.role === 'owner';
+  // The owner of a coachless group who coaches others but holds no coach
+  // access may ask for it here, as on the onboarding group step (carnet#738).
+  // Whether they coach others is the onboarding role answer, read from the
+  // same status query the onboarding gate keeps.
+  const mayAskForCoachAccess =
+    isOwner && !!group && !group.coach_user_id && user?.manages_roster !== true;
+  const { data: onboardingStatus } = useOnboardingStatus(mayAskForCoachAccess);
+  const canRequestCoachAccess = mayAskForCoachAccess && onboardingStatus?.coaches_others === true;
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the digest rows show only where the tier sends one.
   const canSetDigest = weeklyDigest && (isAdmin || isGroupCoach);
@@ -368,6 +377,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onRemoveCoach={handleRemoveCoach}
               isRemovingCoach={isRemovingCoach}
               last={!isLoadingMembers && members.length === 0}
+              canRequestCoachAccess={canRequestCoachAccess}
             />
           )}
           {isLoadingMembers ? (

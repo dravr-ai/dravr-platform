@@ -9,6 +9,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import VerdictDrawer from '../VerdictDrawer';
 import type { VerdictSource } from '../VerdictDrawer';
 import type { ClaimVerdict } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 function verdict(id: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
   return {
@@ -90,6 +91,9 @@ describe('VerdictDrawer triage slot', () => {
     // read the row's own disposition and knob.
     expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }));
     expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v2' }));
+    // The operator's category chip reads the same corpus word as the athlete's meta line.
+    expect(screen.getAllByText('supplements')).toHaveLength(2);
+    expect(screen.queryByText('Supplement')).not.toBeInTheDocument();
   });
 });
 
@@ -116,8 +120,30 @@ describe('VerdictDrawer athlete card', () => {
     expect(screen.queryByText('Provenance')).not.toBeInTheDocument();
     expect(screen.queryByText('evidence')).not.toBeInTheDocument();
     expect(screen.getByTestId('verdict-meta')).toHaveTextContent(
-      'Training Prescription · evidence: strong · confidence: 80%',
+      'training prescription · evidence: strong · confidence: 80%',
     );
+  });
+
+  it("names the category in the athlete's language, not the enum", async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      render(<VerdictDrawer verdicts={[SUPPORTED]} onClose={vi.fn()} />);
+      const meta = screen.getByTestId('verdict-meta');
+      expect(meta).toHaveTextContent(/^prescription d’entraînement · /);
+      expect(meta).not.toHaveTextContent(/training/i);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('says "other" for a category this client does not know yet', () => {
+    // A category the server added after this build shipped: the card still
+    // names one, and never prints the raw enum.
+    const fresh = verdict('v1', { category: 'sleep_hygiene' as ClaimVerdict['category'] });
+    render(<VerdictDrawer verdicts={[fresh]} onClose={vi.fn()} />);
+    const meta = screen.getByTestId('verdict-meta');
+    expect(meta).toHaveTextContent(/^other · evidence: strong/);
+    expect(meta).not.toHaveTextContent(/sleep/i);
   });
 
   it('links one study as "Read the study", opening doi.org in a new tab', () => {

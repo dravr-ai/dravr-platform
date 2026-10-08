@@ -388,3 +388,103 @@ pub fn channel_linking_code_html(code: &str, channel_name: &str) -> String {
 </html>"#
     )
 }
+
+/// Generate the HTML body of the operator email announcing a coach-access
+/// request (carnet#738).
+///
+/// Sent to every super-admin when a coach asks for coach access from the
+/// onboarding group step. The request grants nothing (ADR-018); the email
+/// says who asked, for which group, and links to the console queue where the
+/// operator grants or declines it. Requester-supplied text (the name, the
+/// group name) is escaped: it reaches an operator's inbox.
+#[must_use]
+pub fn coach_access_requested_html(
+    requester_email: &str,
+    requester_name: Option<&str>,
+    group_name: Option<&str>,
+    review_url: Option<&str>,
+) -> String {
+    let who = requester_name.map_or_else(
+        || encode_text(requester_email).into_owned(),
+        |name| format!("{} ({})", encode_text(name), encode_text(requester_email)),
+    );
+    let group = group_name.map_or_else(
+        || "They asked without naming a group.".to_owned(),
+        |name| {
+            format!(
+                "A grant also makes them the coach of their group <strong>{}</strong>.",
+                encode_text(name)
+            )
+        },
+    );
+    let action = review_url.map_or_else(
+        || "Review it in the admin console, under Users &rarr; Coach access.".to_owned(),
+        |url| {
+            format!(
+                r#"<a href="{}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Review the request</a>"#,
+                encode_double_quoted_attribute(url)
+            )
+        },
+    );
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coach access requested</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#0a0a0f;color:#e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;padding:40px 20px;">
+    <tr>
+      <td style="text-align:center;padding-bottom:32px;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;">Dravr</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">Coach access requested</h2>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          {who} asked for coach access. Nothing is granted until a super-admin decides.
+        </p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">{group}</p>
+        <div style="text-align:center;margin:0;">{action}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;padding-top:24px;">
+        <p style="margin:0;font-size:12px;color:#4b5563;">&copy; Dravr</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_coach_access_email_escapes_what_the_requester_typed() {
+        let html = coach_access_requested_html(
+            "coach@example.com",
+            Some("<script>x</script>"),
+            Some("A & B"),
+            Some("https://app.dravr.ai/admin?tab=coach-access"),
+        );
+        assert!(html.contains("&lt;script&gt;x&lt;/script&gt; (coach@example.com)"));
+        assert!(html.contains("<strong>A &amp; B</strong>"));
+        assert!(html.contains("href=\"https://app.dravr.ai/admin?tab=coach-access\""));
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
+    fn the_coach_access_email_reads_without_a_name_group_or_link() {
+        let html = coach_access_requested_html("coach@example.com", None, None, None);
+        assert!(html.contains("coach@example.com asked for coach access"));
+        assert!(html.contains("without naming a group"));
+        assert!(html.contains("Users &rarr; Coach access"));
+    }
+}

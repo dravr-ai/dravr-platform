@@ -522,6 +522,17 @@ mod intake_tests {
         rows.into_iter().map(|r| r.0).collect()
     }
 
+    /// Whether the user row records that they coach others (the role).
+    async fn coaches_others(resources: &ServerContext, user_id: Uuid) -> bool {
+        resources
+            .common
+            .repos
+            .users
+            .coaches_others(user_id)
+            .await
+            .unwrap()
+    }
+
     /// The persona persisted on the user row, as its wire string.
     async fn coaching_persona(resources: &ServerContext, user_id: Uuid) -> String {
         resources
@@ -709,6 +720,10 @@ mod intake_tests {
             "casual",
             "answering 'athlete' writes no persona — Casual IS the athlete default"
         );
+        assert!(
+            !coaches_others(&resources, user_id).await,
+            "answering 'athlete' records that they do not coach others"
+        );
 
         // The intake displaced the pillar walk at conversation creation. A
         // messaging channel holds ONE conversation per athlete, so if the walk
@@ -831,10 +846,14 @@ mod intake_tests {
             0,
             "no PAR-Q question may follow, and the intake must retire"
         );
+        assert!(
+            coaches_others(&resources, user_id).await,
+            "'I coach others' must record the role, as the web step does"
+        );
         assert_eq!(
             coaching_persona(&resources, user_id).await,
-            "coach",
-            "'I coach others' must persist the coach persona, as the web step does"
+            "casual",
+            "the role answer must leave the reply style alone (carnet#827)"
         );
         // The pillar walk asks about the person's own training — the athlete
         // questionnaire this coach was told they would not get.
@@ -857,10 +876,11 @@ mod intake_tests {
         );
     }
 
-    /// A human coach who also trains gets `coaching_persona=coach` AND the PAR-Q.
+    /// A human coach who also trains gets the coach role AND the PAR-Q, and
+    /// keeps their own reply style.
     #[tokio::test]
     #[serial]
-    async fn choosing_both_sets_the_persona_and_keeps_the_screen() {
+    async fn choosing_both_records_the_role_and_keeps_the_screen() {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
@@ -881,10 +901,14 @@ mod intake_tests {
             wait_for_probes(&resources, user_id, 2).await,
             "a coach who trains must be asked the first PAR-Q question"
         );
+        assert!(
+            coaches_others(&resources, user_id).await,
+            "'both' must record the coach role"
+        );
         assert_eq!(
             coaching_persona(&resources, user_id).await,
-            "coach",
-            "'both' must persist coaching_persona=coach"
+            "casual",
+            "'both' must leave the reply style alone (carnet#827)"
         );
     }
 

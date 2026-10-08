@@ -32,6 +32,8 @@ pub mod app_attest_keys;
 pub mod chat;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
+/// Coach-access requests a super-admin decides (`SQLite`)
+pub mod coach_access_requests;
 /// Coaching group storage, membership, and invite management
 pub mod coaching_groups;
 /// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
@@ -131,6 +133,8 @@ pub mod training_history;
 pub mod training_plans;
 /// Usage counters for rate limiting and quota enforcement
 pub mod usage_counters;
+/// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
+pub mod user_home_preferences;
 /// User MCP token management for AI client authentication
 pub mod user_mcp_tokens;
 /// User OAuth token storage and management

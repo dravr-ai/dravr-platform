@@ -8,6 +8,7 @@ import {
   GeoJSONSource,
   Layer,
   Map,
+  Marker,
   type StyleSpecification,
 } from '@maplibre/maplibre-react-native';
 import { Maximize2, X } from 'lucide-react-native';
@@ -22,7 +23,10 @@ import {
   climbGrade,
   climbRange,
   routeFrame,
+  routeMarkers,
   trackGeometry,
+  type DistanceUnit,
+  type RouteMarker,
 } from '@pierre/chat-utils';
 import {
   DEFAULT_MAP_LAYER,
@@ -159,18 +163,64 @@ function ClimbSwatch() {
   );
 }
 
+/**
+ * One start, finish or distance marker, as a native view pinned to the map.
+ *
+ * A view rather than a symbol layer: the keyless imagery's raster style has no
+ * glyphs to set a symbol's number in, and a view rides through a layer swap.
+ * The start is a round dot and the finish a square — the shape, not only the
+ * fill, tells them apart — both ringed in the casing white that edges the
+ * track; a distance mark is its unit count on a white disc ringed in the
+ * track's orange. The map is one image to a screen reader, so the markers are
+ * hidden from it, like the line they sit on.
+ */
+function RouteMarkerView({ marker, testID }: { marker: RouteMarker; testID: string }) {
+  const [latitude, longitude] = marker.position;
+  return (
+    <Marker id={testID} testID={testID} lngLat={[longitude, latitude]} anchor="center">
+      {marker.kind === 'distance' ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          className="h-5 min-w-5 items-center justify-center rounded-full border-2 px-1"
+          style={{ backgroundColor: ROUTE_INK.casing, borderColor: ROUTE_INK.track }}
+        >
+          <Text className="text-xs font-bold" style={{ color: ROUTE_INK.markText }}>
+            {String(marker.units)}
+          </Text>
+        </View>
+      ) : (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          className={`h-4 w-4 border-2 ${marker.kind === 'start' ? 'rounded-full' : 'rounded-sm'}`}
+          style={{
+            backgroundColor: marker.kind === 'start' ? ROUTE_INK.start : ROUTE_INK.finish,
+            borderColor: ROUTE_INK.casing,
+          }}
+        />
+      )}
+    </Marker>
+  );
+}
+
+/** Distance marks first, then the finish, then the start: on a loop the start is on top. */
+const MARKER_ORDER = { distance: 0, finish: 1, start: 2 } as const;
+
 interface RouteMapProps {
   mapStyle: string | RasterStyle | StyleSpecification;
   bounds: ReturnType<typeof routeFrame>;
   track: ReturnType<typeof trackGeometry>;
   climbs: ReturnType<typeof climbGeometry>;
+  /** Start, finish and distance markers, drawn in `MARKER_ORDER`; empty draws none. */
+  markers: RouteMarker[];
   /** Full screen the map takes every gesture; inline it yields them to the thread. */
   interactive: boolean;
   testID: string;
 }
 
 /** The map itself: a basemap layer, the framed camera and the route over it. */
-function RouteMap({ mapStyle, bounds, track, climbs, interactive, testID }: RouteMapProps) {
+function RouteMap({ mapStyle, bounds, track, climbs, markers, interactive, testID }: RouteMapProps) {
   return (
     <Map
       testID={testID}
@@ -222,6 +272,12 @@ function RouteMap({ mapStyle, bounds, track, climbs, interactive, testID }: Rout
           }}
         />
       </GeoJSONSource>
+      {[...markers]
+        .sort((a, b) => MARKER_ORDER[a.kind] - MARKER_ORDER[b.kind])
+        .map((marker) => {
+          const key = marker.kind === 'distance' ? `distance-${marker.units}` : marker.kind;
+          return <RouteMarkerView key={key} marker={marker} testID={`${testID}-marker-${key}`} />;
+        })}
     </Map>
   );
 }
@@ -311,7 +367,18 @@ function MapControlBar({
  * the numbers underneath in words a screen reader can read, which the canvas
  * itself can never be.
  */
-export default function RouteView({ route }: { route: RouteBlock }) {
+export default function RouteView({
+  route,
+  markerUnit = null,
+}: {
+  route: RouteBlock;
+  /**
+   * Draw the start, the finish and a distance mark counted in this unit — a
+   * recorded on-foot activity's map. Null, the default, draws the track alone,
+   * as a suggested route in the chat is drawn.
+   */
+  markerUnit?: DistanceUnit | null;
+}) {
   const { t, language } = useTranslation();
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -327,6 +394,10 @@ export default function RouteView({ route }: { route: RouteBlock }) {
     [route.coordinates, route.climbs],
   );
   const bounds = useMemo(() => routeFrame(route.bounds), [route.bounds]);
+  const markers = useMemo(
+    () => (markerUnit === null ? [] : routeMarkers(route.coordinates, route.distances_meters, markerUnit)),
+    [markerUnit, route.coordinates, route.distances_meters],
+  );
   // The theme resolves the athlete's preference before a component sees it, so
   // `scheme` is one of the two sheets. A raster layer is the same photograph
   // in both.
@@ -366,6 +437,7 @@ export default function RouteView({ route }: { route: RouteBlock }) {
             bounds={bounds}
             track={track}
             climbs={climbs}
+            markers={markers}
             interactive={false}
           />
         </View>
@@ -399,6 +471,7 @@ export default function RouteView({ route }: { route: RouteBlock }) {
               bounds={bounds}
               track={track}
               climbs={climbs}
+              markers={markers}
               interactive
             />
           </View>

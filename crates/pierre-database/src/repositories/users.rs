@@ -170,6 +170,11 @@ pub trait UserRepository: Send + Sync {
     /// unmigrated user always resolves to the least-restrictive style;
     /// this method overrides that default with an explicit choice.
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()>;
+    /// Record whether the user coaches others — the onboarding role answer.
+    /// A role, not a style: it leaves `coaching_persona` alone (carnet#827).
+    async fn set_coaches_others(&self, user_id: Uuid, coaches_others: bool) -> AppResult<()>;
+    /// Whether the user coaches others; `false` for an unknown user.
+    async fn coaches_others(&self, user_id: Uuid) -> AppResult<bool>;
     /// Set the user's `manages_roster` permission flag, which gates redeeming
     /// a coach invite (joining a coaching group as its human coach). Set to
     /// `true` when a TrainingPeaks connection reports a coach account.
@@ -1076,6 +1081,18 @@ macro_rules! impl_user_repository {
                 persona: CoachingPersona,
             ) -> AppResult<()> {
                 preferences::set_coaching_persona(self.pool(), user_id, persona).await
+            }
+
+            async fn set_coaches_others(
+                &self,
+                user_id: Uuid,
+                coaches_others: bool,
+            ) -> AppResult<()> {
+                preferences::set_coaches_others(self.pool(), user_id, coaches_others).await
+            }
+
+            async fn coaches_others(&self, user_id: Uuid) -> AppResult<bool> {
+                preferences::coaches_others(self.pool(), user_id).await
             }
 
             async fn set_manages_roster(

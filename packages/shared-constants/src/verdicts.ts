@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The claim-verdict vocabulary both chat surfaces print — status and evidence words as corpus keys
+// ABOUTME: The claim-verdict vocabulary both chat surfaces print — status, evidence and category words as corpus keys
 // ABOUTME: A constants module cannot translate, so it names the keys and each client resolves them with its own t()
 
-import type { ClaimEvidenceStrength, ClaimVerdictStatus, VerdictSummary } from '@pierre/shared-types';
+import type {
+  ClaimEvidenceStrength,
+  ClaimVerdictCategory,
+  ClaimVerdictStatus,
+  VerdictSummary,
+} from '@pierre/shared-types';
 
 /** The corpus key naming what the verifier concluded about a claim. */
 export const VERDICT_STATUS_LABEL_KEY: Record<ClaimVerdictStatus, string> = {
@@ -22,6 +27,34 @@ export const EVIDENCE_STRENGTH_LABEL_KEY: Record<ClaimEvidenceStrength, string> 
   weak: 'chat.evidenceWeak',
   none: 'chat.evidenceNone',
 };
+
+/** The corpus key naming the domain a flagged claim belongs to. */
+export const VERDICT_CATEGORY_LABEL_KEY: Record<ClaimVerdictCategory, string> = {
+  physiological: 'chat.verdictCategoryPhysiological',
+  training_prescription: 'chat.verdictCategoryTrainingPrescription',
+  nutrition: 'chat.verdictCategoryNutrition',
+  recovery: 'chat.verdictCategoryRecovery',
+  supplement: 'chat.verdictCategorySupplement',
+  injury_rehab: 'chat.verdictCategoryInjuryRehab',
+  athlete_data: 'chat.verdictCategoryAthleteData',
+};
+
+/** The corpus key for a category this client does not know yet. */
+export const VERDICT_CATEGORY_OTHER_KEY = 'chat.verdictCategoryOther';
+
+/**
+ * The corpus key for a verdict's category, read off the wire.
+ *
+ * The server can add a category before a shipped client learns its name, so
+ * a value outside `VERDICT_CATEGORY_LABEL_KEY` resolves to the generic
+ * « other » word rather than the raw enum: the athlete never reads internal
+ * vocabulary, and the card still says the claim was categorised.
+ */
+export function verdictCategoryLabelKey(category: string): string {
+  return Object.prototype.hasOwnProperty.call(VERDICT_CATEGORY_LABEL_KEY, category)
+    ? VERDICT_CATEGORY_LABEL_KEY[category as ClaimVerdictCategory]
+    : VERDICT_CATEGORY_OTHER_KEY;
+}
 
 /** The chip line for exactly one verdict: `{{count}} verdict · {{qualifier}}`. */
 export const VERDICT_CHIP_ONE_KEY = 'chat.verdictChipOne';

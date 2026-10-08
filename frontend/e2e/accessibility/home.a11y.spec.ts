@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { setupDashboardMocks, loginToDashboard } from '../test-helpers';
+import { fulfillCalendar, setupDashboardMocks, loginToDashboard } from '../test-helpers';
 
 const TODAY = '2026-09-24';
 
@@ -108,6 +108,7 @@ async function signIn(page: Page, plan: unknown, needsReauth = false) {
   await page.route('**/api/me/training-plan**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan, today: TODAY }) }),
   );
+  await page.route('**/api/me/calendar**', (route) => fulfillCalendar(route, { today: TODAY, plan }));
   await page.route('**/api/me/training-status', (route) =>
     route.fulfill({
       status: 200,

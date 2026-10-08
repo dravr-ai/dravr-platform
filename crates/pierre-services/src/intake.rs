@@ -46,7 +46,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_PARQ_SUPERVISED_ONLY, KEY_INTAKE_PERSONA,
 };
 use pierre_core::errors::AppResult;
-use pierre_core::models::{CoachingPersona, TenantId, TopicSlug};
+use pierre_core::models::{TenantId, TopicSlug};
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
@@ -353,22 +353,20 @@ where
     retire_parq_flags(repo, tenant_id, user_id, &[id.to_owned()]).await
 }
 
-/// The persona to store for an answer, or `None` when there is nothing to store.
+/// The role an answer records: whether this person coaches others
+/// (`users.coaches_others`).
 ///
-/// LIMITATION(registre#827): `persona_to_store` writes the coach role answer into `coaching_persona`,
-/// the same column that picks the reply style contract, so a coach's own training talk is held to
-/// the strict Coach contract.
-///
-/// Mirrors the web step exactly: "I coach others" sets
-/// [`CoachingPersona::Coach`], and the athlete branch writes nothing to the user
-/// row, because `coaching_persona` has no athlete variant — `Casual` *is* the
-/// athlete default, so persisting one would be indistinguishable from never
-/// having asked. The `profile_type` step row is what records that they answered.
+/// A role, never a style (carnet#827). Both coach answers record that the
+/// person coaches others, which puts the group step in their onboarding and the
+/// coach-facing agents in their catalogue; the athlete answer records that they
+/// do not. None of them touches `coaching_persona`: the voice the agent uses in
+/// the person's own conversation stays the style they had (`casual` by default)
+/// or later pick under Settings. Mirrors the web step exactly.
 #[must_use]
-pub const fn persona_to_store(answer: PersonaAnswer) -> Option<CoachingPersona> {
+pub const fn coaches_others_for(answer: PersonaAnswer) -> bool {
     match answer {
-        PersonaAnswer::Athlete => None,
-        PersonaAnswer::Coach | PersonaAnswer::CoachAndAthlete => Some(CoachingPersona::Coach),
+        PersonaAnswer::Athlete => false,
+        PersonaAnswer::Coach | PersonaAnswer::CoachAndAthlete => true,
     }
 }
 
@@ -476,6 +474,13 @@ mod tests {
             status: status.to_owned(),
             chosen_channel: None,
         }
+    }
+
+    #[test]
+    fn both_coach_answers_record_the_role_and_the_athlete_answer_clears_it() {
+        assert!(!coaches_others_for(PersonaAnswer::Athlete));
+        assert!(coaches_others_for(PersonaAnswer::Coach));
+        assert!(coaches_others_for(PersonaAnswer::CoachAndAthlete));
     }
 
     #[test]

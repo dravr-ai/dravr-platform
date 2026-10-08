@@ -567,11 +567,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
     ) },
-    { id: 'notifications', name: t('nav.notifications'), icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-      </svg>
-    ), badge: notificationUnreadCount > 0 ? notificationUnreadCount : undefined },
+    // Notifications are not a destination of the rail: the bell at the top
+    // right of Home, Groups and Discover carries the unread count and opens
+    // them in a sheet (carnet#820). `#notifications` still renders the page.
     // Usage renders the billing surface; gated out of the first release.
     ...(BILLING_ENABLED
       ? [{ id: 'usage', name: t('nav.usage'), icon: (
@@ -580,7 +578,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         </svg>
       ) }]
       : []),
-  ], [notificationUnreadCount, unreadGroupsCount, unreadPersonalCount, t]);
+  ], [unreadGroupsCount, unreadPersonalCount, t]);
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
@@ -610,14 +608,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       </Suspense>
     ),
   }), [applyRoute]);
-  // For regular users, pin Home / Groups / Discover / Notifications to the
-  // bottom bar and route the rest through the drawer. For admin users we use
-  // the first three tabs (Users / Agents / Agent Store) as the primary slots.
+  // For regular users, pin Home / Groups / Discover to the bottom bar and
+  // route the rest through the drawer; each of the three carries the bell.
+  // For admin users we use the first three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
       return ['users', 'agents', 'agent-store'];
     }
-    return ['home', 'chat', 'discover', 'notifications'];
+    return ['home', 'chat', 'discover'];
   }, [isAdminUser, t]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds

@@ -39,6 +39,7 @@ impl ProviderDescriptor for WahooDescriptor {
         // show from today through six days out.
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
             .union(ProviderCapabilities::CALENDAR_WRITE)
     }

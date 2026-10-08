@@ -133,6 +133,15 @@ describe('ROUTE_INK', () => {
     expect(contrast(ROUTE_INK.climb, ROUTE_INK.track)).toBeGreaterThanOrEqual(3);
     expect(contrast(ROUTE_INK.climb, ROUTE_INK.casing)).toBeGreaterThanOrEqual(3);
   });
+
+  it('fills the start and finish markers in inks that clear 3:1 against their white ring', () => {
+    expect(contrast(ROUTE_INK.start, ROUTE_INK.casing)).toBeGreaterThanOrEqual(3);
+    expect(contrast(ROUTE_INK.finish, ROUTE_INK.casing)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('prints a distance mark at text contrast on its white disc', () => {
+    expect(contrast(ROUTE_INK.markText, ROUTE_INK.casing)).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 /**

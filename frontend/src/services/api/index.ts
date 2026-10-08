@@ -48,6 +48,7 @@ export const providersApi = {
 export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
+export { coachAccessAdminApi } from './coachAccessAdmin';
 export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';

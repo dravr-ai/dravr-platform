@@ -39,6 +39,9 @@ pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs"
 /// Subject line for the operator-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
+/// Subject line of the operator email announcing a coach-access request.
+pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for coach access";
+
 /// Email service backed by the Resend transactional email API.
 ///
 /// Sends through dravr-tronc's [`ResendClient`], the one Resend send path the
@@ -199,6 +202,32 @@ impl ResendEmailService {
     pub async fn send_invitation(&self, to: &str, signup_url: &str) -> AppResult<()> {
         let html = templates::invitation_html(signup_url);
         self.send_email(to, SUBJECT_INVITATION, &html).await
+    }
+
+    /// Tell a super-admin that a coach asked for coach access (carnet#738).
+    ///
+    /// `review_url` links to the admin console queue; without one the email
+    /// names where to find it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_coach_access_requested(
+        &self,
+        to: &str,
+        requester_email: &str,
+        requester_name: Option<&str>,
+        group_name: Option<&str>,
+        review_url: Option<&str>,
+    ) -> AppResult<()> {
+        let html = templates::coach_access_requested_html(
+            requester_email,
+            requester_name,
+            group_name,
+            review_url,
+        );
+        self.send_email(to, SUBJECT_COACH_ACCESS_REQUESTED, &html)
+            .await
     }
 
     /// Send a channel linking verification code email

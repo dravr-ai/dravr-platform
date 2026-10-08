@@ -20,7 +20,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
-use pierre_core::models::{CoachingPersona, TenantId};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
@@ -139,11 +139,7 @@ async fn status_reports_a_coach_and_accepts_the_group_step() {
         .await
         .expect("test user");
     let repos = resources.agent.database.repositories();
-    repos
-        .users
-        .set_coaching_persona(user_id, CoachingPersona::Coach)
-        .await
-        .unwrap();
+    repos.users.set_coaches_others(user_id, true).await.unwrap();
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
     let router = OnboardingRoutes::routes(Arc::clone(&resources));
 

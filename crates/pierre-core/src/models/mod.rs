@@ -223,6 +223,10 @@ pub use oauth2_server::{
 mod session_refresh_token;
 pub use session_refresh_token::SessionRefreshToken;
 
+// Coach-access requests — a coach asks, a super-admin decides (carnet#738)
+mod coach_access;
+pub use coach_access::{CoachAccessRequest, CoachAccessStatus};
+
 // iOS App Attest keys — the installs of Dravr's iOS app that Apple attested
 mod app_attest_key;
 pub use app_attest_key::{AppAttestEnvironment, AppAttestKey};

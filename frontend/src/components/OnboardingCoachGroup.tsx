@@ -1,5 +1,5 @@
 // ABOUTME: Onboarding step — a coach names their group, picks the agent its athletes talk to, and leaves with the invite
-// ABOUTME: Coach access is never granted here (ADR-018): without it the group is made coachless and the step says so
+// ABOUTME: Coach access is never granted here (ADR-018): a coachless group offers a one-tap request a super-admin decides
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,6 +14,7 @@ import { chatApi, coachesApi, groupsApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input } from './ui';
 import OnboardingShell from './OnboardingShell';
+import CoachAccessRequest from './CoachAccessRequest';
 
 /**
  * How long the onboarding athlete invite stays valid. Longer than the 7 days a
@@ -39,9 +40,11 @@ type Phase =
  *
  * The group is created with the coach as its human coach when they hold coach
  * access (`manages_roster`); the server decides, never this screen. A group
- * that comes back without a coach is shown as access pending, with the way to
- * ask for it. The coach's chat thread for the group is opened here too, since
- * a group nobody has a thread for is a group the coach cannot find.
+ * that comes back without a coach is shown as access pending, with a one-tap
+ * request a super-admin grants or declines (carnet#738); a grant makes the
+ * coach this group's coach with no further step. The coach's chat thread for
+ * the group is opened here too, since a group nobody has a thread for is a
+ * group the coach cannot find.
  */
 export default function OnboardingCoachGroup({
   userDisplayName,
@@ -346,12 +349,7 @@ function InviteShare({
           <p className="mt-2 text-sm text-on-surface-variant">
             {t('humanCoach.accessPendingBody')}
           </p>
-          <a
-            href="mailto:support@dravr.ai"
-            className="mt-3 inline-block text-sm font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {t('onboarding.groupAccessContact')}
-          </a>
+          <CoachAccessRequest groupId={group.id} />
         </div>
       )}
 

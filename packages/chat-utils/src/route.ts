@@ -154,3 +154,82 @@ export function climbGeometry(
       .map((run) => positions(run)),
   };
 }
+
+/** The unit a route's distance markers count in. */
+export type DistanceUnit = 'metric' | 'imperial';
+
+/** Metres in one marker unit: a kilometre, or a statute mile. */
+const METRES_PER_UNIT: Record<DistanceUnit, number> = {
+  metric: 1000,
+  imperial: 1609.344,
+};
+
+/**
+ * The longest route, in marker units, that is marked at every unit. Past it
+ * the marks thin to every `LONG_ROUTE_STEP` units, so a marathon carries 8
+ * labels rather than 42 crowding the line.
+ */
+export const DENSE_MARKER_LIMIT = 15;
+/** The spacing, in units, of the marks along a route longer than `DENSE_MARKER_LIMIT`. */
+export const LONG_ROUTE_STEP = 5;
+
+/** One marker on a route: where it sits, as `(latitude, longitude)`, and what it marks. */
+export type RouteMarker =
+  | { kind: 'start' | 'finish'; position: [number, number] }
+  | { kind: 'distance'; position: [number, number]; units: number };
+
+/**
+ * The start, the finish and the distance marks of one recorded track.
+ *
+ * The marks read the activity's own cumulative distance series, so km 3 sits
+ * where the athlete's watch said 3 km — even on a privacy-trimmed track, whose
+ * first drawn point is already some way in. Each mark is placed between the
+ * two fixes it falls between, in proportion, rather than snapped to the
+ * nearer one. A track with no aligned distance series gets its start and
+ * finish only: a mark measured off the drawn line would disagree with the
+ * activity's distance, and a card that drops the marks is a smaller loss than
+ * one that invents them (see `alignedSeries`).
+ *
+ * A route of up to `DENSE_MARKER_LIMIT` units is marked at every unit, a
+ * longer one every `LONG_ROUTE_STEP`. No mark is drawn at the track's last
+ * value, where the finish already sits.
+ */
+export function routeMarkers(
+  coordinates: Array<[number, number]>,
+  distances: number[] | null,
+  unit: DistanceUnit,
+): RouteMarker[] {
+  if (coordinates.length === 0) return [];
+  const markers: RouteMarker[] = [{ kind: 'start', position: coordinates[0] }];
+  const series = alignedSeries(distances, coordinates.length);
+  if (series !== null && coordinates.length > 1) {
+    const metresPerUnit = METRES_PER_UNIT[unit];
+    const first = series[0];
+    const last = series[series.length - 1];
+    const step = last / metresPerUnit > DENSE_MARKER_LIMIT ? LONG_ROUTE_STEP : 1;
+    // The marks strictly short of the last value, where the finish sits.
+    const marks = Math.ceil(last / metresPerUnit / step) - 1;
+    let index = 1;
+    for (let n = 1; n <= marks; n += 1) {
+      const units = n * step;
+      const target = units * metresPerUnit;
+      if (first >= target) continue;
+      while (series.length > index && target > series[index]) index += 1;
+      if (!(series.length > index)) break;
+      const before = series[index - 1];
+      const after = series[index];
+      const share = after > before ? (target - before) / (after - before) : 0;
+      const [fromLat, fromLon] = coordinates[index - 1];
+      const [toLat, toLon] = coordinates[index];
+      markers.push({
+        kind: 'distance',
+        position: [fromLat + (toLat - fromLat) * share, fromLon + (toLon - fromLon) * share],
+        units,
+      });
+    }
+  }
+  if (coordinates.length > 1) {
+    markers.push({ kind: 'finish', position: coordinates[coordinates.length - 1] });
+  }
+  return markers;
+}

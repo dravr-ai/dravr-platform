@@ -30,6 +30,7 @@ use anyhow::Result;
 use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, WalkAudience};
+use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::AgentsCtx;
 use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
@@ -274,6 +275,109 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         .await?
         .is_none(),
         "the fallback must not withhold from a member who owns no walk on that row"
+    );
+    Ok(())
+}
+
+/// Link `user` to a channel under `tenant` — the row ingress resolves a group
+/// sender through before any room turn runs.
+async fn link_channel(fix: &RoomFixture, tenant: TenantId, user: Uuid, sender: &str) -> Result<()> {
+    fix.resources
+        .common
+        .repos
+        .messaging
+        .create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: tenant,
+            user_id: &user.to_string(),
+            channel_type: "telegram",
+            channel_user_id: sender,
+            display_name: None,
+        })
+        .await?;
+    Ok(())
+}
+
+/// carnet#168: a bare `/mcp` `tools/call` carries neither a conversation nor
+/// a conversation tenant, so the predicate falls back to scanning the
+/// athlete's conversations. That scan used to run under the home tenant only,
+/// where a room walk's row never lives — `save_training_plan` then ran via a
+/// direct MCP call that the same call from the room turn would have refused.
+#[tokio::test]
+async fn a_bare_mcp_call_sees_the_room_walk_through_the_channel_link() -> Result<()> {
+    let fix = setup().await?;
+    CalibrateHandler.execute(&room_ctx(&fix)).await?;
+    link_channel(&fix, fix.channel_tenant, fix.walker_id, "tg-walker").await?;
+    link_channel(&fix, fix.channel_tenant, fix.agent_id, "tg-coach").await?;
+    let repos = &fix.resources.common.repos;
+
+    assert_eq!(
+        active_guided_flow(
+            repos,
+            None,
+            None,
+            fix.walker_tenant,
+            &fix.walker_id.to_string()
+        )
+        .await?,
+        Some(GuidedFlow::Calibration),
+        "with no conversation in scope, the room walk under the channel tenant must still withhold"
+    );
+
+    // Same channel tenant, same scan — but the scan reads only the caller's
+    // own rows there, and the walk binds its subject alone.
+    assert_eq!(
+        active_guided_flow(
+            repos,
+            None,
+            None,
+            fix.coach_tenant,
+            &fix.agent_id.to_string()
+        )
+        .await?,
+        None,
+        "a co-member linked to the same channel is not mid-interview"
+    );
+    Ok(())
+}
+
+/// The cross-tenant reach is bounded by the athlete's own links: a walk filed
+/// under a tenant the athlete holds no channel link in stays out of the scan,
+/// so the fallback reads the tenants the athlete can actually be walking in
+/// and nothing wider.
+#[tokio::test]
+async fn the_bare_mcp_scan_reaches_only_tenants_the_athlete_is_linked_under() -> Result<()> {
+    let fix = setup().await?;
+    CalibrateHandler.execute(&room_ctx(&fix)).await?;
+    let repos = &fix.resources.common.repos;
+
+    assert_eq!(
+        active_guided_flow(
+            repos,
+            None,
+            None,
+            fix.walker_tenant,
+            &fix.walker_id.to_string()
+        )
+        .await?,
+        None,
+        "without a channel link under the room's tenant, no scan reads that tenant"
+    );
+
+    // A link under an unrelated tenant (the coach's) opens that tenant's
+    // scan, not the room's.
+    link_channel(&fix, fix.coach_tenant, fix.walker_id, "tg-walker-elsewhere").await?;
+    assert_eq!(
+        active_guided_flow(
+            repos,
+            None,
+            None,
+            fix.walker_tenant,
+            &fix.walker_id.to_string()
+        )
+        .await?,
+        None,
+        "a link under another tenant scans that tenant, not the room's"
     );
     Ok(())
 }

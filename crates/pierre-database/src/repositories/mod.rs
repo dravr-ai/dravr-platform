@@ -39,6 +39,8 @@ pub mod chat;
 pub(crate) mod chat_backend;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
+/// Repository trait and shared body for coach-access requests (carnet#738).
+pub mod coach_access_requests;
 /// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
 pub mod coaching_groups;
 /// Repository trait for athlete commitments swept against real activity data.
@@ -156,6 +158,8 @@ pub mod usage;
 pub mod usage_counters;
 /// Repository traits for device refresh tokens and email pre-approvals.
 pub mod user_access;
+/// Repository trait and shared body for the per-user choices Home's layout honours.
+pub mod user_home_preferences;
 /// Repository trait, statements and shared body for user MCP tokens.
 pub mod user_mcp_tokens;
 /// Statements, row decoders and the one `OAuthTokenRepository` body for provider OAuth tokens, the Strava pool and BYO OAuth apps.
@@ -205,6 +209,7 @@ pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use chat::*;
 pub use claim_verdicts::*;
+pub use coach_access_requests::CoachAccessRequestRepository;
 pub use commitments::*;
 pub use data_source::*;
 pub use delegated_connections::*;
@@ -244,6 +249,7 @@ pub use tool_selection::*;
 pub use training_plans::*;
 pub use usage::*;
 pub use user_access::*;
+pub use user_home_preferences::{HomePreferences, HomePreferencesRepository};
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;

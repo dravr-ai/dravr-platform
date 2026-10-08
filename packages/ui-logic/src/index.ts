@@ -88,6 +88,7 @@ export {
 export { type GroupFreshness, createGroupHooks } from './groupHooks';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
+export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 
 // Composer palettes. Platform-free: each composer reads its own key event and
 // hands the palette the key's name.

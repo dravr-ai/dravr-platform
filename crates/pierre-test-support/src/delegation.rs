@@ -1,4 +1,4 @@
-// ABOUTME: Coaching-group fixtures a delegated link rests on: the group's agent, a coached group, an active member
+// ABOUTME: Coaching-group fixtures: the group's agent, a coachless or coached group, an active member
 // ABOUTME: Shared by the tests that seed a coach's confirmed link, so each one builds the same rows a deployment holds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -50,19 +50,19 @@ pub async fn create_group_agent(
     Ok(agent.id.to_string())
 }
 
-/// Create an active group `owner` runs on `agent_id`, coached by `coach`, and
-/// return its id.
+/// Create an active group `owner` runs on `agent_id`, with no coach yet — the
+/// state a coach without coach access leaves the onboarding group step in —
+/// and return its id.
 ///
 /// # Errors
 ///
-/// Returns an error if the group cannot be stored or its coach not set.
-pub async fn create_coached_group(
+/// Returns an error if the group cannot be stored.
+pub async fn create_coachless_group(
     repos: &RepositoryRegistry,
     owner: Uuid,
     owner_tenant: TenantId,
     agent_id: &str,
     name: &str,
-    coach: Uuid,
 ) -> AppResult<Uuid> {
     let now = Utc::now();
     let group = repos
@@ -89,17 +89,34 @@ pub async fn create_coached_group(
             },
         )
         .await?;
+    Ok(group.id)
+}
+
+/// Create an active group `owner` runs on `agent_id`, coached by `coach`, and
+/// return its id.
+///
+/// # Errors
+///
+/// Returns an error if the group cannot be stored or its coach not set.
+pub async fn create_coached_group(
+    repos: &RepositoryRegistry,
+    owner: Uuid,
+    owner_tenant: TenantId,
+    agent_id: &str,
+    name: &str,
+    coach: Uuid,
+) -> AppResult<Uuid> {
+    let group = create_coachless_group(repos, owner, owner_tenant, agent_id, name).await?;
     let coach_set = repos
         .groups
-        .set_group_coach_user(&group.id.to_string(), Some(coach), owner_tenant)
+        .set_group_coach_user(&group.to_string(), Some(coach), owner_tenant)
         .await?;
     if !coach_set {
         return Err(AppError::internal(format!(
-            "test fixture: group {} was created but its coach was not set",
-            group.id
+            "test fixture: group {group} was created but its coach was not set"
         )));
     }
-    Ok(group.id)
+    Ok(group)
 }
 
 /// Add `user`, in their own `tenant`, as an active member of `group`, sharing

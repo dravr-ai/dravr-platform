@@ -208,11 +208,14 @@ export {
   whenAthleteReturns,
 } from './idle-signal';
 
-// Claim-verdict vocabulary: the status and evidence words both chat surfaces
+// Claim-verdict vocabulary: the status, evidence and category words both chat surfaces
 // print, as corpus keys resolved with each client's own t()
 export {
   VERDICT_STATUS_LABEL_KEY,
   EVIDENCE_STRENGTH_LABEL_KEY,
+  VERDICT_CATEGORY_LABEL_KEY,
+  VERDICT_CATEGORY_OTHER_KEY,
+  verdictCategoryLabelKey,
   VERDICT_CHIP_ONE_KEY,
   VERDICT_CHIP_N_KEY,
   verdictChipLabel,
@@ -275,6 +278,15 @@ export {
   trendLabelLine,
   trendSpanDays,
 } from './training-status';
+
+// The Home weekly volume: the card's keys, the activity count, the trend's label
+export {
+  ALL_SPORTS,
+  TRAINING_VOLUME_KEY,
+  activitiesLine,
+  volumeChartLabel,
+  weekMinutesSeconds,
+} from './training-volume';
 
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';

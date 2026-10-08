@@ -5,9 +5,11 @@ import { describe, it, expect } from 'vitest';
 import {
   ACTIVITY_ROUTE_UNAVAILABLE_REASONS,
   parseActivityRouteResponse,
+  parseCalendarResponse,
   parseRecentActivitiesResponse,
   parseTrainingPlanResponse,
   parseTrainingStatusResponse,
+  parseHomePreferences,
 } from '../src/home';
 import { parseWorkoutPlan } from '../src/workout-plan';
 
@@ -416,5 +418,54 @@ describe('parseTrainingStatusResponse', () => {
     expect(
       parseTrainingStatusResponse({ ...trainingStatus, trend: [{ band: 'fresh', pct_of_fitness: 6 }] }),
     ).toBeNull();
+  });
+});
+
+describe('parseHomePreferences', () => {
+  it('reads the stored choice', () => {
+    expect(parseHomePreferences({ plan_suggestion_hidden: true })).toEqual({ plan_suggestion_hidden: true });
+    expect(parseHomePreferences({ plan_suggestion_hidden: false, later_field: 1 })).toEqual({
+      plan_suggestion_hidden: false,
+    });
+  });
+
+  it('rejects a body that is not one, rather than reading it as a default', () => {
+    expect(parseHomePreferences(null)).toBeNull();
+    expect(parseHomePreferences({})).toBeNull();
+    expect(parseHomePreferences({ plan_suggestion_hidden: 'yes' })).toBeNull();
+  });
+});
+
+describe('parseCalendarResponse', () => {
+  const week = {
+    week_start: '2026-09-21',
+    focus: 'threshold volume',
+    current: true,
+    days: [{ date: '2026-09-24', sport: 'run', workout: 'Tempo run', duration_min: 50, intensity: 'Z3', rest: false }],
+  };
+  const calendar = {
+    today: '2026-09-24',
+    from: '2026-09-14',
+    to: '2026-09-27',
+    history_start: '2026-03-29',
+    activities: [{ date: '2026-09-20', activity: outdoorRide }],
+    plan_weeks: [week],
+  };
+
+  it('reads a body with workouts on their days and the plan weeks', () => {
+    expect(parseCalendarResponse(calendar)).toEqual(calendar);
+  });
+
+  it('reads a null plan_weeks as no plan, and refuses an omitted one', () => {
+    expect(parseCalendarResponse({ ...calendar, plan_weeks: null })?.plan_weeks).toBeNull();
+    expect(parseCalendarResponse(without(calendar, 'plan_weeks'))).toBeNull();
+  });
+
+  it('refuses a body whose dates, workouts or weeks are malformed', () => {
+    expect(parseCalendarResponse({ ...calendar, history_start: 'yesterday' })).toBeNull();
+    expect(parseCalendarResponse({ ...calendar, activities: [{ date: '2026-09-20' }] })).toBeNull();
+    expect(parseCalendarResponse({ ...calendar, activities: [{ activity: outdoorRide }] })).toBeNull();
+    expect(parseCalendarResponse({ ...calendar, plan_weeks: [{ ...week, days: [{ date: '2026-09-24' }] }] })).toBeNull();
+    expect(parseCalendarResponse({ ...calendar, plan_weeks: {} })).toBeNull();
   });
 });

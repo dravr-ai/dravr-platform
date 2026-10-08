@@ -39,6 +39,9 @@ pub mod activity_route;
 /// The athlete's training status for Home: form and its band, the form trend, load against baseline
 pub mod training_status;
 
+/// The athlete's weekly training volume for Home: distance, time and climbing per sport, week by week
+pub mod training_volume;
+
 /// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;

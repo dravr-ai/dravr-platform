@@ -79,7 +79,15 @@ export type PlanDayLookup =
 
 /** Look `date` (`YYYY-MM-DD`) up in the plan's shown weeks. */
 export function planDayOn(plan: WorkoutPlan, date: string): PlanDayLookup {
-  for (const week of plan.weeks) {
+  return planWeeksDayOn(plan.weeks, date);
+}
+
+/**
+ * Look `date` (`YYYY-MM-DD`) up in any run of plan weeks — the card's shown
+ * fortnight, or the weeks a calendar read answered for the days it spans.
+ */
+export function planWeeksDayOn(weeks: readonly PlanWeek[], date: string): PlanDayLookup {
+  for (const week of weeks) {
     const day = week.days.find((candidate) => candidate.date === date);
     if (day !== undefined) {
       return day.rest ? { kind: 'rest', day, week } : { kind: 'session', day, week };

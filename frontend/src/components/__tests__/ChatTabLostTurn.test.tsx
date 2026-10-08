@@ -28,6 +28,8 @@ const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 
 vi.mock('../../services/api', () => ({
+  // The header's notifications bell reads the unread count.
+  notificationsApi: { getUnreadCount: async () => ({ unread_count: 0 }) },
   chatApi: {
     getConversations: (...a: unknown[]) => getConversations(...a),
     getConversationMessages: (...a: unknown[]) => getConversationMessages(...a),

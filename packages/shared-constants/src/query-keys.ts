@@ -34,6 +34,7 @@ export const QUERY_KEYS = {
     oauthApps: () => ['user-oauth-apps'] as const,
     providerConnections: () => ['provider-connections'] as const,
     onboardingStatus: () => ['user-onboarding-status'] as const,
+    coachAccessRequest: () => ['user-coach-access-request'] as const,
   },
 
   // ==================== OAUTH ====================
@@ -72,6 +73,14 @@ export const QUERY_KEYS = {
     trainingPlan: (locale: string) => ['home', 'training-plan', locale] as const,
     /** Form today, its trend and the load against baseline. Numbers and band names only, so no locale. */
     trainingStatus: () => ['home', 'training-status'] as const,
+    /** The weekly volume. Numbers and sport keys only, so no locale. */
+    trainingVolume: () => ['home', 'training-volume'] as const,
+    /** What the athlete chose about Home: whether the plan suggestion is set aside. */
+    preferences: () => ['home', 'preferences'] as const,
+    /** The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid. */
+    calendar: (from: string, to: string) => ['home', 'calendar', from, to] as const,
+    /** Every calendar span: the prefix a pull to refresh or a return to Home invalidates. */
+    calendars: ['home', 'calendar'] as const,
   },
 
   // ==================== CHAT ====================
@@ -145,6 +154,7 @@ export const QUERY_KEYS = {
     list: () => ['all-users'] as const,
     pending: () => ['pending-users'] as const,
     preApproved: () => ['pre-approved-emails'] as const,
+    coachAccess: (status?: string) => ['coach-access-requests', status] as const,
     rateLimit: (userId?: string) => ['user-rate-limit', userId] as const,
     activity: (userId?: string) => ['user-activity', userId] as const,
   },

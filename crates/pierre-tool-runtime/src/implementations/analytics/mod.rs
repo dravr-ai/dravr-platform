@@ -79,6 +79,7 @@ use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::weather::analyze_weather_impact;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
 
@@ -418,12 +419,13 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             env_p
         } else {
             let tenant = context.tenant_id.map(TenantId::from_uuid);
-            match context
-                .resources
-                .repos()
-                .provider_connections
-                .resolve_most_recent(context.user_id, tenant)
-                .await
+            match resolve_activity_source(
+                context.resources.repos().provider_connections.as_ref(),
+                context.resources.provider_registry(),
+                context.user_id,
+                tenant,
+            )
+            .await
             {
                 Ok(Some(conn)) => conn.provider,
                 Ok(None) | Err(_) => {

@@ -12,6 +12,7 @@ import { personasApi, userApi } from '../services/api';
 import { Section } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
+import HomeSettings from './settings/HomeSettings';
 
 /**
  * The persona picker.
@@ -168,6 +169,9 @@ export default function CoachingPersonaTab() {
           {message.text}
         </div>
       )}
+
+      {/* Whether Home suggests building a plan sits with how the agent coaches. */}
+      <HomeSettings />
     </Section>
   );
 }

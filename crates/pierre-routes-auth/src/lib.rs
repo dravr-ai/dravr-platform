@@ -257,6 +257,10 @@ impl AuthRoutes {
                 "/api/user/coaching-persona",
                 put(login::handle_update_coaching_persona),
             )
+            .route(
+                "/api/user/coaching-role",
+                put(login::handle_update_coaching_role),
+            )
             // First-party token endpoint: the apps' authorization-code (PKCE) and refresh grants
             .route("/oauth/token", post(token_grant::handle_oauth2_token))
             .route(

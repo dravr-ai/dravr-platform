@@ -33,6 +33,8 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
+use pierre_providers::activity_source::resolve_activity_source;
+use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
 use uuid::Uuid;
 
@@ -358,10 +360,13 @@ pub async fn resolve_compute_backend(
 ) -> AppResult<Option<ComputeBackend>> {
     let (requested, requires_reauth) = if let Some(p) = default_provider() {
         (p, false)
-    } else if let Some(conn) = repos
-        .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
-        .await?
+    } else if let Some(conn) = resolve_activity_source(
+        repos.provider_connections.as_ref(),
+        &global_registry(),
+        user_id,
+        Some(tenant_id),
+    )
+    .await?
     {
         let requires_reauth = conn.status.requires_reauth();
         (conn.provider, requires_reauth)

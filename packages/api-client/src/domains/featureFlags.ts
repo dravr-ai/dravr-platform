@@ -16,6 +16,7 @@ export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse };
 export const FEATURE_KEYS = {
   apiTokens: 'api_tokens',
   billingHeader: 'billing_header',
+  routeKmMarkers: 'route_km_markers',
 } as const;
 
 /**
@@ -30,6 +31,7 @@ export const FEATURE_KEYS = {
 export const FALLBACK_FEATURE_FLAGS: FeatureFlagMap = {
   [FEATURE_KEYS.apiTokens]: false,
   [FEATURE_KEYS.billingHeader]: false,
+  [FEATURE_KEYS.routeKmMarkers]: false,
 };
 
 /**

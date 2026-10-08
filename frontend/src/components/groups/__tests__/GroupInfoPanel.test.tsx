@@ -67,13 +67,37 @@ vi.mock('../../../services/api', () => ({
   providersApi: {
     getProvidersStatus: vi.fn(),
   },
+  userApi: {
+    getOnboardingStatus: vi.fn(),
+    getCoachAccessRequest: vi.fn(),
+    requestCoachAccess: vi.fn(),
+  },
 }));
+
+/** The signed-in caller; a test flips `manages_roster` to hold coach access. */
+const authUser: { id: string; email: string; manages_roster?: boolean } = {
+  id: CALLER_ID,
+  email: 'caller@example.com',
+};
 
 vi.mock('../../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { id: CALLER_ID, email: 'caller@example.com' } }),
+  useAuth: () => ({ user: authUser }),
 }));
 
-const { groupsApi } = await import('../../../services/api');
+const { groupsApi, userApi } = await import('../../../services/api');
+
+/** The onboarding status, answering whether the caller coaches others. */
+function onboardingStatus(coachesOthers: boolean) {
+  return {
+    needs_provider_connection: false,
+    pillars_covered: 0,
+    pillars_total: 7,
+    onboarding_complete: false,
+    steps: [],
+    chosen_channel: null,
+    coaches_others: coachesOthers,
+  };
+}
 
 function sampleGroup(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
   return {
@@ -130,6 +154,9 @@ function renderPanel() {
 describe('GroupInfoPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authUser.manages_roster = undefined;
+    vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(false));
+    vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: null });
     vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [
@@ -246,6 +273,71 @@ describe('GroupInfoPanel', () => {
     );
     expect(screen.queryByTestId('group-info-coach-row')).toBeNull();
     expect(screen.queryByTestId('group-info-coach-badge')).toBeNull();
+  });
+
+  describe('coach access request (carnet#738)', () => {
+    const pending = {
+      id: 'req-1',
+      user_id: CALLER_ID,
+      group_id: GROUP_ID,
+      group_tenant_id: 'tenant-a',
+      status: 'pending' as const,
+      created_at: '2026-10-07T12:00:00Z',
+      decided_at: null,
+      decided_by: null,
+    };
+
+    it('offers the owner who coaches others a one-tap request naming this group', async () => {
+      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      vi.mocked(userApi.requestCoachAccess).mockResolvedValue({ request: pending });
+      renderPanel();
+
+      const row = await screen.findByTestId('group-info-no-coach');
+      const button = await within(row).findByTestId('coach-access-request');
+      await userEvent.click(button);
+
+      await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith(GROUP_ID));
+      expect(await within(row).findByTestId('coach-access-pending')).toBeInTheDocument();
+      expect(within(row).queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('shows a request already waiting instead of the button', async () => {
+      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: pending });
+      renderPanel();
+
+      expect(await screen.findByTestId('coach-access-pending')).toBeInTheDocument();
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('offers nothing to an owner who does not coach others', async () => {
+      renderPanel();
+
+      await screen.findByTestId('group-info-no-coach');
+      await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('offers nothing to an owner who already holds coach access', async () => {
+      authUser.manages_roster = true;
+      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      renderPanel();
+
+      await screen.findByTestId('group-info-no-coach');
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+    });
+
+    it('offers nothing to a plain member of a coachless group', async () => {
+      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+      renderPanel();
+
+      await screen.findByTestId('group-info-no-coach');
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+    });
   });
 
   it('labels an agent the server could not resolve as the AI agent, with no handle', async () => {

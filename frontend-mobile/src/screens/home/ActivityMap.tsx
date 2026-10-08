@@ -7,9 +7,11 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import type { HomeActivity } from '@pierre/shared-types';
+import { sportIsOnFoot } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState } from '../../components/ui';
 import { useActivityRoute } from '../../hooks/useHome';
+import { FEATURE_KEYS, useFeatureFlags } from '../../hooks/useFeatureFlags';
 import { LazyRouteView } from '../chat/SceneView';
 
 /** A sentence where the map would be — why there is none, or that it is on its way. */
@@ -34,19 +36,27 @@ function MapNote({ children, testID }: { children: string; testID: string }) {
  * `testIDPrefix` names each state for the screen that draws it:
  * `<prefix>-map`, `<prefix>-no-track`, `<prefix>-map-loading`, …
  * `burst` marks Home's map, one of its screen's burst of route reads.
+ *
+ * A run, trail run, walk or hike is drawn with its start, finish and distance
+ * marks — the beta the `route_km_markers` flag arms per athlete. Counted in
+ * kilometres: the platform holds no unit preference, and every distance it
+ * prints is metric.
  */
 export function ActivityMap({
   activity,
   testIDPrefix,
   burst = false,
 }: {
-  activity: Pick<HomeActivity, 'provider' | 'id' | 'has_gps'>;
+  activity: Pick<HomeActivity, 'provider' | 'id' | 'has_gps' | 'sport_type'>;
   testIDPrefix: string;
   /** The map is Home's, read in the screen's burst of route reads; the activity screen's is not. */
   burst?: boolean;
 }) {
   const { t } = useTranslation();
   const route = useActivityRoute(activity.provider, activity.id, activity.has_gps, { burst });
+  const { flags } = useFeatureFlags();
+  // LIMITATION(registre#835): markerUnit is metric for everyone — no per-user unit preference exists.
+  const markerUnit = flags[FEATURE_KEYS.routeKmMarkers] && sportIsOnFoot(activity.sport_type) ? 'metric' : null;
 
   if (!activity.has_gps || route.reason === 'no_gps') {
     return <MapNote testID={`${testIDPrefix}-no-track`}>{t('chat.routeNoTrack')}</MapNote>;
@@ -59,6 +69,7 @@ export function ActivityMap({
       <View className="px-4" testID={`${testIDPrefix}-map`}>
         <LazyRouteView
           route={route.route}
+          markerUnit={markerUnit}
           fallback={<MapNote testID={`${testIDPrefix}-map-loading`}>{t('home.activities.mapLoading')}</MapNote>}
           unavailable={
             <MapNote testID={`${testIDPrefix}-map-unavailable`}>{t('home.activities.routeFailed')}</MapNote>

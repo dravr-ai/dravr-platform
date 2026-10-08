@@ -10,6 +10,7 @@ import {
   USER_SURFACES,
   surfaceById,
   sportHasRoutes,
+  sportIsOnFoot,
   surfacesFor,
   webNavLabels,
 } from '../src';
@@ -97,5 +98,25 @@ describe('sportHasRoutes', () => {
     expect(sportHasRoutes('virtual_ride')).toBe(false);
     expect(sportHasRoutes('rest')).toBe(false);
     expect(sportHasRoutes('underwater hockey')).toBe(false);
+  });
+});
+
+describe('sportIsOnFoot', () => {
+  it('says yes for a run, a trail run, a walk and a hike, however the wire spells them', () => {
+    expect(sportIsOnFoot('run')).toBe(true);
+    expect(sportIsOnFoot('Trail Run')).toBe(true);
+    expect(sportIsOnFoot('trail_run')).toBe(true);
+    expect(sportIsOnFoot('walk')).toBe(true);
+    expect(sportIsOnFoot('hike')).toBe(true);
+  });
+
+  it('says no on a bike, in the water, on skis, and for a sport it does not know', () => {
+    expect(sportIsOnFoot('ride')).toBe(false);
+    expect(sportIsOnFoot('mountain_bike')).toBe(false);
+    expect(sportIsOnFoot('swim')).toBe(false);
+    expect(sportIsOnFoot('nordic_ski')).toBe(false);
+    expect(sportIsOnFoot('alpine_skiing')).toBe(false);
+    expect(sportIsOnFoot('virtual_run')).toBe(false);
+    expect(sportIsOnFoot('underwater hockey')).toBe(false);
   });
 });

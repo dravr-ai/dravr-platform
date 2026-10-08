@@ -60,6 +60,8 @@ const harness = vi.hoisted(() => {
     { id: 'road_shield_us', type: 'symbol', layout: { 'text-field': ['to-string', ['get', 'ref']] } },
   ];
   const relabelled = new Map<string, unknown>();
+  /** Every DOM marker pinned on the map: its element, where, and whether it was taken off. */
+  const markers: Array<{ element: HTMLElement; lngLat: [number, number]; removed: boolean }> = [];
 
   const instance = {
     addControl: vi.fn(),
@@ -105,8 +107,10 @@ const harness = vi.hoisted(() => {
     controls,
     calls,
     relabelled,
+    markers,
     reset() {
       relabelled.clear();
+      markers.length = 0;
       sources.clear();
       layers.length = 0;
       handlers.clear();
@@ -138,6 +142,24 @@ vi.mock('maplibre-gl', () => ({
   NavigationControl: class {
     constructor(options: { showCompass?: boolean }) {
       harness.controls.push(['navigation', String(options.showCompass)]);
+    }
+  },
+  Marker: class {
+    record: { element: HTMLElement; lngLat: [number, number]; removed: boolean };
+    constructor(options: { element: HTMLElement }) {
+      this.record = { element: options.element, lngLat: [0, 0], removed: false };
+    }
+    setLngLat(lngLat: [number, number]) {
+      this.record.lngLat = lngLat;
+      return this;
+    }
+    addTo() {
+      harness.markers.push(this.record);
+      return this;
+    }
+    remove() {
+      this.record.removed = true;
+      return this;
     }
   },
 }));
@@ -245,6 +267,44 @@ describe('route layers', () => {
 });
 
 describe('RouteView', () => {
+  it('pins no marker on a route drawn without a marker unit', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView view={ROUTE} />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+    expect(harness.markers).toHaveLength(0);
+  });
+
+  it('pins the distance marks, the finish and the start, in that order, on a marked route', async () => {
+    const { unmount } = render(
+      <ThemeProvider>
+        <RouteView view={ROUTE} markerUnit="metric" />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(harness.markers.length).toBeGreaterThan(0));
+
+    const kinds = harness.markers.map((marker) => marker.element.dataset.routeMarker);
+    // 12.5 km is under the dense limit: a mark every kilometre, none at the finish.
+    expect(kinds).toEqual([...Array(12).fill('distance'), 'finish', 'start']);
+    expect(harness.markers.slice(0, 12).map((marker) => marker.element.textContent)).toEqual(
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+    );
+    // MapLibre takes longitude first; the track is carried latitude first.
+    expect(harness.markers[13].lngLat).toEqual([-73.6, 45.5]);
+    expect(harness.markers[12].lngLat).toEqual([-73.68, 45.58]);
+    // The map is one labelled image; its markers are part of the picture.
+    for (const marker of harness.markers) {
+      expect(marker.element).toHaveAttribute('aria-hidden', 'true');
+    }
+    // A layer swap keeps DOM markers; only the map's teardown takes them off.
+    harness.handlers.get('style.load')?.();
+    expect(harness.markers.every((marker) => !marker.removed)).toBe(true);
+    unmount();
+    expect(harness.markers.every((marker) => marker.removed)).toBe(true);
+  });
+
   it('builds a map framed on the carried bounds and paints the track when the style loads', async () => {
     render(
       <ThemeProvider>

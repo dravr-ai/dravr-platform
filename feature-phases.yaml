@@ -97,3 +97,8 @@ features:
     current: two-week pilot of the carnet#660 split — AGENTS.md holds acting rules and seven hard stops, the coding standards live in docs/coding-standards.md and are read only by the review-standards skill before every squash, and bilan caps at 8 on a pushed commit with no Reviewed-Standards trailer
     advance_when: after two weeks, standards-related CI reds and post-squash rework have not risen and review findings are fixed before merge — then adopt; revert (one commit, the text only moved) if a violation reaches main that the old AGENTS.md would have prevented
     review_by: 2026-10-14
+  - name: route-km-markers
+    surface: crates/pierre-core/src/feature_flags.rs
+    current: FeatureKey RouteKmMarkers defaults off, so no recorded map draws start, finish or distance markers. The markers are complete on web and mobile for a run, trail run, walk or hike on Home's latest activity and the activity view (every kilometre up to 15 km, every 5 km past it), and render for any account the flag arms per user (pierre-cli user set-feature --key route_km_markers). They count kilometres only - the platform holds no unit preference, though the shared routeMarkers helper already counts miles (carnet#807)
+    advance_when: the alpha cohort (Phil, JF, David) has used it through the PostHog early-access feature and survey with no clutter or placement complaint, then the default flips on and this entry is deleted
+    review_by: 2026-11-07

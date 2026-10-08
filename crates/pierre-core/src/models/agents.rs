@@ -587,9 +587,9 @@ impl Agent {
     ///
     /// Agents carrying this tag (e.g. "Taper Builder", "Polarized Workout
     /// Builder") are authored for professional coaches to generate plans, not
-    /// for athletes to chat with. They are surfaced only to users operating in
-    /// the [`CoachingPersona::Coach`](crate::models::CoachingPersona::Coach)
-    /// mode; athletes never see or get recommended them.
+    /// for athletes to chat with. They are surfaced only to users who coach
+    /// others (`users.coaches_others`, the onboarding role answer); athletes
+    /// never see or get recommended them.
     ///
     /// The tag keeps saying `coach` under ADR-026: the audience it names is
     /// the human professional, which is sense B, and only the persona an

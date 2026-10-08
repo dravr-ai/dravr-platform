@@ -40,6 +40,8 @@ mod live_incident_eval {
         seed_fixture, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS, PEER_RUN_METRES,
         PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
+    use pierre_providers::activity_source::resolve_activity_source;
+    use pierre_providers::registry::global_registry;
     use serial_test::serial;
 
     /// The ground truth's stated pace must be what the seeded run arithmetically
@@ -119,7 +121,7 @@ mod live_incident_eval {
         );
     }
 
-    /// The provider `resolve_most_recent` elects for the seeded athlete must be
+    /// The provider `resolve_activity_source` elects for the seeded athlete must be
     /// one the fixture holds a token for.
     ///
     /// Runs in ordinary CI, like the pace guard, because a broken election is
@@ -136,14 +138,15 @@ mod live_incident_eval {
         let resources = create_test_server_resources().await.unwrap();
         let fixture = seed_fixture(&resources).await;
 
-        let primary = resources
-            .common
-            .repos
-            .provider_connections
-            .resolve_most_recent(fixture.athlete, Some(fixture.athlete_tenant))
-            .await
-            .unwrap()
-            .expect("the seeded athlete must have provider connections");
+        let primary = resolve_activity_source(
+            resources.common.repos.provider_connections.as_ref(),
+            &global_registry(),
+            fixture.athlete,
+            Some(fixture.athlete_tenant),
+        )
+        .await
+        .unwrap()
+        .expect("the seeded athlete must have provider connections");
 
         let tokens = resources
             .common

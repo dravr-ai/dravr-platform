@@ -13,6 +13,8 @@ import StoreScreen from '../StoreScreen';
 
 // Mock the store API - define mock data inline to avoid hoisting issues
 vi.mock('../../services/api', () => ({
+  // The header's notifications bell reads the unread count.
+  notificationsApi: { getUnreadCount: async () => ({ unread_count: 0 }) },
   storeApi: {
     browse: vi.fn().mockResolvedValue({
       agents: [

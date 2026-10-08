@@ -464,28 +464,29 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
-    /// Resolve the user's most-recently-used *usable* provider connection.
+    /// The user's provider connections in election order, best first.
     ///
-    /// Health first: a connection whose `status` requires re-auth is elected only when
-    /// the user has no `active` one, so a dead connection never shadows a healthy
-    /// sibling that can still answer. Then a connection whose `account_role` is
+    /// Health first: a connection whose `status` requires re-auth ranks after every
+    /// `active` one, so a dead connection never shadows a healthy sibling that can
+    /// still answer. Then a connection whose `account_role` is
     /// [`ProviderAccountRole::Coach`] goes after the others: a coach account has no
     /// calendar of its own, so a coach who also connected another provider gets
-    /// their own workouts from it. Among equally ranked rows, returns the freshest
-    /// `last_used_at` (NULLs last), falling back to the freshest `connected_at` when no
-    /// row has been touched yet. Tenant scope is honored when `tenant_id` is provided;
-    /// otherwise the lookup is cross-tenant. Returns `None` when the user has no
+    /// their own workouts from it. Among equally ranked rows, the freshest
+    /// `last_used_at` (NULLs last) leads, falling back to the freshest `connected_at`
+    /// when no row has been touched yet. Tenant scope is honored when `tenant_id` is
+    /// provided; otherwise the lookup is cross-tenant. Empty when the user has no
     /// provider connections at all.
     ///
-    /// LIMITATION(registre#133): election reads recency and health, never capability, so a
-    /// healthy strain-and-recovery provider connected after a distance provider is elected
-    /// primary for activity queries it cannot answer well. Deciding whether "primary" is
-    /// per-athlete or per-tool is the open question there.
-    async fn resolve_most_recent(
+    /// The order knows health and recency but not what each provider is *for* —
+    /// that lives on the provider descriptors, which this crate cannot see. The
+    /// election that reads both is `pierre_providers::activity_source`, and every
+    /// caller choosing a primary goes through it rather than taking the head of
+    /// this list.
+    async fn rank_for_election(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<ProviderConnection>>;
+    ) -> AppResult<Vec<ProviderConnection>>;
     /// Mark a connection as needing re-authentication after an attempt that
     /// began at `attempt_started_at` found its credential or session dead.
     ///

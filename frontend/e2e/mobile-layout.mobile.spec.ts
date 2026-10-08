@@ -61,19 +61,21 @@ test.describe('Mobile authenticated layout', () => {
     await loginToDashboard(page);
   });
 
-  test('bottom tab bar renders with 5 entries including Menu', async ({ page }) => {
+  test('bottom tab bar renders with 4 entries including Menu', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav).toBeVisible();
-    // 4 primary + Menu. Home leads the bar because sign-in lands there.
+    // 3 primary + Menu. Home leads the bar because sign-in lands there.
     // Insights was retired by the Chat-First Cutover, the Coach tab folded
     // into Discover, and Chat became Groups when the athlete's own
-    // conversation moved to Home — so the bar holds exactly these.
+    // conversation moved to Home, and Notifications became the bell at the
+    // top right of each surface (carnet#820) — so the bar holds exactly these.
     await expect(nav.getByRole('button', { name: 'Home' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Groups' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Discover' })).toBeVisible();
-    await expect(nav.getByRole('button', { name: 'Notifications' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
-    await expect(nav.getByRole('button')).toHaveCount(5);
+    await expect(nav.getByRole('button')).toHaveCount(4);
+    await expect(nav.getByRole('button', { name: 'Notifications' })).toHaveCount(0);
+    await expect(page.getByTestId('notification-bell').first()).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Insights' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Agents' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0);

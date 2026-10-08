@@ -76,5 +76,6 @@ crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or admini
 crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tenant
 crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
 crates/pierre-services/src/auth.rs:User state error: User already exists
+crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation

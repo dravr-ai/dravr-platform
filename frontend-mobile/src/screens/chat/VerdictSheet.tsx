@@ -9,7 +9,11 @@ import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet
 import { Feather } from '@expo/vector-icons';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
-import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import {
+  EVIDENCE_STRENGTH_LABEL_KEY,
+  VERDICT_STATUS_LABEL_KEY,
+  verdictCategoryLabelKey,
+} from '@pierre/shared-constants';
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Sheet } from '../../components/ui';
@@ -151,8 +155,8 @@ function VerdictCard({
   const { ink } = verdictChipPalette(VERDICT_STATUS_TONE[verdict.status], colors);
   const references = parseEvidenceRefs(verdict.evidence_refs, verdict.evidence);
   const emittedLabel = formatDateTime(verdict.created_at, language);
-  // LIMITATION(registre#800): the card's `meta` line omits the verdict category, which has no label keys to print it in the athlete's language.
   const meta = [
+    t(verdictCategoryLabelKey(verdict.category)),
     t('chat.evidenceLabel', { strength: t(EVIDENCE_STRENGTH_LABEL_KEY[verdict.evidence_strength]) }),
     t('chat.confidenceLabel', { confidence: (verdict.confidence * 100).toFixed(0) }),
   ].join(' · ');

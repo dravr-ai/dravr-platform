@@ -28,6 +28,7 @@ fn all_constant_matches_variants() {
         "billing_header",
         "persona_notification_policy",
         "provider_exposure_notice",
+        "route_km_markers",
     ];
     expected.sort_unstable();
     assert_eq!(from_all, expected);

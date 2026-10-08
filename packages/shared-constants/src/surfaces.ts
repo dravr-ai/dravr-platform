@@ -40,7 +40,7 @@ export interface UserSurface {
   /**
    * Sidebar label a regular user clicks to reach this surface on web, or null
    * when it is not a top-level web destination — reached through the settings
-   * gear, or operator-only.
+   * gear, through the header bell, or operator-only.
    *
    * Not decoration: the design sweep walks exactly these, and it used to walk a
    * third hand-written list of its own that nothing kept in step with either
@@ -119,7 +119,9 @@ export const USER_SURFACES: readonly UserSurface[] = [
     label: 'Notifications',
     web: 'notifications',
     mobile: '/(app)/notifications',
-    webNav: 'Notifications',
+    // Not a rail destination on web: the bell at the top right of Home,
+    // Groups and Discover opens it as a sheet (carnet#820).
+    webNav: null,
     blocks: NO_BLOCKS,
   },
 

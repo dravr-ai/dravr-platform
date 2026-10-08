@@ -18,6 +18,8 @@ pub use pierre_core::pagination;
 // Core provider infrastructure
 /// Shared page-count policy every provider's activity fetch clamps to.
 pub mod activity_paging;
+/// Which connection answers activity questions: health, then capability, then recency
+pub mod activity_source;
 /// When a read is for a model, the typed AI-policy filters, and the governed provider
 pub mod ai_scope;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends

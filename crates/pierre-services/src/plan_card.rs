@@ -26,7 +26,7 @@
 //! clinician sets them — through the same [`FuelingDisclosure`] the prompt
 //! block and the calendar push read.
 
-use chrono::NaiveDate;
+use chrono::{Days, NaiveDate};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
@@ -238,13 +238,7 @@ impl PlanCard {
             weeks: selection
                 .weeks
                 .iter()
-                .map(|w| WeekCard {
-                    week_start: w.week.week_start.clone(),
-                    focus: w.week.focus.clone(),
-                    phase_index: w.week.phase_index,
-                    current: w.is_current,
-                    days: w.week.days.iter().map(|d| day_card(d, fueling)).collect(),
-                })
+                .map(|w| week_card(w.week, w.is_current, fueling))
                 .collect(),
             weeks_deferred: selection.deferred,
         }
@@ -268,6 +262,16 @@ impl PlanCard {
             "source_tool": source_tool,
             "plan": to_value_as_written(self)?,
         }))
+    }
+}
+
+fn week_card(week: &PlanWeek, current: bool, fueling: &FuelingDisclosure) -> WeekCard {
+    WeekCard {
+        week_start: week.week_start.clone(),
+        focus: week.focus.clone(),
+        phase_index: week.phase_index,
+        current,
+        days: week.days.iter().map(|d| day_card(d, fueling)).collect(),
     }
 }
 
@@ -356,6 +360,85 @@ pub async fn try_load_plan_card(
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> AppResult<Option<PlanCard>> {
+    let Some(active) = load_active_plan(repos, tenant, user_id).await? else {
+        return Ok(None);
+    };
+    Ok(Some(PlanCard::build(
+        &active.plan,
+        &active.weeks,
+        today,
+        registry,
+        locale,
+        &active.fueling,
+    )))
+}
+
+/// Load the athlete's active plan and project its weeks overlapping `from..=to`.
+///
+/// Past weeks are included, in calendar order — the weeks a calendar draws,
+/// where the card shows only the current and the next. Each week is projected
+/// exactly as the card projects its weeks, fuelling disclosure included, and
+/// flagged `current` when `today` falls in it.
+/// `Ok(None)` when the athlete has no active plan, so a calendar can tell
+/// "no plan" from "the plan says nothing about these days" (`Ok(Some(vec![]))`).
+///
+/// # Errors
+///
+/// The errors of [`try_load_plan_card`]: a store that cannot be read, and
+/// [`ErrorCode::UnavailableOverTransport`] for a plan an external caller may
+/// not read.
+pub async fn try_load_plan_weeks_between(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    today: NaiveDate,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> AppResult<Option<Vec<WeekCard>>> {
+    let Some(active) = load_active_plan(repos, tenant, user_id).await? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        weeks_between(&active.weeks, today, from, to)
+            .map(|(week, current)| week_card(week, current, &active.fueling))
+            .collect(),
+    ))
+}
+
+/// The stored weeks that overlap `from..=to`, each with whether `today`
+/// falls in it. A week whose start does not parse, or cannot be closed six
+/// days later, is skipped rather than guessed at, as the card skips it.
+fn weeks_between(
+    weeks: &[PlanWeek],
+    today: NaiveDate,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> impl Iterator<Item = (&PlanWeek, bool)> {
+    weeks.iter().filter_map(move |week| {
+        let start = parse_plan_date(&week.week_start)?;
+        let end = start.checked_add_days(Days::new(DAYS_AFTER_WEEK_START))?;
+        (start <= to && end >= from).then(|| (week, (start..=end).contains(&today)))
+    })
+}
+
+/// Days from a week's Monday to its Sunday.
+const DAYS_AFTER_WEEK_START: u64 = 6;
+
+/// The athlete's active plan with its weeks and the fuelling disclosure its
+/// days are projected under.
+struct ActivePlan {
+    plan: TrainingPlan,
+    weeks: Vec<PlanWeek>,
+    fueling: FuelingDisclosure,
+}
+
+/// The one read behind both the card and the calendar: the athlete's active
+/// plan, refused over a transport it may not cross, with its active weeks.
+async fn load_active_plan(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<ActivePlan>> {
     let tenant_id = tenant.to_string();
     let user = user_id.to_string();
     let Some(plan) = repos
@@ -375,7 +458,82 @@ pub async fn try_load_plan_card(
         .list_plan_weeks(&tenant_id, &user, &plan.id, false)
         .await?;
     let fueling = FuelingDisclosure::for_athlete(repos, tenant, user_id).await?;
-    Ok(Some(PlanCard::build(
-        &plan, &weeks, today, registry, locale, &fueling,
-    )))
+    Ok(Some(ActivePlan {
+        plan,
+        weeks,
+        fueling,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use pierre_memory::training_plans::WeekStatus;
+
+    fn week(week_start: &str) -> PlanWeek {
+        PlanWeek {
+            id: format!("week-{week_start}"),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            plan_id: "plan".to_owned(),
+            week_start: week_start.to_owned(),
+            focus: String::new(),
+            phase_index: None,
+            days: Vec::new(),
+            status: WeekStatus::Active,
+            supersedes_id: None,
+            adjustment_reason: String::new(),
+            author_agent_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn date(text: &str) -> NaiveDate {
+        parse_plan_date(text).unwrap_or(NaiveDate::MIN)
+    }
+
+    #[test]
+    fn weeks_between_keeps_every_week_overlapping_the_range_past_ones_included() {
+        let weeks = [
+            week("2026-08-31"),
+            week("2026-09-07"),
+            week("2026-09-14"),
+            week("2026-09-21"),
+            week("2026-09-28"),
+        ];
+        // A range that starts on a Wednesday and ends on a Tuesday overlaps
+        // the weeks on either side of it.
+        let picked: Vec<(&str, bool)> = weeks_between(
+            &weeks,
+            date("2026-09-24"),
+            date("2026-09-09"),
+            date("2026-09-22"),
+        )
+        .map(|(week, current)| (week.week_start.as_str(), current))
+        .collect();
+        assert_eq!(
+            picked,
+            vec![
+                ("2026-09-07", false),
+                ("2026-09-14", false),
+                ("2026-09-21", true)
+            ]
+        );
+    }
+
+    #[test]
+    fn weeks_between_skips_a_week_whose_start_is_not_a_calendar_day() {
+        let weeks = [week("2026-9-7"), week("2026-09-14")];
+        let picked: Vec<&str> = weeks_between(
+            &weeks,
+            date("2026-09-14"),
+            date("2026-09-01"),
+            date("2026-09-30"),
+        )
+        .map(|(week, _)| week.week_start.as_str())
+        .collect();
+        assert_eq!(picked, vec!["2026-09-14"]);
+    }
 }

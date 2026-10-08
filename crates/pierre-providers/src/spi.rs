@@ -217,6 +217,19 @@ bitflags::bitflags! {
         /// sends only the sessions: a calendar of workouts (Wahoo) is never
         /// sent a week note it would refuse on every push.
         const CALENDAR_WEEK_NOTES = 0b0000_0100_0000_0000;
+        /// Provider's activities are the recordings themselves — sport,
+        /// distance and route as the device or recording app captured them.
+        ///
+        /// A provider that declares `ACTIVITIES` without this flag serves
+        /// workouts it detected from wrist heart rate (WHOOP): no distance
+        /// unless its own app recorded GPS, and a sport label a heuristic
+        /// chose. On 2026-08-22 that shape answered a 200 km ride as a
+        /// distance-less "run" because the athlete had connected WHOOP after
+        /// Strava. Activity-source election
+        /// (`crate::activity_source::elect_activity_source`) ranks a
+        /// provider declaring this ahead of one that only detects, among
+        /// connections equally healthy.
+        const RECORDED_ACTIVITIES = 0b0000_1000_0000_0000;
     }
 }
 
@@ -226,6 +239,7 @@ impl ProviderCapabilities {
     pub const fn activity_only() -> Self {
         Self::OAUTH
             .union(Self::ACTIVITIES)
+            .union(Self::RECORDED_ACTIVITIES)
             .union(Self::CHEAP_ACTIVITY_DETAIL)
     }
 
@@ -234,6 +248,7 @@ impl ProviderCapabilities {
     pub const fn full_health() -> Self {
         Self::OAUTH
             .union(Self::ACTIVITIES)
+            .union(Self::RECORDED_ACTIVITIES)
             .union(Self::SLEEP_TRACKING)
             .union(Self::RECOVERY_METRICS)
             .union(Self::HEALTH_METRICS)
@@ -251,6 +266,12 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn supports_activities(&self) -> bool {
         self.contains(Self::ACTIVITIES)
+    }
+
+    /// Check if the provider's activities are recordings rather than detections
+    #[must_use]
+    pub const fn supports_recorded_activities(&self) -> bool {
+        self.contains(Self::RECORDED_ACTIVITIES)
     }
 
     /// Check if sleep tracking is supported
@@ -674,8 +695,18 @@ impl ProviderDescriptor for WhoopDescriptor {
         "WHOOP"
     }
 
+    /// Everything a full health provider reads, but its workouts are the
+    /// sessions the strap detected from heart rate, not recordings: no
+    /// `RECORDED_ACTIVITIES`, so a healthy recording source the athlete also
+    /// connected answers their activity questions first.
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::full_health()
+        ProviderCapabilities::OAUTH
+            .union(ProviderCapabilities::ACTIVITIES)
+            .union(ProviderCapabilities::SLEEP_TRACKING)
+            .union(ProviderCapabilities::RECOVERY_METRICS)
+            .union(ProviderCapabilities::HEALTH_METRICS)
+            .union(ProviderCapabilities::CONTINUOUS_DATA)
+            .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -768,7 +799,9 @@ impl ProviderDescriptor for CorosDescriptor {
         // only: health data is read from dravr-enforme's synced rows, and the COROS health
         // sync reads the Training Hub session on `sciotte_coros`; the partner API's signed
         // daily push has no receiver.
-        ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
+        ProviderCapabilities::OAUTH
+            .union(ProviderCapabilities::ACTIVITIES)
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -835,7 +868,7 @@ impl ProviderDescriptor for SciotteDescriptor {
 
     fn capabilities(&self) -> ProviderCapabilities {
         // Sciotte uses browser login (not OAuth) and provides activity data
-        ProviderCapabilities::ACTIVITIES
+        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::RECORDED_ACTIVITIES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -892,6 +925,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
     /// are synced from the same session's daily summary by the health sync.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::SLEEP_TRACKING)
             .union(ProviderCapabilities::RECOVERY_METRICS)
             .union(ProviderCapabilities::HEALTH_METRICS)
@@ -951,6 +985,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
         // A coach account reads its athletes through the coach's scraper
         // session (`SciotteTrainingPeaksProviderFactory::delegated_reads`).
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::PLANNED_WORKOUTS)
             .union(ProviderCapabilities::COACH_ROSTER)
     }
@@ -1005,6 +1040,7 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
     /// health sync. The Training Hub carries no sleep sessions.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::RECOVERY_METRICS)
             .union(ProviderCapabilities::HEALTH_METRICS)
     }
@@ -1065,6 +1101,7 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // calendar methods on `FitnessProvider`.
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
+            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
             .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
             .union(ProviderCapabilities::SLEEP_TRACKING)
             .union(ProviderCapabilities::RECOVERY_METRICS)

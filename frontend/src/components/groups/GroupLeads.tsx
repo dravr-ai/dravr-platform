@@ -9,11 +9,21 @@ import type { CoachingGroup } from '@pierre/shared-types';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import RoleBadge from './RoleBadge';
+import CoachAccessRequest from '../CoachAccessRequest';
 
 interface GroupLeadsProps {
-  group: Pick<CoachingGroup, 'agent_title' | 'agent_handle' | 'coach_user_id' | 'coach_display_name'>;
+  group: Pick<
+    CoachingGroup,
+    'id' | 'agent_title' | 'agent_handle' | 'coach_user_id' | 'coach_display_name'
+  >;
   /** The viewer is the group's human coach. */
   viewerIsCoach: boolean;
+  /**
+   * The viewer owns this coachless group, coaches others and holds no coach
+   * access: the no-coach row offers the one-tap coach-access request
+   * (carnet#738), whose grant makes them this group's coach.
+   */
+  canRequestCoachAccess?: boolean;
 }
 
 const ROW = 'flex items-center justify-between gap-3 border-b ghost-border py-3 px-4';
@@ -24,7 +34,11 @@ const ROW = 'flex items-center justify-between gap-3 border-b ghost-border py-3 
  * them; the server names both as the caller reads them, which also covers an
  * agent from another tenant that the caller's own agent list cannot see.
  */
-export default function GroupLeads({ group, viewerIsCoach }: GroupLeadsProps) {
+export default function GroupLeads({
+  group,
+  viewerIsCoach,
+  canRequestCoachAccess = false,
+}: GroupLeadsProps) {
   const { t } = useTranslation();
 
   return (
@@ -53,6 +67,7 @@ export default function GroupLeads({ group, viewerIsCoach }: GroupLeadsProps) {
       ) : (
         <li className="border-b ghost-border py-3 px-4 text-outline" data-testid="group-info-no-coach">
           {t('humanCoach.noneMember')}
+          {canRequestCoachAccess && <CoachAccessRequest groupId={group.id} />}
         </li>
       )}
     </ul>

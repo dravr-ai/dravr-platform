@@ -21,6 +21,7 @@ pub mod agent_notes;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
 pub mod claim_verdicts;
+pub mod coach_access;
 pub mod contremaitre_admin;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;

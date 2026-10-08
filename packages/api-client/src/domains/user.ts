@@ -7,6 +7,7 @@
 import type { AxiosInstance } from 'axios';
 import type {
   AccountDeletionPreview,
+  CoachAccessRequestResponse,
   CoachingPersona,
   DeleteAccountRequest,
   DeleteAccountResponse,
@@ -268,6 +269,41 @@ export function createUserApi(axios: AxiosInstance) {
       const response = await axios.put<{ message: string; persona: CoachingPersona }>(
         ENDPOINTS.USER.COACHING_PERSONA,
         { persona },
+      );
+      return response.data;
+    },
+
+    /**
+     * Record the onboarding role answer — whether the user coaches others.
+     * A role, never a style: it leaves the coaching persona (reply style)
+     * alone, so a coach's own conversation keeps their own voice
+     * (carnet#827).
+     */
+    async setCoachingRole(coachesOthers: boolean): Promise<{ coaches_others: boolean }> {
+      const response = await axios.put<{ coaches_others: boolean }>(
+        ENDPOINTS.USER.COACHING_ROLE,
+        { coaches_others: coachesOthers },
+      );
+      return response.data;
+    },
+
+    /** The caller's latest coach-access request, or `null` when they never asked. */
+    async getCoachAccessRequest(): Promise<CoachAccessRequestResponse> {
+      const response = await axios.get<CoachAccessRequestResponse>(
+        ENDPOINTS.USER.COACH_ACCESS_REQUEST,
+      );
+      return response.data;
+    },
+
+    /**
+     * Ask for coach access in one tap, naming the group the coach made so a
+     * grant attaches them to it. Returns the request already waiting when
+     * one is pending. Grants nothing by itself: a super-admin decides.
+     */
+    async requestCoachAccess(groupId?: string): Promise<CoachAccessRequestResponse> {
+      const response = await axios.post<CoachAccessRequestResponse>(
+        ENDPOINTS.USER.COACH_ACCESS_REQUEST,
+        groupId ? { group_id: groupId } : {},
       );
       return response.data;
     },

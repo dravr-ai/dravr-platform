@@ -13,7 +13,6 @@ mod helpers;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::CreateAgentRequest;
-use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::agents::ListAgentsResponse;
 use pierre_routes_agents::build_agents_router;
@@ -153,10 +152,10 @@ async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
         "athlete must not see a coach-facing builder"
     );
 
-    // Switching to the Agent persona surfaces the builder.
+    // Recording the coach role surfaces the builder.
     db.repositories()
         .users
-        .set_coaching_persona(user_id, CoachingPersona::Coach)
+        .set_coaches_others(user_id, true)
         .await
         .unwrap();
     let list: ListAgentsResponse = AxumTestRequest::get("/api/agents")
@@ -166,6 +165,6 @@ async fn coach_tool_tagged_coach_hidden_from_athletes_shown_to_coaches() {
         .json();
     assert!(
         list.agents.iter().any(|c| c.title == "Taper Builder"),
-        "Coach-persona user should see the coach-facing builder"
+        "a user who coaches others should see the coach-facing builder"
     );
 }

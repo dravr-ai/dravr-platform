@@ -512,6 +512,11 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
 /// default ([`CoachingPersona::Casual`]) when the user row cannot be
 /// resolved.
 ///
+/// This is the reply *style* alone. Whether the user coaches others is a
+/// separate role (`users.coaches_others`) that onboarding records without
+/// touching this column, so a coach talking about their own training gets
+/// the voice they chose rather than the Coach contract (carnet#827).
+///
 /// We never block prompt assembly on the user lookup: an unknown user,
 /// a malformed `user_id`, or a transient repository error all collapse to
 /// the default persona so chat continues to flow. Persona is a UX

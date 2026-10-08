@@ -27,6 +27,8 @@ vi.mock('../../../services/api', () => ({
     getActivityRoute: api.getActivityRoute,
     linkActivityConversation: api.linkActivityConversation,
   },
+  // The route-marker beta is off: these suites pin the map without its markers.
+  featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
 
 // The chat surface has its own suite; here it only has to receive, embedded,

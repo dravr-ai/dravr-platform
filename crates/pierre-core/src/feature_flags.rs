@@ -53,6 +53,11 @@ pub enum FeatureKey {
     /// flag: its notice is asked of every account (`NoticeAudience` in
     /// `constants::oauth::providers`).
     ProviderExposureNotice,
+    /// Start, finish and distance markers on a recorded on-foot activity's
+    /// map (run, trail run, walk, hike) — Home's latest activity and the
+    /// activity view, on web and mobile. Beta: disabled by default while the
+    /// alpha cohort tries it; admins arm it per user.
+    RouteKmMarkers,
 }
 
 impl FeatureKey {
@@ -62,6 +67,7 @@ impl FeatureKey {
         Self::BillingHeader,
         Self::PersonaNotificationPolicy,
         Self::ProviderExposureNotice,
+        Self::RouteKmMarkers,
     ];
 
     /// Storage key (matches the `feature_key` column and the JSON field
@@ -73,6 +79,7 @@ impl FeatureKey {
             Self::BillingHeader => "billing_header",
             Self::PersonaNotificationPolicy => "persona_notification_policy",
             Self::ProviderExposureNotice => "provider_exposure_notice",
+            Self::RouteKmMarkers => "route_km_markers",
         }
     }
 
@@ -84,7 +91,8 @@ impl FeatureKey {
             Self::ApiTokens
             | Self::BillingHeader
             | Self::PersonaNotificationPolicy
-            | Self::ProviderExposureNotice => false,
+            | Self::ProviderExposureNotice
+            | Self::RouteKmMarkers => false,
         }
     }
 
@@ -103,6 +111,9 @@ impl FeatureKey {
             }
             Self::ProviderExposureNotice => {
                 "Ask for the account-risk notice before a TrainingPeaks or COROS login and refuse the login until it is accepted. (WHOOP's owner authorization is asked of every account, whatever this flag says.)"
+            }
+            Self::RouteKmMarkers => {
+                "Draw start, finish and distance markers on recorded run, trail run, walk and hike maps (Home's latest activity and the activity view)."
             }
         }
     }
@@ -136,6 +147,7 @@ impl FromStr for FeatureKey {
             "billing_header" => Ok(Self::BillingHeader),
             "persona_notification_policy" => Ok(Self::PersonaNotificationPolicy),
             "provider_exposure_notice" => Ok(Self::ProviderExposureNotice),
+            "route_km_markers" => Ok(Self::RouteKmMarkers),
             other => Err(UnknownFeatureKey(other.to_owned())),
         }
     }

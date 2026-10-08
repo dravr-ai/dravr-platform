@@ -227,6 +227,8 @@ export const ENDPOINTS = {
     THEME: '/api/user/theme',
     /** Coaching persona (output format / cadence) */
     COACHING_PERSONA: '/api/user/coaching-persona',
+    /** Coaching role — whether the user coaches others; never the reply style */
+    COACHING_ROLE: '/api/user/coaching-role',
     /** LLM settings */
     LLM_SETTINGS: '/api/user/llm-settings',
     /** Validate LLM settings */
@@ -245,6 +247,8 @@ export const ENDPOINTS = {
     ONBOARDING_STATUS: '/api/me/onboarding-status',
     /** Durable per-step onboarding progress — clients PUT a step's status as it completes */
     ONBOARDING_STEP: (stepId: string) => `/api/me/onboarding/steps/${encodeURIComponent(stepId)}`,
+    /** The caller's coach-access request: GET where it stands, POST to ask in one tap */
+    COACH_ACCESS_REQUEST: '/api/me/coach-access-request',
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
@@ -305,6 +309,12 @@ export const ENDPOINTS = {
     TRAINING_PLAN: '/api/me/training-plan',
     /** Form today and its band, the form trend, load against baseline, recovery days */
     TRAINING_STATUS: '/api/me/training-status',
+    /** Distance, time and climbing per sport for each of the last twelve weeks */
+    TRAINING_VOLUME: '/api/me/training-volume',
+    /** What the athlete chose about Home — today, whether the plan suggestion is set aside (`GET`, `PUT`) */
+    HOME_PREFERENCES: '/api/me/home-preferences',
+    /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
+    CALENDAR: '/api/me/calendar',
   },
   // ==================== PERSONAS ====================
   PERSONAS: {

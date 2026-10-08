@@ -8,6 +8,7 @@ import React from 'react';
 import { Linking } from 'react-native';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import type { ClaimVerdict } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import { VerdictSheet, type VerdictSheetProps, type VerdictSource } from '../src/screens/chat/VerdictSheet';
 
 const mockPresentMenu = jest.fn();
@@ -110,8 +111,8 @@ describe('VerdictSheet', () => {
 
     expect(getByText('About this claim')).toBeTruthy();
     expect(getByText('contradicted')).toBeTruthy();
-    // Evidence and confidence share one tertiary line.
-    expect(getByText(/evidence: none.*confidence: 91%/)).toBeTruthy();
+    // Category, evidence and confidence share one tertiary line, as on web.
+    expect(getByText('physiology · evidence: none · confidence: 91%')).toBeTruthy();
     expect(getByText('What the detector found')).toBeTruthy();
     expect(getByText(FIRST.explanation as string)).toBeTruthy();
     expect(getByText('Evidence references')).toBeTruthy();
@@ -119,6 +120,26 @@ describe('VerdictSheet', () => {
     expect(getByText('doi:10.1/abc')).toBeTruthy();
     expect(getByText(/^Verdict emitted /)).toBeTruthy();
     expect(queryByText('Loading verdicts…')).toBeNull();
+  });
+
+  it("names the category in the athlete's language, not the enum", async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      const { getByText, queryByText } = renderSheet({ verdicts: [row({ id: 'v', category: 'injury_rehab' })] });
+      expect(getByText(/^réadaptation de blessure · /)).toBeTruthy();
+      expect(queryByText(/injury/i)).toBeNull();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  it('says "other" for a category this client does not know yet', () => {
+    // A category the server added after this build shipped: the line still
+    // names one, and never prints the raw enum.
+    const fresh = row({ id: 'v', category: 'sleep_hygiene' as ClaimVerdict['category'] });
+    const { getByText, queryByText } = renderSheet({ verdicts: [fresh] });
+    expect(getByText(/^other · evidence: none/)).toBeTruthy();
+    expect(queryByText(/sleep/i)).toBeNull();
   });
 
   it('omits the findings and reference sections a row did not carry', () => {

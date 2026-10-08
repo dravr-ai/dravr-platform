@@ -15,7 +15,13 @@ const json = (route: Route, status: number, body: unknown) =>
  * step. `managesRoster` decides whether the created group names them its coach.
  */
 async function setupCoach(page: Page, managesRoster: boolean) {
-  const calls = { createGroup: [] as unknown[], invites: [] as unknown[], steps: [] as string[] };
+  const calls = {
+    createGroup: [] as unknown[],
+    invites: [] as unknown[],
+    steps: [] as string[],
+    accessRequests: [] as unknown[],
+  };
+  let accessRequest: Record<string, unknown> | null = null;
 
   await page.addInitScript(() => {
     window.localStorage.setItem('dravr.profile_type_chosen.user-123', '1');
@@ -65,6 +71,24 @@ async function setupCoach(page: Page, managesRoster: boolean) {
     calls.invites.push(route.request().postDataJSON());
     await json(route, 201, { id: 'i-1', group_id: 'g-1', code: 'ABCD2345', kind: 'member' });
   });
+  // The coach's coach-access request: none until they ask, pending after.
+  await page.route('**/api/me/coach-access-request', async (route) => {
+    if (route.request().method() === 'POST') {
+      calls.accessRequests.push(route.request().postDataJSON());
+      accessRequest = {
+        id: 'r-1',
+        user_id: 'user-123',
+        group_id: 'g-1',
+        group_tenant_id: 'user-123',
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        decided_at: null,
+        decided_by: null,
+      };
+      return json(route, 201, { request: accessRequest });
+    }
+    await json(route, 200, { request: accessRequest });
+  });
   await page.route('**/api/chat/conversations', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     await json(route, 201, { id: 'c-1', title: 'Les Rouleurs', group_id: 'g-1' });
@@ -105,20 +129,22 @@ test('a coach with coach access leaves onboarding with a group, its link and its
   expect(calls.steps).toContain('coach_group:complete');
 });
 
-test('a coach without coach access gets the group and is told access is pending', async ({
+test('a coach without coach access gets the group and asks for access in one tap', async ({
   page,
 }) => {
-  await setupCoach(page, false);
+  const calls = await setupCoach(page, false);
 
   await createGroup(page);
 
   await expect(page.getByTestId('onboarding-group-access-pending')).toContainText(
     'Coach access pending',
   );
-  await expect(page.getByRole('link', { name: 'Ask at support@dravr.ai' })).toHaveAttribute(
-    'href',
-    'mailto:support@dravr.ai',
-  );
+  await expect(page.getByRole('link', { name: 'Ask at support@dravr.ai' })).toHaveCount(0);
+
+  // One tap asks for coach access, naming the group the coach just made.
+  await page.getByRole('button', { name: 'Request coach access' }).click();
+  await expect(page.getByTestId('coach-access-pending')).toContainText('Request sent');
+  expect(calls.accessRequests).toEqual([{ group_id: 'g-1' }]);
 });
 
 test('a coach can put the group step off', async ({ page }) => {

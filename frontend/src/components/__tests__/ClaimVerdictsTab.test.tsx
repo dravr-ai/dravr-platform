@@ -158,7 +158,7 @@ describe('ClaimVerdictsTab', () => {
   });
 
   // The admin table and the chat chip open the SAME drawer now — one component,
-  // one `humanizeCategory`, one `formatTimestamp`. Its heading is the chat
+  // one category label, one `formatTimestamp`. Its heading is the chat
   // one's, so an assertion on the deleted admin heading is what turns red if
   // the second drawer ever comes back.
   it('opens the shared verdict drawer with the knob when a row is clicked', async () => {

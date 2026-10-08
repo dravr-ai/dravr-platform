@@ -10,20 +10,42 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import OnboardingCoachGroup from '../OnboardingCoachGroup';
 
-const { createGroupMock, createInviteMock, createConversationMock, listAgentsMock } = vi.hoisted(
-  () => ({
-    createGroupMock: vi.fn(),
-    createInviteMock: vi.fn(),
-    createConversationMock: vi.fn(),
-    listAgentsMock: vi.fn(),
-  }),
-);
+const {
+  createGroupMock,
+  createInviteMock,
+  createConversationMock,
+  listAgentsMock,
+  getCoachAccessRequestMock,
+  requestCoachAccessMock,
+} = vi.hoisted(() => ({
+  createGroupMock: vi.fn(),
+  createInviteMock: vi.fn(),
+  createConversationMock: vi.fn(),
+  listAgentsMock: vi.fn(),
+  getCoachAccessRequestMock: vi.fn(),
+  requestCoachAccessMock: vi.fn(),
+}));
 
 vi.mock('../../services/api', () => ({
   groupsApi: { createGroup: createGroupMock, createInvite: createInviteMock },
   chatApi: { createConversation: createConversationMock },
   coachesApi: { list: listAgentsMock },
+  userApi: {
+    getCoachAccessRequest: getCoachAccessRequestMock,
+    requestCoachAccess: requestCoachAccessMock,
+  },
 }));
+
+const accessRequest = (status: 'pending' | 'granted' | 'declined') => ({
+  id: 'r-1',
+  user_id: 'u-1',
+  group_id: 'g-1',
+  group_tenant_id: 't-1',
+  status,
+  created_at: '2026-10-07T12:00:00Z',
+  decided_at: null,
+  decided_by: null,
+});
 
 vi.mock('qrcode', () => ({
   default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QR') },
@@ -75,6 +97,8 @@ describe('OnboardingCoachGroup', () => {
     createGroupMock.mockReset().mockResolvedValue(group('u-1'));
     createConversationMock.mockReset().mockResolvedValue({ id: 'c-1' });
     createInviteMock.mockReset().mockResolvedValue({ code: 'ABCD2345' });
+    getCoachAccessRequestMock.mockReset().mockResolvedValue({ request: null });
+    requestCoachAccessMock.mockReset();
     listAgentsMock.mockReset().mockResolvedValue({
       agents: [
         agent('a-1', 'Endurance Agent'),
@@ -139,6 +163,60 @@ describe('OnboardingCoachGroup', () => {
     expect(await screen.findByTestId('onboarding-group-access-pending')).toHaveTextContent(
       'Coach access pending',
     );
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull();
+  });
+
+  it('asks for coach access in one tap, naming the group, then says the request was sent', async () => {
+    createGroupMock.mockResolvedValue(group(null));
+    requestCoachAccessMock.mockResolvedValue({ request: accessRequest('pending') });
+    renderStep();
+    await nameAndCreate();
+
+    const button = await screen.findByTestId('coach-access-request');
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+
+    expect(requestCoachAccessMock).toHaveBeenCalledWith('g-1');
+    expect(await screen.findByTestId('coach-access-pending')).toHaveTextContent('Request sent');
+    expect(screen.queryByTestId('coach-access-request')).not.toBeInTheDocument();
+  });
+
+  it('shows a request already waiting instead of the button', async () => {
+    createGroupMock.mockResolvedValue(group(null));
+    getCoachAccessRequestMock.mockResolvedValue({ request: accessRequest('pending') });
+    renderStep();
+    await nameAndCreate();
+
+    expect(await screen.findByTestId('coach-access-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-access-request')).not.toBeInTheDocument();
+  });
+
+  it('offers the button again after a declined request', async () => {
+    createGroupMock.mockResolvedValue(group(null));
+    getCoachAccessRequestMock.mockResolvedValue({ request: accessRequest('declined') });
+    renderStep();
+    await nameAndCreate();
+
+    expect(await screen.findByTestId('coach-access-declined')).toHaveTextContent('declined');
+    expect(screen.getByTestId('coach-access-request')).toBeInTheDocument();
+  });
+
+  it('keeps the button with an error when the request fails, and retries', async () => {
+    createGroupMock.mockResolvedValue(group(null));
+    requestCoachAccessMock
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ request: accessRequest('pending') });
+    renderStep();
+    await nameAndCreate();
+
+    const button = await screen.findByTestId('coach-access-request');
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't send your request");
+
+    await userEvent.click(screen.getByTestId('coach-access-request'));
+    expect(await screen.findByTestId('coach-access-pending')).toBeInTheDocument();
+    expect(requestCoachAccessMock).toHaveBeenCalledTimes(2);
   });
 
   it('completes the step from the share screen', async () => {

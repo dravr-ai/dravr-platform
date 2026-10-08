@@ -347,6 +347,7 @@ jest.mock('@maplibre/maplibre-react-native', () => {
     Camera: passthrough('maplibre-camera'),
     GeoJSONSource: passthrough('maplibre-source'),
     Layer: passthrough('maplibre-layer'),
+    Marker: passthrough('maplibre-marker'),
   };
 });
 

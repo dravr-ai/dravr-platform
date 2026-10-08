@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the mobile OnboardingProfileTypeScreen — athlete / coach / both step
-// ABOUTME: Verifies both coach choices persist coaching_persona=coach and only coach-only drops the athlete steps
+// ABOUTME: Verifies each choice records the coaching role (never the persona) and only coach-only drops the athlete steps
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -26,20 +26,20 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
 }));
 jest.mock('../../../services/api', () => ({
   userApi: {
-    setCoachingPersona: jest.fn(),
+    setCoachingRole: jest.fn(),
     setOnboardingStep: jest.fn(),
   },
 }));
 
 const mockMarkChosen = jest.fn();
-const setCoachingPersona = userApi.setCoachingPersona as jest.Mock;
+const setCoachingRole = userApi.setCoachingRole as jest.Mock;
 const setOnboardingStep = userApi.setOnboardingStep as jest.Mock;
 
 describe('OnboardingProfileTypeScreen', () => {
   beforeEach(() => {
     mockMarkChosen.mockClear();
     mockMarkWaived.mockClear();
-    setCoachingPersona.mockReset().mockResolvedValue({});
+    setCoachingRole.mockReset().mockResolvedValue({});
     setOnboardingStep.mockReset().mockResolvedValue(undefined);
     (useProfileTypeChosen as jest.Mock).mockReturnValue({ markChosen: mockMarkChosen });
   });
@@ -52,35 +52,35 @@ describe('OnboardingProfileTypeScreen', () => {
     expect(screen.getByText('I coach and I train')).toBeTruthy();
   });
 
-  it('coach choice persists coaching_persona=coach, drops the athlete steps, then marks the step done', async () => {
+  it('coach choice records the coach role, drops the athlete steps, then marks the step done', async () => {
     render(<OnboardingProfileTypeScreen />);
     fireEvent.press(screen.getByRole('button', { name: 'I coach others' }));
-    await waitFor(() => expect(setCoachingPersona).toHaveBeenCalledWith('coach'));
+    await waitFor(() => expect(setCoachingRole).toHaveBeenCalledWith(true));
     await waitFor(() => expect(mockMarkChosen).toHaveBeenCalled());
     expect(mockMarkWaived).toHaveBeenCalled();
     expect(setOnboardingStep).toHaveBeenCalledWith('about_you', 'not_applicable');
     expect(setOnboardingStep).toHaveBeenCalledWith('parq', 'not_applicable');
   });
 
-  it('coach-who-trains choice persists coaching_persona=coach and keeps the athlete steps', async () => {
+  it('coach-who-trains choice records the coach role and keeps the athlete steps', async () => {
     render(<OnboardingProfileTypeScreen />);
     fireEvent.press(screen.getByRole('button', { name: 'I coach and I train' }));
-    await waitFor(() => expect(setCoachingPersona).toHaveBeenCalledWith('coach'));
+    await waitFor(() => expect(setCoachingRole).toHaveBeenCalledWith(true));
     await waitFor(() => expect(mockMarkChosen).toHaveBeenCalled());
     expect(mockMarkWaived).not.toHaveBeenCalled();
     expect(setOnboardingStep).not.toHaveBeenCalledWith('parq', 'not_applicable');
   });
 
-  it('athlete choice marks the step done without writing a persona', async () => {
+  it('athlete choice records the role as off and marks the step done', async () => {
     render(<OnboardingProfileTypeScreen />);
     fireEvent.press(screen.getByRole('button', { name: "I'm an athlete" }));
     await waitFor(() => expect(mockMarkChosen).toHaveBeenCalled());
-    expect(setCoachingPersona).not.toHaveBeenCalled();
+    expect(setCoachingRole).toHaveBeenCalledWith(false);
     expect(mockMarkWaived).not.toHaveBeenCalled();
   });
 
-  it('stays on the step with an error when the persona write fails', async () => {
-    setCoachingPersona.mockRejectedValueOnce(new Error('network'));
+  it('stays on the step with an error when the role write fails', async () => {
+    setCoachingRole.mockRejectedValueOnce(new Error('network'));
     render(<OnboardingProfileTypeScreen />);
     fireEvent.press(screen.getByRole('button', { name: 'I coach others' }));
     expect(await screen.findByTestId('profile-type-save-failed')).toBeTruthy();

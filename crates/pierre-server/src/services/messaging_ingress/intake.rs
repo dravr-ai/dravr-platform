@@ -47,7 +47,7 @@ use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
 use pierre_services::intake::{
-    parse_persona, parse_yes_no, persona_to_store, record_parq_no, record_parq_yes, record_steps,
+    coaches_others_for, parse_persona, parse_yes_no, record_parq_no, record_parq_yes, record_steps,
     release_coach_only_agent, IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE,
     STATUS_NOT_APPLICABLE, STATUS_SKIPPED, STEP_PARQ,
 };
@@ -281,27 +281,23 @@ async fn persist_answer(
     }
 }
 
-/// Mark someone who coaches others — whether or not they also train.
+/// Record the role the answer names: whether this person coaches others.
 ///
-/// "I'm an athlete" has no user-row value to store — `coaching_persona` has no
-/// athlete variant, Casual *is* the default — so [`persona_to_store`] returns
-/// `None` for it and that the athlete answered at all is carried by the step
-/// row. Mirrors the web step.
+/// The role only ([`coaches_others_for`]): the reply style in
+/// `coaching_persona` is left as it is, so a coach's own conversation keeps
+/// the voice they had (carnet#827). Mirrors the web step.
 async fn persist_persona(resources: &ServerContext, user_id: &str, answer: PersonaAnswer) {
     let Ok(uuid) = Uuid::parse_str(user_id) else {
-        return;
-    };
-    let Some(persona) = persona_to_store(answer) else {
         return;
     };
     if let Err(e) = resources
         .common
         .repos
         .users
-        .set_coaching_persona(uuid, persona)
+        .set_coaches_others(uuid, coaches_others_for(answer))
         .await
     {
-        warn!(error = %e, "intake: failed to persist the coach persona");
+        warn!(error = %e, "intake: failed to persist the coaching role");
     }
 }
 

@@ -31,6 +31,8 @@ pub mod advice_capture;
 pub mod api_key_cleanup;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
 pub mod archetype_aggregation;
+/// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+pub mod coach_access;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;

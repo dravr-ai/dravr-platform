@@ -945,7 +945,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // (carnet#149, carnet#151).
 
             // Record the serve against the connection that actually produced it, so
-            // `resolve_most_recent` elects the backend the athlete trains on rather
+            // the activity-source election picks the backend the athlete trains on rather
             // than whichever connection was added last. A missing primary that a
             // sibling answered for is not a serve.
             if stood_in.is_none() && context.tenant_id.is_some() {

@@ -63,6 +63,13 @@ pub(crate) const SET_LOCALE_SQL: &str = "UPDATE users SET locale = $1 WHERE id =
 pub(crate) const SET_COACHING_PERSONA_SQL: &str =
     "UPDATE users SET coaching_persona = $1 WHERE id = $2";
 
+/// Record the onboarding role answer: whether the user coaches others.
+pub(crate) const SET_COACHES_OTHERS_SQL: &str =
+    "UPDATE users SET coaches_others = $1 WHERE id = $2";
+
+/// Read whether the user coaches others.
+pub(crate) const GET_COACHES_OTHERS_SQL: &str = "SELECT coaches_others FROM users WHERE id = $1";
+
 /// Set whether the user manages a coaching roster.
 pub(crate) const SET_MANAGES_ROSTER_SQL: &str =
     "UPDATE users SET manages_roster = $1 WHERE id = $2";
@@ -259,6 +266,46 @@ macro_rules! impl_user_preferences {
                 .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
 
             ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// Record whether the user coaches others — the onboarding role
+        /// answer, independent of the reply-style persona.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the user is not found or the database update
+        /// fails.
+        pub async fn set_coaches_others(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+            coaches_others: bool,
+        ) -> AppResult<()> {
+            let result = sqlx::query(SET_COACHES_OTHERS_SQL)
+                .bind(coaches_others)
+                .bind($ids::bind(user_id))
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to set coaches_others: {e}")))?;
+
+            ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// Whether the user coaches others; `false` for an unknown user.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the database query fails.
+        pub async fn coaches_others(pool: &Pool<$db>, user_id: Uuid) -> AppResult<bool> {
+            let row = sqlx::query(GET_COACHES_OTHERS_SQL)
+                .bind($ids::bind(user_id))
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to read coaches_others: {e}")))?;
+            row.map_or(Ok(false), |row| {
+                row.try_get::<bool, _>("coaches_others").map_err(|e| {
+                    AppError::database(format!("Failed to decode coaches_others: {e}"))
+                })
+            })
         }
 
         /// Set whether the user manages a coaching roster.

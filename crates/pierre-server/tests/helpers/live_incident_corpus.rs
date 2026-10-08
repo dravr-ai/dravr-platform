@@ -682,7 +682,7 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     seed_sciotte_session(resources, athlete, tenant).await;
 
     // The athlete's sciotte connection is registered LAST, and that position
-    // is load-bearing. `resolve_most_recent` orders by `last_used_at DESC
+    // is load-bearing. The activity-source election orders by `last_used_at DESC
     // NULLS LAST, connected_at DESC`, and nothing here has been touched, so
     // the last registration is the primary every data read resolves to.
     // sciotte is the only one of the three this fixture holds a token for; a

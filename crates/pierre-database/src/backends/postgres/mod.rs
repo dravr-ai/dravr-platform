@@ -36,6 +36,8 @@ pub mod app_attest_keys;
 pub mod chat;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
+/// Coach-access requests a super-admin decides (Postgres)
+pub mod coach_access_requests;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
@@ -131,6 +133,8 @@ pub mod training_plans;
 pub mod usage_counters;
 /// User and profile repository implementations
 pub mod user;
+/// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.
+pub mod user_home_preferences;
 /// User MCP tokens for AI client authentication (Postgres)
 pub mod user_mcp_tokens;
 /// Per-user, per-tenant provider OAuth tokens, Strava pool apps and BYO OAuth apps

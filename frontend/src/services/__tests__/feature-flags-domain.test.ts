@@ -64,6 +64,7 @@ describe('shared featureFlags domain', () => {
     expect(mergeFeatureFlags({ api_tokens: true })).toEqual({
       api_tokens: true,
       billing_header: false,
+      route_km_markers: false,
     })
   })
 
@@ -73,6 +74,7 @@ describe('shared featureFlags domain', () => {
     expect(mergeFeatureFlags(undefined)).toEqual({
       api_tokens: false,
       billing_header: false,
+      route_km_markers: false,
     })
     expect(FALLBACK_FEATURE_FLAGS.api_tokens).toBe(false)
     expect(FALLBACK_FEATURE_FLAGS.billing_header).toBe(false)
@@ -81,5 +83,6 @@ describe('shared featureFlags domain', () => {
   it('exposes the backend storage strings as FEATURE_KEYS', () => {
     expect(FEATURE_KEYS.apiTokens).toBe('api_tokens')
     expect(FEATURE_KEYS.billingHeader).toBe('billing_header')
+    expect(FEATURE_KEYS.routeKmMarkers).toBe('route_km_markers')
   })
 })

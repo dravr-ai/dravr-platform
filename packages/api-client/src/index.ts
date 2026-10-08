@@ -154,6 +154,7 @@ export type {
   ActivityRouteUnavailableReason,
   TrainingPlanResponse,
   TrainingStatusResponse,
+  TrainingVolumeResponse,
 } from './domains/athlete';
 
 export { createGroupsApi } from './domains/groups';

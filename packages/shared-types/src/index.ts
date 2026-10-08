@@ -150,7 +150,26 @@ export { parseWorkoutPlan } from './workout-plan.js';
 
 // Civil-date reads over a plan card: session, rest day, or a date the plan does not cover
 export type { PlanDayLookup } from './plan-calendar.js';
-export { addCivilDays, mondayOf, planDayOn, planDayDistanceMeters, phaseWeekOn } from './plan-calendar.js';
+export {
+  addCivilDays,
+  mondayOf,
+  planDayOn,
+  planWeeksDayOn,
+  planDayDistanceMeters,
+  phaseWeekOn,
+} from './plan-calendar.js';
+
+// Home's calendar: the strip's weeks, a month's grid, how far it pages, one day's entries
+export type { CalendarDay } from './home-calendar.js';
+export {
+  activityMinutes,
+  calendarDay,
+  firstOfMonth,
+  lastMonday,
+  monthGrid,
+  shiftMonth,
+  weekDays,
+} from './home-calendar.js';
 
 // The athlete Home page's reads: recent activities, one activity's view and route, the plan for today
 export type {
@@ -170,6 +189,9 @@ export type {
   FormTrendPoint,
   TrainingLoadRatio,
   TrainingStatusResponse,
+  HomePreferences,
+  CalendarActivity,
+  CalendarResponse,
 } from './home.js';
 export {
   ACTIVITY_ROUTE_UNAVAILABLE_REASONS,
@@ -179,7 +201,13 @@ export {
   parseTrainingPlanResponse,
   FORM_BANDS,
   parseTrainingStatusResponse,
+  parseHomePreferences,
+  parseCalendarResponse,
 } from './home.js';
+
+// The athlete Home page's weekly volume: distance, time and climbing per sport, week by week
+export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
+export { parseTrainingVolumeResponse } from './training-volume.js';
 
 // Notification types (push notifications, device tokens, preferences)
 export type {
@@ -309,3 +337,11 @@ export type {
   PortalRequest,
   PortalResponse,
 } from './billing';
+
+// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+export type {
+  CoachAccessStatus,
+  CoachAccessRequest,
+  CoachAccessRequestResponse,
+  CoachAccessRequestView,
+} from './coach-access';

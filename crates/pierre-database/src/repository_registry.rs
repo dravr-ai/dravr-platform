@@ -14,19 +14,19 @@ use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
     ActivityConversationRepository, ActivityRouteTrackRepository, AdminRepository,
     AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, ChatRepository,
-    ClaimVerdictRepository, CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
-    DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FederatedIdentityRepository, FirebaseIdentityDeletionRepository,
-    FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository, MobilityRepository,
-    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
-    PersonalBestRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
-    ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    ClaimVerdictRepository, CoachAccessRequestRepository, CoachingGroupRepository,
+    CommitmentRepository, DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
+    EmailVerificationRepository, FeatureFlagsRepository, FederatedIdentityRepository,
+    FirebaseIdentityDeletionRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
+    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
@@ -99,6 +99,8 @@ pub struct RepositoryRegistry {
     pub session_refresh_tokens: Arc<dyn SessionRefreshTokenRepository>,
     /// iOS App Attest keys: the app installs Apple attested, and their counters
     pub app_attest_keys: Arc<dyn AppAttestKeyRepository>,
+    /// Coach-access requests: a coach asks, a super-admin grants or declines
+    pub coach_access_requests: Arc<dyn CoachAccessRequestRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
@@ -192,6 +194,8 @@ pub struct RepositoryRegistry {
     /// webhook skip `set_tier`/`set_plan` so a Stripe event cannot clobber a
     /// manual operator override.
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
+    /// Per-user choices Home's layout honours on every device
+    pub home_preferences: Arc<dyn HomePreferencesRepository>,
     /// Per-user admin tool override. Row presence force-enables/disables a
     /// single MCP tool for one user, overlaid above the tenant tool-selection
     /// computation (below `PIERRE_DISABLED_TOOLS`, above plan + tenant override).
@@ -256,6 +260,7 @@ impl RepositoryRegistry {
             security: db.clone(),
             session_refresh_tokens: db.clone(),
             app_attest_keys: db.clone(),
+            coach_access_requests: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),
@@ -298,6 +303,7 @@ impl RepositoryRegistry {
             delegated_connections: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            home_preferences: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
@@ -341,6 +347,7 @@ impl RepositoryRegistry {
             security: db.clone(),
             session_refresh_tokens: db.clone(),
             app_attest_keys: db.clone(),
+            coach_access_requests: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),
@@ -383,6 +390,7 @@ impl RepositoryRegistry {
             delegated_connections: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
+            home_preferences: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),

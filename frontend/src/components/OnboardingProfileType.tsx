@@ -1,5 +1,5 @@
 // ABOUTME: Post-auth onboarding step — asks whether the user is an athlete, a coach, or both
-// ABOUTME: Coach choices set coaching_persona=coach; a coach who does not train skips the athlete steps
+// ABOUTME: Records the role (coaches others or not), never the reply style; a coach who does not train skips the athlete steps
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,11 +17,14 @@ type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
  * Athlete / coach / both onboarding step.
  *
  * Shown once, right after sign-in and before the connect-provider gate, so the
- * choice is in place before we infer a profile and propose agents. Both coach
- * answers persist `coaching_persona=coach`, which unlocks the coach-facing
- * builder personas (Taper Builder, etc.) in recommendations and the agent
- * library. Athletes keep the default Casual voice and never see those builder
- * tools. The choice is changeable later under Settings → Coaching style.
+ * choice is in place before we infer a profile and propose agents. The answer
+ * records a role — whether the user coaches others — which puts the group step
+ * in their journey and the coach-facing builder personas (Taper Builder, etc.)
+ * in their recommendations and agent library. It never sets the reply style:
+ * that stays the user's own (Casual by default) and is chosen under Settings →
+ * Coaching style, so a coach talking about their own training keeps their own
+ * voice (carnet#827). The athlete answer records the role as off, so a former
+ * coach who re-onboards as an athlete loses the coach tools.
  *
  * What the answer does to the rest of the journey: a coach who does not train
  * is not asked about their own training or screened with the PAR-Q — those
@@ -40,8 +43,8 @@ export default function OnboardingProfileType({
   const [choosing, setChoosing] = useState<ProfileChoice | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
 
-  const setCoachPersona = useMutation({
-    mutationFn: () => userApi.setCoachingPersona('coach'),
+  const setCoachingRole = useMutation({
+    mutationFn: (coachesOthers: boolean) => userApi.setCoachingRole(coachesOthers),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user'] }),
   });
 
@@ -49,25 +52,17 @@ export default function OnboardingProfileType({
     if (choosing) return;
     setChoosing(choice);
     setSaveFailed(false);
-    if (choice === 'athlete') {
-      // Nothing to write on the user row: `coaching_persona` has no "athlete"
-      // variant — Casual IS the athlete default. What distinguishes "said
-      // athlete" from "never answered" is the durable `profile_type` step row
-      // `onComplete` writes.
-      onComplete({ trains: true });
-      return;
-    }
     try {
-      await setCoachPersona.mutateAsync();
+      await setCoachingRole.mutateAsync(choice !== 'athlete');
     } catch {
-      // The persona is what unlocks the coach tools this choice promises, so a
-      // failed write keeps the user here to retry rather than advancing them
-      // into a coach journey with an athlete's toolset.
+      // The role decides which journey and toolset follow, so a failed write
+      // keeps the user here to retry rather than advancing them into a
+      // journey the server does not know they chose.
       setChoosing(null);
       setSaveFailed(true);
       return;
     }
-    onComplete({ trains: choice === 'coach_and_athlete' });
+    onComplete({ trains: choice !== 'coach' });
   };
 
   return (

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `resolve_most_recent` orders on `last_used_at` ahead of `connected_at`, and
+//! The activity-source election orders on `last_used_at` ahead of `connected_at`, and
 //! `ProviderConnection::last_used_at` documents itself as "most recent time this
 //! provider actually served data". Nothing in production wrote the column, so it
 //! was NULL for every row, `NULLS LAST` demoted nothing, and the election
@@ -26,6 +26,8 @@ use std::sync::Arc;
 
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::ConnectionType;
+use pierre_providers::activity_source::resolve_activity_source;
+use pierre_providers::registry::global_registry;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -134,14 +136,15 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
         .await
         .unwrap();
 
-    let elected = resources
-        .common
-        .repos
-        .provider_connections
-        .resolve_most_recent(user_id, Some(tenant))
-        .await
-        .unwrap()
-        .expect("the user has connections");
+    let elected = resolve_activity_source(
+        resources.common.repos.provider_connections.as_ref(),
+        &global_registry(),
+        user_id,
+        Some(tenant),
+    )
+    .await
+    .unwrap()
+    .expect("the user has connections");
     assert_eq!(
         elected.provider, "sciotte",
         "the connection that actually served must outrank one merely added later"

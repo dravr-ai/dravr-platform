@@ -3,18 +3,19 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { adminApi } from '../services/api';
+import { adminApi, coachAccessAdminApi } from '../services/api';
 import type { User } from '../types/api';
 import { Button, Input } from './ui';
 import PendingUsersList from './PendingUsersList';
 import PreApprovedEmails from './PreApprovedEmails';
+import CoachAccessRequests from './CoachAccessRequests';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 
-type UserTab = 'pending' | 'preapproved' | 'active' | 'suspended' | 'all';
+type UserTab = 'pending' | 'preapproved' | 'coach_access' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
   const { language } = useTranslation();
@@ -35,6 +36,14 @@ export default function UserManagement() {
   const { data: allUsers = [], isLoading: allUsersLoading } = useQuery<User[]>({
     queryKey: QUERY_KEYS.adminUsers.list(),
     queryFn: () => adminApi.getAllUsers(),
+    refetchInterval: 60000,
+  });
+
+  // Coach-access requests waiting for a super-admin (carnet#738). The view
+  // shares this query, so the tab count and the queue never disagree.
+  const { data: coachAccessRequests = [] } = useQuery({
+    queryKey: QUERY_KEYS.adminUsers.coachAccess('pending'),
+    queryFn: () => coachAccessAdminApi.list('pending'),
     refetchInterval: 60000,
   });
 
@@ -88,6 +97,16 @@ export default function UserManagement() {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+        </svg>
+      )
+    },
+    {
+      id: 'coach_access',
+      name: 'Coach access',
+      count: coachAccessRequests.length,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
         </svg>
       )
     },
@@ -205,6 +224,16 @@ export default function UserManagement() {
       <div className="space-y-6">
         {tabNav}
         <PreApprovedEmails />
+      </div>
+    );
+  }
+
+  // Coaches asking for coach access, granted or declined by a super-admin.
+  if (activeTab === 'coach_access') {
+    return (
+      <div className="space-y-6">
+        {tabNav}
+        <CoachAccessRequests />
       </div>
     );
   }

@@ -5,6 +5,7 @@
 // ABOUTME: The Groups tab's management surface, re-homed where App Messaging keeps it: inside the chat
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
   useDelegatedConnections,
@@ -20,6 +21,8 @@ import {
   useRemoveCoach,
 } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
+import { userApi } from '../../services/api';
+import { QUERY_KEYS } from '../../constants/queryKeys';
 import {
   Button,
   Card,
@@ -164,6 +167,18 @@ export default function GroupInfoPanel({
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
+  // The owner of a coachless group who coaches others but holds no coach
+  // access may ask for it here, as on the onboarding group step (carnet#738).
+  // Whether they coach others is the onboarding role answer, read from the
+  // same status query the onboarding flow keeps.
+  const mayAskForCoachAccess =
+    isOwner && !!group && !group.coach_user_id && auth.user?.manages_roster !== true;
+  const { data: onboardingStatus } = useQuery({
+    queryKey: QUERY_KEYS.user.onboardingStatus(),
+    queryFn: () => userApi.getOnboardingStatus(),
+    enabled: mayAskForCoachAccess,
+  });
+  const canRequestCoachAccess = mayAskForCoachAccess && onboardingStatus?.coaches_others === true;
   // A member sees only their own links, at most one live per group.
   const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
   // The coaching platform the links are on, which their titles name: the
@@ -332,7 +347,11 @@ export default function GroupInfoPanel({
       )}
 
       <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabMembers')}>
-        <GroupLeads group={group} viewerIsCoach={isGroupCoach} />
+        <GroupLeads
+          group={group}
+          viewerIsCoach={isGroupCoach}
+          canRequestCoachAccess={canRequestCoachAccess}
+        />
         <MemberList
           groupId={groupId}
           members={members}

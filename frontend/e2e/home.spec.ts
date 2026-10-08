@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { fulfillCalendar, setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 const TODAY = '2026-09-24';
 
@@ -204,6 +204,13 @@ async function mockHome(page: Page, answers: HomeAnswers = {}) {
       body: JSON.stringify(answers.status ?? STATUS),
     });
   });
+  await page.route('**/api/me/calendar**', (route) =>
+    fulfillCalendar(route, {
+      today: TODAY,
+      plan: answers.plan === undefined ? PLAN : answers.plan,
+      activities: recent[0].activities,
+    }),
+  );
   await page.route('**/api/me/activities/recent**', async (route) => {
     const retried = new URL(route.request().url()).searchParams.get('retry') === 'true';
     const body = retried
@@ -481,7 +488,7 @@ test.describe('Athlete Home', () => {
     await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
-  test('no plan offers one "Build my plan" button, which drafts the request in Home\'s own conversation', async ({ page }) => {
+  test('no plan offers a quiet "Build my plan" link, which drafts the request in Home\'s own conversation', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page, { plan: null });
     await mockConversationCreate(page);
@@ -489,8 +496,12 @@ test.describe('Athlete Home', () => {
 
     const empty = page.getByTestId('home-plan-empty');
     await expect(empty).toContainText('No training plan yet');
-    await expect(page.getByTestId('home-page').locator('.btn-primary')).toHaveCount(1);
-    await expect(page.getByTestId('home-week')).toHaveCount(0);
+    // Not everyone wants a plan, so the offer is an ink link beside a way to
+    // set it aside, never the page's filled button (carnet#820).
+    await expect(page.getByTestId('home-page').locator('.btn-primary')).toHaveCount(0);
+    await expect(empty.getByTestId('home-plan-hide')).toBeVisible();
+    // Without a plan the week still shows what was done (carnet#708).
+    await expect(page.getByTestId('home-week-no-plan')).toBeVisible();
 
     await empty.getByRole('button', { name: 'Build my plan' }).click();
     await expect(page).toHaveURL(/#home\/chat\/conv-home-draft$/);

@@ -7,10 +7,11 @@
 import type React from 'react';
 import { TurboModuleRegistry } from 'react-native';
 import type { RouteView as RouteBlock } from '@pierre/scene-types';
+import type { DistanceUnit } from '@pierre/chat-utils';
 
 /** What `React.lazy` needs back: the module's default export, the card itself. */
 export interface RouteCardModule {
-  default: React.ComponentType<{ route: RouteBlock }>;
+  default: React.ComponentType<{ route: RouteBlock; markerUnit?: DistanceUnit | null }>;
 }
 
 /**

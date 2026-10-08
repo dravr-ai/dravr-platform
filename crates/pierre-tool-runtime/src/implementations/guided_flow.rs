@@ -21,6 +21,7 @@
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ConversationRecord, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::RepositoryRegistry;
+use serde_json::Value;
 use tracing::warn;
 
 /// Newest conversations consulted when resolving an athlete's guided-flow state
@@ -55,12 +56,14 @@ const GUIDED_FLOW_SCAN_LIMIT: i64 = 50;
 /// Public so discovery and execution share one lookup: `/mcp` `tools/list`
 /// asks before advertising, `save_training_plan` before running.
 ///
-/// LIMITATION(registre#168): a bare `/mcp` `tools/call` carries no
-/// conversation, and the fallback scan below runs under the caller's home
-/// tenant — so an active ROOM walk, whose row lives under the channel tenant,
-/// is invisible to `active_guided_flow` on that one path. The chat
-/// pipeline, the Guardian `/confirm` re-dispatch, and every other
-/// conversation-carrying call are covered.
+/// With no conversation in scope at all — a bare `/mcp` `tools/call` — the
+/// athlete's newest conversations are scanned, first under the caller's home
+/// tenant and then under every tenant that holds one of the athlete's channel
+/// links (see [`walk_tenants`]). A room's per-member row is filed under the
+/// bot tenant that owns the channel, which is exactly the tenant its link
+/// lives under, so an active ROOM walk withholds on this path too instead of
+/// being invisible to a home-tenant-only scan. Each scan is its own
+/// `(user_id, tenant_id)`-scoped query.
 ///
 /// # Errors
 ///
@@ -87,11 +90,52 @@ pub async fn active_guided_flow(
             }
         }
     }
-    let states = repos
-        .chat
-        .list_user_onboarding_states(user_id, tenant, GUIDED_FLOW_SCAN_LIMIT)
-        .await?;
-    Ok(states.iter().find_map(|raw| walk_binds(Some(raw), user_id)))
+    for scan_tenant in walk_tenants(repos, tenant, user_id).await? {
+        let states = repos
+            .chat
+            .list_user_onboarding_states(user_id, scan_tenant, GUIDED_FLOW_SCAN_LIMIT)
+            .await?;
+        if let Some(flow) = states.iter().find_map(|raw| walk_binds(Some(raw), user_id)) {
+            return Ok(Some(flow));
+        }
+    }
+    Ok(None)
+}
+
+/// The tenants an athlete's guided walks can live under, home tenant first.
+///
+/// A DM or web conversation is filed under the athlete's own tenant. A shared
+/// room's per-member row is filed under the channel/bot tenant
+/// (`resolve_linked_session` keeps group sessions there), and an athlete only
+/// ever reaches a room through a channel link stored under that same bot
+/// tenant — ingress resolves the sender with `get_channel_link(bot_tenant, ..)`
+/// and drops the message when no link exists. So the athlete's own links name
+/// every other tenant a walk of theirs can be in, and nothing else.
+///
+/// The link listing is the user-scoped read `list_channel_links_for_user`
+/// documents (a user id is narrower than a tenant: each row names its owner),
+/// and the scans it seeds stay `(user_id, tenant_id)`-scoped, so no other
+/// member's row — and no tenant the athlete holds nothing in — is ever read.
+async fn walk_tenants(
+    repos: &RepositoryRegistry,
+    home: TenantId,
+    user_id: &str,
+) -> AppResult<Vec<TenantId>> {
+    let mut tenants = vec![home];
+    for link in repos.messaging.list_channel_links_for_user(user_id).await? {
+        let Some(link_tenant) = link
+            .get("tenant_id")
+            .and_then(Value::as_str)
+            .and_then(|raw| TenantId::parse_str(raw).ok())
+        else {
+            warn!("channel link carries no valid tenant; skipping it in the guided-flow scan");
+            continue;
+        };
+        if !tenants.contains(&link_tenant) {
+            tenants.push(link_tenant);
+        }
+    }
+    Ok(tenants)
 }
 
 /// The flow that binds this user, when one does.

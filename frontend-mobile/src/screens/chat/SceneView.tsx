@@ -15,6 +15,7 @@ import type {
 } from '@pierre/scene-types';
 
 import { useTranslation } from '@pierre/i18n';
+import type { DistanceUnit } from '@pierre/chat-utils';
 
 import { useThemeColors } from '../../constants/theme';
 import { loadRouteCard, mapLibreLinked } from './routeCardLoader';
@@ -100,10 +101,13 @@ export function LazyRouteView({
   route,
   fallback = null,
   unavailable,
+  markerUnit = null,
 }: {
   route: RouteBlock;
   fallback?: React.ReactNode;
   unavailable?: React.ReactNode;
+  /** The unit a recorded on-foot route's start, finish and distance marks count in; null draws none. */
+  markerUnit?: DistanceUnit | null;
 }) {
   if (!mapLibreLinked()) {
     return <>{unavailable ?? <RouteUnavailable />}</>;
@@ -111,7 +115,7 @@ export function LazyRouteView({
   return (
     <RouteBoundary unavailable={unavailable}>
       <React.Suspense fallback={fallback}>
-        <RouteView route={route} />
+        <RouteView route={route} markerUnit={markerUnit} />
       </React.Suspense>
     </RouteBoundary>
   );

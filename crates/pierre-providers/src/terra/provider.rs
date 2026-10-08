@@ -304,6 +304,10 @@ impl ProviderDescriptor for TerraDescriptor {
         // LIMITATION(registre#513): `TerraDescriptor::capabilities` advertises activities
         // only: sleep and recovery are read from dravr-enforme's synced rows, and Terra has
         // no enforme adapter yet.
+        //
+        // No `RECORDED_ACTIVITIES`: Terra relays whichever wearable the athlete
+        // linked through it, heart-rate-detected workouts included, so it cannot
+        // vouch that an activity is a recording.
         ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
     }
 

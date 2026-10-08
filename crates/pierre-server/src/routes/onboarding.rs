@@ -29,7 +29,7 @@ use tracing::info;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoachingPersona, CoverageMap, TenantId};
+use pierre_core::models::{CoverageMap, TenantId};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::intake::{self, INTAKE_TOPICS};
@@ -58,8 +58,8 @@ pub struct OnboardingStatusResponse {
     pub steps: Vec<OnboardingStepState>,
     /// The messaging channel the user chose during onboarding, if any.
     pub chosen_channel: Option<String>,
-    /// The user answered "I coach others" (`coaching_persona = coach`, which
-    /// both coach choices write) — the group step is part of their journey.
+    /// The user answered "I coach others" (`users.coaches_others`, which both
+    /// coach choices record) — the group step is part of their journey.
     pub coaches_others: bool,
 }
 
@@ -190,11 +190,9 @@ pub async fn handle_self_get(
         .common
         .repos
         .users
-        .get_global(auth.user_id)
+        .coaches_others(auth.user_id)
         .await
-        .ok()
-        .flatten()
-        .is_some_and(|u| u.coaching_persona == CoachingPersona::Coach);
+        .unwrap_or(false);
 
     Ok((
         StatusCode::OK,

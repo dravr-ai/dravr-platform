@@ -28,9 +28,9 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
-    claim_verdicts, device_auth, device_web, feature_flags, guardian_config, harness_config,
-    memory_worker, myth_busting, provider_data, settings, setup, strava_pool, tokens, user_removal,
-    users, website,
+    claim_verdicts, coach_access, device_auth, device_web, feature_flags, guardian_config,
+    harness_config, memory_worker, myth_busting, provider_data, settings, setup, strava_pool,
+    tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -375,6 +375,20 @@ impl AdminRoutes {
                 "/admin/users/{user_id}/manages-roster",
                 post(users::handle_set_user_manages_roster),
             )
+            // The coach-access queue (carnet#738). Super-admin only inside
+            // each handler, whichever surface reaches it.
+            .route(
+                "/admin/coach-access-requests",
+                get(coach_access::handle_list_coach_access_requests),
+            )
+            .route(
+                "/admin/coach-access-requests/{request_id}/grant",
+                post(coach_access::handle_grant_coach_access_request),
+            )
+            .route(
+                "/admin/coach-access-requests/{request_id}/decline",
+                post(coach_access::handle_decline_coach_access_request),
+            )
             .route(
                 "/admin/pre-approved-emails",
                 get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
@@ -431,6 +445,20 @@ impl AdminRoutes {
             .route(
                 "/api/admin/users/{user_id}/manages-roster",
                 post(users::handle_set_user_manages_roster),
+            )
+            // The coach-access queue (carnet#738). Super-admin only inside
+            // each handler, whichever surface reaches it.
+            .route(
+                "/api/admin/coach-access-requests",
+                get(coach_access::handle_list_coach_access_requests),
+            )
+            .route(
+                "/api/admin/coach-access-requests/{request_id}/grant",
+                post(coach_access::handle_grant_coach_access_request),
+            )
+            .route(
+                "/api/admin/coach-access-requests/{request_id}/decline",
+                post(coach_access::handle_decline_coach_access_request),
             )
             .route(
                 "/api/admin/pre-approved-emails",

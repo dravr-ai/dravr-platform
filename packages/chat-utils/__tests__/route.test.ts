@@ -13,6 +13,7 @@ import {
   kilometres,
   metresAt,
   routeFrame,
+  routeMarkers,
   trackGeometry,
 } from '../src/route';
 
@@ -172,5 +173,75 @@ describe('trackGeometry and climbGeometry', () => {
         ],
       ],
     });
+  });
+});
+
+describe('routeMarkers', () => {
+  /** A straight track north along a meridian, one fix every `spacing` metres. */
+  function straight(points: number, spacing: number, offset = 0) {
+    const coordinates: Array<[number, number]> = [];
+    const distances: number[] = [];
+    for (let i = 0; i < points; i += 1) {
+      coordinates.push([45 + i * 0.001, -73]);
+      distances.push(offset + i * spacing);
+    }
+    return { coordinates, distances };
+  }
+
+  const distanceUnits = (markers: ReturnType<typeof routeMarkers>) =>
+    markers.flatMap((marker) => (marker.kind === 'distance' ? [marker.units] : []));
+
+  it('marks every kilometre of a short run between its start and finish', () => {
+    const { coordinates, distances } = straight(51, 100); // 5 km
+    const markers = routeMarkers(coordinates, distances, 'metric');
+    expect(markers[0]).toEqual({ kind: 'start', position: coordinates[0] });
+    expect(markers[markers.length - 1]).toEqual({ kind: 'finish', position: coordinates[50] });
+    // No mark on the 5 km the finish already sits on.
+    expect(distanceUnits(markers)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('places a mark between the two fixes it falls between', () => {
+    const coordinates: Array<[number, number]> = [
+      [45, -73],
+      [45.01, -73],
+      [45.02, -73],
+    ];
+    const markers = routeMarkers(coordinates, [0, 800, 1800], 'metric');
+    const mark = markers.find((marker) => marker.kind === 'distance');
+    // 1000 m is a fifth of the way from 800 m to 1800 m.
+    expect(mark?.position[0]).toBeCloseTo(45.012, 6);
+    expect(mark?.position[1]).toBe(-73);
+  });
+
+  it('thins the marks to every five past fifteen kilometres', () => {
+    const { coordinates, distances } = straight(422, 100); // 42.1 km
+    expect(distanceUnits(routeMarkers(coordinates, distances, 'metric'))).toEqual([5, 10, 15, 20, 25, 30, 35, 40]);
+    const fifteen = straight(151, 100); // exactly 15 km stays dense
+    expect(distanceUnits(routeMarkers(fifteen.coordinates, fifteen.distances, 'metric'))).toHaveLength(14);
+  });
+
+  it('counts miles for an imperial athlete', () => {
+    const { coordinates, distances } = straight(101, 100); // 10 km, 6.2 mi
+    expect(distanceUnits(routeMarkers(coordinates, distances, 'imperial'))).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('reads the activity distance on a privacy-trimmed track', () => {
+    // The drawn line starts 1.3 km in: the first mark is km 2, not km 1.
+    const { coordinates, distances } = straight(31, 100, 1300);
+    expect(distanceUnits(routeMarkers(coordinates, distances, 'metric'))).toEqual([2, 3, 4]);
+  });
+
+  it('draws only the start and finish when the distance series is absent or ragged', () => {
+    const { coordinates, distances } = straight(30, 100);
+    expect(routeMarkers(coordinates, null, 'metric').map((marker) => marker.kind)).toEqual(['start', 'finish']);
+    expect(routeMarkers(coordinates, distances.slice(1), 'metric').map((marker) => marker.kind)).toEqual([
+      'start',
+      'finish',
+    ]);
+  });
+
+  it('draws nothing for an empty track and a start alone for a single fix', () => {
+    expect(routeMarkers([], null, 'metric')).toEqual([]);
+    expect(routeMarkers([[45, -73]], [0], 'metric')).toEqual([{ kind: 'start', position: [45, -73] }]);
   });
 });

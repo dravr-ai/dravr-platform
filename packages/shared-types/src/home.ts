@@ -1,8 +1,8 @@
-// ABOUTME: Wire shapes of the athlete Home page's reads — recent activities, one activity's view and route, the plan for today
+// ABOUTME: Wire shapes of the athlete Home page's reads — recent activities, one activity's view and route, the plan, the calendar
 // ABOUTME: Mirrors the pierre-server `/api/me/...` handlers; each parser rejects a body of any other shape instead of rendering half of it
 
 import type { RouteView } from '@pierre/scene-types';
-import { isWorkoutPlan, type WorkoutPlan } from './workout-plan.js';
+import { isWorkoutPlan, type PlanDay, type PlanWeek, type WorkoutPlan } from './workout-plan.js';
 
 /**
  * One activity on the Home page, projected from the durable activity cache.
@@ -290,6 +290,43 @@ export interface TrainingPlanResponse {
   plan: WorkoutPlan | null;
   /** The athlete's today, `YYYY-MM-DD` in their own timezone — the day the plan was projected for. */
   today: string;
+}
+
+/** One cached workout on the athlete's day it belongs to. */
+export interface CalendarActivity {
+  /** The athlete's civil date of the workout's start, `YYYY-MM-DD` in their own timezone. */
+  date: string;
+  /** The workout exactly as its Home row projects it. */
+  activity: HomeActivity;
+}
+
+/**
+ * `GET /api/me/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` — the athlete's days
+ * between two civil dates, at most 42 of them: the cached workouts on each
+ * day and the plan's weeks over them. Served from the server's cache and plan
+ * store alone; reading an older span never starts a provider fetch.
+ */
+export interface CalendarResponse {
+  /** The athlete's today, `YYYY-MM-DD` in their own timezone. */
+  today: string;
+  /** The first day read. */
+  from: string;
+  /** The last day read, included. */
+  to: string;
+  /**
+   * The first day whose workouts the cache still holds in full. A day before
+   * it is unknown — pruned past the retention window — never a day without
+   * training, and no workout is answered for it.
+   */
+  history_start: string;
+  /** The workouts on the days read, oldest first. */
+  activities: CalendarActivity[];
+  /**
+   * The active plan's weeks overlapping the days read, projected as the plan
+   * card projects a week, in calendar order; null when there is no active
+   * plan. Look a day up with `planWeeksDayOn`.
+   */
+  plan_weeks: PlanWeek[] | null;
 }
 
 const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -741,5 +778,100 @@ export function parseTrainingStatusResponse(body: unknown): TrainingStatusRespon
     trend,
     load_ratio: loadRatio,
     recovery_days: recoveryDays,
+  };
+}
+
+/**
+ * Body of `GET` and `PUT /api/me/home-preferences`: what the athlete chose
+ * about Home, stored per user so the web and the phone show the same page.
+ */
+export interface HomePreferences {
+  /**
+   * The athlete set aside the suggestion to build a training plan: Home
+   * stops offering it while they have none, until Settings brings it back.
+   */
+  plan_suggestion_hidden: boolean;
+}
+
+/** Read a `/api/me/home-preferences` body, or null when it is not one. */
+export function parseHomePreferences(body: unknown): HomePreferences | null {
+  if (!isRecord(body) || typeof body.plan_suggestion_hidden !== 'boolean') return null;
+  return { plan_suggestion_hidden: body.plan_suggestion_hidden };
+}
+
+function isCivilDate(value: unknown): value is string {
+  return typeof value === 'string' && CIVIL_DATE.test(value);
+}
+
+/**
+ * A plan day read for its outline — the date, the session's words and the
+ * rest flag every reader branches on; the rest is read the way the plan card
+ * reads it, field by field.
+ */
+function isPlanDay(value: unknown): value is PlanDay {
+  return (
+    isRecord(value) &&
+    isCivilDate(value.date) &&
+    typeof value.workout === 'string' &&
+    typeof value.sport === 'string' &&
+    typeof value.rest === 'boolean'
+  );
+}
+
+function isPlanWeek(value: unknown): value is PlanWeek {
+  return (
+    isRecord(value) &&
+    isCivilDate(value.week_start) &&
+    typeof value.focus === 'string' &&
+    typeof value.current === 'boolean' &&
+    Array.isArray(value.days) &&
+    value.days.every(isPlanDay)
+  );
+}
+
+/**
+ * Read a `GET /api/me/calendar` body.
+ *
+ * Returns `null` for any body that is not that response: one malformed
+ * workout or week rejects it whole, and an omitted `plan_weeks` is rejected
+ * rather than read as "no plan", which the calendar words as such.
+ */
+export function parseCalendarResponse(body: unknown): CalendarResponse | null {
+  if (
+    !isRecord(body) ||
+    !isCivilDate(body.today) ||
+    !isCivilDate(body.from) ||
+    !isCivilDate(body.to) ||
+    !isCivilDate(body.history_start) ||
+    !Array.isArray(body.activities) ||
+    body.plan_weeks === undefined
+  ) {
+    return null;
+  }
+  const activities: CalendarActivity[] = [];
+  for (const entry of body.activities) {
+    if (!isRecord(entry) || !isCivilDate(entry.date)) {
+      return null;
+    }
+    const activity = parseHomeActivity(entry.activity);
+    if (activity === null) {
+      return null;
+    }
+    activities.push({ date: entry.date, activity });
+  }
+  let planWeeks: PlanWeek[] | null = null;
+  if (body.plan_weeks !== null) {
+    if (!Array.isArray(body.plan_weeks) || !body.plan_weeks.every(isPlanWeek)) {
+      return null;
+    }
+    planWeeks = body.plan_weeks;
+  }
+  return {
+    today: body.today,
+    from: body.from,
+    to: body.to,
+    history_start: body.history_start,
+    activities,
+    plan_weeks: planWeeks,
   };
 }

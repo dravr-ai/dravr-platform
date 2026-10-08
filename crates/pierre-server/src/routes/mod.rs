@@ -85,6 +85,8 @@ pub mod admin;
 /// the user still needs to connect a fitness provider.
 pub mod oauth_grants;
 
+/// A coach's own coach-access request (carnet#738)
+pub mod coach_access;
 pub mod onboarding;
 
 /// API key management routes

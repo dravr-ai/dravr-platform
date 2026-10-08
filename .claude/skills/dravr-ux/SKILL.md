@@ -35,8 +35,10 @@ and any `pierre-violet`/`pierre-cyan`/`gradient-pierre` class is a regression.
   dark. Dark-on-dark and light-on-light pairings are bugs: `bg-primary` pairs
   with `text-on-primary`, `primary-container` with `on-primary-container`.
 - **Home is the athlete's own conversation; Groups is the messenger.** 72px
-  icon rail (Home, Groups, Discover, Notifications, gear + avatar). Home: the
-  personal thread in the middle, Today docked right from `lg` (a one-line
+  icon rail (Home, Groups, Discover, gear + avatar). Notifications are not a
+  rail destination: a bell, the right-most control of the Home, Groups and
+  Discover headers, carries the unread count and opens them as a sheet. Home:
+  the personal thread in the middle, Today docked right from `lg` (a one-line
   peek + drawer/sheet below it), History behind a header button; anything
   that is only the athlete and Dravr — any channel, any agent — is personal
   (`scopeOfKind`). Groups: list column (title, `+`, search, filter chips, rows
@@ -48,6 +50,10 @@ and any `pierre-violet`/`pierre-cyan`/`gradient-pierre` class is a regression.
   in `.chat-bubble-ai`, 24-hour time inside the bubble, author line only on the
   first bubble of a run, day pills between days, actions (copy/share/rate/
   regenerate/model·latency) hidden until hover, focus or a coarse pointer.
+- **An offer the athlete may not want is quiet and dismissible.** Home's
+  no-plan state is a sentence, a `primary` "Build my plan" link and a "Hide";
+  hiding is a per-user server preference (web and phone agree) that Settings
+  brings back — never a filled button nobody can get rid of.
 - **Configuration is not a destination.** Providers, notifications, privacy,
   appearance live under Settings; the rail lists only places an athlete goes to
   *do* something.

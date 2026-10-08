@@ -2,10 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the mobile OnboardingCoachGroupScreen — a coach names a group, picks its agent, leaves with its invite
-// ABOUTME: Pins name → agent → create → thread → 30-day invite, the app.dravr.ai link, access pending, retry and skip
+// ABOUTME: Pins name → agent → create → thread → 30-day invite, the app.dravr.ai link, the coach-access request, retry and skip
 
 import React from 'react';
-import { Alert, Linking } from 'react-native';
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -24,7 +23,11 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
 }));
 jest.mock('react-native-qrcode-svg', () => 'QRCode');
 jest.mock('../../../services/api', () => ({
-  userApi: { setOnboardingStep: jest.fn() },
+  userApi: {
+    setOnboardingStep: jest.fn(),
+    getCoachAccessRequest: jest.fn(),
+    requestCoachAccess: jest.fn(),
+  },
   groupsApi: { createGroup: jest.fn(), createInvite: jest.fn() },
   chatApi: { createConversation: jest.fn() },
   coachesApi: { list: jest.fn() },
@@ -36,6 +39,19 @@ const createInvite = groupsApi.createInvite as jest.Mock;
 const createConversation = chatApi.createConversation as jest.Mock;
 const setOnboardingStep = userApi.setOnboardingStep as jest.Mock;
 const listAgents = coachesApi.list as jest.Mock;
+const getCoachAccessRequest = userApi.getCoachAccessRequest as jest.Mock;
+const requestCoachAccess = userApi.requestCoachAccess as jest.Mock;
+
+const accessRequest = (status: 'pending' | 'granted' | 'declined') => ({
+  id: 'r-1',
+  user_id: 'u1',
+  group_id: 'g-1',
+  group_tenant_id: 't-1',
+  status,
+  created_at: '2026-10-07T12:00:00Z',
+  decided_at: null,
+  decided_by: null,
+});
 
 function render(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -76,6 +92,8 @@ describe('OnboardingCoachGroupScreen', () => {
     createConversation.mockReset().mockResolvedValue({ id: 'c-1' });
     createInvite.mockReset().mockResolvedValue({ code: 'ABCD2345' });
     setOnboardingStep.mockReset().mockResolvedValue(undefined);
+    getCoachAccessRequest.mockReset().mockResolvedValue({ request: null });
+    requestCoachAccess.mockReset();
     listAgents.mockReset().mockResolvedValue({
       agents: [
         agent('a-1', 'Endurance Agent'),
@@ -146,38 +164,69 @@ describe('OnboardingCoachGroupScreen', () => {
     await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
   });
 
-  describe('contacting support while access is pending (carnet#803)', () => {
-    const SUPPORT = 'mailto:support@dravr.ai';
-
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
-    async function pressContact() {
+  describe('asking for coach access while it is pending (carnet#738)', () => {
+    async function createCoachless() {
       createGroup.mockResolvedValue(group(null));
       render(<OnboardingCoachGroupScreen />);
       await nameAndCreate();
-      fireEvent.press(await screen.findByText(i18n.t('onboarding.groupAccessContact')));
-    }
-
-    it('writes to support', async () => {
-      const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-      await pressContact();
-      await waitFor(() => expect(openURL).toHaveBeenCalledWith(SUPPORT));
-    });
-
-    // The rejection used to be swallowed by `.catch(() => {})`: a phone with
-    // no mail app showed a link that did nothing.
-    it('says so when the device has no mail app', async () => {
-      jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
-      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-      await pressContact();
       await waitFor(() =>
-        expect(alert).toHaveBeenCalledWith(
-          i18n.t('app.couldNotOpenLink'),
-          i18n.t('app.openInBrowserInstead', { url: SUPPORT }),
+        expect(screen.getByTestId('coach-access-request').props.accessibilityState?.disabled).not.toBe(
+          true,
         ),
       );
+    }
+
+    it('no longer offers a mailto link', async () => {
+      createGroup.mockResolvedValue(group(null));
+      render(<OnboardingCoachGroupScreen />);
+      await nameAndCreate();
+      await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
+      expect(screen.queryByText(i18n.t('onboarding.groupAccessContact'))).toBeNull();
+    });
+
+    it('asks in one tap, naming the group, then says the request was sent', async () => {
+      requestCoachAccess.mockResolvedValue({ request: accessRequest('pending') });
+      await createCoachless();
+      await waitFor(() => expect(screen.getByTestId('coach-access-request')).toBeEnabled());
+      fireEvent.press(screen.getByTestId('coach-access-request'));
+
+      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
+      expect(requestCoachAccess).toHaveBeenCalledWith('g-1');
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('shows a request already waiting instead of the button', async () => {
+      getCoachAccessRequest.mockResolvedValue({ request: accessRequest('pending') });
+      createGroup.mockResolvedValue(group(null));
+      render(<OnboardingCoachGroupScreen />);
+      await nameAndCreate();
+
+      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
+      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('offers the button again after a declined request', async () => {
+      getCoachAccessRequest.mockResolvedValue({ request: accessRequest('declined') });
+      createGroup.mockResolvedValue(group(null));
+      render(<OnboardingCoachGroupScreen />);
+      await nameAndCreate();
+
+      await waitFor(() => expect(screen.getByTestId('coach-access-declined')).toBeTruthy());
+      expect(screen.getByTestId('coach-access-request')).toBeTruthy();
+    });
+
+    it('says so when the request fails, and retries', async () => {
+      requestCoachAccess
+        .mockRejectedValueOnce(new Error('network'))
+        .mockResolvedValueOnce({ request: accessRequest('pending') });
+      await createCoachless();
+      await waitFor(() => expect(screen.getByTestId('coach-access-request')).toBeEnabled());
+      fireEvent.press(screen.getByTestId('coach-access-request'));
+      await waitFor(() => expect(screen.getByTestId('coach-access-failed')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('coach-access-request'));
+      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
+      expect(requestCoachAccess).toHaveBeenCalledTimes(2);
     });
   });
 

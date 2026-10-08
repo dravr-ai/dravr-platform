@@ -6,7 +6,7 @@
 
 //! An athlete with years of Strava history and a WHOOP connection added later
 //! whose token expired got ONLY the canned "reconnect WHOOP" sentence on every
-//! activity-touching turn: `resolve_most_recent` elected the newest connection,
+//! activity-touching turn: the provider election picked the newest connection,
 //! `get_activities` returned `provider_auth_required` from it, and the merge
 //! that exists for the 2026-08-22 multi-provider incident sat below that return,
 //! unreachable.
@@ -88,13 +88,14 @@ async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
         .await
         .unwrap();
 
-    // WHOOP second, so it is elected primary — and it has no token at all, so
-    // authenticating it fails auth-shaped.
+    // Garmin second — a recording source like Strava, so recency elects it
+    // primary (carnet#133: a detector such as WHOOP would not be) — and it has
+    // no token at all, so authenticating it fails auth-shaped.
     resources
         .common
         .repos
         .provider_connections
-        .register_connection(user_id, tenant, "whoop", &ConnectionType::OAuth, None)
+        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
         .await
         .unwrap();
 
@@ -153,15 +154,15 @@ async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
         .expect("the dead provider must still be surfaced for reconnection");
     assert_eq!(
         caveat.get("provider").and_then(Value::as_str),
-        Some("whoop"),
+        Some("garmin"),
         "the caveat names the provider whose connection died"
     );
     assert!(
         caveat
             .get("note")
             .and_then(Value::as_str)
-            .is_some_and(|note| note.contains("whoop")),
-        "the note tells the model to ask for a whoop reconnect, got: {caveat}"
+            .is_some_and(|note| note.contains("garmin")),
+        "the note tells the model to ask for a garmin reconnect, got: {caveat}"
     );
 }
 

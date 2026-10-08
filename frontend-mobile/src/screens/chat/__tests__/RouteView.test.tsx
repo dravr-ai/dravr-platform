@@ -342,6 +342,46 @@ describe('RouteView distance', () => {
   });
 });
 
+describe('RouteView markers', () => {
+  const markerIds = (prefix: string) =>
+    screen
+      .queryAllByTestId(new RegExp(`^${prefix}-marker-`))
+      .map((node) => String(node.props.testID).slice(`${prefix}-marker-`.length));
+
+  it('pins no marker on a route drawn without a marker unit', () => {
+    render(<RouteView route={routeBlock()} />);
+    expect(markerIds('route-map')).toEqual([]);
+  });
+
+  it('pins every kilometre, then the finish, then the start, on the map and full screen', () => {
+    render(<RouteView route={routeBlock()} markerUnit="metric" />);
+
+    // 3.6 km: a mark at 1, 2 and 3 km, the start drawn last so a loop shows it on top.
+    expect(markerIds('route-map')).toEqual(['distance-1', 'distance-2', 'distance-3', 'finish', 'start']);
+    // MapLibre takes longitude first; the block carries latitude first.
+    expect(screen.getByTestId('route-map-marker-start').props.lngLat).toEqual([-73.6, 45.5]);
+    expect(screen.getByTestId('route-map-marker-finish').props.lngLat).toEqual([-73.57, 45.53]);
+    // The number is drawn, and hidden from a screen reader: the map is one image.
+    const mark = within(screen.getByTestId('route-map-marker-distance-2'));
+    expect(mark.queryByText('2')).toBeNull();
+    expect(mark.getByText('2', { includeHiddenElements: true })).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('route-fullscreen-open'));
+    expect(markerIds('route-fullscreen-map')).toEqual([
+      'distance-1',
+      'distance-2',
+      'distance-3',
+      'finish',
+      'start',
+    ]);
+  });
+
+  it('counts miles for an imperial unit', () => {
+    render(<RouteView route={routeBlock()} markerUnit="imperial" />);
+    expect(markerIds('route-map')).toEqual(['distance-1', 'distance-2', 'finish', 'start']);
+  });
+});
+
 describe('RouteView chrome', () => {
   it('draws the dark OpenFreeMap sheet on the night canvas', () => {
     render(<RouteView route={routeBlock()} />);

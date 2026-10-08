@@ -108,8 +108,12 @@ export {
   kilometres,
   metresAt,
   routeFrame,
+  routeMarkers,
   trackGeometry,
+  DENSE_MARKER_LIMIT,
+  LONG_ROUTE_STEP,
 } from './route';
+export type { DistanceUnit, RouteMarker } from './route';
 export { fuelParts, stepDuration } from './workout-plan';
 
 // A figure in the athlete's own decimal notation, for every figure both clients print

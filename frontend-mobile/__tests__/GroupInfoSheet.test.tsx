@@ -68,15 +68,35 @@ jest.mock('../src/services/api', () => ({
     createInvite: jest.fn(),
     deactivateInvite: jest.fn(),
   },
+  userApi: {
+    getOnboardingStatus: jest.fn(),
+    getCoachAccessRequest: jest.fn(),
+    requestCoachAccess: jest.fn(),
+  },
 }));
 
 let mockCallerId = 'user-owner';
+/** Whether the caller holds coach access; a test flips it. */
+let mockManagesRoster = false;
 jest.mock('../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ user: { id: mockCallerId }, isAuthenticated: true }),
+  useAuth: () => ({ user: { id: mockCallerId, manages_roster: mockManagesRoster }, isAuthenticated: true }),
 }));
 
 import { GroupInfoSheet } from '../src/screens/groups/GroupInfoSheet';
-import { coachesApi, groupsApi } from '../src/services/api';
+import { coachesApi, groupsApi, userApi } from '../src/services/api';
+
+/** The onboarding status, answering whether the caller coaches others. */
+function onboardingStatus(coachesOthers: boolean) {
+  return {
+    needs_provider_connection: false,
+    pillars_covered: 0,
+    pillars_total: 7,
+    onboarding_complete: false,
+    steps: [],
+    chosen_channel: null,
+    coaches_others: coachesOthers,
+  };
+}
 
 function member(id: string, role: GroupRole, name: string): GroupMember {
   return {
@@ -108,6 +128,9 @@ describe('GroupInfoSheet', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCallerId = 'user-owner';
+    mockManagesRoster = false;
+    (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(false));
+    (userApi.getCoachAccessRequest as jest.Mock).mockResolvedValue({ request: null });
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
     (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
       can_create: true,
@@ -186,6 +209,61 @@ describe('GroupInfoSheet', () => {
 
       const none = await findByTestId('group-info-no-coach');
       expect(within(none).getByText('No human coach attached. Share a coach invite to bring one in.')).toBeTruthy();
+    });
+
+    it('offers the owner who coaches others a one-tap coach-access request naming this group', async () => {
+      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+      (userApi.requestCoachAccess as jest.Mock).mockResolvedValue({
+        request: {
+          id: 'req-1',
+          user_id: 'user-owner',
+          group_id: 'group-1',
+          group_tenant_id: 'tenant-1',
+          status: 'pending',
+          created_at: '2026-10-07T12:00:00Z',
+          decided_at: null,
+          decided_by: null,
+        },
+      });
+      const { findByTestId, queryByTestId } = renderSheet();
+
+      const entry = await findByTestId('group-info-coach-access');
+      const ask = await within(entry).findByTestId('coach-access-request');
+      // The button waits for the latest-request read before it takes a tap.
+      await waitFor(() => expect(ask).toBeEnabled());
+      fireEvent.press(ask);
+
+      await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith('group-1'));
+      expect(await findByTestId('coach-access-pending')).toBeTruthy();
+      expect(queryByTestId('coach-access-request')).toBeNull();
+    });
+
+    it('offers no coach-access request to an owner who does not coach others', async () => {
+      const { findByTestId, queryByTestId } = renderSheet();
+
+      await findByTestId('group-info-no-coach');
+      await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
+      expect(queryByTestId('group-info-coach-access')).toBeNull();
+    });
+
+    it('offers no coach-access request to an owner who already holds coach access', async () => {
+      mockManagesRoster = true;
+      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+      const { findByTestId, queryByTestId } = renderSheet();
+
+      await findByTestId('group-info-no-coach');
+      expect(queryByTestId('group-info-coach-access')).toBeNull();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+    });
+
+    it('offers no coach-access request to a plain member', async () => {
+      mockCallerId = 'user-phil';
+      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+      const { findByTestId, queryByTestId } = renderSheet();
+
+      await findByTestId('group-info-no-coach');
+      expect(queryByTestId('group-info-coach-access')).toBeNull();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
 
     it('gives an admin the remove control on the coach row, and detaches the coach through it', async () => {

@@ -14,6 +14,7 @@ use crate::runtime::ToolRuntime;
 use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
+use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value as JsonValue};
@@ -154,7 +155,9 @@ pub async fn resolve_provider_for_tool(
 
 /// The one priority chain both resolvers answer with: the explicit `provider`
 /// argument, then the deployment-wide `PIERRE_DEFAULT_PROVIDER`, then the
-/// user's most-recently-used connection. `None` when the user has none.
+/// connection elected to answer activity questions
+/// ([`resolve_activity_source`]: health, then capability, then recency). `None`
+/// when the user has none.
 async fn elect_provider(
     parameters: &JsonValue,
     runtime: &Arc<dyn ToolRuntime>,
@@ -175,12 +178,14 @@ async fn elect_provider(
         return Ok(Some(env_p));
     }
 
-    // 3. User's most-recently-used connection
-    let Some(conn) = runtime
-        .repos()
-        .provider_connections
-        .resolve_most_recent(user_id, tenant)
-        .await?
+    // 3. The connection elected to answer activity questions
+    let Some(conn) = resolve_activity_source(
+        runtime.repos().provider_connections.as_ref(),
+        runtime.provider_registry(),
+        user_id,
+        tenant,
+    )
+    .await?
     else {
         return Ok(None);
     };
@@ -189,7 +194,7 @@ async fn elect_provider(
     info!(
         user_id = %user_id,
         provider = %conn.provider,
-        "resolved provider from user's most-recent connection"
+        "resolved provider from the user's elected activity source"
     );
     Ok(Some(conn.provider))
 }

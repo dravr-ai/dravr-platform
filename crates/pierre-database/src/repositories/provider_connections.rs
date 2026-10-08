@@ -94,25 +94,26 @@ pub(crate) const TOUCH_LAST_USED_SQL: &str = r"
              WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
             ";
 
-/// The most recently used usable connection within one tenant. The election:
-/// health first, so a dead connection never shadows a healthy sibling; then
-/// a coach account last, since it has no calendar of its own to serve; then
-/// the freshest `last_used_at` with untouched rows last; then the freshest
-/// `connected_at`.
-pub(crate) const RESOLVE_MOST_RECENT_IN_TENANT_SQL: &str = connection_select_sql!(
+/// A user's connections within one tenant in election order: health first,
+/// so a dead connection never shadows a healthy sibling; then a coach account
+/// last, since it has no calendar of its own to serve; then the freshest
+/// `last_used_at` with untouched rows last; then the freshest `connected_at`.
+/// What each provider can serve is not a column, so capability is applied
+/// over this order by the caller (`pierre_providers::activity_source`).
+pub(crate) const RANK_FOR_ELECTION_IN_TENANT_SQL: &str = connection_select_sql!(
     " AND tenant_id = $2",
     " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
                CASE WHEN account_role = 'coach' THEN 1 ELSE 0 END,
-               last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
+               last_used_at DESC NULLS LAST, connected_at DESC"
 );
 
-/// The most recently used usable connection across every tenant, elected as
-/// [`RESOLVE_MOST_RECENT_IN_TENANT_SQL`] does.
-pub(crate) const RESOLVE_MOST_RECENT_SQL: &str = connection_select_sql!(
+/// A user's connections across every tenant, in the order
+/// [`RANK_FOR_ELECTION_IN_TENANT_SQL`] ranks them.
+pub(crate) const RANK_FOR_ELECTION_SQL: &str = connection_select_sql!(
     "",
     " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
                CASE WHEN account_role = 'coach' THEN 1 ELSE 0 END,
-               last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
+               last_used_at DESC NULLS LAST, connected_at DESC"
 );
 
 /// Flag a connection after a failure an attempt that began at `$6` observed.
@@ -470,28 +471,28 @@ macro_rules! impl_provider_connection_repository {
                 Ok(())
             }
 
-            async fn resolve_most_recent(
+            async fn rank_for_election(
                 &self,
                 user_id: Uuid,
                 tenant_id: Option<TenantId>,
-            ) -> AppResult<Option<ProviderConnection>> {
-                let row = match tenant_id {
+            ) -> AppResult<Vec<ProviderConnection>> {
+                let rows = match tenant_id {
                     Some(tid) => {
-                        sqlx::query(RESOLVE_MOST_RECENT_IN_TENANT_SQL)
+                        sqlx::query(RANK_FOR_ELECTION_IN_TENANT_SQL)
                             .bind(user_id.to_string())
                             .bind(tid.to_string())
-                            .fetch_optional(self.pool())
+                            .fetch_all(self.pool())
                             .await?
                     }
                     None => {
-                        sqlx::query(RESOLVE_MOST_RECENT_SQL)
+                        sqlx::query(RANK_FOR_ELECTION_SQL)
                             .bind(user_id.to_string())
-                            .fetch_optional(self.pool())
+                            .fetch_all(self.pool())
                             .await?
                     }
                 };
 
-                row.map(|row| connection_from_row(&row)).transpose()
+                rows.iter().map(connection_from_row).collect()
             }
 
             async fn mark_needs_reauth(

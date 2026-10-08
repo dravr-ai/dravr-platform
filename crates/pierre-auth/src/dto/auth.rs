@@ -179,6 +179,18 @@ pub struct UpdateCoachingPersonaRequest {
     pub persona: String,
 }
 
+/// Coaching-role update for authenticated users (`PUT /api/user/coaching-role`).
+///
+/// The onboarding profile-type answer: whether the user coaches others. A
+/// role, kept apart from the reply style in [`UpdateCoachingPersonaRequest`]
+/// (carnet#827).
+#[derive(Debug, Deserialize)]
+pub struct UpdateCoachingRoleRequest {
+    /// `true` for "I coach others" and "I coach and I train", `false` for
+    /// "I'm an athlete".
+    pub coaches_others: bool,
+}
+
 /// Change password request for authenticated users
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {

@@ -55,6 +55,20 @@ export const ROUTE_INK = {
   track: '#d9480f',
   /** The dashed climbs over the track. */
   climb: '#1a1a1a',
+  /**
+   * The start marker's fill: a round dot, ringed in `casing`. Green because
+   * that is what a start reads as on most maps an athlete knows; the shape,
+   * round against the finish's square, is what names it to a colourblind
+   * reader. 5.1:1 against its white ring.
+   */
+  start: '#2b8a3e',
+  /** The finish marker's fill: a square, ringed in `casing` — the climb ink, 17:1 on white. */
+  finish: '#1a1a1a',
+  /**
+   * A distance mark's number: near-black on a `casing` disc ringed in
+   * `track`, so the label reads on any ground and the ring ties it to the line.
+   */
+  markText: '#1a1a1a',
 } as const;
 
 /** The i18n key naming a layer in the switcher. */

@@ -431,3 +431,19 @@ const ROUTE_SPORTS: ReadonlySet<string> = new Set([
 export function sportHasRoutes(sport: string): boolean {
   return ROUTE_SPORTS.has(canonicalActivitySport(sport));
 }
+
+/**
+ * The sports covered on foot — the ones whose recorded map carries start,
+ * finish and distance markers. A ride, a swim or a ski covers distance too
+ * fast, or along no line worth counting, for a mark every kilometre to read as
+ * anything but clutter, so only these four get them.
+ */
+const ON_FOOT_SPORTS: ReadonlySet<string> = new Set(['run', 'trail_running', 'walk', 'hike']);
+
+/**
+ * Whether a recorded session of this sport was covered on foot. A sport the
+ * vocabulary does not know is answered no, like {@link sportHasRoutes}.
+ */
+export function sportIsOnFoot(sport: string): boolean {
+  return ON_FOOT_SPORTS.has(canonicalActivitySport(sport));
+}

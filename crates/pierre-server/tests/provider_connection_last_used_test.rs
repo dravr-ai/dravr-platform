@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for ProviderConnectionRepository::{touch_last_used, resolve_most_recent}
+// ABOUTME: Integration tests for ProviderConnectionRepository::{touch_last_used, rank_for_election}
 // ABOUTME: Pins the resolver behavior that replaced the synthetic-provider silent fallback on 2026-05-23
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -28,21 +28,23 @@ use tokio::time::sleep;
 
 mod common;
 
-/// `resolve_most_recent` returns `None` for a brand-new user with no
+/// `rank_for_election` has no head for a brand-new user with no
 /// connections. This is the path the chat-pipeline resolver translates into
 /// `AppError::no_provider_connected()` — surfacing the reconnect signal
 /// instead of silently falling back to seed data.
 #[tokio::test]
-async fn resolve_most_recent_returns_none_when_user_has_no_connections() {
+async fn rank_for_election_returns_none_when_user_has_no_connections() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
 
     let resolved = repos
         .provider_connections
-        .resolve_most_recent(user_id, None)
+        .rank_for_election(user_id, None)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .next();
 
     assert!(
         resolved.is_none(),
@@ -54,7 +56,7 @@ async fn resolve_most_recent_returns_none_when_user_has_no_connections() {
 /// `last_used_at` has been touched yet. The `connected_at` fallback in the
 /// `ORDER BY` clause is what makes this case work.
 #[tokio::test]
-async fn resolve_most_recent_returns_only_connection_when_one_exists() {
+async fn rank_for_election_returns_only_connection_when_one_exists() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -69,9 +71,11 @@ async fn resolve_most_recent_returns_only_connection_when_one_exists() {
 
     let resolved = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("single connection must resolve");
 
     assert_eq!(resolved.provider, "strava");
@@ -110,9 +114,11 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
     // Without any touch, sciotte wins on connected_at DESC
     let resolved = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("at least one connection exists");
     assert_eq!(
         resolved.provider, "sciotte",
@@ -129,9 +135,11 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
 
     let resolved = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("at least one connection exists");
     assert_eq!(
         resolved.provider, "garmin",
@@ -149,7 +157,7 @@ async fn touch_last_used_promotes_provider_in_resolution_order() {
 /// (`mark_needs_reauth` wrote it); electing it anyway is what turned one expired
 /// watch token into a blanked turn for an athlete whose other provider was fine.
 #[tokio::test]
-async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
+async fn rank_for_election_refuses_to_elect_a_connection_needing_reauth() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -177,9 +185,11 @@ async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
 
     let elected = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("two connections exist");
     assert_eq!(
         elected.provider, "whoop",
@@ -201,9 +211,11 @@ async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
 
     let elected = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("two connections exist");
     assert_eq!(
         elected.provider, "strava",
@@ -221,7 +233,7 @@ async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
 /// instead of the "no provider connected" refusal, which sends an athlete who
 /// HAS a connection to the wrong flow.
 #[tokio::test]
-async fn resolve_most_recent_still_returns_a_flagged_connection_when_all_are_dead() {
+async fn rank_for_election_still_returns_a_flagged_connection_when_all_are_dead() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -264,9 +276,11 @@ async fn resolve_most_recent_still_returns_a_flagged_connection_when_all_are_dea
 
     let elected = repos
         .provider_connections
-        .resolve_most_recent(user_id, Some(tenant_id))
+        .rank_for_election(user_id, Some(tenant_id))
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .expect("a flagged connection is still a connection");
     assert_eq!(
         elected.provider, "whoop",
@@ -314,7 +328,7 @@ async fn touch_last_used_is_a_noop_for_unknown_provider() {
 /// gets their own workouts from Strava. Health still comes first, and a
 /// reconnect clears the role, since the new login may be another account.
 #[tokio::test]
-async fn resolve_most_recent_elects_a_coach_account_after_every_other_healthy_one() {
+async fn rank_for_election_elects_a_coach_account_after_every_other_healthy_one() {
     let database = common::create_test_database().await.unwrap();
     let (user_id, _user) = common::create_test_user(&database).await.unwrap();
     let repos = database.repositories();
@@ -356,9 +370,11 @@ async fn resolve_most_recent_elects_a_coach_account_after_every_other_healthy_on
         .unwrap();
     let elect = || async move {
         connections
-            .resolve_most_recent(user_id, Some(tenant_id))
+            .rank_for_election(user_id, Some(tenant_id))
             .await
             .unwrap()
+            .into_iter()
+            .next()
             .expect("two connections exist")
     };
     let elected = elect().await;
@@ -380,9 +396,11 @@ async fn resolve_most_recent_elects_a_coach_account_after_every_other_healthy_on
         "a coach account goes after the athlete's own connection"
     );
     let cross_tenant = connections
-        .resolve_most_recent(user_id, None)
+        .rank_for_election(user_id, None)
         .await
         .unwrap()
+        .into_iter()
+        .next()
         .unwrap();
     assert_eq!(cross_tenant.provider, "strava", "across tenants too");
     let rows = connections

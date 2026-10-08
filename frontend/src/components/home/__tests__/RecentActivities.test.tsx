@@ -36,6 +36,8 @@ vi.mock('../../../services/api', () => ({
     getActivityRoute: api.getActivityRoute,
   },
   providersApi: { getProvidersStatus: api.getProvidersStatus },
+  // The route-marker beta is off: these suites pin the map without its markers.
+  featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
 
 /**
@@ -63,6 +65,7 @@ vi.mock('maplibre-gl', () => {
     },
     AttributionControl: class {},
     NavigationControl: class {},
+    Marker: class {},
     setWorkerUrl: vi.fn(),
   };
 });

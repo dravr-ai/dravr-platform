@@ -1,5 +1,5 @@
 // ABOUTME: First-run onboarding step (mobile) — asks whether the user is an athlete, a coach, or both
-// ABOUTME: Mirrors the web OnboardingProfileType; coach answers set coaching_persona=coach; coach-only drops the athlete steps
+// ABOUTME: Mirrors the web OnboardingProfileType; records the coaching role, never the style; coach-only drops the athlete steps
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,9 @@ type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
  * Athlete / coach / both onboarding step (mobile).
  *
  * Reached via RootLayoutNav for a fresh account before the connect-provider step.
- * Both coach answers persist `coaching_persona=coach`. A coach who does not
+ * The answer records a role — whether the user coaches others — never the
+ * reply style, which stays the user's own under Settings → Coaching style
+ * (carnet#827). The athlete answer records the role as off. A coach who does not
  * train also takes the athlete steps (about-you, PAR-Q) out of the journey —
  * locally, and as `not_applicable` step rows on the server — before the
  * profile-type step is marked done, so the routing gate never lands them on
@@ -49,16 +51,14 @@ export function OnboardingProfileTypeScreen() {
     if (choosing) return;
     setChoosing(choice);
     setSaveFailed(false);
-    if (choice !== 'athlete') {
-      try {
-        await userApi.setCoachingPersona('coach');
-      } catch {
-        // The persona unlocks the coach tools this choice promises: keep the
-        // user here to retry rather than route them on without them.
-        setChoosing(null);
-        setSaveFailed(true);
-        return;
-      }
+    try {
+      await userApi.setCoachingRole(choice !== 'athlete');
+    } catch {
+      // The role decides which journey and toolset follow: keep the user
+      // here to retry rather than route them on without it recorded.
+      setChoosing(null);
+      setSaveFailed(true);
+      return;
     }
     if (choice === 'coach') {
       for (const stepId of ATHLETE_STEP_IDS) {

@@ -146,7 +146,9 @@ describe('Dashboard landing — regular user', () => {
     await waitFor(() => expect(window.location.hash).toBe('#home'));
   });
 
-  it('offers exactly Home, Groups, Discover and Notifications in the rail — providers live under Settings', async () => {
+  // Notifications left the rail for the bell at the top right of each
+  // surface (carnet#820).
+  it('offers exactly Home, Groups and Discover in the rail — providers live under Settings', async () => {
     await act(async () => {
       renderDashboard();
     });
@@ -155,7 +157,7 @@ describe('Dashboard landing — regular user', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(['Home', 'Groups', 'Discover', 'Notifications']);
+    expect(labels).toEqual(['Home', 'Groups', 'Discover']);
   });
 
   it('resolves a stale #groups hash typed after load to Home', async () => {

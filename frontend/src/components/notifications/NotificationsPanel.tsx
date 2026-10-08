@@ -27,9 +27,14 @@ import { useTheme } from '../../hooks/useTheme';
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
   onNavigate?: (route: string) => void;
+  /**
+   * Drawn inside the bell's sheet, whose own heading names it: the page
+   * header gives way to one line holding the count and "mark all read".
+   */
+  embedded?: boolean;
 }
 
-export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
+export default function NotificationsPanel({ onNavigate, embedded = false }: NotificationsPanelProps) {
   const { t } = useTranslation();
   // The dot takes the hue paired with the athlete's scheme: the panel follows
   // the theme like every surface around it, and the map is total, so a
@@ -74,29 +79,36 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
     })),
   ];
 
+  const description = (
+    <>
+      {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
+      {total > 0 && ` · ${total} total`}
+    </>
+  );
+  const markAll =
+    unreadCount > 0 ? (
+      <button
+        onClick={() => markAllAsRead()}
+        disabled={isMarkingAllRead}
+        className="btn-base btn-tertiary touch-target gap-1.5 text-sm disabled:opacity-50"
+      >
+        <CheckCheck className="w-4 h-4" aria-hidden="true" />
+        {t('shell.notificationMarkAllRead')}
+      </button>
+    ) : null;
+
   return (
     <div className="h-full flex flex-col">
-      <TabHeader
-        title={t('shell.navNotifications')}
-        description={
-          <>
-            {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
-            {total > 0 && ` · ${total} total`}
-          </>
-        }
-        actions={
-          unreadCount > 0 ? (
-            <button
-              onClick={() => markAllAsRead()}
-              disabled={isMarkingAllRead}
-              className="btn-base btn-tertiary touch-target gap-1.5 text-sm disabled:opacity-50"
-            >
-              <CheckCheck className="w-4 h-4" aria-hidden="true" />
-              {t('shell.notificationMarkAllRead')}
-            </button>
-          ) : null
-        }
-      />
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 sm:px-6">
+          <p data-testid="notifications-summary" className="min-w-0 truncate text-xs text-on-surface-variant">
+            {description}
+          </p>
+          {markAll}
+        </div>
+      ) : (
+        <TabHeader title={t('shell.navNotifications')} description={description} actions={markAll} />
+      )}
 
       {/* Categories as text tabs — every category the feed knows, no icons, scrolling on a narrow screen. */}
       <div className="flex gap-5 border-b ghost-border px-6 overflow-x-auto">
