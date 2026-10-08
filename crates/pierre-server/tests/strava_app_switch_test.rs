@@ -61,6 +61,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
+use pierre_runtime_context::IdentityCtx;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
@@ -1533,20 +1534,24 @@ async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
 /// launch, the mobile app's init route and the chat connect tool all mint the
 /// URL through one builder, whose client is the one the exchange resolves. The
 /// web path used to send the athlete to the env app and then exchange the code
-/// under their own.
+/// under their own. Every surface presents this server's callback, never the
+/// redirect stored with the app: an older client stored one this server does
+/// not answer.
 #[tokio::test]
 #[serial]
 async fn an_athletes_own_app_names_one_client_at_authorize_and_exchange_on_every_surface() {
     const OWN_CLIENT: &str = "athlete-own-app";
     const OWN_SECRET: &str = "athlete-own-secret";
-    const OWN_REDIRECT: &str = "https://own-app.example.test/api/oauth/callback/strava";
+    const STORED_REDIRECT: &str = "https://own-app.example.test/api/oauth/callback/strava";
     let (base, mock) = mock_strava().await;
     let (resources, service, _env) = service_pointed_at(&base).await;
+    let callback = resources.oauth_callback_uri("strava");
+    assert_ne!(callback, STORED_REDIRECT);
     let repos = &resources.common.repos;
     let (user_id, tenant) = athlete(&resources, "own-app-every-surface").await;
     repos
         .oauth_tokens
-        .store_user_oauth_app(user_id, "strava", OWN_CLIENT, OWN_SECRET, OWN_REDIRECT)
+        .store_user_oauth_app(user_id, "strava", OWN_CLIENT, OWN_SECRET, STORED_REDIRECT)
         .await
         .unwrap();
 
@@ -1599,7 +1604,7 @@ async fn an_athletes_own_app_names_one_client_at_authorize_and_exchange_on_every
         assert_eq!(query("client_id").as_deref(), Some(OWN_CLIENT), "{surface}");
         assert_eq!(
             query("redirect_uri").as_deref(),
-            Some(OWN_REDIRECT),
+            Some(callback.as_str()),
             "{surface}"
         );
 
@@ -1614,10 +1619,7 @@ async fn an_athletes_own_app_names_one_client_at_authorize_and_exchange_on_every
             "{surface}: the code is spent under the app the URL named: {exchange}"
         );
         assert!(
-            exchange.contains(&format!(
-                "redirect_uri={}",
-                urlencoding::encode(OWN_REDIRECT)
-            )),
+            exchange.contains(&format!("redirect_uri={}", urlencoding::encode(&callback))),
             "{surface}: the exchange presents the redirect URI the URL named: {exchange}"
         );
     }
