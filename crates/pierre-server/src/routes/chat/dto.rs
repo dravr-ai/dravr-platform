@@ -341,9 +341,9 @@ pub struct SendMessageRequest {
 
 /// How a client says the athlete produced a message (carnet#828).
 ///
-/// Deliberately narrower than [`InputSource`]: a resolved suggestion is the
-/// server's finding, never a client's claim, so `use_case` is refused here
-/// rather than trusted.
+/// Deliberately narrower than [`InputSource`]: a resolved suggestion or next
+/// step is the server's finding, never a client's claim, so `use_case` and
+/// `next_step` are refused here rather than trusted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientInputSource {
