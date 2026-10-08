@@ -36,6 +36,7 @@ use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use super::completion;
+use super::deterministic_reply::PlatformReply;
 use crate::ChatPipelineContext;
 
 /// How many turns the fortnight rail owns before it retires.
@@ -129,13 +130,14 @@ pub(super) fn season_conditions(snapshot: Option<&LoadSnapshot>) -> SeasonCondit
 pub enum GuidedResolution {
     /// A topic to probe this turn; the agent asks it.
     Probe(Box<OnboardingTurn>),
-    /// A fixed-list walk — calibration or season — just finished. The turn
-    /// answers with platform-rendered text instead of dispatching to the LLM —
-    /// the wrap-up reports what was actually captured, which only holds if
-    /// the platform writes it.
+    /// A fixed-list walk — calibration or season — or the fortnight rail just
+    /// finished. The turn answers with the platform's own reply instead of
+    /// dispatching to the LLM — the wrap-up reports what was actually
+    /// captured, which only holds if the platform writes it.
     WalkComplete {
-        /// The wrap-up delivered in place of an LLM reply.
-        summary: String,
+        /// The wrap-up, and the next steps offered with it, delivered in place
+        /// of an LLM reply.
+        reply: PlatformReply,
         /// The topic this turn's inbound message answers — see
         /// [`answered_target`]. Carried out of the resolver because the reply
         /// skips the LLM but the athlete's message still has to be extracted,
@@ -407,10 +409,10 @@ async fn finish_fortnight(
         clear_marker(ctx, conv, tenant_id).await;
         return GuidedResolution::Inactive;
     };
-    let summary = completion::render_fortnight(ctx, facts_tenant, &subject, locale).await;
+    let reply = completion::render_fortnight(ctx, facts_tenant, &subject, locale).await;
     clear_marker(ctx, conv, tenant_id).await;
     GuidedResolution::WalkComplete {
-        summary,
+        reply,
         answered: None,
     }
 }
@@ -451,22 +453,29 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
         dossier,
         locale,
     } = inputs;
-    // The completion summary is rendered BEFORE the marker is retired, so a
+    // The completion reply is rendered BEFORE the marker is retired, so a
     // failed write does not also cost the athlete their wrap-up. The wrap-up
     // counts facts under the subject's own tenant — where this walk's
     // extraction lands them — never the conversation tenant a room row lives
     // under.
-    let summary = match state.flow {
+    let reply = match state.flow {
         GuidedFlow::Calibration => Some(
             completion::render(ctx, &state, facts_tenant, subject_user_id, dossier, locale).await,
         ),
         GuidedFlow::Season => Some(
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
         ),
+        // The pillars walk records its completion, but the agent still
+        // answers its last turn: the platform has no wrap-up of its own to
+        // send for it (see `completion::record_pillars`).
+        GuidedFlow::Pillars => {
+            completion::record_pillars(ctx, &state, facts_tenant, subject_user_id).await;
+            None
+        }
         // The intake writes its own wrap-up when the platform closes it out,
         // and the fortnight's is the command's own reply — neither has a
         // wrap-up to render here.
-        GuidedFlow::Pillars | GuidedFlow::Intake | GuidedFlow::Fortnight => None,
+        GuidedFlow::Intake | GuidedFlow::Fortnight => None,
     };
     // Close the walk's window in the profile, so the next re-run of THIS flow
     // supersedes exactly this run's answers and a re-run of the OTHER
@@ -503,8 +512,8 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
         tracing::warn!(error = %e, "failed to retire completed onboarding_state");
     }
 
-    summary.map_or(GuidedResolution::Inactive, |summary| {
-        GuidedResolution::WalkComplete { summary, answered }
+    reply.map_or(GuidedResolution::Inactive, |reply| {
+        GuidedResolution::WalkComplete { reply, answered }
     })
 }
 
@@ -559,10 +568,7 @@ pub fn answered_target(state: &OnboardingState) -> Option<GuidedTarget> {
     if let Some(topic) = SeasonTopic::parse(slug) {
         return Some(GuidedTarget::Season(topic));
     }
-    if slug == CoverageTarget::NorthStar.slug().as_str() {
-        return Some(GuidedTarget::Coverage(CoverageTarget::NorthStar));
-    }
-    Pillar::parse(slug).map(|p| GuidedTarget::Coverage(CoverageTarget::Pillar(p)))
+    CoverageTarget::parse(slug).map(GuidedTarget::Coverage)
 }
 
 /// The state to write back at the end of a guided turn.

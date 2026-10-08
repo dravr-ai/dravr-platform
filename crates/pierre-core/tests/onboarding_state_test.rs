@@ -262,6 +262,29 @@ fn unknown_slug_in_probed_matches_no_topic() {
     );
 }
 #[test]
+fn every_pillars_walk_slug_parses_back_to_its_topic_and_nothing_else_does() {
+    let mut targets = vec![CoverageTarget::NorthStar];
+    targets.extend(Pillar::ALL.into_iter().map(CoverageTarget::Pillar));
+    for target in targets {
+        assert_eq!(
+            CoverageTarget::parse(target.slug().as_str()),
+            Some(target),
+            "{target:?} round-trips through the ledger"
+        );
+    }
+    // Calibration and season slugs share the ledger without being
+    // pillars-walk topics, and a later build may write slugs this one lacks.
+    for foreign in [
+        "calibration_injury",
+        "season_race_calendar",
+        "topic_from_a_later_build",
+        "",
+    ] {
+        assert_eq!(CoverageTarget::parse(foreign), None, "{foreign:?}");
+    }
+}
+
+#[test]
 fn old_row_json_parses_with_private_defaults() {
     // Every stored row predates the subject/audience fields. They must
     // parse as an unbound private walk — today's semantics exactly.

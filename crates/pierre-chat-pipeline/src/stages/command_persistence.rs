@@ -135,7 +135,12 @@ pub fn actions_content_blocks(
     if actions.is_empty() {
         return Ok(None);
     }
-    let block = PersistedReplyBlock::Actions {
+    serde_json::to_string(&[actions_block(title, actions)]).map(Some)
+}
+
+/// The stored form of a reply's controls: one `{"type":"actions"}` entry.
+pub(crate) fn actions_block(title: Option<&str>, actions: &[TurnAction]) -> PersistedReplyBlock {
+    PersistedReplyBlock::Actions {
         title: title.map(ToOwned::to_owned),
         actions: actions
             .iter()
@@ -145,8 +150,7 @@ pub fn actions_content_blocks(
                 value: action.value.clone(),
             })
             .collect(),
-    };
-    serde_json::to_string(&[block]).map(Some)
+    }
 }
 
 /// Write a command turn's two rows and advance the caller's read marker.

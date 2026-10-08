@@ -1,5 +1,5 @@
-// ABOUTME: Answers a turn with platform-authored text, skipping the LLM entirely
-// ABOUTME: Used where only the platform can state the reply truthfully — the calibration wrap-up
+// ABOUTME: Answers a turn with platform-authored text and its next steps, skipping the LLM entirely
+// ABOUTME: Used where only the platform can state the reply truthfully — a walk's wrap-up, a scope rail
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,14 +15,18 @@
 //! Everything downstream of the dispatch still runs as usual, so the turn is
 //! indistinguishable from any other to callers: the reply is persisted, the
 //! conversation reloaded, and the result decomposed through the same
-//! [`build_envelope`] every surface reads.
+//! [`build_envelope`] every surface reads. The reply's next steps ride the
+//! same way — persisted on the row, laid out as the envelope's actions — so a
+//! reload shows the buttons the live turn did.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_providers::ai_scope;
+use tracing::warn;
 
 use crate::envelope::{build_envelope, TurnEnvelope, TurnState, TurnTelemetry};
+use crate::next_steps::NextSteps;
 use crate::quota_policy::settle_turn_notice;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
@@ -50,6 +54,27 @@ const DETERMINISTIC_PROVIDER: &str = "platform";
 
 /// Finish reason recorded for a platform-authored reply.
 pub const DETERMINISTIC_FINISH_REASON: &str = "deterministic";
+
+/// A reply the platform wrote: the words the athlete reads, and the next
+/// steps offered beside them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformReply {
+    /// The reply's text, persisted as the assistant row's content.
+    pub text: String,
+    /// What the athlete can do next, in one tap.
+    pub next_steps: NextSteps,
+}
+
+impl PlatformReply {
+    /// A reply that offers nothing to tap.
+    #[must_use]
+    pub fn text_only(text: String) -> Self {
+        Self {
+            text,
+            next_steps: NextSteps::default(),
+        }
+    }
+}
 
 /// Everything [`deliver`] needs from the turn so far.
 pub struct DeterministicReplyInputs<'a> {
@@ -88,7 +113,7 @@ pub struct DeterministicReplyInputs<'a> {
 /// on the next prompt assembly.
 pub async fn deliver(
     inputs: DeterministicReplyInputs<'_>,
-    content: String,
+    reply: PlatformReply,
 ) -> AppResult<TurnEnvelope> {
     let DeterministicReplyInputs {
         ctx,
@@ -98,7 +123,17 @@ pub async fn deliver(
         user_message,
         conv,
     } = inputs;
+    let PlatformReply {
+        text: content,
+        next_steps,
+    } = reply;
 
+    // A platform reply carries no chart or plan, so its steps are the row's
+    // only stored block.
+    let content_blocks = next_steps.stored_blocks(None).unwrap_or_else(|e| {
+        warn!(error = %e, "next steps could not be encoded; persisting the reply without them");
+        None
+    });
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
@@ -109,7 +144,7 @@ pub async fn deliver(
         finish_reason: Some(DETERMINISTIC_FINISH_REASON),
         prompt_tokens: None,
         model: Some(&active_model),
-        content_blocks: None,
+        content_blocks: content_blocks.as_deref(),
         transport_policy: ai_scope::derived_policy(),
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
@@ -157,7 +192,7 @@ pub async fn deliver(
             reconnect: None,
             verdict_chips: Vec::new(),
             scene_images: Vec::new(),
-            actions: Vec::new(),
+            actions: next_steps.into_actions(),
             actions_title: None,
             // The platform wrote this reply, not the agent.
             answered_by: None,
