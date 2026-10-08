@@ -82,7 +82,7 @@ use pierre_core::config::fitness::{
 };
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::constants::provider_capture::current_capture_version;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::connection_needs_reauth;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
@@ -1028,8 +1028,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             ) {
                 let mut detailed = Vec::with_capacity(filtered_activities.len());
                 let original_count = filtered_activities.len();
+                // Set once the provider's request budget refuses a detail
+                // read: every further one would be refused as well, so the
+                // rest keep their summaries rather than ask again.
+                let mut requests_spent = false;
                 for (rank, activity) in filtered_activities.iter().enumerate() {
-                    if rank >= detail_budget {
+                    if rank >= detail_budget || requests_spent {
                         // Past the budget: keep the summary. Rationing, not
                         // truncation — every activity is still returned.
                         detailed.push(activity.clone());
@@ -1053,9 +1057,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             detailed.push(detail);
                         }
                         Err(err) => {
+                            requests_spent = err.code == ErrorCode::ExternalRateLimited;
                             warn!(
                                 activity_id = %activity.id(),
                                 error = %err,
+                                requests_spent,
                                 "Detail fetch failed — retaining summary for this activity"
                             );
                             detailed.push(activity.clone());

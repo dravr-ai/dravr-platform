@@ -398,6 +398,20 @@ pub mod rate_limits {
     pub const WAHOO_RATE_LIMIT_HOURLY: u32 = 1000;
     /// Wahoo's production budget per day, per app (sandbox: 250).
     pub const WAHOO_RATE_LIMIT_DAILY: u32 = 5000;
+    /// Intervals.icu's budget per day for one athlete's grant to an OAuth
+    /// app: "100/user per day up to 500 users" (forum.intervals.icu/t/609,
+    /// post 1, as rewritten 2026-06-24).
+    pub const INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE: u32 = 100;
+    /// Intervals.icu's ceiling per day for one OAuth app, whatever its
+    /// athletes spend: "max 50000 requests" (forum.intervals.icu/t/609). An
+    /// app past 500 athletes asks support@intervals.icu for more.
+    pub const INTERVALS_ICU_OAUTH_DAILY_PER_APP: u32 = 50_000;
+    /// Intervals.icu's budget per 15-minute window for one personal API key
+    /// (forum.intervals.icu/t/609).
+    pub const INTERVALS_ICU_API_KEY_15MIN: u32 = 2_500;
+    /// Intervals.icu's budget per day for one personal API key
+    /// (forum.intervals.icu/t/609).
+    pub const INTERVALS_ICU_API_KEY_DAILY: u32 = 5_000;
     /// Default burst limit
     pub const DEFAULT_BURST_LIMIT: u32 = 10;
 }

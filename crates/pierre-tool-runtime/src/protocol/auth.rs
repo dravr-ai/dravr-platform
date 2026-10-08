@@ -448,13 +448,17 @@ impl AuthService {
     }
 
     /// The client credentials a stored token's provider calls present, and
-    /// the request budget they are admitted against: the signing OAuth app's.
+    /// the request budget they are admitted against: the signing OAuth app's
+    /// windows, and those its provider keeps for the athlete's grant, counted
+    /// for the provider's id for the athlete (else this user's, whose one
+    /// stored grant it is).
     ///
     /// Non-OAuth providers (sciotte, synthetic) skip the client lookup
     /// entirely, and so does a pasted API key on a provider that also links
     /// by OAuth (intervals.icu): no client issued it, so no app budget
     /// applies, and its provider-side user id rides as `client_id`, the
-    /// athlete the API path addresses.
+    /// athlete the API path addresses. The key's requests are counted in the
+    /// windows its provider keeps for each key, under that same id.
     async fn signing_credentials(
         &self,
         provider_name: &str,
@@ -466,11 +470,13 @@ impl AuthService {
         let needs_client = token_data.kind == CredentialKind::OAuthBearer
             && registry.requires_oauth(provider_name);
         if !needs_client {
-            return Ok((
-                token_data.provider_user_id.clone().unwrap_or_default(),
-                String::new(),
-                None,
-            ));
+            let account = token_data.provider_user_id.clone().unwrap_or_default();
+            let budget = if token_data.kind == CredentialKind::ApiKey && !account.is_empty() {
+                registry.api_key_budget(&account)
+            } else {
+                None
+            };
+            return Ok((account, String::new(), budget));
         }
         // The provider refreshes on its own when a call is refused, so it
         // gets the client that issued the token, as the expiry refresh does.
@@ -482,15 +488,19 @@ impl AuthService {
                 token_data.oauth_app_client_id.as_deref(),
             )
             .await?;
-        let budget = registry.request_budget(&signing.client_id, signing.daily_limit);
+        let account = token_data
+            .provider_user_id
+            .clone()
+            .unwrap_or_else(|| user_id.to_string());
+        let budget = registry.grant_budget(&signing.client_id, signing.daily_limit, &account);
         Ok((signing.client_id, signing.client_secret, budget))
     }
 
     /// The request budget a stored token's provider calls are admitted
     /// against, for credentials built outside this service (the health
-    /// sync's enforme credentials). `None` when no OAuth app signs the token,
-    /// or when its client cannot be resolved (logged; the calls then go out
-    /// uncounted).
+    /// sync's enforme credentials). `None` when neither an OAuth app nor an
+    /// API key's own windows count the token, or when its client cannot be
+    /// resolved (logged; the calls then go out uncounted).
     pub async fn request_budget_for(
         &self,
         provider_name: &str,

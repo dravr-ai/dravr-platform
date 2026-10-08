@@ -753,6 +753,37 @@ impl ProviderRegistry {
             .map(|limiter| RequestBudget::new(Arc::clone(limiter), app.to_owned(), daily_limit))
     }
 
+    /// The budget of one athlete's grant to `app`: the app's windows as
+    /// [`Self::request_budget`] has them, and the windows the provider keeps
+    /// for each grant, counted for `account`, the provider's id for the
+    /// athlete. `None` when this registry counts nothing.
+    #[must_use]
+    pub fn grant_budget(
+        &self,
+        app: &str,
+        daily_limit: Option<u32>,
+        account: &str,
+    ) -> Option<RequestBudget> {
+        self.request_limiter.as_ref().map(|limiter| {
+            RequestBudget::for_grant(
+                Arc::clone(limiter),
+                app.to_owned(),
+                daily_limit,
+                account.to_owned(),
+            )
+        })
+    }
+
+    /// The budget of the personal API key that belongs to `account`, the
+    /// provider's id for its account: the windows the provider keeps for
+    /// each key. `None` when this registry counts nothing.
+    #[must_use]
+    pub fn api_key_budget(&self, account: &str) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .map(|limiter| RequestBudget::for_api_key(Arc::clone(limiter), account.to_owned()))
+    }
+
     /// Create a provider instance with default configuration
     ///
     /// # Errors
