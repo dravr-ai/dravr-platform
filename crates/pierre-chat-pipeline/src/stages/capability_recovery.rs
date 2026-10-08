@@ -151,8 +151,7 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// and its reply is the next question, so it is never "ungrounded" — see
     /// [`recovery_trigger`].
     pub guided_walk: Option<&'a OnboardingState>,
-    /// Receives every re-ask completion this stage and
-    /// [`super::capability_subject`] make, each attempt its own usage row.
+    /// Records each re-ask completion, here and in [`super::capability_subject`].
     pub reask_recorder: &'a Arc<dyn LlmCallRecorder>,
     /// Receives every call to the peer-claim verifier.
     pub verifier_recorder: &'a Arc<dyn LlmCallRecorder>,
@@ -1045,9 +1044,7 @@ fn truncate_chars(s: &str, cap: usize) -> &str {
 /// Ask the verifier model which claims about `peer` the evidence fails to
 /// support. Fail-open: a verifier outage or an unparseable verdict reports
 /// "supported" (and logs), because a flaky judge must never cost the athlete
-/// a legitimate reply.
-///
-/// Runs on the turn's model and records on `deps.verifier_recorder`.
+/// a legitimate reply. Runs on the turn's model; records on `deps.verifier_recorder`.
 pub(super) async fn verify_peer_claims(
     deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
