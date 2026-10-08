@@ -3228,7 +3228,53 @@
     }
   },
   "use_cases": {
-    "unavailable": "Dieser Vorschlag ist nicht mehr verfügbar. Frag mich mit deinen eigenen Worten oder tippe / für Befehle."
+    "about_me": {
+      "label": "Lerne mich kennen"
+    },
+    "calendar": {
+      "label": "In meinen Kalender",
+      "prompt": "Schick meinen Trainingsplan in meinen Kalender."
+    },
+    "can_see": {
+      "label": "Was siehst du?"
+    },
+    "connect": {
+      "label": "Uhr verbinden",
+      "prompt": "Hilf mir, meine Uhr oder meine Trainings-App zu verbinden."
+    },
+    "fortnight": {
+      "label": "Nächste 2 Wochen"
+    },
+    "fuel": {
+      "label": "Verpflegung Ausfahrt",
+      "prompt": "Wie verpflege ich mich bei einer langen Ausfahrt? Was soll ich vorher und unterwegs essen und trinken?"
+    },
+    "harder": {
+      "label": "Intensität anpassen"
+    },
+    "last_workout": {
+      "label": "Letztes Training",
+      "prompt": "Schau dir mein letztes Training an. Was lief gut, und was nehme ich daraus mit?"
+    },
+    "load": {
+      "label": "Meine 6 Wochen",
+      "prompt": "Wie hat sich meine Trainingsbelastung in den letzten 6 Wochen entwickelt, verglichen mit meinem üblichen Niveau?"
+    },
+    "recovered": {
+      "label": "Bin ich erholt?",
+      "prompt": "Bin ich heute erholt genug, um normal zu trainieren?"
+    },
+    "season": {
+      "label": "Plane meine Saison"
+    },
+    "today": {
+      "label": "Heutige Einheit"
+    },
+    "unavailable": "Dieser Vorschlag ist nicht mehr verfügbar. Frag mich mit deinen eigenen Worten oder tippe / für Befehle.",
+    "zone2": {
+      "label": "Was ist Zone 2?",
+      "prompt": "Was ist Zone-2-Training, und warum ist es für die Ausdauer wichtig?"
+    }
   },
   "validation": {
     "confirmPassword": "Bestätige dein Passwort",

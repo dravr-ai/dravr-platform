@@ -3228,7 +3228,53 @@
     }
   },
   "use_cases": {
-    "unavailable": "Cette suggestion n'est plus disponible. Pose-moi ta question avec tes mots, ou tape / pour les commandes."
+    "about_me": {
+      "label": "Fais ma connaissance"
+    },
+    "calendar": {
+      "label": "Ajoute à mon agenda",
+      "prompt": "Envoie mon plan d'entraînement dans mon agenda."
+    },
+    "can_see": {
+      "label": "Que vois-tu de moi ?"
+    },
+    "connect": {
+      "label": "Connecte ma montre",
+      "prompt": "Aide-moi à connecter ma montre ou mon app d'entraînement."
+    },
+    "fortnight": {
+      "label": "Ma quinzaine"
+    },
+    "fuel": {
+      "label": "Ravito sortie longue",
+      "prompt": "Comment m'alimenter pour une sortie longue ? Quoi manger et boire avant et pendant ?"
+    },
+    "harder": {
+      "label": "Ajuste l'intensité"
+    },
+    "last_workout": {
+      "label": "Ma dernière séance",
+      "prompt": "Regarde ma dernière séance. Qu'est-ce qui a bien marché, et qu'est-ce que j'en retiens ?"
+    },
+    "load": {
+      "label": "Mes 6 semaines",
+      "prompt": "Comment ma charge d'entraînement a-t-elle évolué sur les 6 dernières semaines, par rapport à mon niveau habituel ?"
+    },
+    "recovered": {
+      "label": "Où en est ma récup ?",
+      "prompt": "Où en est ma récupération aujourd'hui ? Je peux m'entraîner normalement ?"
+    },
+    "season": {
+      "label": "Planifie ma saison"
+    },
+    "today": {
+      "label": "Ma séance du jour"
+    },
+    "unavailable": "Cette suggestion n'est plus disponible. Pose-moi ta question avec tes mots, ou tape / pour les commandes.",
+    "zone2": {
+      "label": "Zone 2, c'est quoi ?",
+      "prompt": "C'est quoi l'entraînement en zone 2, et pourquoi c'est important en endurance ?"
+    }
   },
   "validation": {
     "confirmPassword": "Confirme ton mot de passe",

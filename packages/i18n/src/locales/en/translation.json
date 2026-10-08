@@ -3228,7 +3228,53 @@
     }
   },
   "use_cases": {
-    "unavailable": "That suggestion isn't available any more. Ask me in your own words, or type / for commands."
+    "about_me": {
+      "label": "Get to know me"
+    },
+    "calendar": {
+      "label": "Add to my calendar",
+      "prompt": "Send my training plan to my calendar."
+    },
+    "can_see": {
+      "label": "What can you see?"
+    },
+    "connect": {
+      "label": "Connect my watch",
+      "prompt": "Help me connect my watch or training app."
+    },
+    "fortnight": {
+      "label": "My next 2 weeks"
+    },
+    "fuel": {
+      "label": "Fuel a long ride",
+      "prompt": "How should I fuel a long ride? What should I eat and drink before and during it?"
+    },
+    "harder": {
+      "label": "Tune my intensity"
+    },
+    "last_workout": {
+      "label": "My last workout",
+      "prompt": "Look at my last workout. What went well, and what should I take from it?"
+    },
+    "load": {
+      "label": "My last 6 weeks",
+      "prompt": "How has my training load moved over the last 6 weeks, compared with my usual level?"
+    },
+    "recovered": {
+      "label": "Am I recovered?",
+      "prompt": "Am I recovered enough to train normally today?"
+    },
+    "season": {
+      "label": "Plan my season"
+    },
+    "today": {
+      "label": "Today's session"
+    },
+    "unavailable": "That suggestion isn't available any more. Ask me in your own words, or type / for commands.",
+    "zone2": {
+      "label": "What is Zone 2?",
+      "prompt": "What is Zone 2 training, and why does it matter for endurance?"
+    }
   },
   "validation": {
     "confirmPassword": "Please confirm your password",

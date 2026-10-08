@@ -3228,7 +3228,53 @@
     }
   },
   "use_cases": {
-    "unavailable": "Esa sugerencia ya no está disponible. Pregúntame con tus palabras o escribe / para los comandos."
+    "about_me": {
+      "label": "Conóceme"
+    },
+    "calendar": {
+      "label": "A mi calendario",
+      "prompt": "Envía mi plan de entrenamiento a mi calendario."
+    },
+    "can_see": {
+      "label": "¿Qué ves de mí?"
+    },
+    "connect": {
+      "label": "Conecta mi reloj",
+      "prompt": "Ayúdame a conectar mi reloj o mi app de entrenamiento."
+    },
+    "fortnight": {
+      "label": "Próximas 2 semanas"
+    },
+    "fuel": {
+      "label": "Avituallamiento",
+      "prompt": "¿Cómo me alimento en una salida larga? ¿Qué como y bebo antes y durante?"
+    },
+    "harder": {
+      "label": "Ajusta la intensidad"
+    },
+    "last_workout": {
+      "label": "Mi último entreno",
+      "prompt": "Mira mi último entrenamiento. ¿Qué salió bien y qué debería sacar de él?"
+    },
+    "load": {
+      "label": "Mis 6 semanas",
+      "prompt": "¿Cómo ha evolucionado mi carga de entrenamiento en las últimas 6 semanas, comparada con mi nivel habitual?"
+    },
+    "recovered": {
+      "label": "Mi recuperación",
+      "prompt": "¿Cómo va mi recuperación hoy? ¿Puedo entrenar con normalidad?"
+    },
+    "season": {
+      "label": "Planea mi temporada"
+    },
+    "today": {
+      "label": "Sesión de hoy"
+    },
+    "unavailable": "Esa sugerencia ya no está disponible. Pregúntame con tus palabras o escribe / para los comandos.",
+    "zone2": {
+      "label": "¿Qué es la zona 2?",
+      "prompt": "¿Qué es el entrenamiento en zona 2 y por qué importa para la resistencia?"
+    }
   },
   "validation": {
     "confirmPassword": "Confirma tu contraseña",

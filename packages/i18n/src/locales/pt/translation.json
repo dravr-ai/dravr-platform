@@ -3228,7 +3228,53 @@
     }
   },
   "use_cases": {
-    "unavailable": "Essa sugestão já não está disponível. Pergunta-me por palavras tuas ou escreve / para os comandos."
+    "about_me": {
+      "label": "Fica a conhecer-me"
+    },
+    "calendar": {
+      "label": "No meu calendário",
+      "prompt": "Envia o meu plano de treino para o meu calendário."
+    },
+    "can_see": {
+      "label": "O que vês de mim?"
+    },
+    "connect": {
+      "label": "Ligar o meu relógio",
+      "prompt": "Ajuda-me a ligar o meu relógio ou a minha app de treino."
+    },
+    "fortnight": {
+      "label": "Próximas 2 semanas"
+    },
+    "fuel": {
+      "label": "Comer em volta longa",
+      "prompt": "Como me devo alimentar numa volta longa? O que comer e beber antes e durante?"
+    },
+    "harder": {
+      "label": "Ajusta a intensidade"
+    },
+    "last_workout": {
+      "label": "O meu último treino",
+      "prompt": "Vê o meu último treino. O que correu bem e o que devo tirar dele?"
+    },
+    "load": {
+      "label": "As minhas 6 semanas",
+      "prompt": "Como evoluiu a minha carga de treino nas últimas 6 semanas, comparada com o meu nível habitual?"
+    },
+    "recovered": {
+      "label": "A minha recuperação",
+      "prompt": "Como está a minha recuperação hoje? Posso treinar normalmente?"
+    },
+    "season": {
+      "label": "Planeia a temporada"
+    },
+    "today": {
+      "label": "Treino de hoje"
+    },
+    "unavailable": "Essa sugestão já não está disponível. Pergunta-me por palavras tuas ou escreve / para os comandos.",
+    "zone2": {
+      "label": "O que é a zona 2?",
+      "prompt": "O que é o treino em zona 2 e porque é que é importante para a resistência?"
+    }
   },
   "validation": {
     "confirmPassword": "Confirma a tua palavra-passe",
