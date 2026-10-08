@@ -118,7 +118,7 @@ pub async fn issuing_client(
     if let Some(credentials) = tenant_credentials(&lookup, tenants).await? {
         return Ok(IssuingClient::Tenant(credentials));
     }
-    server_level_client(&lookup)
+    server_level_app(&lookup).ok_or_else(|| no_credentials(lookup.provider))
 }
 
 /// The client a new authorization for `user_id` runs under, and the Strava
@@ -147,6 +147,35 @@ pub async fn authorizing_client(
     tenants: &dyn TenantRepository,
     oauth_tokens: &dyn OAuthTokenRepository,
 ) -> AppResult<(IssuingClient, Option<String>)> {
+    find_authorizing_client(
+        user_id,
+        tenant_id,
+        provider,
+        server_level,
+        tenants,
+        oauth_tokens,
+    )
+    .await?
+    .ok_or_else(|| no_credentials(provider))
+}
+
+/// [`authorizing_client`]'s resolution, `None` when no source holds credentials.
+///
+/// The athlete can then connect only through an OAuth app of their own,
+/// which the provider status says before a connect is tried.
+///
+/// # Errors
+///
+/// Returns an error when a credential read fails or when every Strava app is
+/// at capacity.
+pub async fn find_authorizing_client(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    server_level: &OAuthProviderConfig,
+    tenants: &dyn TenantRepository,
+    oauth_tokens: &dyn OAuthTokenRepository,
+) -> AppResult<Option<(IssuingClient, Option<String>)>> {
     let lookup = IssuingLookup {
         user_id: Some(user_id),
         tenant_id: Some(tenant_id),
@@ -155,10 +184,10 @@ pub async fn authorizing_client(
         server_level,
     };
     if let Some(app) = user_app(user_id, provider, oauth_tokens).await {
-        return Ok((IssuingClient::UserApp(app), None));
+        return Ok(Some((IssuingClient::UserApp(app), None)));
     }
     if let Some(credentials) = tenant_credentials(&lookup, tenants).await? {
-        return Ok((IssuingClient::Tenant(credentials), None));
+        return Ok(Some((IssuingClient::Tenant(credentials), None)));
     }
     if provider.eq_ignore_ascii_case(oauth_providers::STRAVA) {
         let selected = select_strava_app(oauth_tokens, user_id, tenant_id).await?;
@@ -173,9 +202,9 @@ pub async fn authorizing_client(
                 client_secret: selected.client_secret,
             }
         };
-        return Ok((client, selected.attribution));
+        return Ok(Some((client, selected.attribution)));
     }
-    server_level_client(&lookup).map(|client| (client, None))
+    Ok(server_level_app(&lookup).map(|client| (client, None)))
 }
 
 /// The Strava shared-pool app the lookup names, while its secret is stored.
@@ -256,23 +285,23 @@ async fn tenant_credentials(
     Ok(credentials)
 }
 
-/// The server-level app for the lookup's provider, or the error naming what
-/// to configure when there is none.
-fn server_level_client(lookup: &IssuingLookup<'_>) -> AppResult<IssuingClient> {
-    if let (Some(client_id), Some(client_secret)) = (
-        &lookup.server_level.client_id,
-        &lookup.server_level.client_secret,
-    ) {
-        return Ok(IssuingClient::ServerLevel {
-            client_id: client_id.clone(),
-            client_secret: client_secret.clone(),
-        });
-    }
-    let provider = lookup.provider;
+/// The server-level app for the lookup's provider, when the environment
+/// configures one.
+fn server_level_app(lookup: &IssuingLookup<'_>) -> Option<IssuingClient> {
+    let server_level = lookup.server_level;
+    Some(IssuingClient::ServerLevel {
+        client_id: server_level.client_id.clone()?,
+        client_secret: server_level.client_secret.clone()?,
+    })
+}
+
+/// The error naming what to configure when no source holds credentials for
+/// `provider`.
+fn no_credentials(provider: &str) -> AppError {
     let upper = provider.to_uppercase();
-    Err(AppError::not_found(format!(
+    AppError::not_found(format!(
         "No OAuth credentials configured for provider {provider}: set {upper}_CLIENT_ID and {upper}_CLIENT_SECRET, or configure the tenant's or the user's own OAuth app"
-    )))
+    ))
 }
 
 /// The daily request budget a tenant's OAuth app for `provider` is registered

@@ -8,6 +8,7 @@ use super::ServerContext;
 use crate::config::admin::AdminConfigService;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
+use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::security::csrf::CsrfTokenManager;
 #[cfg(feature = "transport-sse")]
 use pierre_config::environment::SseBufferStrategy;
@@ -66,6 +67,14 @@ impl pierre_runtime_context::BillingCtx for ServerContext {
 impl pierre_runtime_context::IdentityCtx for ServerContext {
     fn repos(&self) -> &Arc<RepositoryRegistry> {
         &self.common.repos
+    }
+
+    fn oauth_callback_uri(&self, provider: &str) -> String {
+        provider_callback_uri(
+            provider,
+            &get_oauth_config(provider),
+            self.common.config.http_port,
+        )
     }
 }
 

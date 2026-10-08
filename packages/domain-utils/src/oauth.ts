@@ -32,6 +32,27 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
 };
 
 /**
+ * The developer portal where an athlete creates the OAuth app of their own
+ * that a provider card's `own_app_required` asks for, by provider id.
+ *
+ * Only providers whose card can ask: a Strava start always resolves the
+ * server's app or a pool app (or refuses on seats), and every client opens
+ * Intervals.icu's API-key link before any OAuth start.
+ */
+const OWN_APP_DEV_PORTALS: Readonly<Record<string, string>> = {
+  whoop: 'https://developer.whoop.com/',
+  wahoo: 'https://developers.wahooligan.com/',
+};
+
+/**
+ * Where an athlete creates their own OAuth app for `provider`, or `undefined`
+ * for a provider whose own-app setup no client offers.
+ */
+export function ownAppDevPortal(provider: string): string | undefined {
+  return OWN_APP_DEV_PORTALS[provider];
+}
+
+/**
  * Security: Check if hostname matches a trusted OAuth provider domain
  * Uses endsWith to prevent subdomain bypass attacks (e.g., strava.com.evil.com)
  */

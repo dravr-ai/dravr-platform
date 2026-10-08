@@ -165,6 +165,19 @@ vi.mock('../SciotteLoginModal', () => ({
     ) : null,
 }));
 
+// The own-app setup, reduced to the callback it shows and the Save that
+// resumes the connect; its own form is OAuthAppSetupModal.test.tsx's.
+vi.mock('../OAuthAppSetupModal', () => ({
+  default: ({ callbackUrl, onSaved }: { callbackUrl?: string; onSaved: () => void }) => (
+    <div data-testid="own-app-setup">
+      {callbackUrl}
+      <button type="button" onClick={onSaved}>
+        own-app-save
+      </button>
+    </div>
+  ),
+}));
+
 function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -778,6 +791,61 @@ describe('UserSettings Component', () => {
       });
       expect(await screen.findByTestId('provider-disconnect-whoop')).toBeInTheDocument();
       expect(screen.queryByTestId('provider-ai-consent-withdraw-whoop')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Data Providers — a WHOOP no app of the server can authorize', () => {
+    const whoopCard = (own_app_required: boolean) => ({
+      provider: 'whoop',
+      display_name: 'WHOOP',
+      requires_oauth: true,
+      connected: false,
+      needs_reauth: false,
+      capabilities: ['sleep', 'recovery'],
+      consent_required: true,
+      own_app_required,
+      oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/whoop',
+    });
+
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    });
+
+    it('asks for the athlete\'s own app first, then the owner authorization, then starts the flow', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(true)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-connect-whoop'));
+      expect(await screen.findByTestId('own-app-setup')).toHaveTextContent(
+        'https://app.dravr.ai/api/oauth/callback/whoop',
+      );
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(window.open).not.toHaveBeenCalled();
+
+      await user.click(screen.getByText('own-app-save'));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('note')).toHaveTextContent('Before you connect WHOOP');
+      await user.click(within(dialog).getByRole('checkbox'));
+      await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+
+      expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: true });
+      expect(window.open).toHaveBeenCalled();
+    });
+
+    it('goes to the owner authorization with no setup while an app of the server can authorize it', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(false)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-connect-whoop'));
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(screen.queryByTestId('own-app-setup')).not.toBeInTheDocument();
     });
   });
 

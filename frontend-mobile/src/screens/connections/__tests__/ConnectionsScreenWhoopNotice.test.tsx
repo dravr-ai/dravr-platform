@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The mobile Connections screen states WHOOP's owner authorization before its OAuth flow and carries the acceptance
-// ABOUTME: Pins the notice sheet, its held Continue, the tos_consent start, and a connected WHOOP that owes it asking again
+// ABOUTME: Pins the notice sheet, its held Continue, the tos_consent start, the own-app sheet only when the server asks for it
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -39,7 +39,8 @@ const getProvidersStatus = oauthApi.getProvidersStatus as jest.Mock;
 const initMobileOAuth = oauthApi.initMobileOAuth as jest.Mock;
 const openAuthSessionAsync = WebBrowser.openAuthSessionAsync as jest.Mock;
 
-function whoopRow(consent_required: boolean, connected = false) {
+/** A WHOOP row; `own_app_required` while no app of the server's can authorize it. */
+function whoopRow(consent_required: boolean, connected = false, own_app_required = true) {
   return {
     provider: 'whoop',
     display_name: 'WHOOP',
@@ -48,6 +49,8 @@ function whoopRow(consent_required: boolean, connected = false) {
     needs_reauth: false,
     capabilities: ['sleep', 'recovery'],
     consent_required,
+    own_app_required,
+    oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/whoop',
   };
 }
 
@@ -103,6 +106,17 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
     await waitFor(() =>
       expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
     );
+  });
+
+  it('starts WHOOP with no setup sheet while an app of the server can authorize it', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [whoopRow(false, false, false)] });
+    render(<ConnectionsScreen />);
+    fireEvent.press(await screen.findByText('Connect'));
+
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+    );
+    expect(screen.queryByText('whoop-setup:save')).toBeNull();
   });
 
   it('asks a connected WHOOP that owes the authorization to give it, then reconnects with it', async () => {

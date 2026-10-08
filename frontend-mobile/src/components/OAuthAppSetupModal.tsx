@@ -1,4 +1,4 @@
-// ABOUTME: Provider-aware BYO OAuth app sheet — captures client_id/secret/redirect URI inline during the connect flow
+// ABOUTME: Provider-aware BYO OAuth app sheet — captures client_id/secret inline and shows the redirect URI to register
 // ABOUTME: Mobile mirror of frontend/src/components/OAuthAppSetupModal.tsx; opens in-place so first-run users never leave the screen
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -23,13 +23,13 @@ interface OAuthAppSetupModalProps {
   /** Developer-portal URL where the user creates their OAuth app. */
   devPortalUrl: string;
   /**
-   * Redirect URI to register on the developer portal. Defaults to the
-   * production callback path; ConnectionsScreen overrides this with the
-   * mobile deep-link scheme when needed.
+   * The server's callback for this provider (`oauth_callback_url` on its
+   * status), the redirect URI the user registers on the developer portal.
    */
-  defaultRedirectUri?: string;
+  callbackUrl?: string;
 }
 
+/** Where the callback lives when neither the status nor a saved app names it. */
 const FALLBACK_REDIRECT_HOST = 'https://app.dravr.ai';
 
 export function OAuthAppSetupModal({
@@ -39,16 +39,13 @@ export function OAuthAppSetupModal({
   provider,
   displayName,
   devPortalUrl,
-  defaultRedirectUri,
+  callbackUrl,
 }: OAuthAppSetupModalProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const resolvedRedirectDefault =
-    defaultRedirectUri ?? `${FALLBACK_REDIRECT_HOST}/api/oauth/callback/${provider}`;
 
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
-  const [redirectUri, setRedirectUri] = useState(resolvedRedirectDefault);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [existingApp, setExistingApp] = useState<OAuthApp | null>(null);
@@ -64,15 +61,8 @@ export function OAuthAppSetupModal({
         response.apps?.find((app) => app.provider.toLowerCase() === provider.toLowerCase()) ??
         null;
       setExistingApp(existing);
-      if (existing) {
-        setClientId(existing.client_id ?? '');
-        setClientSecret('');
-        setRedirectUri(existing.redirect_uri ?? resolvedRedirectDefault);
-      } else {
-        setClientId('');
-        setClientSecret('');
-        setRedirectUri(resolvedRedirectDefault);
-      }
+      setClientId(existing?.client_id ?? '');
+      setClientSecret('');
     } catch (err) {
       // Non-fatal: a load failure just means the user fills the form fresh.
       console.warn('OAuthAppSetupModal: failed to hydrate existing app', err);
@@ -80,7 +70,7 @@ export function OAuthAppSetupModal({
     } finally {
       setIsLoadingExisting(false);
     }
-  }, [provider, resolvedRedirectDefault]);
+  }, [provider]);
 
   useEffect(() => {
     if (!visible) return;
@@ -96,13 +86,19 @@ export function OAuthAppSetupModal({
     });
   };
 
+  // The server authorizes every app at its own callback; a saved app and the
+  // provider status both name it.
+  const redirectUri =
+    existingApp?.redirect_uri ??
+    callbackUrl ??
+    `${FALLBACK_REDIRECT_HOST}/api/oauth/callback/${provider}`;
+
   const handleSubmit = async () => {
     const trimmedId = clientId.trim();
     const trimmedSecret = clientSecret.trim();
-    const trimmedRedirect = redirectUri.trim();
 
-    if (!trimmedId || !trimmedSecret || !trimmedRedirect) {
-      setError(t('app.oauthAllFieldsRequired'));
+    if (!trimmedId || !trimmedSecret) {
+      setError(t('settingsErr.credentialsRequired'));
       return;
     }
 
@@ -113,7 +109,6 @@ export function OAuthAppSetupModal({
         provider,
         client_id: trimmedId,
         client_secret: trimmedSecret,
-        redirect_uri: trimmedRedirect,
       });
       onSaved();
     } catch (err) {
@@ -194,7 +189,8 @@ export function OAuthAppSetupModal({
         <Input
           label={t('app.redirectUri')}
           value={redirectUri}
-          onChangeText={setRedirectUri}
+          editable={false}
+          selectTextOnFocus
           autoCapitalize="none"
           autoCorrect={false}
         />

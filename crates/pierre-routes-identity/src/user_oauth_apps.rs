@@ -44,8 +44,6 @@ pub struct RegisterUserOAuthAppRequest {
     pub client_id: String,
     /// OAuth client secret from the provider
     pub client_secret: String,
-    /// OAuth redirect URI configured with the provider
-    pub redirect_uri: String,
 }
 
 /// Response after registering an OAuth app
@@ -55,6 +53,9 @@ pub struct RegisterUserOAuthAppResponse {
     pub success: bool,
     /// Provider name
     pub provider: String,
+    /// The redirect URL to register in the provider app: this server's
+    /// callback, the only one an authorization completes through
+    pub redirect_uri: String,
     /// Message describing the result
     pub message: String,
 }
@@ -66,7 +67,8 @@ pub struct UserOAuthAppSummary {
     pub provider: String,
     /// OAuth client ID (public)
     pub client_id: String,
-    /// OAuth redirect URI
+    /// The redirect URL registered in the provider app: this server's
+    /// callback, which every authorization under the app presents
     pub redirect_uri: String,
     /// When this app was configured
     pub created_at: String,
@@ -131,10 +133,10 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
     if request.client_secret.trim().is_empty() {
         return Err(AppError::invalid_input("client_secret cannot be empty"));
     }
-    if request.redirect_uri.trim().is_empty() {
-        return Err(AppError::invalid_input("redirect_uri cannot be empty"));
-    }
-
+    // The app is authorized at this server's callback whatever a client
+    // names, so that is the redirect stored with it; a `redirect_uri` an
+    // older client still sends is ignored with every other unknown field.
+    let redirect_uri = resources.oauth_callback_uri(&provider);
     IdentityCtx::repos(resources.as_ref())
         .oauth_tokens
         .store_user_oauth_app(
@@ -142,7 +144,7 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
             &provider,
             &request.client_id,
             &request.client_secret,
-            &request.redirect_uri,
+            &redirect_uri,
         )
         .await?;
 
@@ -155,6 +157,7 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
     let response = RegisterUserOAuthAppResponse {
         success: true,
         provider: provider.clone(),
+        redirect_uri,
         message: format!(
             "OAuth app for {provider} registered successfully. Your API calls will now use your own credentials."
         ),
@@ -178,9 +181,9 @@ async fn handle_list_apps<C: IdentityCtx + MiddlewareCtx>(
     let summaries: Vec<UserOAuthAppSummary> = apps
         .into_iter()
         .map(|app| UserOAuthAppSummary {
+            redirect_uri: resources.oauth_callback_uri(&app.provider),
             provider: app.provider,
             client_id: app.client_id,
-            redirect_uri: app.redirect_uri,
             created_at: app.created_at.to_rfc3339(),
         })
         .collect();
@@ -210,9 +213,9 @@ async fn handle_get_app<C: IdentityCtx + MiddlewareCtx>(
         })?;
 
     let summary = UserOAuthAppSummary {
+        redirect_uri: resources.oauth_callback_uri(&app.provider),
         provider: app.provider,
         client_id: app.client_id,
-        redirect_uri: app.redirect_uri,
         created_at: app.created_at.to_rfc3339(),
     };
 

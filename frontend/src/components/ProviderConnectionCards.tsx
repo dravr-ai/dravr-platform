@@ -21,6 +21,8 @@ import {
 import type { SciotteTarget } from '@pierre/shared-types';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import OAuthAppSetupModal from './OAuthAppSetupModal';
+import { ownAppDevPortal } from '@pierre/domain-utils';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
@@ -129,6 +131,14 @@ export default function ProviderConnectionCards({
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
+  // A provider no app of the server's can authorize for this athlete
+  // (`own_app_required`) asks for an app of their own first; saving it starts
+  // the OAuth flow, carrying the notice acceptance that led here.
+  const [ownAppSetup, setOwnAppSetup] = useState<{
+    provider: ProviderStatus;
+    devPortalUrl: string;
+    tosConsent: boolean;
+  } | null>(null);
   const queryClient = useQueryClient();
 
   // Fetch providers from server (includes OAuth and non-OAuth providers).
@@ -198,6 +208,16 @@ export default function ProviderConnectionCards({
   // the old `about:blank`-then-assign dance, which left the popup empty for the
   // whole authorize-URL round trip.
   const connectViaOAuth = (providerName: string, tosConsent = false) => {
+    const card = providersData?.providers?.find((p) => p.provider === providerName);
+    const devPortalUrl = ownAppDevPortal(providerName);
+    if (card?.own_app_required && devPortalUrl) {
+      setOwnAppSetup({ provider: card, devPortalUrl, tosConsent });
+      return;
+    }
+    launchOAuth(providerName, tosConsent);
+  };
+
+  const launchOAuth = (providerName: string, tosConsent: boolean) => {
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
     if (onConnectProvider) {
       onConnectProvider(providerName, tosConsent);
@@ -434,6 +454,21 @@ export default function ProviderConnectionCards({
           if (accepted) connectViaOAuth(accepted, true);
         }}
       />
+
+      {ownAppSetup && (
+        <OAuthAppSetupModal
+          isOpen
+          onClose={() => setOwnAppSetup(null)}
+          onSaved={() => {
+            setOwnAppSetup(null);
+            launchOAuth(ownAppSetup.provider.provider, ownAppSetup.tosConsent);
+          }}
+          provider={ownAppSetup.provider.provider}
+          displayName={ownAppSetup.provider.display_name}
+          devPortalUrl={ownAppSetup.devPortalUrl}
+          callbackUrl={ownAppSetup.provider.oauth_callback_url}
+        />
+      )}
 
       {/* Intervals.icu API-key link modal */}
       <IntervalsIcuLinkModal

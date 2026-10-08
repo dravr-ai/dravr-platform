@@ -18,6 +18,7 @@ export {
   OAUTH_PROVIDERS,
   detectOAuthProvider,
   getFriendlyUrlName,
+  ownAppDevPortal,
   linkifyUrls,
 } from './oauth';
 

@@ -251,6 +251,20 @@ export interface ExtendedProviderStatus {
    */
   consent_required: boolean;
   /**
+   * Connecting needs an OAuth app of the athlete's own: no app of theirs, of
+   * their tenant's or of the server's can authorize this provider for them,
+   * so an OAuth start would reach the provider with no client it knows. Open
+   * the own-app setup (`userApi.registerOAuthApp`) instead of starting the
+   * OAuth flow. `false` for a provider without OAuth.
+   */
+  own_app_required: boolean;
+  /**
+   * The redirect URL an athlete registers in their own OAuth app for this
+   * provider: the server's callback, the one every authorization presents.
+   * Absent for a provider without OAuth.
+   */
+  oauth_callback_url?: string;
+  /**
    * The account's consent to AI use of this provider's data, for a provider
    * whose notice is one (WHOOP's owner authorization): `true` while given,
    * `false` while not given or withdrawn — then no model reads this
@@ -351,16 +365,23 @@ export interface ProvidersStatusResponse {
 export interface OAuthApp {
   provider: string;
   client_id: string;
+  /**
+   * The redirect URL registered in the provider app: the server's callback,
+   * which every authorization under the app presents.
+   */
   redirect_uri: string;
   created_at: string;
 }
 
-/** OAuth app credentials with secret (only for registration) */
+/**
+ * OAuth app credentials with secret (only for registration). The redirect is
+ * not the client's to name: the server registers its own callback
+ * (`ExtendedProviderStatus.oauth_callback_url`).
+ */
 export interface OAuthAppCredentials {
   provider: string;
   client_id: string;
   client_secret: string;
-  redirect_uri: string;
 }
 
 /** Known OAuth providers */

@@ -1,4 +1,4 @@
-// ABOUTME: Provider-agnostic BYO OAuth app modal — captures client_id/secret/redirect URI and stores them
+// ABOUTME: Provider-agnostic BYO OAuth app modal — captures client_id/secret and shows the redirect URI to register
 // ABOUTME: Used inline by onboarding flows so first-run users never need to navigate to Settings
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -22,6 +22,11 @@ interface OAuthAppSetupModalProps {
   displayName: string;
   /** Developer-portal URL where the user creates their OAuth app. */
   devPortalUrl: string;
+  /**
+   * The server's callback for this provider (`oauth_callback_url` on its
+   * status), the redirect URI the user registers in their app.
+   */
+  callbackUrl?: string;
 }
 
 export default function OAuthAppSetupModal({
@@ -31,13 +36,12 @@ export default function OAuthAppSetupModal({
   provider,
   displayName,
   devPortalUrl,
+  callbackUrl,
 }: OAuthAppSetupModalProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const defaultRedirectUri = `${window.location.origin}/api/oauth/callback/${provider}`;
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
-  const [redirectUri, setRedirectUri] = useState(defaultRedirectUri);
   const [error, setError] = useState<string | null>(null);
 
   // Pre-populate if the user already saved this provider's app earlier (e.g.
@@ -48,27 +52,30 @@ export default function OAuthAppSetupModal({
     enabled: isOpen,
   });
 
+  const existing = appsResponse?.apps?.find((a) => a.provider === provider);
+  // The server authorizes every app at its own callback; the app list and the
+  // provider status both name it.
+  const redirectUri =
+    existing?.redirect_uri ??
+    callbackUrl ??
+    `${window.location.origin}/api/oauth/callback/${provider}`;
+
   useEffect(() => {
     if (!isOpen) return;
     setError(null);
-    const existing = appsResponse?.apps?.find((a) => a.provider === provider);
-    if (existing) {
-      setClientId(existing.client_id ?? '');
-      // Client secret is never returned by the API; user must re-enter it.
-      setClientSecret('');
-      setRedirectUri(existing.redirect_uri ?? defaultRedirectUri);
-    } else {
-      setClientId('');
-      setClientSecret('');
-      setRedirectUri(defaultRedirectUri);
-    }
-  }, [isOpen, appsResponse, provider, defaultRedirectUri]);
+    // Client secret is never returned by the API; user must re-enter it.
+    setClientId(existing?.client_id ?? '');
+    setClientSecret('');
+  }, [isOpen, existing?.client_id]);
 
   const saveMutation = useMutation({
-    mutationFn: (data: { client_id: string; client_secret: string; redirect_uri: string }) =>
+    mutationFn: (data: { client_id: string; client_secret: string }) =>
       userApi.registerOAuthApp({ provider, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
+      // The provider card stops asking for an app of the user's own.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
       onSaved();
     },
     onError: (err: unknown) => {
@@ -83,14 +90,13 @@ export default function OAuthAppSetupModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientId.trim() || !clientSecret.trim() || !redirectUri.trim()) {
-      setError(t('app.oauthAllFieldsRequired'));
+    if (!clientId.trim() || !clientSecret.trim()) {
+      setError(t('settingsErr.credentialsRequired'));
       return;
     }
     saveMutation.mutate({
       client_id: clientId.trim(),
       client_secret: clientSecret.trim(),
-      redirect_uri: redirectUri.trim(),
     });
   };
 
@@ -181,9 +187,9 @@ export default function OAuthAppSetupModal({
             <Input
               id="oauth-redirect-uri"
               value={redirectUri}
-              onChange={(e) => setRedirectUri(e.target.value)}
+              readOnly
+              onFocus={(e) => e.target.select()}
               autoComplete="off"
-              required
             />
             <p className="text-xs text-on-surface-variant/70 mt-1.5">
               {t('app.addExactUri', { provider: displayName })}

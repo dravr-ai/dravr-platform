@@ -53,7 +53,7 @@ describe('OAuthCredentialsSection', () => {
         {
           provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
+          redirect_uri: 'https://app.dravr.ai/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -73,7 +73,7 @@ describe('OAuthCredentialsSection', () => {
         {
           provider: 'whoop',
           client_id: '1234567890abcdef',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
+          redirect_uri: 'https://app.dravr.ai/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -257,11 +257,11 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('Save'));
       });
 
+      // The server registers the app at its own callback; the client names none.
       expect(userApi.registerOAuthApp).toHaveBeenCalledWith({
         provider: 'whoop',
         client_id: 'my-client-id',
         client_secret: 'my-client-secret',
-        redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
       });
 
       await waitFor(() => {
@@ -311,7 +311,7 @@ describe('OAuthCredentialsSection', () => {
         {
           provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
+          redirect_uri: 'https://app.dravr.ai/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -337,7 +337,7 @@ describe('OAuthCredentialsSection', () => {
         {
           provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
+          redirect_uri: 'https://app.dravr.ai/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -376,7 +376,7 @@ describe('OAuthCredentialsSection', () => {
         {
           provider: 'whoop',
           client_id: '12345678',
-          redirect_uri: 'https://pierre.fit/api/oauth/callback/whoop',
+          redirect_uri: 'https://app.dravr.ai/api/oauth/callback/whoop',
           created_at: '2024-01-01T00:00:00Z',
         },
       ];
@@ -420,10 +420,27 @@ describe('OAuthCredentialsSection', () => {
       });
     });
 
-    it('should update redirect URI when provider is selected', async () => {
+    it("shows the server's callback for the selected provider", async () => {
       (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
 
-      const { getByText } = render(<OAuthCredentialsSection />);
+      const { getByText } = render(
+        <OAuthCredentialsSection
+          providers={[
+            {
+              provider: 'whoop',
+              display_name: 'WHOOP',
+              description: '',
+              requires_oauth: true,
+              connected: false,
+              needs_reauth: false,
+              capabilities: [],
+              consent_required: false,
+              own_app_required: true,
+              oauth_callback_url: 'https://tunnel.example/api/oauth/callback/whoop',
+            },
+          ]}
+        />,
+      );
 
       await waitFor(() => {
         fireEvent.press(getByText('Add'));
@@ -439,10 +456,31 @@ describe('OAuthCredentialsSection', () => {
         fireEvent.press(getByText('WHOOP'));
       });
 
-      // Check that redirect URI was updated (displayed as Text, not Input)
+      // Displayed as Text, not Input: it is the server's to name.
       await waitFor(() => {
-        expect(getByText('https://pierre.fit/api/oauth/callback/whoop')).toBeTruthy();
+        expect(getByText('https://tunnel.example/api/oauth/callback/whoop')).toBeTruthy();
       });
+    });
+
+    it('falls back to the production callback before the statuses load', async () => {
+      (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
+
+      const { getByText, queryByText } = render(<OAuthCredentialsSection />);
+
+      await waitFor(() => {
+        fireEvent.press(getByText('Add'));
+      });
+      await waitFor(() => {
+        fireEvent.press(getByText('Select a provider...'));
+      });
+      await waitFor(() => {
+        fireEvent.press(getByText('WHOOP'));
+      });
+
+      await waitFor(() => {
+        expect(getByText('https://app.dravr.ai/api/oauth/callback/whoop')).toBeTruthy();
+      });
+      expect(queryByText(/pierre\.fit/)).toBeNull();
     });
   });
 

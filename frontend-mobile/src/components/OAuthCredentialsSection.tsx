@@ -8,7 +8,7 @@ import { useThemeColors } from '../constants/theme';
 import { Button, Input, Section } from './ui';
 import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
-import type { OAuthApp } from '../types';
+import type { ExtendedProviderStatus, OAuthApp } from '../types';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -21,11 +21,20 @@ interface ByoProvider {
 // After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
 const PROVIDERS: ByoProvider[] = [{ id: 'whoop', name: 'WHOOP' }];
 
-const DEFAULT_REDIRECT_URI = 'https://pierre.fit/api/oauth/callback';
+/** Where the callback lives when the provider status has not answered yet. */
+const FALLBACK_CALLBACK_BASE = 'https://app.dravr.ai/api/oauth/callback';
 
 type ModalView = 'form' | 'providerPicker';
 
-export function OAuthCredentialsSection() {
+interface OAuthCredentialsSectionProps {
+  /**
+   * The provider statuses the screen holds; each names the server's callback
+   * (`oauth_callback_url`), the redirect URI an athlete registers in their app.
+   */
+  providers?: readonly ExtendedProviderStatus[];
+}
+
+export function OAuthCredentialsSection({ providers }: OAuthCredentialsSectionProps = {}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const [oauthApps, setOauthApps] = useState<OAuthApp[]>([]);
@@ -38,6 +47,11 @@ export function OAuthCredentialsSection() {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // The server authorizes every app at its own callback.
+  const callbackUrl = (provider: string) =>
+    providers?.find((p) => p.provider === provider)?.oauth_callback_url ??
+    `${FALLBACK_CALLBACK_BASE}/${provider}`;
 
   const loadOAuthApps = useCallback(async () => {
     try {
@@ -98,7 +112,6 @@ export function OAuthCredentialsSection() {
         provider: selectedProvider.id,
         client_id: clientId.trim(),
         client_secret: clientSecret.trim(),
-        redirect_uri: `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}`,
       });
       Alert.alert(t('common.success'), t('app.credentialsSavedFor', { provider: selectedProvider.name }));
       handleCloseModal();
@@ -264,7 +277,7 @@ export function OAuthCredentialsSection() {
                 {t('app.redirectUriHint')}
               </Text>
               <Text className="text-sm text-text-secondary font-mono py-3 mb-3 border-b border-border" selectable>
-                {selectedProvider ? `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}` : DEFAULT_REDIRECT_URI}
+                {callbackUrl(selectedProvider?.id ?? PROVIDERS[0].id)}
               </Text>
 
               <View className="flex-row gap-3 mt-3">

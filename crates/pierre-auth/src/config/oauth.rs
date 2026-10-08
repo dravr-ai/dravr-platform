@@ -711,7 +711,8 @@ pub fn strava_oauth_seat_cap() -> u32 {
 ///
 /// - `client_id` / `client_secret`: `<P>_CLIENT_ID` / `<P>_CLIENT_SECRET`,
 ///   else `PIERRE_<P>_CLIENT_ID` / `PIERRE_<P>_CLIENT_SECRET` (Terra names its
-///   pair `TERRA_DEV_ID` / `TERRA_API_KEY`)
+///   pair `TERRA_DEV_ID` / `TERRA_API_KEY`); a blank value or the
+///   infrastructure's placeholder reads as unset ([`credential_env`])
 /// - `redirect_uri`: `<P>_REDIRECT_URI`, `None` when unset: the caller then
 ///   uses the server's own callback URL
 /// - `scopes`: `PIERRE_<P>_SCOPES`, else `<P>_SCOPES`, else the provider's
@@ -771,12 +772,10 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
         }
     };
     let upper = provider_name.to_uppercase();
-    let client_id = env::var(id_key)
-        .or_else(|_| env::var(format!("PIERRE_{upper}_CLIENT_ID")))
-        .ok();
-    let client_secret = env::var(secret_key)
-        .or_else(|_| env::var(format!("PIERRE_{upper}_CLIENT_SECRET")))
-        .ok();
+    let client_id =
+        credential_env(id_key).or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_ID")));
+    let client_secret = credential_env(secret_key)
+        .or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_SECRET")));
     let scopes = env::var(format!("PIERRE_{upper}_SCOPES"))
         .or_else(|_| env::var(format!("{upper}_SCOPES")))
         .map_or(default_scopes, |s| parse_scopes(&s));
@@ -865,6 +864,58 @@ pub fn parse_scopes(scopes_str: &str) -> Vec<String> {
         .collect()
 }
 
+/// The redirect URI this server receives `provider`'s authorization codes at.
+///
+/// `<P>_REDIRECT_URI` when set (`server_level.redirect_uri`), else
+/// `{BASE_URL}/api/oauth/callback/{provider}`, `BASE_URL` defaulting to
+/// `http://localhost:{http_port}`.
+///
+/// An authorization completes only through this URL, so every client this
+/// server runs an authorization under presents it — the server's own app and
+/// an athlete's own app alike — and an athlete registers it in their app.
+#[must_use]
+pub fn provider_callback_uri(
+    provider: &str,
+    server_level: &OAuthProviderConfig,
+    http_port: u16,
+) -> String {
+    server_level.redirect_uri.clone().unwrap_or_else(|| {
+        callback_uri_under(env::var("BASE_URL").ok().as_deref(), provider, http_port)
+    })
+}
+
+/// `provider`'s callback under `base_url`, else under this host's own port.
+fn callback_uri_under(base_url: Option<&str>, provider: &str, http_port: u16) -> String {
+    let base_url = base_url.map_or_else(
+        || format!("http://localhost:{http_port}"),
+        |url| url.trim_end_matches('/').to_owned(),
+    );
+    format!("{base_url}/api/oauth/callback/{provider}")
+}
+
+/// The value `infra/modules/secrets/main.tf` seeds every out-of-band secret
+/// with until a real one is added in Secret Manager.
+const UNSET_SECRET_PLACEHOLDER: &str = "PLACEHOLDER_FILL_MANUALLY";
+
+/// A provider credential from the environment, `None` when it is unset,
+/// blank, or still the infrastructure's placeholder.
+///
+/// Cloud Run hands the placeholder through as an ordinary value, and a
+/// provider receiving it as `client_id` answers with its own error page
+/// (WHOOP: "The requested OAuth 2.0 Client does not exist"). Read as unset,
+/// it routes the athlete to their own OAuth app instead.
+#[must_use]
+pub fn credential_env(key: &str) -> Option<String> {
+    configured_credential(env::var(key).ok())
+}
+
+/// The credential `raw` carries once trimmed, unless it is blank or the
+/// placeholder.
+fn configured_credential(raw: Option<String>) -> Option<String> {
+    let value = raw?.trim().to_owned();
+    (!value.is_empty() && value != UNSET_SECRET_PLACEHOLDER).then_some(value)
+}
+
 /// Get environment variable or default value
 fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
@@ -873,6 +924,54 @@ fn env_var_or(key: &str, default: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_placeholder_or_blank_credential_reads_as_unset() {
+        assert_eq!(configured_credential(None), None);
+        assert_eq!(configured_credential(Some(String::new())), None);
+        assert_eq!(configured_credential(Some("  \n".to_owned())), None);
+        assert_eq!(
+            configured_credential(Some(UNSET_SECRET_PLACEHOLDER.to_owned())),
+            None
+        );
+        // `gcloud secrets versions add` from a file keeps its trailing newline.
+        assert_eq!(
+            configured_credential(Some(format!("{UNSET_SECRET_PLACEHOLDER}\n"))),
+            None
+        );
+    }
+
+    #[test]
+    fn the_callback_is_under_base_url_else_this_hosts_port() {
+        assert_eq!(
+            callback_uri_under(Some("https://app.dravr.ai/"), "whoop", 8081),
+            "https://app.dravr.ai/api/oauth/callback/whoop"
+        );
+        assert_eq!(
+            callback_uri_under(None, "whoop", 8091),
+            "http://localhost:8091/api/oauth/callback/whoop"
+        );
+    }
+
+    #[test]
+    fn a_configured_redirect_uri_wins_over_base_url() {
+        let server_level = OAuthProviderConfig {
+            redirect_uri: Some("https://tunnel.example/api/oauth/callback/whoop".to_owned()),
+            ..OAuthProviderConfig::default()
+        };
+        assert_eq!(
+            provider_callback_uri("whoop", &server_level, 8081),
+            "https://tunnel.example/api/oauth/callback/whoop"
+        );
+    }
+
+    #[test]
+    fn a_real_credential_is_kept_without_surrounding_whitespace() {
+        assert_eq!(
+            configured_credential(Some(" 4f1c2a7e-0d3b-4c5a-9e8f-6a7b8c9d0e1f\n".to_owned())),
+            Some("4f1c2a7e-0d3b-4c5a-9e8f-6a7b8c9d0e1f".to_owned())
+        );
+    }
 
     #[test]
     fn first_party_web_origins_are_the_frontend_then_the_issuer_reduced_to_origins() {

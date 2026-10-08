@@ -28,6 +28,7 @@ use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::connect_prefetch::PrefetchWait;
+use pierre_providers::ProviderCapabilities;
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
@@ -46,8 +47,10 @@ use pierre_services::provider_revocation::DisconnectReason;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 
+use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;
+use pierre_auth::tenant::oauth_manager::find_authorizing_client;
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_DESCRIPTION_COROS, KEY_PROVIDER_DESCRIPTION_GARMIN,
     KEY_PROVIDER_DESCRIPTION_GENERIC, KEY_PROVIDER_DESCRIPTION_INTERVALS_ICU,
@@ -364,6 +367,84 @@ fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
     }
 }
 
+/// The capability names a provider card lists, from its descriptor's flags.
+fn capability_names(caps: ProviderCapabilities) -> Vec<String> {
+    [
+        (caps.supports_activities(), "activities"),
+        (caps.supports_sleep(), "sleep"),
+        (caps.supports_recovery(), "recovery"),
+        (caps.supports_health(), "health"),
+        (caps.supports_planned_workouts(), "planned_workouts"),
+    ]
+    .into_iter()
+    .filter(|(supported, _)| *supported)
+    .map(|(_, name)| name.to_owned())
+    .collect()
+}
+
+/// A card's `own_app_required` and `oauth_callback_url`.
+///
+/// Both are about the provider's OAuth app, so a provider without OAuth
+/// carries neither.
+async fn own_app_fields(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+    provider: &str,
+    requires_oauth: bool,
+) -> (bool, Option<String>) {
+    if !requires_oauth {
+        return (false, None);
+    }
+    let callback = provider_callback_uri(
+        provider,
+        &get_oauth_config(provider),
+        resources.config.http_port,
+    );
+    (
+        own_app_required(resources, user_id, tenant_id, provider).await,
+        Some(callback),
+    )
+}
+
+/// Whether connecting `provider` needs the athlete's own OAuth app.
+///
+/// It does while an OAuth start would find no client to run under
+/// ([`find_authorizing_client`]): none of theirs, their tenant's or the
+/// server's. A session with no active tenant, or a failed read, reads as `false`: the
+/// connect itself then says what is wrong.
+async fn own_app_required(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+    provider: &str,
+) -> bool {
+    let Some(tenant_id) = tenant_id else {
+        return false;
+    };
+    match find_authorizing_client(
+        user_id,
+        TenantId::from_uuid(tenant_id),
+        provider,
+        &get_oauth_config(provider),
+        resources.repos.tenants.as_ref(),
+        resources.repos.oauth_tokens.as_ref(),
+    )
+    .await
+    {
+        Ok(client) => client.is_none(),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider,
+                error = %e,
+                "Could not resolve the OAuth client a connect would use"
+            );
+            false
+        }
+    }
+}
+
 /// Whether `provider` asks for a notice this account has not accepted.
 ///
 /// [`asks_for_notice`] for the session's tenant. A session with no active
@@ -544,23 +625,7 @@ pub async fn compute_providers_status(
             // Non-OAuth providers (like synthetic) appear with connected=false
             // so users can activate them from the provider modal.
 
-            // Build capabilities list from bitflags
-            let mut capabilities = Vec::new();
-            if caps.supports_activities() {
-                capabilities.push("activities".to_owned());
-            }
-            if caps.supports_sleep() {
-                capabilities.push("sleep".to_owned());
-            }
-            if caps.supports_recovery() {
-                capabilities.push("recovery".to_owned());
-            }
-            if caps.supports_health() {
-                capabilities.push("health".to_owned());
-            }
-            if caps.supports_planned_workouts() {
-                capabilities.push("planned_workouts".to_owned());
-            }
+            let capabilities = capability_names(caps);
 
             // The Sciotte entry is the user-facing "Strava" card. Tell the
             // frontend which Strava backend a new connection should use:
@@ -575,6 +640,9 @@ pub async fn compute_providers_status(
             } else {
                 (None, None)
             };
+
+            let (own_app_required, oauth_callback_url) =
+                own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
 
             provider_statuses.push(ProviderStatus {
                 provider: provider_name.to_owned(),
@@ -591,6 +659,8 @@ pub async fn compute_providers_status(
                 seats_left,
                 consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
                     .await,
+                own_app_required,
+                oauth_callback_url,
                 ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),

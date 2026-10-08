@@ -628,7 +628,14 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                 Ok(notice_required_result(provider, &e.message))
             }
             Err(e) => {
-                error!("OAuth URL generation failed for {}: {}", provider, e);
+                // No OAuth app to run under (the athlete has none of their
+                // own and the server's is unset) is configuration, not a
+                // server fault, and must not page.
+                if e.is_server_fault() {
+                    error!("OAuth URL generation failed for {}: {}", provider, e);
+                } else {
+                    warn!("OAuth URL refused for {}: {}", provider, e);
+                }
                 Ok(oauth_error_result(provider, &e.to_string()))
             }
         }

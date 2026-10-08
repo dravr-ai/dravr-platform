@@ -40,6 +40,7 @@ import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 import { describeApiError } from '@pierre/ui-logic';
+import { ownAppDevPortal } from '@pierre/domain-utils';
 
 export function ConnectionsScreen() {
   const { t } = useTranslation();
@@ -55,18 +56,19 @@ export function ConnectionsScreen() {
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
-  // Whoop is BYO-OAuth-app: users register their own developer app at
-  // developer.whoop.com and paste client_id/secret before the OAuth dance can
-  // run. Rather than fall through the generic credentials sheet, open the
-  // provider-aware setup sheet in-place so first-touch users never need to
-  // navigate elsewhere. Mirrors the web onboarding flow.
-  const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // A provider no app of the server's can authorize for this athlete
+  // (`own_app_required`) asks for an app of their own first: the
+  // provider-aware setup sheet opens in place, so first-touch users never
+  // need to navigate elsewhere, and saving it starts the OAuth flow with the
+  // notice acceptance that led here. Mirrors the web provider cards.
+  const [ownAppSetup, setOwnAppSetup] = useState<{
+    provider: ExtendedProviderStatus;
+    devPortalUrl: string;
+    tosConsent: boolean;
+  } | null>(null);
   // The OAuth provider whose notice is on screen before its flow starts
   // (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<ExtendedProviderStatus | null>(null);
-  // Whether the athlete accepted WHOOP's owner authorization before the
-  // setup sheet; the OAuth start after it carries that acceptance.
-  const [whoopTosConsent, setWhoopTosConsent] = useState(false);
   // Tracks the "Connected!" state shown after a successful OAuth completes.
   // Replaces the legacy Alert.alert success dialog and lines the UX up with
   // the web onboarding screen.
@@ -259,6 +261,7 @@ export function ConnectionsScreen() {
   /** The connect `startConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     const target = sciotteTargetForBackend(provider.provider);
+    const devPortalUrl = ownAppDevPortal(provider.provider);
     if (target) {
       if (target === 'strava' && provider.recommended_backend === 'oauth') {
         handleConnect('strava', provider.display_name);
@@ -268,9 +271,8 @@ export function ConnectionsScreen() {
       }
     } else if (provider.provider === 'intervals_icu') {
       setIntervalsModalVisible(true);
-    } else if (provider.provider === 'whoop') {
-      setWhoopTosConsent(tosConsent);
-      setShowWhoopSetup(true);
+    } else if (provider.own_app_required && devPortalUrl) {
+      setOwnAppSetup({ provider, devPortalUrl, tosConsent });
     } else {
       handleConnect(provider.provider, provider.display_name, tosConsent);
     }
@@ -517,7 +519,7 @@ export function ConnectionsScreen() {
         testID="connections-credentials-sheet"
         flush
       >
-        <OAuthCredentialsSection />
+        <OAuthCredentialsSection providers={providers} />
       </Sheet>
 
       <ProviderNoticeSheet
@@ -530,20 +532,24 @@ export function ConnectionsScreen() {
         }}
       />
 
-      <OAuthAppSetupModal
-        visible={showWhoopSetup}
-        onClose={() => setShowWhoopSetup(false)}
-        onSaved={() => {
-          setShowWhoopSetup(false);
-          // BYO credentials are persisted; now kick off the standard OAuth
-          // dance. handleConnect() will set justConnected on success which
-          // surfaces the post-connect spinner.
-          void handleConnect('whoop', 'WHOOP', whoopTosConsent);
-        }}
-        provider="whoop"
-        displayName="WHOOP"
-        devPortalUrl="https://developer.whoop.com/"
-      />
+      {ownAppSetup && (
+        <OAuthAppSetupModal
+          visible
+          onClose={() => setOwnAppSetup(null)}
+          onSaved={() => {
+            const { provider, tosConsent } = ownAppSetup;
+            setOwnAppSetup(null);
+            // BYO credentials are persisted; now kick off the standard OAuth
+            // dance. handleConnect() will set justConnected on success which
+            // surfaces the post-connect spinner.
+            void handleConnect(provider.provider, provider.display_name, tosConsent);
+          }}
+          provider={ownAppSetup.provider.provider}
+          displayName={ownAppSetup.provider.display_name}
+          devPortalUrl={ownAppSetup.devPortalUrl}
+          callbackUrl={ownAppSetup.provider.oauth_callback_url}
+        />
+      )}
 
       <Modal
         visible={justConnected !== null}

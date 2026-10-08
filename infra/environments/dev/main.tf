@@ -631,11 +631,12 @@ module "backend" {
     # wrapped by KMS, so the env-backed master key is no longer wired (ADR-017).
     STRAVA_CLIENT_ID     = module.secrets.secret_ids["strava_client_id"]
     STRAVA_CLIENT_SECRET = module.secrets.secret_ids["strava_client_secret"]
-    # WHOOP central OAuth app credentials. Empty until secrets are populated
-    # out-of-band (`gcloud secrets versions add ...`); Cloud Run sees the
-    # placeholder string, the OAuth manager logs the "no credentials" warn,
-    # and the platform falls back to BYO (web/mobile setup modals). Once a
-    # real version lands, Whoop becomes 1-step identical to Strava.
+    # WHOOP central OAuth app credentials, the placeholder until populated
+    # out-of-band (`gcloud secrets versions add ...`). The server reads the
+    # placeholder as unset, so the WHOOP card reports `own_app_required` and
+    # the clients ask for the athlete's own app (web/mobile setup modals).
+    # Once a real version lands and a new revision starts, Whoop becomes
+    # 1-step identical to Strava.
     WHOOP_CLIENT_ID     = module.secrets.secret_ids["whoop_client_id"]
     WHOOP_CLIENT_SECRET = module.secrets.secret_ids["whoop_client_secret"]
     # Wahoo Cloud API app (carnet#34). Placeholder until the portal's

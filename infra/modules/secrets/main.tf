@@ -162,12 +162,14 @@ resource "google_secret_manager_secret_version" "strava_client_id_placeholder" {
   }
 }
 
-# WHOOP central OAuth app. When real values land in the version
-# (`gcloud secrets versions add`), the platform's server-level app
-# resolution (`issuing_client` / `authorizing_client`,
-# crates/pierre-auth/.../oauth_manager.rs) picks them up identically to
-# Strava and Whoop becomes 1-step for every user. Until then the BYO modal
-# on web/mobile stays as the only path.
+# WHOOP central OAuth app. While the version is the placeholder, the server
+# reads it as unset (`credential_env`, crates/pierre-auth/src/config/oauth.rs):
+# the WHOOP card reports `own_app_required` and every connect surface asks for
+# the athlete's own app. When real values land (`gcloud secrets versions add`,
+# then a new Cloud Run revision, since `latest` resolves at instance start),
+# server-level resolution (`authorizing_client`, oauth_manager.rs) picks them
+# up and WHOOP becomes 1-step, like Strava. The app must register
+# https://app.dravr.ai/api/oauth/callback/whoop.
 resource "google_secret_manager_secret" "whoop_client_id" {
   project   = var.project_id
   secret_id = "${var.service_name}-whoop-client-id"

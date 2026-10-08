@@ -81,6 +81,7 @@ function provider(
     needs_reauth: false,
     capabilities: ['activities'],
     consent_required: false,
+    own_app_required: false,
     ...overrides,
   };
 }

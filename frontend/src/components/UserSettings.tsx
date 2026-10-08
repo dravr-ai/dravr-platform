@@ -50,6 +50,8 @@ import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import OAuthAppSetupModal from './OAuthAppSetupModal';
+import { ownAppDevPortal } from '@pierre/domain-utils';
 import { describeApiError } from '@pierre/ui-logic';
 
 interface OAuthApp {
@@ -170,6 +172,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
+  // The provider whose own-app setup is on screen: no app of the server's can
+  // authorize it for this athlete (`own_app_required`).
+  const [ownAppSetup, setOwnAppSetup] = useState<{ provider: ProviderStatus; devPortalUrl: string } | null>(null);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
@@ -253,10 +258,12 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
   // Register OAuth app mutation
   const registerMutation = useMutation({
-    mutationFn: (data: { provider: string; client_id: string; client_secret: string; redirect_uri: string }) =>
+    mutationFn: (data: { provider: string; client_id: string; client_secret: string }) =>
       userApi.registerOAuthApp(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
+      // The provider card's `own_app_required` follows the app just saved.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
       setCredentialMessage({ type: 'success', text: data.message });
       setShowAddCredentials(false);
       setSelectedProvider('');
@@ -273,6 +280,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     mutationFn: (provider: string) => userApi.deleteOAuthApp(provider),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.oauthApps() });
+      // Without the app, the provider card may ask for one again.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() });
       setCredentialMessage({ type: 'success', text: t('settingsErr.credentialsRemoved') });
       setProviderToDelete(null);
     },
@@ -357,13 +366,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setCredentialMessage({ type: 'error', text: t('settingsErr.credentialsRequired') });
       return;
     }
-    // Auto-generate the redirect URI from the current deployment
-    const autoRedirectUri = `${window.location.origin}/api/oauth/callback/${selectedProvider}`;
+    // The server registers the app at its own callback, shown in the form.
     registerMutation.mutate({
       provider: selectedProvider,
       client_id: clientId.trim(),
       client_secret: clientSecret.trim(),
-      redirect_uri: autoRedirectUri,
     });
   };
 
@@ -414,6 +421,22 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       return true;
     }
     return false;
+  };
+
+  // The Connect button's start: an app of the athlete's own first when no app
+  // of the server's can authorize the provider for them, then the provider's
+  // notice while it is owed, then the OAuth flow.
+  const startOAuthConnect = (provider: ProviderStatus) => {
+    const devPortalUrl = ownAppDevPortal(provider.provider);
+    if (provider.own_app_required && devPortalUrl) {
+      setOwnAppSetup({ provider, devPortalUrl });
+      return;
+    }
+    if (noticeRequired(provider.provider, provider.consent_required)) {
+      setNoticeProvider(provider.provider);
+      return;
+    }
+    handleConnectProvider(provider.provider);
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
@@ -909,13 +932,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 size="sm"
                                 onClick={() => {
                                   if (checkProviderConflict(provider.provider)) return;
-                                  // WHOOP asks for its owner authorization first
-                                  // while the account has not accepted it.
-                                  if (noticeRequired(provider.provider, provider.consent_required)) {
-                                    setNoticeProvider(provider.provider);
-                                    return;
-                                  }
-                                  handleConnectProvider(provider.provider);
+                                  startOAuthConnect(provider);
                                 }}
                                 loading={isConnecting}
                                 data-testid={`provider-connect-${provider.provider}`}
@@ -1089,7 +1106,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 {selectedProvider && (
                   <div className="text-xs text-outline space-y-1">
                     <p>{t('settingsUi.providerAppSettingsSet', { provider: selectedProvider })}</p>
-                    <p>{t('settingsUi.callbackDomain')} <code className="text-on-surface-variant">{window.location.host}</code></p>
+                    <p>
+                      {t('app.redirectUriHint')}{' '}
+                      <code className="text-on-surface-variant break-all">
+                        {fitnessProviders.find((p) => p.provider === selectedProvider)?.oauth_callback_url ??
+                          `${window.location.origin}/api/oauth/callback/${selectedProvider}`}
+                      </code>
+                    </p>
                   </div>
                 )}
               </div>
@@ -1793,6 +1816,21 @@ Authorization: Bearer <your-token-here>`}
           if (accepted) handleConnectProvider(accepted, true);
         }}
       />
+
+      {ownAppSetup && (
+        <OAuthAppSetupModal
+          isOpen
+          onClose={() => setOwnAppSetup(null)}
+          onSaved={() => {
+            setOwnAppSetup(null);
+            startOAuthConnect({ ...ownAppSetup.provider, own_app_required: false });
+          }}
+          provider={ownAppSetup.provider.provider}
+          displayName={ownAppSetup.provider.display_name}
+          devPortalUrl={ownAppSetup.devPortalUrl}
+          callbackUrl={ownAppSetup.provider.oauth_callback_url}
+        />
+      )}
 
       {/* Sciotte login modal */}
       <SciotteLoginModal

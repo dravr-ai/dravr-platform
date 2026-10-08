@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback and the coach-only offer
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback, the own-app setup and the coach-only offer
 // ABOUTME: A failed Strava OAuth falls back to the Sciotte credential login; a coach who does not train sees only the coaching platforms
 
 import React from 'react';
@@ -51,7 +51,21 @@ jest.mock('../../../components/SciotteLoginModal', () => {
   };
 });
 jest.mock('../../../components/IntervalsIcuLinkModal', () => ({ IntervalsIcuLinkModal: () => null }));
-jest.mock('../../../components/OAuthAppSetupModal', () => ({ OAuthAppSetupModal: () => null }));
+// The own-app setup sheet, reduced to the callback it shows and the Save that
+// resumes the OAuth start.
+jest.mock('../../../components/OAuthAppSetupModal', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    OAuthAppSetupModal: ({ callbackUrl, onSaved }: { callbackUrl?: string; onSaved: () => void }) =>
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(Text, null, `own-app-setup:${callbackUrl}`),
+        React.createElement(Text, { onPress: onSaved }, 'own-app-save'),
+      ),
+  };
+});
 
 const getProvidersStatus = oauthApi.getProvidersStatus as jest.Mock;
 const initMobileOAuth = oauthApi.initMobileOAuth as jest.Mock;
@@ -211,6 +225,54 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
 
     await waitFor(() => expect(openAuthSessionAsync).toHaveBeenCalled());
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
+  });
+});
+
+describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
+  const whoop = (own_app_required: boolean) => ({
+    provider: 'whoop',
+    display_name: 'WHOOP',
+    description: '',
+    requires_oauth: true,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['sleep', 'recovery'],
+    consent_required: false,
+    own_app_required,
+    oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/whoop',
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    initMobileOAuth.mockResolvedValue({ authorization_url: 'https://api.prod.whoop.com/oauth/oauth2/auth' });
+    openAuthSessionAsync.mockResolvedValue({ type: 'cancel' });
+  });
+
+  it('asks for the athlete\'s own app before the OAuth start while no app of the server can authorize it', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [whoop(true)] });
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
+
+    expect(
+      await screen.findByText('own-app-setup:https://app.dravr.ai/api/oauth/callback/whoop'),
+    ).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByText('own-app-save'));
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+    );
+  });
+
+  it('starts the OAuth flow directly while an app of the server can authorize it', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [whoop(false)] });
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
+
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+    );
+    expect(screen.queryByText(/own-app-setup/)).toBeNull();
   });
 });
 

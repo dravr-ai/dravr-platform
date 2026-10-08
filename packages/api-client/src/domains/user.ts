@@ -345,16 +345,19 @@ export function createUserApi(axios: AxiosInstance) {
     },
 
     /**
-     * Register an OAuth app.
+     * Register an OAuth app. The answer's `redirect_uri` is the server's
+     * callback, the URL to register in the provider app.
      */
     async registerOAuthApp(credentials: OAuthAppCredentials): Promise<{
       success: boolean;
       provider: string;
+      redirect_uri: string;
       message: string;
     }> {
       const response = await axios.post<{
         success: boolean;
         provider: string;
+        redirect_uri: string;
         message: string;
       }>(ENDPOINTS.USER.OAUTH_APPS, credentials);
       return response.data;

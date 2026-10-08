@@ -410,6 +410,17 @@ pub struct ProviderStatus {
     /// the credentials and posts `tos_consent: true` with the login; the login
     /// is refused without it.
     pub consent_required: bool,
+    /// Connecting needs an OAuth app of the athlete's own: no app of theirs,
+    /// of their tenant's or of the server's can authorize this provider for
+    /// them, so an OAuth start would reach the provider with no client it
+    /// knows. The client opens the own-app setup (`POST
+    /// /api/users/oauth-apps`) instead. `false` for a provider without OAuth.
+    pub own_app_required: bool,
+    /// The redirect URL an athlete registers in their own OAuth app for this
+    /// provider: this server's callback, the one every authorization
+    /// presents. Absent for a provider without OAuth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_callback_url: Option<String>,
     /// The account's consent to AI use of this provider's data, for a
     /// provider whose notice is one (WHOOP's owner authorization): `true`
     /// while it is given in the current version, `false` while it is not —

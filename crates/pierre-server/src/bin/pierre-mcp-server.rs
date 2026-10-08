@@ -19,6 +19,7 @@
 use clap::{error::ErrorKind, Parser};
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
+use pierre_auth::config::credential_env;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
@@ -240,25 +241,25 @@ fn validate_required_environment() -> Result<()> {
         },
         EnvValidation {
             name: "STRAVA_CLIENT_ID",
-            value: env::var("STRAVA_CLIENT_ID").ok(),
+            value: credential_env("STRAVA_CLIENT_ID"),
             required: false,
             description: "Strava OAuth application client ID",
         },
         EnvValidation {
             name: "STRAVA_CLIENT_SECRET",
-            value: env::var("STRAVA_CLIENT_SECRET").ok(),
+            value: credential_env("STRAVA_CLIENT_SECRET"),
             required: false,
             description: "Strava OAuth application client secret",
         },
         EnvValidation {
             name: "WHOOP_CLIENT_ID",
-            value: env::var("WHOOP_CLIENT_ID").ok(),
+            value: credential_env("WHOOP_CLIENT_ID"),
             required: false,
             description: "Whoop OAuth application client ID for the shared Dravr-owned Whoop app. When set (with WHOOP_CLIENT_SECRET), Whoop connects via one-tap OAuth consent; when unset, Whoop falls back to bring-your-own OAuth app.",
         },
         EnvValidation {
             name: "WHOOP_CLIENT_SECRET",
-            value: env::var("WHOOP_CLIENT_SECRET").ok(),
+            value: credential_env("WHOOP_CLIENT_SECRET"),
             required: false,
             description: "Whoop OAuth application client secret for the shared Dravr-owned Whoop app.",
         },

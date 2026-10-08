@@ -9,7 +9,6 @@ import { oauthApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
-import OAuthAppSetupModal from './OAuthAppSetupModal';
 import ConnectPreview from './ConnectPreview';
 
 // Dravr boreal-palette logo. Same dot-and-line motif as Login and
@@ -65,15 +64,6 @@ export default function OnboardingConnectProvider({
   // consent" overlay with a Cancel button and a 90s timeout so the user is
   // never stranded if they close the popup or walk away.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
-  // WHOOP is BYO-OAuth-app: the user must register a Whoop developer app and
-  // store its client_id/secret before the OAuth dance can run. Rather than
-  // bouncing first-run users to Settings (which they can't reach behind this
-  // gate), we open the setup modal in-place and continue with OAuth as soon as
-  // they save.
-  const [showWhoopSetup, setShowWhoopSetup] = useState(false);
-  // Whether the athlete accepted WHOOP's owner authorization on the card that
-  // opened the setup modal; the OAuth start after it carries that acceptance.
-  const [whoopTosConsent, setWhoopTosConsent] = useState(false);
 
   const launchOAuth = (provider: string, tosConsent: boolean) => {
     // Open the server's launch route directly. It is a same-origin page that
@@ -101,19 +91,11 @@ export default function OnboardingConnectProvider({
     setConnectingProvider(null);
   };
 
+  // A provider that needs the athlete's own OAuth app (`own_app_required`)
+  // has the cards open its setup in place before this runs, so first-run
+  // users never need Settings, which this gate keeps them from.
   const handleConnectProvider = (provider: string, tosConsent: boolean) => {
-    if (provider === 'whoop') {
-      // The acceptance the cards just took rides the start that follows the
-      // setup modal.
-      setWhoopTosConsent(tosConsent);
-      // Skip the speculative OAuth init for Whoop — open the setup modal
-      // directly. The modal pre-populates from any existing app if present, so
-      // returning users see their saved client_id and only need to re-enter
-      // the secret (which we don't keep around for security).
-      setShowWhoopSetup(true);
-      return;
-    }
-    void launchOAuth(provider, tosConsent);
+    launchOAuth(provider, tosConsent);
   };
 
   // Safety net: if the App-level route flip never happens (provider-status
@@ -243,18 +225,6 @@ export default function OnboardingConnectProvider({
             </div>
         </div>
       </OnboardingShell>
-
-      <OAuthAppSetupModal
-        isOpen={showWhoopSetup}
-        onClose={() => setShowWhoopSetup(false)}
-        onSaved={() => {
-          setShowWhoopSetup(false);
-          void launchOAuth('whoop', whoopTosConsent);
-        }}
-        provider="whoop"
-        displayName="WHOOP"
-        devPortalUrl="https://developer.whoop.com/"
-      />
     </>
   );
 }

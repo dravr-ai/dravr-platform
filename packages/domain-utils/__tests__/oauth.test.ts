@@ -7,6 +7,7 @@ import {
   getFriendlyUrlName,
   linkifyUrls,
   OAUTH_PROVIDERS,
+  ownAppDevPortal,
 } from '../src/oauth';
 
 describe('detectOAuthProvider', () => {
@@ -114,5 +115,18 @@ describe('linkifyUrls', () => {
     const result = linkifyUrls(text);
     expect(result).toContain('[a.com](https://a.com)');
     expect(result).toContain('[b.com](https://b.com)');
+  });
+});
+
+describe('ownAppDevPortal', () => {
+  it('names the portal where an athlete creates their own WHOOP app', () => {
+    // A third-party URL: WHOOP fixes it, and the setup sheet links to it.
+    expect(ownAppDevPortal('whoop')).toBe('https://developer.whoop.com/');
+  });
+
+  it('is undefined for a provider with no own-app setup', () => {
+    expect(ownAppDevPortal('synthetic')).toBeUndefined();
+    // Intervals.icu connects with an API key on every client.
+    expect(ownAppDevPortal('intervals_icu')).toBeUndefined();
   });
 });

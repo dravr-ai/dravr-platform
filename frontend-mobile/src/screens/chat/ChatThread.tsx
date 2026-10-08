@@ -279,14 +279,28 @@ export function ChatThread({
    * nowhere to return to.
    */
   const handleConnectProvider = useCallback(async (provider: string) => {
+    const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
+    // No app of the server's can authorize the provider for this athlete:
+    // the credentials sheet asks for their own before any notice.
+    if (status?.own_app_required) {
+      providerStatus.setNeedsCredentialsProvider(provider);
+      return;
+    }
     // A provider whose notice the account has not accepted (WHOOP's owner
     // authorization) states it first; its Continue starts the flow.
-    const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
     if (noticeRequired(provider, status?.consent_required)) {
       setNoticeFor(provider);
       return;
     }
     await providerStatus.handleConnectProvider(provider);
+  }, [providerStatus]);
+
+  // An app saved in the credentials sheet changes the status the gate above
+  // reads (`own_app_required`), so closing the sheet re-reads it: the next
+  // connect then starts the flow instead of reopening the sheet.
+  const closeCredentials = useCallback(() => {
+    providerStatus.setNeedsCredentialsProvider(null);
+    void providerStatus.loadProviderStatus();
   }, [providerStatus]);
 
   return (
@@ -355,14 +369,14 @@ export function ChatThread({
 
       <Sheet
         visible={providerStatus.needsCredentialsProvider !== null}
-        onClose={() => providerStatus.setNeedsCredentialsProvider(null)}
+        onClose={closeCredentials}
         testID="oauth-credentials-sheet"
         flush
       >
-        <OAuthCredentialsSection />
+        <OAuthCredentialsSection providers={providerStatus.connectedProviders} />
         <TouchableOpacity
           className="mt-4 py-3 items-center"
-          onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
+          onPress={closeCredentials}
         >
           <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
         </TouchableOpacity>

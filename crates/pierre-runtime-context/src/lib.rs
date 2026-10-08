@@ -72,6 +72,12 @@ pub trait IdentityCtx: Send + Sync + 'static {
     /// Repository registry — primary data-access surface for the
     /// `/api/users/oauth-apps` endpoints (per-user OAuth app credentials).
     fn repos(&self) -> &Arc<RepositoryRegistry>;
+
+    /// The redirect URI an athlete registers in their own OAuth app.
+    ///
+    /// This server's callback for `provider`
+    /// (`pierre_auth::config::provider_callback_uri`).
+    fn oauth_callback_uri(&self, provider: &str) -> String;
 }
 
 /// Slice of runtime state the dashboard route layer needs.

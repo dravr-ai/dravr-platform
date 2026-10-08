@@ -98,6 +98,12 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     onSuccess?: () => Promise<void>,
     tosConsent = false
   ) => {
+    // No app of the server's can authorize the provider for this athlete:
+    // their own app's credentials come first.
+    if (connectedProviders.find((p) => p.provider === provider)?.own_app_required) {
+      setNeedsCredentialsProvider(provider);
+      return;
+    }
     setConnectingProvider(provider);
     setError(null);
     try {
@@ -158,21 +164,11 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       setConnectingProvider(null);
       const errorMessage =
         describeApiError(err, { t, fallbackKey: 'providers.failedConnectProvider' });
-
-      // Detect missing OAuth credentials — show credential entry instead of error
-      const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
-        || errorMessage.toLowerCase().includes('client credentials not configured')
-        || errorMessage.toLowerCase().includes('configuration');
-
-      if (isCredentialError) {
-        setNeedsCredentialsProvider(provider);
-      } else {
-        setError(errorMessage);
-        console.error('Failed to start OAuth:', err);
-        Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
-      }
+      setError(errorMessage);
+      console.error('Failed to start OAuth:', err);
+      Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
     }
-  }, [loadProviderStatus, queryClient, t]);
+  }, [connectedProviders, loadProviderStatus, queryClient, t]);
 
   return {
     connectedProviders,

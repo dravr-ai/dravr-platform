@@ -6,7 +6,6 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    env,
     fmt::Write,
     sync::Arc,
 };
@@ -20,8 +19,8 @@ use crate::coach_platform::coach_platform;
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use crate::provider_revocation;
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
-use pierre_auth::config::oauth::get_oauth_config;
 use pierre_auth::config::oauth::OAuthProviderConfig;
+use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
@@ -419,6 +418,11 @@ impl OAuthService {
     /// The authorize URL and the code exchange both read it, so the two name
     /// the same client and the same redirect URI, which RFC 6749 section
     /// 4.1.3 requires of the exchange.
+    ///
+    /// The server's app and an athlete's own app present this server's
+    /// callback ([`provider_callback_uri`]), the only URL an authorization
+    /// completes through: the redirect stored with an athlete's app is what
+    /// a client once sent, and an old mobile build sent a retired domain.
     fn client_settings(
         &self,
         provider: &str,
@@ -427,11 +431,12 @@ impl OAuthService {
         scope_separator: &str,
         server_level: &OAuthProviderConfig,
     ) -> ClientSettings {
+        let callback_uri = || provider_callback_uri(provider, server_level, self.config.http_port);
         match client {
             IssuingClient::UserApp(app) => ClientSettings {
                 client_id: app.client_id,
                 client_secret: app.client_secret,
-                redirect_uri: app.redirect_uri,
+                redirect_uri: callback_uri(),
                 scope: descriptor.default_scopes().join(scope_separator),
                 daily_limit: None,
             },
@@ -450,18 +455,12 @@ impl OAuthService {
                 client_id,
                 client_secret,
             } => {
-                // Use BASE_URL when set, for tunnel/external access
-                let redirect_uri = server_level.redirect_uri.clone().unwrap_or_else(|| {
-                    let base_url = env::var("BASE_URL")
-                        .unwrap_or_else(|_| format!("http://localhost:{}", self.config.http_port));
-                    format!("{base_url}/api/oauth/callback/{provider}")
-                });
                 // The server's own app asks for what its configuration names:
                 // `PIERRE_<P>_SCOPES` when set, else the provider's defaults.
                 ClientSettings {
                     client_id,
                     client_secret,
-                    redirect_uri,
+                    redirect_uri: callback_uri(),
                     scope: server_level.scopes.join(scope_separator),
                     daily_limit: None,
                 }
