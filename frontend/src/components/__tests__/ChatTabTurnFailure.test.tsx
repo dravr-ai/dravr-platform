@@ -162,6 +162,53 @@ describe('ChatTab — a failed turn, in French', () => {
     expect(screen.queryByTestId('turn-error')).toBeNull();
   });
 
+  // carnet#828: a tapped starter's bubble shows its short label while the turn
+  // carries its postback, which the server resolves into the starter's prompt.
+  // A retry re-sends the postback: the label alone would reach the coach as
+  // typed words, without the prompt or the tap.
+  it('re-sends a failed starter tap as its postback, still showing its label', async () => {
+    const LABEL = 'Ma dernière séance';
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'welcome-1',
+          role: 'assistant',
+          content: 'Bonjour ! Agent Tempo de Dravr, à ton écoute.',
+          finish_reason: 'agent_welcome',
+          created_at: '2026-09-30T08:00:00Z',
+          actions: {
+            title: 'Pour commencer, tu peux me demander :',
+            actions: [{ label: LABEL, action_type: 'postback', value: 'uc:0:last_workout' }],
+          },
+        },
+      ],
+    });
+    sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
+      options.onError?.(
+        new TurnRequestError(SERVER_TEXT, 503, { code: 'ResourceUnavailable', message: SERVER_TEXT }),
+      );
+      return Promise.resolve();
+    });
+    renderChat();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: LABEL }));
+
+    await screen.findByTestId('turn-error');
+    expect(sendTurn.mock.calls[0][1]).toBe('uc:0:last_workout');
+    expect(screen.queryByText(/uc:0:/)).toBeNull();
+
+    sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
+      options.onDone?.(answeredTurn(REPLY));
+      return Promise.resolve();
+    });
+    await user.click(screen.getByRole('button', { name: i18n.t('chat.retry') }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(2));
+    expect(sendTurn.mock.calls[1][1]).toBe('uc:0:last_workout');
+    expect(await screen.findByText(REPLY)).toBeInTheDocument();
+    expect(screen.queryByText(/uc:0:/)).toBeNull();
+  });
+
   it('words a mid-stream failure from its code and offers no retry for the question the server stored', async () => {
     sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
       options.onDelta?.('Je regarde ');

@@ -1129,13 +1129,16 @@ mod reset_locale {
         );
         assert_eq!(bodies[0], en_confirm, "the confirmation goes first");
         assert!(bodies[1].contains("Tempo Agent"), "{}", bodies[1]);
-        for starter in WELCOME_STARTERS {
-            assert!(
-                bodies[1].contains(starter),
-                "{starter:?} missing from {}",
-                bodies[1]
-            );
-        }
+        // Starters ranked from the athlete's state lead (carnet#828); the
+        // agent's first example fills a slot they leave.
+        assert_eq!(bodies[1].matches("\n- ").count(), 3, "{}", bodies[1]);
+        assert!(
+            bodies[1].contains(WELCOME_STARTERS[0]),
+            "{:?} missing from {}",
+            WELCOME_STARTERS[0],
+            bodies[1]
+        );
+        assert!(!bodies[1].contains("uc:") && !bodies[1].contains("ex:"));
 
         let fresh = e2e
             .conversation_id(&member, member.home_tenant, &member.channel_user_id)

@@ -788,6 +788,9 @@ for f in (platform / "commands").rglob("*.md"):
     m = re.search(r"^command:\s*(\S+)", f.read_text(encoding="utf-8"), re.M)
     if m:
         commands.add(m.group(1))
+if not commands:
+    print(f"no command docs were read under {platform}/commands, so no command: entry can be judged")
+    sys.exit(1)
 
 def flow_items(text):
     return [item.strip().strip(QUOTES) for item in text.strip()[1:-1].split(",") if item.strip()]

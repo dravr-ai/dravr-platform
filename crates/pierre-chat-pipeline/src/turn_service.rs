@@ -34,6 +34,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
 use pierre_core::errors::AppResult;
@@ -63,7 +64,9 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME};
+use crate::suggestions::{
+    self, Postback, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME,
+};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
@@ -691,7 +694,14 @@ async fn resolve_suggestion_tap(
         agent_tenant_id: request.tool_tenant_id,
         locale: &profile.locale,
     };
-    match suggestions::resolve(&ctx.repos, &tap, &request.content).await? {
+    match suggestions::resolve(
+        &ctx.repos,
+        &ctx.messaging_strings_registry,
+        &tap,
+        &request.content,
+    )
+    .await?
+    {
         Resolution::NotAPostback => Ok(None),
         Resolution::Resolved { content, postback } => {
             let user_id = request.user_id.to_string();
@@ -702,8 +712,20 @@ async fn resolve_suggestion_tap(
                     surface: SURFACE_AGENT_WELCOME,
                     channel: profile.surface.as_str(),
                 },
-                postback,
+                &postback,
             );
+            if let Postback::UseCase { id, .. } = &postback {
+                // Best-effort: an unrecorded tap only lets the starter be
+                // offered once more than it should.
+                if let Err(e) = ctx
+                    .repos
+                    .use_case_exposures
+                    .record_use_case_tapped(request.tool_tenant_id, request.user_id, id, Utc::now())
+                    .await
+                {
+                    warn!(error = %e, use_case = %id, "a starter tap could not be recorded");
+                }
+            }
             request.content = content;
             request.input_source = InputSource::UseCase;
             Ok(None)

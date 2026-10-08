@@ -131,6 +131,8 @@ pub mod training_history;
 pub mod training_plans;
 /// Usage counter repository implementation
 pub mod usage_counters;
+/// Use-case starters shown to and tapped by each athlete (`PostgreSQL`)
+pub mod use_case_exposures;
 /// User and profile repository implementations
 pub mod user;
 /// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.

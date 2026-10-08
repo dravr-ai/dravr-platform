@@ -123,16 +123,27 @@ mod messaging_welcome {
             .collect()
     }
 
-    /// The last ledgered message names every starter, after one naming the
+    /// A welcome as a channel gets it lists three starters: those ranked from
+    /// the athlete's state lead (carnet#828), and the agent's first example
+    /// fills a slot they leave. No postback reaches the text.
+    fn assert_lists_starters(welcome: &str) {
+        assert_eq!(welcome.matches("\n- ").count(), 3, "{welcome}");
+        assert!(
+            welcome.contains(STARTERS[0]),
+            "{:?} missing from {welcome}",
+            STARTERS[0]
+        );
+        assert!(
+            !welcome.contains("uc:") && !welcome.contains("ex:"),
+            "{welcome}"
+        );
+    }
+
+    /// The last ledgered message lists the starters, after one naming the
     /// agent — the welcome follows the answer that bound it.
     fn assert_welcome_follows(bodies: &[String]) {
         let (welcome, before) = bodies.split_last().expect("the welcome was ledgered");
-        for starter in STARTERS {
-            assert!(
-                welcome.contains(starter),
-                "{starter:?} missing from {welcome}"
-            );
-        }
+        assert_lists_starters(welcome);
         assert!(
             before.last().is_some_and(|reply| reply.contains(TITLE)),
             "the answer naming the agent precedes the welcome: {before:?}"
@@ -197,13 +208,7 @@ mod messaging_welcome {
         let rows = welcome_rows(&e2e, &member, &conversation).await;
         assert_eq!(rows.len(), 1, "the picked agent opened the thread");
         let bodies = e2e.outbound_bodies_for_session(&session).await;
-        let welcome = bodies.last().unwrap();
-        for starter in STARTERS {
-            assert!(
-                welcome.contains(starter),
-                "{starter:?} missing from {welcome}"
-            );
-        }
+        assert_lists_starters(bodies.last().unwrap());
     }
 
     /// Regression: the pick never spent the proposal, so every later bare

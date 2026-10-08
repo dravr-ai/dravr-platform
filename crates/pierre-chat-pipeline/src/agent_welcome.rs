@@ -15,9 +15,15 @@
 //! conversation created with an `agent_id`, `/agent add`, the messaging
 //! proposal's numeric pick, the fresh thread `/reset` forges for the same
 //! agent (carnet#750) — it posts one row as itself: its title in the
-//! athlete's language, its one-line role, and up to three starter questions
-//! taken from its own authored Example Inputs. No model runs: the row is
-//! instant, free and the same every time.
+//! athlete's language, its one-line role, and up to three starters. No model
+//! runs: the row is instant and free.
+//!
+//! The starters are catalogue use cases ranked from the athlete's state
+//! (carnet#828) — "Connect my watch" for an athlete with nothing connected,
+//! "My last workout" for one with rides — then the agent's own Example Inputs
+//! in the slots left, offered only to an athlete who meets the agent's
+//! prerequisites. A room keeps the examples alone (D9): ranking reads one
+//! athlete's state, and the whole room would read it back.
 //!
 //! The row counts as the agent's introduction. It is written in the same
 //! transaction as the `agent_introductions` ledger row, so the agent's first
@@ -29,10 +35,12 @@
 //! greeting — but the starters live only in the row's actions block, and the
 //! first-turn prefetch, group adoption and agent generation count around it.
 
+use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_GREETING,
     KEY_AGENT_WELCOME_GREETING_NO_ROLE, KEY_AGENT_WELCOME_STARTERS_TITLE,
 };
+use pierre_contremaitre::use_case_catalogue::{UseCase, UseCaseCatalogue, UseCaseRun};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
@@ -43,6 +51,8 @@ use pierre_core::models::{
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
+use pierre_services::agents::meets_prerequisites;
+use pierre_services::athlete_state::AthleteState;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -50,7 +60,9 @@ use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
 use crate::stages::introduction::{collapse_whitespace, display_title, introduction_thread};
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME};
+use crate::suggestions::{
+    emit_shown, rank, rotation_for, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME,
+};
 use crate::surface_profile::SurfaceId;
 
 /// The most starter questions a welcome offers. Three fit one glance and one
@@ -110,6 +122,19 @@ impl WelcomeTemplates {
     }
 }
 
+/// One starter a welcome offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Starter {
+    /// What its button shows.
+    pub label: String,
+    /// How a channel that gets the welcome as text lists it: a command
+    /// starter as `/command — label`, a prompt starter as its prompt, an
+    /// example as its question.
+    pub line: String,
+    /// What a tap sends.
+    pub(crate) postback: Postback,
+}
+
 /// A welcome's words, before it is written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WelcomeText {
@@ -117,37 +142,27 @@ pub struct WelcomeText {
     pub content: String,
     /// The lead-in above [`Self::starters`]; `None` when there are none.
     pub starters_title: Option<String>,
-    /// The starter questions, in authored order, at most [`MAX_STARTERS`].
-    pub starters: Vec<String>,
+    /// The starters, slot by slot, at most [`MAX_STARTERS`].
+    pub starters: Vec<Starter>,
 }
 
 impl WelcomeText {
-    /// Compose the welcome of the agent titled `title`.
+    /// Compose the welcome of the agent titled `title`, offering `starters`.
     ///
     /// `role` is the agent's one-line description; a blank one renders the
-    /// greeting without it. `samples` are the agent's sample prompts,
-    /// normalized by `starter_samples`, and the first [`MAX_STARTERS`] kept.
-    ///
-    /// LIMITATION(registre#828): `WelcomeText::compose` takes the agent's static
-    /// Example Inputs in authored order; nothing ranks the starters from the
-    /// athlete's state, so an athlete with no provider can be offered questions
-    /// about data they have not connected.
+    /// greeting without it.
     #[must_use]
     pub fn compose(
         templates: &WelcomeTemplates,
         title: &str,
         role: Option<&str>,
-        samples: &[String],
+        starters: Vec<Starter>,
     ) -> Self {
         let role = role.map(collapse_whitespace).filter(|r| !r.is_empty());
         let content = role.as_deref().map_or_else(
             || format_template(&templates.greeting_no_role, &[title]),
             |role| format_template(&templates.greeting, &[title, role]),
         );
-        let starters: Vec<String> = starter_samples(samples)
-            .into_iter()
-            .take(MAX_STARTERS)
-            .collect();
         let starters_title = (!starters.is_empty()).then(|| templates.starters_title.clone());
         Self {
             content,
@@ -156,31 +171,24 @@ impl WelcomeText {
         }
     }
 
-    /// The starters' postbacks, slot by slot: the slot is also the example's
-    /// index, because the welcome offers the first examples in order.
+    /// The starters' postbacks, slot by slot.
     #[must_use]
     pub(crate) fn postbacks(&self) -> Vec<Postback> {
-        (0..self.starters.len())
-            .map(|slot| Postback::Example {
-                position: slot,
-                index: slot,
-            })
-            .collect()
+        self.starters.iter().map(|s| s.postback.clone()).collect()
     }
 
-    /// The starters as the controls the row carries. Each shows its question
-    /// and sends its postback, which the turn resolves back into the question
-    /// (carnet#828) — so a tap reaches the transcript as the words, and is
-    /// counted as a tap rather than as typing.
+    /// The starters as the controls the row carries. Each shows its label and
+    /// sends its postback, which the turn resolves into the command or the
+    /// words it stands for (carnet#828) — so a tap reaches the transcript as
+    /// those, and is counted as a tap rather than as typing.
     #[must_use]
     pub fn actions(&self) -> Vec<TurnAction> {
         self.starters
             .iter()
-            .zip(self.postbacks())
-            .map(|(question, postback)| TurnAction {
-                label: question.clone(),
+            .map(|starter| TurnAction {
+                label: starter.label.clone(),
                 kind: ActionKind::Postback,
-                value: postback.encode(),
+                value: starter.postback.encode(),
             })
             .collect()
     }
@@ -193,12 +201,61 @@ impl WelcomeText {
             return self.content.clone();
         };
         let mut text = format!("{}\n\n{title}", self.content);
-        for question in &self.starters {
+        for starter in &self.starters {
             text.push_str("\n- ");
-            text.push_str(question);
+            text.push_str(&starter.line);
         }
         text
     }
+}
+
+/// The agent's Example Inputs as starters for the slots from `first_slot`,
+/// at most `room` of them, in authored order. A postback's index counts in
+/// [`starter_samples`], so it points at the same words when it is tapped.
+#[must_use]
+pub(crate) fn example_starters(samples: &[String], first_slot: usize, room: usize) -> Vec<Starter> {
+    starter_samples(samples)
+        .into_iter()
+        .take(room)
+        .enumerate()
+        .map(|(index, question)| Starter {
+            label: question.clone(),
+            line: question,
+            postback: Postback::Example {
+                position: first_slot + index,
+                index,
+            },
+        })
+        .collect()
+}
+
+/// The catalogue starter `entry` in `locale`, offered in slot `position`, or
+/// `None` when the strings hold no words for it.
+fn use_case_starter(
+    entry: &UseCase,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+    position: usize,
+) -> Option<Starter> {
+    let label = strings.get(&entry.label_key(), locale);
+    if label.trim().is_empty() {
+        return None;
+    }
+    let line = match &entry.run {
+        UseCaseRun::Command(command) => format!("{command} — {label}"),
+        UseCaseRun::Prompt => strings.get(&entry.prompt_key(), locale),
+    };
+    if line.trim().is_empty() {
+        return None;
+    }
+    Some(Starter {
+        label,
+        line,
+        postback: Postback::UseCase {
+            position,
+            id: entry.id.clone(),
+        },
+    })
 }
 
 /// Post `target.agent_id`'s welcome into `target.conversation`, once.
@@ -228,7 +285,8 @@ pub async fn post_agent_welcome(
     if guided_walk_owns(conversation) {
         return Ok(None);
     }
-    let Some(text) = welcome_text(repos, strings, &target).await? else {
+    let user = parse_uuid(target.user_id)?;
+    let Some((text, transport_policy)) = welcome_text(repos, strings, &target, user).await? else {
         return Ok(None);
     };
     let blocks = actions_content_blocks(text.starters_title.as_deref(), &text.actions())
@@ -244,8 +302,8 @@ pub async fn post_agent_welcome(
         prompt_tokens: None,
         model: None,
         content_blocks: blocks.as_deref(),
-        // A welcome is the agent's own catalogue text, built from no athlete data.
-        transport_policy: TransportPolicy::AnyTransport,
+        // Starters chosen from the athlete's state carry what it was read from.
+        transport_policy,
     };
     let Some(message) = repos
         .chat
@@ -261,19 +319,12 @@ pub async fn post_agent_welcome(
         starters = text.starters.len(),
         "agent welcome posted"
     );
-    // `suggestion.shown` counts a starter the athlete could tap. A messaging
-    // channel receives the welcome as text (`channel_text`), where a starter
-    // typed back is the athlete's own words, so only the app's surfaces count.
+    // `suggestion.shown` counts a starter the athlete could tap, and so does
+    // the exposure the ranker retires starters by. A messaging channel
+    // receives the welcome as text (`channel_text`), where a starter typed
+    // back is the athlete's own words, so only the app's surfaces count.
     if matches!(target.surface, SurfaceId::Web | SurfaceId::Mobile) {
-        let shown = SuggestionEvent {
-            user_id: target.user_id,
-            tenant_id: target.conversation_tenant_id,
-            surface: SURFACE_AGENT_WELCOME,
-            channel: target.surface.as_str(),
-        };
-        for postback in text.postbacks() {
-            emit_shown(&shown, postback);
-        }
+        record_shown(repos, &target, user, &text).await;
     }
     Ok(Some(PostedWelcome {
         channel_text: text.channel_text(),
@@ -281,15 +332,54 @@ pub async fn post_agent_welcome(
     }))
 }
 
-/// The words of `target.agent_id`'s welcome in `target.locale`, or `None`
-/// when the agent is not one this athlete can see, has no title, or the
-/// string catalogue holds no greeting to say it with.
+/// Report each starter shown, and count the ranked ones toward retiring
+/// them. Best-effort: an uncounted showing only lets a starter be offered
+/// once more.
+async fn record_shown(
+    repos: &RepositoryRegistry,
+    target: &WelcomeTarget<'_>,
+    user: Uuid,
+    text: &WelcomeText,
+) {
+    let shown = SuggestionEvent {
+        user_id: target.user_id,
+        tenant_id: target.conversation_tenant_id,
+        surface: SURFACE_AGENT_WELCOME,
+        channel: target.surface.as_str(),
+    };
+    let postbacks = text.postbacks();
+    for postback in &postbacks {
+        emit_shown(&shown, postback);
+    }
+    let ranked: Vec<&str> = postbacks
+        .iter()
+        .filter_map(|postback| match postback {
+            Postback::UseCase { id, .. } => Some(id.as_str()),
+            Postback::Example { .. } => None,
+        })
+        .collect();
+    if ranked.is_empty() {
+        return;
+    }
+    if let Err(e) = repos
+        .use_case_exposures
+        .record_use_cases_shown(target.agent_tenant_id, user, &ranked, Utc::now())
+        .await
+    {
+        warn!(error = %e, conversation_id = %target.conversation.id, "starters shown could not be counted");
+    }
+}
+
+/// The words of `target.agent_id`'s welcome in `target.locale`, and the
+/// policy the row must be stamped with; `None` when the agent is not one
+/// this athlete can see, has no title, or the string catalogue holds no
+/// greeting to say it with.
 async fn welcome_text(
     repos: &RepositoryRegistry,
     strings: &MessagingStringsRegistry,
     target: &WelcomeTarget<'_>,
-) -> AppResult<Option<WelcomeText>> {
-    let user = parse_uuid(target.user_id)?;
+    user: Uuid,
+) -> AppResult<Option<(WelcomeText, TransportPolicy)>> {
     let Some((canonical, localized)) = localized_agent(
         repos,
         target.agent_id,
@@ -312,11 +402,13 @@ async fn welcome_text(
         );
         return Ok(None);
     };
+    let (starters, transport_policy) =
+        choose_starters(repos, strings, target, &canonical, &localized, user).await;
     let text = WelcomeText::compose(
         &WelcomeTemplates::resolve(strings, target.locale),
         &title,
         localized.description.as_deref(),
-        &localized.sample_prompts,
+        starters,
     );
     if text.content.trim().is_empty() {
         // The catalogue lacks the greeting in every locale: an instance whose
@@ -328,7 +420,78 @@ async fn welcome_text(
         );
         return Ok(None);
     }
-    Ok(Some(text))
+    Ok(Some((text, transport_policy)))
+}
+
+/// The starters `target`'s welcome offers, and the policy the row must be
+/// stamped with.
+///
+/// Ranked catalogue starters first, then the agent's Example Inputs in the
+/// slots left — only for an athlete who meets the agent's prerequisites, so
+/// "analyse my last ride" never reaches one with nothing connected. A room
+/// keeps the examples alone (D9). When the athlete's state cannot be read the
+/// welcome still goes out, with the examples.
+async fn choose_starters(
+    repos: &RepositoryRegistry,
+    strings: &MessagingStringsRegistry,
+    target: &WelcomeTarget<'_>,
+    agent: &Agent,
+    localized: &Agent,
+    user: Uuid,
+) -> (Vec<Starter>, TransportPolicy) {
+    let examples_only = || {
+        (
+            example_starters(&localized.sample_prompts, 0, MAX_STARTERS),
+            TransportPolicy::AnyTransport,
+        )
+    };
+    if target.conversation.group_id.is_some() {
+        return examples_only();
+    }
+    let (state, transport_policy) = match AthleteState::read(
+        repos,
+        target.agent_tenant_id,
+        user,
+        Utc::now(),
+    )
+    .await
+    {
+        Ok(read) => read,
+        Err(e) => {
+            warn!(error = %e, conversation_id = %target.conversation.id, "athlete state unreadable; the welcome offers the agent's examples");
+            return examples_only();
+        }
+    };
+    let exposures = repos
+        .use_case_exposures
+        .use_case_exposures(target.agent_tenant_id, user)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, conversation_id = %target.conversation.id, "starter exposures unreadable; ranking as if none were shown");
+            Vec::new()
+        });
+    let ranked = rank(
+        UseCaseCatalogue::pinned(),
+        &state,
+        agent.category,
+        &exposures,
+        rotation_for(&target.conversation.id),
+    );
+    let mut starters = Vec::with_capacity(MAX_STARTERS);
+    for entry in ranked {
+        if let Some(starter) = use_case_starter(entry, strings, target.locale, starters.len()) {
+            starters.push(starter);
+        }
+    }
+    if meets_prerequisites(&agent.prerequisites, state.has_provider) {
+        let first_slot = starters.len();
+        starters.extend(example_starters(
+            &localized.sample_prompts,
+            first_slot,
+            MAX_STARTERS.saturating_sub(first_slot),
+        ));
+    }
+    (starters, transport_policy)
 }
 
 /// `agent_id` as `user` sees it — canonical, and translated into `locale` —
@@ -428,13 +591,27 @@ mod tests {
         items.iter().map(|s| (*s).to_owned()).collect()
     }
 
+    fn examples(items: &[&str]) -> Vec<Starter> {
+        example_starters(&samples(items), 0, MAX_STARTERS)
+    }
+
+    fn labels(starters: &[Starter]) -> Vec<&str> {
+        starters.iter().map(|s| s.label.as_str()).collect()
+    }
+
+    const CATALOGUE: &str = "
+- {id: about_me, run: command, command: /pillars, requires: [], stage: any, domains: [any], repeat: once}
+- {id: last_workout, run: prompt, command: null, requires: [], stage: any, domains: [training], repeat: recurring}
+- {id: not_in_the_strings, run: prompt, command: null, requires: [], stage: any, domains: [training], repeat: once}
+";
+
     #[test]
     fn greeting_carries_title_and_collapsed_role() {
         let text = WelcomeText::compose(
             &templates(),
             "Fuelling Agent",
             Some("Fuelling  specialist\nfor endurance."),
-            &[],
+            Vec::new(),
         );
         assert_eq!(
             text.content,
@@ -445,55 +622,81 @@ mod tests {
     #[test]
     fn blank_role_uses_the_no_role_greeting() {
         for role in [None, Some(""), Some("  \n ")] {
-            let text = WelcomeText::compose(&templates(), "Agent", role, &[]);
+            let text = WelcomeText::compose(&templates(), "Agent", role, Vec::new());
             assert_eq!(text.content, "Hi! Dravr's Agent here.");
         }
     }
 
     #[test]
-    fn starters_cap_at_three_and_drop_blanks() {
-        let text = WelcomeText::compose(
-            &templates(),
-            "Agent",
-            Some("Role."),
-            &samples(&["", "One?", "  ", "Two?", "Three?", "Four?"]),
-        );
-        assert_eq!(text.starters, samples(&["One?", "Two?", "Three?"]));
+    fn examples_take_the_room_they_are_given_and_drop_blanks() {
+        let authored = samples(&["", "One?", "  ", "Two?", "Three?", "Four?"]);
         assert_eq!(
-            text.starters_title.as_deref(),
-            Some("To get started, you can ask me:")
+            labels(&example_starters(&authored, 0, MAX_STARTERS)),
+            ["One?", "Two?", "Three?"]
         );
-        let actions = text.actions();
-        assert_eq!(actions.len(), 3);
-        assert!(actions.iter().all(|a| a.kind == ActionKind::Postback));
+        let after_two_ranked = example_starters(&authored, 2, 1);
+        assert_eq!(labels(&after_two_ranked), ["One?"]);
+        assert_eq!(after_two_ranked[0].postback.encode(), "ex:2:0");
+        assert!(example_starters(&authored, 3, 0).is_empty());
     }
 
     #[test]
-    fn a_starter_shows_its_question_and_sends_its_postback() {
+    fn a_starter_shows_its_label_and_sends_its_postback() {
         let text = WelcomeText::compose(
             &templates(),
             "Agent",
             Some("Role."),
-            &samples(&["", "One?", "Two?"]),
+            examples(&["", "One?", "Two?"]),
+        );
+        assert_eq!(
+            text.starters_title.as_deref(),
+            Some("To get started, you can ask me:")
         );
         let actions = text.actions();
         let labels: Vec<&str> = actions.iter().map(|a| a.label.as_str()).collect();
         let values: Vec<&str> = actions.iter().map(|a| a.value.as_str()).collect();
         assert_eq!(labels, ["One?", "Two?"]);
         assert_eq!(values, ["ex:0:0", "ex:1:1"]);
+        assert!(actions.iter().all(|a| a.kind == ActionKind::Postback));
     }
 
     #[test]
     fn a_postback_index_counts_in_the_normalized_examples() {
         let authored = samples(&["", "  One?  ", " ", "Two\nlines?"]);
         assert_eq!(starter_samples(&authored), samples(&["One?", "Two lines?"]));
-        let text = WelcomeText::compose(&templates(), "Agent", None, &authored);
-        assert_eq!(text.starters, starter_samples(&authored));
+        let offered = example_starters(&authored, 0, MAX_STARTERS);
+        assert_eq!(labels(&offered), ["One?", "Two lines?"]);
+        assert_eq!(offered[1].postback.encode(), "ex:1:1");
+    }
+
+    #[test]
+    fn a_ranked_starter_is_labelled_from_the_strings_and_lists_what_it_runs() {
+        let catalogue = UseCaseCatalogue::parse(CATALOGUE).expect("the fixture parses");
+        let strings = MessagingStringsRegistry::new();
+        let starter =
+            |id: &str, slot| use_case_starter(catalogue.get(id).expect(id), &strings, "en", slot);
+
+        let about_me = starter("about_me", 0).expect("about_me has words");
+        assert_eq!(
+            about_me.label,
+            strings.get("use_cases.about_me.label", "en")
+        );
+        assert_eq!(about_me.line, format!("/pillars — {}", about_me.label));
+        assert_eq!(about_me.postback.encode(), "uc:0:about_me");
+
+        let last = starter("last_workout", 1).expect("last_workout has words");
+        assert_eq!(
+            last.line,
+            strings.get("use_cases.last_workout.prompt", "en")
+        );
+        assert_eq!(last.postback.encode(), "uc:1:last_workout");
+
+        assert_eq!(starter("not_in_the_strings", 2), None);
     }
 
     #[test]
     fn no_starters_means_no_actions_and_no_title() {
-        let text = WelcomeText::compose(&templates(), "Agent", Some("Role."), &samples(&[" "]));
+        let text = WelcomeText::compose(&templates(), "Agent", Some("Role."), examples(&[" "]));
         assert!(text.starters.is_empty());
         assert!(text.starters_title.is_none());
         assert!(text.actions().is_empty());
@@ -510,11 +713,15 @@ mod tests {
             &templates(),
             "Agent",
             Some("Role."),
-            &samples(&["One?", "Two?"]),
+            examples(&["One?", "Two?"]),
         );
         assert_eq!(
             text.channel_text(),
             "Hi! Dravr's Agent here.\n\nRole.\n\nTo get started, you can ask me:\n- One?\n- Two?"
         );
+        let opaque = ["uc:", "ex:"];
+        assert!(!opaque
+            .iter()
+            .any(|prefix| text.channel_text().contains(prefix)));
     }
 }

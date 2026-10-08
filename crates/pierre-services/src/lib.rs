@@ -43,6 +43,9 @@ pub mod analytics;
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
 
+/// The athlete's state as the use-case starters read it (carnet#828).
+pub mod athlete_state;
+
 /// Athlete physiology snapshot builder for the personalized-physiology layer.
 #[cfg(feature = "tools-verification")]
 pub mod athlete_snapshot;

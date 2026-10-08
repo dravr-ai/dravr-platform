@@ -347,6 +347,36 @@ describe('useMessages', () => {
         expect(result.current.messages.map(m => m.content)).not.toContain('ex:0:9');
       });
 
+      it('retries a failed tap with its postback, never the label it shows', async () => {
+        mockSendTurn.mockImplementationOnce(
+          (_c: string, _content: string, options: { onError?: (error: Error) => void }) => {
+            options.onError?.(new TypeError('Network request failed'));
+            return Promise.resolve();
+          },
+        );
+        const { result } = renderHook(() => useMessages());
+
+        await act(async () => {
+          await result.current.sendTurn('conv-1', 'uc:1:last_workout', { display: LABEL });
+        });
+        const [question, failure] = result.current.messages;
+        expect(question.content).toBe(LABEL);
+        expect(failure.isError).toBe(true);
+
+        mockSendTurn.mockImplementationOnce(
+          (_c: string, _content: string, options: { onDone?: (turn: unknown) => void }) => {
+            options.onDone?.(turnWith('Look at my last workout.'));
+            return Promise.resolve();
+          },
+        );
+        await act(async () => {
+          await result.current.retryMessage(failure.id, 'conv-1');
+        });
+
+        expect(mockSendTurn.mock.calls[1][1]).toBe('uc:1:last_workout');
+        expect(result.current.messages.map(m => m.content)).not.toContain('uc:1:last_workout');
+      });
+
       it('passes how the message was produced on to the request', async () => {
         mockSendTurn.mockResolvedValue(undefined);
         const { result } = renderHook(() => useMessages());

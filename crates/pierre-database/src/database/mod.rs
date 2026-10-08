@@ -133,6 +133,8 @@ pub mod training_history;
 pub mod training_plans;
 /// Usage counters for rate limiting and quota enforcement
 pub mod usage_counters;
+/// Use-case starters shown to and tapped by each athlete (`SQLite`)
+pub mod use_case_exposures;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// User MCP token management for AI client authentication

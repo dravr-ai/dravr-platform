@@ -156,6 +156,8 @@ pub mod training_plans;
 pub mod usage;
 /// Shared statements, row decode and body for the usage counters both backends serve.
 pub mod usage_counters;
+/// Repository trait for the use-case starters each athlete was shown and tapped (carnet#828).
+pub mod use_case_exposures;
 /// Repository traits for device refresh tokens and email pre-approvals.
 pub mod user_access;
 /// Repository trait and shared body for the per-user choices Home's layout honours.
@@ -248,6 +250,7 @@ pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use usage::*;
+pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};
 pub use user_access::*;
 pub use user_home_preferences::{HomePreferences, HomePreferencesRepository};
 pub use user_mcp_tokens::*;

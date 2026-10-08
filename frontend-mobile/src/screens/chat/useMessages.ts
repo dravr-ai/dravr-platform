@@ -187,6 +187,11 @@ export function useMessages(): MessagesState & MessagesActions {
   // The turn lost while the athlete was away whose reply has not landed yet.
   // A new turn supersedes it, so it is cleared the moment one starts.
   const lostTurnRef = useRef<LostTurn<LostTurnRows> | null>(null);
+  // What a failed turn's question row sent, by row id, where the row shows
+  // something else: a tapped suggestion's bubble shows its label while the
+  // turn carries its postback (carnet#828). A retry sends this, not the label,
+  // which would reach the coach as typed words without the prompt or the tap.
+  const sentByRowRef = useRef(new Map<string, string>());
 
   const scrollToBottom = useCallback(() => {
     if (flatListRef.current && messages.length > 0) {
@@ -509,6 +514,7 @@ export function useMessages(): MessagesState & MessagesActions {
           invalidateConversationList();
           const errorResponse = failedTurnRow(sendErr, signal.aborted);
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
+          if (question.content !== messageText) sentByRowRef.current.set(question.id, messageText);
           // Every read of the thread keeps the note until a reply has landed
           // or another turn starts. Away or not: this list is what every read
           // replaces, and the screen reads the thread again as the send
@@ -572,6 +578,7 @@ export function useMessages(): MessagesState & MessagesActions {
 
     const userMessage = ownRows[messageIndex - 1];
     if (userMessage.role !== 'user') return;
+    const sent = sentByRowRef.current.get(userMessage.id) ?? userMessage.content;
 
     setMessages(prev => prev.filter(m => m.id !== messageId));
     setIsSending(true);
@@ -594,7 +601,7 @@ export function useMessages(): MessagesState & MessagesActions {
     const releaseIdleHold = holdIdleWhileBusy();
     const signal = idleSignal();
     try {
-      await chatApi.sendTurn(conversationId, userMessage.content, {
+      await chatApi.sendTurn(conversationId, sent, {
         signal,
         onProgress: progress => {
           const status = statusForProgress(progress);
@@ -631,6 +638,10 @@ export function useMessages(): MessagesState & MessagesActions {
           setError(turnFailureText(err));
           invalidateConversationList();
           const errorRow = failedTurnRow(err, signal.aborted);
+          // The re-sent line, as a row of its own: the original stays where
+          // it was in the transcript.
+          const question: Message = { ...userMessage, id: `user-${Date.now()}` };
+          if (sent !== question.content) sentByRowRef.current.set(question.id, sent);
           lostTurnRef.current = reduceLostTurn(lostTurnRef.current, {
             type: 'failed',
             away: leftDuringTurn(),
@@ -639,9 +650,7 @@ export function useMessages(): MessagesState & MessagesActions {
               conversationId,
               heldIds,
               note: {
-                // The re-sent line, as a row of its own: the original stays
-                // where it was in the transcript.
-                question: { ...userMessage, id: `user-${Date.now()}` },
+                question,
                 row: errorRow,
                 failure: turnFailureText(err),
               },

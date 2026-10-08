@@ -62,7 +62,7 @@ pub fn check_prerequisites<S: BuildHasher>(
 ) -> PrerequisiteCheckResult {
     let mut missing = Vec::new();
 
-    if needs_activity_data(prerequisites) && user_providers.is_empty() {
+    if !meets_prerequisites(prerequisites, !user_providers.is_empty()) {
         let names: Vec<String> = prerequisites
             .providers
             .iter()
@@ -77,6 +77,15 @@ pub fn check_prerequisites<S: BuildHasher>(
 
     let met = missing.is_empty();
     PrerequisiteCheckResult { met, missing }
+}
+
+/// Whether an athlete meets an agent's `prerequisites`.
+///
+/// The rule [`check_prerequisites`] reports on, for a caller that knows only
+/// whether a provider is connected.
+#[must_use]
+pub fn meets_prerequisites(prerequisites: &AgentPrerequisites, has_provider: bool) -> bool {
+    has_provider || !needs_activity_data(prerequisites)
 }
 
 /// Whether the agent needs a fitness provider at all — the one reading of

@@ -72,6 +72,8 @@ pub mod tool_descriptions;
 pub mod training_catalogue;
 /// Training-catalogue half of the sync engine
 pub mod training_sync;
+/// Use-case starter catalogue — compiled in from the pin, ranked into agent welcomes
+pub mod use_case_catalogue;
 
 pub use config::ContremaitreConfig;
 pub use errors::ContremaitreError;
@@ -83,3 +85,4 @@ pub use store::gcs::GcsPromptStore;
 pub use store::PromptStore;
 pub use tool_descriptions::ToolDescriptionRegistry;
 pub use training_catalogue::TrainingCatalogueRegistry;
+pub use use_case_catalogue::UseCaseCatalogue;

@@ -26,6 +26,7 @@ mod common;
 mod helpers;
 
 use pierre_core::transport::TransportPolicy;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -48,8 +49,8 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
 };
 use pierre_core::models::{
-    AddMessageParams, ConnectionType, GuidedFlow, OnboardingState, Tenant, TenantId, User,
-    UserStatus, AGENT_WELCOME_FINISH_REASON, COMMAND_FINISH_REASON,
+    ActivityBuilder, AddMessageParams, ConnectionType, GuidedFlow, OnboardingState, SportType,
+    Tenant, TenantId, User, UserStatus, AGENT_WELCOME_FINISH_REASON, COMMAND_FINISH_REASON,
 };
 use pierre_database::seed_models::SeedAgentTranslation;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -303,38 +304,57 @@ fn render(resources: &Arc<ServerContext>, key: &str, locale: &str, args: &[&str]
         .render(key, locale, args)
 }
 
-/// The labels of a row's postback controls, asserting each sends the opaque
-/// postback of its slot, which the turn resolves back into the label
-/// (carnet#828).
-fn starters(row: &MessageResponse) -> Vec<String> {
+/// A welcome's starters, read off its controls (carnet#828).
+struct Starters {
+    /// The ranked use cases' catalogue ids, sorted: a thread rotates them.
+    ranked: Vec<String>,
+    /// The ranked use cases' labels, by id.
+    labels: BTreeMap<String, String>,
+    /// The agent's examples, in the slots the ranked starters left.
+    examples: Vec<String>,
+}
+
+/// Read a row's starters, asserting each control is a postback carrying its
+/// own slot, never its words: the ranked use cases lead (`uc:<slot>:<id>`)
+/// and the examples follow, counting from the first (`ex:<slot>:<index>`).
+fn starters(row: &MessageResponse) -> Starters {
     let actions = row
         .actions
         .as_ref()
         .expect("the welcome carries its starters");
-    actions
-        .actions
-        .iter()
-        .enumerate()
-        .map(|(slot, action)| {
-            assert_eq!(action.action_type, "postback", "a starter is a postback");
+    let mut out = Starters {
+        ranked: Vec::new(),
+        labels: BTreeMap::new(),
+        examples: Vec::new(),
+    };
+    for (slot, action) in actions.actions.iter().enumerate() {
+        assert_eq!(action.action_type, "postback", "a starter is a postback");
+        if let Some(id) = action.value.strip_prefix(&format!("uc:{slot}:")) {
+            assert!(out.examples.is_empty(), "ranked starters lead the examples");
+            out.ranked.push(id.to_owned());
+            out.labels.insert(id.to_owned(), action.label.clone());
+        } else {
             assert_eq!(
                 action.value,
-                format!("ex:{slot}:{slot}"),
+                format!("ex:{slot}:{}", out.examples.len()),
                 "a starter sends its postback, never its words"
             );
-            action.label.clone()
-        })
-        .collect()
+            out.examples.push(action.label.clone());
+        }
+    }
+    out.ranked.sort();
+    out
 }
 
-fn first_three(samples: &[&str]) -> Vec<String> {
-    samples.iter().take(3).map(|s| (*s).to_owned()).collect()
+fn first(samples: &[&str], n: usize) -> Vec<String> {
+    samples.iter().take(n).map(|s| (*s).to_owned()).collect()
 }
 
 /// The onboarding proposal's « Démarrer »: a French athlete creating a thread
 /// with a catalogue agent finds exactly one row in it — the agent's welcome,
-/// in French, with its first three French examples as starters — already
-/// read, and counted as the agent's introduction.
+/// in French: one setup starter ranked from their state (they have told us
+/// nothing yet), then the agent's first French examples — already read, and
+/// counted as the agent's introduction.
 #[tokio::test]
 async fn creating_an_agent_thread_posts_one_localized_welcome() {
     let resources = setup().await;
@@ -373,7 +393,13 @@ async fn creating_an_agent_thread_posts_one_localized_welcome() {
         welcome.actions.as_ref().and_then(|a| a.title.as_deref()),
         Some(render(&resources, KEY_AGENT_WELCOME_STARTERS_TITLE, "fr", &[]).as_str())
     );
-    assert_eq!(starters(welcome), first_three(&FUELLING_SAMPLES_FR));
+    let offered = starters(welcome);
+    assert_eq!(offered.ranked, ["about_me"]);
+    assert_eq!(
+        offered.labels["about_me"],
+        render(&resources, "use_cases.about_me.label", "fr", &[])
+    );
+    assert_eq!(offered.examples, first(&FUELLING_SAMPLES_FR, 2));
     assert!(
         introduced(&resources, &conv, &agent, alice.tenant_id).await,
         "the welcome is the agent's introduction"
@@ -389,8 +415,9 @@ async fn creating_an_agent_thread_posts_one_localized_welcome() {
 }
 
 /// A locale the catalogue has no agent copy for keeps the agent's English
-/// title, role and starters, under a greeting in the athlete's language. An
-/// agent with no role and no examples still greets, without either.
+/// title, role and examples, under a greeting in the athlete's language. An
+/// agent with no role and no examples still greets, offering only the
+/// starters ranked from the athlete's state.
 #[tokio::test]
 async fn missing_copy_falls_back_to_the_canonical_agent() {
     let resources = setup().await;
@@ -416,7 +443,9 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
             &[FUELLING_TITLE, FUELLING_ROLE]
         )
     );
-    assert_eq!(starters(&rows[0]), first_three(&FUELLING_SAMPLES));
+    let offered = starters(&rows[0]);
+    assert_eq!(offered.ranked, ["about_me"]);
+    assert_eq!(offered.examples, first(&FUELLING_SAMPLES, 2));
 
     let bare = own_agent(&resources, &bea, "Bare Agent", None, &[]).await;
     let conv = create_conversation(&resources, &bea, Some(&bare)).await;
@@ -431,7 +460,12 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
             &["Bare Agent"]
         )
     );
-    assert!(rows[0].actions.is_none(), "no examples, no starters");
+    let offered = starters(&rows[0]);
+    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
+    assert!(
+        offered.examples.is_empty(),
+        "no examples to fill the slot left"
+    );
 }
 
 /// No agent, no welcome — and an agent the athlete cannot see is no agent:
@@ -486,14 +520,9 @@ async fn agent_add_welcomes_after_the_command_rows() {
         .welcome_message
         .as_ref()
         .expect("the turn carries the welcome");
-    assert_eq!(
-        starters(carried),
-        vec![
-            "Plan my tempo week",
-            "Is my tempo pace right",
-            "How long should a tempo be"
-        ]
-    );
+    let offered = starters(carried);
+    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
+    assert_eq!(offered.examples, ["Plan my tempo week"]);
     let rows = messages(&resources, &dan, &conv).await;
     let reasons: Vec<Option<&str>> = rows.iter().map(|m| m.finish_reason.as_deref()).collect();
     assert_eq!(
@@ -664,10 +693,24 @@ async fn a_room_is_welcomed_once_per_agent() {
         )
         .await
         .unwrap();
-        posted.push(welcome.map(|w| w.message.id));
+        posted.push(welcome);
     }
 
-    let first = posted[0].clone().expect("the first bind welcomes the room");
+    let welcomed = posted[0]
+        .as_ref()
+        .expect("the first bind welcomes the room");
+    assert!(
+        welcomed
+            .channel_text
+            .ends_with("\n- How did the room train"),
+        "a room is offered the agent's examples alone, never one athlete's state: {}",
+        welcomed.channel_text
+    );
+    assert_eq!(
+        welcomed.message.transport_policy,
+        TransportPolicy::AnyTransport
+    );
+    let first = welcomed.message.id.clone();
     assert!(posted[1].is_none(), "the room has already met the agent");
     assert!(introduced(&resources, &group, &agent, tenant).await);
     let transcript = repos
@@ -680,6 +723,86 @@ async fn a_room_is_welcomed_once_per_agent() {
         .find(|e| e.source_message_id.as_deref() == Some(first.as_str()))
         .expect("the welcome reaches the room transcript");
     assert_eq!(entry.speaker, TranscriptSpeaker::Coach);
+}
+
+/// Starters ranked from an athlete's rides are derived from them: a training
+/// agent offers "My last workout" to a Strava athlete with a ride, and the
+/// welcome row carries Strava's first-party-only stamp. An athlete with
+/// nothing read yet gets a row stamped for any transport.
+#[tokio::test]
+async fn a_ride_puts_last_workout_in_a_training_welcome_stamped_first_party() {
+    let resources = setup().await;
+    let repos = &resources.common.repos;
+    let lea = athlete(&resources, "welcome-rides@test.com").await;
+    let ride = ActivityBuilder::new(
+        format!("strava-{}", Uuid::new_v4()),
+        "Morning ride".to_owned(),
+        SportType::Ride,
+        chrono::Utc::now() - chrono::Duration::hours(20),
+        3_600,
+        "strava".to_owned(),
+    )
+    .build();
+    repos
+        .activity_cache
+        .upsert_activities(lea.user_id, &lea.tenant_id, "strava", &[ride])
+        .await
+        .unwrap();
+    let agent = own_agent(
+        &resources,
+        &lea,
+        "Ride Agent",
+        Some("Rides."),
+        &["Plan my week"],
+    )
+    .await;
+
+    let conv = create_conversation(&resources, &lea, Some(&agent)).await;
+
+    let rows = messages(&resources, &lea, &conv).await;
+    assert!(starters(&rows[0])
+        .ranked
+        .contains(&"last_workout".to_owned()));
+    assert_eq!(
+        welcome_policy(&resources, &lea, &conv).await,
+        TransportPolicy::FirstPartyOnly,
+        "the starters were chosen from Strava rides"
+    );
+
+    let max = athlete(&resources, "welcome-norides@test.com").await;
+    let theirs = own_agent(
+        &resources,
+        &max,
+        "Ride Agent",
+        Some("Rides."),
+        &["Plan my week"],
+    )
+    .await;
+    let conv = create_conversation(&resources, &max, Some(&theirs)).await;
+    assert_eq!(
+        welcome_policy(&resources, &max, &conv).await,
+        TransportPolicy::AnyTransport,
+        "nothing first-party was read to choose them"
+    );
+}
+
+/// The transport stamp the welcome row of `conv` was written with.
+async fn welcome_policy(
+    resources: &Arc<ServerContext>,
+    who: &Athlete,
+    conv: &str,
+) -> TransportPolicy {
+    resources
+        .common
+        .repos
+        .chat
+        .get_messages(conv, &who.user_id.to_string(), who.tenant_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|m| m.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
+        .expect("the agent welcomes the thread")
+        .transport_policy
 }
 
 async fn room(
@@ -842,10 +965,9 @@ async fn reset_reopens_the_fresh_thread_with_the_agent_welcome() {
             &["Reset Agent", "Keeps the marathon build on track."]
         )
     );
-    assert_eq!(
-        starters(posted[0]),
-        vec!["Plan my week", "Check my long run", "Taper advice"]
-    );
+    let offered = starters(posted[0]);
+    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
+    assert_eq!(offered.examples, ["Plan my week"]);
     assert!(introduced(&resources, &fresh, &agent, kai.tenant_id).await);
     assert_eq!(
         welcomes(&messages(&resources, &kai, &old).await).len(),

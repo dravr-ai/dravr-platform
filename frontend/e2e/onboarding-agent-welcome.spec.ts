@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for carnet#735 — « Start » on the onboarding proposal lands in a thread the agent has already opened
-// ABOUTME: The welcome renders under the agent's name with its starters as buttons; tapping one sends it as the next turn
+// ABOUTME: The welcome renders under the agent's name with its starters as buttons; tapping one sends its postback as the next turn
 
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
@@ -11,10 +11,17 @@ const USER_ID = 'user-123';
 const AGENT_ID = 'agent-fuelling';
 const AGENT_TITLE = 'Fuelling Agent';
 const CONVERSATION_ID = 'conv-welcome';
+/**
+ * The starters the server writes for an athlete who has just connected a
+ * provider and told Dravr nothing yet (carnet#828): a catalogue starter ranked
+ * from that state takes the first slot, the agent's own examples fill the
+ * rest. Each button posts an opaque postback the server resolves; the athlete
+ * only ever sees the label.
+ */
 const STARTERS = [
-  'What should I eat before a 6am run?',
-  'How do I carb load for a marathon?',
-  'How many gels during a marathon?',
+  { label: 'Get to know me', postback: 'uc:0:about_me', resolved: '/pillars' },
+  { label: 'What should I eat before a 6am run?', postback: 'ex:1:0', resolved: 'What should I eat before a 6am run?' },
+  { label: 'How do I carb load for a marathon?', postback: 'ex:2:1', resolved: 'How do I carb load for a marathon?' },
 ];
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -29,7 +36,7 @@ const welcome = {
   created_at: '2026-10-02T10:00:00Z',
   actions: {
     title: 'To get started, you can ask me:',
-    actions: STARTERS.map((q) => ({ label: q, action_type: 'postback', value: q })),
+    actions: STARTERS.map((s) => ({ label: s.label, action_type: 'postback', value: s.postback })),
   },
 };
 
@@ -87,13 +94,15 @@ async function installMocks(page: Page) {
     }
     if (url.pathname === `/api/chat/conversations/${CONVERSATION_ID}/messages`) {
       if (request.method() === 'POST') {
-        state.sentTurns.push((request.postDataJSON() as { content: string }).content);
+        const sent = (request.postDataJSON() as { content: string }).content;
+        state.sentTurns.push(sent);
         return json(route, {
           turn_id: 'turn-1',
+          // The server stores what a postback resolves to, never the postback.
           user_message: {
             id: 'u1',
             role: 'user',
-            content: state.sentTurns.at(-1),
+            content: STARTERS.find((s) => s.postback === sent)?.resolved ?? sent,
             created_at: '2026-10-02T10:01:00Z',
           },
           assistant: {
@@ -171,10 +180,12 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
 
   await expect(page.getByText(/Dravr's Fuelling Agent here/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('To get started, you can ask me:')).toBeVisible();
-  for (const q of STARTERS) {
-    await expect(page.getByRole('button', { name: q })).toBeVisible();
+  for (const s of STARTERS) {
+    await expect(page.getByRole('button', { name: s.label })).toBeVisible();
   }
 
-  await page.getByRole('button', { name: STARTERS[0] }).click();
-  await expect.poll(() => mocks.state.sentTurns).toEqual([STARTERS[0]]);
+  // A tap posts the starter's postback, not its label.
+  await page.getByRole('button', { name: STARTERS[0].label }).click();
+  await expect.poll(() => mocks.state.sentTurns).toEqual([STARTERS[0].postback]);
+  await expect(page.getByText(/\b(uc|ex):\d/)).toHaveCount(0);
 });

@@ -29,9 +29,9 @@ use crate::repositories::{
     SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserMcpTokenRepository,
+    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -111,6 +111,8 @@ pub struct RepositoryRegistry {
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Warnings the Strava seat-reclaim sweeper sent before a reclaim
     pub strava_seat_reclaim_warnings: Arc<dyn StravaSeatReclaimWarningRepository>,
+    /// Use-case starters each athlete was shown and tapped (carnet#828)
+    pub use_case_exposures: Arc<dyn UseCaseExposureRepository>,
     /// All-time best efforts at the standard running distances, and the runs scanned for them
     pub personal_bests: Arc<dyn PersonalBestRepository>,
     /// The persona-held notifications each persona digest returned
@@ -266,6 +268,7 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
+            use_case_exposures: db.clone(),
             personal_bests: db.clone(),
             persona_digest_returns: db.clone(),
             user_onboarding: db.clone(),
@@ -353,6 +356,7 @@ impl RepositoryRegistry {
             training_plans: db.clone(),
             short_links: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
+            use_case_exposures: db.clone(),
             personal_bests: db.clone(),
             persona_digest_returns: db.clone(),
             user_onboarding: db.clone(),

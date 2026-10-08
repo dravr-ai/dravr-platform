@@ -94,6 +94,11 @@ const OPTIMISTIC_USER_ID_PREFIX = 'user-';
 interface FailedTurnNote {
   text: string;
   question: Message;
+  /**
+   * What the turn sent, which a retry sends again: a tapped suggestion's
+   * bubble shows its label while the turn carries its postback (carnet#828).
+   */
+  sent: { content: string; options: TurnSendOptions };
   retryable: boolean;
 }
 
@@ -317,16 +322,16 @@ export default function ChatTab({
     if (!lostTurn || errorMessage !== lostTurn.note.text) return errorMessage;
     return lostReading.kind === 'waiting' ? errorMessage : null;
   }, [errorMessage, lostTurn, lostReading]);
-  // The question a shown failure can re-send: only a failure a retry may get
+  // The turn a shown failure can re-send: only a failure a retry may get
   // past (`isTurnFailureRetryable` — never the idle stop, a quota or a
   // refusal), and only a question the server never stored. One it did store
   // — the turn failed mid-stream — would be stored twice by a re-send.
-  const retryableQuestion =
+  const retryableTurn =
     lostReading.kind === 'waiting' &&
     shownError === lostReading.note.text &&
     lostReading.note.retryable &&
     !lostReading.questionReceived
-      ? lostReading.note.question.content
+      ? lostReading.note.sent
       : null;
 
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever
@@ -895,6 +900,7 @@ export default function ChatTab({
             note: {
               text: note,
               question: tempUserMessage,
+              sent: { content, options },
               retryable: isTurnFailureRetryable(error, { online: navigator.onLine }),
             },
           },
@@ -1156,11 +1162,11 @@ export default function ChatTab({
     await sendTurn(messages[userMessageIndex].content);
   }, [selectedConversation, isStreaming, messagesData?.messages, queryClient, sendTurn]);
 
-  /** Re-send the question a failed turn left in the thread. */
+  /** Re-send what a failed turn sent, shown as it was shown. */
   const handleRetryFailedTurn = useCallback(() => {
-    if (retryableQuestion === null) return;
-    void sendTurn(retryableQuestion);
-  }, [retryableQuestion, sendTurn]);
+    if (retryableTurn === null) return;
+    void sendTurn(retryableTurn.content, retryableTurn.options);
+  }, [retryableTurn, sendTurn]);
 
   /**
    * The "+" menu, wired the same way in every header slot. The Groups tab
@@ -1289,7 +1295,7 @@ export default function ChatTab({
             errorMessage={shownError}
             oauthNotification={oauthNotification}
             onDismissError={() => setErrorMessage(null)}
-            onRetryError={retryableQuestion !== null ? handleRetryFailedTurn : undefined}
+            onRetryError={retryableTurn !== null ? handleRetryFailedTurn : undefined}
             onDismissOAuthNotification={() => setOauthNotification(null)}
             onCopyMessage={handleCopyMessage}
             onShareMessage={handleShareMessage}

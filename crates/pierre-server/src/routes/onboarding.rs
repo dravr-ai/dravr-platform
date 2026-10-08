@@ -14,7 +14,6 @@
 //! Logic lives in [`pierre_services::onboarding_gate`]; this module is the
 //! thin HTTP boundary.
 
-use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use axum::{
@@ -29,12 +28,12 @@ use tracing::info;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoverageMap, TenantId};
+use pierre_core::models::TenantId;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::intake::{self, INTAKE_TOPICS};
 use pierre_services::locale::resolve_user_locale;
-use pierre_services::{about_you, onboarding_gate, parq};
+use pierre_services::{about_you, athlete_state, onboarding_gate, parq};
 
 /// Response body for `GET /api/me/onboarding-status`.
 ///
@@ -113,7 +112,8 @@ fn is_channel_slug(s: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
-/// Best-effort (covered, complete) pillar coverage from the user's dossier.
+/// Best-effort (covered, complete) pillar coverage from the user's dossier,
+/// through the athlete-state reader the use-case starters share (carnet#828).
 /// Returns `(0, false)` when there is no active tenant or the dossier cannot be
 /// composed — onboarding-status must never fail the routing gate.
 async fn pillar_coverage(
@@ -124,23 +124,13 @@ async fn pillar_coverage(
     let Some(tenant_uuid) = tenant else {
         return (0, false);
     };
-    let tenant = TenantId::from_uuid(tenant_uuid);
-    let Ok(dossier) = resources
-        .common
-        .repos
-        .dossier
-        .compose_dossier(
-            tenant,
-            user_id,
-            ai_scope::readable_policy(),
-            &ai_scope::admit_derived,
-        )
-        .await
-    else {
-        return (0, false);
-    };
-    let coverage = CoverageMap::from_dossier(&dossier);
-    (coverage.covered_count(), coverage.is_complete())
+    athlete_state::dossier_coverage(
+        &resources.common.repos,
+        TenantId::from_uuid(tenant_uuid),
+        user_id,
+    )
+    .await
+    .map_or((0, false), |coverage| (coverage.covered, coverage.complete))
 }
 
 /// `GET /api/me/onboarding-status`
