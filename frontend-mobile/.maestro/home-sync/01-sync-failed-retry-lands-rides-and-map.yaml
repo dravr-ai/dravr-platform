@@ -28,16 +28,16 @@ appId: ai.dravr.app
 
 # The load refreshes the stale head; the scraper fails, and Home says so,
 # naming the provider, with the rides of the last good sync kept and that
-# sync's time on the line below.
+# sync's time on the line below. The notice sits under the plan, the training
+# status, the weekly volume and the week strip — below the fold on the CI
+# emulator — and lands only once the refresh fails, so the scroll keeps going
+# until the notice itself is on screen rather than stopping at its section.
 - scrollUntilVisible:
     element:
-      id: "home-section-activities"
-    direction: DOWN
-    timeout: 15000
-- extendedWaitUntil:
-    visible:
       id: "home-activities-sync-failed"
+    direction: DOWN
     timeout: 60000
+    centerElement: true
 - assertVisible:
     text: "Strava · (Sync failed|La synchronisation a échoué)"
 - assertVisible:
