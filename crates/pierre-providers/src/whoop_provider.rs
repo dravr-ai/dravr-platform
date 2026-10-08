@@ -70,7 +70,10 @@ struct WhoopWorkout {
     start: String,
     /// End time of workout (ISO 8601)
     end: String,
-    /// Sport ID (WHOOP internal sport classification, null for unclassified)
+    /// Name of the WHOOP sport performed — the field WHOOP's v2 API requires;
+    /// WHOOP documents `sport_id` as removed after 2025-09-01.
+    sport_name: Option<String>,
+    /// WHOOP's numeric sport id, read only when the name does not resolve
     sport_id: Option<i32>,
     /// Workout score details
     score: Option<WhoopWorkoutScore>,
@@ -229,35 +232,6 @@ impl WhoopProvider {
         })
     }
 
-    /// Convert WHOOP sport ID to our `SportType` enum
-    fn parse_sport_type(sport_id: i32) -> SportType {
-        // WHOOP sport IDs (from their API documentation)
-        match sport_id {
-            0 => SportType::Workout,             // Generic activity
-            1 | 33 => SportType::Run,            // Running / Outdoor run
-            34 => SportType::VirtualRun,         // Indoor run/Treadmill
-            16 => SportType::Ride,               // Cycling
-            17 => SportType::VirtualRide,        // Indoor cycling/Spin
-            18 => SportType::MountainBike,       // Mountain biking
-            43 | 44 => SportType::Swim,          // Swimming / Open water swim
-            48 => SportType::Rowing,             // Rowing
-            63 => SportType::Yoga,               // Yoga
-            64 => SportType::Pilates,            // Pilates
-            71 => SportType::StrengthTraining,   // Weightlifting
-            47 => SportType::CrossCountrySkiing, // Cross-country skiing
-            46 => SportType::AlpineSkiing,       // Alpine skiing
-            45 => SportType::Snowboarding,       // Snowboarding
-            52 => SportType::Hike,               // Hiking
-            50 => SportType::Walk,               // Walking
-            82 => SportType::Golf,               // Golf
-            83 => SportType::Tennis,             // Tennis
-            84 => SportType::Basketball,         // Basketball
-            85 => SportType::Soccer,             // Soccer
-            54 => SportType::RockClimbing,       // Climbing
-            _ => SportType::Other(format!("whoop_sport_{sport_id}")),
-        }
-    }
-
     /// Convert WHOOP workout to our Activity model
     fn convert_workout(workout: &WhoopWorkout) -> AppResult<Activity> {
         let start_date = DateTime::parse_from_rfc3339(&workout.start)
@@ -272,11 +246,16 @@ impl WhoopProvider {
 
         let score = workout.score.as_ref();
 
-        let sport_id = workout.sport_id.unwrap_or(0);
+        let sport_name = workout
+            .sport_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        let sport = whoop_sport(sport_name, workout.sport_id);
         Ok(ActivityBuilder::new(
             workout.id.clone(),
-            format!("WHOOP {}", Self::parse_sport_type(sport_id).display_name()),
-            Self::parse_sport_type(sport_id),
+            format!("WHOOP {}", sport.display_name()),
+            sport,
             start_date,
             duration_seconds,
             oauth_providers::WHOOP,
@@ -290,9 +269,82 @@ impl WhoopProvider {
                 .and_then(|s| s.kilojoule)
                 .map(|kj| (kj * 0.239) as u32),
         )
-        .sport_type_detail_opt(Some(format!("whoop_sport_{sport_id}")))
+        .sport_type_detail_opt(
+            sport_name
+                .map(str::to_owned)
+                .or_else(|| workout.sport_id.map(|id| format!("whoop_sport_{id}"))),
+        )
         .build())
     }
+}
+
+/// WHOOP's sports that have a Dravr sport of their own: id, WHOOP's name for
+/// it, and the sport, as WHOOP's workout documentation lists them
+/// (developer.whoop.com, "Workout" → sport ids). Every WHOOP sport absent
+/// here keeps WHOOP's own name rather than a guessed one.
+const WHOOP_SPORTS: &[(i32, &str, SportType)] = &[
+    (-1, "Activity", SportType::Workout),
+    (0, "Running", SportType::Run),
+    (1, "Cycling", SportType::Ride),
+    (17, "Basketball", SportType::Basketball),
+    (18, "Rowing", SportType::Rowing),
+    (22, "Golf", SportType::Golf),
+    (29, "Skiing", SportType::AlpineSkiing),
+    (30, "Soccer", SportType::Soccer),
+    (33, "Swimming", SportType::Swim),
+    (34, "Tennis", SportType::Tennis),
+    (43, "Pilates", SportType::Pilates),
+    (44, "Yoga", SportType::Yoga),
+    (45, "Weightlifting", SportType::StrengthTraining),
+    (47, "Cross Country Skiing", SportType::CrossCountrySkiing),
+    (48, "Functional Fitness", SportType::Crossfit),
+    (52, "Hiking/Rucking", SportType::Hike),
+    (55, "Kayaking", SportType::Kayaking),
+    (57, "Mountain Biking", SportType::MountainBike),
+    (59, "Powerlifting", SportType::StrengthTraining),
+    (60, "Rock Climbing", SportType::RockClimbing),
+    (61, "Paddleboarding", SportType::Paddleboarding),
+    (63, "Walking", SportType::Walk),
+    (64, "Surfing", SportType::Surfing),
+    (71, "Other", SportType::Workout),
+    (86, "Skateboarding", SportType::Skateboarding),
+    (91, "Snowboarding", SportType::Snowboarding),
+    (97, "Spin", SportType::VirtualRide),
+    (102, "Inline Skating", SportType::InlineSkating),
+    (123, "Strength Trainer", SportType::StrengthTraining),
+    (239, "Ice Skating", SportType::IceSkating),
+    (264, "Kite Boarding", SportType::Kitesurfing),
+];
+
+/// The sport of a WHOOP workout: its `sport_name` when [`WHOOP_SPORTS`] knows
+/// it, else its `sport_id`, else WHOOP's own name as an `Other` sport. A
+/// workout that names no sport at all is a generic `Workout`.
+fn whoop_sport(sport_name: Option<&str>, sport_id: Option<i32>) -> SportType {
+    let by_name = sport_name.and_then(|name| {
+        let key = sport_name_key(name);
+        WHOOP_SPORTS
+            .iter()
+            .find(|(_, known, _)| sport_name_key(known) == key)
+    });
+    let known = by_name
+        .or_else(|| sport_id.and_then(|id| WHOOP_SPORTS.iter().find(|(known, _, _)| *known == id)));
+    match (known, sport_name, sport_id) {
+        (Some((_, _, sport)), _, _) => sport.clone(),
+        (None, Some(name), _) if !name.trim().is_empty() => {
+            SportType::Other(name.trim().to_owned())
+        }
+        (None, _, Some(id)) => SportType::Other(format!("whoop_sport_{id}")),
+        (None, _, None) => SportType::Workout,
+    }
+}
+
+/// A sport name reduced to its lowercase letters and digits, so WHOOP's
+/// `Hiking/Rucking`, `hiking-rucking` and `hiking_rucking` read as one sport.
+fn sport_name_key(name: &str) -> String {
+    name.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 impl Default for WhoopProvider {
@@ -601,5 +653,79 @@ impl ProviderFactory for WhoopProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::WHOOP]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workout(sport_name: Option<&str>, sport_id: Option<i32>) -> WhoopWorkout {
+        WhoopWorkout {
+            id: "whoop-1".to_owned(),
+            start: "2026-10-07T14:00:00.000Z".to_owned(),
+            end: "2026-10-07T15:43:32.000Z".to_owned(),
+            sport_name: sport_name.map(str::to_owned),
+            sport_id,
+            score: None,
+        }
+    }
+
+    #[test]
+    fn whoop_documented_ids_map_to_their_own_sports() {
+        // 2026-10-07: a ride arrived as "WHOOP run" and a trail run as "WHOOP
+        // workout" because 0 and 1 were read as Workout and Run. WHOOP's table
+        // has 0 = Running, 1 = Cycling, 33 = Swimming, 44 = Yoga, 63 = Walking.
+        assert_eq!(whoop_sport(None, Some(0)), SportType::Run);
+        assert_eq!(whoop_sport(None, Some(1)), SportType::Ride);
+        assert_eq!(whoop_sport(None, Some(33)), SportType::Swim);
+        assert_eq!(whoop_sport(None, Some(44)), SportType::Yoga);
+        assert_eq!(whoop_sport(None, Some(63)), SportType::Walk);
+        assert_eq!(whoop_sport(None, Some(-1)), SportType::Workout);
+    }
+
+    #[test]
+    fn whoop_sport_name_wins_over_the_id_in_any_spelling() {
+        assert_eq!(whoop_sport(Some("cycling"), Some(0)), SportType::Ride);
+        assert_eq!(whoop_sport(Some("hiking-rucking"), None), SportType::Hike);
+        assert_eq!(
+            whoop_sport(Some("Cross Country Skiing"), None),
+            SportType::CrossCountrySkiing
+        );
+        assert_eq!(
+            whoop_sport(Some("functional_fitness"), None),
+            SportType::Crossfit
+        );
+    }
+
+    #[test]
+    fn whoop_unknown_sport_keeps_whoop_name_and_unnamed_is_a_workout() {
+        assert_eq!(
+            whoop_sport(Some("hiit"), Some(96)),
+            SportType::Other("hiit".to_owned())
+        );
+        // A name the table does not know still falls back to a known id.
+        assert_eq!(whoop_sport(Some("road cycling"), Some(1)), SportType::Ride);
+        assert_eq!(
+            whoop_sport(None, Some(16)),
+            SportType::Other("whoop_sport_16".to_owned())
+        );
+        assert_eq!(whoop_sport(None, None), SportType::Workout);
+    }
+
+    #[test]
+    fn whoop_workout_is_named_and_detailed_after_its_sport() {
+        let activity = WhoopProvider::convert_workout(&workout(Some("cycling"), Some(1))).unwrap();
+        assert_eq!(activity.sport_type(), &SportType::Ride);
+        assert_eq!(activity.name(), "WHOOP bike ride");
+        assert_eq!(activity.sport_type_detail(), Some("cycling"));
+        assert_eq!(activity.duration_seconds(), 6_212);
+    }
+
+    #[test]
+    fn whoop_blank_sport_name_reads_as_absent() {
+        let activity = WhoopProvider::convert_workout(&workout(Some("  "), Some(1))).unwrap();
+        assert_eq!(activity.sport_type(), &SportType::Ride);
+        assert_eq!(activity.sport_type_detail(), Some("whoop_sport_1"));
     }
 }

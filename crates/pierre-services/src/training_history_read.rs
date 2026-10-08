@@ -345,6 +345,9 @@ pub struct ComputeBackend {
 /// `sciotte_garmin` while the connection says `garmin`, and reading the raw
 /// connection slug would miss every row it wrote.
 ///
+/// LIMITATION(registre#836): `resolve_compute_backend` elects ONE connection, the most recently used,
+/// so the series counts that provider's sessions alone and stays empty until it holds a full warm-up.
+///
 /// # Errors
 ///
 /// Returns [`AppError`] when the connection read fails.

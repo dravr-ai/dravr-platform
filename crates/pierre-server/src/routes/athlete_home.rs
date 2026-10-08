@@ -99,7 +99,7 @@ use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack,
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{carries_gps_trace, merge_duplicates, DedupConfig};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
@@ -280,11 +280,7 @@ fn route_evidence(row: &CachedActivityRow) -> RouteEvidence {
     match settled {
         Some(RouteTrackError::NoGps) => RouteEvidence::NoGps,
         Some(RouteTrackError::TooShort) => RouteEvidence::TooShort,
-        None if raw_overview(activity).is_some()
-            || (activity.start_latitude().is_some() && activity.start_longitude().is_some()) =>
-        {
-            RouteEvidence::Recorded
-        }
+        None if carries_gps_trace(activity) => RouteEvidence::Recorded,
         None if device_recorded(activity) => RouteEvidence::Sensed,
         None => RouteEvidence::Unknown,
     }
@@ -300,9 +296,10 @@ const fn device_recorded(activity: &Activity) -> bool {
 /// with the strongest [`RouteEvidence`], the canonical copy among equals.
 ///
 /// The merger picks its canonical copy for the numbers — a copy carrying a
-/// distance, then the longest — and a manual entry typed in with the
-/// workout's distance and a generous duration wins that over the watch's
-/// recording of the same run. On 2026-09-28 that hid a GPS track behind a
+/// GPS trace in its own payload, then a distance, then the longest — and a
+/// manual entry typed in with the workout's distance and a generous duration
+/// wins that over a watch's recording of the same run whose payload carries
+/// no trace. On 2026-09-28 that hid a GPS track behind a
 /// manual copy whose read had found no GPS, so the row drew nothing.
 fn route_copy<'a>(
     canonical: &'a CachedActivityRow,
@@ -588,12 +585,12 @@ fn copies_per_workout(connections: usize) -> i64 {
 ///    as the chat turn's activity list merges them.
 ///
 /// A merged workout's name and numbers are the merger's canonical row, the
-/// one chat lists — the copy carrying a distance, then the longest, then the
-/// farthest, then the lowest id — with the fields it lacks filled from the
-/// other full recordings. Its id, provider and `has_gps` are those of the
-/// copy whose route it draws ([`route_copy`]): a GPS recording over a manual
-/// entry of the same workout. Either is one of the athlete's own cached
-/// rows, so the route endpoint serves its provider and id.
+/// one chat lists — the copy carrying a GPS trace, then a distance, then the
+/// longest, then the farthest, then the lowest id — with the fields it lacks
+/// filled from the other full recordings. Its id, provider and `has_gps` are
+/// those of the copy whose route it draws ([`route_copy`]): a GPS recording
+/// over a manual entry of the same workout. Either is one of the athlete's
+/// own cached rows, so the route endpoint serves its provider and id.
 fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivity> {
     let distinct = distinct_rows(rows);
     workouts(&distinct)

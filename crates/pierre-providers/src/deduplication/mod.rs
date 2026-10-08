@@ -40,4 +40,6 @@ mod config;
 mod detection;
 
 pub use config::DedupConfig;
-pub use detection::{merge_duplicates, FilledField, FragmentGroup, FragmentReport};
+pub use detection::{
+    carries_gps_trace, merge_duplicates, FilledField, FragmentGroup, FragmentReport,
+};

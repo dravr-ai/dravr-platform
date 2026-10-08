@@ -470,6 +470,47 @@ fn wrist_tracker_misclassified_ride_folds_into_the_gps_ride_and_donates_its_fiel
 }
 
 #[test]
+fn gps_recording_is_canonical_over_a_longer_farther_wrist_copy_with_a_distance() {
+    // 2026-10-07: WHOOP reports a distance of its own, so carrying a distance
+    // does not single out the GPS recording; a WHOOP copy a minute longer and
+    // a little farther must not name the session.
+    let t = base_time();
+    let activities = vec![
+        provider_activity("whoop-ride", "whoop", SportType::Ride, t, 6_272)
+            .distance_meters(42_600.0)
+            .build(),
+        provider_activity("garmin-ride", "garmin", SportType::Ride, t, 6_212)
+            .distance_meters(42_510.0)
+            .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+            .build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(ids(&merged), vec!["garmin-ride"]);
+    assert_eq!(merged[0].distance_meters(), Some(42_510.0));
+}
+
+#[test]
+fn start_position_alone_marks_the_gps_recording_canonical() {
+    // A copy whose payload carries no route overview still holds a GPS trace
+    // when it carries a start position; a blank overview is no trace at all.
+    let t = base_time();
+    let activities = vec![
+        provider_activity("whoop-ride", "whoop", SportType::Ride, t, 6_272)
+            .distance_meters(42_600.0)
+            .summary_polyline("   ".to_owned())
+            .build(),
+        provider_activity("strava-ride", "strava", SportType::Ride, t, 6_212)
+            .distance_meters(42_510.0)
+            .start_latitude(45.5017)
+            .start_longitude(-73.5673)
+            .build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(ids(&merged), vec!["strava-ride"]);
+    assert_eq!(merged[0].start_latitude(), Some(45.5017));
+}
+
+#[test]
 fn self_report_from_a_second_provider_lands_on_the_gps_session() {
     // Intervals.icu carries the athlete's RPE, feel and notes for a session
     // Strava also recorded; the merged session keeps both halves.

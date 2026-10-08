@@ -643,7 +643,8 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
         "id": "5b8e1c2a-0000-4000-8000-000000000539",
         "start": "2026-09-21T11:00:00.000Z",
         "end": "2026-09-21T12:00:00.000Z",
-        "sport_id": 1,
+        "sport_name": "running",
+        "sport_id": 0,
         "score": {
             "strain": 12.3,
             "average_heart_rate": 142,

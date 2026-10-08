@@ -138,11 +138,11 @@ impl FragmentReport {
 /// Rows with no real start time never match on overlap: every midnight row
 /// "overlaps" every other, which would fold distinct sessions together.
 ///
-/// The canonical row is the one carrying a distance (GPS), then the longest,
-/// then the farthest, then the lowest id. Each other member covering at least
-/// [`FULL_RECORDING_MIN_PERCENT`] of its duration then fills the fields it
-/// lacks, best-ranked member first; a field the canonical row carries is never
-/// overwritten.
+/// The canonical row is the one carrying a GPS trace ([`carries_gps_trace`]),
+/// then a distance, then the longest, then the farthest, then the lowest id.
+/// Each other member covering at least [`FULL_RECORDING_MIN_PERCENT`] of its
+/// duration then fills the fields it lacks, best-ranked member first; a field
+/// the canonical row carries is never overwritten.
 #[must_use]
 pub fn merge_duplicates(
     activities: Vec<Activity>,
@@ -223,11 +223,17 @@ fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
             .saturating_mul(FULL_RECORDING_MIN_PERCENT)
 }
 
-/// Canonical ranking: carries a distance, then longest, then farthest, then
-/// lowest id. A total order, so the pick is deterministic for any input.
+/// Canonical ranking: carries a GPS trace, then a distance, then longest, then
+/// farthest, then lowest id. A total order, so the pick is deterministic for
+/// any input.
+///
+/// GPS comes first because a wrist tracker's copy can carry a distance of its
+/// own (WHOOP reports one) while it names the sport by guess; the recording
+/// with a route is the one whose sport, name and figures describe the session.
 fn canonical_order(a: &Activity, b: &Activity) -> Ordering {
-    has_distance(b)
-        .cmp(&has_distance(a))
+    carries_gps_trace(b)
+        .cmp(&carries_gps_trace(a))
+        .then_with(|| has_distance(b).cmp(&has_distance(a)))
         .then_with(|| b.duration_seconds().cmp(&a.duration_seconds()))
         .then_with(|| {
             distance_of(b)
@@ -235,6 +241,16 @@ fn canonical_order(a: &Activity, b: &Activity) -> Ordering {
                 .unwrap_or(Ordering::Equal)
         })
         .then_with(|| a.id().cmp(b.id()))
+}
+
+/// Whether the activity's own payload carries a GPS trace: a route overview
+/// that is not blank, or a start position.
+#[must_use]
+pub fn carries_gps_trace(activity: &Activity) -> bool {
+    activity
+        .summary_polyline()
+        .is_some_and(|encoded| !encoded.trim().is_empty())
+        || (activity.start_latitude().is_some() && activity.start_longitude().is_some())
 }
 
 fn has_distance(activity: &Activity) -> bool {
