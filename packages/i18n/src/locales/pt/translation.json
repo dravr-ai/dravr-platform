@@ -1964,6 +1964,13 @@
         "recoveryText": "Que recuperação me aconselhas depois da minha atividade «{{name}}» de {{date}}?",
         "adjustLabel": "O que ajustar",
         "adjustText": "Depois da minha atividade «{{name}}» de {{date}}, o que devo ajustar nas próximas sessões?"
+      },
+      "delete": {
+        "action": "Eliminar",
+        "actionLabel": "Eliminar esta atividade carregada",
+        "confirmTitle": "Eliminar esta atividade?",
+        "confirmMessage": "O treino e o ficheiro que carregaste são removidos das tuas atividades, do teu calendário e da tua carga de treino. Não é possível anular.",
+        "failed": "Não foi possível eliminar esta atividade. Tenta novamente."
       }
     },
     "status": {

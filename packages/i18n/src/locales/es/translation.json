@@ -1964,6 +1964,13 @@
         "recoveryText": "¿Qué recuperación me aconsejas después de mi actividad «{{name}}» del {{date}}?",
         "adjustLabel": "Qué ajustar",
         "adjustText": "Después de mi actividad «{{name}}» del {{date}}, ¿qué debería ajustar en mis próximas sesiones?"
+      },
+      "delete": {
+        "action": "Eliminar",
+        "actionLabel": "Eliminar esta actividad subida",
+        "confirmTitle": "¿Eliminar esta actividad?",
+        "confirmMessage": "El entrenamiento y el archivo que subiste se quitan de tus actividades, tu calendario y tu carga de entrenamiento. No se puede deshacer.",
+        "failed": "No se pudo eliminar esta actividad. Inténtalo de nuevo."
       }
     },
     "status": {

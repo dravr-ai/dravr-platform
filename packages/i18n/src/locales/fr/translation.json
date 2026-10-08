@@ -1964,6 +1964,13 @@
         "recoveryText": "Quelle récupération me conseilles-tu après mon activité « {{name}} » du {{date}} ?",
         "adjustLabel": "Quoi ajuster",
         "adjustText": "Après mon activité « {{name}} » du {{date}}, que devrais-je ajuster dans mes prochaines séances ?"
+      },
+      "delete": {
+        "action": "Supprimer",
+        "actionLabel": "Supprimer cette activité importée",
+        "confirmTitle": "Supprimer cette activité ?",
+        "confirmMessage": "La séance et le fichier que tu as importé sont retirés de tes activités, de ton calendrier et de ta charge d'entraînement. Cette action est irréversible.",
+        "failed": "Cette activité n'a pas pu être supprimée. Réessaie."
       }
     },
     "status": {

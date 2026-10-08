@@ -1964,6 +1964,13 @@
         "recoveryText": "What recovery do you advise after my activity “{{name}}” from {{date}}?",
         "adjustLabel": "What to adjust",
         "adjustText": "After my activity “{{name}}” from {{date}}, what should I adjust in my next sessions?"
+      },
+      "delete": {
+        "action": "Delete",
+        "actionLabel": "Delete this uploaded activity",
+        "confirmTitle": "Delete this activity?",
+        "confirmMessage": "The workout and the file you uploaded are removed from your activities, your calendar and your training load. This can't be undone.",
+        "failed": "This activity couldn't be deleted. Try again."
       }
     },
     "status": {

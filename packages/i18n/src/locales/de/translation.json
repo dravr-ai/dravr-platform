@@ -1964,6 +1964,13 @@
         "recoveryText": "Welche Erholung empfiehlst du mir nach meiner Aktivität „{{name}}“ vom {{date}}?",
         "adjustLabel": "Was anpassen",
         "adjustText": "Was sollte ich nach meiner Aktivität „{{name}}“ vom {{date}} in meinen nächsten Einheiten anpassen?"
+      },
+      "delete": {
+        "action": "Löschen",
+        "actionLabel": "Diese hochgeladene Aktivität löschen",
+        "confirmTitle": "Diese Aktivität löschen?",
+        "confirmMessage": "Das Training und die Datei, die du hochgeladen hast, werden aus deinen Aktivitäten, deinem Kalender und deiner Trainingsbelastung entfernt. Das lässt sich nicht rückgängig machen.",
+        "failed": "Diese Aktivität konnte nicht gelöscht werden. Versuch es noch einmal."
       }
     },
     "status": {
