@@ -170,4 +170,13 @@ async fn a_client_cannot_claim_a_next_step() {
         named(&events, "chat.question_asked").is_empty(),
         "a refused claim asks nothing"
     );
+    let rows = fx
+        .resources
+        .common
+        .repos
+        .chat
+        .get_messages(&fx.conversation_id, &fx.user_id.to_string(), fx.tenant_id)
+        .await
+        .unwrap();
+    assert!(rows.is_empty(), "and writes nothing: {rows:?}");
 }

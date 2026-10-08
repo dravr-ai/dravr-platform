@@ -50,7 +50,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::{
     AddMessageParams, CalibrationTopic, ConversationRecord, ConversationTurnId, CoverageTarget,
     Dossier, DossierFact, GuidedFlow, OnboardingState, PersistedAction, PersistedReplyBlock,
-    Pillar, SeasonTopic, TenantId, MAX_PROBE_ATTEMPTS,
+    Pillar, SeasonTopic, TenantId, TopicVisibility, WalkAudience, MAX_PROBE_ATTEMPTS,
 };
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -433,9 +433,18 @@ const PILLARS_TOPICS: usize = 1 + Pillar::ALL.len();
 /// A pillars walk whose every topic has burned its probe budget, so the turn
 /// that reads it finds nothing left to ask.
 fn spent_pillars_walk(started_at: String) -> OnboardingState {
+    spent_walk_for(started_at, WalkAudience::Private)
+}
+
+/// [`spent_pillars_walk`] for `audience`: a room walk only ever asks the
+/// topics a room may hear, so only those are in its ledger.
+fn spent_walk_for(started_at: String, audience: WalkAudience) -> OnboardingState {
     let mut topics = vec![CoverageTarget::NorthStar];
     topics.extend(Pillar::ALL.into_iter().map(CoverageTarget::Pillar));
-    let mut state = OnboardingState::start(started_at, GuidedFlow::Pillars);
+    topics.retain(|topic| {
+        audience == WalkAudience::Private || topic.visibility() == TopicVisibility::RoomSafe
+    });
+    let mut state = OnboardingState::start(started_at, GuidedFlow::Pillars).with_audience(audience);
     for _ in 0..MAX_PROBE_ATTEMPTS {
         for topic in &topics {
             state = state.with_delivered_probe(topic.slug());
@@ -507,6 +516,35 @@ async fn pillars_facts_from_before_the_walk_do_not_count() {
     assert_eq!(completed.field("topics_asked"), PILLARS_TOPICS.to_string());
     assert_eq!(completed.field("topics_answered"), "0");
     assert_eq!(completed.field("facts_landed"), "0");
+}
+
+#[tokio::test]
+async fn a_room_walk_counts_only_the_topics_a_room_may_hear() {
+    // The mental-resilience answer landed in the window, but a room walk never
+    // asks a DM-only pillar: it is a fact landed, not a topic answered.
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    a.land_answers(&[
+        (FactKind::NorthStar, None),
+        (FactKind::Preference, Some(Pillar::MentalResilience)),
+    ])
+    .await;
+    let conversation = a
+        .conversation_in(&spent_walk_for(an_hour_ago(), WalkAudience::Room))
+        .await;
+
+    let (events, _guard) = capture_notify();
+    a.resolve_pillars_end(&conversation).await;
+
+    let room_topics = 1 + Pillar::ALL
+        .into_iter()
+        .filter(|pillar| pillar.visibility() == TopicVisibility::RoomSafe)
+        .count();
+    assert!(room_topics < PILLARS_TOPICS, "a room hears fewer topics");
+    let completed = only(&events, "onboarding.completed");
+    assert_eq!(completed.field("topics_asked"), room_topics.to_string());
+    assert_eq!(completed.field("topics_answered"), "1");
+    assert_eq!(completed.field("facts_landed"), "2");
 }
 
 #[tokio::test]
