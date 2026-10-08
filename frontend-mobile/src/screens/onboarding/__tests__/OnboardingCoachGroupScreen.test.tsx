@@ -6,7 +6,6 @@
 
 import React from 'react';
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
@@ -181,7 +180,7 @@ describe('OnboardingCoachGroupScreen', () => {
       render(<OnboardingCoachGroupScreen />);
       await nameAndCreate();
       await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
-      expect(screen.queryByText(i18n.t('onboarding.groupAccessContact'))).toBeNull();
+      expect(screen.queryByText(/support@dravr\.ai/)).toBeNull();
     });
 
     it('asks in one tap, naming the group, then says the request was sent', async () => {
