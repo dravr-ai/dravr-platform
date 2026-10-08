@@ -37,6 +37,8 @@ pub struct NextSteps {
 impl NextSteps {
     /// The first [`MAX_NEXT_STEPS`] of `steps`, in order. Whatever chose them
     /// ranked them, so the rest are dropped rather than crowding the row.
+    ///
+    /// LIMITATION(registre#830): `NextSteps::new` has no production caller — every reply the platform sends offers `NextSteps::default()` until the transition table picks steps from the use-case catalogue.
     #[must_use]
     pub fn new(steps: impl IntoIterator<Item = TurnAction>) -> Self {
         Self {
