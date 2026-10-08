@@ -2585,7 +2585,6 @@
     "finishAuthInPopup": "Schließe die Autorisierung im Pop-up-Fenster ab. Wir bringen dich automatisch zum Dashboard, sobald {{provider}} bestätigt.",
     "goalLabel": "Worauf trainierst du hin?",
     "goalPlaceholder": "Ein erster Halbmarathon im Frühling, zum Beispiel",
-    "groupAccessContact": "Schreib an support@dravr.ai",
     "groupAgentHeading": "Wähle den Agenten deiner Gruppe",
     "groupAgentIntro": "Dein Athlet spricht im Verlauf der Gruppe mit diesem Agenten. Wähle den, der zu seiner Sportart passt.",
     "groupCopyLink": "Link kopieren",

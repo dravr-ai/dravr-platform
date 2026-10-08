@@ -2585,7 +2585,6 @@
     "finishAuthInPopup": "Finish the authorisation in the popup window. We'll route you to the dashboard automatically once {{provider}} confirms.",
     "goalLabel": "What are you working toward?",
     "goalPlaceholder": "A first half-marathon in the spring, say",
-    "groupAccessContact": "Ask at support@dravr.ai",
     "groupAgentHeading": "Choose your group's agent",
     "groupAgentIntro": "Your athlete talks to this agent in the group's thread. Pick the one that fits their sport.",
     "groupCopyLink": "Copy link",
