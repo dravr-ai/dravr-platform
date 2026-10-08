@@ -1915,7 +1915,17 @@
       "fetching": "Récupération de tes dernières activités…",
       "syncedAt": "Dernière synchronisation : {{time}}",
       "analyzeDraft": "Analyse mon activité du {{date}} ({{sport}})",
-      "sketchAlt": "Esquisse du parcours"
+      "sketchAlt": "Esquisse du parcours",
+      "upload": {
+        "action": "Importer un .fit",
+        "actionLabel": "Importer le fichier .fit d’une séance terminée",
+        "uploading": "Importation de ton fichier…",
+        "uploaded": "Séance ajoutée à tes activités.",
+        "tooLarge": "Ce fichier dépasse {{megabytes}} Mo, c’est trop pour une seule séance.",
+        "notActivity": "Ce fichier n’est pas une séance terminée. Choisis le fichier .fit enregistré par ta montre ou ton compteur vélo.",
+        "alreadyHeld": "Cette séance figure déjà dans tes activités.",
+        "failed": "Impossible d’importer ton fichier. Réessaie."
+      }
     },
     "activity": {
       "loadFailed": "Impossible de charger cette activité.",

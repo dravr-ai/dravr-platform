@@ -1915,7 +1915,17 @@
       "fetching": "Deine neuesten Aktivitäten werden abgerufen…",
       "syncedAt": "Zuletzt synchronisiert: {{time}}",
       "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
-      "sketchAlt": "Skizze der Route"
+      "sketchAlt": "Skizze der Route",
+      "upload": {
+        "action": ".fit hochladen",
+        "actionLabel": "Die .fit-Datei eines abgeschlossenen Trainings hochladen",
+        "uploading": "Deine Datei wird hochgeladen…",
+        "uploaded": "Training zu deinen Aktivitäten hinzugefügt.",
+        "tooLarge": "Diese Datei ist größer als {{megabytes}} MB – zu groß für ein einzelnes Training.",
+        "notActivity": "Diese Datei ist kein abgeschlossenes Training. Wähle die .fit-Datei, die deine Uhr oder dein Radcomputer aufgezeichnet hat.",
+        "alreadyHeld": "Dieses Training ist bereits in deinen Aktivitäten.",
+        "failed": "Deine Datei konnte nicht hochgeladen werden. Versuche es erneut."
+      }
     },
     "activity": {
       "loadFailed": "Diese Aktivität konnte nicht geladen werden.",

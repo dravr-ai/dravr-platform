@@ -1915,7 +1915,17 @@
       "fetching": "Recuperando tus últimas actividades…",
       "syncedAt": "Última sincronización: {{time}}",
       "analyzeDraft": "Analiza mi actividad del {{date}} ({{sport}})",
-      "sketchAlt": "Esbozo de la ruta"
+      "sketchAlt": "Esbozo de la ruta",
+      "upload": {
+        "action": "Subir .fit",
+        "actionLabel": "Subir el archivo .fit de un entrenamiento terminado",
+        "uploading": "Subiendo tu archivo…",
+        "uploaded": "Entrenamiento añadido a tus actividades.",
+        "tooLarge": "Este archivo supera los {{megabytes}} MB, demasiado para un solo entrenamiento.",
+        "notActivity": "Este archivo no es un entrenamiento terminado. Elige el archivo .fit que grabó tu reloj o tu ciclocomputador.",
+        "alreadyHeld": "Este entrenamiento ya está en tus actividades.",
+        "failed": "No se pudo subir tu archivo. Inténtalo de nuevo."
+      }
     },
     "activity": {
       "loadFailed": "No se pudo cargar esta actividad.",
