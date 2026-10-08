@@ -35,6 +35,7 @@ use crate::errors::AppError;
 use crate::http_env;
 use crate::provider::ChatProvider;
 use crate::served_tier::{observe_served_tier, record_served_tier};
+use crate::stage::{LlmStage, StageModels};
 
 /// The platform's one facade over an embacle runner.
 ///
@@ -77,6 +78,10 @@ pub struct EmbacleProvider {
     /// [`Self::of_kind`]). The chain guard reads it to know which tiers spend
     /// the Copilot GitHub token; a runner of no kind spends none it measures.
     kind: Option<LlmProviderType>,
+    /// The model each background stage runs on when this is the platform's
+    /// head provider ([`ChatProvider::from_env`]); empty for any other
+    /// provider, a tenant's own key included.
+    stage_models: StageModels,
 }
 
 impl EmbacleProvider {
@@ -128,6 +133,31 @@ impl EmbacleProvider {
             .is_some_and(LlmProviderType::spends_copilot_github_token)
     }
 
+    /// The provider kind the head was built as, `None` for a runner built any
+    /// other way (a pooled account on its own token, a scripted runner).
+    #[must_use]
+    pub const fn kind(&self) -> Option<LlmProviderType> {
+        self.kind
+    }
+
+    /// Route this provider's background stages to `stage_models`.
+    ///
+    /// The models are the head's: a chain built over this provider clears a
+    /// request's model on every hop, so a stage call that falls back runs on
+    /// the next tier's own model. [`ChatProvider::from_env`] is the one
+    /// production caller; nothing routes a tenant's own provider.
+    #[must_use]
+    pub fn with_stage_models(mut self, stage_models: StageModels) -> Self {
+        self.stage_models = stage_models;
+        self
+    }
+
+    /// The model `stage` runs on here, or `None` for the head's own model.
+    #[must_use]
+    pub fn stage_model(&self, stage: LlmStage) -> Option<&str> {
+        self.stage_models.model_for(stage)
+    }
+
     /// Wrap an already-built embacle runner whose rate limit is the
     /// account's quota — a CLI or Copilot runner, the evals' bench candidates,
     /// and tests that script a runner.
@@ -144,6 +174,7 @@ impl EmbacleProvider {
             cached_display_name: display_name,
             fallback_tail: None,
             kind: None,
+            stage_models: StageModels::inherit_all(),
         }
     }
 
@@ -198,6 +229,7 @@ impl EmbacleProvider {
             cached_display_name: head.cached_display_name,
             fallback_tail: Some(Box::new(ChatProvider::Embacle(tail))),
             kind: head.kind,
+            stage_models: head.stage_models,
         })
     }
 
@@ -228,6 +260,7 @@ impl EmbacleProvider {
             cached_display_name: self.cached_display_name,
             fallback_tail: None,
             kind: self.kind,
+            stage_models: self.stage_models.clone(),
         }
     }
 
@@ -329,7 +362,12 @@ impl EmbacleProvider {
     /// `model_override` wins over `PIERRE_LLM_MODEL`, which wins over the
     /// headless-specific `COPILOT_HEADLESS_MODEL`.
     ///
-    /// LIMITATION(registre#104): `build_headless` binds one `CopilotHeadlessConfig::model` for every call in the turn — tool-loop iterations and the athlete-facing draft run on the same model, with no per-stage routing to a cheaper one.
+    /// A background stage asks for its own model per request (see
+    /// [`crate::stage`]), which this runner honours by respawning its warm
+    /// subprocess on the other model, so no stage defaults off the main model
+    /// here.
+    ///
+    /// LIMITATION(registre#104): `build_headless` serves a whole turn's tool loop as one ACP session on one `CopilotHeadlessConfig::model` — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn.
     fn build_headless(model_override: Option<&str>) -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
         if let Some(model) = unified_model(model_override) {
@@ -352,7 +390,11 @@ impl EmbacleProvider {
     /// `model_override` wins over `PIERRE_LLM_MODEL`, which wins over the
     /// SDK-specific `COPILOT_SDK_MODEL`.
     ///
-    /// LIMITATION(registre#104): `build_sdk` binds one `CopilotSdkConfig::model` for every call in the turn — tool-loop iterations and the athlete-facing draft run on the same model, with no per-stage routing to a cheaper one.
+    /// The background stages run on [`crate::stage::COPILOT_SDK_BACKGROUND_MODEL`]
+    /// here unless configured otherwise: each is its own SDK session, and the
+    /// runtime validates the requested id against its catalogue per session.
+    ///
+    /// LIMITATION(registre#104): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
     fn build_sdk(model_override: Option<&str>) -> Self {
         let mut config = CopilotSdkConfig::from_env();
         if let Some(model) = unified_model(model_override) {
@@ -372,30 +414,33 @@ impl EmbacleProvider {
     /// A Copilot turn provider, kept both as the runner and as the typed
     /// handle the headless tool loop converses through.
     ///
-    /// LIMITATION(registre#102): nothing on this path marks the system-prompt +
-    /// tool-surface prefix cacheable, and nothing can. `cache_control` is settable
-    /// only on a request we build ourselves; here the ACP agent builds it. The gap
-    /// is not an omission on our side — the ACP schema defines the two cache counts
-    /// on `Usage` and no way to influence them (no `cache_control`, no breakpoint,
-    /// no ephemeral marker anywhere in the protocol), and Copilot CLI 1.0.81
-    /// advertises `loadSession`, `mcpCapabilities`, `promptCapabilities` and
-    /// `sessionCapabilities{close,list}`, with no caching capability at all.
+    /// LIMITATION(registre#102): `from_turn_provider` cannot mark the system-prompt + tool-surface prefix cacheable — `cache_control` is settable only on a request the platform builds, and no first-party Anthropic route exists in this crate.
     ///
-    /// Copilot does cache, and since embacle 0.22.0 the counts are reported and
-    /// billed — but it caches its OWN preamble, never our prompt. Measured
-    /// 2026-08-29 by `examples/acp_cache_boundary_probe.rs` in dravr-embacle, on
-    /// CLI 1.0.81 / claude-sonnet-5: prefixes of 32, 10k, 20k and 40k tokens were
-    /// each served exactly 13,964 cached tokens on the following turn — identical
-    /// to the token across a 1,250x change in what we send — while the cache
-    /// *write* tracked our prompt size (14,214 / 26,276 / 38,371 / 62,564). We pay
-    /// the write premium on the whole prompt every turn and are served none of it
-    /// back.
+    /// On both Copilot transports the runtime builds the upstream request, so
+    /// there is no field to set: the ACP schema defines the two cache counts on
+    /// `Usage` and no way to influence them (no `cache_control`, no breakpoint,
+    /// no ephemeral marker), and Copilot CLI 1.0.81 advertised `loadSession`,
+    /// `mcpCapabilities`, `promptCapabilities` and `sessionCapabilities{close,list}`,
+    /// no caching capability. The counts themselves are reported and billed on
+    /// both: ACP's `/result/usage` since embacle 0.22.0, and the SDK's
+    /// `assistant.usage`.
     ///
-    /// So prompt LAYOUT is not a lever on this path: no ordering of our blocks can
-    /// move `cachedReadTokens`, because our bytes are never in the cached region.
-    /// Prompt SIZE is the only thing on our side of the boundary. Re-run the probe
-    /// before believing otherwise; a vendor that began honouring our prefix would
-    /// show the cached read growing with it.
+    /// What is measured differs by transport.
+    ///
+    /// - **ACP, across turns** — `examples/acp_cache_boundary_probe.rs` in
+    ///   dravr-embacle, 2026-08-29, CLI 1.0.81 / claude-sonnet-5: prefixes of 32,
+    ///   10k, 20k and 40k tokens were each served exactly 13,964 cached tokens on
+    ///   the next turn, identical across a 1,250x change in what we send, while
+    ///   the cache *write* tracked our prompt size (14,214 / 26,276 / 38,371 /
+    ///   62,564). Copilot cached its own preamble, never our prompt, so prompt
+    ///   layout was no lever there; prompt size was the only one.
+    /// - **SDK, within a turn** — the runtime does cache our prompt: the first
+    ///   call of a measured turn wrote 17,889 tokens and the second read the
+    ///   same 17,889 back (`cacheTtlSeconds: 300`).
+    /// - **SDK, across turns** — unmeasured. Production has run on `copilot_sdk`
+    ///   since 2026-09-21, and the ACP result above is not evidence for it. Port
+    ///   the probe to `CopilotSdkRunner` before reasoning about cross-turn
+    ///   caching on this transport either way.
     fn from_turn_provider(
         turn_provider: Arc<dyn HeadlessTurnProvider>,
         display_name: &'static str,
@@ -409,6 +454,7 @@ impl EmbacleProvider {
             cached_display_name: display_name,
             fallback_tail: None,
             kind: None,
+            stage_models: StageModels::inherit_all(),
         }
     }
 
@@ -484,6 +530,7 @@ impl EmbacleProvider {
             cached_display_name: "Quota Router",
             fallback_tail: None,
             kind: None,
+            stage_models: StageModels::inherit_all(),
         })
     }
 
@@ -550,6 +597,7 @@ impl fmt::Debug for EmbacleProvider {
             .field("cached_display_name", &self.cached_display_name)
             .field("fallback_tail", &self.fallback_tail)
             .field("kind", &self.kind)
+            .field("stage_models", &self.stage_models)
             .finish()
     }
 }

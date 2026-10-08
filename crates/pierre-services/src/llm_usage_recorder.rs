@@ -1,0 +1,155 @@
+// ABOUTME: The one sink that persists an LLM call's usage as an llm_usage row, priced by the tenant-aware registry
+// ABOUTME: Used by the tool loops and every side call — language, extraction, compaction, judge, capture, re-asks
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! The `llm_usage` recorder.
+//!
+//! One row per LLM call, keyed on the turn the call belongs to and typed by
+//! `call_type`, so a turn's cost is the sum of its rows and a side call is
+//! counted apart from the reply it serves. Deliberately fire-and-forget: a
+//! failed usage row is logged, never propagated, because losing an
+//! accounting row is strictly better than failing the athlete's turn over it.
+//!
+//! It lives here, below the chat pipeline, because the calls it records do:
+//! memory extraction, advice capture and the outcome evaluator run in this
+//! crate, and the resume sweep and the evaluator build their recorders without
+//! a turn in hand.
+
+use std::sync::Arc;
+
+use embacle::pricing::TokenCounts;
+use pierre_core::models::usage::InsertLlmUsage;
+use pierre_core::models::ConversationTurnId;
+use pierre_database::repositories::LlmUsageRepository;
+use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
+use tracing::{info, warn};
+
+use crate::pricing::GLOBAL_PRICING_REGISTRY;
+
+/// Per-call sink that persists one `llm_usage` row per LLM invocation.
+pub struct UsageRepoCallRecorder {
+    llm_usage: Arc<dyn LlmUsageRepository>,
+    tenant_id: String,
+    user_id: String,
+    conversation_id: Option<String>,
+    turn_id: ConversationTurnId,
+    call_type: &'static str,
+}
+
+impl UsageRepoCallRecorder {
+    /// Build a recorder scoped to a single turn.
+    pub fn new(
+        llm_usage: Arc<dyn LlmUsageRepository>,
+        tenant_id: String,
+        user_id: String,
+        conversation_id: Option<String>,
+        turn_id: ConversationTurnId,
+        call_type: &'static str,
+    ) -> Self {
+        Self {
+            llm_usage,
+            tenant_id,
+            user_id,
+            conversation_id,
+            turn_id,
+            call_type,
+        }
+    }
+}
+
+impl LlmCallRecorder for UsageRepoCallRecorder {
+    fn record(&self, record: LlmCallRecord) {
+        let llm_usage = Arc::clone(&self.llm_usage);
+        let tenant_id = self.tenant_id.clone();
+        let user_id = self.user_id.clone();
+        let conversation_id = self.conversation_id.clone();
+        let turn_id = self.turn_id;
+        let base_call_type = self.call_type;
+        let call_sequence = record.call_sequence;
+        let tenant_id_for_cost = self.tenant_id.clone();
+        tokio::spawn(async move {
+            // Reasoning tokens are consumed and billed, and every provider that
+            // reports them separately excludes them from `completion_tokens`, so
+            // leaving them out made `total_tokens` smaller than the tokens the
+            // turn actually spent.
+            //
+            // The tradeoff, recorded because it is not free: on a reasoning
+            // model this no longer matches a provider dashboard that reports
+            // `totalTokens = input + output`. The one ACP payload captured
+            // 2026-08-27 had `thoughtTokens: 0`, so it could not settle whether
+            // upstream counts them in its own total. Cost is unaffected either
+            // way — `cost_from_pricing` charges reasoning at the output rate
+            // from its own field, not from this sum.
+            let total_tokens =
+                record.prompt_tokens + record.completion_tokens + record.reasoning_tokens;
+            let counts = TokenCounts::new(record.prompt_tokens, record.completion_tokens)
+                .with_cache(record.cached_tokens, record.cached_write_tokens)
+                .with_reasoning(record.reasoning_tokens);
+            let cost_usd = GLOBAL_PRICING_REGISTRY.calculate_cost(
+                Some(tenant_id_for_cost.as_str()),
+                &record.provider,
+                &record.model,
+                &counts,
+            );
+            info!(
+                target: "notify",
+                event = "embacle.cost_usd",
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                model = %record.model,
+                cost_usd = cost_usd,
+                "llm call cost"
+            );
+            // A real LLM call that accounts for nothing is the silent failure
+            // this warning exists to surface: the row lands priced at zero and,
+            // with no `_estimated` suffix, reads downstream as a measured zero
+            // rather than a missing measurement. It never fails the turn —
+            // losing an accounting row beats failing the athlete — but it must
+            // not pass unseen the way it did for 163 rows in 2026.
+            if record.is_unaccounted() {
+                warn!(
+                    provider = %record.provider,
+                    model = %record.model,
+                    call_type = base_call_type,
+                    success = record.success,
+                    latency_ms = record.latency_ms,
+                    "llm_usage row accounts for nothing: provider reported no usage and no text \
+                     reached the estimator, so this call is recorded as free"
+                );
+            }
+            let call_type_owned = if record.token_counts_estimated {
+                format!("{base_call_type}_estimated")
+            } else {
+                base_call_type.to_owned()
+            };
+            let tool_calls_count = i64::try_from(record.tools_called.len()).unwrap_or(i64::MAX);
+            let tools_called_json =
+                serde_json::to_string(&record.tools_called).unwrap_or_else(|_| "[]".to_owned());
+            let params = InsertLlmUsage {
+                tenant_id: &tenant_id,
+                user_id: &user_id,
+                conversation_id: conversation_id.as_deref(),
+                turn_id,
+                provider: &record.provider,
+                model: &record.model,
+                prompt_tokens: record.prompt_tokens,
+                completion_tokens: record.completion_tokens,
+                total_tokens,
+                cached_tokens: record.cached_tokens,
+                cached_write_tokens: record.cached_write_tokens,
+                reasoning_tokens: record.reasoning_tokens,
+                call_type: &call_type_owned,
+                tool_calls_count,
+                tools_called: &tools_called_json,
+                execution_time_ms: Some(record.latency_ms),
+                cost_usd,
+                call_sequence,
+            };
+            if let Err(e) = llm_usage.insert_llm_usage(&params).await {
+                warn!("Failed to record per-LLM-call usage: {e}");
+            }
+        });
+    }
+}

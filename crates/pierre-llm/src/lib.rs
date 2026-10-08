@@ -30,6 +30,8 @@ pub use pierre_core::llm::{
     TokenUsage,
 };
 
+/// What one recorded LLM call is, its sink, and the recorded completion
+pub mod call_record;
 /// Process-wide guard state for the runtime fallback chain
 /// (GitHub rate-limit headroom + circuit breaker on the primary).
 pub mod chain_guard;
@@ -55,6 +57,8 @@ mod provider;
 pub mod provider_stop;
 /// Which tier of a fallback chain answered the current call
 pub mod served_tier;
+/// Which model each background LLM stage runs on
+pub mod stage;
 mod tool_bridge;
 /// The platform's tool surface and tool-carrying response
 mod tool_types;

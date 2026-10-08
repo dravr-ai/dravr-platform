@@ -13,21 +13,24 @@
 //! actual summarization logic; this stage is the harness that decides
 //! when to invoke it.
 
-use pierre_core::models::TenantId;
+use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider};
 use pierre_services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor,
 };
 
-use crate::ChatPipelineContext;
+use crate::recorders::turn_call_recorder;
+use crate::{ChatPipelineContext, TurnInput};
 
 /// Run conversation compaction in place. Failures log and continue — a
 /// failed compaction never blocks a turn.
+///
+/// The summary call is billed to `input`'s turn as a
+/// [`LlmStage::CompactionSummary`] row.
 pub async fn apply_tier1_compaction(
     ctx: &ChatPipelineContext,
     provider: &ChatProvider,
-    tenant_id: TenantId,
-    conversation_id: &str,
+    input: &TurnInput,
     source_ids: &[Option<String>],
     llm_messages: &mut Vec<ChatMessage>,
 ) {
@@ -36,12 +39,14 @@ pub async fn apply_tier1_compaction(
     // turn without a server restart.
     let compactor = ConversationCompactor::new(ctx.harness_config_registry.current_compaction());
     let summary_prompt = ctx.prompt_registry.conversation_summary_prompt();
+    let recorder = turn_call_recorder(ctx, input, LlmStage::CompactionSummary.call_type());
     let compaction = CompactionContext {
         repo: ctx.repos.memory.as_ref(),
         provider,
         summary_prompt: summary_prompt.trim(),
-        tenant_id,
-        conversation_id,
+        recorder: Some(&recorder),
+        tenant_id: input.conversation_tenant_id,
+        conversation_id: &input.conversation_id,
         source_ids,
         llm_messages,
     };

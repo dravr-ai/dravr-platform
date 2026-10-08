@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::envelope::VerdictChip;
 use crate::hooks::PipelineHooks;
+use crate::recorders::{turn_call_recorder, PERSONA_REWRITE_CALL_TYPE, VIZ_REPAIR_CALL_TYPE};
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
@@ -38,6 +39,8 @@ use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
 };
 use super::{viz_blocks, viz_route};
+#[cfg(feature = "tools-verification")]
+use pierre_llm::stage::LlmStage;
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
 /// caller can persist the assistant message first and then link any
@@ -216,10 +219,12 @@ async fn apply_style_stages(
         roster.as_ref(),
         locale,
     );
+    let recorder = turn_call_recorder(ctx, input, PERSONA_REWRITE_CALL_TYPE);
     let editor = StyleEditor {
         provider: ctx.chat_provider.as_ref(),
         prompts: &ctx.prompt_registry,
         model: active_model,
+        recorder: Some(&recorder),
     };
     enforce_conformance(
         editor,
@@ -276,12 +281,14 @@ async fn repaired_extraction(
         return None;
     }
     let provider = ctx.chat_provider.as_ref()?;
+    let recorder = turn_call_recorder(ctx, input, VIZ_REPAIR_CALL_TYPE);
     let repaired = viz_blocks::repair_refused_blocks(
         provider,
         &ctx.prompt_registry,
         raw_content,
         &current.refusals,
         active_model,
+        Some(&recorder),
     )
     .await?;
     // A repaired reply may name an activity the first pass never read. The
@@ -579,6 +586,7 @@ pub(crate) async fn post_process_assistant_reply(
         let verification_config = agent_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
+        let judge_recorder = turn_call_recorder(ctx, input, LlmStage::ClaimJudge.call_type());
         let ClaimVerificationOutcome {
             content: verified_content,
             pending_verdicts,
@@ -591,6 +599,7 @@ pub(crate) async fn post_process_assistant_reply(
             locale,
             user_id: &input.user_id,
             tenant_id: input.conversation_tenant_id,
+            judge_recorder: Some(&judge_recorder),
         })
         .await;
         let provider_stop = provider_stop::kept_through(provider_stop, &content, &verified_content);

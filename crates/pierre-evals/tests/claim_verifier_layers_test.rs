@@ -7,17 +7,20 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::mem;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
+use pierre_evals::judge::judge_claim;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim, check_claim_judged, check_reply, claim_extractor::ExtractedClaim,
     evidence_retriever::EvidenceCorpus, find_contradiction, ClaimJudge,
 };
+use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
@@ -53,6 +56,8 @@ struct CannedJudge {
     /// System message of the last request, so a test can assert which
     /// instructions the judge call actually carried.
     last_system_prompt: Mutex<Option<String>>,
+    /// Model the last request asked for.
+    last_model: Mutex<Option<String>>,
 }
 
 impl CannedJudge {
@@ -61,7 +66,12 @@ impl CannedJudge {
             body: body.to_owned(),
             calls: AtomicUsize::new(0),
             last_system_prompt: Mutex::new(None),
+            last_model: Mutex::new(None),
         }
+    }
+
+    fn last_model(&self) -> Option<String> {
+        self.last_model.lock().expect("model lock").clone()
     }
 
     fn last_system_prompt(&self) -> Option<String> {
@@ -100,6 +110,10 @@ impl LlmProvider for CannedJudge {
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.last_model
+            .lock()
+            .expect("model lock")
+            .clone_from(&request.model);
         *self.last_system_prompt.lock().expect("system prompt lock") = request
             .messages
             .iter()
@@ -131,6 +145,8 @@ fn claim_judge(provider: &CannedJudge) -> ClaimJudge<'_> {
     ClaimJudge {
         provider,
         system_prompt: CLAIM_JUDGE_PROMPT,
+        model: None,
+        recorder: None,
     }
 }
 
@@ -438,6 +454,8 @@ async fn judge_call_carries_the_system_prompt_it_was_given() {
         Some(ClaimJudge {
             provider: &provider,
             system_prompt: instructions,
+            model: None,
+            recorder: None,
         }),
         None,
         None,
@@ -459,4 +477,47 @@ fn shipped_judge_prompt_names_every_verdict_the_parser_maps() {
             "claim_judge prompt no longer names the '{verdict}' verdict"
         );
     }
+}
+
+/// Every record it is handed.
+#[derive(Default)]
+struct Captured(Mutex<Vec<LlmCallRecord>>);
+
+impl LlmCallRecorder for Captured {
+    fn record(&self, record: LlmCallRecord) {
+        self.0.lock().expect("records lock").push(record);
+    }
+}
+
+/// The judge asks for the model its stage runs on, and every claim it judges
+/// is handed to the recorder as a call of its own.
+#[tokio::test]
+async fn the_judge_asks_for_its_stage_model_and_records_each_claim() {
+    let provider = CannedJudge::new(
+        r#"{"verdict":"supported","confidence":0.8,"rationale":"Matches the protein consensus."}"#,
+    );
+    let captured = Arc::new(Captured::default());
+    let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+    let judge = ClaimJudge {
+        provider: &provider,
+        system_prompt: CLAIM_JUDGE_PROMPT,
+        model: Some("claude-haiku-4.5"),
+        recorder: Some(&recorder),
+    };
+
+    let first = judge_claim(judge, "Protein at 1.6 g/kg/day maximizes synthesis", "")
+        .await
+        .unwrap();
+    let second = judge_claim(judge, "Max heart rate is 208 minus 0.7 times age", "")
+        .await
+        .unwrap();
+
+    assert_eq!(first.status, ClaimStatus::Supported);
+    assert_eq!(second.status, ClaimStatus::Supported);
+    assert_eq!(provider.last_model().as_deref(), Some("claude-haiku-4.5"));
+    let records = mem::take(&mut *captured.0.lock().expect("records lock"));
+    assert_eq!(records.len(), 2, "one record per judged claim: {records:?}");
+    assert!(records
+        .iter()
+        .all(|r| r.success && r.provider == "canned-judge"));
 }

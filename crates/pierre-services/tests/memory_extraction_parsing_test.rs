@@ -370,6 +370,7 @@ async fn extract(reply: &str, source: FactSource, plan_was_saved: bool) -> Pass 
         force_kind: None,
         plan_was_saved,
         transport_policy: TransportPolicy::AnyTransport,
+        recorder: None,
     };
     let outcome = extract_and_persist(&repo, &provider, BASE_PROMPT, &req, DEDUP)
         .await

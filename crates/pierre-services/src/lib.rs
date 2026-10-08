@@ -139,6 +139,8 @@ pub mod whoop_terms;
 #[cfg(feature = "health-sync")]
 pub mod sciotte_health_reader;
 
+/// The `llm_usage` recorder every LLM call writes its usage row through
+pub mod llm_usage_recorder;
 /// Memory extraction: Tier 2 background distillation of user facts from finished turns
 pub mod memory_extraction;
 /// Re-running the extractions an instance died owing, from the job ledger

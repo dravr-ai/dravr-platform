@@ -31,6 +31,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::llm_usage_recorder::UsageRepoCallRecorder;
 use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health;
@@ -41,12 +42,16 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::{
-    merge_recovery_metrics, Activity, SportType, StoredRecoveryMetrics, TenantId,
+    merge_recovery_metrics, Activity, ConversationTurnId, SportType, StoredRecoveryMetrics,
+    TenantId,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
-use pierre_llm::{judge, ChatProvider, LlmProvider};
+use pierre_llm::call_record::LlmCallRecorder;
+use pierre_llm::judge::{ask_for_json, judge_request};
+use pierre_llm::stage::LlmStage;
+use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
 use pierre_providers::ai_scope;
 use serde::Deserialize;
@@ -458,6 +463,12 @@ async fn self_or_judge(
 
 /// Ask the LLM judge to resolve an ambiguous case. Returns `None` when there is
 /// no provider or the call fails.
+///
+/// The judge runs on the [`LlmStage::OutcomeEvaluation`] model when the
+/// provider is the platform's head, and writes an `llm_usage` row for the
+/// advice's athlete. An evaluation answers no turn — it is a sweep's own unit
+/// of work, the way a direct MCP tool call is — so its row is keyed on a turn
+/// id minted for it.
 async fn run_judge(
     ctx: &EvalCtx<'_>,
     metric_label: &str,
@@ -472,13 +483,20 @@ async fn run_judge(
         before.map_or_else(|| "n/a".to_owned(), |v| format!("{v:.1}")),
         after.map_or_else(|| "n/a".to_owned(), |v| format!("{v:.1}")),
     );
-    match judge::ask_for_json::<JudgeVerdict>(
-        provider as &dyn LlmProvider,
-        ctx.inputs.judge_prompt,
-        &summary,
-        0.0,
-    )
-    .await
+    let request = provider.routed(
+        LlmStage::OutcomeEvaluation,
+        judge_request(ctx.inputs.judge_prompt, &summary, 0.0),
+    );
+    let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
+        Arc::clone(&ctx.repos().llm_usage),
+        ctx.tenant_id.to_string(),
+        ctx.user_id.to_string(),
+        None,
+        ConversationTurnId::new(),
+        LlmStage::OutcomeEvaluation.call_type(),
+    ));
+    match ask_for_json::<JudgeVerdict>(provider as &dyn LlmProvider, &request, Some(&recorder))
+        .await
     {
         Ok(v) => Some(OutcomeLabel::parse_lenient(&v.verdict)),
         Err(e) => {
@@ -661,12 +679,18 @@ mod tests {
 
     use async_trait::async_trait;
     use chrono::Duration as ChronoDuration;
+    use embacle::types::{
+        ChatStream as EmbacleChatStream, LlmProvider as EmbacleLlmProvider, RunnerError, TokenUsage,
+    };
     use pierre_core::errors::AppError;
-    use pierre_llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities};
+    use pierre_llm::config::LlmProviderType;
+    use pierre_llm::stage::{StageModels, COPILOT_SDK_BACKGROUND_MODEL};
+    use pierre_llm::{ChatRequest, ChatResponse, ChatStream, EmbacleProvider, LlmCapabilities};
     use pierre_memory::playbooks::{
         AdviceStatus, Band, Intervention, InterventionKind, MetricBaseline, TriggerKind,
         TriggerPattern,
     };
+    use tokio::time::sleep;
 
     use super::*;
     use crate::training_history_read::tests::{athlete, noon, relayed, Athlete, NolioTerms, RELAY};
@@ -911,6 +935,127 @@ mod tests {
                 .iter()
                 .all(|m| !m.contains("91.0") && !m.contains("92.0")),
             "a zepp reading never reaches the judge: {asked:?}"
+        );
+    }
+
+    /// A `copilot_sdk`-named judge that labels every case neutral and
+    /// remembers the model each call asked for.
+    struct SdkJudge {
+        requested: Arc<Mutex<Vec<Option<String>>>>,
+        models: Vec<String>,
+    }
+
+    #[async_trait]
+    impl EmbacleLlmProvider for SdkJudge {
+        fn name(&self) -> &'static str {
+            "copilot_sdk"
+        }
+        fn display_name(&self) -> &str {
+            "Copilot SDK judge (scripted)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &str {
+            &self.models[0]
+        }
+        fn available_models(&self) -> &[String] {
+            &self.models
+        }
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+            self.requested.lock().unwrap().push(request.model.clone());
+            Ok(ChatResponse {
+                content: r#"{"verdict":"neutral"}"#.to_owned(),
+                model: request
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| self.models[0].clone()),
+                usage: Some(TokenUsage::new(300, 8, 308)),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(
+            &self,
+            _request: &ChatRequest,
+        ) -> Result<EmbacleChatStream, RunnerError> {
+            Err(RunnerError::internal("the outcome judge never streams"))
+        }
+        async fn health_check(&self) -> Result<bool, RunnerError> {
+            Ok(true)
+        }
+    }
+
+    /// The judge is a background stage: on a `copilot_sdk` head it runs on the
+    /// stage model, and its call is billed to the advice's athlete as an
+    /// `outcome_eval` row instead of costing nothing on paper.
+    #[tokio::test]
+    async fn the_judge_runs_on_its_stage_model_and_bills_its_own_row() {
+        let fx = athlete().await;
+        fx.cache(&[
+            relayed("g", "Garmin tempo", "garmin", noon(3)),
+            relayed("z", "Secret zepp ride", "zepp", noon(2)),
+        ])
+        .await;
+        let advice = advice(&fx, OutcomeMetric::Consistency { window_days: 7 });
+        let requested = Arc::new(Mutex::new(Vec::new()));
+        let judge = ChatProvider::Embacle(
+            EmbacleProvider::from_runner(
+                Box::new(SdkJudge {
+                    requested: Arc::clone(&requested),
+                    models: vec!["claude-sonnet-5.5".to_owned()],
+                }),
+                "Copilot SDK judge (scripted)",
+            )
+            .with_stage_models(StageModels::resolve(
+                Some(LlmProviderType::CopilotSdk),
+                |_| None,
+            )),
+        );
+        let algorithms = AlgorithmConfig::default();
+        let inputs = SweepInputs {
+            repos: fx.db.repositories(),
+            chat_provider: Some(&judge),
+            judge_prompt: "Label the outcome.",
+            terms: &NolioTerms,
+            algorithms: &algorithms,
+        };
+
+        let resolution = evaluate_advice(&advice, inputs).await;
+
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::LlmJudge)
+        );
+        assert_eq!(
+            *requested.lock().unwrap(),
+            vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned())]
+        );
+        let mut rows = Vec::new();
+        for _ in 0..100 {
+            rows = fx
+                .db
+                .repositories()
+                .llm_usage
+                .get_recent_llm_calls_admin(10)
+                .await
+                .unwrap();
+            if !rows.is_empty() {
+                break;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(rows.len(), 1, "one judged case, one row: {rows:?}");
+        let row = &rows[0];
+        // A persisted value: the type the cost dashboards group these rows by.
+        assert_eq!(row.call_type, "outcome_eval");
+        assert_eq!(row.model, COPILOT_SDK_BACKGROUND_MODEL);
+        assert_eq!(row.user_id, fx.user_id.to_string());
+        assert_eq!(row.tenant_id, fx.tenant.to_string());
+        assert_eq!(
+            row.conversation_id, None,
+            "an evaluation answers no conversation"
         );
     }
 }

@@ -42,6 +42,7 @@ use crate::config::{LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
+use crate::stage::{LlmStage, StageModels};
 use crate::tool_bridge::{with_tool_defs, with_tools_response};
 
 /// Unified chat provider.
@@ -94,6 +95,10 @@ impl ChatProvider {
     /// When `PIERRE_LLM_FALLBACK_ENABLED=true`, if the primary provider fails,
     /// attempts to use the fallback provider specified by `PIERRE_LLM_FALLBACK_PROVIDER`.
     ///
+    /// The provider it returns is the platform's head, so it is also the one
+    /// that carries the background stages' models ([`crate::stage`]), resolved
+    /// here once for whichever kind the head turned out to be.
+    ///
     /// # Errors
     ///
     /// Returns an error if the required API key environment variable is missing
@@ -110,11 +115,48 @@ impl ChatProvider {
 
         let primary_result = EmbacleProvider::from_provider_type(provider_type, None).await;
 
-        if LlmProviderType::is_runtime_fallback_enabled() {
-            return Self::build_runtime_chain(primary_result, provider_type).await;
-        }
+        let provider = if LlmProviderType::is_runtime_fallback_enabled() {
+            Self::build_runtime_chain(primary_result, provider_type).await?
+        } else {
+            Self::finalize_or_fallback(primary_result, provider_type).await?
+        };
+        Ok(provider.with_stage_models_from_env())
+    }
 
-        Self::finalize_or_fallback(primary_result, provider_type).await
+    /// This provider with its background stages routed per [`StageModels::from_env`],
+    /// for the kind its head was built as. A primary that failed to build
+    /// leaves a fallback at the head, and the stages follow that kind.
+    fn with_stage_models_from_env(self) -> Self {
+        match self {
+            Self::Embacle(provider) => {
+                let stage_models = StageModels::from_env(provider.kind());
+                stage_models.report_against(&provider);
+                Self::Embacle(provider.with_stage_models(stage_models))
+            }
+            Self::Custom(provider) => Self::Custom(provider),
+        }
+    }
+
+    /// The model `stage` runs on through this provider, or `None` for its own.
+    ///
+    /// Only the platform's head carries stage models; a tenant's own provider
+    /// and a test double answer `None` for every stage.
+    #[must_use]
+    pub fn stage_model(&self, stage: LlmStage) -> Option<&str> {
+        match self {
+            Self::Embacle(provider) => provider.stage_model(stage),
+            Self::Custom(_) => None,
+        }
+    }
+
+    /// `request`, routed to `stage`'s model when this provider routes it, and
+    /// untouched otherwise.
+    #[must_use]
+    pub fn routed(&self, stage: LlmStage, mut request: ChatRequest) -> ChatRequest {
+        if let Some(model) = self.stage_model(stage) {
+            request.model = Some(model.to_owned());
+        }
+        request
     }
 
     /// Build the runtime chain when `PIERRE_LLM_RUNTIME_FALLBACK=true`.

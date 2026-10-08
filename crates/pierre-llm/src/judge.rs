@@ -14,17 +14,35 @@
 //!
 //! The helpers deliberately do not own a `JudgeVerdict` type — callers
 //! keep their own domain-shaped verdicts and deserialize directly into
-//! them via [`ask_for_json`].
+//! them via [`ask_for_json`]. A production judge passes a recorder, so its
+//! calls are counted in `llm_usage` apart from the reply they judge.
+
+use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::llm::{ChatMessage, ChatRequest};
 use serde::de::DeserializeOwned;
 use tracing::warn;
 
+use crate::call_record::{complete_recorded, LlmCallRecorder};
 use crate::LlmProvider;
 
-/// Call an LLM with a system prompt + user message and deserialize the
-/// response as JSON into a caller-chosen type.
+/// The request a judge call sends: the rubric as the system prompt, the case
+/// as the user message.
+///
+/// Built apart from [`ask_for_json`] so a caller can route it — set the model
+/// a judge stage runs on — before it is sent.
+#[must_use]
+pub fn judge_request(system_prompt: &str, user_message: &str, temperature: f32) -> ChatRequest {
+    ChatRequest::new(vec![
+        ChatMessage::system(system_prompt.to_owned()),
+        ChatMessage::user(user_message.to_owned()),
+    ])
+    .with_temperature(temperature)
+}
+
+/// Send a judge `request` and deserialize the response as JSON into a
+/// caller-chosen type, handing the call's usage to `recorder`.
 ///
 /// The response text is passed through [`extract_json`] so it tolerates
 /// LLMs that wrap JSON in prose or fenced code blocks.
@@ -35,16 +53,10 @@ use crate::LlmProvider;
 /// resolved to valid JSON, or the JSON does not deserialize into `T`.
 pub async fn ask_for_json<T: DeserializeOwned>(
     provider: &dyn LlmProvider,
-    system_prompt: &str,
-    user_message: &str,
-    temperature: f32,
+    request: &ChatRequest,
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
 ) -> AppResult<T> {
-    let messages = vec![
-        ChatMessage::system(system_prompt.to_owned()),
-        ChatMessage::user(user_message.to_owned()),
-    ];
-    let request = ChatRequest::new(messages).with_temperature(temperature);
-    let response = provider.complete(&request).await?;
+    let response = complete_recorded(provider, request, recorder).await?;
 
     let json_str = extract_json(&response.content)?;
     serde_json::from_str::<T>(&json_str).map_err(|e| {

@@ -220,6 +220,8 @@ fn payload_for(user: &str, user_message: &str) -> ExtractionJobPayload {
         force_kind: None,
         plan_was_saved: false,
         transport_policy: TransportPolicy::AnyTransport,
+        conversation_id: None,
+        turn_id: None,
     }
 }
 
@@ -294,6 +296,7 @@ async fn a_turn_without_a_provider_records_its_job_then_finishes_it() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&ledger) as Arc<dyn MemoryExtractionJobRepository>,
+        Arc::clone(&fx.repos.llm_usage),
         None,
         CONFIG,
         "SYSTEM".to_owned(),
@@ -348,6 +351,7 @@ async fn a_turn_whose_run_fails_leaves_its_row_for_the_sweep() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&fx.repos.memory_extraction_jobs),
+        Arc::clone(&fx.repos.llm_usage),
         Some(Arc::new(extractor.provider())),
         CONFIG,
         "SYSTEM".to_owned(),

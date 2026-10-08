@@ -9,6 +9,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use std::slice::from_ref;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -16,15 +17,19 @@ use futures_util::stream;
 
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
+use pierre_core::models::{AddMessageParams, ConversationTurnId, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertCompactionBlockParams;
+use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::prompts::CONVERSATION_SUMMARY_PROMPT;
+use pierre_llm::stage::LlmStage;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
 };
+use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_test_support::db::create_test_db;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use pierre_chat_pipeline::stages::prompt_builder::{
@@ -242,12 +247,23 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     let summarizer = StubSummarizer::default();
     let seen_system_prompt = Arc::clone(&summarizer.seen_system_prompt);
     let provider = ChatProvider::Custom(Arc::new(summarizer));
+    // The summary call is billed like any other the turn makes.
+    let summary_turn = ConversationTurnId::new();
+    let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
+        Arc::clone(&repos.llm_usage),
+        tenant_id.to_string(),
+        user_id.to_owned(),
+        Some(conversation.id.clone()),
+        summary_turn,
+        LlmStage::CompactionSummary.call_type(),
+    ));
 
     // --- Act: run the compactor over the assembled prompt. ---
     let ctx = CompactionContext {
         repo: repos.memory.as_ref(),
         provider: &provider,
         summary_prompt: CONVERSATION_SUMMARY_PROMPT,
+        recorder: Some(&recorder),
         tenant_id,
         conversation_id: &conversation.id,
         source_ids: &source_ids,
@@ -274,6 +290,33 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
             .expect("system prompt lock")
             .as_deref(),
         Some(CONVERSATION_SUMMARY_PROMPT)
+    );
+
+    // --- Assert (1c): the summary call wrote its own usage row, typed apart
+    //     from the reply's. The recorder's write is spawned, so wait for it. ---
+    let mut usage_rows = Vec::new();
+    for _ in 0..100 {
+        usage_rows = repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(summary_turn)
+            .await
+            .expect("usage rows should load");
+        if !usage_rows.is_empty() {
+            break;
+        }
+        sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        usage_rows.len(),
+        1,
+        "one summary call, one row: {usage_rows:?}"
+    );
+    // A persisted value: the type the cost dashboards group these rows by.
+    // The stub reports its usage, so the type carries no `_estimated`.
+    assert_eq!(usage_rows[0].call_type, "compaction_summary");
+    assert_eq!(
+        usage_rows[0].conversation_id.as_deref(),
+        Some(conversation.id.as_str())
     );
 
     // How many rows a block covers, and the net shrink when they collapse into
@@ -513,6 +556,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
             repo: repos.memory.as_ref(),
             provider: &provider,
             summary_prompt: CONVERSATION_SUMMARY_PROMPT,
+            recorder: None,
             tenant_id,
             conversation_id: &conversation.id,
             source_ids: &source_ids,

@@ -43,12 +43,14 @@ use pierre_core::models::{
     ConversationRecord, ConversationTurnId, InputSource, TenantId, TurnOrigin,
 };
 use pierre_core::transport::Transport;
+use pierre_llm::call_record::LlmCallRecorder;
+use pierre_llm::stage::LlmStage;
 use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
+use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
-use pierre_tool_runtime::llm_call_record::LlmCallRecorder;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -56,9 +58,8 @@ use crate::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
 use crate::chat_provider_from_resources_arc;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
-use crate::language::{resolve_turn_locale, LocaleClassifier, LANGUAGE_CLASSIFICATION_CALL_TYPE};
+use crate::language::{resolve_turn_locale, LocaleClassifier};
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
-use crate::recorders::UsageRepoCallRecorder;
 use crate::stages::agent_mention::resolve_agent_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
@@ -411,7 +412,7 @@ async fn execute_turn(
         user_id_str.clone(),
         Some(request.conversation_id.clone()),
         request.turn_id,
-        LANGUAGE_CLASSIFICATION_CALL_TYPE,
+        LlmStage::LanguageClassification.call_type(),
     ));
     let classification_prompt = ctx.prompt_registry.language_classification_prompt();
     let classifier = classifier_provider

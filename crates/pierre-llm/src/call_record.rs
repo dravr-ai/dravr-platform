@@ -1,20 +1,27 @@
-// ABOUTME: What one recorded LLM call is — the per-call metric and its sink trait
-// ABOUTME: Split out of tool_execution.rs so the loop file stops carrying the recording vocabulary
+// ABOUTME: What one recorded LLM call is — the per-call metric, its sink trait, and the recorded completion
+// ABOUTME: Shared by the tool loops and by every LLM call the platform makes outside them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Per-call usage recording types.
+//! Per-call usage recording.
 //!
-//! The tool loop measures one record per provider completion and hands it to
-//! an [`LlmCallRecorder`]. Keeping the vocabulary here rather than in the loop
-//! means the billing pipeline can depend on the shape of a call without
-//! depending on how the loop runs.
+//! The tool loops measure one record per provider completion and hand it to
+//! an [`LlmCallRecorder`]; so does every LLM call the platform makes outside
+//! them — language classification, memory extraction, the claim judge, a
+//! re-ask — through [`complete_recorded`]. Keeping the vocabulary here, below
+//! every crate that makes such a call, means one recorder serves them all and
+//! the billing pipeline can depend on the shape of a call without depending on
+//! how the call was made.
 
 use std::sync::Arc;
+use std::time::Instant;
 
-use pierre_core::llm::TokenUsage;
+use pierre_core::errors::AppResult;
+use pierre_core::llm::{ChatRequest, ChatResponse, LlmProvider, TokenUsage};
 use pierre_core::tokens::{estimate_chat_tokens, estimate_prompt_tokens};
+
+use crate::served_tier::observe_served_tier;
 
 /// Decide the `(prompt_tokens, completion_tokens, estimated)` triple for one
 /// recorded call.
@@ -139,23 +146,10 @@ pub trait LlmCallRecorder: Send + Sync {
     fn record(&self, record: LlmCallRecord);
 }
 
-/// Sum an optional per-call token count into a running optional total.
-///
-/// `None` means the provider reported nothing, which is not the same as a
-/// measured zero, so the total stays `None` until some call reports a figure.
-pub(crate) const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -> Option<u32> {
-    match (total, next) {
-        (None, None) => None,
-        (Some(t), None) => Some(t),
-        (None, Some(n)) => Some(n),
-        (Some(t), Some(n)) => Some(t.saturating_add(n)),
-    }
-}
-
 /// Every field a recorder needs to capture a single LLM call.
 ///
-/// Shared by [`emit_call_record`] and [`emit_call_record_with_text`] so the
-/// call sites don't carry a nine/eleven-arg positional signature.
+/// Taken by [`emit_call_record_with_text`] so the call sites don't carry a
+/// nine/eleven-arg positional signature.
 pub struct CallRecordInputs<'a> {
     /// Optional recorder; `None` short-circuits the call (no row written).
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
@@ -174,17 +168,6 @@ pub struct CallRecordInputs<'a> {
     pub call_sequence: Option<i64>,
     /// Tool function names invoked during the call.
     pub tools_called: Vec<String>,
-}
-
-/// Hand one [`LlmCallRecord`] to the optional sink.
-///
-/// Centralises token extraction so the three tool-loop variants share the
-/// same recording contract. `cached_tokens` is zero unless the provider
-/// wrapped its usage in its own [`pierre_core::llm::TokenUsage`] and forwarded
-/// it through the caller. `call_sequence` is the 1-based turn-local position
-/// of the call (1, 2, 3, ...).
-pub(crate) fn emit_call_record(inputs: CallRecordInputs<'_>) {
-    emit_call_record_with_text(inputs, None, None);
 }
 
 /// Hand one [`LlmCallRecord`] to the optional sink, estimating its tokens.
@@ -240,4 +223,74 @@ pub fn emit_call_record_with_text(
         token_counts_estimated: estimated,
         tools_called,
     });
+}
+
+/// One completion, its usage handed to `recorder`.
+///
+/// The path for an LLM call made outside the tool loops, so each writes its
+/// own `llm_usage` row under the recorder's `call_type` instead of costing
+/// nothing on paper. The row names the chain tier that answered rather than
+/// the head the chain is named after, and a call that failed still records
+/// the prompt it sent, estimated: that prompt was billed before the error
+/// came back.
+///
+/// # Errors
+///
+/// The provider's error, unchanged, once it is recorded.
+pub async fn complete_recorded<P: LlmProvider + ?Sized>(
+    provider: &P,
+    request: &ChatRequest,
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
+) -> AppResult<ChatResponse> {
+    let started = Instant::now();
+    let (outcome, served) = observe_served_tier(provider.complete(request)).await;
+    let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
+    if recorder.is_none() {
+        return outcome;
+    }
+    let prompt = prompt_text(request);
+    let provider_name = served.map_or_else(|| provider.name(), |tier| tier.provider);
+    let (model, usage, success, completion) = match &outcome {
+        Ok(reply) => (
+            reply.model.as_str(),
+            reply.usage.as_ref(),
+            true,
+            Some(reply.content.as_str()),
+        ),
+        Err(_) => (
+            request
+                .model
+                .as_deref()
+                .unwrap_or_else(|| provider.default_model()),
+            None,
+            false,
+            None,
+        ),
+    };
+    emit_call_record_with_text(
+        CallRecordInputs {
+            recorder,
+            provider: provider_name,
+            model,
+            usage,
+            latency_ms,
+            success,
+            call_sequence: None,
+            tools_called: Vec::new(),
+        },
+        Some(&prompt),
+        completion,
+    );
+    outcome
+}
+
+/// Every message of `request`, as the text the token estimator reads when the
+/// provider reports no usage.
+fn prompt_text(request: &ChatRequest) -> String {
+    request
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }

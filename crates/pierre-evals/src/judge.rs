@@ -19,9 +19,11 @@
 //!   judgement.
 
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
-use pierre_llm::judge::ask_for_json;
+use pierre_llm::call_record::LlmCallRecorder;
+use pierre_llm::judge::{ask_for_json, judge_request};
 use pierre_llm::LlmProvider;
 use pierre_memory::ClaimStatus;
 use serde::{Deserialize, Serialize};
@@ -100,7 +102,13 @@ pub async fn judge_response(
         "## User message\n{user_message}\n\n## Expected coach reply\n{expected_response}\n\n## Actual coach reply\n{actual_response}\n\nReturn the JSON object only.",
     );
 
-    let raw: RawScores = ask_for_json(provider, &system_prompt, &user_prompt, 0.2).await?;
+    // An offline eval run: nothing bills it to a turn, so nothing records it.
+    let raw: RawScores = ask_for_json(
+        provider,
+        &judge_request(&system_prompt, &user_prompt, 0.2),
+        None,
+    )
+    .await?;
 
     let scored = rubrics
         .iter()
@@ -163,8 +171,9 @@ pub struct ClaimJudgement {
     pub rationale: String,
 }
 
-/// The LLM judge a verification run may consult: the provider that answers and
-/// the instructions it answers under.
+/// The LLM judge a verification run may consult: the provider that answers,
+/// the instructions it answers under, the model it runs on and where each
+/// call's usage goes.
 ///
 /// The instructions are the `claim_judge` system prompt. This crate sits below
 /// the prompt registry, so the caller resolves the text and hands it in; the
@@ -175,6 +184,10 @@ pub struct ClaimJudge<'a> {
     pub provider: &'a dyn LlmProvider,
     /// System prompt for the judge call.
     pub system_prompt: &'a str,
+    /// The model each call asks for; `None` runs on the provider's own.
+    pub model: Option<&'a str>,
+    /// Receives one usage record per judged claim; `None` records nothing.
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
 /// Judge a single claim with the configured LLM provider — the bullshit
@@ -204,8 +217,11 @@ pub async fn judge_claim(
         "## Claim\n{claim_text}\n\n## Context\n{evidence_block}\n\nReturn the JSON object only.",
     );
 
-    let raw: RawClaimJudgement =
-        ask_for_json(judge.provider, judge.system_prompt, &user_prompt, 0.1).await?;
+    let mut request = judge_request(judge.system_prompt, &user_prompt, 0.1);
+    if let Some(model) = judge.model {
+        request.model = Some(model.to_owned());
+    }
+    let raw: RawClaimJudgement = ask_for_json(judge.provider, &request, judge.recorder).await?;
 
     let status = match raw.verdict.trim().to_lowercase().as_str() {
         "supported" => ClaimStatus::Supported,

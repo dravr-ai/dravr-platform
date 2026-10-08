@@ -38,6 +38,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_core::models::TenantId;
+use pierre_llm::call_record::LlmCallRecorder;
+use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
@@ -357,6 +359,9 @@ pub struct ClaimVerificationParams<'a> {
     pub user_id: &'a str,
     /// Tenant owning the user's data (multi-tenant scoping for snapshot reads).
     pub tenant_id: TenantId,
+    /// Receives one usage record per claim the LLM judge is asked about,
+    /// typed [`LlmStage::ClaimJudge`].
+    pub judge_recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
 /// Result of running claim verification on an assistant reply.
@@ -490,6 +495,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         locale,
         user_id,
         tenant_id,
+        judge_recorder,
     } = params;
     let locale = resolve_banner_locale(reply, locale);
     let locale = locale.as_str();
@@ -520,9 +526,13 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     // The judge's instructions are the catalogue's `claim_judge` prompt, read
     // per turn so an edit there reaches the next verification without a deploy.
     let judge_prompt = ctx.prompt_registry.claim_judge_prompt();
+    // The judge runs on its stage model when the provider is the platform's
+    // head, and every claim it is asked about writes its own usage row.
     let judge: Option<ClaimJudge<'_>> = judge_provider.as_deref().map(|p| ClaimJudge {
         provider: p as &dyn LlmProvider,
         system_prompt: judge_prompt.trim(),
+        model: p.stage_model(LlmStage::ClaimJudge),
+        recorder: judge_recorder,
     });
 
     // The personalized layer — build the athlete snapshot + tolerance strategy when the agent

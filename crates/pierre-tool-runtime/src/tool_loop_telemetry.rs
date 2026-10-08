@@ -13,6 +13,7 @@
 use std::time::Instant;
 
 use pierre_core::errors::AppError;
+use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::served_tier::ServedTier;
 use pierre_llm::{ChatMessage, ChatProvider, ChatResponseWithTools, MessageRole};
 use tracing::{info, warn};
@@ -25,6 +26,28 @@ use crate::tool_loop_io::ToolLoopParams;
 /// because the provider is not a chain — the provider that was invoked.
 pub fn served_provider_name(served: Option<ServedTier>, invoked: &'static str) -> &'static str {
     served.map_or(invoked, |tier| tier.provider)
+}
+
+/// Sum an optional per-call token count into a running optional total.
+///
+/// `None` means the provider reported nothing, which is not the same as a
+/// measured zero, so the total stays `None` until some call reports a figure.
+pub const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -> Option<u32> {
+    match (total, next) {
+        (None, None) => None,
+        (Some(t), None) => Some(t),
+        (None, Some(n)) => Some(n),
+        (Some(t), Some(n)) => Some(t.saturating_add(n)),
+    }
+}
+
+/// Hand one loop call's record to the optional sink, with no text to estimate
+/// from: the provider reported its own usage, or nothing can be known.
+///
+/// Centralises token extraction so the three tool-loop variants share the
+/// same recording contract.
+pub fn emit_call_record(inputs: CallRecordInputs<'_>) {
+    emit_call_record_with_text(inputs, None, None);
 }
 
 /// Convert an [`Instant`] elapsed time into milliseconds, saturating

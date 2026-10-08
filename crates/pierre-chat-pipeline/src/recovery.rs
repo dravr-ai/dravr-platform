@@ -23,6 +23,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_database::database::ConversationRecord;
+use pierre_llm::call_record::complete_recorded;
 use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse};
 use pierre_services::prompt_leak;
@@ -30,6 +31,10 @@ use tracing::{info, warn};
 
 use crate::envelope::ReconnectPrompt;
 use crate::hooks::PipelineHooks;
+use crate::recorders::{
+    turn_call_recorder, CAPABILITY_REASK_CALL_TYPE, IDENTITY_LEAK_REASK_CALL_TYPE,
+    PEER_CLAIM_VERIFIER_CALL_TYPE,
+};
 use crate::stages;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
@@ -71,6 +76,7 @@ use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 /// existing withhold path stays exactly as it was on failure.
 async fn reask_after_identity_leak(
     ctx: &ChatPipelineContext,
+    input: &TurnInput,
     llm_messages: &[ChatMessage],
     active_model: &str,
     result: &mut ToolLoopResult,
@@ -82,7 +88,11 @@ async fn reask_after_identity_leak(
         return;
     };
     let request = ChatRequest::new(llm_messages.to_vec()).with_model(active_model);
-    apply_reask_outcome(provider.complete(&request).await, result);
+    let recorder = turn_call_recorder(ctx, input, IDENTITY_LEAK_REASK_CALL_TYPE);
+    apply_reask_outcome(
+        complete_recorded(provider.as_ref(), &request, Some(&recorder)).await,
+        result,
+    );
 }
 
 /// Resolve the provider for a re-ask, or `None` after logging why not.
@@ -235,6 +245,8 @@ pub async fn run_recovery_and_post_process(
     // Cloned so the stamp net below can tell whether the stage replaced the
     // tool loop's reply — a few KB of text once per turn.
     let content_before_recovery = result.content.clone();
+    let reask_recorder = turn_call_recorder(ctx, input, CAPABILITY_REASK_CALL_TYPE);
+    let verifier_recorder = turn_call_recorder(ctx, input, PEER_CLAIM_VERIFIER_CALL_TYPE);
     stages::capability_recovery::apply_capability_recovery(
         stages::capability_recovery::CapabilityRecoveryDeps {
             ctx,
@@ -243,6 +255,8 @@ pub async fn run_recovery_and_post_process(
             peer_roster,
             locale: &profile.locale,
             guided_walk,
+            reask_recorder: &reask_recorder,
+            verifier_recorder: &verifier_recorder,
         },
         input,
         result,
@@ -296,7 +310,7 @@ pub async fn run_recovery_and_post_process(
     //
     // Cloned for the same one comparison as `content_before_recovery` above.
     let content_before_identity_reask = result.content.clone();
-    reask_after_identity_leak(ctx, llm_messages, active_model, result).await;
+    reask_after_identity_leak(ctx, input, llm_messages, active_model, result).await;
     stamp_reinstated_denial(
         recovery_replaced_reply,
         result.content != content_before_identity_reask,

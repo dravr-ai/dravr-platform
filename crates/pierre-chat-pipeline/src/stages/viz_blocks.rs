@@ -43,6 +43,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
 use pierre_contremaitre::PromptRegistry;
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 
 use super::viz_route::{hydrate_route, RouteTracks};
@@ -160,12 +161,16 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
 /// `faults` are the per-block reasons from [`VizExtraction::refusals`], which
 /// name the offending field — a repair prompt carrying the bare `oneOf` refusal
 /// would tell the model nothing it could act on.
+///
+/// The re-ask is an LLM call the turn pays for, so its usage goes to
+/// `recorder` like any other.
 pub async fn repair_refused_blocks(
     provider: &Arc<ChatProvider>,
     prompts: &PromptRegistry,
     reply: &str,
     faults: &[String],
     active_model: &str,
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
 ) -> Option<String> {
     if faults.is_empty() {
         return None;
@@ -194,7 +199,7 @@ pub async fn repair_refused_blocks(
     // pay a cold spawn on every repair.
     .with_model(active_model);
 
-    match provider.complete(&request).await {
+    match complete_recorded(provider.as_ref(), &request, recorder).await {
         Ok(resp) if !resp.content.trim().is_empty() => Some(resp.content),
         Ok(_) => {
             warn!("viz-blocks: repair re-ask returned an empty reply; keeping the original");

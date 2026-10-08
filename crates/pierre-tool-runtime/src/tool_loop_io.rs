@@ -19,13 +19,13 @@
 
 use std::sync::Arc;
 
+use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
 
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 
-use crate::llm_call_record::LlmCallRecorder;
 use crate::protocol::UniversalExecutor;
 
 /// One round of tool dispatch as the in-memory loop sees it.
@@ -79,7 +79,7 @@ pub struct ToolLoopParams<'a> {
     /// Maximum number of tool-calling iterations before forcing a response
     pub max_iterations: usize,
     /// Optional per-LLM-call sink. When set, each provider call inside
-    /// the loop produces a [`crate::llm_call_record::LlmCallRecord`] that the sink persists.
+    /// the loop produces a [`pierre_llm::call_record::LlmCallRecord`] that the sink persists.
     /// When absent, the loop still accumulates cumulative usage for
     /// the returned [`ToolLoopResult`] without recording individual calls.
     pub call_recorder: Option<Arc<dyn LlmCallRecorder>>,

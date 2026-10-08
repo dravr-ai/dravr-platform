@@ -51,6 +51,7 @@ pub(crate) async fn spawn_turn_extraction(
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),
         Arc::clone(&ctx.repos.memory_extraction_jobs),
+        Arc::clone(&ctx.repos.llm_usage),
         ctx.chat_provider.as_ref().map(Arc::clone),
         DedupConfig {
             candidate_limit: memory_config.dedup_candidate_limit as usize,
@@ -69,6 +70,8 @@ pub(crate) async fn spawn_turn_extraction(
                 force_kind,
                 plan_was_saved,
                 transport_policy: ai_scope::derived_policy(),
+                conversation_id: Some(input.conversation_id.clone()),
+                turn_id: Some(input.turn_id),
             },
         },
     )

@@ -26,17 +26,14 @@ use crate::cli_loop::cli_loop_request;
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
 use crate::headless_stream;
-use crate::llm_call_record::{
-    accumulate_optional, emit_call_record, emit_call_record_with_text, CallRecordInputs,
-};
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
     observed_tool_name, reroutes_headless_turn, GuardianConfirmRequest, GuardianDenial,
     ToolLoopParams, ToolLoopResult, ToolLoopTally, ToolRoundRecord,
 };
 use crate::tool_loop_telemetry::{
-    log_iteration_response, log_iteration_start, log_wire_shape, millis_elapsed,
-    note_headless_fallback, served_provider_name,
+    accumulate_optional, emit_call_record, log_iteration_response, log_iteration_start,
+    log_wire_shape, millis_elapsed, note_headless_fallback, served_provider_name,
 };
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
@@ -45,6 +42,7 @@ use crate::tool_results::{
 };
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 use pierre_core::errors::AppError;
+use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::served_tier::observe_served_tier;
 use pierre_llm::{
     ChatMessage, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, MessageRole,

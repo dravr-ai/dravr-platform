@@ -28,10 +28,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs, LlmCallRecorder};
+use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
-use pierre_tool_runtime::llm_call_record::{
-    emit_call_record_with_text, CallRecordInputs, LlmCallRecorder,
-};
 use tokio::time::timeout;
 use tracing::warn;
 
@@ -48,23 +47,21 @@ const CLASSIFICATION_TIMEOUT: Duration = Duration::from_secs(15);
 /// sentences; the rest would only cost tokens.
 const CLASSIFICATION_EXCERPT_CHARS: usize = 600;
 
-/// The `call_type` of the `llm_usage` row the classification call writes, so
-/// its cost is counted apart from the reply's own calls.
-pub(crate) const LANGUAGE_CLASSIFICATION_CALL_TYPE: &str = "language_classification";
-
 /// Where the classification prompt takes the athlete's message.
 const MESSAGE_PLACEHOLDER: &str = "{{MESSAGE}}";
 
 /// The LLM a turn may ask for its language, and where that call's usage goes.
 #[derive(Clone, Copy)]
 pub struct LocaleClassifier<'a> {
-    /// The turn's own provider.
+    /// The turn's own provider, which routes the call to the
+    /// [`LlmStage::LanguageClassification`] model when it is the platform's
+    /// head.
     pub provider: &'a ChatProvider,
     /// The contremaitre `language_classification` prompt, with
     /// `{{MESSAGE}}` where the message goes.
     pub prompt: &'a str,
-    /// Receives one record for the classification call; `None` writes no
-    /// usage row.
+    /// Receives one record for the classification call, typed
+    /// [`LlmStage::LanguageClassification`]; `None` writes no usage row.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
@@ -126,7 +123,14 @@ async fn classify_locale_with_llm(
     let excerpt: String = text.chars().take(CLASSIFICATION_EXCERPT_CHARS).collect();
     // One user message: several embacle runners drop a system message.
     let prompt = render_classification_prompt(prompt, &excerpt);
-    let request = ChatRequest::new(vec![ChatMessage::user(prompt.clone())]);
+    let request = provider.routed(
+        LlmStage::LanguageClassification,
+        ChatRequest::new(vec![ChatMessage::user(prompt.clone())]),
+    );
+    let requested_model = request
+        .model
+        .clone()
+        .unwrap_or_else(|| provider.default_model().to_owned());
     let started = Instant::now();
     let outcome = timeout(CLASSIFICATION_TIMEOUT, provider.complete(&request)).await;
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
@@ -157,13 +161,13 @@ async fn classify_locale_with_llm(
             parse_locale_answer(&reply.content)
         }
         Ok(Err(e)) => {
-            record(provider.default_model(), None, false, None);
+            record(&requested_model, None, false, None);
             warn!(error = %e, "language classification failed; the turn keeps its stored locale");
             None
         }
         Err(_) => {
             // The request may already have been billed when the wait ends.
-            record(provider.default_model(), None, false, None);
+            record(&requested_model, None, false, None);
             warn!(
                 timeout_secs = CLASSIFICATION_TIMEOUT.as_secs(),
                 "language classification timed out; the turn keeps its stored locale"
@@ -253,11 +257,16 @@ mod tests {
     use std::sync::{Arc, Mutex, PoisonError};
 
     use async_trait::async_trait;
+    use embacle::types::{
+        ChatStream as EmbacleChatStream, LlmProvider as EmbacleLlmProvider, RunnerError,
+    };
     use pierre_core::errors::AppError;
     use pierre_core::llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+    use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
+    use pierre_llm::config::LlmProviderType;
     use pierre_llm::prompts::LANGUAGE_CLASSIFICATION_PROMPT;
-    use pierre_llm::ChatProvider;
-    use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
+    use pierre_llm::stage::{StageModels, COPILOT_SDK_BACKGROUND_MODEL};
+    use pierre_llm::{ChatProvider, EmbacleProvider};
 
     use super::{
         classify_locale_with_llm, parse_locale_answer, render_classification_prompt,
@@ -473,6 +482,98 @@ mod tests {
             captured.taken().is_empty(),
             "an acknowledgement asks nothing, so nothing is recorded"
         );
+    }
+
+    /// A `copilot_sdk`-named runner that names Spanish and remembers the model
+    /// each call asked for.
+    struct SdkClassifier {
+        requested: Arc<Mutex<Vec<Option<String>>>>,
+        models: Vec<String>,
+    }
+
+    #[async_trait]
+    impl EmbacleLlmProvider for SdkClassifier {
+        fn name(&self) -> &'static str {
+            "copilot_sdk"
+        }
+        fn display_name(&self) -> &str {
+            "Copilot SDK classifier (scripted)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::empty()
+        }
+        fn default_model(&self) -> &str {
+            &self.models[0]
+        }
+        fn available_models(&self) -> &[String] {
+            &self.models
+        }
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+            self.requested
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(request.model.clone());
+            Ok(ChatResponse {
+                content: "es".to_owned(),
+                model: request
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| self.models[0].clone()),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(
+            &self,
+            _request: &ChatRequest,
+        ) -> Result<EmbacleChatStream, RunnerError> {
+            Err(RunnerError::internal("streaming is not used here"))
+        }
+        async fn health_check(&self) -> Result<bool, RunnerError> {
+            Ok(true)
+        }
+    }
+
+    /// The classification is a background stage: the platform's `copilot_sdk`
+    /// head runs it on the stage model, and the record names that model.
+    #[tokio::test]
+    async fn the_classification_runs_on_its_stage_model() {
+        let requested = Arc::new(Mutex::new(Vec::new()));
+        let provider = ChatProvider::Embacle(
+            EmbacleProvider::from_runner(
+                Box::new(SdkClassifier {
+                    requested: Arc::clone(&requested),
+                    models: vec!["claude-sonnet-5.5".to_owned()],
+                }),
+                "Copilot SDK classifier (scripted)",
+            )
+            .with_stage_models(StageModels::resolve(
+                Some(LlmProviderType::CopilotSdk),
+                |_| None,
+            )),
+        );
+        let captured = Arc::new(Captured::default());
+        let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+        let classifier = LocaleClassifier {
+            provider: &provider,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
+            recorder: Some(&recorder),
+        };
+
+        let locale =
+            classify_locale_with_llm(classifier, "Muéstrame mis últimas cinco actividades").await;
+
+        assert_eq!(locale, Some("es"));
+        assert_eq!(
+            mem::take(&mut *requested.lock().unwrap_or_else(PoisonError::into_inner)),
+            vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned())]
+        );
+        let records = captured.taken();
+        assert_eq!(records.len(), 1, "{records:?}");
+        assert_eq!(records[0].model, COPILOT_SDK_BACKGROUND_MODEL);
+        assert_eq!(records[0].provider, "copilot_sdk");
     }
 
     #[cfg(feature = "language-detection")]

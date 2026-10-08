@@ -57,6 +57,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
@@ -150,6 +151,11 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// and its reply is the next question, so it is never "ungrounded" — see
     /// [`recovery_trigger`].
     pub guided_walk: Option<&'a OnboardingState>,
+    /// Receives every re-ask completion this stage and
+    /// [`super::capability_subject`] make, each attempt its own usage row.
+    pub reask_recorder: &'a Arc<dyn LlmCallRecorder>,
+    /// Receives every call to the peer-claim verifier.
+    pub verifier_recorder: &'a Arc<dyn LlmCallRecorder>,
 }
 
 /// Apply capability-failure recovery in place.
@@ -682,7 +688,10 @@ async fn reask_with_verified_data(
     );
     let request = ChatRequest::new(messages).with_model(deps.active_model);
 
-    apply_reask_outcome(provider.complete(&request).await, result);
+    apply_reask_outcome(
+        complete_recorded(provider.as_ref(), &request, Some(deps.reask_recorder)).await,
+        result,
+    );
     tool_text
 }
 
@@ -806,8 +815,8 @@ async fn apply_peer_claim_recovery(
 
     let evidence = turn_evidence_with(deps.llm_messages, extra_evidence);
     let unsupported = verify_peer_claims(
+        deps,
         provider.as_ref(),
-        deps.active_model,
         &evidence,
         &result.content,
         &peer.display_name,
@@ -939,7 +948,7 @@ pub(super) async fn request_peer_reask(
     let messages = repair_messages(deps.llm_messages, draft, prompt);
     let request = ChatRequest::new(messages).with_model(deps.active_model);
     for attempt in 0..2u8 {
-        match provider.complete(&request).await {
+        match complete_recorded(provider, &request, Some(deps.reask_recorder)).await {
             Ok(reply) if !narration::is_degenerate_reply(&reply.content) => {
                 return Some(reply.content);
             }
@@ -973,14 +982,8 @@ pub(super) async fn reask_reply_is_clean(
     evidence_with_fetch: &str,
     reply: &str,
 ) -> bool {
-    let still_unsupported = verify_peer_claims(
-        provider,
-        deps.active_model,
-        evidence_with_fetch,
-        reply,
-        peer_name,
-    )
-    .await;
+    let still_unsupported =
+        verify_peer_claims(deps, provider, evidence_with_fetch, reply, peer_name).await;
     if !still_unsupported.is_empty() || narration::contains_capability_failure(reply) {
         warn!(
             peer = %peer_name,
@@ -1043,9 +1046,11 @@ fn truncate_chars(s: &str, cap: usize) -> &str {
 /// support. Fail-open: a verifier outage or an unparseable verdict reports
 /// "supported" (and logs), because a flaky judge must never cost the athlete
 /// a legitimate reply.
+///
+/// Runs on the turn's model and records on `deps.verifier_recorder`.
 pub(super) async fn verify_peer_claims(
+    deps: &CapabilityRecoveryDeps<'_>,
     provider: &pierre_llm::ChatProvider,
-    model: &str,
     evidence: &str,
     reply: &str,
     peer: &str,
@@ -1060,8 +1065,8 @@ pub(super) async fn verify_peer_claims(
          {{\"unsupported\": [\"<claim>\", ...]}} — and {{\"unsupported\": []}} when every \
          claim is supported."
     );
-    let request = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_model(model);
-    match provider.complete(&request).await {
+    let request = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_model(deps.active_model);
+    match complete_recorded(provider, &request, Some(deps.verifier_recorder)).await {
         Ok(verdict) => parse_unsupported_verdict(&verdict.content),
         Err(e) => {
             warn!(error = %e, "peer_claim_verifier_failed: treating the reply as supported");

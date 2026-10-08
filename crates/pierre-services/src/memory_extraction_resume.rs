@@ -136,6 +136,7 @@ async fn resume_one(
     );
     let run = run_extraction_job(
         repos.memory.as_ref(),
+        &repos.llm_usage,
         chat_provider,
         dedup,
         system_prompt,

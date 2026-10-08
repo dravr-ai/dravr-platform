@@ -60,6 +60,7 @@ use std::sync::Arc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::CoachingPersona;
 use pierre_database::repositories::CoachingGroupRepository;
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -256,6 +257,8 @@ pub struct StyleEditor<'a> {
     pub prompts: &'a PromptRegistry,
     /// Model id the turn ran on, which the rewrite is pinned to.
     pub model: &'a str,
+    /// Receives the rewrite call's usage record; `None` records nothing.
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
 /// Enforce a persona's output-format contract.
@@ -322,6 +325,7 @@ pub async fn enforce_conformance(
         &content,
         &to_repair,
         editor.model,
+        editor.recorder,
     )
     .await
     else {
@@ -443,6 +447,7 @@ async fn rewrite_to_satisfy_contract(
     content: &str,
     violations: &[ContractViolation],
     active_model: &str,
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
 ) -> Option<String> {
     let rules = violations
         .iter()
@@ -480,7 +485,7 @@ async fn rewrite_to_satisfy_contract(
     // ~3.2s cold spawn on every repair turn, silently undoing the pool.
     .with_model(active_model);
 
-    match provider.complete(&request).await {
+    match complete_recorded(provider.as_ref(), &request, recorder).await {
         Ok(resp) if !resp.content.trim().is_empty() => Some(resp.content),
         Ok(_) => None,
         Err(e) => {

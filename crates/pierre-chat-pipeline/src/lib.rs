@@ -79,10 +79,6 @@ pub use turn_service::{
     dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
 };
 pub use usage_counters::{increment_usage_counters_scoped, UsageIncrementScope};
-// Re-exported so that flows which build `ToolLoopParams` directly (the
-// messaging ingress) can attach the same per-call recorder the chat
-// pipeline uses.
-pub use recorders::UsageRepoCallRecorder as TurnCallRecorder;
 // Defined in `pierre-core` so the command dispatcher, which this crate
 // depends on, reads the same type; re-exported because [`TurnRequest`] and
 // [`SlashRequest`] carry it.
