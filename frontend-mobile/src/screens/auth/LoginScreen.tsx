@@ -183,6 +183,8 @@ export function LoginScreen() {
             <Text style={[heroHeadlineStyle, { marginBottom: spacing.sm }]}>
               {`${t('auth.taglineLead')} ${t('auth.taglineTail')}`}
             </Text>
+            {/* LIMITATION(registre#838): `app.heroBlurb` says every claim is checked, and the
+                verifier does not cover weekly totals, HR, HRV, sleep or power figures. */}
             <Text style={heroLeadStyle}>
               {t('app.heroBlurb')}
             </Text>
