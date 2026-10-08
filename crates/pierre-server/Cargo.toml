@@ -124,8 +124,9 @@ protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 # ═══════════════════════════════════════════════════════════════
 transport-http = []
 transport-sse = ["dep:pierre-sse", "pierre-tool-runtime/transport-sse", "pierre-chat-pipeline?/transport-sse"]
-# Local language detection (lingua, ~22 MB of language models). Off in the
-# shipped build, which asks the LLM instead; carnet#825.
+# Local language detection (lingua, ~22 MB of language models), shipped in
+# server-production and server-full so a turn reads its own language without
+# an LLM call; a build without it asks the LLM. carnet#825, carnet#839.
 language-detection = ["pierre-chat-pipeline?/language-detection"]
 transport-stdio = []
 
@@ -185,8 +186,8 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms", "language-detection"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms", "language-detection"]
 
 [dependencies]
 embacle = { version = "0.34.0" }

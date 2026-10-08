@@ -1169,7 +1169,13 @@ jobs:
           # measured 83MB for the shipped binary (the same tree links 82.2 →
           # 66.0MB locally, −20%), and the lockfile no longer carries a second
           # rustls provider or a second tungstenite. carnet#471 has the numbers.
-          MAX_SIZE_MB=90
+          #
+          # 115 on 2026-10-08: the shipped build carries lingua's language
+          # models so a turn reads its own language without an LLM call
+          # (carnet#839, a product decision). Measured 108MB here against 86MB
+          # on main the run before — the 22MB is model data, not code. The
+          # ceiling keeps roughly the old headroom over what ships.
+          MAX_SIZE_MB=115
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

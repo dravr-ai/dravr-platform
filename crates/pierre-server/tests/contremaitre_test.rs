@@ -209,6 +209,7 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "guardian_planner",
     "insight_generation",
     "insight_validation",
+    "language_classification",
     "mcp_server_instructions",
     "memory_extraction",
     "messaging_context",

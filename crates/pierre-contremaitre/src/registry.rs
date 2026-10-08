@@ -16,11 +16,12 @@ use pierre_llm::prompts::{
     get_coaching_persona_prompt, ADVICE_EXTRACTION_PROMPT, AGENT_GENERATION_PROMPT,
     AGENT_RERANK_PROMPT, CASUAL_PERSONA_PROMPT, CLAIM_JUDGE_PROMPT, COACH_PERSONA_PROMPT,
     CONVERSATION_SUMMARY_PROMPT, ENTHUSIAST_PERSONA_PROMPT, GUARDIAN_PLANNER_PROMPT,
-    INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT, MCP_SERVER_INSTRUCTIONS_PROMPT,
-    MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, OUTCOME_JUDGE_PROMPT,
-    PERSONA_STYLE_EDITOR_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
-    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
-    TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT, VIZ_REPAIR_PROMPT,
+    INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT, LANGUAGE_CLASSIFICATION_PROMPT,
+    MCP_SERVER_INSTRUCTIONS_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
+    OUTCOME_JUDGE_PROMPT, PERSONA_STYLE_EDITOR_PROMPT, PIERRE_SYSTEM_PROMPT,
+    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
+    TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT,
+    VISUAL_BLOCKS_PROMPT, VIZ_REPAIR_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -123,6 +124,7 @@ const COMPILED_IN_SYSTEM_PROMPTS: &[(&str, &str)] = &[
     ("mcp_server_instructions", MCP_SERVER_INSTRUCTIONS_PROMPT),
     ("persona_style_editor", PERSONA_STYLE_EDITOR_PROMPT),
     ("viz_repair", VIZ_REPAIR_PROMPT),
+    ("language_classification", LANGUAGE_CLASSIFICATION_PROMPT),
     ("guardian_planner", GUARDIAN_PLANNER_PROMPT),
 ];
 
@@ -285,6 +287,12 @@ impl PromptRegistry {
     /// Get the instructions for the claim-verification judge call.
     pub fn claim_judge_prompt(&self) -> String {
         self.get_system_prompt("claim_judge")
+    }
+
+    /// Get the instructions for the call that names the language of an
+    /// athlete's message, with `{{MESSAGE}}` left for the caller to fill.
+    pub fn language_classification_prompt(&self) -> String {
+        self.get_system_prompt("language_classification")
     }
 
     /// Get the instructions the MCP server advertises in `initialize`.

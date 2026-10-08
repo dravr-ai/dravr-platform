@@ -9,16 +9,18 @@
 //! The reply answers in the language of the question (carnet#825), and a
 //! question is usually one short sentence. Two resolvers serve that:
 //!
-//! - **`lingua`**, behind the `language-detection` feature: local and
-//!   deterministic, but its language models add about 22 MB to the binary.
+//! - **`lingua`**, behind the `language-detection` feature, which the shipped
+//!   profiles enable (carnet#839): local and deterministic, at the cost of
+//!   about 22 MB of language models in the binary.
 //!   Restricted to the five languages, in high-accuracy mode with a minimum
 //!   relative distance of 0.1 between the two best candidates, it resolved 69
 //!   of 73 short athlete messages, left 2 undecided and mislabelled 2 — "E o
 //!   meu `VO2max`?" and "J'ai couru le trail de Sherbrooke", where the only
 //!   words are shared ones. A trigram detector such as `whatlang` resolved 6:
 //!   it calls a verdict reliable only from about 130 characters.
-//! - **The LLM**, asked for one language code: what a build without the
-//!   feature uses, and what a build with it asks when `lingua` cannot decide.
+//! - **The LLM**, asked for one language code with the contremaitre
+//!   `language_classification` prompt: what a build with the feature asks when
+//!   `lingua` cannot decide, and what a build without it always asks.
 //!
 //! A message under `MIN_DETECTABLE_CHARS` ("ok", "oui", "Yes") is an
 //! acknowledgement, and keeps the language the conversation already runs in.
@@ -50,11 +52,17 @@ const CLASSIFICATION_EXCERPT_CHARS: usize = 600;
 /// its cost is counted apart from the reply's own calls.
 pub(crate) const LANGUAGE_CLASSIFICATION_CALL_TYPE: &str = "language_classification";
 
+/// Where the classification prompt takes the athlete's message.
+const MESSAGE_PLACEHOLDER: &str = "{{MESSAGE}}";
+
 /// The LLM a turn may ask for its language, and where that call's usage goes.
 #[derive(Clone, Copy)]
 pub struct LocaleClassifier<'a> {
     /// The turn's own provider.
     pub provider: &'a ChatProvider,
+    /// The contremaitre `language_classification` prompt, with
+    /// `{{MESSAGE}}` where the message goes.
+    pub prompt: &'a str,
     /// Receives one record for the classification call; `None` writes no
     /// usage row.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
@@ -110,14 +118,14 @@ async fn classify_locale_with_llm(
     classifier: LocaleClassifier<'_>,
     text: &str,
 ) -> Option<&'static str> {
-    let LocaleClassifier { provider, recorder } = classifier;
+    let LocaleClassifier {
+        provider,
+        prompt,
+        recorder,
+    } = classifier;
     let excerpt: String = text.chars().take(CLASSIFICATION_EXCERPT_CHARS).collect();
     // One user message: several embacle runners drop a system message.
-    let prompt = format!(
-        "Which language is the message below written in? Answer with exactly one code and \
-         nothing else: en, fr, es, de or pt — or other when it is none of these.\n\n\
-         MESSAGE:\n{excerpt}"
-    );
+    let prompt = render_classification_prompt(prompt, &excerpt);
     let request = ChatRequest::new(vec![ChatMessage::user(prompt.clone())]);
     let started = Instant::now();
     let outcome = timeout(CLASSIFICATION_TIMEOUT, provider.complete(&request)).await;
@@ -162,6 +170,19 @@ async fn classify_locale_with_llm(
             );
             None
         }
+    }
+}
+
+/// The classification prompt with the message in place of `{{MESSAGE}}`.
+///
+/// A prompt that lost its placeholder in an edit still gets the message,
+/// appended, so the model is never asked about a message it cannot see.
+fn render_classification_prompt(template: &str, excerpt: &str) -> String {
+    if template.contains(MESSAGE_PLACEHOLDER) {
+        template.replace(MESSAGE_PLACEHOLDER, excerpt)
+    } else {
+        warn!("the language_classification prompt has no {MESSAGE_PLACEHOLDER} placeholder; appending the message");
+        format!("{template}\n\n{excerpt}")
     }
 }
 
@@ -234,11 +255,13 @@ mod tests {
     use async_trait::async_trait;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+    use pierre_llm::prompts::LANGUAGE_CLASSIFICATION_PROMPT;
     use pierre_llm::ChatProvider;
     use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
 
     use super::{
-        classify_locale_with_llm, parse_locale_answer, resolve_turn_locale, LocaleClassifier,
+        classify_locale_with_llm, parse_locale_answer, render_classification_prompt,
+        resolve_turn_locale, LocaleClassifier, MESSAGE_PLACEHOLDER,
     };
 
     /// Answers every completion with a fixed text, or fails when it has none.
@@ -289,6 +312,7 @@ mod tests {
     fn unrecorded(provider: &ChatProvider) -> LocaleClassifier<'_> {
         LocaleClassifier {
             provider,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
             recorder: None,
         }
     }
@@ -321,6 +345,22 @@ mod tests {
         assert_eq!(parse_locale_answer("other"), None);
         assert_eq!(parse_locale_answer("ja"), None);
         assert_eq!(parse_locale_answer(""), None);
+    }
+
+    /// The contremaitre prompt names where the message goes, and the message
+    /// lands there; a prompt that lost the placeholder still carries it.
+    #[test]
+    fn the_message_reaches_the_classification_prompt() {
+        assert!(
+            LANGUAGE_CLASSIFICATION_PROMPT.contains(MESSAGE_PLACEHOLDER),
+            "the compiled-in prompt marks where the message goes"
+        );
+        let rendered = render_classification_prompt(LANGUAGE_CLASSIFICATION_PROMPT, "Hola amigos");
+        assert!(rendered.contains("Hola amigos"), "{rendered}");
+        assert!(!rendered.contains(MESSAGE_PLACEHOLDER), "{rendered}");
+
+        let without = render_classification_prompt("Name the language.", "Hola amigos");
+        assert!(without.ends_with("Hola amigos"), "{without}");
     }
 
     #[tokio::test]
@@ -389,6 +429,7 @@ mod tests {
         let answers = answering(Some("es"));
         let classifier = LocaleClassifier {
             provider: &answers,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
             recorder: Some(&recorder),
         };
         assert_eq!(resolve_turn_locale(Some(classifier), ask, "fr").await, "es");
@@ -406,6 +447,7 @@ mod tests {
         let fails = answering(None);
         let classifier = LocaleClassifier {
             provider: &fails,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
             recorder: Some(&recorder),
         };
         assert_eq!(resolve_turn_locale(Some(classifier), ask, "fr").await, "fr");
@@ -420,6 +462,7 @@ mod tests {
 
         let classifier = LocaleClassifier {
             provider: &answers,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
             recorder: Some(&recorder),
         };
         assert_eq!(

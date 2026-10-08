@@ -410,10 +410,12 @@ async fn execute_turn(
         request.turn_id,
         LANGUAGE_CLASSIFICATION_CALL_TYPE,
     ));
+    let classification_prompt = ctx.prompt_registry.language_classification_prompt();
     let classifier = classifier_provider
         .as_deref()
         .map(|provider| LocaleClassifier {
             provider,
+            prompt: &classification_prompt,
             recorder: Some(&classification_recorder),
         });
     let profile = SurfaceProfile {

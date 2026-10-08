@@ -161,3 +161,13 @@ fn server_production_and_server_full_share_health_sync() {
         "server-full lost health-sync — see comments in build_features_test.rs"
     );
 }
+
+#[test]
+fn shipped_profiles_read_the_turn_language_locally() {
+    // carnet#839: the reply answers in the question's language, and lingua
+    // reads a one-sentence question locally. Without the feature every turn
+    // of 12+ characters spends an LLM call to learn its own language.
+    for profile in ["server-production", "server-full"] {
+        assert_profile_contains(profile, &["language-detection"]);
+    }
+}

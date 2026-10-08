@@ -137,6 +137,10 @@ pub const MCP_SERVER_INSTRUCTIONS_PROMPT: &str = system::MCP_SERVER_INSTRUCTIONS
 /// broken rules, one `- ` line each.
 pub const PERSONA_STYLE_EDITOR_PROMPT: &str = system::PERSONA_STYLE_EDITOR;
 
+/// Instructs the call that names the language of an athlete's message when no
+/// local detector can. `{{MESSAGE}}` is the message's opening excerpt.
+pub const LANGUAGE_CLASSIFICATION_PROMPT: &str = system::LANGUAGE_CLASSIFICATION;
+
 /// Viz-repair prompt.
 ///
 /// Instructs the single re-ask that corrects `dravr-viz` blocks the schema
