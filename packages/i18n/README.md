@@ -43,7 +43,11 @@ i18next for what the user reads, `PUT /api/user/locale` for what the agent
 answers in — so the chrome and the agent never disagree. The same holds on
 mount: a language remembered on this device wins over `serverLocale`, and when
 a signed-in account's `users.locale` disagrees with it the restore writes the
-device choice back, reporting a failed write through `syncState`.
+device choice back, reporting a failed write through `syncState`. With nobody
+signed in and nothing chosen on the device, the restore uses the last signed-in
+account's locale, which it keeps under its own key
+(`pierre_app_language_account`) so it never outranks or overwrites the next
+account — that is what keeps the login screen in the account's language.
 
 `SUPPORTED_LANGUAGES` is therefore exactly the server's `SUPPORTED_LOCALES`
 (`pierre_core::models`), and `DEFAULT_LANGUAGE` is exactly `DEFAULT_LOCALE`:

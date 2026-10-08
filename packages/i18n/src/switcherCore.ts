@@ -13,12 +13,24 @@ import { useTranslation } from './types';
 export const LANGUAGE_STORAGE_KEY = 'pierre_app_language';
 
 /**
+ * The key, beside a chosen-locale key, holding the locale of the last account
+ * signed in on this device — read only while nobody is signed in and nothing
+ * was chosen here.
+ */
+function accountKeyFor(storageKey: string): string {
+  return `${storageKey}_account`;
+}
+
+/** [`accountKeyFor`] of the default key. */
+export const ACCOUNT_LANGUAGE_STORAGE_KEY = accountKeyFor(LANGUAGE_STORAGE_KEY);
+
+/**
  * Where a chosen locale is remembered between sessions. `localStorage` on the
  * web, `AsyncStorage` on device — both are promise-shaped here so the hook
  * body has one form.
  */
 export interface LocaleStorage {
-  /** The stored locale tag, or `null` when the viewer has never chosen one. */
+  /** The locale tag stored under `key`, or `null` when there is none. */
   read: (key: string) => Promise<string | null>;
   /** Remember `value` under `key` for the next session. */
   write: (key: string, value: string) => Promise<void>;
@@ -56,7 +68,10 @@ function writeBackRestoredLocale(language: SupportedLanguage): Promise<void> {
 
 /** Options accepted by both language-switcher hooks. */
 export interface LanguageSwitcherOptions {
-  /** Override the storage key. Defaults to [`LANGUAGE_STORAGE_KEY`]. */
+  /**
+   * Override the storage key. Defaults to [`LANGUAGE_STORAGE_KEY`]; the last
+   * account's locale is kept beside it (see [`accountKeyFor`]).
+   */
   storageKey?: string;
   /**
    * The locale the server has on record for the signed-in user
@@ -64,6 +79,7 @@ export interface LanguageSwitcherOptions {
    * device has no stored choice, so a user who picked German on the web does
    * not land back in French on their phone; overwritten with the stored choice
    * when the two disagree, so the agent answers in the language on screen.
+   * Remembered on the device, so the signed-out screens that follow keep it.
    */
   serverLocale?: string;
   /** Notified after a successful change, once chrome and server agree. */
@@ -130,8 +146,10 @@ export function useSwitcherCore(
   // repeat write-back joins the one already in flight.
   useEffect(() => {
     let cancelled = false;
+    const accountKey = accountKeyFor(storageKey);
     void (async () => {
       const stored = await storage.read(storageKey).catch(() => null);
+      const lastAccount = await storage.read(accountKey).catch(() => null);
       if (cancelled) {
         return;
       }
@@ -139,10 +157,22 @@ export function useSwitcherCore(
         ? stored
         : isSupportedLanguage(serverLocale)
           ? serverLocale
-          : null;
+          : isSupportedLanguage(lastAccount)
+            ? lastAccount
+            : null;
       const instance = i18nRef.current;
       if (preferred !== null && preferred !== instance.language) {
         await instance.changeLanguage(preferred);
+      }
+      // Remember the signed-in account's language on this device. Without it a
+      // reload after the session ends has nothing but the default, so the
+      // login screen — and the hosted sign-in it opens with `ui_locales` —
+      // comes up in French for an account that reads English. It is kept apart
+      // from the viewer's own choice on purpose: that key outranks the account
+      // and is written back to it, so mirroring an account into it would push
+      // one account's language onto the next one signed in on this browser.
+      if (!cancelled && isSupportedLanguage(serverLocale) && serverLocale !== lastAccount) {
+        await storage.write(accountKey, serverLocale).catch(() => undefined);
       }
       // A choice made on this device wins over the account, so the account
       // must hear about it: without this write the chrome renders the stored
