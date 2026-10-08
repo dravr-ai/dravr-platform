@@ -5,7 +5,7 @@
 // ABOUTME: Tests form validation, successful registration, error handling, and navigation.
 
 import { test, expect } from '@playwright/test';
-import { waitForLoginScreen } from './test-helpers';
+import { APP_SHELL_TIMEOUT_MS, loginToDashboard, setupDashboardMocks, waitForLoginScreen } from './test-helpers';
 
 // Helper to set up common API mocks for the registration page
 async function setupBasicMocks(page: import('@playwright/test').Page) {
@@ -101,6 +101,92 @@ test.describe('Registration Page - Form Display', () => {
     await expect(page.locator('h1')).toContainText('Sign in');
     await waitForLoginScreen(page, 5000);
     await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
+  });
+});
+
+test.describe('Registration Page - Create-account link', () => {
+  test('/register opens the registration form and cleans the URL', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto('/register');
+
+    // dravr.ai's "Create your account" points here: the form it names, not sign-in
+    await page.waitForSelector('input[name="displayName"]', { timeout: 10000 });
+    await expect(page.locator('h1')).toContainText('Create Your Account');
+    await expect(page).toHaveURL((url) => url.pathname === '/');
+  });
+
+  test('a reload after the link lands on sign-in', async ({ page }) => {
+    await setupBasicMocks(page);
+    await page.goto('/register');
+    await page.waitForSelector('input[name="displayName"]', { timeout: 10000 });
+
+    await page.reload();
+
+    await waitForLoginScreen(page, 10000);
+    await expect(page.locator('h1')).toContainText('Sign in');
+    await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
+  });
+
+  test('a signed-in visitor gets the dashboard, and signing out shows sign-in', async ({ page }) => {
+    await setupDashboardMocks(page);
+    await loginToDashboard(page);
+    // The link is a hard navigation, so the app restores its session from the
+    // cookie, then the sign-out it ends with is acknowledged.
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          access_token: 'test-jwt-token',
+          csrf_token: 'test-csrf-token',
+          user: {
+            id: 'user-123',
+            user_id: 'user-123',
+            email: 'admin@test.com',
+            display_name: 'Test Admin',
+            role: 'admin',
+            is_admin: true,
+            user_status: 'active',
+            tier: 'professional',
+            tenant_id: 'user-123',
+          },
+        }),
+      }),
+    );
+    await page.route('**/api/auth/logout', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+
+    await page.goto('/register');
+    await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
+    await expect(page).toHaveURL((url) => url.pathname === '/');
+
+    await page.locator('button[title="Sign out"]').click();
+
+    // The session ends on sign-in, not on the form the link named
+    await waitForLoginScreen(page);
+    await expect(page.locator('h1')).toContainText('Sign in');
+    await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
+  });
+
+  test('a visitor whose cached session is dead still gets the registration form', async ({ page }) => {
+    await setupBasicMocks(page);
+    // A user left behind by an expired session: shown while the restore runs,
+    // then refused by the server.
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'pierre_user',
+        JSON.stringify({ id: 'user-123', email: 'old@test.com', role: 'user', user_status: 'active' }),
+      );
+    });
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+    );
+
+    await page.goto('/register');
+
+    await page.waitForSelector('input[name="displayName"]', { timeout: APP_SHELL_TIMEOUT_MS });
+    await expect(page.locator('h1')).toContainText('Create Your Account');
   });
 });
 

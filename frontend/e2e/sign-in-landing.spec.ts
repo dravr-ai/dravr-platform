@@ -156,3 +156,17 @@ test('a followed link survives a stale cached session and its sign-out', async (
 
   await expect(page).toHaveURL(/#settings(\/|$)/);
 });
+
+test("the create-account link's Google button signs a newcomer in on Home", async ({ page }) => {
+  await mockAthlete(page);
+  // dravr.ai's "Create your account" opens the registration form, which offers
+  // Google too: a Google sign-in creates the account when none exists.
+  await page.goto('/register');
+  await page.waitForSelector('input[name="displayName"]');
+
+  await page.getByRole('button', { name: /continue with google/i }).click();
+  await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
+
+  await expect(page).toHaveURL(/#home$/);
+  await expect(page.getByTestId('home-page')).toBeVisible();
+});

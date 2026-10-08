@@ -62,12 +62,21 @@ function getGroupInviteCode(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Whether the current URL is the create-account link: /register. dravr.ai's
+ * "Create your account" button points here, so it opens the form it names
+ * rather than the sign-in form.
+ */
+function isRegisterPath(): boolean {
+  return window.location.pathname === '/register';
+}
+
 type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
   const { t } = useTranslation();
   const { user, isAuthenticated, isLoading } = useAuth();
-  const [authView, setAuthView] = useState<AuthView>('login');
+  const [authView, setAuthView] = useState<AuthView>(() => (isRegisterPath() ? 'register' : 'login'));
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
@@ -141,6 +150,24 @@ function AppContent() {
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
     }
   }, [localQueryClient]);
+
+  // Clean the create-account link once the form is chosen, so a reload after
+  // switching to sign-in does not reopen it and a signed-in user lands on '/'.
+  useEffect(() => {
+    if (isRegisterPath()) {
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, []);
+
+  // A session ends on the sign-in form, whichever form was showing before it
+  // began: a signed-in visitor who followed the create-account link never asked
+  // for that one. Waits for the restore to settle, because the cached user counts
+  // as signed in until then and a dead session must keep the form the link chose.
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      setAuthView('login');
+    }
+  }, [isLoading, isAuthenticated]);
 
   // Check for group invite link on mount: /groups/join/:code
   useEffect(() => {

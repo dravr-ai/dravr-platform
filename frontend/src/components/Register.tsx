@@ -6,7 +6,9 @@
 
 import React, { useState } from 'react';
 import { authApi } from '../services/api';
+import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton } from './ui';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
@@ -77,7 +79,11 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
             {/* Registration form */}
             <form className="space-y-5" onSubmit={handleSubmit}>
               {error && (
-                <div className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm">
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm"
+                >
                   {error}
                 </div>
               )}
@@ -150,6 +156,15 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
               >
                 {isLoading ? t('auth.creatingAccount') : t('auth.createAccountButton')}
               </Button>
+
+              {/* A Google sign-in creates the account, so it is a way to sign up too. */}
+              {isFirebaseEnabled() && (
+                <GoogleSignInButton
+                  dividerSurface="bg-surface-container-lowest"
+                  onStart={() => setError('')}
+                  onError={setError}
+                />
+              )}
 
               {/* Link to login */}
               <div className="text-center">
