@@ -753,10 +753,12 @@ fn parse_raw_facts(response: &str) -> Vec<RawFact> {
 
 /// Everything one extraction needs except who it is for.
 ///
-/// This is what a job row carries as JSON. The tenant is a column of that
-/// row rather than a field here, so the ledger is readable without parsing
-/// the payload; everything else round-trips so a sweep on another instance
-/// runs the turn's extraction exactly as the turn would have.
+/// This is what a job row carries as JSON. The tenants — the one the facts
+/// are stamped under and the one the usage row is billed under — are columns
+/// of that row rather than fields here, so the ledger is readable without
+/// parsing the payload and no tenant is ever deserialised from it; everything
+/// else round-trips so a sweep on another instance runs the turn's extraction
+/// exactly as the turn would have.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractionJobPayload {
     /// User the facts are about.
@@ -798,16 +800,16 @@ pub struct ExtractionJobPayload {
 }
 
 impl ExtractionJobPayload {
-    /// The `llm_usage` recorder for this job's extraction call, run under
-    /// `tenant_id`.
+    /// The `llm_usage` recorder for this job's extraction call, billed under
+    /// `usage_tenant_id`.
     fn recorder(
         &self,
         llm_usage: &Arc<dyn LlmUsageRepository>,
-        tenant_id: TenantId,
+        usage_tenant_id: TenantId,
     ) -> Arc<dyn LlmCallRecorder> {
         Arc::new(UsageRepoCallRecorder::new(
             Arc::clone(llm_usage),
-            tenant_id.to_string(),
+            usage_tenant_id.to_string(),
             self.user_id.clone(),
             self.conversation_id.clone(),
             self.turn_id.unwrap_or_else(ConversationTurnId::nil),
@@ -843,12 +845,17 @@ impl ExtractionJobPayload {
 }
 
 /// Owned variant of [`ExtractionRequest`] suitable for moving into a
-/// background `tokio::spawn` task: the tenant the job row is stamped under,
-/// and the payload the row carries.
+/// background `tokio::spawn` task, and what a job row reads back as: the two
+/// tenants the row records, and the payload it carries.
 #[derive(Debug, Clone)]
 pub struct SpawnedExtractionRequest {
-    /// Tenant owning the conversation.
+    /// Tenant the facts are stamped under.
     pub tenant_id: TenantId,
+    /// Tenant the extraction's `llm_usage` row is billed under: the
+    /// conversation's, so the turn's cost is the sum of rows under one tenant.
+    /// It differs from [`Self::tenant_id`] on a guided answer in a shared
+    /// room, whose facts go to the athlete's own tenant.
+    pub usage_tenant_id: TenantId,
     /// The extraction itself, as the job row records it.
     pub payload: ExtractionJobPayload,
 }
@@ -867,27 +874,27 @@ pub struct SpawnedExtractionRequest {
 /// must keep the row for the sweep rather than finish it.
 ///
 /// The extraction call writes its own `llm_usage` row through `llm_usage`,
-/// typed [`LlmStage::MemoryExtraction`] and keyed on the payload's turn.
+/// typed [`LlmStage::MemoryExtraction`], keyed on the payload's turn and
+/// billed under the job's usage tenant.
 pub async fn run_extraction_job(
     memory_repo: &dyn HarnessMemoryRepository,
     llm_usage: &Arc<dyn LlmUsageRepository>,
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
     system_prompt: &str,
-    tenant_id: TenantId,
-    payload: &ExtractionJobPayload,
+    job: &SpawnedExtractionRequest,
 ) -> AppResult<()> {
     let permit = EXTRACTION_PERMITS.acquire().await.map_err(|_| {
         AppError::resource_unavailable(
             "memory extraction permits are closed; the process is shutting down",
         )
     })?;
-    let recorder = payload.recorder(llm_usage, tenant_id);
+    let recorder = job.payload.recorder(llm_usage, job.usage_tenant_id);
     let outcome = extract_and_persist(
         memory_repo,
         chat_provider,
         system_prompt,
-        &payload.as_request(tenant_id, &recorder),
+        &job.payload.as_request(job.tenant_id, &recorder),
         dedup,
     )
     .await?;
@@ -921,6 +928,7 @@ async fn record_extraction_job(
     let row = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: req.tenant_id,
+        usage_tenant_id: Some(req.usage_tenant_id),
         payload,
         created_at_ms: now,
         leased_until_ms: now.saturating_add(lease_ms),
@@ -997,8 +1005,7 @@ pub async fn spawn_extract_for_turn(
             provider,
             dedup,
             &system_prompt,
-            req.tenant_id,
-            &req.payload,
+            &req,
         )
         .await
         {

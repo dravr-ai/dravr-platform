@@ -34,7 +34,9 @@ use pierre_llm::ChatProvider;
 use tracing::{info, warn};
 
 use crate::memory_dedup::DedupConfig;
-use crate::memory_extraction::{run_extraction_job, ExtractionJobPayload, EXTRACTION_JOB_LEASE};
+use crate::memory_extraction::{
+    run_extraction_job, ExtractionJobPayload, SpawnedExtractionRequest, EXTRACTION_JOB_LEASE,
+};
 use crate::periodic::spawn_periodic;
 
 /// How often each instance sweeps. An extraction is one LLM call, so a
@@ -134,14 +136,20 @@ async fn resume_one(
         attempts = row.attempts,
         "resuming a memory extraction its instance left behind"
     );
+    let job = SpawnedExtractionRequest {
+        tenant_id: row.tenant_id,
+        // A row recorded before the column existed bills under the tenant its
+        // facts are stamped under, as every extraction did then.
+        usage_tenant_id: row.usage_tenant_id.unwrap_or(row.tenant_id),
+        payload,
+    };
     let run = run_extraction_job(
         repos.memory.as_ref(),
         &repos.llm_usage,
         chat_provider,
         dedup,
         system_prompt,
-        row.tenant_id,
-        &payload,
+        &job,
     )
     .await;
     match run {

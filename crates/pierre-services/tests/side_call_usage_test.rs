@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use embacle::types::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
     RunnerError, TokenUsage,
@@ -25,6 +26,7 @@ use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::models::usage::LlmUsageRecord;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::MemoryExtractionJobRow;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::config::LlmProviderType;
@@ -36,7 +38,10 @@ use pierre_services::advice_capture::{
 };
 use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_services::memory_dedup::DedupConfig;
-use pierre_services::memory_extraction::{run_extraction_job, ExtractionJobPayload};
+use pierre_services::memory_extraction::{
+    run_extraction_job, spawn_extract_for_turn, ExtractionJobPayload, SpawnedExtractionRequest,
+};
+use pierre_services::memory_extraction_resume::resume_extraction_jobs;
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -144,16 +149,15 @@ async fn rows_for(repos: &RepositoryRegistry, turn: ConversationTurnId) -> Vec<L
     Vec::new()
 }
 
-#[tokio::test]
-async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
-    let db = create_test_db().await.unwrap();
-    let repos = db.repositories();
-    let (provider, log) = copilot_sdk_head("[]");
-    let tenant_id = TenantId::generate();
-    let user_id = Uuid::new_v4().to_string();
-    let turn = ConversationTurnId::new();
-    let payload = ExtractionJobPayload {
-        user_id: user_id.clone(),
+/// The de-dup tunables every extraction here runs with.
+const DEDUP: DedupConfig = DedupConfig {
+    candidate_limit: 50,
+};
+
+/// What one turn's extraction is owed, billed to `turn` in `conversation_id`.
+fn payload(user_id: &str, conversation_id: &str, turn: ConversationTurnId) -> ExtractionJobPayload {
+    ExtractionJobPayload {
+        user_id: user_id.to_owned(),
         agent_id: None,
         user_message: "Je vise un ultra en mars.".to_owned(),
         assistant_reply: "Bien reçu, on construit vers mars.".to_owned(),
@@ -163,20 +167,31 @@ async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
         force_kind: None,
         plan_was_saved: false,
         transport_policy: TransportPolicy::AnyTransport,
-        conversation_id: Some("conv-1".to_owned()),
+        conversation_id: Some(conversation_id.to_owned()),
         turn_id: Some(turn),
-    };
+    }
+}
+
+#[tokio::test]
+async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (provider, log) = copilot_sdk_head("[]");
+    let tenant_id = TenantId::generate();
+    let user_id = Uuid::new_v4().to_string();
+    let turn = ConversationTurnId::new();
 
     run_extraction_job(
         repos.memory.as_ref(),
         &repos.llm_usage,
         &provider,
-        DedupConfig {
-            candidate_limit: 50,
-        },
+        DEDUP,
         "SYSTEM",
-        tenant_id,
-        &payload,
+        &SpawnedExtractionRequest {
+            tenant_id,
+            usage_tenant_id: tenant_id,
+            payload: payload(&user_id, "conv-1", turn),
+        },
     )
     .await
     .unwrap();
@@ -197,6 +212,105 @@ async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
     assert_eq!(row.user_id, user_id);
     assert_eq!(row.conversation_id.as_deref(), Some("conv-1"));
     assert_eq!((row.prompt_tokens, row.completion_tokens), (900, 12));
+}
+
+/// A guided answer in a shared room stamps its facts under the athlete's own
+/// tenant; its usage row is still the turn's, under the conversation's tenant,
+/// beside every other row that turn wrote.
+#[tokio::test]
+async fn a_guided_answer_bills_its_extraction_to_the_conversation_tenant() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (provider, log) = copilot_sdk_head("[]");
+    let athlete = TenantId::generate();
+    let channel = TenantId::generate();
+    let user_id = Uuid::new_v4().to_string();
+    let turn = ConversationTurnId::new();
+
+    let run = spawn_extract_for_turn(
+        Arc::clone(&repos.memory),
+        Arc::clone(&repos.memory_extraction_jobs),
+        Arc::clone(&repos.llm_usage),
+        Some(Arc::new(provider)),
+        DEDUP,
+        "SYSTEM".to_owned(),
+        SpawnedExtractionRequest {
+            tenant_id: athlete,
+            usage_tenant_id: channel,
+            payload: payload(&user_id, "room-conv", turn),
+        },
+    )
+    .await;
+    run.await.unwrap();
+
+    assert_eq!(
+        requested(&log),
+        vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned())]
+    );
+    let rows = rows_for(repos, turn).await;
+    assert_eq!(rows.len(), 1, "one call, one row: {rows:?}");
+    assert_eq!(rows[0].call_type, "memory_extraction");
+    assert_eq!(
+        rows[0].tenant_id,
+        channel.to_string(),
+        "billed under the conversation's tenant, not the tenant the facts go to"
+    );
+}
+
+/// The resume sweep bills a job the way the turn that recorded it would have:
+/// under the usage tenant on its row, or — for a row recorded before that
+/// column existed — under the tenant its facts are stamped under.
+#[tokio::test]
+async fn a_resumed_extraction_bills_the_usage_tenant_its_row_recorded() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (provider, log) = copilot_sdk_head("[]");
+    let user_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp_millis();
+    let stale = |tenant_id: TenantId,
+                 usage_tenant_id: Option<TenantId>,
+                 turn: ConversationTurnId| MemoryExtractionJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id,
+        usage_tenant_id,
+        payload: serde_json::to_string(&payload(&user_id, "room-conv", turn)).unwrap(),
+        // Recorded ten minutes ago by a spawn whose lease has lapsed.
+        created_at_ms: now - 10 * 60_000,
+        leased_until_ms: now - 60_000,
+        attempts: 1,
+    };
+    let (athlete, channel, guided_turn) = (
+        TenantId::generate(),
+        TenantId::generate(),
+        ConversationTurnId::new(),
+    );
+    let (older, older_turn) = (TenantId::generate(), ConversationTurnId::new());
+    for row in [
+        stale(athlete, Some(channel), guided_turn),
+        stale(older, None, older_turn),
+    ] {
+        repos
+            .memory_extraction_jobs
+            .record_extraction_job(&row)
+            .await
+            .unwrap();
+    }
+
+    let ran = resume_extraction_jobs(repos, &provider, DEDUP, "SYSTEM")
+        .await
+        .unwrap();
+
+    assert_eq!(ran, 2, "both abandoned extractions ran");
+    assert_eq!(
+        requested(&log),
+        vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned()); 2]
+    );
+    let guided = rows_for(repos, guided_turn).await;
+    assert_eq!(guided.len(), 1, "{guided:?}");
+    assert_eq!(guided[0].tenant_id, channel.to_string());
+    let earlier = rows_for(repos, older_turn).await;
+    assert_eq!(earlier.len(), 1, "{earlier:?}");
+    assert_eq!(earlier[0].tenant_id, older.to_string());
 }
 
 #[tokio::test]
