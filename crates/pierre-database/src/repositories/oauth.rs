@@ -627,4 +627,23 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
+    /// The provider athletes whose OAuth connection to `provider` the
+    /// server-level app signs, and whose grant is still authorized there:
+    /// what sizes an app's request budget at a provider that limits each app
+    /// by the athletes who granted it (Intervals.icu).
+    ///
+    /// A grant is a stored token that is no pasted API key
+    /// (`API_KEY_TOKEN_TYPE`), live while its connection is, under the rule
+    /// a Strava seat is counted by. The server-level app signs every grant
+    /// but those of a tenant with an active app of its own for the provider
+    /// and of a user with a BYO app, the order `issuing_client` resolves a
+    /// client in, so neither is counted. An athlete counts once (distinct
+    /// `provider_user_id`), however many accounts or tenants hold their
+    /// grant, and a grant whose provider id was never read counts for none:
+    /// the count can fall short of the provider's, never pass it.
+    ///
+    /// Cross-tenant on purpose, as the Strava seat counts are: the
+    /// server-level app is one client at the provider, whose limit is one
+    /// pool across every tenant that signs with it.
+    async fn count_server_level_grants(&self, provider: &str) -> AppResult<u32>;
 }

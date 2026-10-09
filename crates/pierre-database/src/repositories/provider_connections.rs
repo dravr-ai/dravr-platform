@@ -28,6 +28,7 @@ use pierre_core::models::{
 };
 
 use crate::column_decode::uuid_column;
+use crate::repositories::user_oauth_tokens::{live_grant_filter_sql, seat_holder_filter_sql};
 
 /// Register or refresh a connection. A reconnect re-arms the row: `status`
 /// back to `active`, the transition stamped, the last error and the
@@ -276,6 +277,29 @@ pub(crate) const REARM_SYNC_FAILURE_NOTIFICATION_SQL: &str = r"
                AND status = 'active'
                AND notified_at IS NOT NULL
             ";
+
+/// The provider athletes (`provider_user_id`, each once) whose live grant to
+/// provider `$1` the server-level app signs, read from the stored tokens `t`
+/// and their connections: no pasted API key (token type `$2`; a NULL type is
+/// a bearer token, as `CredentialKind` reads it), no tenant with an active
+/// app of its own for the provider, which signs its athletes' grants in
+/// place of the server-level app, and the Strava seat filter's BYO and
+/// live-grant conditions. The tenant's credentials key `tenant_id` as `uuid`
+/// on Postgres and `TEXT` on `SQLite`, so it is cast to the token's text.
+pub(crate) const COUNT_SERVER_LEVEL_GRANTS_SQL: &str = concat!(
+    "
+            SELECT COUNT(DISTINCT t.provider_user_id) AS n
+            FROM user_oauth_tokens t
+            WHERE t.provider = $1
+              AND COALESCE(t.token_type, '') <> $2
+              AND NOT EXISTS (
+                  SELECT 1 FROM tenant_oauth_credentials o
+                  WHERE CAST(o.tenant_id AS TEXT) = t.tenant_id
+                    AND o.provider = t.provider
+                    AND o.is_active = TRUE
+              )",
+    seat_holder_filter_sql!(),
+);
 
 fn column_error(col: &str, e: impl Display) -> AppError {
     AppError::database(format!("Failed to get provider_connections.{col}: {e}"))
@@ -661,6 +685,15 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(())
+            }
+
+            async fn count_server_level_grants(&self, provider: &str) -> AppResult<u32> {
+                let grants: i64 = sqlx::query_scalar(COUNT_SERVER_LEVEL_GRANTS_SQL)
+                    .bind(provider)
+                    .bind(API_KEY_TOKEN_TYPE)
+                    .fetch_one(self.pool())
+                    .await?;
+                Ok(u32::try_from(grants).unwrap_or(u32::MAX))
             }
         }
     };

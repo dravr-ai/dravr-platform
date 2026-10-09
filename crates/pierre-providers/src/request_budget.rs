@@ -1,5 +1,5 @@
-// ABOUTME: Provider request budgets per OAuth app, per athlete grant and per API key, counted in the database so every instance shares them
-// ABOUTME: Every provider call is admitted against the windows of the app that signs it and the account it acts for, before it is sent
+// ABOUTME: Provider request budgets per OAuth app and per API key, counted in the database so every instance shares them
+// ABOUTME: Every provider call is admitted against the windows of the app that signs it, or of its key, before it is sent
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,13 +15,17 @@
 //! each have their own windows. A tenant's own app carries the daily budget
 //! its operator registered (`rate_limit_per_day`) in place of the provider's.
 //!
-//! Some providers limit each account as well, and a request must then fit
-//! the account's windows too. Intervals.icu gives an OAuth app 100 requests a
-//! day for each athlete who granted it, and a personal API key windows of its
-//! own, with no app involved: a grant is counted under its app and the
-//! provider account it acts for ([`grant_counter_key`]), a key under the
-//! account it belongs to ([`api_key_counter_key`]). The account is the
-//! provider's id for it, never the key: no secret reaches a counter.
+//! Intervals.icu sizes an OAuth app's windows by the athletes who granted
+//! it: one daily pool for the whole app, 100 requests for each of them,
+//! never below 5,000 nor above 50,000, which any of its athletes may spend,
+//! and a rolling 15-minute window of an eighth of the day, never below 2,500.
+//! The athletes are counted in the database
+//! ([`ProviderConnectionRepository::count_server_level_grants`]) and the count is
+//! kept for a minute, so a budget check reads it at most once a minute per
+//! instance rather than once per request. A personal API key has
+//! windows of its own, with no app involved, counted under the account it
+//! belongs to ([`api_key_counter_key`]). The account is the provider's id
+//! for it, never the key: no secret reaches a counter.
 //!
 //! Every provider request is admitted before it is sent: a credential carries
 //! its [`RequestBudget`], and the provider asks it once per request, retries
@@ -45,19 +49,19 @@
 //!
 //! Work nobody is waiting on — the walk of an athlete's history — runs inside
 //! [`in_background`], whose requests stop at [`BACKGROUND_SHARE_PERCENT`] of
-//! each window, the account's included, so the rest stays for the requests an
-//! athlete is waiting on.
+//! each window, an app's pooled windows included, so a backfill can never
+//! spend what the reads an athlete is waiting on need.
 
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use pierre_core::constants::rate_limits;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_database::repositories::UsageCounterRepository;
+use pierre_database::repositories::{ProviderConnectionRepository, UsageCounterRepository};
 #[cfg(any(
     feature = "provider-coros",
     feature = "provider-garmin",
@@ -108,19 +112,21 @@ pub const BACKGROUND_SHARE_PERCENT: u32 = 25;
 /// under: the budget is the application's, owed to no tenant or user.
 pub const PLATFORM_SCOPE: &str = "platform";
 
+/// How long a count of the athletes who granted a provider's server-level
+/// app sizes that app's pool before it is read again: a new grant widens the
+/// pool within a minute, and each instance reads the count at most once a
+/// minute, never once per request.
+const GRANT_COUNT_TTL: Duration = Duration::from_mins(1);
+
+/// The fixed buckets a rolling window as long as one bucket can overlap: a
+/// window that starts inside one bucket ends inside the next.
+const BUCKETS_A_ROLLING_WINDOW_SPANS: u32 = 2;
+
 /// The `counter_key` of the budget buckets of `app` at `provider`: one set of
 /// windows per OAuth client, since a provider counts each app on its own.
 #[must_use]
 pub fn budget_counter_key(provider: &str, app: &str) -> String {
     format!("provider_requests:{provider}:{app}")
-}
-
-/// The `counter_key` of the budget buckets of one athlete's grant to `app`
-/// at `provider`, by `account`, the provider's id for the athlete: the
-/// windows a provider keeps for each grant, beside its app's.
-#[must_use]
-pub fn grant_counter_key(provider: &str, app: &str, account: &str) -> String {
-    format!("provider_grant_requests:{provider}:{app}:{account}")
 }
 
 /// The `counter_key` of the budget buckets of the personal API key at
@@ -193,6 +199,76 @@ impl Budget {
     }
 }
 
+/// An app's windows at a provider that sizes them by the athletes who
+/// granted the app: a daily pool of `per_grant` requests for each of them,
+/// between `min_daily` and `max_daily`, and a rolling `short_window` of the
+/// day divided by `short_divisor`, never below `min_short`.
+///
+/// The limiter counts fixed buckets aligned to the epoch, while the
+/// provider's short window rolls. A rolling window as long as a bucket
+/// overlaps two adjacent buckets, so each bucket holds half the rolling
+/// limit ([`BUCKETS_A_ROLLING_WINDOW_SPANS`]): together the two can never
+/// pass it, wherever the provider's window falls. A full-size bucket would
+/// let up to twice the limit through across a boundary, a burst the provider
+/// refuses with its own 429, and `usage_counters` keeps no per-request
+/// timestamps from which a sliding window could be counted. The pool is
+/// counted per UTC day, as every daily window here is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GrantPool {
+    per_grant: u32,
+    min_daily: u32,
+    max_daily: u32,
+    short_window: Duration,
+    short_divisor: u32,
+    min_short: u32,
+}
+
+impl GrantPool {
+    /// Intervals.icu's terms for an OAuth app (forum.intervals.icu/t/609).
+    const fn intervals_icu() -> Self {
+        Self {
+            per_grant: rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE,
+            min_daily: rate_limits::INTERVALS_ICU_OAUTH_DAILY_MIN,
+            max_daily: rate_limits::INTERVALS_ICU_OAUTH_DAILY_MAX,
+            short_window: FIFTEEN_MINUTES,
+            short_divisor: rate_limits::INTERVALS_ICU_OAUTH_15MIN_DAILY_DIVISOR,
+            min_short: rate_limits::INTERVALS_ICU_OAUTH_15MIN_MIN,
+        }
+    }
+
+    /// The daily pool of an app `grants` athletes granted.
+    fn daily(self, grants: u32) -> u32 {
+        self.per_grant
+            .saturating_mul(grants)
+            .max(self.min_daily)
+            .min(self.max_daily)
+    }
+
+    /// The windows of an app whose day holds `daily` requests: the short
+    /// bucket at its share of the rolling limit that day sets, then the day.
+    fn windows(self, daily: u32) -> Vec<Budget> {
+        let rolling = (daily / self.short_divisor.max(1)).max(self.min_short);
+        vec![
+            Budget {
+                max_calls: rolling / BUCKETS_A_ROLLING_WINDOW_SPANS,
+                window: self.short_window,
+            },
+            Budget {
+                max_calls: daily,
+                window: ONE_DAY,
+            },
+        ]
+    }
+}
+
+/// The athletes counted as having granted a provider's server-level app,
+/// and when they were counted.
+#[derive(Debug, Clone, Copy)]
+struct GrantCount {
+    grants: u32,
+    counted_at: Instant,
+}
+
 /// The budgets `map` holds for `provider`, cloned out so no map guard is
 /// held across a database call; none when it holds no entry.
 fn configured(map: &DashMap<String, Vec<Budget>>, provider: &str) -> Vec<Budget> {
@@ -202,19 +278,25 @@ fn configured(map: &DashMap<String, Vec<Budget>>, provider: &str) -> Vec<Budget>
 }
 
 /// Holds each provider's budgets and takes requests from them in the
-/// database, per OAuth app and per provider account, so every instance
+/// database, per OAuth app and per personal API key, so every instance
 /// counts into the same windows.
 pub struct ProviderRateLimiter {
     /// Where the windows are counted: `usage_counters`, shared by every
     /// instance of the backend.
     counters: Arc<dyn UsageCounterRepository>,
+    /// Where the athletes who granted a provider's server-level app are
+    /// counted, for the providers in `pools`.
+    grants: Arc<dyn ProviderConnectionRepository>,
     /// Map of `provider_name` -> every budget a request to it must fit, per
     /// app. Configuration only, the same on every instance; read and cloned
-    /// out before any database call, as are the two maps below.
+    /// out before any database call, as are `pools` and `api_key_budgets`.
     budgets: DashMap<String, Vec<Budget>>,
-    /// Map of `provider_name` -> the budgets it keeps for each athlete's
-    /// grant to an app, besides the app's own.
-    grant_budgets: DashMap<String, Vec<Budget>>,
+    /// Map of `provider_name` -> how its apps' windows are sized from the
+    /// athletes who granted them, in place of `budgets`.
+    pools: DashMap<String, GrantPool>,
+    /// Map of `provider_name` -> the last count of the athletes who granted
+    /// its server-level app, read again once [`GRANT_COUNT_TTL`] old.
+    grant_counts: DashMap<String, GrantCount>,
     /// Map of `provider_name` -> the budgets it keeps for each personal API
     /// key.
     api_key_budgets: DashMap<String, Vec<Budget>>,
@@ -224,12 +306,10 @@ pub struct ProviderRateLimiter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Holder {
     /// The OAuth app whose client signs the credential, with the daily
-    /// budget its operator registered when it has one, and the provider
-    /// account the grant acts for when the request is counted for it too.
+    /// budget its operator registered when it has one.
     App {
         app: String,
         daily_limit: Option<u32>,
-        grant: Option<String>,
     },
     /// A personal API key, by the provider account it belongs to.
     ApiKey { account: String },
@@ -259,9 +339,13 @@ pub enum RateLimitStatus {
 
 impl ProviderRateLimiter {
     /// A rate limiter counting in `counters`, pre-loaded with known provider
-    /// rate limits.
+    /// rate limits, sizing a pooling provider's app windows by the grants
+    /// `grants` counts.
     #[must_use]
-    pub fn new(counters: Arc<dyn UsageCounterRepository>) -> Self {
+    pub fn new(
+        counters: Arc<dyn UsageCounterRepository>,
+        grants: Arc<dyn ProviderConnectionRepository>,
+    ) -> Self {
         let daily = |max_calls| {
             vec![Budget {
                 max_calls,
@@ -315,18 +399,11 @@ impl ProviderRateLimiter {
                 },
             ],
         );
-        // Intervals.icu: an OAuth app's ceiling across its athletes, then
-        // each athlete's grant on its own; a personal API key has windows of
-        // its own and no app.
-        budgets.insert(
-            "intervals_icu".to_owned(),
-            daily(rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_APP),
-        );
-        let grant_budgets = DashMap::new();
-        grant_budgets.insert(
-            "intervals_icu".to_owned(),
-            daily(rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE),
-        );
+        // Intervals.icu: an OAuth app's windows are one pool its athletes
+        // share, sized by how many granted it; a personal API key has
+        // windows of its own and no app.
+        let pools = DashMap::new();
+        pools.insert("intervals_icu".to_owned(), GrantPool::intervals_icu());
         let api_key_budgets = DashMap::new();
         api_key_budgets.insert(
             "intervals_icu".to_owned(),
@@ -343,14 +420,16 @@ impl ProviderRateLimiter {
         );
 
         info!(
-            provider_count = budgets.len(),
+            provider_count = budgets.len() + pools.len(),
             "Provider rate limiter initialized"
         );
 
         Self {
             counters,
+            grants,
             budgets,
-            grant_budgets,
+            pools,
+            grant_counts: DashMap::new(),
             api_key_budgets,
         }
     }
@@ -373,7 +452,6 @@ impl ProviderRateLimiter {
             &Holder::App {
                 app: app.to_owned(),
                 daily_limit,
-                grant: None,
             },
         )
         .await
@@ -388,17 +466,15 @@ impl ProviderRateLimiter {
         } else {
             100
         };
-        let status = self
-            .take(&self.windows_for(provider, holder), share)
-            .await?;
+        let windows = self.windows_for(provider, holder).await;
+        let status = self.take(&windows, share).await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
+            // No app: the windows spent are a personal API key's own.
             let app = holder.app();
-            let per_account = self.counts_account(provider, holder);
             if background {
                 debug!(
                     provider,
                     app,
-                    per_account,
                     retry_after_secs = retry_after.as_secs(),
                     "Background share of the provider budget spent"
                 );
@@ -406,26 +482,12 @@ impl ProviderRateLimiter {
                 warn!(
                     provider,
                     app,
-                    per_account,
                     retry_after_secs = retry_after.as_secs(),
                     "Provider request budget spent"
                 );
             }
         }
         Ok(status)
-    }
-
-    /// Whether a request to `provider` counted for `holder` is taken from
-    /// windows the provider keeps for a provider account, as well as or in
-    /// place of an app's: only a provider that limits each grant counts a
-    /// grant's account.
-    fn counts_account(&self, provider: &str, holder: &Holder) -> bool {
-        match holder {
-            Holder::App { grant, .. } => {
-                grant.is_some() && self.grant_budgets.contains_key(provider)
-            }
-            Holder::ApiKey { .. } => self.api_key_budgets.contains_key(provider),
-        }
     }
 
     /// The windows a request to `provider` must fit: the provider's, with the
@@ -445,38 +507,75 @@ impl ProviderRateLimiter {
         budgets
     }
 
-    /// Every window a request to `provider` counted for `holder` is taken
-    /// from, each with the counter key it is counted under: an app's first,
-    /// then the windows of the grant it acts for; or a personal key's.
-    fn windows_for(&self, provider: &str, holder: &Holder) -> Vec<(String, Budget)> {
-        let keyed = |key: String, budgets: Vec<Budget>| {
-            budgets.into_iter().map(move |budget| (key.clone(), budget))
+    /// The windows of an app at `provider`: sized by the athletes who
+    /// granted the app where the provider pools them, else the provider's,
+    /// and either way with the day's allowance replaced by `daily_limit`
+    /// when the app's operator registered one.
+    ///
+    /// At a pooling provider an app with no registered limit is the
+    /// server-level app, whose grants are the ones counted: a tenant's own
+    /// app always carries the limit its operator registered, the Strava pool
+    /// apps are Strava's, and the `user_oauth_app_credentials` provider CHECK
+    /// admits no user's own app for Intervals.icu.
+    async fn app_budgets(&self, provider: &str, daily_limit: Option<u32>) -> Vec<Budget> {
+        let pool = self.pools.get(provider).map(|pool| *pool);
+        let Some(pool) = pool else {
+            return self.budgets_for(provider, daily_limit);
         };
-        match holder {
-            Holder::App {
-                app,
-                daily_limit,
-                grant,
-            } => {
-                let mut windows: Vec<(String, Budget)> = keyed(
-                    budget_counter_key(provider, app),
-                    self.budgets_for(provider, *daily_limit),
-                )
-                .collect();
-                if let Some(account) = grant {
-                    windows.extend(keyed(
-                        grant_counter_key(provider, app, account),
-                        configured(&self.grant_budgets, provider),
-                    ));
-                }
-                windows
+        let daily = match daily_limit {
+            Some(daily) => daily,
+            None => pool.daily(self.granted_athletes(provider).await),
+        };
+        pool.windows(daily)
+    }
+
+    /// The athletes who granted `provider`'s server-level app, as counted
+    /// within the last [`GRANT_COUNT_TTL`], else counted now.
+    ///
+    /// A count the database cannot give is taken as none, which holds the
+    /// pool to its minimum, the least the provider ever allows an app, and
+    /// is kept as long as a count is, so a database that cannot answer is
+    /// not asked again on every request.
+    async fn granted_athletes(&self, provider: &str) -> u32 {
+        let cached = self.grant_counts.get(provider).map(|count| *count);
+        if let Some(count) = cached.filter(|count| count.counted_at.elapsed() < GRANT_COUNT_TTL) {
+            return count.grants;
+        }
+        let grants = match self.grants.count_server_level_grants(provider).await {
+            Ok(grants) => grants,
+            Err(e) => {
+                warn!(provider, error = %e, "The athletes who granted the app could not be counted; its request pool is held to its minimum");
+                0
             }
-            Holder::ApiKey { account } => keyed(
+        };
+        self.grant_counts.insert(
+            provider.to_owned(),
+            GrantCount {
+                grants,
+                counted_at: Instant::now(),
+            },
+        );
+        grants
+    }
+
+    /// Every window a request to `provider` counted for `holder` is taken
+    /// from, each with the counter key it is counted under: an app's, or a
+    /// personal key's.
+    async fn windows_for(&self, provider: &str, holder: &Holder) -> Vec<(String, Budget)> {
+        let (key, budgets) = match holder {
+            Holder::App { app, daily_limit } => (
+                budget_counter_key(provider, app),
+                self.app_budgets(provider, *daily_limit).await,
+            ),
+            Holder::ApiKey { account } => (
                 api_key_counter_key(provider, account),
                 configured(&self.api_key_budgets, provider),
-            )
-            .collect(),
-        }
+            ),
+        };
+        budgets
+            .into_iter()
+            .map(|budget| (key.clone(), budget))
+            .collect()
     }
 
     /// Take one request from every one of `windows` that holds fewer than
@@ -520,8 +619,9 @@ impl ProviderRateLimiter {
     }
 
     /// Replace `provider`'s budgets with `budgets`, each `(max_calls,
-    /// window)`.
+    /// window)`, in place of any pool its apps' windows were sized by.
     pub fn set_budgets(&self, provider: &str, budgets: &[(u32, Duration)]) {
+        self.pools.remove(provider);
         self.budgets.insert(
             provider.to_owned(),
             budgets
@@ -541,8 +641,8 @@ impl ProviderRateLimiter {
 }
 
 /// The budget a credential's provider requests are admitted against: the
-/// shared windows of the OAuth app that signs them, and those its provider
-/// keeps for the account the credential acts for.
+/// shared windows of the OAuth app that signs them, or those its provider
+/// keeps for a personal API key.
 #[derive(Clone)]
 pub struct RequestBudget {
     limiter: Arc<ProviderRateLimiter>,
@@ -560,31 +660,7 @@ impl RequestBudget {
     ) -> Self {
         Self {
             limiter,
-            holder: Holder::App {
-                app,
-                daily_limit,
-                grant: None,
-            },
-        }
-    }
-
-    /// The windows of `app` as [`Self::new`] has them, and the windows the
-    /// provider keeps for one athlete's grant to that app, counted for
-    /// `account`, the provider's id for the athlete.
-    #[must_use]
-    pub const fn for_grant(
-        limiter: Arc<ProviderRateLimiter>,
-        app: String,
-        daily_limit: Option<u32>,
-        account: String,
-    ) -> Self {
-        Self {
-            limiter,
-            holder: Holder::App {
-                app,
-                daily_limit,
-                grant: Some(account),
-            },
+            holder: Holder::App { app, daily_limit },
         }
     }
 
@@ -665,5 +741,46 @@ pub async fn admit(budget: Option<&RequestBudget>, provider: &str) -> AppResult<
     match budget {
         Some(budget) => budget.admit(provider).await,
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Intervals.icu's daily pool is 100 requests for each athlete who
+    /// granted the app, held to at least 5,000 and at most 50,000: the 50th
+    /// athlete still leaves it at the minimum and the 51st widens it, the
+    /// 500th fills it and the 501st adds nothing.
+    #[test]
+    fn the_intervals_pool_grows_by_a_hundred_an_athlete_between_its_clamps() {
+        let pool = GrantPool::intervals_icu();
+        assert_eq!(pool.daily(0), 5_000);
+        assert_eq!(pool.daily(50), 5_000);
+        assert_eq!(pool.daily(51), 5_100);
+        assert_eq!(pool.daily(499), 49_900);
+        assert_eq!(pool.daily(500), 50_000);
+        assert_eq!(pool.daily(501), 50_000);
+        assert_eq!(pool.daily(u32::MAX), 50_000, "the product saturates");
+    }
+
+    /// The rolling 15-minute limit is an eighth of the day, at least 2,500,
+    /// and each fixed 15-minute bucket holds half of it, so two adjacent
+    /// buckets never pass it: 1,250 a bucket until the day passes 20,000,
+    /// 3,125 at the day's 50,000.
+    #[test]
+    fn each_fifteen_minute_bucket_holds_half_the_rolling_limit() {
+        let pool = GrantPool::intervals_icu();
+        let short = |daily| {
+            let windows = pool.windows(daily);
+            assert_eq!(windows[1].max_calls, daily, "the day is the pool");
+            assert_eq!(windows[1].window, ONE_DAY);
+            assert_eq!(windows[0].window, FIFTEEN_MINUTES);
+            windows[0].max_calls
+        };
+        assert_eq!(short(5_000), 1_250);
+        assert_eq!(short(20_000), 1_250);
+        assert_eq!(short(24_000), 1_500);
+        assert_eq!(short(50_000), 3_125);
     }
 }

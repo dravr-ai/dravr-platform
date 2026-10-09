@@ -173,8 +173,8 @@ pub struct OAuth2Credentials {
     #[serde(default)]
     pub kind: CredentialKind,
     /// The budget every request these credentials authorize is admitted
-    /// against before it is sent: the OAuth app that signs them, and the
-    /// provider account they act for where the provider limits each account.
+    /// against before it is sent: the OAuth app that signs them, or a
+    /// personal API key's own windows.
     /// `None` sends uncounted (a provider no budget applies to, or a test).
     #[serde(skip)]
     pub request_budget: Option<RequestBudget>,

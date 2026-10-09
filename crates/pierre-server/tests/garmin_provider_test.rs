@@ -508,9 +508,10 @@ async fn test_garmin_api_call_is_admitted_against_the_garmin_budget() {
     });
 
     let db = create_test_db().await.unwrap();
-    let limiter = Arc::new(ProviderRateLimiter::new(Arc::clone(
-        &db.repositories().usage_counters,
-    )));
+    let limiter = Arc::new(ProviderRateLimiter::new(
+        Arc::clone(&db.repositories().usage_counters),
+        Arc::clone(&db.repositories().provider_connections),
+    ));
     limiter.set_budgets(oauth_providers::GARMIN, &[(1, ONE_DAY)]);
     let provider = GarminProvider::with_config(ProviderConfig {
         name: oauth_providers::GARMIN.to_owned(),

@@ -833,9 +833,10 @@ impl ServerContext {
     }
 
     /// The provider rate limiter, counting in `usage_counters` so every
-    /// instance shares its windows, with Strava's 15-minute and daily budgets
-    /// as `STRAVA_RATE_LIMIT_15MIN` and `STRAVA_RATE_LIMIT_DAILY` configure
-    /// them.
+    /// instance shares its windows, sizing the Intervals.icu app's pool by
+    /// the grants `provider_connections` counts, with Strava's 15-minute and daily
+    /// budgets as `STRAVA_RATE_LIMIT_15MIN` and `STRAVA_RATE_LIMIT_DAILY`
+    /// configure them.
     ///
     /// A budget of zero would refuse every counted Strava request, and it is
     /// what a config built by `Default` rather than from the environment
@@ -847,7 +848,10 @@ impl ServerContext {
         repos: &Arc<RepositoryRegistry>,
     ) -> Arc<ProviderRateLimiter> {
         let strava = config.strava_api_config();
-        let limiter = ProviderRateLimiter::new(Arc::clone(&repos.usage_counters));
+        let limiter = ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        );
         if strava.rate_limit_15min > 0 && strava.rate_limit_daily > 0 {
             limiter.set_budgets(
                 oauth_providers::STRAVA,
