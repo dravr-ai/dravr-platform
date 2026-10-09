@@ -1308,13 +1308,22 @@ mod dispatch_tests {
             "Test Coach",
         );
 
-        sleep(Duration::from_millis(200)).await;
+        // The trigger delivers on a detached task whose latency depends on the
+        // database backend, so the test polls for its row for up to 5 s.
+        let mut attempts = 0;
+        let (notifications, total, _unread) = loop {
+            let listed = service
+                .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
+                .await
+                .unwrap();
+            attempts += 1;
+            if listed.1 >= 2 || attempts == 50 {
+                break listed;
+            }
+            sleep(Duration::from_millis(100)).await;
+        };
 
         // Should have 2 notifications total (fill + agent trigger)
-        let (notifications, total, _unread) = service
-            .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
-            .await
-            .unwrap();
 
         assert_eq!(
             total, 2,
