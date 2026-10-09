@@ -25,6 +25,8 @@ use dravr_canot::commands::CommandDefinition;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
+use pierre_auth::oauth2_server::play_integrity_decoder::GooglePlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
@@ -551,6 +553,9 @@ impl ServerContext {
             csrf_manager,
             firebase_auth,
             oauth2_rate_limiter,
+            play_integrity: Arc::new(GooglePlayIntegrityDecoder::from_metadata_server(
+                MOBILE_PLAY_PACKAGE_NAME,
+            )),
             admin_jwt_secret: admin_jwt_secret.into(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store,

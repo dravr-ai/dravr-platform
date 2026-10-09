@@ -12,11 +12,13 @@
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
+use std::thread::{self, ThreadId};
 
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::subscriber::{set_default, DefaultGuard};
 use tracing::{Event, Level, Metadata, Subscriber};
+use tracing_core::span::Current;
 
 /// One `target: "notify"` event, with every field rendered as a string.
 ///
@@ -44,11 +46,46 @@ impl NotifyEvent {
 /// Every event captured since [`capture_notify`] installed the layer.
 pub type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
 
+/// Every value recorded onto a span after it was created (`Span::record`),
+/// as `(field, value)` in the order recorded, since
+/// [`capture_logs_and_spans`] installed the subscriber.
+///
+/// The subscriber gives every span one id, so a value is not attributed to a
+/// span: these are the values the code under test recorded, whichever span
+/// was current.
+pub type RecordedSpanFields = Arc<Mutex<Vec<(String, String)>>>;
+
 #[derive(Clone, Default)]
 struct NotifyCapture {
     events: CapturedEvents,
     /// Record every event under its message, not only `target: "notify"`.
     every_line: bool,
+    /// Span tracking, only under [`capture_logs_and_spans`].
+    spans: Option<SpanCapture>,
+}
+
+/// What [`capture_logs_and_spans`] keeps to see `Span::record` values.
+///
+/// `Span::record` on `Span::current()` reaches a subscriber only when the
+/// subscriber can say which span is current, so this mode mints an id per
+/// span and keeps the entered stack. The ids still never reach a registry:
+/// every span carries the dispatcher that created it, and this one looks
+/// nothing up in another.
+#[derive(Clone, Default)]
+struct SpanCapture {
+    fields: RecordedSpanFields,
+    tracking: Arc<Mutex<SpanTracking>>,
+}
+
+#[derive(Default)]
+struct SpanTracking {
+    /// The last id minted; ids start above the shared id `1`
+    last_id: u64,
+    metadata: HashMap<u64, &'static Metadata<'static>>,
+    /// Entered spans with the thread that entered them: sqlx enters a span it
+    /// was handed on its worker thread, and that span is never current on
+    /// the test's thread
+    entered: Vec<(ThreadId, u64)>,
 }
 
 #[derive(Debug, Default)]
@@ -105,18 +142,76 @@ impl Subscriber for NotifyCapture {
     }
 
     // One id for every span: nothing here looks a span up, and the id is never
-    // handed to a registry that would try to resolve it.
-    fn new_span(&self, _span: &Attributes<'_>) -> Id {
-        Id::from_u64(1)
+    // handed to a registry that would try to resolve it. Span capture alone
+    // mints its own ids, to know which span is current (see `SpanCapture`).
+    fn new_span(&self, span: &Attributes<'_>) -> Id {
+        let Some(spans) = &self.spans else {
+            return Id::from_u64(1);
+        };
+        let mut tracking = spans.tracking.lock().unwrap();
+        tracking.last_id = tracking.last_id.max(1) + 1;
+        let id = tracking.last_id;
+        tracking.metadata.insert(id, span.metadata());
+        Id::from_u64(id)
     }
 
-    fn record(&self, _span: &Id, _values: &Record<'_>) {}
+    fn record(&self, _span: &Id, values: &Record<'_>) {
+        let Some(spans) = &self.spans else {
+            return;
+        };
+        let mut visitor = FieldVisitor::default();
+        values.record(&mut visitor);
+        spans.fields.lock().unwrap().extend(visitor.fields);
+    }
 
     fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
 
-    fn enter(&self, _span: &Id) {}
+    fn enter(&self, span: &Id) {
+        if let Some(spans) = &self.spans {
+            spans
+                .tracking
+                .lock()
+                .unwrap()
+                .entered
+                .push((thread::current().id(), span.into_u64()));
+        }
+    }
 
-    fn exit(&self, _span: &Id) {}
+    fn exit(&self, span: &Id) {
+        if let Some(spans) = &self.spans {
+            let mut tracking = spans.tracking.lock().unwrap();
+            let entry = (thread::current().id(), span.into_u64());
+            if let Some(at) = tracking
+                .entered
+                .iter()
+                .rposition(|entered| *entered == entry)
+            {
+                tracking.entered.remove(at);
+            }
+        }
+    }
+
+    fn current_span(&self) -> Current {
+        // Without span capture no span is ever current: `Span::current()`
+        // is disabled, exactly as under the trait's default answer.
+        let Some(spans) = &self.spans else {
+            return Current::none();
+        };
+        let tracking = spans.tracking.lock().unwrap();
+        let this_thread = thread::current().id();
+        tracking
+            .entered
+            .iter()
+            .rev()
+            .find(|(thread, _)| *thread == this_thread)
+            .and_then(|(_, id)| {
+                tracking
+                    .metadata
+                    .get(id)
+                    .map(|metadata| Current::new(Id::from_u64(*id), metadata))
+            })
+            .unwrap_or_else(Current::none)
+    }
 
     fn event(&self, event: &Event<'_>) {
         if !self.every_line && event.metadata().target() != "notify" {
@@ -167,6 +262,33 @@ pub fn capture_logs() -> (CapturedEvents, DefaultGuard) {
     let events = Arc::clone(&capture.events);
     let guard = set_default(capture);
     (events, guard)
+}
+
+/// [`capture_logs`], plus every value recorded onto a span after its
+/// creation: the fields a handler fills in as it learns them, such as the
+/// token endpoint's `app_attest`.
+pub fn capture_logs_and_spans() -> (CapturedEvents, RecordedSpanFields, DefaultGuard) {
+    let spans = SpanCapture::default();
+    let span_fields = Arc::clone(&spans.fields);
+    let capture = NotifyCapture {
+        every_line: true,
+        spans: Some(spans),
+        ..NotifyCapture::default()
+    };
+    let events = Arc::clone(&capture.events);
+    let guard = set_default(capture);
+    (events, span_fields, guard)
+}
+
+/// Every value recorded onto a span under `field`, in the order recorded.
+pub fn recorded(span_fields: &RecordedSpanFields, field: &str) -> Vec<String> {
+    span_fields
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name == field)
+        .map(|(_, value)| value.clone())
+        .collect()
 }
 
 /// Every captured event with this name.

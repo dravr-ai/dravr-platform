@@ -49,6 +49,7 @@ use axum::{
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
@@ -191,6 +192,9 @@ pub struct AuthRoutesContext {
     /// account's password re-confirmations (`change-password`, account
     /// deletion) in a window of its own.
     pub rate_limiter: Arc<OAuth2RateLimiter>,
+    /// Decodes the Android app's Play Integrity token at Google, on the
+    /// mobile code exchange (carnet#810).
+    pub play_integrity: Arc<dyn PlayIntegrityDecoder>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,

@@ -30,9 +30,10 @@ export type {
   RegisterCredentials,
   SignInRequest,
   SignInCallback,
-  AppAttestEvidence,
+  DeviceEvidence,
   CompleteSignIn,
 } from './domains/auth';
+export { base64UrlEncode } from './core/pkce';
 export type { PkceCrypto } from './core/pkce';
 
 export { createChatApi, replySceneBlocks } from './domains/chat';

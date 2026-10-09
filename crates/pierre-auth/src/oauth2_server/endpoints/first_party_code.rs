@@ -4,12 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use tracing::warn;
+use chrono::Utc;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::OAuth2AuthorizationServer;
 use crate::oauth2_server::first_party::is_first_party;
 use crate::oauth2_server::models::OAuth2Error;
+use crate::oauth2_server::pkce::check_pkce;
 
 /// Who a redeemed first-party code signs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,5 +61,50 @@ impl OAuth2AuthorizationServer {
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id,
         })
+    }
+
+    /// Whether [`redeem_first_party_code`](Self::redeem_first_party_code)
+    /// could redeem this code right now, checked without spending it.
+    ///
+    /// The code must be live, issued to `client_id` for `redirect_uri`, and
+    /// its PKCE challenge must accept `code_verifier`. A step that costs
+    /// something outside this server (a metered call to Google) runs only
+    /// once this passes, so an invented code never reaches it. The redemption
+    /// still checks everything again and consumes the code atomically; the
+    /// `state` the code is bound to is left for it.
+    ///
+    /// # Errors
+    /// What the redemption would answer: `invalid_client`, `invalid_request`
+    /// or `invalid_grant`, and `server_error` when the code cannot be read.
+    pub async fn check_first_party_code(
+        &self,
+        client_id: &str,
+        code: &str,
+        redirect_uri: &str,
+        code_verifier: Option<&str>,
+    ) -> Result<(), OAuth2Error> {
+        if !is_first_party(client_id) {
+            return Err(OAuth2Error::invalid_client());
+        }
+        let Some(verifier) = code_verifier else {
+            return Err(OAuth2Error::invalid_request(
+                "code_verifier is required: Dravr's apps are public clients (RFC 7636)",
+            ));
+        };
+        let auth_code = self
+            .oauth2_server
+            .peek_auth_code(code, client_id, redirect_uri, Utc::now())
+            .await
+            .map_err(|e| {
+                error!(client_id, "Failed to read authorization code: {e:#}");
+                OAuth2Error::server_error("Failed to read authorization code")
+            })?
+            .ok_or_else(|| OAuth2Error::invalid_grant("Invalid or expired authorization code"))?;
+        check_pkce(
+            auth_code.code_challenge.as_deref(),
+            Some(verifier),
+            auth_code.code_challenge_method.as_deref(),
+            client_id,
+        )
     }
 }

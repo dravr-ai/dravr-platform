@@ -68,6 +68,7 @@ use dravr_canot::ChannelRegistry;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
@@ -209,6 +210,9 @@ pub struct AuthSlice {
     pub firebase_auth: Option<Arc<FirebaseAuth>>,
     /// Rate limiter for `OAuth2` endpoints.
     pub oauth2_rate_limiter: Arc<OAuth2RateLimiter>,
+    /// Decodes the Android app's Play Integrity token at Google, on the
+    /// mobile sign-in's code exchange.
+    pub play_integrity: Arc<dyn PlayIntegrityDecoder>,
     /// Secret key for admin JWT token generation.
     pub admin_jwt_secret: Arc<str>,
     /// Cache-backed one-time nonce store for link-token page loads.

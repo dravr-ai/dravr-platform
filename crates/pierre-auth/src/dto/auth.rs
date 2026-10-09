@@ -296,6 +296,9 @@ pub struct OAuth2TokenRequest {
     pub app_attest_attestation: Option<String>,
     /// An assertion by the registered key, on every later sign-in
     pub app_attest_assertion: Option<String>,
+    /// The Android app's Play Integrity token, requested over the SHA-256 of
+    /// the code (carnet#810); never beside the App Attest fields
+    pub play_integrity_token: Option<String>,
 }
 
 /// `OAuth2` token response per RFC 6749 Section 5.1

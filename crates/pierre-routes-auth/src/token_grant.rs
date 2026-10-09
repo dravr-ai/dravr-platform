@@ -15,9 +15,12 @@ use tracing::{debug, field, field::Empty, info, Span};
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
-use pierre_auth::oauth2_server::first_party::{MOBILE_APP_ATTEST_APP_ID, MOBILE_CLIENT_ID};
+use pierre_auth::oauth2_server::first_party::{
+    MOBILE_APP_ATTEST_APP_ID, MOBILE_CLIENT_ID, MOBILE_PLAY_PACKAGE_NAME,
+};
 use pierre_auth::oauth2_server::mobile_attestation::{
-    record_evidence, verify_evidence, AppAttestEvidence, VerifiedEvidence,
+    record_evidence, verify_evidence, verify_play_integrity, AppAttestEvidence, MobileEvidence,
+    PlayIntegrityOutcome, VerifiedEvidence,
 };
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::{set_auth_cookie, set_csrf_cookie};
@@ -47,8 +50,10 @@ use pierre_services::auth::AuthService;
 /// The iOS app adds App Attest evidence to its code exchange (carnet#810):
 /// `app_attest_key_id` with `app_attest_attestation` on an install's first
 /// sign-in, or `app_attest_assertion` on every later one, both signed over
-/// the code. Evidence that is present must verify; see
-/// [`check_app_attest`].
+/// the code. The Android app sends `play_integrity_token` instead: a Play
+/// Integrity token requested over the base64url (unpadded) SHA-256 of the
+/// code, which Google decodes. Evidence that is present must verify; see
+/// [`check_device_evidence`].
 ///
 /// The password grant (RFC 6749 §4.3) is not served: RFC 9700 §2.4 forbids
 /// it, and it let anything holding a password become Dravr's own app.
@@ -123,10 +128,13 @@ pub async fn handle_oauth2_token(
                      code_verifier.",
                 ));
             };
-            let attested = match check_app_attest(&resources, &request, client_id, code).await {
-                Ok(attested) => attested,
-                Err(refusal) => return Ok(refused_evidence(&refusal)),
-            };
+            let attested =
+                match check_device_evidence(&resources, &request, client_id, code, redirect_uri)
+                    .await
+                {
+                    Ok(attested) => attested,
+                    Err(refusal) => return Ok(refused_evidence(&refusal)),
+                };
             let redeemed = match authorization_server(&resources)
                 .redeem_first_party_code(
                     client_id,
@@ -291,25 +299,30 @@ fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationSer
     .with_first_party_redirects(oauth2.first_party_redirects.clone())
 }
 
-/// Verify the App Attest evidence a code exchange carried, before the code
-/// is redeemed (carnet#810).
+/// Verify the device evidence a code exchange carried, before the code is
+/// redeemed (carnet#810): App Attest from the iOS app, Play Integrity from
+/// the Android app. A Play Integrity token is only sent to Google for a code
+/// that would redeem (live, this client and redirect, PKCE passing).
 ///
 /// Only Dravr's mobile app attests, so evidence from any other client is a
-/// malformed request. Verified evidence comes back to be recorded once the
-/// code is redeemed; a refusal leaves the code unspent, so the app can retry
-/// with a fresh key. The span records which kind of evidence the mobile
-/// sign-in carried, `absent` included: absence is accepted until the Android
-/// app attests too, and the span is where its share is read.
-async fn check_app_attest(
+/// malformed request. Verified App Attest evidence comes back to be recorded
+/// once the code is redeemed; a verified Play Integrity verdict leaves
+/// nothing to record. A refusal leaves the code unspent, so the app can
+/// retry with fresh evidence. The span records which kind of evidence the
+/// mobile sign-in carried, `absent` included: absence is accepted until
+/// enforcement is switched on, and the span is where its share is read.
+async fn check_device_evidence(
     resources: &AuthRoutesContext,
     request: &OAuth2TokenRequest,
     client_id: &str,
     code: &str,
+    redirect_uri: &str,
 ) -> Result<Option<VerifiedEvidence>, OAuth2Error> {
-    let evidence = AppAttestEvidence::from_request(
+    let evidence = MobileEvidence::from_request(
         request.app_attest_key_id.as_deref(),
         request.app_attest_attestation.as_deref(),
         request.app_attest_assertion.as_deref(),
+        request.play_integrity_token.as_deref(),
     )
     .inspect_err(|_| {
         if client_id == MOBILE_CLIENT_ID {
@@ -320,17 +333,56 @@ async fn check_app_attest(
         return match evidence {
             None => Ok(None),
             Some(_) => Err(OAuth2Error::invalid_request(
-                "App Attest evidence is accepted from dravr-mobile only.",
+                "Device attestation evidence is accepted from dravr-mobile only.",
             )),
         };
     }
-    let Some(evidence) = evidence else {
-        Span::current().record("app_attest", "absent");
-        return Ok(None);
-    };
+    match evidence {
+        None => {
+            Span::current().record("app_attest", "absent");
+            Ok(None)
+        }
+        Some(MobileEvidence::AppAttest(evidence)) => {
+            check_app_attest_evidence(resources, &evidence, code)
+                .await
+                .map(Some)
+        }
+        Some(MobileEvidence::PlayIntegrity(token)) => {
+            // Each decode is a call to Google, metered against a daily quota:
+            // only a code the exchange could redeem is worth one. Any other
+            // code goes on to the redemption, which refuses it as it would
+            // without evidence.
+            let redeemable = authorization_server(resources)
+                .check_first_party_code(
+                    client_id,
+                    code,
+                    redirect_uri,
+                    request.code_verifier.as_deref(),
+                )
+                .await;
+            if let Err(refusal) = redeemable {
+                debug!(
+                    error = %refusal.error,
+                    "Play Integrity token not decoded: the code would not redeem"
+                );
+                return Ok(None);
+            }
+            check_play_integrity(resources, &token, code).await?;
+            Ok(None)
+        }
+    }
+}
+
+/// Verify the iOS app's App Attest evidence over `code`, recording its kind
+/// on the span.
+async fn check_app_attest_evidence(
+    resources: &AuthRoutesContext,
+    evidence: &AppAttestEvidence,
+    code: &str,
+) -> Result<VerifiedEvidence, OAuth2Error> {
     let verified = verify_evidence(
         resources.repos.app_attest_keys.as_ref(),
-        &evidence,
+        evidence,
         code,
         MOBILE_APP_ATTEST_APP_ID,
         chrono::Utc::now(),
@@ -340,11 +392,41 @@ async fn check_app_attest(
         Span::current().record("app_attest", "refused");
     })?;
     Span::current().record("app_attest", verified.kind());
-    Ok(Some(verified))
+    Ok(verified)
 }
 
-/// The answer to App Attest evidence that was refused or malformed: the
-/// error's own status, so `invalid_client` is a 400. RFC 6749 §5.2 asks for
+/// Have Google decode the Android app's Play Integrity token and check the
+/// verdict against `code`, recording the outcome on the span. Google out of
+/// reach is `unavailable` and lets the exchange proceed, as absent evidence
+/// does while enforcement is off.
+async fn check_play_integrity(
+    resources: &AuthRoutesContext,
+    token: &str,
+    code: &str,
+) -> Result<(), OAuth2Error> {
+    let outcome = verify_play_integrity(
+        resources.play_integrity.as_ref(),
+        token,
+        code,
+        MOBILE_PLAY_PACKAGE_NAME,
+        chrono::Utc::now(),
+    )
+    .await
+    .inspect_err(|_| {
+        Span::current().record("app_attest", "refused");
+    })?;
+    Span::current().record("app_attest", outcome.kind());
+    if let PlayIntegrityOutcome::Verified(verdict) = outcome {
+        info!(
+            strong_integrity = verdict.strong_integrity,
+            "Play Integrity verdict verified"
+        );
+    }
+    Ok(())
+}
+
+/// The answer to device attestation evidence that was refused or malformed:
+/// the error's own status, so `invalid_client` is a 400. RFC 6749 §5.2 asks for
 /// a 401 only when the client authenticated through the `Authorization`
 /// header, which evidence never travels in, and the apps read any 401 as a
 /// session that lapsed — clearing it and announcing a sign-out in the middle

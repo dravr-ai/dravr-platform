@@ -274,6 +274,18 @@ pub trait OAuth2ServerRepository: Send + Sync {
         redirect_uri: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuth2AuthCode>>;
+    /// Read the authorization code [`consume_auth_code`](Self::consume_auth_code)
+    /// would exchange with these arguments, without consuming it: `None` when
+    /// it is unknown, spent, expired, or bound to another client or redirect.
+    /// A check before a costly step the exchange is gated on; the exchange
+    /// itself still consumes atomically.
+    async fn peek_auth_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2AuthCode>>;
     /// Atomically consume OAuth 2.0 refresh token (check-and-revoke in single operation)
     async fn consume_refresh_token(
         &self,

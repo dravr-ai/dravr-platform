@@ -122,6 +122,8 @@ const rnGlobals = {
   Blob: 'readonly',
   File: 'readonly',
   FileReader: 'readonly',
+  // Hermes ships TextEncoder since React Native 0.74.
+  TextEncoder: 'readonly',
   alert: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',

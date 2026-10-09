@@ -1,10 +1,10 @@
-// ABOUTME: The iOS app's App Attest evidence on its code exchange: read it off the request, verify it, record the key
-// ABOUTME: Verified before the code is redeemed, recorded after, so a refusal leaves the code for a retry with fresh evidence
+// ABOUTME: The mobile app's attestation on its code exchange: App Attest (iOS) or Play Integrity (Android), read and verified
+// ABOUTME: Verified before the code is redeemed, an App Attest key recorded after, so a refusal leaves the code for a retry
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! App Attest on the mobile sign-in (carnet#810).
+//! Device attestation on the mobile sign-in (carnet#810).
 //!
 //! When Dravr's iOS app redeems the code the hosted login page issued, it
 //! sends evidence that the request comes from a genuine install of the app:
@@ -15,12 +15,18 @@
 //! code is server-issued, single-use and short-lived, which is the challenge
 //! Apple asks the server to supply.
 //!
+//! That is App Attest, from the iOS app. The Android app sends a Play
+//! Integrity token instead, requested over [`request_hash`] of the same code,
+//! which Google decodes into a verdict ([`verify_play_integrity`]). Play
+//! keeps no key on this server, so there is nothing to record after the
+//! exchange.
+//!
 //! Attestation adds a signal to the first-party sign-in; it does not
 //! authenticate anyone. The athlete authenticated on the hosted page, and
 //! PKCE ties the code to the app that started the flow. Evidence that is
-//! present must verify. Evidence that is absent is accepted until the Android
-//! app attests too (Play Integrity, carnet#810), because the server cannot
-//! tell an Android install from a script claiming to be one.
+//! present must verify. Evidence that is absent — or a Play Integrity token
+//! Google could not be asked about — is still accepted: enforcement waits
+//! until both apps attest in production.
 
 use std::time::Duration;
 
@@ -34,6 +40,95 @@ use crate::oauth2_server::app_attest::{
     verify_assertion, verify_attestation, AppAttestError, AttestedKey,
 };
 use crate::oauth2_server::models::OAuth2Error;
+use crate::oauth2_server::play_integrity::{
+    request_hash, verify_verdict, PlayIntegrityError, PlayIntegrityVerdict,
+};
+use crate::oauth2_server::play_integrity_decoder::{DecodeError, PlayIntegrityDecoder};
+
+/// The attestation evidence a mobile code exchange carried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MobileEvidence {
+    /// The iOS app's App Attest key and its attestation or assertion
+    AppAttest(AppAttestEvidence),
+    /// The Android app's Play Integrity token
+    PlayIntegrity(String),
+}
+
+impl MobileEvidence {
+    /// Read the evidence off the token request: App Attest's three fields
+    /// ([`AppAttestEvidence::from_request`]), or the Play Integrity token
+    /// alone, or nothing.
+    ///
+    /// # Errors
+    /// `invalid_request` for a malformed App Attest combination, or for a
+    /// Play Integrity token sent beside any App Attest field.
+    pub fn from_request(
+        key_id: Option<&str>,
+        attestation: Option<&str>,
+        assertion: Option<&str>,
+        play_integrity_token: Option<&str>,
+    ) -> Result<Option<Self>, OAuth2Error> {
+        let app_attest = AppAttestEvidence::from_request(key_id, attestation, assertion)?;
+        match (app_attest, play_integrity_token) {
+            (None, None) => Ok(None),
+            (Some(evidence), None) => Ok(Some(Self::AppAttest(evidence))),
+            (None, Some(token)) => Ok(Some(Self::PlayIntegrity(token.to_owned()))),
+            (Some(_), Some(_)) => Err(OAuth2Error::invalid_request(
+                "Send either App Attest evidence or play_integrity_token, not both",
+            )),
+        }
+    }
+}
+
+/// What became of a Play Integrity token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayIntegrityOutcome {
+    /// Google decoded it and the verdict passed every check
+    Verified(PlayIntegrityVerdict),
+    /// Google could not be asked; the exchange proceeds as if no evidence
+    /// had been sent
+    Unavailable,
+}
+
+impl PlayIntegrityOutcome {
+    /// The name the sign-in's span records the outcome under.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Verified(_) => "play_integrity",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Have Google decode the Play Integrity token a code exchange carried, and
+/// check the verdict against the authorization code it carried it for.
+///
+/// # Errors
+/// `invalid_client` when Google refuses the token or the verdict fails a
+/// check.
+pub async fn verify_play_integrity(
+    decoder: &dyn PlayIntegrityDecoder,
+    token: &str,
+    code: &str,
+    package_name: &str,
+    now: DateTime<Utc>,
+) -> Result<PlayIntegrityOutcome, OAuth2Error> {
+    let payload = match decoder.decode(token).await {
+        Ok(payload) => payload,
+        Err(DecodeError::Unavailable) => {
+            warn!("Play Integrity token not checked: Google could not be asked");
+            return Ok(PlayIntegrityOutcome::Unavailable);
+        }
+        Err(DecodeError::Rejected) => {
+            warn!("Play Integrity token refused by Google");
+            return Err(invalid_client("Play Integrity token was not accepted"));
+        }
+    };
+    verify_verdict(&payload, &request_hash(code), package_name, now)
+        .map(PlayIntegrityOutcome::Verified)
+        .map_err(refused_verdict)
+}
 
 /// The App Attest evidence a code exchange carried.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +306,12 @@ fn refused(error: AppAttestError) -> OAuth2Error {
     invalid_client(&error.to_string())
 }
 
+/// `invalid_client` for a Play Integrity verdict that failed a check.
+fn refused_verdict(error: PlayIntegrityError) -> OAuth2Error {
+    warn!(reason = %error, "Play Integrity verdict refused");
+    invalid_client(&error.to_string())
+}
+
 fn invalid_client(description: &str) -> OAuth2Error {
     OAuth2Error {
         error_description: Some(description.to_owned()),
@@ -224,4 +325,73 @@ fn unix_time(now: DateTime<Utc>) -> UnixTime {
     UnixTime::since_unix_epoch(Duration::from_secs(
         u64::try_from(now.timestamp()).unwrap_or_default(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read(
+        key_id: Option<&str>,
+        attestation: Option<&str>,
+        assertion: Option<&str>,
+        play: Option<&str>,
+    ) -> Result<Option<MobileEvidence>, String> {
+        MobileEvidence::from_request(key_id, attestation, assertion, play).map_err(|e| e.error)
+    }
+
+    #[test]
+    fn no_field_is_no_evidence() {
+        assert_eq!(read(None, None, None, None), Ok(None));
+    }
+
+    #[test]
+    fn a_play_integrity_token_alone_is_play_evidence() {
+        assert_eq!(
+            read(None, None, None, Some("token")),
+            Ok(Some(MobileEvidence::PlayIntegrity("token".to_owned())))
+        );
+    }
+
+    #[test]
+    fn app_attest_evidence_alone_is_app_attest_evidence() {
+        assert_eq!(
+            read(Some("key"), None, Some("assertion"), None),
+            Ok(Some(MobileEvidence::AppAttest(AppAttestEvidence {
+                key_id: "key".to_owned(),
+                proof: AppAttestProof::Assertion("assertion".to_owned()),
+            })))
+        );
+    }
+
+    #[test]
+    fn a_play_integrity_token_beside_any_app_attest_field_is_malformed() {
+        for (key_id, attestation, assertion) in [
+            (Some("key"), None, Some("assertion")),
+            (Some("key"), Some("attestation"), None),
+            (Some("key"), None, None),
+            (None, None, Some("assertion")),
+        ] {
+            assert_eq!(
+                read(key_id, attestation, assertion, Some("token")),
+                Err("invalid_request".to_owned())
+            );
+        }
+    }
+
+    /// The span values are a wire contract, not an implementation detail:
+    /// the `app_attest` field's `play_integrity` and `unavailable` shares are
+    /// what the `mobile-attestation-enforcement` arming criterion in
+    /// `feature-phases.yaml` is read from in Cloud Logging.
+    #[test]
+    fn outcomes_name_their_span_value() {
+        assert_eq!(
+            PlayIntegrityOutcome::Verified(PlayIntegrityVerdict {
+                strong_integrity: true
+            })
+            .kind(),
+            "play_integrity"
+        );
+        assert_eq!(PlayIntegrityOutcome::Unavailable.kind(), "unavailable");
+    }
 }

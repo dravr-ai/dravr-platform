@@ -41,6 +41,10 @@ pub const MOBILE_CLIENT_ID: &str = "dravr-mobile";
 /// The Team ID is the one EAS signs the app with.
 pub const MOBILE_APP_ATTEST_APP_ID: &str = "RGDD7MLAK7.ai.dravr.app";
 
+/// The package name of Dravr's Android app, which every Play Integrity
+/// verdict it obtains names (carnet#810).
+pub const MOBILE_PLAY_PACKAGE_NAME: &str = "ai.dravr.app";
+
 /// The path both apps receive their authorization code on.
 pub const CALLBACK_PATH: &str = "/auth/callback";
 

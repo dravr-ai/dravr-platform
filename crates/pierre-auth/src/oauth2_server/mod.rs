@@ -12,12 +12,16 @@ pub mod client_registration;
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
-/// The iOS app's App Attest evidence on its code exchange
+/// The mobile app's attestation evidence on its code exchange
 pub mod mobile_attestation;
 /// OAuth 2.0 data models and types
 pub mod models;
 /// PKCE (RFC 7636) challenge and verifier checks
 mod pkce;
+/// Google Play Integrity: checking the verdict on the Android app's token
+pub mod play_integrity;
+/// Google Play Integrity: decoding the Android app's token at Google
+pub mod play_integrity_decoder;
 /// Rate limiting for OAuth 2.0 endpoints
 pub mod rate_limiting;
 /// Checks on the text a client sends, before any of it reaches a query

@@ -15,12 +15,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
@@ -141,4 +142,39 @@ async fn an_unreachable_metadata_server_is_unavailable() {
 
     let err = provider.access_token().await.unwrap_err();
     assert_eq!(err.code, ErrorCode::ExternalServiceUnavailable);
+}
+
+#[tokio::test]
+async fn a_scoped_provider_asks_the_metadata_server_for_those_scopes() {
+    async fn handler(Query(query): Query<HashMap<String, String>>) -> impl IntoResponse {
+        let scopes = query.get("scopes").cloned().unwrap_or_default();
+        (
+            StatusCode::OK,
+            format!(r#"{{"access_token":"scopes={scopes}","expires_in":3600}}"#),
+        )
+    }
+    let app = Router::new().route("/token", get(handler));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let url = format!("http://{addr}/token");
+
+    let scoped = MetadataTokenProvider::with_token_url(url.clone()).with_scopes(&[
+        "https://www.googleapis.com/auth/playintegrity",
+        "https://www.googleapis.com/auth/devstorage.read_only",
+    ]);
+    assert_eq!(
+        scoped.access_token().await.unwrap(),
+        "scopes=https://www.googleapis.com/auth/playintegrity,\
+         https://www.googleapis.com/auth/devstorage.read_only"
+    );
+
+    let default = MetadataTokenProvider::with_token_url(url);
+    assert_eq!(
+        default.access_token().await.unwrap(),
+        "scopes=",
+        "the default provider names no scopes"
+    );
 }

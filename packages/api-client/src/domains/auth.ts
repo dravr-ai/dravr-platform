@@ -74,19 +74,24 @@ export function readSignInCallback(params: URLSearchParams, expectedState: strin
 }
 
 /**
- * The iOS app's App Attest evidence for a code exchange (carnet#810): the
- * key's attestation on an install's first sign-in, an assertion by it on
- * every later one, both signed over the authorization code.
+ * The mobile app's integrity evidence for a code exchange (carnet#810), bound
+ * to the authorization code it redeems.
+ *
+ * On iOS, App Attest: the key's attestation on an install's first sign-in, an
+ * assertion by it on every later one, both signed over the code. On Android,
+ * the Play Integrity token Google minted for a request hash of the code: the
+ * unpadded base64url SHA-256 of its UTF-8 bytes.
  */
-export type AppAttestEvidence =
+export type DeviceEvidence =
   | { keyId: string; attestation: string }
-  | { keyId: string; assertion: string };
+  | { keyId: string; assertion: string }
+  | { playIntegrityToken: string };
 
 export interface CompleteSignIn {
   code: string;
   codeVerifier: string;
   redirectUri: string;
-  appAttest?: AppAttestEvidence;
+  deviceEvidence?: DeviceEvidence;
 }
 
 export interface RegisterCredentials {
@@ -158,12 +163,17 @@ export function createAuthApi(
       if (platform === 'mobile') {
         formData.append('scope', OFFLINE_ACCESS_SCOPE);
       }
-      if (request.appAttest) {
-        formData.append('app_attest_key_id', request.appAttest.keyId);
-        if ('attestation' in request.appAttest) {
-          formData.append('app_attest_attestation', request.appAttest.attestation);
+      const evidence = request.deviceEvidence;
+      if (evidence) {
+        if ('playIntegrityToken' in evidence) {
+          formData.append('play_integrity_token', evidence.playIntegrityToken);
         } else {
-          formData.append('app_attest_assertion', request.appAttest.assertion);
+          formData.append('app_attest_key_id', evidence.keyId);
+          if ('attestation' in evidence) {
+            formData.append('app_attest_attestation', evidence.attestation);
+          } else {
+            formData.append('app_attest_assertion', evidence.assertion);
+          }
         }
       }
 

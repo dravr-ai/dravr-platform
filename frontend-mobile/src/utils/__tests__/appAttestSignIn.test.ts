@@ -10,7 +10,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AppIntegrity from '@expo/app-integrity';
 import { authApi } from '../../services/api';
 import type { LoginResponse } from '../../types';
-import { APP_ATTEST_KEY_STORE } from '../appAttest';
+import { APP_ATTEST_KEY_STORE } from '../deviceEvidence';
 import { signInWithHostedPage } from '../hostedSignIn';
 
 const REDIRECT_URI = 'exp://127.0.0.1:8082/--/auth/callback';
@@ -86,7 +86,7 @@ describe('App Attest on the hosted sign-in', () => {
 
     expect(integrity.attestKeyAsync).toHaveBeenCalledWith('new-key', 'code-1');
     expect(completeSignIn).toHaveBeenCalledWith(
-      expect.objectContaining({ appAttest: { keyId: 'new-key', attestation: 'attestation(new-key,code-1)' } })
+      expect.objectContaining({ deviceEvidence: { keyId: 'new-key', attestation: 'attestation(new-key,code-1)' } })
     );
     expect(secureStore.setItemAsync).toHaveBeenCalledWith(APP_ATTEST_KEY_STORE, 'new-key');
   });
@@ -99,7 +99,7 @@ describe('App Attest on the hosted sign-in', () => {
 
     expect(integrity.generateKeyAsync).not.toHaveBeenCalled();
     expect(completeSignIn).toHaveBeenCalledWith(
-      expect.objectContaining({ appAttest: { keyId: 'kept-key', assertion: 'assertion(kept-key,code-2)' } })
+      expect.objectContaining({ deviceEvidence: { keyId: 'kept-key', assertion: 'assertion(kept-key,code-2)' } })
     );
     expect(secureStore.setItemAsync).not.toHaveBeenCalled();
   });
@@ -114,7 +114,7 @@ describe('App Attest on the hosted sign-in', () => {
     expect(secureStore.deleteItemAsync).toHaveBeenCalledWith(APP_ATTEST_KEY_STORE);
     expect(completeSignIn).toHaveBeenCalledTimes(2);
     expect(completeSignIn).toHaveBeenLastCalledWith(
-      expect.objectContaining({ code: 'code-3', appAttest: { keyId: 'new-key', attestation: 'attestation(new-key,code-3)' } })
+      expect.objectContaining({ code: 'code-3', deviceEvidence: { keyId: 'new-key', attestation: 'attestation(new-key,code-3)' } })
     );
     expect(secureStore.setItemAsync).toHaveBeenCalledWith(APP_ATTEST_KEY_STORE, 'new-key');
   });
@@ -163,7 +163,7 @@ describe('App Attest on the hosted sign-in', () => {
 
     expect(secureStore.deleteItemAsync).toHaveBeenCalledWith(APP_ATTEST_KEY_STORE);
     expect(completeSignIn).toHaveBeenCalledWith(
-      expect.objectContaining({ appAttest: { keyId: 'new-key', attestation: 'attestation(new-key,code-6)' } })
+      expect.objectContaining({ deviceEvidence: { keyId: 'new-key', attestation: 'attestation(new-key,code-6)' } })
     );
   });
 
@@ -173,7 +173,7 @@ describe('App Attest on the hosted sign-in', () => {
 
     await expect(signInWithHostedPage()).resolves.toBe(SESSION);
 
-    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ appAttest: undefined }));
+    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ deviceEvidence: undefined }));
   });
 
   it('sends no evidence from Expo Go', async () => {
@@ -183,17 +183,22 @@ describe('App Attest on the hosted sign-in', () => {
     await signInWithHostedPage();
 
     expect(integrity.generateKeyAsync).not.toHaveBeenCalled();
-    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ appAttest: undefined }));
+    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ deviceEvidence: undefined }));
   });
 
-  it('sends no evidence from Android', async () => {
+  it('sends no App Attest evidence from an Android build without a cloud project number', async () => {
     const os = jest.replaceProperty(Platform, 'OS', 'android');
+    const projectNumber = process.env.EXPO_PUBLIC_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER;
+    delete process.env.EXPO_PUBLIC_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER;
     redirectWithCode('code-9');
 
     await signInWithHostedPage();
 
     os.restore();
+    if (projectNumber !== undefined) {
+      process.env.EXPO_PUBLIC_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER = projectNumber;
+    }
     expect(integrity.generateKeyAsync).not.toHaveBeenCalled();
-    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ appAttest: undefined }));
+    expect(completeSignIn).toHaveBeenCalledWith(expect.objectContaining({ deviceEvidence: undefined }));
   });
 });

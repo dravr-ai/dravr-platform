@@ -337,6 +337,10 @@ serial_test = "3.4"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
+# The log-capture test subscriber answers `current_span`, so a handler's
+# `Span::current().record(..)` reaches it; `span::Current` is not re-exported
+# by `tracing`. Already in the tree through `tracing`.
+tracing-core = "0.1"
 # Messaging transport test dependencies (crypto verification)
 hmac = "0.12"
 sha2 = "0.10"

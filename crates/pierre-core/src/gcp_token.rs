@@ -17,6 +17,13 @@
 //! most recently minted token until [`TOKEN_REFRESH_LEEWAY`] before the
 //! declared expiry, so a burst of Google API calls costs one mint per token
 //! lifetime (an hour on Cloud Run) rather than one per call.
+//!
+//! The default token carries the service account's default scope
+//! (`cloud-platform`). An API outside it — Play Integrity accepts only
+//! `https://www.googleapis.com/auth/playintegrity` — gets a provider built
+//! with [`MetadataTokenProvider::with_scopes`], which asks the metadata server
+//! for a token minted for exactly those scopes (its `scopes` query parameter).
+//! Each provider caches the token for its own scope set.
 
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -66,6 +73,9 @@ pub trait TokenProvider: Send + Sync {
 /// token and reuses it until [`TOKEN_REFRESH_LEEWAY`] before expiry.
 pub struct MetadataTokenProvider {
     token_url: String,
+    /// The scopes to mint for, comma-separated as the metadata server reads
+    /// them; `None` mints the service account's default scopes.
+    scopes: Option<String>,
     cached: Mutex<Option<CachedToken>>,
 }
 
@@ -96,8 +106,18 @@ impl MetadataTokenProvider {
     pub fn with_token_url(token_url: impl Into<String>) -> Self {
         Self {
             token_url: token_url.into(),
+            scopes: None,
             cached: Mutex::new(None),
         }
+    }
+
+    /// The same provider, minting tokens for exactly `scopes` (OAuth 2.0
+    /// scope URLs) instead of the service account's default scopes: the
+    /// metadata server's `scopes` query parameter, comma-separated.
+    #[must_use]
+    pub fn with_scopes(mut self, scopes: &[&str]) -> Self {
+        self.scopes = Some(scopes.join(","));
+        self
     }
 
     /// The cached token when one is present and not yet due for refresh.
@@ -128,8 +148,11 @@ impl TokenProvider for MetadataTokenProvider {
             return Ok(token);
         }
 
-        let response = api_client()
-            .get(&self.token_url)
+        let mut request = api_client().get(&self.token_url);
+        if let Some(scopes) = &self.scopes {
+            request = request.query(&[("scopes", scopes)]);
+        }
+        let response = request
             .header(METADATA_FLAVOR_HEADER, METADATA_FLAVOR_VALUE)
             .timeout(HTTP_TIMEOUT)
             .send()

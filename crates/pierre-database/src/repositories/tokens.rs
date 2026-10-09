@@ -137,6 +137,19 @@ pub(crate) const CONSUME_OAUTH2_AUTH_CODE_SQL: &str = r"
             RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource
             ";
 
+/// The code [`CONSUME_OAUTH2_AUTH_CODE_SQL`] would exchange right now, read
+/// without spending it: the same client, redirect, unused and unexpired at
+/// `$4` conditions, so a row here is one the exchange could still match.
+pub(crate) const PEEK_OAUTH2_AUTH_CODE_SQL: &str = r"
+            SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method, resource
+            FROM oauth2_auth_codes
+            WHERE code = $1
+              AND client_id = $2
+              AND redirect_uri = $3
+              AND used = FALSE
+              AND expires_at > $4
+            ";
+
 /// Store a refresh token under its HMAC, with the RFC 8707 resource its grant
 /// is bound to.
 pub(crate) const STORE_OAUTH2_REFRESH_TOKEN_SQL: &str = r"
@@ -751,6 +764,27 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to consume OAuth2 auth code: {e}"))
+                    })?;
+
+                row.map(|row| oauth2_auth_code_from_row(&row)).transpose()
+            }
+
+            async fn peek_auth_code(
+                &self,
+                code: &str,
+                client_id: &str,
+                redirect_uri: &str,
+                now: DateTime<Utc>,
+            ) -> AppResult<Option<OAuth2AuthCode>> {
+                let row = sqlx::query(PEEK_OAUTH2_AUTH_CODE_SQL)
+                    .bind(code)
+                    .bind(client_id)
+                    .bind(redirect_uri)
+                    .bind(now)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read OAuth2 auth code: {e}"))
                     })?;
 
                 row.map(|row| oauth2_auth_code_from_row(&row)).transpose()

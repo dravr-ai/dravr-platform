@@ -25,6 +25,7 @@ resource "google_project_service" "apis" {
     "cloudtasks.googleapis.com",         # queue that delivers messaging turns to the backend as requests (carnet#126)
     "billingbudgets.googleapis.com",     # google_billing_budget cost guardrail (billing.tf)
     "certificatemanager.googleapis.com", # Google-managed certificates + certificate map for the public hostnames (frontend_domain module)
+    "playintegrity.googleapis.com",      # decodeIntegrityToken for the Android app's sign-in evidence (carnet#810)
   ])
 
   project            = var.project_id

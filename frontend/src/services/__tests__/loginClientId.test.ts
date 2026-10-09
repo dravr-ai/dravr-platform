@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import type { AxiosInstance } from 'axios'
 import { createAuthApi, readSignInCallback } from '@pierre/api-client'
-import type { AuthStorage } from '@pierre/api-client'
+import type { DeviceEvidence, AuthStorage } from '@pierre/api-client'
 import { webPkceCrypto } from '../../utils/signIn'
 
 function memoryStorage(): AuthStorage {
@@ -29,13 +29,17 @@ function memoryStorage(): AuthStorage {
 const REDIRECT_URI = 'https://app.dravr.test/auth/callback'
 
 /** Redeem a code on `platform` and return the form the token endpoint received. */
-async function exchangeForm(platform: 'web' | 'mobile'): Promise<{ url: string; form: URLSearchParams }> {
+async function exchangeForm(
+  platform: 'web' | 'mobile',
+  deviceEvidence?: DeviceEvidence
+): Promise<{ url: string; form: URLSearchParams }> {
   const post = vi.fn().mockResolvedValue({ data: {} })
   const axios = { post, defaults: {} } as unknown as AxiosInstance
   await createAuthApi(axios, memoryStorage(), platform).completeSignIn({
     code: 'the-code',
     codeVerifier: 'the-verifier',
     redirectUri: REDIRECT_URI,
+    deviceEvidence,
   })
   expect(post).toHaveBeenCalledTimes(1)
   return { url: post.mock.calls[0][0] as string, form: new URLSearchParams(post.mock.calls[0][1] as string) }
@@ -66,6 +70,40 @@ describe('first-party code exchange', () => {
     expect(form.get('grant_type')).toBe('authorization_code')
     expect(form.get('client_id')).toBe('dravr-mobile')
     expect(form.get('scope')).toBe('offline_access')
+  })
+})
+
+describe('the mobile app\'s integrity evidence on the code exchange (carnet#810)', () => {
+  const APP_ATTEST_FIELDS = ['app_attest_key_id', 'app_attest_attestation', 'app_attest_assertion']
+
+  it('sends no evidence field when the exchange carries none', async () => {
+    const { form } = await exchangeForm('mobile')
+    for (const field of [...APP_ATTEST_FIELDS, 'play_integrity_token']) {
+      expect(form.has(field)).toBe(false)
+    }
+  })
+
+  it('sends an App Attest attestation with its key id', async () => {
+    const { form } = await exchangeForm('mobile', { keyId: 'k', attestation: 'att' })
+    expect(form.get('app_attest_key_id')).toBe('k')
+    expect(form.get('app_attest_attestation')).toBe('att')
+    expect(form.has('app_attest_assertion')).toBe(false)
+    expect(form.has('play_integrity_token')).toBe(false)
+  })
+
+  it('sends an App Attest assertion with its key id', async () => {
+    const { form } = await exchangeForm('mobile', { keyId: 'k', assertion: 'as' })
+    expect(form.get('app_attest_key_id')).toBe('k')
+    expect(form.get('app_attest_assertion')).toBe('as')
+    expect(form.has('app_attest_attestation')).toBe(false)
+  })
+
+  it('sends a Play Integrity token alone, never beside an App Attest field', async () => {
+    const { form } = await exchangeForm('mobile', { playIntegrityToken: 'play.token' })
+    expect(form.get('play_integrity_token')).toBe('play.token')
+    for (const field of APP_ATTEST_FIELDS) {
+      expect(form.has(field)).toBe(false)
+    }
   })
 })
 

@@ -147,6 +147,12 @@ Create a `.env` file or use Expo's environment configuration:
 
 ```bash
 EXPO_PUBLIC_API_URL=http://192.168.1.100:8081
+# Android only: the Google Cloud project number Play Integrity tokens are minted
+# for (digits). Unset, the Android app sends no integrity evidence on sign-in.
+# Set it only for builds Google Play distributes (the production profile): the
+# server refuses a verdict Play does not recognise, so an internal APK, a dev
+# client or an emulator carrying it could not sign in.
+EXPO_PUBLIC_PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=
 ```
 
 ## Architecture

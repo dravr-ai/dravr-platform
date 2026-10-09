@@ -227,6 +227,7 @@ impl ServerContext {
             messaging_strings: self.mcp.messaging_strings_registry.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             rate_limiter: self.auth.oauth2_rate_limiter.clone(),
+            play_integrity: self.auth.play_integrity.clone(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }

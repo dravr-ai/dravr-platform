@@ -7,11 +7,16 @@
 import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { readSignInCallback, type CompleteSignIn, type PkceCrypto } from '@pierre/api-client';
+import {
+  readSignInCallback,
+  type DeviceEvidence,
+  type CompleteSignIn,
+  type PkceCrypto,
+} from '@pierre/api-client';
 import type { LoginResponse } from '../types';
 import { authApi } from '../services/api';
 import { i18n } from '@pierre/i18n';
-import { appAttestEvidence, forgetAppAttestKey } from './appAttest';
+import { deviceEvidence, forgetAppAttestKey } from './deviceEvidence';
 
 /**
  * The path the hosted sign-in returns to.
@@ -104,7 +109,7 @@ export async function signInWithHostedPage(): Promise<LoginResponse | null> {
 }
 
 /**
- * Whether the server refused the exchange's App Attest evidence: a 400
+ * Whether the server refused the exchange's integrity evidence: a 400
  * `invalid_client`. A refused code answers `invalid_client` as a 401, and
  * fresh evidence cannot change that answer.
  */
@@ -115,7 +120,19 @@ function refusedEvidence(error: unknown): boolean {
 }
 
 /**
- * Redeem the code, with this install's App Attest evidence when it has any
+ * Whether a refusal of `evidence` is worth one retry with a freshly attested
+ * key: only an iOS App Attest assertion, whose registered key the server may
+ * have lost while the device still holds it. A refused attestation is already
+ * a fresh key, and a refused Play Integrity token is Google's verdict on this
+ * install: another token would get the same answer, so that refusal surfaces
+ * as the sign-in's failure.
+ */
+function retriesWithFreshKey(evidence: DeviceEvidence): boolean {
+  return 'assertion' in evidence;
+}
+
+/**
+ * Redeem the code, with this install's integrity evidence when it has any
  * (carnet#810).
  *
  * The server checks the evidence before it spends the code, so when it
@@ -124,18 +141,18 @@ function refusedEvidence(error: unknown): boolean {
  * redeems once more with a freshly attested one.
  */
 async function redeemCode(request: CompleteSignIn): Promise<LoginResponse> {
-  const attempt = await appAttestEvidence(request.code);
+  const attempt = await deviceEvidence(request.code);
   try {
-    const session = await authApi.completeSignIn({ ...request, appAttest: attempt?.evidence });
+    const session = await authApi.completeSignIn({ ...request, deviceEvidence: attempt?.evidence });
     await attempt?.accepted();
     return session;
   } catch (error) {
-    if (!attempt || !('assertion' in attempt.evidence) || !refusedEvidence(error)) {
+    if (!attempt || !retriesWithFreshKey(attempt.evidence) || !refusedEvidence(error)) {
       throw error;
     }
     await forgetAppAttestKey();
-    const retry = await appAttestEvidence(request.code, { freshKey: true });
-    const session = await authApi.completeSignIn({ ...request, appAttest: retry?.evidence });
+    const retry = await deviceEvidence(request.code, { freshKey: true });
+    const session = await authApi.completeSignIn({ ...request, deviceEvidence: retry?.evidence });
     await retry?.accepted();
     return session;
   }

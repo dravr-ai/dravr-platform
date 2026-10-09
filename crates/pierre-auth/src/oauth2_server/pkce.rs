@@ -71,6 +71,26 @@ fn compute_challenge(verifier: &str, method: &str) -> Result<String, OAuth2Error
     Ok(general_purpose::URL_SAFE_NO_PAD.encode(hash))
 }
 
+/// Check a token request's PKCE verifier against what its code stored
+/// (RFC 7636 §4.6): the challenge must match when one was issued, and a
+/// verifier sent for a code issued without a challenge is refused.
+pub(super) fn check_pkce(
+    stored_challenge: Option<&str>,
+    code_verifier: Option<&str>,
+    code_challenge_method: Option<&str>,
+    client_id: &str,
+) -> Result<(), OAuth2Error> {
+    match stored_challenge {
+        Some(challenge) => {
+            verify_challenge(challenge, code_verifier, code_challenge_method, client_id)
+        }
+        None if code_verifier.is_some() => Err(OAuth2Error::invalid_grant(
+            "code_verifier provided but no code_challenge was issued",
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Verify PKCE challenge using constant-time comparison
 pub(super) fn verify_challenge(
     stored_challenge: &str,

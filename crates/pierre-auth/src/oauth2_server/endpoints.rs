@@ -14,7 +14,7 @@ use super::models::{
     AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
     OAuth2Error, TokenRequest, TokenResponse,
 };
-use super::pkce::{check_code_challenge, verify_challenge};
+use super::pkce::{check_code_challenge, check_pkce};
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::{bound_audience, token_audience};
 use crate::admin::jwks::JwksManager;
@@ -753,19 +753,12 @@ impl OAuth2AuthorizationServer {
 
         // Verify PKCE code_verifier (RFC 7636)
         // Note: PKCE verification happens AFTER atomic consumption to prevent code reuse on verification failure
-        if let Some(stored_challenge) = &auth_code.code_challenge {
-            verify_challenge(
-                stored_challenge,
-                code_verifier,
-                auth_code.code_challenge_method.as_deref(),
-                client_id,
-            )?;
-        } else if code_verifier.is_some() {
-            // Client provided verifier but no challenge was stored
-            return Err(OAuth2Error::invalid_grant(
-                "code_verifier provided but no code_challenge was issued",
-            ));
-        }
+        check_pkce(
+            auth_code.code_challenge.as_deref(),
+            code_verifier,
+            auth_code.code_challenge_method.as_deref(),
+            client_id,
+        )?;
 
         Ok(auth_code)
     }
