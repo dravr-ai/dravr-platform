@@ -412,6 +412,16 @@ impl CoverageTarget {
         }
     }
 
+    /// Parse from a ledger slug. `None` for anything that is not a pillars-walk
+    /// topic — a calibration or season slug, or a topic from a later build.
+    #[must_use]
+    pub fn parse(slug: &str) -> Option<Self> {
+        if slug == Self::NorthStar.slug().as_str() {
+            return Some(Self::NorthStar);
+        }
+        Pillar::parse(slug).map(Self::Pillar)
+    }
+
     /// Whether this topic may be probed in a shared room.
     ///
     /// The North Star — what the athlete trains *for* — is the kind of thing

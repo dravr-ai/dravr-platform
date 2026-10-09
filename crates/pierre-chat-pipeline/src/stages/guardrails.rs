@@ -35,7 +35,7 @@ use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection}
 use pierre_core::errors::AppResult;
 
 use super::deterministic_reply::{
-    deliver, DeterministicReplyInputs, PLATFORM_REPLY_TRANSCRIPT_MARKER,
+    deliver, DeterministicReplyInputs, PlatformReply, PLATFORM_REPLY_TRANSCRIPT_MARKER,
 };
 use super::onboarding::GuidedTarget;
 use super::turn_extraction::spawn_turn_extraction;
@@ -144,7 +144,9 @@ pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEn
         user_message: user_message.clone(),
         conv,
     };
-    let result = deliver(inputs, reply).await?;
+    // A refusal or an emergency redirect offers nothing to tap: the next move
+    // is the athlete's own, or a call to emergency services.
+    let result = deliver(inputs, PlatformReply::text_only(reply)).await?;
     spawn_turn_extraction(
         ctx,
         input,

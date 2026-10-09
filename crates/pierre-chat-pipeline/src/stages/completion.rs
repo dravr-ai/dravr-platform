@@ -1,4 +1,4 @@
-// ABOUTME: The fixed-list walks' platform-rendered wrap-ups and facts-landed checks — calibration and season
+// ABOUTME: The guided walks' completions — calibration, season and fortnight wrap-ups, and the pillars walk's record
 // ABOUTME: Reports what was actually captured, and names the answer whose absence the next step cannot survive
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,6 +19,10 @@
 //! Those two topics are each the sole writer of their fact kind (see
 //! [`CalibrationTopic::fact_kind`]), which is what makes their absence
 //! detectable at all.
+//!
+//! The pillars walk is counted the same way, by the facts that landed inside
+//! its window, and reported as `onboarding.completed` like the others — but
+//! it closes on the agent's own reply rather than one written here.
 
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -27,12 +31,15 @@ use pierre_contremaitre::messaging_strings::{
     KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_SEASON_COMPLETE_HEADER,
     KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
-use pierre_core::models::{CalibrationTopic, Dossier, OnboardingState, SeasonTopic, TenantId};
-use pierre_memory::{FactSource, UserFact};
+use pierre_core::models::{
+    CalibrationTopic, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId,
+};
+use pierre_memory::{FactKind, FactSource, UserFact};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::training_plan_render::fortnight_is_covered;
 
+use super::deterministic_reply::PlatformReply;
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
 
@@ -40,6 +47,47 @@ use crate::ChatPipelineContext;
 /// interview asks at most eight questions, so this leaves generous room for an
 /// extractor that split one answer into several facts.
 const LANDED_FETCH_LIMIT: i64 = 100;
+
+/// When the walk started: the window its answers are credited inside.
+///
+/// An unparseable start stamp falls back to now, which credits nothing and
+/// re-asks — the same safe direction as an unreadable fact store.
+fn walk_started_at(state: &OnboardingState) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(&state.started_at)
+        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc))
+}
+
+/// The subject's interview-sourced facts this turn may read.
+///
+/// Fetched by source rather than by kind: a walk's answers span several
+/// kinds, and a by-kind sweep would need one query per kind. An unreadable
+/// store reports none, which re-asks — the safe direction. A fact derived
+/// from first-party-only data stays out of an external turn, and stamps a
+/// first-party one (carnet#769).
+async fn landed_onboarding_facts(
+    ctx: &ChatPipelineContext,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+    flow: &'static str,
+) -> Vec<UserFact> {
+    let mut landed = ctx
+        .repos
+        .memory
+        .list_user_facts_by_source(
+            facts_tenant,
+            subject_user_id,
+            FactSource::Onboarding,
+            LANDED_FETCH_LIMIT,
+            ai_scope::readable_policy(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, flow, "could not read the walk's landed facts; reporting zero");
+            Vec::new()
+        });
+    ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
+    landed
+}
 
 /// The locale string naming a safety-critical topic in the wrap-up.
 const fn topic_label_key(topic: CalibrationTopic) -> Option<&'static str> {
@@ -136,9 +184,7 @@ fn assess_season(
 /// Never claims success it cannot evidence: the header states the real count,
 /// and a missing safety answer is named with an instruction to redo it.
 ///
-/// LIMITATION(registre#830): `render`, `render_season` and `render_fortnight`
-/// close in text only; none carries its closing offer as an actions block or
-/// names a command that runs it.
+/// LIMITATION(registre#830): `render`, `render_season` and `render_fortnight` close with `PlatformReply::text_only` — no next steps, and no line naming the command a step runs — because the transition table that picks each walk's steps from the use-case catalogue, filtered by its `requires` predicates, does not exist.
 pub async fn render(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
@@ -146,37 +192,12 @@ pub async fn render(
     subject_user_id: &str,
     dossier: &Dossier,
     locale: &str,
-) -> String {
+) -> PlatformReply {
     let reg = &ctx.messaging_strings_registry;
     let asked =
         CalibrationTopic::for_conditions(calibration_conditions(dossier, state.snapshot.as_ref()));
-
-    // An unparseable start stamp falls back to now, which credits nothing and
-    // re-asks — the same safe direction as an unreadable fact store.
-    let started_at = DateTime::parse_from_rfc3339(&state.started_at)
-        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
-
-    // Fetch by source rather than by kind: the interview's answers span four
-    // kinds, and a by-kind sweep would need one query per kind. An unreadable
-    // store reports zero captured, which re-asks — the safe direction.
-    let mut landed = ctx
-        .repos
-        .memory
-        .list_user_facts_by_source(
-            facts_tenant,
-            subject_user_id,
-            FactSource::Onboarding,
-            LANDED_FETCH_LIMIT,
-            ai_scope::readable_policy(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "could not read landed calibration facts; reporting zero");
-            Vec::new()
-        });
-    // A fact derived from first-party-only data stays out of an external turn,
-    // and stamps a first-party one (carnet#769).
-    ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
+    let started_at = walk_started_at(state);
+    let landed = landed_onboarding_facts(ctx, facts_tenant, subject_user_id, "calibration").await;
 
     let (captured, missing_safety) = assess(&landed, &asked, started_at);
 
@@ -226,7 +247,7 @@ pub async fn render(
     out.push_str("\n\n");
     out.push_str(&reg.render(followup, locale, &[]));
 
-    out
+    PlatformReply::text_only(out)
 }
 
 /// Render the season walk's closing message.
@@ -242,30 +263,11 @@ pub async fn render_season(
     facts_tenant: TenantId,
     subject_user_id: &str,
     locale: &str,
-) -> String {
+) -> PlatformReply {
     let reg = &ctx.messaging_strings_registry;
     let asked = SeasonTopic::for_conditions(season_conditions(state.snapshot.as_ref()));
-    let started_at = DateTime::parse_from_rfc3339(&state.started_at)
-        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
-
-    let mut landed = ctx
-        .repos
-        .memory
-        .list_user_facts_by_source(
-            facts_tenant,
-            subject_user_id,
-            FactSource::Onboarding,
-            LANDED_FETCH_LIMIT,
-            ai_scope::readable_policy(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "could not read landed season facts; reporting zero");
-            Vec::new()
-        });
-    // A fact derived from first-party-only data stays out of an external turn,
-    // and stamps a first-party one (carnet#769).
-    ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
+    let started_at = walk_started_at(state);
+    let landed = landed_onboarding_facts(ctx, facts_tenant, subject_user_id, "season").await;
 
     let (captured, goal_missing) = assess_season(&landed, &asked, started_at);
 
@@ -291,7 +293,7 @@ pub async fn render_season(
         KEY_SEASON_FOLLOWUP_LAY_OUT
     };
     out.push_str(&reg.render(followup, locale, &[]));
-    out
+    PlatformReply::text_only(out)
 }
 
 /// The fortnight rail's wrap-up: did the two weeks actually land?
@@ -311,7 +313,7 @@ pub async fn render_fortnight(
     facts_tenant: TenantId,
     subject_user_id: &str,
     locale: &str,
-) -> String {
+) -> PlatformReply {
     let reg = &ctx.messaging_strings_registry;
     let today = athlete_today(&ctx.repos, subject_user_id.parse().unwrap_or_default()).await;
 
@@ -359,5 +361,73 @@ pub async fn render_fortnight(
     } else {
         KEY_FORTNIGHT_RECHECK_MISSING
     };
-    reg.render(key, locale, &[])
+    PlatformReply::text_only(reg.render(key, locale, &[]))
+}
+
+/// Record that the pillars walk reached its end, as `onboarding.completed`
+/// with `flow = pillars`.
+///
+/// Counted like the fixed-list walks, from the facts that landed inside the
+/// walk's window. The topics asked are the distinct ones the delivered-probe
+/// ledger names — a topic already covered when the walk began was never asked,
+/// so it counts neither way — and one is answered when a fact in the window
+/// is about it: the North Star by the kind extraction forces on that answer,
+/// a pillar by the pillar extraction stamps on it. `facts_landed` is the
+/// window's count, so it reports what this walk captured and nothing an
+/// earlier walk did.
+///
+/// It sends nothing, so the walk closes on the agent's own reply.
+///
+/// LIMITATION(registre#830): `record_pillars` writes no wrap-up and offers no next step — contremaitre has no pillars completion string for the platform to send in the agent's place.
+pub async fn record_pillars(
+    ctx: &ChatPipelineContext,
+    state: &OnboardingState,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+) {
+    let asked = pillars_asked(state);
+    let started_at = walk_started_at(state);
+    let landed = landed_onboarding_facts(ctx, facts_tenant, subject_user_id, "pillars").await;
+    let in_window: Vec<&UserFact> = landed
+        .iter()
+        .filter(|fact| fact.created_at >= started_at)
+        .collect();
+    let answered = asked
+        .iter()
+        .filter(|topic| in_window.iter().any(|fact| answers(fact, **topic)))
+        .count();
+
+    tracing::info!(
+        target: "notify",
+        event = "onboarding.completed",
+        flow = "pillars",
+        topics_answered = answered,
+        topics_asked = asked.len(),
+        facts_landed = in_window.len(),
+        "guided interview completed"
+    );
+}
+
+/// The distinct pillars-walk topics the ledger records a delivered probe
+/// for, in the order they were first asked.
+fn pillars_asked(state: &OnboardingState) -> Vec<CoverageTarget> {
+    let mut asked = Vec::new();
+    for target in state
+        .probed
+        .iter()
+        .filter_map(|slug| CoverageTarget::parse(slug.as_str()))
+    {
+        if !asked.contains(&target) {
+            asked.push(target);
+        }
+    }
+    asked
+}
+
+/// Whether `fact` answers the pillars-walk topic `target`.
+fn answers(fact: &UserFact, target: CoverageTarget) -> bool {
+    match target {
+        CoverageTarget::NorthStar => fact.kind == FactKind::NorthStar,
+        CoverageTarget::Pillar(pillar) => fact.pillar == Some(pillar),
+    }
 }

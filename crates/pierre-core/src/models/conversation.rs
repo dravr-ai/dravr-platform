@@ -56,8 +56,9 @@ impl TurnOrigin {
 /// surface that saw the gesture says which it was, and analytics reads it as
 /// the `origin` of `chat.question_asked` and `chat.answer_delivered`.
 ///
-/// Only the server ever produces [`Self::UseCase`]: it is the outcome of
-/// resolving a suggestion's postback, never a claim a client may make.
+/// Only the server ever produces [`Self::UseCase`] and [`Self::NextStep`]:
+/// each is the outcome of resolving a postback the server itself posted,
+/// never a claim a client may make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputSource {
     /// Written in the composer from scratch.
@@ -70,6 +71,14 @@ pub enum InputSource {
     Chip,
     /// A suggestion the server posted and then resolved from its postback.
     UseCase,
+    /// A next step the server offered as a reply ended — a guided walk's
+    /// wrap-up, a command's answer — and then resolved from its postback
+    /// (carnet#830). Counted apart from [`Self::UseCase`] because a step the
+    /// reply handed over is a different signal from a starter the athlete
+    /// picked unprompted.
+    ///
+    /// LIMITATION(registre#830): `InputSource::NextStep` has no producer — no reply offers a next step until the transition table picks them from the use-case catalogue, so no tap resolves to one.
+    NextStep,
 }
 
 impl InputSource {
@@ -81,6 +90,7 @@ impl InputSource {
             Self::Draft => "draft",
             Self::Chip => "chip",
             Self::UseCase => "use_case",
+            Self::NextStep => "next_step",
         }
     }
 }

@@ -44,6 +44,7 @@ mod follow_through;
 pub mod hooks;
 pub mod language;
 pub mod mcp_bridge;
+pub mod next_steps;
 pub mod quota_policy;
 pub mod recorders;
 pub(crate) mod recovery;
@@ -1059,7 +1060,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             Ok(GuidedOutcome::Continue(Some(*turn)))
         }
         stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
-        stages::onboarding::GuidedResolution::WalkComplete { summary, answered } => {
+        stages::onboarding::GuidedResolution::WalkComplete { reply, answered } => {
             let result = stages::deterministic_reply::deliver(
                 stages::deterministic_reply::DeterministicReplyInputs {
                     ctx,
@@ -1069,7 +1070,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                     user_message: user_message.clone(),
                     conv,
                 },
-                summary,
+                reply,
             )
             .await?;
             // This turn carries the athlete's answer to the interview's LAST
