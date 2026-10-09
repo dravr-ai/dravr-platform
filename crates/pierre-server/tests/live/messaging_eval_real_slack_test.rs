@@ -67,14 +67,14 @@ use tokio::time::sleep;
 
 /// How long a test waits for the agent to answer one post.
 ///
-/// Above the turn watchdog `messaging-eval.yml` gives the server
-/// (`MESSAGING_TURN_WATCHDOG_SECS`, 2100 s), which is above its LLM request
-/// timeout (1800 s), so a turn that runs out of either budget has posted its
-/// notice before this wait gives up. Those budgets come from the measured CPU
-/// cost of one model call in CI — 864 s of prefill for a ~16.4K-token prompt
-/// (run 37610566362); the smoke turn of that run outlived the old 900 s LLM
-/// timeout and with it the old 1200 s wait.
-const REPLY_WAIT_SECS: u64 = 2400;
+/// Above the server's turn watchdog, which `messaging-eval.yml` leaves at
+/// its default (`MESSAGING_TURN_WATCHDOG_SECS`, 960 s) and which sits above
+/// the `copilot_sdk` turn cap the workflow sets
+/// (`EMBACLE_SDK_PROMPT_TIMEOUT_SECS`, 300 s), so a turn that runs out of
+/// either budget has posted its notice before this wait gives up. Two minutes
+/// of margin over the watchdog; the job's `timeout-minutes` is sized to let
+/// one turn run to this wait after the build.
+const REPLY_WAIT_SECS: u64 = 1080;
 
 /// Subset of env vars needed to drive a real-Slack scenario.
 struct SlackCreds {
@@ -404,7 +404,7 @@ async fn real_slack_post_and_read_smoke() {
 /// Drive a single probe: post via the QA driver, poll for the agent's
 /// non-transient reply, and apply the probe's expectation. Each call is
 /// independent — multiple probes can be invoked from sibling tests in
-/// the same CI run, sharing one warm Pierre + Ollama process.
+/// the same CI run, sharing one Pierre process.
 async fn run_probe(probe: &EvalProbe) {
     let creds = SlackCreds::from_env();
     let client = Client::builder()
@@ -431,7 +431,7 @@ async fn run_probe(probe: &EvalProbe) {
                 !is_transient_agent_reply(text),
                 "[{name}] Only a transient reply after {REPLY_WAIT_SECS}s: {text:?}. A link prompt \
                  means the driver is not linked (messaging_channel_links); a \
-                 \"thinking…\" placeholder means the LLM never finished (Ollama stall?).",
+                 \"thinking…\" placeholder means the LLM never finished (Copilot stall?).",
                 name = probe.name,
             );
         }
