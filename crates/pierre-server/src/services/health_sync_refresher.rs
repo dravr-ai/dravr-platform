@@ -74,8 +74,8 @@ fn token_to_credentials(
     }
 }
 
-/// `token` as enforme credentials, gated by the budget of the app that signs
-/// it.
+/// `token` as enforme credentials, gated by the request budget it is counted
+/// in.
 async fn gated_credentials(
     auth: &AuthService,
     user_id: Uuid,

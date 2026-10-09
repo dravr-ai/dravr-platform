@@ -109,9 +109,9 @@ async fn run_scheduled_sync_cycle(
 
 /// Sync all active users for a single provider.
 ///
-/// Each request a sync makes is admitted against the budget of the app that
-/// signs the user's token (the credentials carry its gate), so a spent budget
-/// refuses only the users that app signs.
+/// Each request a sync makes is admitted against the request budget of the
+/// user's token (the credentials carry its gate), so a spent window refuses
+/// only the users counted in it.
 async fn sync_provider_users(
     orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,

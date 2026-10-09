@@ -311,6 +311,27 @@ impl CoachPlatform for ApiCoachPlatform {
     }
 }
 
+/// `credentials`, built from the coach's stored `token`, counted against
+/// the key's own windows when the token is a personal API key.
+///
+/// The windows are the ones its provider keeps for each key, under the
+/// provider's id for the account the key belongs to: a coach's key reads
+/// every athlete who shares with the coach, and every one of those reads
+/// spends the one key's budget. Any other credential is returned as it is.
+#[must_use]
+pub fn with_key_budget(
+    registry: &ProviderRegistry,
+    token: &UserOAuthToken,
+    mut credentials: OAuth2Credentials,
+) -> OAuth2Credentials {
+    if credentials.kind == CredentialKind::ApiKey {
+        if let Some(account) = token.provider_user_id.as_deref() {
+            credentials.request_budget = registry.api_key_budget(account);
+        }
+    }
+    credentials
+}
+
 /// `token`, the coach's stored credential, as a provider is handed it.
 fn stored_credentials(token: &UserOAuthToken) -> OAuth2Credentials {
     OAuth2Credentials {
@@ -341,7 +362,9 @@ async fn api_roster(
     credentials: OAuth2Credentials,
 ) -> AppResult<Vec<RosterAthlete>> {
     let provider = read.registry.create_provider(platform.backend())?;
-    provider.set_credentials(credentials).await?;
+    provider
+        .set_credentials(with_key_budget(read.registry, read.token, credentials))
+        .await?;
     let roster = match provider.read_coach_roster().await {
         Ok(roster) => roster,
         Err(e) if e.provider_auth_required_provider().is_some() => {
@@ -462,10 +485,18 @@ async fn connected_coach_platform(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use pierre_core::errors::ErrorCode;
     use pierre_core::models::API_KEY_TOKEN_TYPE;
+    use pierre_providers::request_budget::{
+        api_key_counter_key, budget_period, ProviderRateLimiter, FIFTEEN_MINUTES, PLATFORM_SCOPE,
+    };
     use pierre_providers::spi::{
         OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
     };
+    use pierre_test_support::db::create_test_db;
 
     use super::*;
 
@@ -648,6 +679,48 @@ mod tests {
         assert!(IntervalsIcuPlatform
             .coach_credentials(&token(API_KEY_TOKEN_TYPE, None))
             .is_none());
+    }
+
+    /// A coach's key is counted in the windows of that key, under the
+    /// coach's own athlete id: with its 15-minute window spent, a read
+    /// through it is refused before it is sent. A stored grant is handed
+    /// over as it was.
+    #[tokio::test]
+    async fn a_coachs_api_key_is_counted_in_the_windows_of_that_key() {
+        let db = create_test_db().await.expect("test db");
+        let counters = Arc::clone(&db.repositories().usage_counters);
+        let registry = ProviderRegistry::new()
+            .with_request_limiter(Arc::new(ProviderRateLimiter::new(Arc::clone(&counters))));
+        counters
+            .increment_counter(
+                PLATFORM_SCOPE,
+                PLATFORM_SCOPE,
+                &api_key_counter_key(INTERVALS_ICU, "i100"),
+                &budget_period(Utc::now(), FIFTEEN_MINUTES),
+                2_500,
+            )
+            .await
+            .expect("count the spent window");
+
+        let stored_key = token(API_KEY_TOKEN_TYPE, Some("i100"));
+        let key = with_key_budget(
+            &registry,
+            &stored_key,
+            IntervalsIcuPlatform
+                .coach_credentials(&stored_key)
+                .expect("an API key with its athlete id reads athletes"),
+        );
+        let refused = key
+            .request_budget
+            .expect("a coach's key carries its budget")
+            .admit(INTERVALS_ICU)
+            .await
+            .expect_err("the key's window is spent");
+        assert_eq!(refused.code, ErrorCode::ExternalRateLimited);
+
+        let stored_grant = token("Bearer", Some("i100"));
+        let grant = with_key_budget(&registry, &stored_grant, stored_credentials(&stored_grant));
+        assert!(grant.request_budget.is_none());
     }
 
     #[test]

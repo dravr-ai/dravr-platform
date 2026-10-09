@@ -1,10 +1,10 @@
-// ABOUTME: Provider request budgets per OAuth app, counted in the database so every instance shares them
-// ABOUTME: Every provider call is admitted against the budget of the app that signs it, before it is sent
+// ABOUTME: Provider request budgets per OAuth app, per athlete grant and per API key, counted in the database so every instance shares them
+// ABOUTME: Every provider call is admitted against the windows of the app that signs it and the account it acts for, before it is sent
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Provider request budgets, one per OAuth application.
+//! Provider request budgets, per OAuth application and per provider account.
 //!
 //! A provider limits the requests an application makes, whichever tenant or
 //! athlete they are for: Strava counts every call against one 15-minute
@@ -14,6 +14,14 @@
 //! app, a Strava shared-pool app, a tenant's own app or an athlete's own app
 //! each have their own windows. A tenant's own app carries the daily budget
 //! its operator registered (`rate_limit_per_day`) in place of the provider's.
+//!
+//! Some providers limit each account as well, and a request must then fit
+//! the account's windows too. Intervals.icu gives an OAuth app 100 requests a
+//! day for each athlete who granted it, and a personal API key windows of its
+//! own, with no app involved: a grant is counted under its app and the
+//! provider account it acts for ([`grant_counter_key`]), a key under the
+//! account it belongs to ([`api_key_counter_key`]). The account is the
+//! provider's id for it, never the key: no secret reaches a counter.
 //!
 //! Every provider request is admitted before it is sent: a credential carries
 //! its [`RequestBudget`], and the provider asks it once per request, retries
@@ -37,7 +45,8 @@
 //!
 //! Work nobody is waiting on — the walk of an athlete's history — runs inside
 //! [`in_background`], whose requests stop at [`BACKGROUND_SHARE_PERCENT`] of
-//! each window, so the rest stays for the requests an athlete is waiting on.
+//! each window, the account's included, so the rest stays for the requests an
+//! athlete is waiting on.
 
 use std::fmt;
 use std::future::Future;
@@ -106,6 +115,22 @@ pub fn budget_counter_key(provider: &str, app: &str) -> String {
     format!("provider_requests:{provider}:{app}")
 }
 
+/// The `counter_key` of the budget buckets of one athlete's grant to `app`
+/// at `provider`, by `account`, the provider's id for the athlete: the
+/// windows a provider keeps for each grant, beside its app's.
+#[must_use]
+pub fn grant_counter_key(provider: &str, app: &str, account: &str) -> String {
+    format!("provider_grant_requests:{provider}:{app}:{account}")
+}
+
+/// The `counter_key` of the budget buckets of the personal API key at
+/// `provider` that belongs to `account`, the provider's id for the account
+/// that issued it.
+#[must_use]
+pub fn api_key_counter_key(provider: &str, account: &str) -> String {
+    format!("provider_key_requests:{provider}:{account}")
+}
+
 tokio::task_local! {
     /// Set while the running task does work nobody is waiting on.
     static BACKGROUND: ();
@@ -168,16 +193,56 @@ impl Budget {
     }
 }
 
+/// The budgets `map` holds for `provider`, cloned out so no map guard is
+/// held across a database call; none when it holds no entry.
+fn configured(map: &DashMap<String, Vec<Budget>>, provider: &str) -> Vec<Budget> {
+    map.get(provider)
+        .map(|budgets| budgets.clone())
+        .unwrap_or_default()
+}
+
 /// Holds each provider's budgets and takes requests from them in the
-/// database, per OAuth app, so every instance counts into the same windows.
+/// database, per OAuth app and per provider account, so every instance
+/// counts into the same windows.
 pub struct ProviderRateLimiter {
     /// Where the windows are counted: `usage_counters`, shared by every
     /// instance of the backend.
     counters: Arc<dyn UsageCounterRepository>,
-    /// Map of `provider_name` -> every budget a request to it must fit.
-    /// Configuration only, the same on every instance; read and cloned out
-    /// before any database call.
+    /// Map of `provider_name` -> every budget a request to it must fit, per
+    /// app. Configuration only, the same on every instance; read and cloned
+    /// out before any database call, as are the two maps below.
     budgets: DashMap<String, Vec<Budget>>,
+    /// Map of `provider_name` -> the budgets it keeps for each athlete's
+    /// grant to an app, besides the app's own.
+    grant_budgets: DashMap<String, Vec<Budget>>,
+    /// Map of `provider_name` -> the budgets it keeps for each personal API
+    /// key.
+    api_key_budgets: DashMap<String, Vec<Budget>>,
+}
+
+/// Whose windows a request is counted in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Holder {
+    /// The OAuth app whose client signs the credential, with the daily
+    /// budget its operator registered when it has one, and the provider
+    /// account the grant acts for when the request is counted for it too.
+    App {
+        app: String,
+        daily_limit: Option<u32>,
+        grant: Option<String>,
+    },
+    /// A personal API key, by the provider account it belongs to.
+    ApiKey { account: String },
+}
+
+impl Holder {
+    /// The signing app, `None` for a personal API key.
+    fn app(&self) -> Option<&str> {
+        match self {
+            Self::App { app, .. } => Some(app),
+            Self::ApiKey { .. } => None,
+        }
+    }
 }
 
 /// Result of a rate limit check.
@@ -250,13 +315,44 @@ impl ProviderRateLimiter {
                 },
             ],
         );
+        // Intervals.icu: an OAuth app's ceiling across its athletes, then
+        // each athlete's grant on its own; a personal API key has windows of
+        // its own and no app.
+        budgets.insert(
+            "intervals_icu".to_owned(),
+            daily(rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_APP),
+        );
+        let grant_budgets = DashMap::new();
+        grant_budgets.insert(
+            "intervals_icu".to_owned(),
+            daily(rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE),
+        );
+        let api_key_budgets = DashMap::new();
+        api_key_budgets.insert(
+            "intervals_icu".to_owned(),
+            vec![
+                Budget {
+                    max_calls: rate_limits::INTERVALS_ICU_API_KEY_15MIN,
+                    window: FIFTEEN_MINUTES,
+                },
+                Budget {
+                    max_calls: rate_limits::INTERVALS_ICU_API_KEY_DAILY,
+                    window: ONE_DAY,
+                },
+            ],
+        );
 
         info!(
             provider_count = budgets.len(),
             "Provider rate limiter initialized"
         );
 
-        Self { counters, budgets }
+        Self {
+            counters,
+            budgets,
+            grant_budgets,
+            api_key_budgets,
+        }
     }
 
     /// Take one request to `provider`, signed by `app`, from that app's
@@ -272,6 +368,20 @@ impl ProviderRateLimiter {
         app: &str,
         daily_limit: Option<u32>,
     ) -> AppResult<RateLimitStatus> {
+        self.acquire_for(
+            provider,
+            &Holder::App {
+                app: app.to_owned(),
+                daily_limit,
+                grant: None,
+            },
+        )
+        .await
+    }
+
+    /// Take one request to `provider` from every window `holder` is counted
+    /// in, at the share the running task may spend.
+    async fn acquire_for(&self, provider: &str, holder: &Holder) -> AppResult<RateLimitStatus> {
         let background = is_background();
         let share = if background {
             BACKGROUND_SHARE_PERCENT
@@ -279,37 +389,50 @@ impl ProviderRateLimiter {
             100
         };
         let status = self
-            .acquire_share(provider, app, daily_limit, share)
+            .take(&self.windows_for(provider, holder), share)
             .await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
+            let app = holder.app();
+            let per_account = self.counts_account(provider, holder);
             if background {
                 debug!(
                     provider,
                     app,
+                    per_account,
                     retry_after_secs = retry_after.as_secs(),
-                    "Background share of the app's provider budget spent"
+                    "Background share of the provider budget spent"
                 );
             } else {
                 warn!(
                     provider,
                     app,
+                    per_account,
                     retry_after_secs = retry_after.as_secs(),
-                    "Provider request budget of the app spent"
+                    "Provider request budget spent"
                 );
             }
         }
         Ok(status)
     }
 
+    /// Whether a request to `provider` counted for `holder` is taken from
+    /// windows the provider keeps for a provider account, as well as or in
+    /// place of an app's: only a provider that limits each grant counts a
+    /// grant's account.
+    fn counts_account(&self, provider: &str, holder: &Holder) -> bool {
+        match holder {
+            Holder::App { grant, .. } => {
+                grant.is_some() && self.grant_budgets.contains_key(provider)
+            }
+            Holder::ApiKey { .. } => self.api_key_budgets.contains_key(provider),
+        }
+    }
+
     /// The windows a request to `provider` must fit: the provider's, with the
     /// daily window's allowance replaced by `daily_limit` when the app has
     /// its own (added when the provider has none).
     fn budgets_for(&self, provider: &str, daily_limit: Option<u32>) -> Vec<Budget> {
-        let mut budgets: Vec<Budget> = self
-            .budgets
-            .get(provider)
-            .map(|budgets| budgets.clone())
-            .unwrap_or_default();
+        let mut budgets = configured(&self.budgets, provider);
         if let Some(max_calls) = daily_limit {
             match budgets.iter_mut().find(|budget| budget.window == ONE_DAY) {
                 Some(daily) => daily.max_calls = max_calls,
@@ -322,39 +445,69 @@ impl ProviderRateLimiter {
         budgets
     }
 
-    /// Take one request from every window of `app` at `provider` that holds
-    /// fewer than `share_percent` of its budget; when one does not, give back
-    /// the windows already taken and say how long until that one resets.
-    async fn acquire_share(
+    /// Every window a request to `provider` counted for `holder` is taken
+    /// from, each with the counter key it is counted under: an app's first,
+    /// then the windows of the grant it acts for; or a personal key's.
+    fn windows_for(&self, provider: &str, holder: &Holder) -> Vec<(String, Budget)> {
+        let keyed = |key: String, budgets: Vec<Budget>| {
+            budgets.into_iter().map(move |budget| (key.clone(), budget))
+        };
+        match holder {
+            Holder::App {
+                app,
+                daily_limit,
+                grant,
+            } => {
+                let mut windows: Vec<(String, Budget)> = keyed(
+                    budget_counter_key(provider, app),
+                    self.budgets_for(provider, *daily_limit),
+                )
+                .collect();
+                if let Some(account) = grant {
+                    windows.extend(keyed(
+                        grant_counter_key(provider, app, account),
+                        configured(&self.grant_budgets, provider),
+                    ));
+                }
+                windows
+            }
+            Holder::ApiKey { account } => keyed(
+                api_key_counter_key(provider, account),
+                configured(&self.api_key_budgets, provider),
+            )
+            .collect(),
+        }
+    }
+
+    /// Take one request from every one of `windows` that holds fewer than
+    /// `share_percent` of its budget; when one does not, give back the
+    /// windows already taken and say how long until that one resets.
+    async fn take(
         &self,
-        provider: &str,
-        app: &str,
-        daily_limit: Option<u32>,
+        windows: &[(String, Budget)],
         share_percent: u32,
     ) -> AppResult<RateLimitStatus> {
-        let budgets = self.budgets_for(provider, daily_limit);
-        let key = budget_counter_key(provider, app);
         let now = Utc::now();
-        let mut taken: Vec<String> = Vec::with_capacity(budgets.len());
-        for budget in budgets {
+        let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
+        for (key, budget) in windows {
             let period = budget_period(now, budget.window);
             let landed = self
                 .counters
                 .increment_counter_below(
                     PLATFORM_SCOPE,
                     PLATFORM_SCOPE,
-                    &key,
+                    key,
                     &period,
                     budget.allowance(share_percent),
                 )
                 .await?;
             if landed {
-                taken.push(period);
+                taken.push((key, period));
                 continue;
             }
-            for period in &taken {
+            for (key, period) in &taken {
                 self.counters
-                    .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, period, -1)
+                    .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, key, period, -1)
                     .await?;
             }
             let (_, end_ms) = bucket_bounds(now, budget.window);
@@ -388,12 +541,12 @@ impl ProviderRateLimiter {
 }
 
 /// The budget a credential's provider requests are admitted against: the
-/// shared windows of the OAuth app that signs them.
+/// shared windows of the OAuth app that signs them, and those its provider
+/// keeps for the account the credential acts for.
 #[derive(Clone)]
 pub struct RequestBudget {
     limiter: Arc<ProviderRateLimiter>,
-    app: String,
-    daily_limit: Option<u32>,
+    holder: Holder,
 }
 
 impl RequestBudget {
@@ -407,8 +560,42 @@ impl RequestBudget {
     ) -> Self {
         Self {
             limiter,
-            app,
-            daily_limit,
+            holder: Holder::App {
+                app,
+                daily_limit,
+                grant: None,
+            },
+        }
+    }
+
+    /// The windows of `app` as [`Self::new`] has them, and the windows the
+    /// provider keeps for one athlete's grant to that app, counted for
+    /// `account`, the provider's id for the athlete.
+    #[must_use]
+    pub const fn for_grant(
+        limiter: Arc<ProviderRateLimiter>,
+        app: String,
+        daily_limit: Option<u32>,
+        account: String,
+    ) -> Self {
+        Self {
+            limiter,
+            holder: Holder::App {
+                app,
+                daily_limit,
+                grant: Some(account),
+            },
+        }
+    }
+
+    /// The windows the provider keeps for one personal API key, counted for
+    /// `account`, the provider's id for the account the key belongs to. No
+    /// app signs a key, so no app's windows apply.
+    #[must_use]
+    pub const fn for_api_key(limiter: Arc<ProviderRateLimiter>, account: String) -> Self {
+        Self {
+            limiter,
+            holder: Holder::ApiKey { account },
         }
     }
 
@@ -424,11 +611,7 @@ impl RequestBudget {
     /// # Errors
     /// Returns the refusal, or for background work the counting error.
     pub async fn admit(&self, provider: &str) -> AppResult<()> {
-        match self
-            .limiter
-            .acquire(provider, &self.app, self.daily_limit)
-            .await
-        {
+        match self.limiter.acquire_for(provider, &self.holder).await {
             Ok(RateLimitStatus::Allowed) => Ok(()),
             Ok(RateLimitStatus::Exceeded { retry_after }) => Err(AppError::new(
                 ErrorCode::ExternalRateLimited,
@@ -437,7 +620,7 @@ impl RequestBudget {
             .with_retry_after(retry_after.as_secs())),
             Err(e) if is_background() => Err(e),
             Err(e) => {
-                error!(provider, app = %self.app, error = %e, "provider request budget could not be counted; the request is sent uncounted");
+                error!(provider, app = self.holder.app(), error = %e, "provider request budget could not be counted; the request is sent uncounted");
                 Ok(())
             }
         }
@@ -447,8 +630,7 @@ impl RequestBudget {
 impl fmt::Debug for RequestBudget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestBudget")
-            .field("app", &self.app)
-            .field("daily_limit", &self.daily_limit)
+            .field("holder", &self.holder)
             .finish_non_exhaustive()
     }
 }

@@ -146,7 +146,7 @@ fn check_retry_status(
 }
 
 /// The error a provider's own `429` is once retries are spent: the same
-/// [`ErrorCode::ExternalRateLimited`] the signing app's request budget refuses
+/// [`ErrorCode::ExternalRateLimited`] a credential's request budget refuses
 /// with, carrying the wait, so a caller tells "the provider is throttling"
 /// apart from a failure either way.
 fn rate_limit_error(
@@ -243,14 +243,14 @@ async fn send_admitted(
 /// [`no_vendor_error`] — to take the generic mapping.
 ///
 /// Each attempt, retries included, is first admitted against `budget`, the
-/// signing app's request budget; a refusal ends the request with
+/// credential's request budget; a refusal ends the request with
 /// [`ErrorCode::ExternalRateLimited`](crate::errors::ErrorCode) and nothing
 /// more is sent.
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// - The app's request budget refuses the request
+/// - The credential's request budget refuses the request
 /// - No access token is available
 /// - All retry attempts are exhausted
 /// - Network request fails

@@ -51,7 +51,7 @@ use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_providers::delegation::{is_athlete_off_roster, is_coach_credential_expired};
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::CoreFitnessProvider;
-use pierre_services::coach_platform::{coach_platform, CoachPlatform};
+use pierre_services::coach_platform::{coach_platform, with_key_budget, CoachPlatform};
 use pierre_services::delegated_connections::{
     coach_session_state, end_off_roster, person_name, unbound_link_reason, CoachSession,
 };
@@ -290,7 +290,11 @@ impl AuthService {
         )
         .await
         {
-            Ok(CoachSession::Live { token, .. }) => platform.coach_credentials(&token),
+            Ok(CoachSession::Live { token, .. }) => {
+                platform.coach_credentials(&token).map(|credentials| {
+                    with_key_budget(self.runtime().provider_registry(), &token, credentials)
+                })
+            }
             Ok(CoachSession::NeedsReconnect) => None,
             Ok(CoachSession::Missing) => {
                 if let Err(e) = DelegationStore::new(repos)

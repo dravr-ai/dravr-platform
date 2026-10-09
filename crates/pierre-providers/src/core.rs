@@ -171,9 +171,10 @@ pub struct OAuth2Credentials {
     /// What `access_token` is, and so how a call presents it
     #[serde(default)]
     pub kind: CredentialKind,
-    /// The budget of the OAuth app that signs these credentials, which every
-    /// request they authorize is admitted against before it is sent. `None`
-    /// sends uncounted (a provider no budget applies to, or a test).
+    /// The budget every request these credentials authorize is admitted
+    /// against before it is sent: the OAuth app that signs them, and the
+    /// provider account they act for where the provider limits each account.
+    /// `None` sends uncounted (a provider no budget applies to, or a test).
     #[serde(skip)]
     pub request_budget: Option<RequestBudget>,
 }
