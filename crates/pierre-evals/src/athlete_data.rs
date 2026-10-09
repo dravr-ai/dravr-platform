@@ -220,6 +220,7 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
     // 480-minute ride would report Supported on the strength of an unrelated
     // workout — a verdict that reads as corroboration and is worth less than
     // none. This layer holds no sleep record, so it declines to rule.
+    // LIMITATION(registre#853): `mentions_sleep` claims are declined here, never checked against a sleep record.
     if mentions_sleep(&claim.text) && figures.iter().any(|f| f.unit == Unit::Minutes) {
         return Some(unverifiable(
             "Concerns sleep, and this layer holds only activity durations — a match against a \
@@ -261,6 +262,8 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
         // exactly `Unverifiable` — non-actionable, still recorded as a verdict.
         // The one case where absence really is evidence is the providerless
         // branch above, and that keeps its `Contradicted`.
+        // LIMITATION(registre#849): this `Unverifiable` miss raises no flag, so a made-up figure about a
+        // connected athlete reaches the reader unmarked.
         VerdictOutcome {
             status: ClaimStatus::Unverifiable,
             evidence_strength: EvidenceStrength::None,

@@ -64,6 +64,8 @@ pub const DEFAULT_MARGIN_FRAC: f64 = 0.08;
 /// Built caller-side from cageux + the training-history compute. Every field is
 /// optional: a `None` metric simply means claims about it fall through
 /// unverified. Pace ranges are seconds per kilometre, lo (faster) to hi (slower).
+///
+/// LIMITATION(registre#853): `AthleteMetrics` carries no HRV field, so an HRV claim is never checked.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AthleteMetrics {
     /// Jack Daniels `VDOT` (`VO2max` adjusted for running economy).
@@ -509,6 +511,8 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
             }
         }
     }
+    // LIMITATION(registre#850): `recent_tsb` is compared as absolute TSB near keywords, never as a share of
+    // the athlete's fitness (CTL), the way the product frames form.
     if let Some(tsb) = m.recent_tsb {
         for kw in [
             "tsb",

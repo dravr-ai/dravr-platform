@@ -459,6 +459,9 @@ where
 ///
 /// Wrapped in [`degrade_to_unverified`] so that a bug anywhere in the
 /// detector costs the verification footer and nothing else.
+///
+/// LIMITATION(registre#852): `apply_claim_verification` runs in the chat pipeline only; replies composed over
+/// MCP and A2A never reach it.
 pub async fn apply_claim_verification(
     params: ClaimVerificationParams<'_>,
 ) -> ClaimVerificationOutcome {
@@ -558,6 +561,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     {
         Ok(verdicts) => verdicts,
         Err(e) => {
+            // LIMITATION(registre#851): this `Err` arm ships the reply unchecked, even for an agent set to block.
             tracing::warn!(error = %e, "claim verification failed — skipping claim verdicts");
             return ClaimVerificationOutcome {
                 content: reply.to_owned(),
