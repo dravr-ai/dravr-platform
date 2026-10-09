@@ -29,9 +29,10 @@ use crate::repositories::{
     SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserMcpTokenRepository,
-    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    UploadedActivityFileRepository, UsageCounterRepository, UsageRepository,
+    UseCaseExposureRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -222,6 +223,9 @@ pub struct RepositoryRegistry {
     /// The thread each activity's view opened, so reopening the activity on
     /// any device resumes it.
     pub activity_conversations: Arc<dyn ActivityConversationRepository>,
+    /// The `.fit` files athletes uploaded: the record behind every
+    /// activity cached under the `upload` key (carnet#818).
+    pub uploaded_activity_files: Arc<dyn UploadedActivityFileRepository>,
     /// Deletes every row one provider contributed: one user's on disconnect,
     /// every tenant's on the operator's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
@@ -311,6 +315,7 @@ impl RepositoryRegistry {
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
             activity_conversations: db.clone(),
+            uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),
@@ -399,6 +404,7 @@ impl RepositoryRegistry {
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
             activity_conversations: db.clone(),
+            uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),

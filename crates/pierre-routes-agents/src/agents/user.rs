@@ -17,7 +17,6 @@ use axum::{
     Json,
 };
 use chrono::{Duration as ChronoDuration, Utc};
-use pierre_agent_parser::parse_agent_content;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -25,15 +24,14 @@ use pierre_core::models::agents::{
     AgentCategory, AgentListItem, AgentPrerequisites, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::{SportProfile, TenantId};
-use pierre_database::database::agents::compute_request_hash;
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
+use pierre_services::agents as agents_service;
 use pierre_services::locale::resolve_user_locale;
-use pierre_services::{agent_import, agents as agents_service};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, warn, Span};
@@ -41,9 +39,9 @@ use uuid::Uuid;
 
 use super::proposal_profile::{build_profile_view, pillar_context_prompt, ProfileView};
 use super::types::{
-    validate_max_tool_iterations, AgentProposalResponse, AgentResponse, ImportAgentResponse,
-    ListAgentsQuery, ListAgentsResponse, MissingPrerequisite, ProposedAgent, RecordUsageResponse,
-    SearchAgentsQuery, SportProfileSummary, SubmitForReviewResponse, UpdateAgentBody,
+    validate_max_tool_iterations, AgentProposalResponse, AgentResponse, ListAgentsQuery,
+    ListAgentsResponse, MissingPrerequisite, ProposedAgent, RecordUsageResponse,
+    SportProfileSummary, SubmitForReviewResponse, UpdateAgentBody,
 };
 
 /// [`agents_service::user_sees_coach_tools`] for this route's context.
@@ -581,36 +579,6 @@ fn check_prerequisites(
     (result.met, missing)
 }
 
-/// Handle GET /api/agents/search - Search agents
-pub(super) async fn handle_search<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Query(query): Query<SearchAgentsQuery>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let agents = manager
-        .search(
-            auth.user_id,
-            tenant_id,
-            &query.q,
-            None,
-            query.limit,
-            query.offset,
-        )
-        .await?;
-
-    let response = ListAgentsResponse {
-        total: u32::try_from(agents.len()).unwrap_or(0),
-        agents: agents.into_iter().map(Into::into).collect(),
-        metadata: super::build_metadata(),
-    };
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
 /// Handle GET /api/agents/:id - Get a specific agent
 pub(super) async fn handle_get<C: AgentsCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
@@ -636,53 +604,6 @@ pub(super) async fn handle_get<C: AgentsCtx + MiddlewareCtx>(
     response.last_used_at = last_used_at.map(|dt| dt.to_rfc3339());
 
     Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle POST /api/agents/import - Import agent from markdown
-///
-/// Parses markdown content, checks for duplicate content hashes, and
-/// creates a new agent. Returns 409 Conflict if an agent with the same
-/// content already exists for this user.
-pub(super) async fn handle_import<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    body: String,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    // Parse the markdown content
-    let definition = parse_agent_content(&body, None)
-        .map_err(|e| AppError::invalid_input(format!("Invalid markdown format: {e}")))?;
-
-    let warnings = agent_import::generate_import_warnings(&definition);
-    let parsed_name = definition.frontmatter.name.clone();
-    let token_count = definition.token_count;
-
-    let request = agent_import::definition_to_create_request(&definition);
-
-    // Check for duplicate using the same hash that create() will store
-    let request_hash = compute_request_hash(&request);
-    let manager = super::get_agents_manager(&ctx);
-    if let Some(existing) = manager
-        .find_by_content_hash(&request_hash, auth.user_id, tenant_id)
-        .await?
-    {
-        return Err(AppError::already_exists(format!(
-            "Coach with identical content (id: {})",
-            existing.id
-        )));
-    }
-
-    let agent = manager.create(auth.user_id, tenant_id, &request).await?;
-
-    let response = ImportAgentResponse {
-        agent: agent.into(),
-        parsed_name,
-        token_count,
-        warnings,
-    };
-    Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
 /// Handle PUT /api/agents/:id - Update an agent
@@ -814,25 +735,5 @@ pub(super) async fn handle_record_usage<C: AgentsCtx + MiddlewareCtx>(
     }
 
     let response = RecordUsageResponse { success };
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle GET /api/agents/hidden - List hidden agents for user
-pub(super) async fn handle_list_hidden<C: AgentsCtx + MiddlewareCtx>(
-    State(ctx): State<Arc<C>>,
-    auth: AuthenticatedUser,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = super::get_user_tenant(&auth)?;
-
-    let manager = super::get_agents_manager(&ctx);
-    let agents = manager.list_hidden_agents(auth.user_id, tenant_id).await?;
-
-    let response = ListAgentsResponse {
-        total: u32::try_from(agents.len()).unwrap_or(0),
-        agents: agents.into_iter().map(Into::into).collect(),
-        metadata: super::build_metadata(),
-    };
-
     Ok((StatusCode::OK, Json(response)).into_response())
 }

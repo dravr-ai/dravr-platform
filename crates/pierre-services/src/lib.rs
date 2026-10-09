@@ -84,9 +84,6 @@ pub mod agent_followup_scheduler;
 /// Per-agent content grading derived from claim verdict history
 pub mod agent_grading;
 
-/// Agent markdown import: warnings and definition conversion
-pub mod agent_import;
-
 /// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's agent
 pub mod agent_package;
 

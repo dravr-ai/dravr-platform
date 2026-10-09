@@ -26,9 +26,9 @@ features:
     review_by: 2026-10-31
   - name: persona-conformance-strict-mode
     surface: crates/pierre-chat-pipeline/src/stages/persona_conformance.rs
-    current: all personas run shadow mode (strict_mode false) — violations are warn logs and replies ship unchanged; the re-prompt recovery strict mode triggers is built and wired, so arming is a per-persona data change in contremaitre
-    advance_when: shadow logs show a persona's rules are stable, then set strict_mode true for that persona in contremaitre persona_contracts.yaml
-    review_by: 2026-09-30
+    current: power_athlete has run strict since 2026-08-12 and coach inherits it through the child-or-parent overlay; casual and enthusiast still run shadow mode (strict_mode false) — their violations are warn logs and the reply ships unchanged. carnet#827 (8f01c882e, 2026-10-07) moved every user whose coaching_persona was coach to casual, so coaches' own turns left the strict rewrite path and now feed the casual shadow logs. The re-prompt recovery is built and wired, so arming either remaining persona is a per-persona data change in contremaitre
+    advance_when: a week of post-carnet#827 dev traffic shows the casual or enthusiast shadow violations (the persona_conformance warn lines, grouped by persona and rule in Cloud Logging) are stable and each firing rule is a true drift rather than a checker false positive, then set strict_mode true for that persona in contremaitre persona_contracts.yaml. Re-dated at the 2026-10-08 review because the evidence is prod shadow logs, which the review session could not read, and the post-carnet#827 window is one day old.
+    review_by: 2026-10-31
   - name: progressive-text-deltas-acp-only
     surface: crates/pierre-chat-pipeline/src/surface_profile.rs
     current: both in-app surfaces resolve ProgressiveSupport::DeltaChannel and the SSE body is real, but TurnEvent::ProseDelta has exactly one producer — run_headless_streaming in the SDK-tool-calling (Copilot ACP) branch. On every function-calling provider (Gemini, Cohere, Groq, OpenRouter, OpenAI-compatible) an in-app turn emits zero deltas and the athlete reads the terminal done frame only. The crossing in tool_dispatch keeps the claim honest — no sink is installed on a provider that cannot fill it — rather than papering over the gap.

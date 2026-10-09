@@ -94,11 +94,17 @@ pub const LATEST_PROVIDER_SYNC_SQL: &str = r"
     ORDER BY synced_at DESC
     LIMIT 1";
 
-/// Latest `synced_at` any cached row carries for a user.
+/// Latest `synced_at` any provider's cached row carries for a user.
+///
+/// An uploaded file's rows (`provider = 'upload'`,
+/// `pierre_core::constants::oauth_providers::UPLOAD`) are left out: their
+/// `synced_at` is when the athlete uploaded, which says nothing about how
+/// current any provider's copy is, and counting it would show a stale cache
+/// as just synced.
 pub const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2
+    WHERE user_id = $1 AND tenant_id = $2 AND provider <> 'upload'
     ORDER BY synced_at DESC
     LIMIT 1";
 
@@ -120,10 +126,15 @@ pub const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
 
-/// Delete a user's cached activities that started before a cutoff.
+/// Delete a user's cached provider activities that started before a cutoff.
+///
+/// An uploaded file's rows (`provider = 'upload'`,
+/// `pierre_core::constants::oauth_providers::UPLOAD`) are kept: a provider's
+/// row is a copy the next fetch can bring back, an upload's is the record
+/// itself, and pruning it would lose the athlete's workout for good.
 pub const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3";
+    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider <> 'upload'";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///

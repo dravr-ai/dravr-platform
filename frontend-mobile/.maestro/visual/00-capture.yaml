@@ -124,7 +124,7 @@ env:
 
 # Surface: chat list.
 - tapOn:
-    text: "Discussion|Chat"
+    text: "(Discussion|Chat).*"
 - extendedWaitUntil:
     visible:
       id: "conversations-screen"

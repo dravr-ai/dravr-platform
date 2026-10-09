@@ -16,6 +16,7 @@ use crate::context::{
     TURN_AGENT_ID,
 };
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
+use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
@@ -42,7 +43,6 @@ use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_database::repositories::PendingGuardianAction;
 use pierre_providers::ai_scope;
-use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
@@ -416,7 +416,7 @@ impl UniversalExecutor {
 
         if provider_gate.required {
             if let Some(refusal) = self
-                .provider_refusal(tool_name, user_uuid, provider_gate.requested)
+                .provider_refusal(tool_name, user_uuid, tenant_uuid, provider_gate.requested)
                 .await
             {
                 return Ok(Some(refusal));
@@ -447,14 +447,14 @@ impl UniversalExecutor {
     ///   table and refuses properly if the absence is real, so failing closed
     ///   would only turn a transient database error into a refusal on a working,
     ///   connected account.
-    /// - **Two tables must both come up empty.** `provider_connections` and
-    ///   `oauth_tokens` are written by different paths and are known to drift
-    ///   (a live token whose connection row is missing). Reading only the
+    /// - **Every kind of evidence must come up empty** ([`athlete_has_data_source`]).
+    ///   `provider_connections` and `oauth_tokens` are written by different paths
+    ///   and are known to drift (a live token whose connection row is missing),
+    ///   and an athlete who only uploads `.fit` files has neither. Reading only the
     ///   connection table would lock a genuinely connected athlete out of every
     ///   provider-backed tool, which presents as "the coach stopped seeing my
     ///   data" — strictly worse than the hallucination this gate prevents.
-    ///   Either row is sufficient evidence of a data source, so the refusal
-    ///   fires only when neither exists.
+    ///   Any one is sufficient evidence of a data source.
     /// - **A named credential-free provider stands aside**, per
     ///   [`is_credential_free`] — the synthetic providers, which generate their
     ///   data and need no connection at all. Refusing those would lock demo and
@@ -469,6 +469,7 @@ impl UniversalExecutor {
         &self,
         tool_name: &str,
         user_uuid: Uuid,
+        tenant_uuid: Option<Uuid>,
         requested_provider: Option<&str>,
     ) -> Option<UniversalResponse> {
         if default_provider().is_some() {
@@ -477,7 +478,7 @@ impl UniversalExecutor {
         if requested_provider.is_some_and(is_credential_free) {
             return None;
         }
-        if self.athlete_has_data_source(tool_name, user_uuid).await {
+        if athlete_has_data_source(&self.resources, tool_name, user_uuid, tenant_uuid).await {
             return None;
         }
         info!(
@@ -486,58 +487,6 @@ impl UniversalExecutor {
             "provider-requiring tool refused at the dispatch chokepoint"
         );
         Some(no_provider_refusal())
-    }
-
-    /// Whether this athlete has any fitness data source behind them.
-    ///
-    /// Answers `true` on the slightest evidence, and that bias is deliberate:
-    /// the caller refuses when this is `false`, so a wrong `false` locks a
-    /// working account out of every provider-backed tool. A lookup that fails
-    /// therefore answers `true` — the tool body re-resolves through the same
-    /// tables and refuses properly if the absence is real, whereas failing
-    /// closed would turn a transient database error into a refusal on a
-    /// connected athlete.
-    ///
-    /// Split from [`Self::provider_refusal`] to keep both inside the
-    /// cognitive-complexity budget; the two reads and their three error arms
-    /// pushed the single function to 34 against a ceiling of 25.
-    async fn athlete_has_data_source(&self, tool_name: &str, user_uuid: Uuid) -> bool {
-        match user_has_connected_provider(&self.resources.repos().provider_connections, user_uuid)
-            .await
-        {
-            Ok(true) => return true,
-            Ok(false) => {}
-            Err(e) => {
-                warn!(
-                    tool_name = %tool_name,
-                    error = %e,
-                    "provider_connections lookup failed at the chokepoint — proceeding; \
-                     the tool body re-resolves and refuses if the absence is real"
-                );
-                return true;
-            }
-        }
-
-        match self
-            .resources
-            .repos()
-            .oauth_tokens
-            .get_tokens(user_uuid, None)
-            .await
-        {
-            // Drift: a token without its connection row still means the athlete
-            // has a real data source, so the tool body gets to run.
-            Ok(tokens) => !tokens.is_empty(),
-            Err(e) => {
-                warn!(
-                    tool_name = %tool_name,
-                    error = %e,
-                    "oauth_tokens lookup failed at the chokepoint — proceeding; \
-                     the tool body re-resolves and refuses if the absence is real"
-                );
-                true
-            }
-        }
     }
 
     /// Dispatch a tool call to the unified `McpTool` registry.

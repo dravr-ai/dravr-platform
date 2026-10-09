@@ -41,13 +41,15 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, ProviderAccountRole,
-    RosterAthlete, TenantId, UserOAuthToken,
+    RosterAthlete, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
 use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
+
+use crate::accounts::{account, Account};
 
 /// The seeded group's name, which the member's thread is titled after.
 pub const GROUP_NAME: &str = "TrainingPeaks Squad";
@@ -78,13 +80,6 @@ pub struct SeedArgs {
     /// configured LLM provider
     #[arg(long)]
     pub model: Option<String>,
-}
-
-/// One seeded account, its email and the tenant it acts in.
-struct Account {
-    id: Uuid,
-    email: String,
-    tenant: TenantId,
 }
 
 /// Seed the coach, the group and the proposed link.
@@ -188,29 +183,6 @@ async fn seed_member_link(
                 "A live TrainingPeaks link already holds athlete {ATHLETE_ID} or the member"
             ))
         })
-}
-
-/// The account behind `email`, with its tenant.
-async fn account(repos: &RepositoryRegistry, email: &str) -> AppResult<Account> {
-    let user = repos
-        .seeder
-        .seed_find_user_by_email(email)
-        .await?
-        .ok_or_else(|| {
-            AppError::config(format!("User {email} not found; run seed demo-data first"))
-        })?;
-    let tenant = repos
-        .seeder
-        .seed_get_user_tenant(user.id)
-        .await?
-        .ok_or_else(|| AppError::config(format!("User {email} has no tenant_id")))?;
-    let tenant = Uuid::parse_str(&tenant)
-        .map_err(|e| AppError::config(format!("Invalid tenant_id UUID for {email}: {e}")))?;
-    Ok(Account {
-        id: user.id,
-        email: user.email,
-        tenant: TenantId::from_uuid(tenant),
-    })
 }
 
 /// The coach's own `TrainingPeaks`: a stand-in session recorded as a coach

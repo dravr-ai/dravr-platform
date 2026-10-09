@@ -17,15 +17,12 @@
 //! time series is cached with its activity, so the track is never read out of
 //! the file — the same rule the routes scope follows (legal read, Part 8).
 
-use fitparser::profile::MesgNum;
-use fitparser::{FitDataRecord, Value};
 use reqwest::Url;
 
 use crate::constants::oauth_providers;
-use crate::core::no_recorded_samples;
 use crate::errors::{AppError, AppResult};
+use crate::fit_file::{FitActivityFile, Position};
 use crate::models::TimeSeriesData;
-use crate::utils::conversions::{f64_to_f32, f64_to_u32};
 
 /// The largest activity file read: a multi-hour ride recorded every second
 /// is a few megabytes, so anything past this is not a workout file.
@@ -56,138 +53,24 @@ pub fn is_wahoo_file_url(url: &str) -> bool {
         .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
 }
 
-/// A numeric field value, or `None` for a missing or invalid one.
-fn number(value: &Value) -> Option<f64> {
-    let number = match value {
-        Value::Byte(v) | Value::Enum(v) | Value::UInt8(v) | Value::UInt8z(v) => f64::from(*v),
-        Value::SInt8(v) => f64::from(*v),
-        Value::SInt16(v) => f64::from(*v),
-        Value::UInt16(v) | Value::UInt16z(v) => f64::from(*v),
-        Value::SInt32(v) => f64::from(*v),
-        Value::UInt32(v) | Value::UInt32z(v) => f64::from(*v),
-        Value::Float32(v) => f64::from(*v),
-        Value::Float64(v) => *v,
-        _ => return None,
-    };
-    number.is_finite().then_some(number)
-}
-
-/// One record message's samples, by channel.
-#[derive(Default)]
-struct Sample {
-    timestamp: Option<i64>,
-    heart_rate: Option<f64>,
-    power: Option<f64>,
-    cadence: Option<f64>,
-    speed: Option<f64>,
-    altitude: Option<f64>,
-    temperature: Option<f64>,
-    distance: Option<f64>,
-}
-
-impl Sample {
-    /// Read the channels of one `record` message. The enhanced speed and
-    /// altitude fields, when present, win over their 16-bit originals.
-    fn read(record: &FitDataRecord) -> Self {
-        let mut sample = Self::default();
-        let mut plain_speed = None;
-        let mut plain_altitude = None;
-        for field in record.fields() {
-            let value = field.value();
-            match field.name() {
-                "timestamp" => {
-                    if let Value::Timestamp(at) = value {
-                        sample.timestamp = Some(at.timestamp());
-                    }
-                }
-                "heart_rate" => sample.heart_rate = number(value),
-                "power" => sample.power = number(value),
-                "cadence" => sample.cadence = number(value),
-                "enhanced_speed" => sample.speed = number(value),
-                "speed" => plain_speed = number(value),
-                "enhanced_altitude" => sample.altitude = number(value),
-                "altitude" => plain_altitude = number(value),
-                "temperature" => sample.temperature = number(value),
-                "distance" => sample.distance = number(value),
-                // `position_lat` / `position_long` and everything else: not read.
-                _ => {}
-            }
-        }
-        sample.speed = sample.speed.or(plain_speed);
-        sample.altitude = sample.altitude.or(plain_altitude);
-        sample
-    }
-}
-
-/// A channel kept only when at least one sample carries it.
-fn channel<T>(values: Vec<Option<T>>) -> Option<Vec<Option<T>>> {
-    values.iter().any(Option::is_some).then_some(values)
-}
-
-/// A non-negative whole-number reading (bpm, watts, rpm).
-fn whole(value: Option<f64>) -> Option<u32> {
-    value
-        .filter(|v| *v >= 0.0 && *v <= f64::from(u32::MAX))
-        .map(|v| f64_to_u32(v.round()))
-}
-
-/// A reading kept at f32 precision (m/s, metres, °C).
-fn fractional(value: Option<f64>) -> Option<f32> {
-    value.map(f64_to_f32)
-}
-
 /// Decode an activity FIT file into the workout's time series.
 ///
 /// Samples are the file's `record` messages, in file order, timed from the
-/// first one. A file with no record message is a workout that recorded no
-/// samples ([`no_recorded_samples`]).
+/// first one, read by the shared decoder ([`FitActivityFile`]) with the
+/// position withheld. A file with no record message is a workout that
+/// recorded no samples.
 ///
 /// # Errors
 ///
 /// Returns an error when the bytes are not a FIT file or fail its checksum.
 pub fn time_series_from_fit(bytes: &[u8]) -> AppResult<TimeSeriesData> {
-    let records = fitparser::from_bytes(bytes).map_err(|e| {
+    let file = FitActivityFile::decode(bytes).map_err(|e| {
         AppError::external_service(
             oauth_providers::WAHOO,
             format!("workout FIT file did not decode: {e}"),
         )
     })?;
-    let samples: Vec<Sample> = records
-        .iter()
-        .filter(|record| record.kind() == MesgNum::Record)
-        .map(Sample::read)
-        .filter(|sample| sample.timestamp.is_some())
-        .collect();
-    let Some(start) = samples.first().and_then(|sample| sample.timestamp) else {
-        return Ok(no_recorded_samples());
-    };
-
-    let mut timestamps = Vec::with_capacity(samples.len());
-    let mut distance = Vec::with_capacity(samples.len());
-    let mut last_distance = 0.0;
-    for sample in &samples {
-        let offset = sample.timestamp.unwrap_or(start).saturating_sub(start);
-        timestamps.push(u32::try_from(offset).unwrap_or(u32::MAX));
-        // Distance is cumulative, one value per sample: a sample without it
-        // has not moved since the last one that had it.
-        if let Some(meters) = sample.distance {
-            last_distance = meters;
-        }
-        distance.push(last_distance);
-    }
-    let has_distance = samples.iter().any(|sample| sample.distance.is_some());
-
-    Ok(TimeSeriesData {
-        timestamps,
-        heart_rate: channel(samples.iter().map(|s| whole(s.heart_rate)).collect()),
-        power: channel(samples.iter().map(|s| whole(s.power)).collect()),
-        cadence: channel(samples.iter().map(|s| whole(s.cadence)).collect()),
-        speed: channel(samples.iter().map(|s| fractional(s.speed)).collect()),
-        altitude: channel(samples.iter().map(|s| fractional(s.altitude)).collect()),
-        temperature: channel(samples.iter().map(|s| fractional(s.temperature)).collect()),
-        gps_coordinates: None,
-        distance: has_distance.then_some(distance),
-    })
+    Ok(file.time_series(Position::Withheld))
 }
 
 #[cfg(test)]

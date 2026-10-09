@@ -14,6 +14,7 @@ import { useTranslation } from '@pierre/i18n';
 import { BrandLockup } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import {
+  useActivityUpload,
   useProviderConnected,
   useRecentActivities,
   useTrainingPlan,
@@ -36,6 +37,7 @@ export function HomeScreen() {
   const recent = useRecentActivities();
   const status = useTrainingStatus();
   const volume = useTrainingVolume();
+  const uploader = useActivityUpload();
   const [refreshing, setRefreshing] = useState(false);
 
   // The activity list carries no provider flag, so the provider status says
@@ -156,6 +158,7 @@ export function HomeScreen() {
           syncing={provider.syncing}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}
           openActivity={openActivity}
+          uploader={uploader}
         />
       </ScrollView>
     </View>

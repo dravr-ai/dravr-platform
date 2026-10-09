@@ -753,7 +753,7 @@ describe('recent activities', () => {
 
   // carnet#649: the banner above Home already says to reconnect, and the
   // empty sentence would promise a sync no connection can make.
-  it('leaves the section out when there are no rows and every connected provider is flagged', async () => {
+  it('keeps only the title and Upload when there are no rows and every connected provider is flagged', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [], stale: false }));
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
     const screen = renderHome();
@@ -761,7 +761,10 @@ describe('recent activities', () => {
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
     await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
-    expect(screen.queryByTestId('home-section-activities')).toBeNull();
+    // Nothing to list, but a workout can still be added by file (carnet#818).
+    expect(screen.getByTestId('home-section-activities')).toBeTruthy();
+    expect(screen.getByTestId('home-upload-action')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-empty')).toBeNull();
     expect(screen.queryByText('Reconnect needed')).toBeNull();
     // Connected, only not usable: never the prompt to connect either.
     expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
@@ -953,14 +956,14 @@ describe('coming back to Home', () => {
     expect(mockGetActivityRoute).toHaveBeenCalledTimes(3);
   });
 
-  it('brings the section back once the athlete comes back from reconnecting', async () => {
+  it('brings the empty sentence back once the athlete comes back from reconnecting', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_ONLY_FLAGGED);
     const screen = renderHome();
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
     await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
-    expect(screen.queryByTestId('home-section-activities')).toBeNull();
+    expect(screen.queryByTestId('home-activities-empty')).toBeNull();
 
     // The athlete reconnected while away: from here on every read says so,
     // however many reads the screen made before this point.

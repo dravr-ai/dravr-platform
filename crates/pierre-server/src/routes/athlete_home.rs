@@ -78,6 +78,13 @@
 //!   recent list shows (see [`crate::services::training_volume`]). Read from
 //!   the cache alone; a week before the stored history begins is absent,
 //!   never a zero.
+//! - `POST /api/me/activities/upload` — the `.fit` file of a completed
+//!   workout, as the raw body: each session in it becomes the athlete's own
+//!   activity, filed under the `upload` key every read above already reads
+//!   (see [`upload`]).
+//! - `DELETE /api/me/activities/upload/{activity_id}` — delete one of the
+//!   caller's uploaded activities, and the file with its last session; any
+//!   other provider, or another athlete's id, answers 404 (see [`upload`]).
 //! - `GET`/`PUT /api/me/home-preferences` — the athlete's choices about what
 //!   Home offers, stored per user so web and mobile agree (see
 //!   [`home_preferences`]).
@@ -90,6 +97,8 @@ pub mod calendar;
 pub mod home_preferences;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
+/// The upload of a completed workout's `.fit` file.
+pub mod upload;
 /// The weekly training volume read.
 mod volume;
 
@@ -477,7 +486,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
         .route("/api/me/activities/recent", get(get_recent_activities))
         .route(
             "/api/me/activities/{provider}/{activity_id}",
-            get(get_activity_detail),
+            get(get_activity_detail).delete(upload::delete_activity),
         )
         .route(
             "/api/me/activities/{provider}/{activity_id}/route",
@@ -495,6 +504,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
         )
         .route("/api/me/calendar", get(calendar::get_calendar))
+        .merge(upload::upload_routes())
 }
 
 async fn get_recent_activities(

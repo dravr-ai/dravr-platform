@@ -26,6 +26,9 @@ use pierre_seeders::synthetic_activities::{
 use pierre_seeders::trainingpeaks_delegation::{
     run as run_trainingpeaks_delegation, SeedArgs as TrainingPeaksDelegationArgs,
 };
+use pierre_seeders::verdict_conversation::{
+    run as run_verdict_conversation, SeedArgs as VerdictConversationArgs,
+};
 use tracing::info;
 
 use crate::helpers::jwks::initialize_jwks_manager;
@@ -53,6 +56,9 @@ pub enum SeedCommand {
 
     /// Seed a group whose coach proposed a TrainingPeaks link to a member, for the member-confirm flows
     TrainingpeaksDelegation(TrainingPeaksDelegationArgs),
+
+    /// Seed a conversation whose reply carries a supported claim verdict with a DOI, for the verdict-sheet flows
+    VerdictConversation(VerdictConversationArgs),
 }
 
 /// Dispatch a `Seed` subcommand to its seeder module.
@@ -78,6 +84,12 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
             args.model = args.model.or_else(LlmProviderType::model_from_env);
             let repos = keyed_repositories(database_url, "trainingpeaks-delegation").await?;
             run_trainingpeaks_delegation(args, &repos).await
+        }
+        // The conversation is created with the model every new conversation
+        // gets from the configured LLM provider, unless one is named.
+        SeedCommand::VerdictConversation(mut args) => {
+            args.model = args.model.or_else(LlmProviderType::model_from_env);
+            dispatch_with_database(SeedCommand::VerdictConversation(args), database_url).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
@@ -127,6 +139,7 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::DemoData(args) => run_demo_data(args, repos).await,
         SeedCommand::LlmUsage(args) => run_llm_usage(args, repos).await,
         SeedCommand::Mobility => run_mobility(repos).await,
+        SeedCommand::VerdictConversation(args) => run_verdict_conversation(args, repos).await,
         SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }

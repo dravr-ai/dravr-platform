@@ -205,6 +205,10 @@ export {
   parseCalendarResponse,
 } from './home.js';
 
+// A completed workout's .fit file uploaded by the athlete: the Home rows it became
+export type { ActivityUploadResponse, HeldActivity } from './activity-upload.js';
+export { ACTIVITY_UPLOAD_MAX_BYTES, UPLOAD_PROVIDER, parseActivityUploadResponse } from './activity-upload.js';
+
 // The athlete Home page's weekly volume: distance, time and climbing per sport, week by week
 export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
 export { parseTrainingVolumeResponse } from './training-volume.js';

@@ -2,12 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs the sciotte double behind a small control API, so a flow that cannot start processes (Maestro) can script it
-// ABOUTME: Sets up the athlete's good sync then a failing scraper, recovers it, and reports what the scraper was asked
+// ABOUTME: Scripts the Home sync flow's scraper, and makes the onboarding group flow's fresh coaches through the same double
 
 import { Database } from 'bun:sqlite';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { startSciotteDouble, type ScrapedRide } from './sciotte-double';
 import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
+import { coachStepState, freshOnboardingCoach, type CoachServer } from './onboarding-coach';
 
 // `bun e2e-real/home-sync-control.ts` — a long-running process beside a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL naming the double
@@ -16,11 +17,22 @@ import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
 // `runScript` steps: Maestro runs on the host, so 127.0.0.1 reaches it on both
 // platforms. The athlete is the one the flow signs in as; its sciotte state is
 // reset on every setup, so a retried attempt starts where the first did.
+// The onboarding group flow (frontend-mobile/.maestro/onboarding/) asks the
+// same process for a fresh coach (`POST /onboarding-coach`), whose Strava is
+// connected through this double, and for what the step left on the server
+// (`GET /onboarding-coach/state`).
 const CONTROL_PORT = Number(process.env.SCIOTTE_CONTROL_PORT ?? '8098');
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const DATABASE_PATH = process.env.E2E_REAL_DATABASE_PATH;
 const ATHLETE_EMAIL = process.env.HOME_SYNC_EMAIL ?? 'mobiletest@pierre.dev';
 const ATHLETE_PASSWORD = process.env.HOME_SYNC_PASSWORD ?? 'MobileTest1234';
+// The onboarding group flow's coaches are new accounts; one the server holds
+// for approval is approved by this admin (the seeded Maestro athlete is one).
+const COACH_SERVER: CoachServer = {
+  pierreUrl: PIERRE_URL,
+  adminEmail: process.env.CONTROL_ADMIN_EMAIL ?? ATHLETE_EMAIL,
+  adminPassword: process.env.CONTROL_ADMIN_PASSWORD ?? ATHLETE_PASSWORD,
+};
 
 /** The rides of the good sync, and the one the scraper brings back once it recovers. */
 export const HOME_SYNC_RIDES = {
@@ -223,7 +235,8 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const path = new URL(req.url ?? '/', `http://127.0.0.1:${CONTROL_PORT}`).pathname;
+  const url = new URL(req.url ?? '/', `http://127.0.0.1:${CONTROL_PORT}`);
+  const path = url.pathname;
   if (req.method === 'POST' && path === '/setup') {
     reply(res, 200, await setup());
   } else if (req.method === 'POST' && path === '/recover') {
@@ -232,6 +245,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     reply(res, 200, routes());
   } else if (req.method === 'GET' && path === '/reads') {
     reply(res, 200, reads());
+  } else if (req.method === 'POST' && path === '/onboarding-coach') {
+    reply(res, 200, await freshOnboardingCoach(COACH_SERVER));
+  } else if (req.method === 'GET' && path === '/onboarding-coach/state') {
+    reply(
+      res,
+      200,
+      await coachStepState(COACH_SERVER, url.searchParams.get('email') ?? '', url.searchParams.get('step') ?? 'none'),
+    );
   } else if (req.method === 'GET' && path === '/health') {
     reply(res, 200, { status: 'ok' });
   } else {

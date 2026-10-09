@@ -22,9 +22,12 @@ on:
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
       - 'scripts/ci/mobile-e2e-batch.sh'
-      # The scraper double and its control API the Home sync flow scripts.
+      # The scraper double and its control API the Home sync and onboarding
+      # group flows script, and the seeder behind the verdict-sheet flow.
       - 'frontend/e2e-real/sciotte-double.ts'
       - 'frontend/e2e-real/home-sync-control.ts'
+      - 'frontend/e2e-real/onboarding-coach.ts'
+      - 'crates/pierre-seeders/src/verdict_conversation.rs'
       - '.github/workflows/mobile-e2e-android.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -268,6 +271,18 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "warn"
 
+      # chat/11 opens the verdict sheet of a reply the claim verifier judged.
+      # This stack has no model to run a turn, so the reply and its verdict are
+      # seeded: one supported verdict whose study is a DOI.
+      - name: Seed the verdict conversation for Maestro tests
+        run: |
+          ./target/release/pierre-cli user create --email verdicttest@pierre.dev --password VerdictTest1234 --force
+          ./target/release/pierre-cli seed verdict-conversation --email verdicttest@pierre.dev --model ci-test-model
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-android-test.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          RUST_LOG: "warn"
+
       - name: Checkout dravr-contremaitre for coach seed source
         uses: actions/checkout@v6
         with:
@@ -287,8 +302,10 @@ jobs:
       # home-sync/01 scripts the scraper through this process: it runs the
       # sciotte double on 8097 and a control API on 8098 that the flow's
       # runScript steps call from the host, and it writes a past sync time
-      # into the server's database, so it is given that file.
-      - name: Start the scraper double for the Home sync flow
+      # into the server's database, so it is given that file. onboarding/02
+      # asks it for fresh coaches, approved by the seeded tester (an admin)
+      # and connected through the same double.
+      - name: Start the scraper double for the Home sync and onboarding flows
         working-directory: frontend
         run: |
           nohup bun e2e-real/home-sync-control.ts > /tmp/home-sync-control.log 2>&1 &
@@ -406,7 +423,12 @@ jobs:
           # through the scraper double, and each of its attempts resets that
           # athlete's activity state before it starts. Its copy assertions accept
           # English and French, so the chrome's language does not decide it.
-          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
+          # chat/11 reads the seeded verdict conversation (carnet#802) and
+          # onboarding/02 signs in as fresh coaches from the control process
+          # (carnet#740); both assert copy in English or French only, and
+          # onboarding/02 clears Chrome's session when it ends, so the flows after
+          # it sign the seeded tester in on the page, not as its last coach.
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml onboarding/02-coach-group-step.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
 
           # The list is unconditional now, so an empty one means someone edited it to
           # nothing — which under the guard below would silently report a green run of
@@ -536,7 +558,7 @@ jobs:
           exit 0
 
       - name: Run Maestro tests on Android
-        # 45 was sized for the one-flow smoke. A critical run is 10 flows, each with up
+        # 45 was sized for the one-flow smoke. A critical run is 12 flows, each with up
         # to 3 attempts, after an emulator boot and a cold Metro bundle; the job cap is
         # 120, so this leaves headroom for the diagnostics and upload steps after it.
         timeout-minutes: 90

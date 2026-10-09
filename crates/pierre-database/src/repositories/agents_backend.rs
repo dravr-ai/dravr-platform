@@ -631,22 +631,6 @@ macro_rules! impl_agents_repository {
                 .await
             }
 
-            async fn find_by_content_hash(
-                &self,
-                content_hash: &str,
-                user_id: Uuid,
-                tenant_id: TenantId,
-            ) -> AppResult<Option<Agent>> {
-                self.fetch_one_agent(
-                    sqlx::query(FIND_BY_CONTENT_HASH_SQL)
-                        .bind(content_hash)
-                        .bind($ids::bind(user_id))
-                        .bind(tenant_id),
-                    "find coach by content hash",
-                )
-                .await
-            }
-
             async fn create_system_agent(
                 &self,
                 admin_user_id: Uuid,

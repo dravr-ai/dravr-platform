@@ -14,6 +14,8 @@ publish = false
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+# The claim verdict vocabulary the verdict conversation seeder writes.
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 # mask_email: the canonical redactor for an address in an INFO+ log line.
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 

@@ -36,8 +36,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
     AgentProposalResponse, AgentResponse, AgentsMetadata, ListAgentsQuery, ListAgentsResponse,
-    ProposedAgent, RecordUsageResponse, SearchAgentsQuery, SportProfileSummary, SportShare,
-    UpdateAgentBody,
+    ProposedAgent, RecordUsageResponse, SportProfileSummary, SportShare, UpdateAgentBody,
 };
 /// Shared agent-proposal builder — used by the REST route and the messaging
 /// auto-send so both surfaces propose identically.
@@ -50,17 +49,7 @@ where
 {
     Router::new()
         .route("/api/agents", get(user::handle_list::<C>))
-        // Served to no client on either surface. The mobile agent library
-        // filters and toggles hidden client-side over the already-fetched
-        // list, and the same capability is reachable over MCP. Delete-or-wire
-        // is the open decision on the issue.
-        // LIMITATION(registre#387): /api/agents/search has no client
-        // LIMITATION(registre#387): /api/agents/hidden has no client
-        // LIMITATION(registre#387): /api/agents/import has no client
-        .route("/api/agents/search", get(user::handle_search::<C>))
         .route("/api/agents/proposal", get(user::handle_proposal::<C>))
-        .route("/api/agents/hidden", get(user::handle_list_hidden::<C>))
-        .route("/api/agents/import", post(user::handle_import::<C>))
         .route("/api/agents/{id}", get(user::handle_get::<C>))
         .route("/api/agents/{id}", put(user::handle_update::<C>))
         .route("/api/agents/{id}", delete(user::handle_delete::<C>))

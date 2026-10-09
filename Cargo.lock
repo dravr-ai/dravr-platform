@@ -4312,7 +4312,6 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "chrono",
- "pierre-agent-parser",
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
@@ -4501,6 +4500,7 @@ dependencies = [
  "pierre-agent-parser",
  "pierre-core",
  "pierre-database",
+ "pierre-memory",
  "pierre-middleware",
  "rand 0.9.4",
  "serde_json",
@@ -4530,7 +4530,6 @@ dependencies = [
  "futures-util",
  "hex",
  "photograveur",
- "pierre-agent-parser",
  "pierre-agui",
  "pierre-auth",
  "pierre-cache",

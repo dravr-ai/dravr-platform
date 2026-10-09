@@ -5,25 +5,28 @@
 // ABOUTME: The chat screen's own thread and composer under the activity, one conversation per activity, reopened on a return visit
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import type { ActivityDetailResponse, TurnSendOptions } from '@pierre/shared-types';
 import {
+  ACTIVITY_DELETE_KEYS,
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
   describeApiError,
+  isDeletableActivity,
   lapsTable,
   splitsTable,
   type SegmentTable,
 } from '@pierre/ui-logic';
-import { EmptyState, Section } from '../../components/ui';
+import { EmptyState, HeaderActions, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useActivityConversation } from '../../hooks/useActivityConversation';
-import { useActivityDetail } from '../../hooks/useActivityDetail';
+import { useActivityDetail, useDeleteUploadedActivity } from '../../hooks/useActivityDetail';
 import { trackMobile } from '../../services/analytics';
 import { ChatThread } from '../chat/ChatThread';
 import { useConversations } from '../chat/useConversations';
@@ -311,6 +314,46 @@ function ActivityThread({
   );
 }
 
+/**
+ * The header's Delete on an uploaded activity: a confirmation first, then the
+ * screen goes back once the server confirms; a failure is said in an alert
+ * and the screen stays.
+ */
+function DeleteUploadAction({ activityId }: { activityId: string }) {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+  const router = useRouter();
+  const { deleteActivity, isDeleting, failed } = useDeleteUploadedActivity(() => router.back());
+  useEffect(() => {
+    if (failed) Alert.alert(t('common.error'), t(ACTIVITY_DELETE_KEYS.failed));
+  }, [failed, t]);
+  const confirm = () =>
+    Alert.alert(t(ACTIVITY_DELETE_KEYS.confirmTitle), t(ACTIVITY_DELETE_KEYS.confirmMessage), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t(ACTIVITY_DELETE_KEYS.action), style: 'destructive', onPress: () => deleteActivity(activityId) },
+    ]);
+  return (
+    <HeaderActions>
+      <TouchableOpacity
+        className="w-10 h-10 items-center justify-center"
+        onPress={confirm}
+        disabled={isDeleting}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t(ACTIVITY_DELETE_KEYS.actionLabel)}
+        accessibilityState={{ disabled: isDeleting }}
+        testID="activity-delete"
+      >
+        {isDeleting ? (
+          <ActivityIndicator color={colors.text.secondary} />
+        ) : (
+          <Feather name="trash-2" size={20} color={colors.text.secondary} />
+        )}
+      </TouchableOpacity>
+    </HeaderActions>
+  );
+}
+
 export function ActivityScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -351,7 +394,14 @@ export function ActivityScreen() {
   const sport = sportLabel(t, data.activity.sport_type);
   return (
     <View className="flex-1 bg-background-primary" testID="activity-screen">
-      <Stack.Screen options={{ title: data.activity.name.trim() || sport }} />
+      <Stack.Screen
+        options={{
+          title: data.activity.name.trim() || sport,
+          headerRight: isDeletableActivity(provider)
+            ? () => <DeleteUploadAction activityId={activityId} />
+            : undefined,
+        }}
+      />
       <ActivityThread provider={provider} activityId={activityId} detail={data} />
     </View>
   );

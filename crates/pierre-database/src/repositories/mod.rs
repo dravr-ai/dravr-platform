@@ -152,6 +152,8 @@ pub mod tool_selection;
 pub mod training_history;
 /// Agent-authored training plans (outline + weekly microcycles).
 pub mod training_plans;
+/// `UploadedActivityFileRepository`: the `.fit` files athletes uploaded.
+pub mod uploaded_activity_files;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
 /// Shared statements, row decode and body for the usage counters both backends serve.
@@ -249,6 +251,7 @@ pub use subscriptions::*;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
+pub use uploaded_activity_files::UploadedActivityFileRepository;
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};
 pub use user_access::*;

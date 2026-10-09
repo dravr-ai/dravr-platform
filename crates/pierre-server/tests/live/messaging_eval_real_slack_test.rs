@@ -65,6 +65,17 @@ use std::env;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// How long a test waits for the agent to answer one post.
+///
+/// Above the turn watchdog `messaging-eval.yml` gives the server
+/// (`MESSAGING_TURN_WATCHDOG_SECS`, 2100 s), which is above its LLM request
+/// timeout (1800 s), so a turn that runs out of either budget has posted its
+/// notice before this wait gives up. Those budgets come from the measured CPU
+/// cost of one model call in CI — 864 s of prefill for a ~16.4K-token prompt
+/// (run 37610566362); the smoke turn of that run outlived the old 900 s LLM
+/// timeout and with it the old 1200 s wait.
+const REPLY_WAIT_SECS: u64 = 2400;
+
 /// Subset of env vars needed to drive a real-Slack scenario.
 struct SlackCreds {
     bot_token: String,
@@ -382,11 +393,11 @@ async fn real_slack_post_and_read_smoke() {
         "readback text mismatch: {echoed}"
     );
 
-    let reply = wait_for_agent_reply(&client, &creds, &post_ts, 1200).await;
+    let reply = wait_for_agent_reply(&client, &creds, &post_ts, REPLY_WAIT_SECS).await;
     assert!(
         reply.is_some(),
-        "the agent never answered the smoke post within 1200s; later probes would \
-         read a stale reply"
+        "the agent never answered the smoke post within {REPLY_WAIT_SECS}s; later \
+         probes would read a stale reply"
     );
 }
 
@@ -409,7 +420,7 @@ async fn run_probe(probe: &EvalProbe) {
         probe.name, probe.text
     );
 
-    let Some(reply) = wait_for_agent_reply(&client, &creds, &post_ts, 1200).await else {
+    let Some(reply) = wait_for_agent_reply(&client, &creds, &post_ts, REPLY_WAIT_SECS).await else {
         let last = peek_last_agent_reply(&client, &creds, &post_ts).await;
         // A reply still stuck on the AG-UI placeholder ("thinking…",
         // "réflexion…") means the pipeline ran but the model never finished
@@ -418,14 +429,14 @@ async fn run_probe(probe: &EvalProbe) {
         if let Some(text) = last.as_deref() {
             assert!(
                 !is_transient_agent_reply(text),
-                "[{name}] Only a transient reply after 1200s: {text:?}. A link prompt \
+                "[{name}] Only a transient reply after {REPLY_WAIT_SECS}s: {text:?}. A link prompt \
                  means the driver is not linked (messaging_channel_links); a \
                  \"thinking…\" placeholder means the LLM never finished (Ollama stall?).",
                 name = probe.name,
             );
         }
         panic!(
-            "[{name}] No non-transient reply from coach bot ({agent}) within 1200s \
+            "[{name}] No non-transient reply from coach bot ({agent}) within {REPLY_WAIT_SECS}s \
              of post at ts={post_ts}. Last coach message seen: {last:?}. First \
              thing to check: is SLACK_ALLOWED_BOT_IDS set on the running Pierre \
              server? It must include the QA driver bot's `bot_id` (from `auth.test`, \

@@ -72,6 +72,7 @@ pub struct ChannelGroupSpec<'a> {
 
 use crate::context_alerts::connection_and_staleness_alerts;
 use crate::delegation::DelegationStore;
+use crate::setup_timing::record_member_joined;
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 
@@ -572,6 +573,7 @@ impl GroupService {
             group_id = %group.id,
             "user joined coaching group"
         );
+        record_member_joined(self.repo.as_ref(), &member, group.owner_id).await;
         Ok(true)
     }
 
@@ -730,6 +732,7 @@ impl GroupService {
             group_id = %invite.group_id,
             "user joined coaching group"
         );
+        record_member_joined(self.repo.as_ref(), &created, group.owner_id).await;
         Ok(created)
     }
 

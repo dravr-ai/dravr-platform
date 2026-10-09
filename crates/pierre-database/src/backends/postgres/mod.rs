@@ -129,6 +129,8 @@ pub mod tool_selection;
 pub mod training_history;
 /// `PostgreSQL` training-plan persistence.
 pub mod training_plans;
+/// The `.fit` files athletes uploaded, one row per file (Postgres)
+pub mod uploaded_activity_files;
 /// Usage counter repository implementation
 pub mod usage_counters;
 /// Use-case starters shown to and tapped by each athlete (`PostgreSQL`)

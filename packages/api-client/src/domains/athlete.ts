@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Athlete domain API — the Home page's reads: recent activities, one activity's view and route, the plan, the calendar
+// ABOUTME: Athlete domain API — the Home page's reads (recent activities, one activity's view and route, the plan, the calendar) and uploads
 // ABOUTME: Each read checks the body with its shared-types parser, so a malformed answer is an error rather than a half-drawn card
 
 import type { AxiosInstance } from 'axios';
 import {
+  parseActivityUploadResponse,
   parseHomePreferences,
   parseActivityDetailResponse,
   parseCalendarResponse,
@@ -14,7 +15,9 @@ import {
   parseTrainingPlanResponse,
   parseTrainingStatusResponse,
   parseTrainingVolumeResponse,
+  UPLOAD_PROVIDER,
   type ActivityDetailResponse,
+  type ActivityUploadResponse,
   type ActivityRouteAnswer,
   type ActivityRouteResponse,
   type ActivityRouteUnavailableReason,
@@ -31,6 +34,7 @@ import { ENDPOINTS } from '../core/endpoints';
 // Re-export types for consumers
 export type {
   ActivityDetailResponse,
+  ActivityUploadResponse,
   CalendarResponse,
   ActivityRouteResponse,
   ActivityRouteUnavailableReason,
@@ -113,6 +117,33 @@ export function createAthleteApi(axios: AxiosInstance) {
         params: Object.keys(params).length === 0 ? undefined : params,
       });
       return requireShape(parseRecentActivitiesResponse(response.data), ENDPOINTS.ATHLETE.RECENT_ACTIVITIES);
+    },
+
+    /**
+     * Upload the `.fit` file of a completed workout: each session in it
+     * becomes one of the athlete's activities, read by Home, the calendar,
+     * the volume and the agent like a provider's. The bytes travel as the
+     * raw body. Rejects with the server's status — 400 for a file that is not
+     * a completed activity, 409 when every session in it is already held,
+     * 413 past `ACTIVITY_UPLOAD_MAX_BYTES`.
+     */
+    async uploadActivityFile(file: ArrayBuffer | Uint8Array): Promise<ActivityUploadResponse> {
+      const response = await axios.post<unknown>(ENDPOINTS.ATHLETE.ACTIVITY_UPLOAD, file, {
+        headers: { 'Content-Type': 'application/octet-stream' },
+        // The body is the file: no JSON serialization may touch it.
+        transformRequest: [(data: unknown) => data],
+      });
+      return requireShape(parseActivityUploadResponse(response.data), ENDPOINTS.ATHLETE.ACTIVITY_UPLOAD);
+    },
+
+    /**
+     * Delete one of the athlete's uploaded activities — `DELETE` on the
+     * activity's own address under the `upload` provider. The file goes with
+     * the last activity it became. Rejects with 404 for an id the athlete
+     * did not upload.
+     */
+    async deleteUploadedActivity(activityId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.ATHLETE.ACTIVITY_DETAIL(UPLOAD_PROVIDER, activityId));
     },
 
     /**

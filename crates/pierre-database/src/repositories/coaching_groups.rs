@@ -257,6 +257,14 @@ pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_grou
 pub(crate) const COUNT_MEMBERS_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_group_members
               WHERE group_id = $1 AND left_at IS NULL";
 
+/// A group's start, its owner's signup and its earliest non-owner membership
+/// ever. The group is scoped by tenant; its members, like every member read,
+/// are not, since they may span tenants.
+pub(crate) const GROUP_SETUP_TIMELINE_SQL: &str = r"SELECT g.created_at AS group_created_at, u.created_at AS owner_created_at,
+              (SELECT m.id FROM coaching_group_members m WHERE m.group_id = g.id AND m.role <> 'owner'
+               ORDER BY m.joined_at ASC, m.id ASC LIMIT 1) AS first_member_id
+              FROM coaching_groups g JOIN users u ON u.id = g.owner_id WHERE g.id = $1 AND g.tenant_id = $2";
+
 // ============================================================================
 // group_invites
 // ============================================================================
@@ -947,6 +955,29 @@ macro_rules! impl_coaching_group_repository {
                     .map_err(|e| AppError::database(format!("Failed to count members: {e}")))?;
 
                 column(&row, "cnt")
+            }
+
+            async fn setup_timeline(
+                &self,
+                group_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<Option<GroupSetupTimeline>> {
+                let row = sqlx::query(GROUP_SETUP_TIMELINE_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind(tenant_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read group setup timeline: {e}"))
+                    })?;
+                row.map(|r| {
+                    Ok(GroupSetupTimeline {
+                        group_created_at: instant(&r, "group_created_at")?,
+                        owner_created_at: instant(&r, "owner_created_at")?,
+                        first_member_id: $ids::read_opt(&r, "first_member_id")?,
+                    })
+                })
+                .transpose()
             }
 
             // -- Invites --

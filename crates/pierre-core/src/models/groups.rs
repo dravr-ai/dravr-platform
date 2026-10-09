@@ -268,6 +268,19 @@ const fn coach_sharing_granted() -> bool {
     true
 }
 
+/// When a group and its owner's account began, and which non-owner
+/// membership came first: what `group.first_athlete_joined` is timed from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupSetupTimeline {
+    /// When the group was created.
+    pub group_created_at: DateTime<Utc>,
+    /// When the group owner's account was created.
+    pub owner_created_at: DateTime<Utc>,
+    /// The group's earliest non-owner membership row, left members included,
+    /// or `None` while nobody but the owner has joined.
+    pub first_member_id: Option<Uuid>,
+}
+
 /// A member within a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupMember {

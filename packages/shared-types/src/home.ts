@@ -386,7 +386,8 @@ function isClimbOn(length: number): (value: unknown) => value is RouteView['clim
     (value.category === null || typeof value.category === 'string');
 }
 
-function parseHomeActivity(value: unknown): HomeActivity | null {
+/** Read one Home row, or `null` for any other shape; shared with the upload answer's rows. */
+export function parseHomeActivity(value: unknown): HomeActivity | null {
   if (!isRecord(value)) {
     return null;
   }

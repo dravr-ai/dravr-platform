@@ -131,6 +131,8 @@ pub mod tool_selection;
 pub mod training_history;
 /// `SQLite` training-plan persistence.
 pub mod training_plans;
+/// The `.fit` files athletes uploaded, one row per file (`SQLite`)
+pub mod uploaded_activity_files;
 /// Usage counters for rate limiting and quota enforcement
 pub mod usage_counters;
 /// Use-case starters shown to and tapped by each athlete (`SQLite`)

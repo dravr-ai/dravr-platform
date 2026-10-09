@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -46,6 +46,7 @@ const QR_INK = BOREAL_LIGHT.onSurface;
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { mark } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const progress = useOnboardingProgress('coach_group');
   const [name, setName] = useState('');
@@ -74,6 +75,9 @@ export function OnboardingCoachGroupScreen() {
         (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
       setCreated(group);
       await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id });
+      // The chat list may already be cached from sign-in: the group's thread
+      // must be on it when "Go to my group" leads there.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       const invite = await groupsApi.createInvite(group.id, {
         expires_in_days: ONBOARDING_INVITE_DAYS,
       });
@@ -146,7 +150,11 @@ export function OnboardingCoachGroupScreen() {
           )}
 
           <View className="mt-8">
-            <Button title={t('onboarding.groupDone')} onPress={() => void finish('complete')} />
+            <Button
+              title={t('onboarding.groupDone')}
+              onPress={() => void finish('complete')}
+              testID="onboarding-group-done"
+            />
           </View>
         </ScrollView>
       </SafeAreaView>

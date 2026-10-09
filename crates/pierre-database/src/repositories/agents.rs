@@ -12,8 +12,8 @@ use pierre_core::models::agents::{
     CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
-    NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
+    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSetupTimeline, GroupSummary,
+    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
 use pierre_core::models::AgentRuntimeContext;
@@ -143,14 +143,6 @@ pub trait AgentsRepository: Send + Sync {
     /// Get the user's currently active agent
     async fn get_active_agent(
         &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<Agent>>;
-
-    /// Find an agent by content hash for import deduplication
-    async fn find_by_content_hash(
-        &self,
-        content_hash: &str,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Agent>>;
@@ -431,6 +423,15 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Count active members in a group.
     /// No tenant filter — members join cross-tenant via invite codes.
     async fn count_members(&self, group_id: &str) -> AppResult<i64>;
+
+    /// When the group and its owner's account began, and its earliest
+    /// non-owner membership ever (left members included). `None` when the
+    /// group is not in `tenant_id`.
+    async fn setup_timeline(
+        &self,
+        group_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Option<GroupSetupTimeline>>;
 
     // -- Invites --
 
@@ -801,13 +802,6 @@ pub(crate) const GET_ACTIVE_AGENT_SQL: &str = concat!(
     " FROM agents c
     JOIN tenant_users tu ON c.id = tu.selected_agent_id
     WHERE tu.user_id = $1 AND tu.tenant_id = $2"
-);
-
-/// A user's agent with a given content hash, for deduplicating a create.
-pub(crate) const FIND_BY_CONTENT_HASH_SQL: &str = concat!(
-    "SELECT ",
-    agent_columns!(""),
-    " FROM agents WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3 LIMIT 1"
 );
 
 /// Create a system agent.

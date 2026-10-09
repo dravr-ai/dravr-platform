@@ -1,0 +1,210 @@
+# ABOUTME: A connected coach who answered "I coach others" lands on the Your group step, creates the group, gets its invite and asks for coach access
+# ABOUTME: Then a second coach puts the step off with Later; each is a fresh account from the control process (frontend/e2e-real/home-sync-control.ts)
+
+# The phone half of frontend/e2e/onboarding-coach-group.spec.ts, against the
+# real server (carnet#740). Each coach is a new account the control process
+# registers through the server's own routes: approved, "I coach others"
+# recorded, and Strava connected through the scraper double, so the server
+# reports them past the provider gate with the group step still ahead. The
+# control checks that premise before it answers. A new account per path and
+# per attempt matters: the app keeps the step's done flag on the device per
+# user, and the iOS lane resets only the keychain between attempts.
+#
+# A fresh coach has no coach access (`manages_roster`, ADR-018), so the server
+# makes the group coachless and the step offers the one-tap request
+# (carnet#738); the flow asks, and reads the request back from the server.
+#
+# "Go to my group" finishes onboarding; the app then routes to Home, as the
+# web step does, and the group's thread is a row in the chat list, which the
+# flow opens.
+#
+# The coach signs in on the hosted page, so Chrome's session cookie on Android
+# is cleared before each sign-in and once more when the flow ends, pass or
+# fail: a later flow that signs the seeded tester in must not be handed this
+# coach's session.
+
+appId: ai.dravr.app
+onFlowComplete:
+  - runFlow:
+      file: ../helpers/reset-browser-session.yaml
+
+---
+# --- First coach: create the group, share it, ask for access, go to it ---
+- runScript:
+    file: coach-control.js
+    env:
+      ACTION: coach
+- runFlow:
+    file: ../helpers/reset-browser-session.yaml
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/sign-in-as.yaml
+    env:
+      EMAIL: ${output.coach.email}
+      PASSWORD: ${output.coach.password}
+
+# Signed in, the route guard lands the coach on Your group, never Home.
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-name"
+    timeout: 60000
+- assertNotVisible:
+    id: "home-screen"
+- takeScreenshot: "onboarding-group-step"
+
+# Name the group. Enter blurs the single-line field, so the keyboard is gone
+# before Next, which it would otherwise cover on a short screen.
+- tapOn:
+    id: "onboarding-group-name"
+- inputText: ${output.coach.groupName}
+- pressKey: Enter
+- tapOn:
+    id: "onboarding-group-next"
+
+# Pick the agent the group's athletes talk to: Create stays disabled until
+# one is picked, so its enabling is the proof the pick registered.
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-agents"
+    timeout: 20000
+- tapOn:
+    id: "onboarding-group-agent-.*"
+    index: 0
+- scrollUntilVisible:
+    element:
+      id: "onboarding-group-create"
+    direction: DOWN
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-create"
+      enabled: true
+    timeout: 5000
+- tapOn:
+    id: "onboarding-group-create"
+
+# The invite: its link and its QR code.
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-qr"
+    timeout: 30000
+- assertVisible:
+    id: "onboarding-group-link"
+    text: "https://app\\.dravr\\.ai/groups/join/.+"
+- takeScreenshot: "onboarding-group-invite"
+
+# No coach access yet: the group is coachless, the step says so and asks in
+# one tap, and the request is then pending on the server, naming the group.
+- scrollUntilVisible:
+    element:
+      id: "coach-access-request"
+    direction: DOWN
+    timeout: 15000
+- assertVisible:
+    id: "onboarding-group-access-pending"
+- tapOn:
+    id: "coach-access-request"
+- extendedWaitUntil:
+    visible:
+      id: "coach-access-pending"
+    timeout: 15000
+- assertNotVisible:
+    id: "coach-access-failed"
+- runScript:
+    file: coach-control.js
+    env:
+      ACTION: state
+      EMAIL: ${output.coach.email}
+      STEP: none
+- assertTrue:
+    condition: ${output.coachState.access === 'pending'}
+    label: "the coach-access request is pending on the server"
+- assertTrue:
+    condition: ${output.coachState.groupThread}
+    label: "the request names the group the step made, and the coach has its thread"
+
+# "Go to my group" finishes onboarding: the app routes on to Home, and the
+# step is recorded complete on the server.
+# The button closes the page, so it can never be scrolled to the middle:
+# centring it keeps scrolling until the timeout on iOS. It is scrolled into
+# view, uncentred, and tapped by test id.
+- scrollUntilVisible:
+    element:
+      id: "onboarding-group-done"
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: "onboarding-group-done"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 30000
+- assertNotVisible:
+    id: "onboarding-group-name"
+- runScript:
+    file: coach-control.js
+    env:
+      ACTION: state
+      EMAIL: ${output.coach.email}
+      STEP: complete
+- assertTrue:
+    condition: ${output.coachState.step === 'complete'}
+    label: "the group step is recorded complete"
+
+# The group's thread is in the chat list, and opens.
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
+# A row of the list, not the page's last button: centred, so it clears the
+# tab bar it would otherwise sit under on Android.
+- scrollUntilVisible:
+    element:
+      text: ".*${output.coach.groupName}.*"
+    direction: DOWN
+    timeout: 15000
+    centerElement: true
+- tapOn: ".*${output.coach.groupName}.*"
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 15000
+- takeScreenshot: "onboarding-group-thread"
+
+# --- Second coach: put the step off ---
+- runScript:
+    file: coach-control.js
+    env:
+      ACTION: coach
+- runFlow:
+    file: ../helpers/reset-browser-session.yaml
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/sign-in-as.yaml
+    env:
+      EMAIL: ${output.coach.email}
+      PASSWORD: ${output.coach.password}
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-later"
+    timeout: 60000
+- tapOn:
+    id: "onboarding-group-later"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 30000
+- assertNotVisible:
+    id: "onboarding-group-name"
+- runScript:
+    file: coach-control.js
+    env:
+      ACTION: state
+      EMAIL: ${output.coach.email}
+      STEP: skipped
+- assertTrue:
+    condition: ${output.coachState.step === 'skipped'}
+    label: "the group step is recorded skipped"
+- assertTrue:
+    condition: ${output.coachState.groupThreads === 0 && output.coachState.access === 'none'}
+    label: "putting the step off made no group and asked for nothing"

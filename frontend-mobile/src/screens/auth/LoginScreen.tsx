@@ -132,12 +132,6 @@ export function LoginScreen() {
     color: tokens.onSurface,
   };
 
-  const heroLeadStyle: TextStyle = {
-    fontSize: 16,
-    lineHeight: 22,
-    color: tokens.onSurfaceVariant,
-  };
-
   // The form sheet. Hairline, no shadow — DESIGN.md §4: hairlines lift,
   // shadows float, and nothing at rest floats.
   const cardStyle: ViewStyle = {
@@ -180,13 +174,11 @@ export function LoginScreen() {
                 390pt, and a phone-only copy of the lead is a second source
                 for the same sentence. Web keeps its `<br>`, where the aside
                 only ever renders at >=1024px and the break is a design choice. */}
-            <Text style={[heroHeadlineStyle, { marginBottom: spacing.sm }]}>
+            {/* Nothing under the hero, as on the web login (carnet#838): the
+                sub-line it replaced promised every claim is checked, which
+                the verifier does not cover. */}
+            <Text style={heroHeadlineStyle}>
               {`${t('auth.taglineLead')} ${t('auth.taglineTail')}`}
-            </Text>
-            {/* LIMITATION(registre#838): `app.heroBlurb` says every claim is checked, and the
-                verifier does not cover weekly totals, HR, HRV, sleep or power figures. */}
-            <Text style={heroLeadStyle}>
-              {t('app.heroBlurb')}
             </Text>
           </View>
 

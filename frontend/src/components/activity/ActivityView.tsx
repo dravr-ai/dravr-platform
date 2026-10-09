@@ -4,13 +4,14 @@
 // ABOUTME: One activity's own view, opened from Home — its map, then a chat about it, then its figures, splits and laps, each table scrolling inside itself
 // ABOUTME: The chat is the chat surface itself, embedded; its suggested questions name the activity so the agent reads the right one
 
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Send } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import {
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
+  isDeletableActivity,
   lapsTable,
   splitsTable,
   type SegmentTable,
@@ -25,6 +26,7 @@ import { DRAFT_DATE, ROW_DATE, formatInstant, sportLabel } from '../home/homeFor
 import { useActivityConversation } from '../../hooks/useActivityConversation';
 import { useActivityDetail } from '../../hooks/useActivityDetail';
 import type { ActivityRef } from './activityRoute';
+import { DeleteUploadedActivity } from './DeleteUploadedActivity';
 
 interface ActivityViewProps {
   /** The activity the Home row or the deep link named. */
@@ -35,8 +37,8 @@ interface ActivityViewProps {
   onNavigate: (route: string) => void;
 }
 
-/** The header row: back to Home, then the activity's name. */
-function ViewHeader({ title, onBack }: { title: string; onBack: () => void }) {
+/** The header row: back to Home, then the activity's name, then any action on the activity. */
+function ViewHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: ReactNode }) {
   const { t } = useTranslation();
   return (
     <div className="flex h-[52px] flex-shrink-0 items-center gap-2 border-b ghost-border px-3 md:px-5">
@@ -46,6 +48,7 @@ function ViewHeader({ title, onBack }: { title: string; onBack: () => void }) {
       <h2 className="min-w-0 truncate font-display text-xl font-semibold text-on-surface" data-testid="activity-title">
         {title}
       </h2>
+      {action}
     </div>
   );
 }
@@ -272,7 +275,15 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
   // table keeps a few rows' height and the panel scrolls as a whole.
   return (
     <div className="flex h-full flex-col" data-testid="activity-view">
-      <ViewHeader title={data.activity.name.trim() || sport} onBack={onBack} />
+      <ViewHeader
+        title={data.activity.name.trim() || sport}
+        onBack={onBack}
+        action={
+          isDeletableActivity(activity.provider) ? (
+            <DeleteUploadedActivity activityId={activity.id} onDeleted={onBack} />
+          ) : undefined
+        }
+      />
       <div className="relative min-h-0 flex-1" data-testid="activity-body">
         <div className="h-full overflow-y-auto lg:pr-[420px]" data-testid="activity-scroll">
           <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-6 md:px-6">

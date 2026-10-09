@@ -130,15 +130,16 @@ jobs:
     # prompt + tool schemas in ~3 min on 4 cores.
     runs-on: ubuntu-latest
     needs: rust-asserters
-    # 120 minutes covers build (~10 min) + Ollama install/pull/warmup
-    # (~3 min) + Pierre boot + 5 real-Slack tests sharing one warm Ollama:
-    # driver smoke + 4 real LLM probes. The first two probes complete
-    # in ~8-9 min each; probes 3+4 took 12+ min in run #2 (longer
-    # accumulated conversation context plus a model reload when the
-    # original 30m KEEP_ALIVE lapsed). With KEEP_ALIVE bumped to 120m
-    # and the test poll window at 1200s, four 12-min probes ≈ 48 min,
-    # comfortable inside the cap.
-    timeout-minutes: 120
+    # Sized from run 37610566362 (2026-10-07), not from estimates: the build
+    # took 28 min, and every turn that reaches the model re-reads a ~16.4K-token
+    # prompt on CPU at 18.95 tokens/s (864 s of prefill, then ~10 s of
+    # generation) — Ollama reused 50 of its 16,433 tokens from cache, so
+    # every model turn pays the full prefill. Two of the five tests reach the model (the smoke and the tempo
+    # control); the three off-scope probes are answered by the scope rails
+    # before it (carnet#819). Typical: 28 + 5 + 2 x ~16 min ≈ 65 min. Worst
+    # case, both model turns run to the reply wait in the test (2400 s):
+    # 33 + 80 ≈ 115 min, plus the rail probes. 180 leaves that a margin.
+    timeout-minutes: 180
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
@@ -163,13 +164,21 @@ jobs:
       # Admin/JWT bootstrap.
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: AdminPassword123
-      # Pierre's reqwest LLM client default times out at 300s; CPU
-      # prefill of Pierre's hardened 26K-token system + tool-schema
-      # input on a 4-vCPU runner takes longer than that for qwen2.5:3b.
-      # 900s leaves comfortable margin for inference + one tool-loop
-      # iteration without surfacing the test panic as a misleading
-      # "Failed to connect" reqwest error.
-      LLM_REQUEST_TIMEOUT_SECS: "900"
+      # Pierre's reqwest LLM client default times out at 300s. One model
+      # call here is ~16.4K prompt tokens prefilled on 4 vCPUs at 18.95
+      # tokens/s: 864 s measured for the medical probe in run 37610566362,
+      # and the smoke turn's call in that run hit the old 900 s ceiling
+      # ("LocalLLM: request timed out", dispatch_ms=900003) while a
+      # second, small call (1,686 prompt tokens, 2 completion tokens) ran on
+      # the same single Ollama slot during it (51 s). 1800 s is that
+      # measured cost doubled, so the next prompt growth or a slower runner
+      # CPU does not read as an agent that never answers.
+      LLM_REQUEST_TIMEOUT_SECS: "1800"
+      # The messaging turn watchdog (default 960 s, sized for the deployed
+      # provider chain) sits ABOVE every bound a turn runs under; at its
+      # default it would cut a CPU turn the LLM timeout above still allows.
+      # Kept above that timeout plus the small call, as in production.
+      MESSAGING_TURN_WATCHDOG_SECS: "2100"
     steps:
       - uses: actions/checkout@v6
 
@@ -190,7 +199,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ollama-logs"
           # The installer auto-starts a systemd unit. Bump the default
           # context window via systemd env override — Pierre's hardened
-          # system prompt is ~6.6 K tokens (logs: shingles=26489), well
+          # turn is ~16.4 K prompt tokens (Ollama, 2026-10-07), well
           # over Ollama's 4 K default. With the default the runner
           # truncates the prompt and the chat call 500s after the model
           # tries to make sense of a clipped instruction set.
@@ -201,7 +210,7 @@ jobs:
           sudo systemctl restart ollama
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
-              echo "Ollama ready after ${i}s (systemd, OLLAMA_CONTEXT_LENGTH=16384)"
+              echo "Ollama ready after ${i}s (systemd, OLLAMA_CONTEXT_LENGTH=32768)"
               break
             fi
             sleep 1
@@ -243,8 +252,8 @@ jobs:
           done
           # Bake CPU parallelism + context into a derived tag. num_thread
           # 4 uses all vCPUs on the standard ubuntu-latest runner;
-          # num_ctx 32768 lets Pierre's full ~26 K-token system prompt +
-          # tool schemas fit without truncation (Qwen 2.5 supports 32 K
+          # num_ctx 32768 lets a full ~16.4 K-token turn (system prompt +
+          # tool schemas + history) fit without truncation (Qwen 2.5 supports 32 K
           # native; KV-cache overhead at this size is ~3 GB, comfortable
           # against the runner's 16 GB).
           cat > "$RUNNER_TEMP/Modelfile" <<'EOF'

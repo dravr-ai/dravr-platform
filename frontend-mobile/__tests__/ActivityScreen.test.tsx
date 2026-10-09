@@ -5,6 +5,7 @@
 // ABOUTME: Pins the figures, every question answered in the same screen, one thread per activity reopened on return, and the honest states
 
 import React from 'react';
+import { Alert, type AlertButton } from 'react-native';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ActivityDetailResponse, ActivityRouteResponse } from '@pierre/shared-types';
@@ -13,10 +14,11 @@ import { i18n } from '@pierre/i18n';
 import { LATEST_ROUTE_RESPONSE, TEMPO_DETAIL_RESPONSE } from '../integration/app/helpers/homeFixtures';
 
 const mockPush = jest.fn();
+const mockBack = jest.fn();
 let mockParams: { provider?: string; activityId?: string } = { provider: 'strava', activityId: '9000' };
 jest.mock('expo-router', () =>
   require('../jest.expo-router').createExpoRouterMock({
-    useRouter: () => ({ push: mockPush, replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true }),
+    useRouter: () => ({ push: mockPush, replace: jest.fn(), back: mockBack, navigate: jest.fn(), canGoBack: () => true }),
     useLocalSearchParams: () => mockParams,
   }),
 );
@@ -43,12 +45,14 @@ const mockCreateConversation = jest.fn();
 const mockGetConversationMessages = jest.fn();
 const mockSendTurn = jest.fn();
 const mockLinkActivityConversation = jest.fn<Promise<void>, [string, string, string | null]>();
+const mockDeleteUploadedActivity = jest.fn<Promise<void>, [string]>();
 jest.mock('../src/services/api', () => ({
   athleteApi: {
     getActivityDetail: (provider: string, id: string) => mockGetActivityDetail(provider, id),
     getActivityRoute: (provider: string, id: string) => mockGetActivityRoute(provider, id),
     linkActivityConversation: (provider: string, id: string, conversationId: string | null) =>
       mockLinkActivityConversation(provider, id, conversationId),
+    deleteUploadedActivity: (id: string) => mockDeleteUploadedActivity(id),
   },
   chatApi: {
     createConversation: (...args: unknown[]) => mockCreateConversation(...args),
@@ -342,4 +346,81 @@ describe('ActivityScreen', () => {
     fireEvent.press(screen.getByTestId('activity-retry'));
     await waitFor(() => expect(screen.getByTestId('activity-figures')).toBeTruthy());
   }, 10_000);
+
+  describe('Delete on an uploaded activity', () => {
+    const UPLOAD_ID = `${'a'.repeat(64)}-0`;
+
+    /** The buttons of the alert the last call raised. */
+    function alertButtons(alert: jest.SpyInstance): AlertButton[] {
+      const call = alert.mock.calls[alert.mock.calls.length - 1];
+      return (call?.[2] ?? []) as AlertButton[];
+    }
+
+    it("is not offered on a provider's activity", async () => {
+      const screen = renderScreen();
+      await screen.findByTestId('activity-figures');
+      expect(screen.queryByTestId('activity-delete')).toBeNull();
+    });
+
+    it('deletes an upload once confirmed, then goes back', async () => {
+      mockParams = { provider: 'upload', activityId: UPLOAD_ID };
+      mockDeleteUploadedActivity.mockResolvedValue(undefined);
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      try {
+        const screen = renderScreen();
+        const action = await screen.findByTestId('activity-delete');
+        expect(action.props.accessibilityLabel).toBe('Delete this uploaded activity');
+
+        fireEvent.press(action);
+        expect(alert).toHaveBeenCalledWith(
+          'Delete this activity?',
+          expect.stringContaining("This can't be undone."),
+          expect.any(Array),
+        );
+        expect(mockDeleteUploadedActivity).not.toHaveBeenCalled();
+        const confirm = alertButtons(alert).find((button) => button.style === 'destructive');
+        expect(confirm?.text).toBe('Delete');
+        act(() => confirm?.onPress?.());
+
+        await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+        expect(mockDeleteUploadedActivity).toHaveBeenCalledWith(UPLOAD_ID);
+      } finally {
+        alert.mockRestore();
+      }
+    });
+
+    it('sends nothing when the confirmation is cancelled', async () => {
+      mockParams = { provider: 'upload', activityId: UPLOAD_ID };
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      try {
+        const screen = renderScreen();
+        fireEvent.press(await screen.findByTestId('activity-delete'));
+        const cancel = alertButtons(alert).find((button) => button.style === 'cancel');
+        act(() => cancel?.onPress?.());
+        expect(mockDeleteUploadedActivity).not.toHaveBeenCalled();
+        expect(mockBack).not.toHaveBeenCalled();
+      } finally {
+        alert.mockRestore();
+      }
+    });
+
+    it('says a failed delete and stays on the activity', async () => {
+      mockParams = { provider: 'upload', activityId: UPLOAD_ID };
+      mockDeleteUploadedActivity.mockRejectedValue({ response: { status: 500, data: {} } });
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      try {
+        const screen = renderScreen();
+        fireEvent.press(await screen.findByTestId('activity-delete'));
+        const confirm = alertButtons(alert).find((button) => button.style === 'destructive');
+        act(() => confirm?.onPress?.());
+
+        await waitFor(() =>
+          expect(alert).toHaveBeenCalledWith('Error', "This activity couldn't be deleted. Try again."),
+        );
+        expect(mockBack).not.toHaveBeenCalled();
+      } finally {
+        alert.mockRestore();
+      }
+    });
+  });
 });

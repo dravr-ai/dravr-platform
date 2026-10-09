@@ -6,6 +6,8 @@
 
 /// Authentication service used by universal protocol handlers
 pub mod auth;
+/// Whether an athlete has any data behind them: a connection, a token or an uploaded file
+mod data_source;
 /// Whose session a `TrainingPeaks` read goes through; a coach account's own read is refused in words
 mod delegated_auth;
 /// `UniversalExecutor` dispatch surface that fans every protocol call onto the tool registry

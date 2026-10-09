@@ -23,8 +23,9 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::AppError;
@@ -87,6 +88,9 @@ const ONBOARDING_STEP_IDS: [&str; 8] = [
     "messaging_channel",
     "messaging_configure",
 ];
+
+/// The onboarding step where a coach creates their group.
+const COACH_GROUP_STEP_ID: &str = "coach_group";
 
 /// The statuses a step may be set to. A missing row means "pending".
 ///
@@ -441,7 +445,39 @@ pub async fn handle_step_put(
         &req.status,
     )
     .await?;
+    if step_id == COACH_GROUP_STEP_ID && req.status == intake::STATUS_SKIPPED {
+        record_coach_group_skipped(&resources, auth.user_id, tenant_id.as_deref()).await;
+    }
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Emit `onboarding.coach_group_skipped`: the coach tapped **Later** on the
+/// group step, timed from their signup (carnet#739). The step is already
+/// stored, so a failed user lookup is logged rather than failing the request.
+async fn record_coach_group_skipped(
+    resources: &ServerContext,
+    user_id: uuid::Uuid,
+    tenant_id: Option<&str>,
+) {
+    let user = match resources.common.repos.users.get_global(user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return,
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "coach group skip: user lookup failed");
+            return;
+        }
+    };
+    info!(
+        target: "notify",
+        event = "onboarding.coach_group_skipped",
+        user_id = %user_id,
+        tenant_id = tenant_id.unwrap_or_default(),
+        seconds_since_signup = Utc::now()
+            .signed_duration_since(user.created_at)
+            .num_seconds()
+            .max(0),
+        "coach skipped the onboarding group step"
+    );
 }
 
 /// Mount-helper for the onboarding-status endpoint. Same shape as

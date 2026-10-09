@@ -291,42 +291,6 @@ async fn test_record_usage() {
 }
 
 // ============================================================================
-// Search Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_search_agents() {
-    let (router, auth_token, seed) = setup_test_environment().await;
-
-    // Create agents with different content
-    seed.agent(json!({
-        "title": "Marathon Training Expert",
-        "system_prompt": "Running coach",
-        "tags": ["marathon", "running"]
-    }))
-    .await;
-
-    seed.agent(json!({
-        "title": "Nutrition Advisor",
-        "system_prompt": "Diet coach",
-        "tags": ["diet", "nutrition"]
-    }))
-    .await;
-
-    // Search for "marathon"
-    let search_response = AxumTestRequest::get("/api/agents/search?q=marathon")
-        .header("authorization", &auth_token)
-        .send(router)
-        .await;
-
-    assert_eq!(search_response.status_code(), StatusCode::OK);
-
-    let results: ListAgentsResponse = search_response.json();
-    assert_eq!(results.total, 1);
-    assert_eq!(results.agents[0].title, "Marathon Training Expert");
-}
-
-// ============================================================================
 // Category Filter Tests
 // ============================================================================
 

@@ -2,17 +2,18 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: A fetch in progress heads the list as its own row; no GPS and a failed sync are said in words; a tap opens the activity's view
+// ABOUTME: A .fit upload sits by the title; a fetch heads the list as its own row; no GPS and a failed sync are said in words
 
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import type { RecentActivitiesSync } from '@pierre/ui-logic';
+import type { RecentActivitiesSync, UseActivityUploadResult } from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { ActivityMap } from './ActivityMap';
 import { ActivitySketch, SKETCH_SIZE } from './RouteSketch';
+import { UploadActivityAction, UploadActivityStatus } from './UploadActivity';
 import { activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
 
 type OpenActivity = (activity: HomeActivity) => void;
@@ -222,6 +223,8 @@ interface RecentActivitiesProps {
   syncing: boolean | null;
   /** Leave for Connections, where a provider is connected. */
   onConnect: () => void;
+  /** The `.fit` upload the section's title offers, and how the last one went. */
+  uploader: UseActivityUploadResult;
   /** Open the tapped activity's own view. */
   openActivity: OpenActivity;
 }
@@ -257,6 +260,7 @@ export function RecentActivities({
   syncing,
   onConnect,
   openActivity,
+  uploader,
 }: RecentActivitiesProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -289,10 +293,9 @@ export function RecentActivities({
         // sentence that says there are none.
         body = <FetchingRow separated={false} />;
       } else if (syncing === false) {
-        // A failed read still shows its retry below.
-        if (!isError) {
-          return null;
-        }
+        // Nothing to list and nothing on its way: the section keeps only its
+        // title and the Upload action (carnet#818), so an athlete with no
+        // synced workout can still add one; a failed read shows its retry.
         body = null;
       } else {
         body = <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>;
@@ -335,7 +338,12 @@ export function RecentActivities({
   }
 
   return (
-    <Section title={t('home.activities.heading')} testID="home-section-activities">
+    <Section
+      title={t('home.activities.heading')}
+      actions={<UploadActivityAction uploader={uploader} />}
+      testID="home-section-activities"
+    >
+      <UploadActivityStatus uploader={uploader} />
       {hasData ? <SyncLine asOf={syncFailure !== null ? syncFailure.last_synced_at : asOf} /> : null}
       {hasData && syncFailure !== null && sync === 'failed' ? (
         <SyncFailed failure={syncFailure} onRetry={onRetrySync} />

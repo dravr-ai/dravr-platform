@@ -33,6 +33,9 @@ pub mod service;
 /// Invite redemption: the checks an invite passes and a coach's attachment
 mod invites;
 
+/// Coach setup timing: the first athlete to join a coach's group
+mod setup_timing;
+
 /// Ending delegated connections: the one chokepoint every lifecycle event uses
 pub mod delegation;
 

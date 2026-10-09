@@ -38,6 +38,7 @@ use crate::activity_backfill::{
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
+use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, maybe_merge_other_connections,
     read_cached_window, read_live_window, serve_historical_window, serve_stale_activities,
@@ -79,6 +80,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{
     activity_detail_threshold, auto_promotes_to_detail, EXPENSIVE_DETAIL_PROMOTION_BUDGET,
 };
+use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
@@ -234,8 +236,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Provider arg is optional — when omitted, fall back to the user's
             // configured default. Use the resolved name for both span and log
             // rather than the raw arg string.
+            // With nothing connected, the athlete's uploaded files answer alone.
             let provider_name = match resolve_provider_for_tool(&args, &context).await {
                 Ok(p) => p,
+                Err(_) if holds_uploads(&context).await => UPLOAD.to_owned(),
                 Err(result) => return Ok(result),
             };
 
@@ -590,7 +594,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .get("provider")
                 .and_then(Value::as_str)
                 .is_some_and(|s| !s.is_empty());
-            let (activities, provider) = if route_to_backfill {
+            // Uploaded files are read locally: no sync, no write-through.
+            let (activities, provider) = if provider_name == UPLOAD {
+                (uploaded_window(&context, &query_params).await, None)
+            } else if route_to_backfill {
                 // Is the requested historical window actually cached, or only recent
                 // rows that fall inside it? Read the durable window ONCE and derive
                 // both the coverage decision and the served list from that single

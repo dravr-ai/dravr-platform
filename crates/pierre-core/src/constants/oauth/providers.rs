@@ -348,6 +348,16 @@ pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
     provider_notice(backend).map(|notice| notice.version)
 }
 
+/// The source key of activities the athlete uploaded as a `.fit` file
+/// (carnet#818).
+///
+/// Not a connection: nothing is fetched, refreshed or revoked under it. The
+/// activity cache files an upload's rows under this key like any provider's,
+/// so every reader of the cache sees them, but they are the record itself
+/// rather than a copy of one, so the cache's retention prune and its sync
+/// freshness both leave this key out (`activity_cache/sql.rs`).
+pub const UPLOAD: &str = "upload";
+
 /// Synthetic fitness provider identifier (for testing)
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-synthetic` feature.

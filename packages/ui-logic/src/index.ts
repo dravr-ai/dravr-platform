@@ -89,6 +89,21 @@ export { type GroupFreshness, createGroupHooks } from './groupHooks';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
+export {
+  type ActivityUploadFailure,
+  type ActivityUploadOutcome,
+  type PickedActivityFile,
+  type UseActivityUploadResult,
+  type UseDeleteUploadedActivityResult,
+  ACTIVITY_DELETE_KEYS,
+  ACTIVITY_UPLOAD_KEYS,
+  ACTIVITY_UPLOAD_MAX_MEGABYTES,
+  activityUploadFailure,
+  createActivityUploadHook,
+  createDeleteUploadedActivityHook,
+  describeActivityUpload,
+  isDeletableActivity,
+} from './activityUploadHook';
 
 // Composer palettes. Platform-free: each composer reads its own key event and
 // hands the palette the key's name.

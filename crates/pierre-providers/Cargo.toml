@@ -19,7 +19,7 @@ provider-whoop = []
 provider-coros = []
 provider-sciotte = ["dep:dravr-sciotte"]
 provider-intervals-icu = []
-provider-wahoo = ["dep:base64", "dep:dravr-cageux", "dep:fitparser"]
+provider-wahoo = ["dep:base64", "dep:dravr-cageux"]
 all-providers = [
     "provider-strava",
     "provider-garmin",
@@ -56,8 +56,9 @@ hex = "0.4"
 base64 = { version = "0.22", optional = true }
 # Power-zone bounds the Wahoo plan file states as fractions of FTP.
 dravr-cageux = { workspace = true, optional = true }
-# Wahoo serves a completed workout's samples only as an activity FIT file.
-fitparser = { version = "0.11", optional = true }
+# Activity FIT files: an athlete's uploaded workout, and the samples Wahoo
+# serves only as a FIT file — both decoded by fit_file.rs.
+fitparser = "0.11"
 dravr-equilibre = { workspace = true }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }

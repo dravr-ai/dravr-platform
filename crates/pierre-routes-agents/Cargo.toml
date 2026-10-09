@@ -12,7 +12,6 @@ publish = false
 
 [dependencies]
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
-pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }

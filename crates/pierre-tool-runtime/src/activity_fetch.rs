@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::civil_time::resolve_zone;
+use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, ConnectionStatus, TenantId};
@@ -43,6 +44,8 @@ use serde_json::Value;
 mod session_landing;
 /// Whether a live list read counts as a sync, and what a failed one records
 pub mod sync_verdict;
+/// The athlete's uploaded `.fit` activities folded into the agent's reads
+pub mod uploads;
 /// The activity cache's write-through, and what a write says about freshness
 pub mod write_through;
 
@@ -125,6 +128,11 @@ pub fn activity_cache_retention_days() -> i64 {
 /// Best-effort by design: a secondary connection that fails to fetch is
 /// skipped (the helper already logs it) — the primary path alone decides
 /// auth errors and reconnect handoffs.
+///
+/// The athlete's uploaded `.fit` activities ([`uploads`]) join every read that
+/// is not pinned to one provider, the historical branch included: they are a
+/// local read with no connection to fold, and the merge pairs an upload with
+/// a provider's copy of the same workout.
 pub async fn maybe_merge_other_connections(
     context: &ToolExecutionContext,
     args: &Value,
@@ -139,6 +147,9 @@ pub async fn maybe_merge_other_connections(
         .is_some_and(|s| !s.is_empty());
     if !explicit_provider_arg && !is_historical {
         fold_other_connections(context, primary_backend, params, &mut activities).await;
+    }
+    if !explicit_provider_arg && primary_backend != UPLOAD {
+        activities.extend(uploads::uploaded_window(context, params).await);
     }
     merge_duplicates(activities, &DedupConfig::from_env())
 }
@@ -298,6 +309,11 @@ pub async fn serve_without_primary(
                 served.extend(rows);
             }
         }
+    }
+    let uploaded = uploads::uploaded_window(context, params).await;
+    if !uploaded.is_empty() {
+        served_by.push(UPLOAD.to_owned());
+        served.extend(uploaded);
     }
 
     if served.is_empty() {

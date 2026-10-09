@@ -1,0 +1,37 @@
+# ABOUTME: Helper that signs in on the server's hosted page as the account the caller names (EMAIL, PASSWORD)
+# ABOUTME: For flows whose account is not the seeded tester; it leaves the app wherever that account lands, never waiting for Home
+
+appId: host.exp.Exponent
+
+---
+# login.yaml signs the seeded tester in and waits for Home. A flow whose
+# account is made for it (a coach still in onboarding) lands elsewhere, so
+# this stops once the login screen has gone and the caller waits for its own
+# screen. The page MUST be filled here: a browser still signed in to the
+# authorization server would return at once as whoever signed in last, so
+# callers run reset-browser-session.yaml before launch-app.yaml, and the form
+# step is not optional — a page that never drew fails the flow here.
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 10000
+- runFlow:
+    file: open-hosted-sign-in.yaml
+- runFlow:
+    file: submit-hosted-sign-in.yaml
+    env:
+      EMAIL: ${EMAIL}
+      PASSWORD: ${PASSWORD}
+- extendedWaitUntil:
+    notVisible:
+      id: "login-screen"
+    timeout: 45000
+# The page-side "save your password" offer is declined by
+# submit-hosted-sign-in.yaml. The app-side "Save Password?" sheet is
+# suppressed on the CI simulators (AutoFillPasswords=false); only
+# wait-for-home-after-login.yaml dismisses it, round by round, because a
+# single check here would run before it arrives.

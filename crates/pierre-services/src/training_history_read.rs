@@ -21,19 +21,34 @@
 //! `tsb` are plain `f64` seeded at zero, so a day without
 //! [`warmup_days`] of activities behind it is never computed — it would read
 //! as a real, low chronic load.
+//!
+//! The history is the athlete's, not one connection's (carnet#836): every
+//! provider's cached rows in the window are read, and the recordings of one
+//! workout — a ride a watch synced to Strava and Garmin, the session WHOOP
+//! detected during it — merge into one session through
+//! [`merge_duplicates`], the merger Home's list and volume and the chat turn
+//! use. A workout therefore scores once, from its canonical copy, whichever
+//! connection was touched last.
+//!
+//! The athlete's uploaded `.fit` activities (carnet#818) are part of that
+//! history though no connection stands behind them: they are cached under the
+//! `upload` key, read in the same window, gated and merged with the rest, so a
+//! ride uploaded and also synced by a provider scores once.
 
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
+use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, DailyTrainingState, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::training_history_compute::{
     compute_training_history, warmup_days, AthleteInputs, MAX_BACKFILL_DAYS,
 };
-use pierre_providers::activity_source::resolve_activity_source;
+use pierre_providers::activity_source::ActivitySourceRank;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
 use uuid::Uuid;
@@ -119,8 +134,11 @@ pub async fn user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> AppResu
 /// no history; a capture per visit would page a scrape backend again every
 /// time a thin history was looked at.
 ///
-/// An athlete with no connected provider has no stored activities, and is
-/// answered [`HistoryCoverage::NoStoredActivities`] rather than refused.
+/// An athlete with no connected provider and no upload has no stored
+/// activities, and is answered [`HistoryCoverage::NoStoredActivities`] rather
+/// than refused.
+/// Every connected provider's rows are read and merged into one session per
+/// workout (see the module docs).
 ///
 /// # Errors
 ///
@@ -137,10 +155,11 @@ pub async fn read_history_from_cache(
         states: Vec::new(),
         coverage: HistoryCoverage::NoStoredActivities,
     };
-    let Some(backend) = resolve_compute_backend(sources.repos, tenant_id, user_id).await? else {
+    let backends = resolve_compute_backends(sources.repos, tenant_id, user_id).await?;
+    if backends.is_empty() {
         return Ok(nothing_stored);
-    };
-    let window = load_stored_window(sources, tenant_id, user_id, backend, from, to).await?;
+    }
+    let window = load_stored_window(sources, tenant_id, user_id, backends, from, to).await?;
     let Some(oldest_stored) = window.oldest_stored else {
         return Ok(nothing_stored);
     };
@@ -240,23 +259,32 @@ pub fn validate_window(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
 /// The athlete's stored activities behind a window, with what computing from
 /// them needs.
 pub struct StoredWindow {
-    /// The backend whose cached rows were read.
-    pub backend: ComputeBackend,
+    /// The athlete's connections: the providers whose history this is, and
+    /// which of them can still deliver more.
+    pub backends: Vec<ComputeBackend>,
     /// The athlete's configured timezone, if any.
     pub timezone: Option<String>,
     /// Days of history a day needs behind it, at the configured chronic window.
     pub warmup: i64,
-    /// Stored activities covering the window and its warm-up.
+    /// Stored activities covering the window and its warm-up, one session per
+    /// workout across every provider.
     pub activities: Vec<Activity>,
     /// The athlete's civil date of the oldest of them; `None` when the read
     /// held nothing.
     pub oldest_stored: Option<NaiveDate>,
 }
 
-/// Read the stored activities behind `[from, to]` and its warm-up.
+/// Read the stored activities behind `[from, to]` and its warm-up, from every
+/// provider, merged into one session per workout.
 ///
 /// What a model may see of them, when a gate applies: the persisted compute
-/// runs this under `ai_scope::unfiltered`, so the rollup keeps every row.
+/// runs this under `ai_scope::unfiltered`, so the rollup keeps every row. The
+/// gate drops a withheld copy before the merge, so it never fills the fields of
+/// a served one (carnet#723, carnet#724).
+///
+/// A read that fills its row cap was cut on its oldest civil day, which may
+/// then hold only some of that day's copies and workouts; that day is dropped,
+/// so the warm-up starts on the first day read whole.
 ///
 /// # Errors
 ///
@@ -265,7 +293,7 @@ pub async fn load_stored_window(
     sources: HistorySources<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
-    backend: ComputeBackend,
+    backends: Vec<ComputeBackend>,
     from: NaiveDate,
     to: NaiveDate,
 ) -> AppResult<StoredWindow> {
@@ -276,21 +304,35 @@ pub async fn load_stored_window(
     let zone = resolve_zone(timezone.as_deref());
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
-    let activities = read_cached_window(
+    let read = read_cached_window(
         sources,
         tenant_id,
         user_id,
-        &backend.slug,
+        backends.len(),
         from - Duration::days(warmup),
         to,
     )
     .await?;
+    let mut recordings = read.rows;
+    if read.filled_cap {
+        if let Some(cut_day) = recordings
+            .iter()
+            .map(|a| local_date(a.start_date(), zone))
+            .min()
+        {
+            recordings.retain(|a| local_date(a.start_date(), zone) > cut_day);
+        }
+    }
+    // Gate first, then merge: a copy the reader may not see never lends its
+    // values to one it may.
+    let served = ai_scope::filter_activities(sources.terms, recordings);
+    let (activities, _) = merge_duplicates(served, &DedupConfig::from_env());
     let oldest_stored = activities
         .iter()
         .map(|a: &Activity| local_date(a.start_date(), zone))
         .min();
     Ok(StoredWindow {
-        backend,
+        backends,
         timezone,
         warmup,
         activities,
@@ -331,81 +373,136 @@ pub async fn compute_states(
     .map_err(|e| AppError::internal(format!("training-load series: {e}")))
 }
 
-/// The backend a compute reads, and whether its connection is still live.
+/// One of the athlete's connections a compute's history comes from, and
+/// whether it is still live.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputeBackend {
-    /// Canonical slug the cached rows are keyed by.
+    /// Canonical slug the connection's cached rows are keyed by.
     pub slug: String,
-    /// Whether the athlete must reconnect before any new history can arrive.
+    /// Whether the athlete must reconnect before any new history can arrive
+    /// from this connection.
     pub requires_reauth: bool,
+    /// Whether the capture rail can page this backend for deeper history.
+    /// `false` for the athlete's uploads: nothing fetches them, they arrive
+    /// only when the athlete uploads a file.
+    pub capturable: bool,
 }
 
-/// Resolve the backend slug whose cached rows a compute reads, or `None`
-/// when the athlete has no provider connected.
+/// Most copies of one workout a read makes room for: one per connection,
+/// capped so a long connection list cannot unbound the read.
+const MAX_COPIES_PER_WORKOUT: usize = 4;
+
+/// Every connection whose history a compute stands on, healthy ones first,
+/// then the athlete's uploads when they hold any; empty when the athlete has
+/// neither a provider connected nor an upload.
 ///
-/// Canonicalised through [`backend_resolver::resolve_backend`] because that is
-/// what the write side keys on: a Garmin athlete's rows are written under
-/// `sciotte_garmin` while the connection says `garmin`, and reading the raw
-/// connection slug would miss every row it wrote.
+/// Every connection that serves activities counts: the series is the
+/// athlete's, read from every provider's cached rows and merged, so no
+/// election decides which history they have (carnet#836). A connection that
+/// serves no activities has none to read or capture.
+/// `PIERRE_DEFAULT_PROVIDER` still pins a deployment to one backend.
 ///
-/// LIMITATION(registre#836): `resolve_compute_backend` elects ONE connection, the most recently used,
-/// so the series counts that provider's sessions alone and stays empty until it holds a full warm-up.
+/// Uploads are the athlete's own records, not a connection (carnet#818): they
+/// count under any election or pin, as one more backend the capture rail
+/// never pages ([`ComputeBackend::capturable`]).
+///
+/// Each slug is canonicalised through [`backend_resolver::resolve_backend`]
+/// because that is what the write side keys on: a Garmin athlete's rows are
+/// written under `sciotte_garmin` while the connection says `garmin`, and a
+/// capture asked of the raw connection slug would page the wrong backend.
 ///
 /// # Errors
 ///
 /// Returns [`AppError`] when the connection read fails.
-pub async fn resolve_compute_backend(
+pub async fn resolve_compute_backends(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
-) -> AppResult<Option<ComputeBackend>> {
-    let (requested, requires_reauth) = if let Some(p) = default_provider() {
-        (p, false)
-    } else if let Some(conn) = resolve_activity_source(
-        repos.provider_connections.as_ref(),
-        &global_registry(),
-        user_id,
-        Some(tenant_id),
-    )
-    .await?
-    {
-        let requires_reauth = conn.status.requires_reauth();
-        (conn.provider, requires_reauth)
+) -> AppResult<Vec<ComputeBackend>> {
+    let requested: Vec<(String, bool)> = if let Some(provider) = default_provider() {
+        vec![(provider, false)]
     } else {
-        return Ok(None);
+        let registry = global_registry();
+        repos
+            .provider_connections
+            .rank_for_election(user_id, Some(tenant_id))
+            .await?
+            .into_iter()
+            .filter(|conn| {
+                registry.activity_source_rank(&conn.provider) != ActivitySourceRank::NoActivities
+            })
+            .map(|conn| {
+                let requires_reauth = conn.status.requires_reauth();
+                (conn.provider, requires_reauth)
+            })
+            .collect()
     };
-    Ok(Some(ComputeBackend {
-        slug: backend_resolver::resolve_backend(
-            &repos.auth_repos(),
-            user_id,
-            Some(tenant_id),
-            &requested,
-        )
-        .await,
-        requires_reauth,
-    }))
+    let auth = repos.auth_repos();
+    let mut backends: Vec<ComputeBackend> = Vec::with_capacity(requested.len());
+    for (provider, requires_reauth) in requested {
+        let slug =
+            backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), &provider).await;
+        if !backends.iter().any(|seen| seen.slug == slug) {
+            backends.push(ComputeBackend {
+                slug,
+                requires_reauth,
+                capturable: true,
+            });
+        }
+    }
+    if repos
+        .uploaded_activity_files
+        .has_uploaded_files(&tenant_id, user_id)
+        .await?
+    {
+        backends.push(ComputeBackend {
+            slug: UPLOAD.to_owned(),
+            requires_reauth: false,
+            capturable: false,
+        });
+    }
+    Ok(backends)
 }
 
-/// Read the athlete's stored activities covering `[start, to]`, newest first.
+/// The cached recordings a window read returned, from every provider.
+struct CachedRead {
+    /// Every provider's copies, newest first, before any gate or merge.
+    rows: Vec<Activity>,
+    /// Whether the read filled its row cap, so its oldest day may be cut.
+    filled_cap: bool,
+}
+
+/// Read every provider's stored recordings covering `[start, to]`, newest
+/// first, making room for one copy of each workout per connection.
 async fn read_cached_window(
     sources: HistorySources<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
-    backend: &str,
+    connections: usize,
     start: NaiveDate,
     to: NaiveDate,
-) -> AppResult<Vec<Activity>> {
+) -> AppResult<CachedRead> {
     let slack = Duration::days(CACHE_READ_EDGE_SLACK_DAYS);
     let start_ts = Utc.from_utc_datetime(&(start - slack).and_hms_opt(0, 0, 0).unwrap_or_default());
     let end_ts = Utc.from_utc_datetime(&(to + slack).and_hms_opt(0, 0, 0).unwrap_or_default());
-    let limit = i64::try_from(HISTORICAL_WINDOW_READ_LIMIT).unwrap_or(i64::MAX);
+    let cap =
+        HISTORICAL_WINDOW_READ_LIMIT.saturating_mul(connections.clamp(1, MAX_COPIES_PER_WORKOUT));
     let rows = sources
         .repos
         .activity_cache
-        .get_cached_activities(user_id, &tenant_id, Some(backend), start_ts, end_ts, limit)
+        .get_cached_activities(
+            user_id,
+            &tenant_id,
+            None,
+            start_ts,
+            end_ts,
+            i64::try_from(cap).unwrap_or(i64::MAX),
+        )
         .await?;
-    // A history computed for a model sums only what it may see; the persisted
-    // rollup is computed unfiltered.
-    Ok(ai_scope::filter_activities(sources.terms, rows))
+    Ok(CachedRead {
+        filled_cap: rows.len() >= cap,
+        rows,
+    })
 }
 
 /// Per-user physiology, absent where the profile is silent.

@@ -1,0 +1,202 @@
+# ABOUTME: The verdict sheet on a device: the chip opens it, the source reply expands and collapses in place and leads back to the thread
+# ABOUTME: Then the ⋯ menu copies the support reference and the study link hands off to the browser; needs `pierre-cli seed verdict-conversation --email verdicttest@pierre.dev`
+
+# The phone half of frontend/e2e/verdict-drawer.mobile.spec.ts, on the real
+# native runtime: the sheet is a React Native Modal, the actions menu is the
+# platform's own (ActionSheetIOS, an Android dialog), the copy goes through
+# expo-clipboard and the study opens through Linking in the system browser.
+# The jest specs (__tests__/VerdictSheet.test.tsx,
+# __tests__/ChatScreenVerdictSheet.test.tsx) mock every one of those, as the
+# integration/app tier does, which is why this is a Maestro flow (carnet#802).
+#
+# A verdict is written by the claim verifier after a live turn, and the CI
+# stack has no model behind it, so the conversation, its reply and the
+# supported verdict on that reply are seeded:
+# `pierre-cli seed verdict-conversation --email mobiletest@pierre.dev`
+# (crates/pierre-seeders/src/verdict_conversation.rs). Both mobile E2E lanes
+# run it after creating the tester; locally
+# bin/setup-db-with-seeds-and-oauth-and-start-servers.sh does. Copy is
+# asserted in English or French — the two the chrome resolves to on a fresh
+# install — and everything else by test id.
+
+appId: ai.dravr.app
+# The verdict conversation belongs to its own seeded account, so the shared
+# tester's chat list stays empty for the flows that start a chat from it and
+# its tab carries no unread badge. Signing out of the browser afterwards hands
+# the next flow back to the tester.
+onFlowComplete:
+  - runFlow:
+      file: ../helpers/reset-browser-session.yaml
+
+---
+- runFlow:
+    file: ../helpers/reset-browser-session.yaml
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/sign-in-as.yaml
+    env:
+      EMAIL: "verdicttest@pierre.dev"
+      PASSWORD: "VerdictTest1234"
+- runFlow:
+    file: ../helpers/wait-for-home-after-login.yaml
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 60000
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
+
+# The seeded conversation, opened from its row. A row's title and preview
+# read as one label on iOS, so the title is matched inside it.
+- scrollUntilVisible:
+    element:
+      text: ".*Strength work for cycling.*"
+    direction: DOWN
+    timeout: 20000
+    centerElement: true
+- tapOn: ".*Strength work for cycling.*"
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 15000
+
+# The reply's chip lands once the conversation's verdict read answers.
+- scrollUntilVisible:
+    element:
+      id: "verdict-chip"
+    direction: DOWN
+    timeout: 20000
+    centerElement: true
+- tapOn:
+    id: "verdict-chip"
+- extendedWaitUntil:
+    visible:
+      id: "verdict-sheet"
+    timeout: 10000
+- assertVisible:
+    id: "verdict-sheet-title"
+    text: "About this claim|À propos de cette affirmation"
+- assertVisible:
+    id: "verdict-card"
+- assertVisible:
+    text: "Heavy strength training improves cycling economy in trained endurance athletes"
+- takeScreenshot: "verdict-sheet"
+
+# The Conversation section expands the reply in place, and a second press
+# collapses it: a phone has no hover, so the press is the toggle.
+- scrollUntilVisible:
+    element:
+      id: "verdict-source"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "verdict-source"
+- extendedWaitUntil:
+    visible:
+      id: "verdict-source-preview"
+    timeout: 5000
+- takeScreenshot: "verdict-source-expanded"
+- tapOn:
+    id: "verdict-source"
+- extendedWaitUntil:
+    notVisible:
+      id: "verdict-source-preview"
+    timeout: 5000
+
+# Expanded again, "See it in the conversation" closes the sheet onto the
+# thread, where the reply whose chip opened it is still on screen.
+- tapOn:
+    id: "verdict-source"
+- scrollUntilVisible:
+    element:
+      id: "verdict-see-in-conversation"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "verdict-see-in-conversation"
+- extendedWaitUntil:
+    notVisible:
+      id: "verdict-sheet"
+    timeout: 10000
+- assertVisible:
+    id: "chat-screen"
+- assertVisible:
+    id: "verdict-chip"
+
+# The ⋯ menu is the platform's own: an action sheet on iOS, a dialog on
+# Android. Its one row copies the ids support needs, and the app confirms the
+# copy only once expo-clipboard has taken it ("Copy failed" otherwise).
+- tapOn:
+    id: "verdict-chip"
+- extendedWaitUntil:
+    visible:
+      id: "verdict-sheet"
+    timeout: 10000
+- tapOn:
+    id: "verdict-actions"
+- extendedWaitUntil:
+    visible: "(?i)(Copy reference for support|Copier la référence pour le support)"
+    timeout: 10000
+- tapOn: "(?i)(Copy reference for support|Copier la référence pour le support)"
+- extendedWaitUntil:
+    visible: "Copied|Copié"
+    timeout: 10000
+- assertNotVisible: "Copy failed|Échec de la copie"
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible:
+      id: "verdict-sheet"
+    timeout: 5000
+
+# Inside the sheet the scroll range is too short to centre anything, so the
+# sheet's own rows are scrolled to uncentred (centring timed out on Android).
+# The study opens on doi.org in the system browser, which takes the screen
+# from the app: the sheet is gone from what is on screen, and no "could not
+# open" alert came up in its place.
+- scrollUntilVisible:
+    element:
+      id: "verdict-study-link"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "verdict-study-link"
+- extendedWaitUntil:
+    notVisible:
+      id: "verdict-sheet"
+    timeout: 20000
+- assertNotVisible: "Could not open link|Impossible d'ouvrir le lien"
+- takeScreenshot: "verdict-study-browser"
+# Back in the app the sheet is where it was: it did not close, the browser
+# covered it — which is what tells the hand-off from a sheet that closed.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - launchApp:
+          appId: host.exp.Exponent
+          stopApp: false
+# On Android, relaunching Expo Go opens its own home screen rather than the
+# project it was showing, so the way back is the system Back key. A fresh
+# Chrome may first show its own prompt (notifications) and the DOI redirects
+# once, so Back is pressed until the app's sheet is in front again — never
+# more than it takes, so a sheet that is back is never dismissed.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - repeat:
+          while:
+            notVisible:
+              id: "verdict-sheet"
+          times: 5
+          commands:
+            - pressKey: Back
+            - waitForAnimationToEnd:
+                timeout: 3000
+- extendedWaitUntil:
+    visible:
+      id: "verdict-sheet"
+    timeout: 20000
+- assertVisible:
+    id: "verdict-study-link"

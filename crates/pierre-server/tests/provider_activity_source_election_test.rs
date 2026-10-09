@@ -17,8 +17,9 @@
 //!
 //! Each test drives a production entry point, not the election helper: the
 //! chain `get_activities` resolves its provider through
-//! (`resolve_provider_for_tool`), and the backend the training-history
-//! computes read (`resolve_compute_backend`).
+//! (`resolve_provider_for_tool`). The training-history computes elect nothing
+//! (carnet#836): they read every connection (`resolve_compute_backends`), so
+//! these tests pin only that each connection carries its own health.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +27,7 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_services::training_history_read::resolve_compute_backend;
+use pierre_services::training_history_read::{resolve_compute_backends, ComputeBackend};
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
 use pierre_tool_runtime::protocol::provider_helpers::resolve_provider_for_tool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -95,6 +96,13 @@ impl Athlete {
             .unwrap();
     }
 
+    /// The connections a training-history compute reads.
+    async fn compute_backends(&self) -> Vec<ComputeBackend> {
+        resolve_compute_backends(&self.resources.common.repos, self.tenant, self.user_id)
+            .await
+            .unwrap()
+    }
+
     /// The provider an unpinned `get_activities` call is served by.
     async fn activity_provider(&self) -> String {
         let runtime: Arc<dyn ToolRuntime> = self.resources.clone();
@@ -125,19 +133,13 @@ async fn a_detector_connected_and_used_last_does_not_answer_activity_reads() {
         "a heart-rate detector must not be primary for activities over a recording source"
     );
 
-    let backend = resolve_compute_backend(
-        &athlete.resources.common.repos,
-        athlete.tenant,
-        athlete.user_id,
-    )
-    .await
-    .unwrap()
-    .expect("the athlete has connections");
-    assert_ne!(
-        backend.slug, "whoop",
-        "training-history computes must read the recording source's rows, not WHOOP's"
+    let backends = athlete.compute_backends().await;
+    assert!(
+        backends
+            .iter()
+            .any(|b| b.slug == "strava" && !b.requires_reauth),
+        "training-history computes read the healthy recording source: {backends:?}"
     );
-    assert!(!backend.requires_reauth, "Strava is healthy");
 }
 
 /// Health still ranks first: a dead recorder never shadows a healthy
@@ -172,17 +174,23 @@ async fn a_dead_recorder_yields_to_the_healthy_recorder_not_the_newer_detector()
         "sciotte_garmin",
         "the healthy recorder answers — not the dead one used last, not the newer detector"
     );
-    let backend = resolve_compute_backend(
-        &athlete.resources.common.repos,
-        athlete.tenant,
-        athlete.user_id,
-    )
-    .await
-    .unwrap()
-    .expect("the athlete has connections");
+    let backends = athlete.compute_backends().await;
     assert!(
-        !backend.requires_reauth,
-        "the elected source is healthy, so the compute has nothing to reconnect"
+        backends
+            .iter()
+            .any(|b| b.slug == "strava" && b.requires_reauth),
+        "the lapsed Strava is still read, and marked for its reconnect: {backends:?}"
+    );
+    assert!(
+        backends
+            .iter()
+            .any(|b| b.slug == "sciotte_garmin" && !b.requires_reauth),
+        "the healthy recorder is read beside it: {backends:?}"
+    );
+    assert_eq!(
+        backends.first().map(|b| b.requires_reauth),
+        Some(false),
+        "healthy connections come first"
     );
 }
 

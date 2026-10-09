@@ -10,11 +10,13 @@ use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_config::environment::get_oauth_config;
+use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::AppError;
 use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
 use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
+use pierre_providers::upload_provider::UploadProvider;
 use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -311,6 +313,31 @@ impl AuthService {
             .map(|provider| AiGovernedProvider::wrap(provider, registry))
     }
 
+    /// The reader of `user_id`'s uploaded `.fit` files in `tenant`
+    /// ([`UploadProvider`]). An upload belongs to the tenant it was made in,
+    /// so a read that names no tenant has none to read.
+    fn upload_reader(
+        &self,
+        user_id: Uuid,
+        tenant: Option<TenantId>,
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
+        let Some(tenant) = tenant else {
+            return Err(Box::new(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some("Uploaded activities are read within a tenant".to_owned()),
+                metadata: None,
+            }));
+        };
+        let repos = self.resources.repos();
+        Ok(Box::new(UploadProvider::new(
+            Arc::clone(&repos.activity_cache),
+            Arc::clone(&repos.uploaded_activity_files),
+            user_id,
+            tenant,
+        )))
+    }
+
     async fn authenticate_provider(
         &self,
         requested_provider: &str,
@@ -330,6 +357,12 @@ impl AuthService {
         )
         .await;
         let provider_name = effective_provider.as_str();
+
+        // The athlete's uploaded files answer without a connection or token:
+        // the reader is their own rows in the tenant they uploaded them in.
+        if provider_name == UPLOAD {
+            return self.upload_reader(user_id, tenant_id_parsed);
+        }
 
         // Check if provider is supported by the registry
         if !self

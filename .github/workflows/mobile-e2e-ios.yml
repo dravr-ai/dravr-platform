@@ -22,6 +22,13 @@ on:
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
       - 'scripts/ci/mobile-e2e-batch.sh'
+      # The control process the onboarding group flow asks for coaches, the
+      # scraper double it connects them through, and the seeder behind the
+      # verdict-sheet flow.
+      - 'frontend/e2e-real/sciotte-double.ts'
+      - 'frontend/e2e-real/home-sync-control.ts'
+      - 'frontend/e2e-real/onboarding-coach.ts'
+      - 'crates/pierre-seeders/src/verdict_conversation.rs'
       - '.github/workflows/mobile-e2e-ios.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -269,6 +276,9 @@ jobs:
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           PIERRE_LLM_MODEL: "ci-test-model"
+          # onboarding/02's coaches connect Strava through a scripted stand-in
+          # for the sciotte scraper on this port (the control process below).
+          DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
           # The app signs in on the hosted login page and returns to
           # exp://<host>:8082/--/auth/callback inside Expo Go, an address the
           # server sends dravr-mobile's code to only with this set (carnet#787).
@@ -281,6 +291,39 @@ jobs:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           RUST_LOG: "warn"
+
+      # chat/11 opens the verdict sheet of a reply the claim verifier judged.
+      # This stack has no model to run a turn, so the reply and its verdict are
+      # seeded: one supported verdict whose study is a DOI.
+      - name: Seed the verdict conversation for Maestro tests
+        run: |
+          ./target/release/pierre-cli user create --email verdicttest@pierre.dev --password VerdictTest1234 --force
+          ./target/release/pierre-cli seed verdict-conversation --email verdicttest@pierre.dev --model ci-test-model
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-test.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          RUST_LOG: "warn"
+
+      # onboarding/02 asks this process for fresh coaches over HTTP from its
+      # runScript steps (Maestro runs on the host, so 127.0.0.1 reaches it): it
+      # registers each one, approves it as the seeded tester (an admin) and
+      # connects its Strava through the sciotte double it runs on 8097.
+      - name: Start the control process for the onboarding group flow
+        working-directory: frontend
+        run: |
+          nohup bun e2e-real/home-sync-control.ts > /tmp/home-sync-control.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8098/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8098/health
+        env:
+          PIERRE_URL: "http://127.0.0.1:8081"
+          SCIOTTE_DOUBLE_PORT: "8097"
+          SCIOTTE_CONTROL_PORT: "8098"
+          E2E_REAL_DATABASE_PATH: "${{ github.workspace }}/data/maestro-test.db"
+          HOME_SYNC_EMAIL: "mobiletest@pierre.dev"
+          HOME_SYNC_PASSWORD: "MobileTest1234"
 
       # Bounded and non-interactive on purpose. The step's own auth (the token
       # below) is sound — the action's default-branch lookup succeeds — but the
@@ -699,7 +742,10 @@ jobs:
           fi
 
       - name: Run Maestro tests
-        timeout-minutes: 45
+        # 90: batch 2 carries the verdict-sheet and coach-group flows (~7-10 min
+        # each, carnet#802/#740) beside chat/01, and each batch may take a
+        # second attempt; 45 cut batch 2's first attempt short on 2026-10-08.
+        timeout-minutes: 90
         working-directory: frontend-mobile
         run: |
           MAESTRO="$HOME/.maestro/bin/maestro"
@@ -721,9 +767,12 @@ jobs:
           # the login screen. The password is typed on the server's hosted page now
           # (carnet#787), so login/02 opens that page and closes it, login/06 signs in
           # on it and login/07 is refused by it.
+          # chat/11 reads the seeded verdict conversation (carnet#802) and
+          # onboarding/02 signs in as fresh coaches from the control process
+          # (carnet#740); both assert copy in English or French only.
           echo "Running critical-path subset in two batches..."
           BATCH1_FILES="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml"
-          BATCH2_FILES="chat/01-basic-visibility.yaml"
+          BATCH2_FILES="chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml onboarding/02-coach-group-step.yaml"
           BATCH_COUNT=2
 
           TOTAL_FAILURES=0
@@ -898,4 +947,5 @@ jobs:
             /tmp/metro.log
             /tmp/expo-install.log
             /tmp/pierre-server.log
+            /tmp/home-sync-control.log
           retention-days: 1

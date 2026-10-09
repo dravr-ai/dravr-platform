@@ -25,6 +25,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::info;
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
@@ -514,16 +515,21 @@ impl GroupRoutes {
 
         // ADR-018: asking to coach never grants coaching. A caller without
         // the right gets the group, coachless, and the client says so.
-        let coach_user_id = if body.coach_is_me {
-            let user = repos
-                .users
-                .get_global(auth.user_id)
-                .await?
-                .ok_or_else(|| AppError::not_found("User not found"))?;
-            may_coach_group(&user, tenant_id, tenant_id).then_some(auth.user_id)
+        let coach = if body.coach_is_me {
+            Some(
+                repos
+                    .users
+                    .get_global(auth.user_id)
+                    .await?
+                    .ok_or_else(|| AppError::not_found("User not found"))?,
+            )
         } else {
             None
         };
+        let coach_user_id = coach
+            .as_ref()
+            .filter(|user| may_coach_group(user, tenant_id, tenant_id))
+            .map(|_| auth.user_id);
 
         let plan = repos.tenants.get_by_id(tenant_id).await?.plan;
         let plan_tier = tier_strategy_for(&plan);
@@ -540,6 +546,26 @@ impl GroupRoutes {
             .group_service()
             .create_group(&request, auth.user_id, tenant_id, plan_tier.as_ref())
             .await?;
+
+        // `coach_is_me` is sent only by the onboarding "Your group" step on
+        // both surfaces, so this times a coach's setup from their signup
+        // (carnet#739). `coach_attached` is false while coach access is
+        // pending.
+        if let Some(coach) = &coach {
+            info!(
+                target: "notify",
+                event = "onboarding.coach_group_created",
+                user_id = %auth.user_id,
+                tenant_id = %tenant_id,
+                group_id = %created.id,
+                coach_attached = created.coach_user_id.is_some(),
+                seconds_since_signup = Utc::now()
+                    .signed_duration_since(coach.created_at)
+                    .num_seconds()
+                    .max(0),
+                "coach created their group during onboarding"
+            );
+        }
 
         let response = Self::group_response(&resources, created, auth.user_id).await?;
         Ok((StatusCode::CREATED, Json(response)).into_response())

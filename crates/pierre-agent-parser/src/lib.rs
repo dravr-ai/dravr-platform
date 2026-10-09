@@ -7,12 +7,9 @@
 //! # Pierre Agent Parser
 //!
 //! Parses agent definitions authored as markdown files with YAML frontmatter
-//! (Claude-Skills-style). Two consumers:
-//!
-//! - **pierre-server's seeders** at startup, ingesting the on-disk agent
-//!   catalogue from `agents/*.md` into the database.
-//! - **pierre-server's `services::agent_import`** when an admin imports an agent
-//!   from a markdown payload posted to the admin API.
+//! (Claude-Skills-style). Its consumers are the seeders, which ingest the
+//! on-disk agent catalogue into the database at startup, and `pierre-cli`'s
+//! drift check, which compares that catalogue against the stored rows.
 //!
 //! Returns structured [`AgentDefinition`] values backed by the wire types
 //! from `pierre_core::models::agents::*`. The [`package`] module reads the
@@ -538,35 +535,6 @@ pub fn parse_agent_file(path: &Path) -> AppResult<AgentDefinition> {
         .map(|s| s.to_string_lossy())
         .collect::<Vec<_>>()
         .join("/");
-
-    Ok(AgentDefinition {
-        frontmatter,
-        sections,
-        source_file,
-        content_hash,
-        token_count,
-    })
-}
-
-/// Parse agent definition from markdown string content
-///
-/// # Arguments
-/// * `content` - Markdown content with YAML frontmatter
-/// * `source_name` - Optional source identifier for the content
-///
-/// # Errors
-/// Returns error if content is invalid
-pub fn parse_agent_content(content: &str, source_name: Option<&str>) -> AppResult<AgentDefinition> {
-    let frontmatter = parse_frontmatter(content)?;
-    let sections = parse_sections(content)?;
-
-    let token_count = AgentDefinition::calculate_token_count(&sections);
-    let content_hash = AgentDefinition::calculate_hash(content);
-
-    let source_file = source_name.map_or_else(
-        || format!("imported/{}.md", frontmatter.name),
-        str::to_owned,
-    );
 
     Ok(AgentDefinition {
         frontmatter,

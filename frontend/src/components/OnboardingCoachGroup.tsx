@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import type { Agent, CoachingGroup } from '@pierre/shared-types';
 import { coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
@@ -54,6 +54,7 @@ export default function OnboardingCoachGroup({
   onComplete: (status: 'complete' | 'skipped') => void;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'name' });
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -74,6 +75,8 @@ export default function OnboardingCoachGroup({
         (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
       setCreated(group);
       await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id });
+      // The chat list may already be cached: the group's thread must be on it.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       const invite = await groupsApi.createInvite(group.id, {
         expires_in_days: ONBOARDING_INVITE_DAYS,
       });

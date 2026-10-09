@@ -286,6 +286,8 @@ export const ENDPOINTS = {
   ATHLETE: {
     /** Newest activities from the durable activity cache, across providers (`?limit=`, 1..=20, default 5) */
     RECENT_ACTIVITIES: '/api/me/activities/recent',
+    /** A completed workout's `.fit` file, as the raw `POST` body: each session becomes the athlete's activity */
+    ACTIVITY_UPLOAD: '/api/me/activities/upload',
     /**
      * One workout's view: its Home row, the figures the cache holds, its
      * splits and laps. Addressed by provider and the provider's own id, like

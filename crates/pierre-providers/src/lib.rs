@@ -34,6 +34,8 @@ pub mod core;
 pub mod deduplication;
 /// Reads on behalf of a coached athlete through a coach's own provider credential
 pub mod delegation;
+/// Activity FIT files: each session's summary, laps and per-sample series
+pub mod fit_file;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
 /// The provider-side owner id behind an access token, for providers whose token response leaves it out
@@ -46,6 +48,8 @@ pub mod registry;
 pub mod request_budget;
 /// Service Provider Interface for external providers
 pub mod spi;
+/// The athlete's uploaded `.fit` files read as a provider, with no connection behind it
+pub mod upload_provider;
 /// Provider utility functions (retry, type conversion)
 pub mod utils;
 

@@ -5,8 +5,11 @@ appId: ai.dravr.app
 
 ---
 # Tap the Chat tab in bottom navigation (the seeded tester runs in French).
+# With something unread the tab's accessible text carries the count after
+# its name ("Discussion, 2 …" on Android's native badge), so the name is
+# matched as the start of that text, never as all of it.
 - tapOn:
-    text: "Discussion|Chat"
+    text: "(Discussion|Chat).*"
 
 # Wait for the conversation list to load
 - extendedWaitUntil:

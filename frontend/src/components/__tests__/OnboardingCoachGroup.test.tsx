@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from '../../constants/queryKeys';
 import OnboardingCoachGroup from '../OnboardingCoachGroup';
 
 const {
@@ -130,6 +131,22 @@ describe('OnboardingCoachGroup', () => {
     );
     expect(await screen.findByTestId('onboarding-group-qr')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-group-access-pending')).not.toBeInTheDocument();
+  });
+
+  it('marks the cached chat list stale once the group thread exists, so the group is on it', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(QUERY_KEYS.chat.conversations(), { pages: [], pageParams: [] });
+    render(
+      <QueryClientProvider client={client}>
+        <OnboardingCoachGroup onComplete={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await nameAndCreate();
+
+    await waitFor(() => expect(createConversationMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(client.getQueryState(QUERY_KEYS.chat.conversations())?.isInvalidated).toBe(true),
+    );
   });
 
   it('offers the visible athlete-facing catalogue unranked and creates nothing until an agent is picked', async () => {

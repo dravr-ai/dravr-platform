@@ -756,6 +756,105 @@ test.describe('Athlete Home', () => {
     await expect(page).toHaveURL(/#home$/);
   });
 
+  test("a .fit upload goes up as the file's own bytes and joins the list; its view deletes it behind a confirmation", async ({ page }) => {
+    const uploadId = `${'a'.repeat(64)}-0`;
+    const uploaded = activity(uploadId, {
+      provider: 'upload',
+      name: '',
+      sport_type: 'ride',
+      start_date: '2026-09-23T07:00:00Z',
+      duration_seconds: 600,
+      distance_meters: 4792,
+      elevation_gain_meters: null,
+      has_gps: false,
+    });
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockActivityView(page, {
+      'act-4': TEMPO_DETAIL,
+      [uploadId]: { ...TEMPO_DETAIL, activity: uploaded, splits: [], calories: null },
+    });
+    // The server's side of the upload: the list holds the upload from the
+    // moment it is stored until it is deleted. Registered after mockHome and
+    // mockActivityView so these answers win.
+    let held = false;
+    let recentReads = 0;
+    await page.route('**/api/me/activities/recent**', async (route) => {
+      recentReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          activities: held ? [uploaded, ...ACTIVITIES] : ACTIVITIES,
+          as_of: '2026-09-24T08:15:00Z',
+          sync_failure: null,
+          stale: false,
+        }),
+      });
+    });
+    const posted: Array<{ contentType: string | undefined; bytes: number[] }> = [];
+    await page.route('**/api/me/activities/upload', async (route, request) => {
+      if (request.method() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+      posted.push({
+        contentType: request.headers()['content-type'],
+        bytes: Array.from(request.postDataBuffer() ?? []),
+      });
+      held = true;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ activities: [uploaded], already_held: [] }),
+      });
+    });
+    const deleted: string[] = [];
+    await page.route(/\/api\/me\/activities\/upload\/[^/?]+$/, async (route, request) => {
+      if (request.method() !== 'DELETE') {
+        await route.fallback();
+        return;
+      }
+      deleted.push(new URL(request.url()).pathname);
+      held = false;
+      await route.fulfill({ status: 204, body: '' });
+    });
+    await login(page);
+    const section = page.getByTestId('home-activities');
+    await expect(section.getByTestId('home-activity-row')).toHaveCount(ACTIVITIES.length - 1);
+    const readsBeforeUpload = recentReads;
+
+    // The bytes travel as the body itself, not as JSON or a form.
+    await section.getByTestId('home-upload-action-input').setInputFiles({
+      name: 'ride.fit',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from([14, 16, 1, 2]),
+    });
+    await expect(section.getByTestId('home-upload-status')).toHaveText('Workout added to your activities.');
+    expect(posted).toEqual([{ contentType: 'application/octet-stream', bytes: [14, 16, 1, 2] }]);
+    // The list is read again and the upload now leads it.
+    await expect.poll(() => recentReads).toBeGreaterThan(readsBeforeUpload);
+    await expect(section.getByTestId('home-activity-row')).toHaveCount(ACTIVITIES.length);
+
+    // A provider's activity offers no Delete; the upload's view does.
+    await page.goto('/#home/activity/strava/act-4');
+    await expect(page.getByTestId('activity-title')).toHaveText('Tempo Tuesday');
+    await expect(page.getByTestId('activity-delete')).toHaveCount(0);
+    await page.goto(`/#home/activity/upload/${uploadId}`);
+    await expect(page.getByTestId('activity-figure-distance')).toContainText('4.79 km');
+    await page.getByTestId('activity-delete').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Delete this activity?')).toBeVisible();
+    expect(deleted).toEqual([]);
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+
+    await expect(page).toHaveURL(/#home$/);
+    expect(deleted).toEqual([`/api/me/activities/upload/${uploadId}`]);
+    await expect(page.getByTestId('home-activities').getByTestId('home-activity-row')).toHaveCount(
+      ACTIVITIES.length - 1,
+    );
+  });
+
   test('a plan day opens to its steps, and its question drafts in chat', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);

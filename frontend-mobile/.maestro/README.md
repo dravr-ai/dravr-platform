@@ -36,6 +36,7 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 │   ├── launch-app.yaml      # Launch app fresh
 │   ├── hide-dev-tools-button.yaml  # Switch off Expo Go's floating tools button (iOS)
 │   ├── login.yaml           # Perform login (hosted page, below)
+│   ├── sign-in-as.yaml      # Sign in as another account (EMAIL, PASSWORD env); stops when the login screen goes
 │   ├── open-hosted-sign-in.yaml    # Tap Sign in, wait for the server's login page in the browser
 │   ├── submit-hosted-sign-in.yaml  # Fill Email/Password on that page (EMAIL, PASSWORD env) and submit
 │   ├── close-hosted-sign-in.yaml   # Close the page without signing in (Cancel / Back)
@@ -51,7 +52,9 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── login/                   # Login flow tests
 ├── home/                    # Home: the landing after login, and the lockup that leads back to it
 ├── settings/                # Settings screen tests
-├── chat/                    # Chat functionality tests
+├── chat/                    # Chat functionality tests (11: the verdict sheet, on a seeded verdict)
+├── onboarding/              # Onboarding steps (02: the coach's group step, on fresh coaches)
+├── home-sync/               # Home's sync failure and retry, against the scripted scraper
 ├── store/                   # Discover/Store tests (browse, install → hint, uninstall)
 ├── discover/                # The edit sheet on an installed agent (the only agent editor)
 ├── voice-input/             # Voice input tests
@@ -120,6 +123,23 @@ Flows type the credentials into that page. In Expo Go the return address is
 `OAUTH_ALLOW_EXPO_GO_REDIRECT=true` — set it on any server these flows run against.
 Chrome keeps the server's session cookie between flows, so a flow that needs the page
 to appear starts with `helpers/reset-browser-session.yaml`.
+
+## Flows that need more than the seeded tester
+
+- `chat/11-verdict-sheet.yaml` opens the chip of a reply the claim verifier judged.
+  No turn runs without a model, so `pierre-cli seed verdict-conversation --email
+  verdicttest@pierre.dev` writes the conversation, the reply and its supported verdict
+  (with a DOI) on an account of its own: on mobiletest it would fill the chat list the
+  start-a-chat flows expect empty and badge the chat tab. The flow signs in with
+  `helpers/sign-in-as.yaml` and resets the browser session when it ends. Both CI lanes
+  and `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` create the account and
+  run the seeder.
+- `onboarding/02-coach-group-step.yaml` and `home-sync/` call the control process,
+  `frontend/e2e-real/home-sync-control.ts` (port 8098), from their `runScript` steps.
+  It runs the sciotte double on 8097, so the server must have
+  `DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097`. `scripts/e2e-home-sync-local.sh
+  --mobile` boots such a stack; the onboarding flow asks it for a fresh coach per path
+  and per attempt, since the app keeps the step's done flag on the device per user.
 
 ## Test Credentials
 

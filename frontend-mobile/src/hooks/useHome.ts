@@ -15,6 +15,7 @@ import { planDayOn, type ActivityRouteResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   classifyApiError,
+  createActivityUploadHook,
   createHomePreferencesHook,
   readActivityRoute,
   recentActivitiesSync,
@@ -528,4 +529,13 @@ export function useProviderConnected() {
 export const useHomePreferences = createHomePreferencesHook({
   getHomePreferences: () => athleteApi.getHomePreferences(),
   updateHomePreferences: (prefs) => athleteApi.updateHomePreferences(prefs),
+});
+
+/**
+ * Upload the `.fit` file of a completed workout; the new activity joins the
+ * recent list, the calendar and the volume, which this refreshes. The API is
+ * reached when an upload runs, so importing it touches no client.
+ */
+export const useActivityUpload = createActivityUploadHook({
+  uploadActivityFile: (bytes) => athleteApi.uploadActivityFile(bytes),
 });

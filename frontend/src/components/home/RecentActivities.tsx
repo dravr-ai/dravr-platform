@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap opens the activity's own view; a fetch in progress, no provider, no GPS, no rows and a failed sync are each said in words
+// ABOUTME: A tap opens the activity's own view; a .fit upload sits by the title; a fetch, no provider, no GPS, no rows and a failed sync are said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -12,10 +12,16 @@ import { decodePolyline, type LatLon } from '@pierre/domain-utils';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
-import { useActivityRoute, useProviderConnection, useRecentActivities } from '../../hooks/useHome';
+import {
+  useActivityRoute,
+  useActivityUpload,
+  useProviderConnection,
+  useRecentActivities,
+} from '../../hooks/useHome';
 import { activityViewRoute } from '../activity/activityRoute';
 import { ActivityMap } from './ActivityMap';
 import { RouteSketch } from './RouteSketch';
+import { UploadActivityAction, UploadActivityStatus } from './UploadActivity';
 import { ROW_DATE, activityFigures, formatInstant, formatSyncTime, sportLabel } from './homeFormat';
 
 interface RecentActivitiesProps {
@@ -184,6 +190,7 @@ export function RecentActivities({ onNavigate, compact = false }: RecentActiviti
   const openActivity = (activity: HomeActivity) => onNavigate(activityViewRoute(activity.provider, activity.id));
   const recent = useRecentActivities();
   const providers = useProviderConnection();
+  const uploader = useActivityUpload();
 
   // One time on the card, once: after a failed sync, when the provider that
   // failed last synced well — its rows are that old, whatever another
@@ -286,7 +293,14 @@ export function RecentActivities({ onNavigate, compact = false }: RecentActiviti
   }
 
   return (
-    <Section title={t('home.activities.heading')} headingLevel={3} description={status} data-testid="home-activities">
+    <Section
+      title={t('home.activities.heading')}
+      headingLevel={3}
+      description={status}
+      actions={<UploadActivityAction uploader={uploader} />}
+      data-testid="home-activities"
+    >
+      <UploadActivityStatus uploader={uploader} />
       {syncFailed}
       {body}
     </Section>

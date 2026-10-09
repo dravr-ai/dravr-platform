@@ -11,6 +11,7 @@
 //! synthetic activities, mobility catalogue, LLM-usage samples) and exposes a
 //! `run` function the CLI dispatches to.
 
+mod accounts;
 pub mod agent_packages;
 pub mod agents;
 pub mod bootstrap;
@@ -19,3 +20,4 @@ pub mod llm_usage;
 pub mod mobility;
 pub mod synthetic_activities;
 pub mod trainingpeaks_delegation;
+pub mod verdict_conversation;

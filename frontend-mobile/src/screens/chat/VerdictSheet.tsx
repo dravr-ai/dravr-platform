@@ -269,7 +269,8 @@ function VerdictCard({
  * The chip opens it with all the rows of its message — a reply that drew two
  * chips shows two sections, not the first one twice. A chip pressed before the
  * rows landed opens it on the loading line while the host re-reads them.
- * LIMITATION(registre#802): `VerdictSheet` has no device e2e; its study links, source preview and copy action are covered by jest only.
+ * Its study links, source preview and copy action are driven on a device by
+ * the Maestro flow `.maestro/chat/11-verdict-sheet.yaml`.
  */
 export function VerdictSheet({
   visible,

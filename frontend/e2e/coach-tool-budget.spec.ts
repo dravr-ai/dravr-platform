@@ -138,18 +138,9 @@ async function setupCoachMocks(
     });
   });
 
-  // Single coach: the GET the sheet loads with, the PUT it sends, plus the
-  // hidden-coaches sibling.
+  // Single coach: the GET the sheet loads with and the PUT it sends.
   await page.route(/\/api\/agents\/[^/?]+(\?.*)?$/, async (route) => {
     const request = route.request();
-    if (request.url().includes('/coaches/hidden')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ agents: [] }),
-      });
-      return;
-    }
     if (request.method() === 'PUT') {
       const body = request.postDataJSON() as Record<string, unknown>;
       updates.push(body);

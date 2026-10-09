@@ -32,6 +32,8 @@ export { Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 export { Slider } from './Slider';
 export type { SliderProps } from './Slider';
+export { FilePickerButton } from './FilePickerButton';
+export type { FilePickerButtonProps } from './FilePickerButton';
 
 // Overlay components
 export { Modal, ModalActions } from './Modal';

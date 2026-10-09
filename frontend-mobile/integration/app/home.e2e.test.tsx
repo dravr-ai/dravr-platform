@@ -477,7 +477,7 @@ describe('the Home tab over the wire', () => {
 
   // carnet#649: with every connection flagged the empty sentence would
   // promise a sync nobody can make, and "reconnect" is the banner's to say.
-  it('leaves the section out for an empty cache when every connected provider is flagged', async () => {
+  it('keeps only the title and Upload for an empty cache when every connected provider is flagged', async () => {
     stub = installHttpStub(
       homeServer({
         [RECENT_URL]: { data: recentResponse({ activities: [], stale: false }) },
@@ -489,7 +489,9 @@ describe('the Home tab over the wire', () => {
     await screen.findByTestId('home-today');
     await waitFor(() => expect(stub.requests.some((request) => request.url === '/api/providers')).toBe(true));
     await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
-    expect(screen.queryByTestId('home-section-activities')).toBeNull();
+    // Nothing to list, but a workout can still be added by file (carnet#818).
+    expect(screen.getByTestId('home-section-activities')).toBeTruthy();
+    expect(screen.getByTestId('home-upload-action')).toBeTruthy();
     expect(screen.queryByText('Reconnect needed')).toBeNull();
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
     expect(screen.queryByTestId('home-activities-fetching')).toBeNull();

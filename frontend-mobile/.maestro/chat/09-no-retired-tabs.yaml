@@ -13,7 +13,7 @@ appId: ai.dravr.app
 # The athlete lands on Home; the bar offers exactly the surviving tabs.
 - extendedWaitUntil:
     visible:
-      text: "Discussion|Chat"
+      text: "(Discussion|Chat).*"
     timeout: 15000
 - assertVisible:
     text: "Accueil|Home"

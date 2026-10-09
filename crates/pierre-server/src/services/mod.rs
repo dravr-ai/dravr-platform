@@ -36,6 +36,9 @@ pub mod activity_detail;
 /// One cached activity's drawable route for the Home page, read at most once per activity
 pub mod activity_route;
 
+/// A completed workout's `.fit` file uploaded by the athlete: decoded, deduplicated, kept
+pub mod activity_upload;
+
 /// The athlete's training status for Home: form and its band, the form trend, load against baseline
 pub mod training_status;
 

@@ -274,6 +274,13 @@ echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
 # TrainingPeaks session is a stand-in, so reads through it fail at the scraper.
 echo "    Seeding a TrainingPeaks coach link for $MOBILE_TEST_EMAIL..."
 "$PIERRE_CLI" seed trainingpeaks-delegation --member-email "$MOBILE_TEST_EMAIL" 2>&1 | tail -1
+# A reply carrying a supported claim verdict with a DOI: the verdict-sheet
+# flow (mobile Maestro chat/11) opens its chip without a live turn. It lives on
+# its own account so mobiletest's chat list stays empty for the flows that
+# start a chat from it.
+echo "    Seeding a verdict conversation for verdicttest@pierre.dev..."
+"$PIERRE_CLI" user create --email verdicttest@pierre.dev --password VerdictTest1234 --force 2>&1 | tail -1
+"$PIERRE_CLI" seed verdict-conversation --email verdicttest@pierre.dev 2>&1 | tail -1
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."

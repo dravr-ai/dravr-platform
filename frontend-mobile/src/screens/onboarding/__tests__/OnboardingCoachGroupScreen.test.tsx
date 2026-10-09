@@ -7,6 +7,7 @@
 import React from 'react';
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
 import { useOnboardingFlag } from '../../../hooks/useOnboardingFlag';
@@ -124,6 +125,22 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(createInvite).toHaveBeenCalledWith('g-1', { expires_in_days: 30 });
     expect(screen.getByTestId('onboarding-group-qr')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-group-access-pending')).toBeNull();
+  });
+
+  it('marks the cached chat list stale once the group thread exists, so the group is on it', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(QUERY_KEYS.chat.conversations(), { pages: [], pageParams: [] });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <OnboardingCoachGroupScreen />
+      </QueryClientProvider>,
+    );
+    await nameAndCreate();
+
+    await waitFor(() => expect(createConversation).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(client.getQueryState(QUERY_KEYS.chat.conversations())?.isInvalidated).toBe(true),
+    );
   });
 
   it('offers the visible athlete-facing catalogue and creates nothing until an agent is picked', async () => {

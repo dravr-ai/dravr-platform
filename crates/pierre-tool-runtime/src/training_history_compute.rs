@@ -50,7 +50,7 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backend, user_timezone, validate_window, ComputeBackend, HistorySources,
+    resolve_compute_backends, user_timezone, validate_window, ComputeBackend, HistorySources,
 };
 pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
@@ -139,8 +139,8 @@ pub async fn default_window(
 ///
 /// # Errors
 ///
-/// Returns [`AppError`] when the window is invalid, no provider is connected,
-/// or a repository read/write fails.
+/// Returns [`AppError`] when the window is invalid, the athlete has neither a
+/// provider connected nor an upload, or a repository read/write fails.
 pub async fn compute_and_persist_history(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -168,25 +168,31 @@ async fn compute_and_persist_unfiltered(
 
     let config = resources.cageux_config();
     let sources = history_sources(resources, &config);
-    let backend = resolve_compute_backend(resources.repos(), tenant_id, user_id)
-        .await?
-        .ok_or_else(AppError::no_provider_connected)?;
-    let window = load_stored_window(sources, tenant_id, user_id, backend, from, to).await?;
-    let backend = &window.backend;
+    let backends = resolve_compute_backends(resources.repos(), tenant_id, user_id).await?;
+    if backends.is_empty() {
+        return Err(AppError::no_provider_connected());
+    }
+    let window = load_stored_window(sources, tenant_id, user_id, backends, from, to).await?;
+    let backends = &window.backends;
+    let providers = provider_slugs(backends);
     let warmup = window.warmup;
 
     let Some(oldest_stored) = window.oldest_stored else {
-        return empty_cache_outcome(resources, tenant_id, user_id, backend, from, to, warmup).await;
+        return empty_cache_outcome(resources, tenant_id, user_id, backends, from, to, warmup)
+            .await;
     };
 
     let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
     let complete = trustworthy_from <= from;
+    // With rows in hand every connection is asked for its missing depth, a
+    // lapsed one included: its capture surfaces the reauth itself, and stale
+    // history beats no answer.
     let capture_requested = !complete
-        && request_capture(
+        && request_captures(
             resources,
             tenant_id,
             user_id,
-            &backend.slug,
+            backends.iter(),
             from - Duration::days(warmup),
         )
         .await;
@@ -209,7 +215,7 @@ async fn compute_and_persist_unfiltered(
         // Stored history is too shallow to warm even the last day of the ask.
         info!(
             user_id = %user_id,
-            provider = %backend.slug,
+            providers = %providers,
             requested_from = %from,
             to = %to,
             oldest_stored = %oldest_stored,
@@ -239,7 +245,7 @@ async fn compute_and_persist_unfiltered(
 
     info!(
         user_id = %user_id,
-        provider = %backend.slug,
+        providers = %providers,
         requested_from = %from,
         computed_from = %trustworthy_from,
         to = %to,
@@ -292,6 +298,15 @@ pub async fn read_history_from_cache(
     .await
 }
 
+/// The athlete's connection slugs, for a log line.
+fn provider_slugs(backends: &[ComputeBackend]) -> String {
+    backends
+        .iter()
+        .map(|backend| backend.slug.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// The outcome when the durable cache holds nothing for the read window.
 ///
 /// Computes no rows on purpose: `ctl`/`atl`/`tsb` seeded at zero would read as
@@ -300,24 +315,32 @@ async fn empty_cache_outcome(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    backend: &ComputeBackend,
+    backends: &[ComputeBackend],
     from: NaiveDate,
     to: NaiveDate,
     warmup: i64,
 ) -> AppResult<TrainingHistoryComputed> {
-    // Nothing stored AND the session has lapsed: the capture below would fail
-    // on auth too, so the honest answer is the reconnect prompt the chat
-    // pipeline's `auth_recovery` stage mints from this typed code. With rows in
-    // hand we serve them instead and let the capture surface the reauth itself,
-    // because stale history beats no answer.
-    if backend.requires_reauth {
-        return Err(AppError::provider_auth_required(&backend.slug));
+    // Nothing stored AND every session has lapsed: each capture would fail on
+    // auth too, so the honest answer is the reconnect prompt the chat
+    // pipeline's `auth_recovery` stage mints from this typed code. With one
+    // connection still live, its capture is the way forward, and the lapsed
+    // ones are left for their own reconnect prompts. Uploads deliver nothing
+    // more on their own, so they neither stand in for a live connection nor
+    // call for a reconnect: an athlete with only uploads gets the empty answer.
+    let (live, lapsed): (Vec<&ComputeBackend>, Vec<&ComputeBackend>) = backends
+        .iter()
+        .filter(|b| b.capturable)
+        .partition(|b| !b.requires_reauth);
+    if live.is_empty() {
+        if let Some(lapsed) = lapsed.first() {
+            return Err(AppError::provider_auth_required(&lapsed.slug));
+        }
     }
-    let capture_requested = request_capture(
+    let capture_requested = request_captures(
         resources,
         tenant_id,
         user_id,
-        &backend.slug,
+        live.into_iter(),
         from - Duration::days(warmup),
     )
     .await;
@@ -328,7 +351,7 @@ async fn empty_cache_outcome(
         clear_unvouched_span(resources, tenant_id, user_id, from, to + Duration::days(1)).await?;
     info!(
         user_id = %user_id,
-        provider = %backend.slug,
+        providers = %provider_slugs(backends),
         requested_from = %from,
         to = %to,
         capture_requested,
@@ -368,6 +391,26 @@ async fn clear_unvouched_span(
         .training_history
         .delete_training_history_range(tenant_id, user_id, from, last)
         .await
+}
+
+/// Ask the capture rail to page each of `backends` back to `floor`; whether
+/// any new job was started.
+///
+/// One capture per connection: the history is every provider's, so the depth
+/// missing from it may sit behind any of them.
+async fn request_captures<'a>(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    backends: impl Iterator<Item = &'a ComputeBackend>,
+    floor: NaiveDate,
+) -> bool {
+    let mut started = false;
+    // Uploads are not fetched from anywhere: no capture can deepen them.
+    for backend in backends.filter(|backend| backend.capturable) {
+        started |= request_capture(resources, tenant_id, user_id, &backend.slug, floor).await;
+    }
+    started
 }
 
 /// Ask the capture rail to page the provider back to `floor`.
@@ -549,4 +592,44 @@ pub async fn recompute_stored_history(
             }
         }
     }
+}
+
+/// Recompute the default window of the athlete's daily rollup after their
+/// stored activities changed outside a provider capture: an uploaded file was
+/// kept, or an uploaded activity deleted (carnet#818).
+///
+/// A capture warms the rollup when it lands (`activity_backfill`); an upload
+/// or a deletion is the same kind of moment, so the persisted series a model
+/// and the weekly summaries read moves with it rather than waiting for the
+/// next capture. When the athlete has nothing left to stand on — they deleted
+/// their only upload and have no connection — the window's rows are cleared:
+/// no stored activity vouches for them any more.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when a read or a write fails.
+pub async fn rewarm_default_window(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<TrainingHistoryComputed> {
+    let (from, to) = default_window(resources, user_id).await?;
+    if resolve_compute_backends(resources.repos(), tenant_id, user_id)
+        .await?
+        .is_empty()
+    {
+        let rows_cleared =
+            clear_unvouched_span(resources, tenant_id, user_id, from, to + Duration::days(1))
+                .await?;
+        return Ok(TrainingHistoryComputed {
+            requested_from: from,
+            from,
+            to,
+            rows_upserted: 0,
+            coverage: HistoryCoverage::NoStoredActivities,
+            capture_requested: false,
+            rows_cleared,
+        });
+    }
+    compute_and_persist_history(resources, tenant_id, user_id, from, to).await
 }

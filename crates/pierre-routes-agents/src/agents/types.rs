@@ -232,17 +232,6 @@ pub struct ListAgentsQuery {
     pub personalize: Option<bool>,
 }
 
-/// Query parameters for searching agents
-#[derive(Debug, Deserialize)]
-pub struct SearchAgentsQuery {
-    /// Search query string
-    pub q: String,
-    /// Maximum results to return
-    pub limit: Option<u32>,
-    /// Pagination offset
-    pub offset: Option<u32>,
-}
-
 /// Response for record usage
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecordUsageResponse {
@@ -259,20 +248,6 @@ pub struct SubmitForReviewResponse {
     pub publish_status: PublishStatus,
     /// When it entered the review queue (RFC 3339)
     pub review_submitted_at: Option<String>,
-}
-
-/// Response for importing an agent from markdown
-#[derive(Debug, Serialize)]
-pub struct ImportAgentResponse {
-    /// The created agent
-    pub agent: AgentResponse,
-    /// The parsed name/slug from the markdown
-    pub parsed_name: String,
-    /// Estimated token count from the markdown
-    pub token_count: u32,
-    /// Import warnings (missing optional sections, high token count, etc.)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
 }
 
 // ============================================
