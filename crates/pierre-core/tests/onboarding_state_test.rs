@@ -10,7 +10,7 @@ use pierre_core::models::onboarding::{
     CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,
     TopicVisibility, WalkAudience, MAX_PROBE_ATTEMPTS,
 };
-use pierre_core::models::{Dossier, DossierFact, Pillar};
+use pierre_core::models::{CalibrationTopic, Dossier, DossierFact, Pillar, SeasonTopic};
 use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
@@ -261,6 +261,7 @@ fn unknown_slug_in_probed_matches_no_topic() {
         Some(CoverageTarget::NorthStar)
     );
 }
+
 #[test]
 fn every_pillars_walk_slug_parses_back_to_its_topic_and_nothing_else_does() {
     let mut targets = vec![CoverageTarget::NorthStar];
@@ -272,15 +273,17 @@ fn every_pillars_walk_slug_parses_back_to_its_topic_and_nothing_else_does() {
             "{target:?} round-trips through the ledger"
         );
     }
-    // Calibration and season slugs share the ledger without being
-    // pillars-walk topics, and a later build may write slugs this one lacks.
-    for foreign in [
-        "calibration_injury",
-        "season_race_calendar",
-        "topic_from_a_later_build",
-        "",
-    ] {
-        assert_eq!(CoverageTarget::parse(foreign), None, "{foreign:?}");
+    // Every calibration and season slug shares the ledger without being a
+    // pillars-walk topic, and a later build may write slugs this one lacks.
+    let mut foreign: Vec<TopicSlug> = CalibrationTopic::ALL
+        .into_iter()
+        .map(CalibrationTopic::slug)
+        .chain(SeasonTopic::ALL.into_iter().map(SeasonTopic::slug))
+        .collect();
+    foreign.push(TopicSlug::new("topic_from_a_later_build".to_owned()));
+    foreign.push(TopicSlug::new(String::new()));
+    for slug in &foreign {
+        assert_eq!(CoverageTarget::parse(slug.as_str()), None, "{slug:?}");
     }
 }
 
