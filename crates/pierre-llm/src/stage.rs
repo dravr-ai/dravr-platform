@@ -146,7 +146,9 @@ impl LlmStage {
 /// head it was resolved for.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StageModels {
-    models: [Option<String>; LlmStage::ALL.len()],
+    /// Boxed because every provider carries one, routed or not: inline, the
+    /// six slots would grow `ChatProvider::Embacle` by 144 bytes.
+    models: Box<[Option<String>; LlmStage::ALL.len()]>,
 }
 
 impl StageModels {

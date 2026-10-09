@@ -63,9 +63,9 @@ pub fn recorded_token_counts(
     )
 }
 
-/// Per-LLM-call metric captured by the tool loop and handed to a
-/// [`LlmCallRecorder`]. One record corresponds to one invocation of the
-/// provider's completion API inside the tool loop.
+/// Per-LLM-call metric handed to a [`LlmCallRecorder`]. One record
+/// corresponds to one invocation of the provider's completion API, inside a
+/// tool loop or through [`complete_recorded`].
 #[derive(Debug, Clone)]
 pub struct LlmCallRecord {
     /// Provider name (e.g. `"gemini"`, `"groq"`, `"claude_code"`).
@@ -93,7 +93,8 @@ pub struct LlmCallRecord {
     /// Whether the provider returned a non-error response.
     pub success: bool,
     /// 1-based position of this call within the owning `turn_id`, assigned
-    /// by the tool loop so the persister can preserve call order.
+    /// by the tool loop so the persister can preserve call order; `None` for
+    /// a call made outside it.
     pub call_sequence: Option<i64>,
     /// True when token counts were estimated from character length
     /// because the provider returned no usage (CLI runners — Claude
@@ -250,23 +251,27 @@ pub async fn complete_recorded<P: LlmProvider + ?Sized>(
     }
     let prompt = prompt_text(request);
     let provider_name = served.map_or_else(|| provider.name(), |tier| tier.provider);
-    let (model, usage, success, completion) = match &outcome {
-        Ok(reply) => (
-            reply.model.as_str(),
-            reply.usage.as_ref(),
-            true,
-            Some(reply.content.as_str()),
-        ),
-        Err(_) => (
-            request
-                .model
-                .as_deref()
-                .unwrap_or_else(|| provider.default_model()),
-            None,
-            false,
-            None,
-        ),
-    };
+    let (model, usage, success, completion) = outcome.as_ref().map_or_else(
+        |_| {
+            (
+                request
+                    .model
+                    .as_deref()
+                    .unwrap_or_else(|| provider.default_model()),
+                None,
+                false,
+                None,
+            )
+        },
+        |reply| {
+            (
+                reply.model.as_str(),
+                reply.usage.as_ref(),
+                true,
+                Some(reply.content.as_str()),
+            )
+        },
+    );
     emit_call_record_with_text(
         CallRecordInputs {
             recorder,

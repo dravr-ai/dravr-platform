@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs, LlmCallRecorder};
+use pierre_llm::served_tier::{observe_served_tier, ServedTier};
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tokio::time::timeout;
@@ -132,27 +133,35 @@ async fn classify_locale_with_llm(
         .clone()
         .unwrap_or_else(|| provider.default_model().to_owned());
     let started = Instant::now();
-    let outcome = timeout(CLASSIFICATION_TIMEOUT, provider.complete(&request)).await;
+    let outcome = timeout(
+        CLASSIFICATION_TIMEOUT,
+        observe_served_tier(provider.complete(&request)),
+    )
+    .await;
     let latency_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    let record = |model: &str, usage, success, completion: Option<&str>| {
-        emit_call_record_with_text(
-            CallRecordInputs {
-                recorder,
-                provider: provider.name(),
-                model,
-                usage,
-                latency_ms,
-                success,
-                call_sequence: None,
-                tools_called: Vec::new(),
-            },
-            Some(&prompt),
-            completion,
-        );
-    };
+    // The row names the tier that answered: a stage model the head refuses
+    // falls back to the next tier, whose own model the reply then carries.
+    let record =
+        |served: Option<ServedTier>, model: &str, usage, success, completion: Option<&str>| {
+            emit_call_record_with_text(
+                CallRecordInputs {
+                    recorder,
+                    provider: served.map_or_else(|| provider.name(), |tier| tier.provider),
+                    model,
+                    usage,
+                    latency_ms,
+                    success,
+                    call_sequence: None,
+                    tools_called: Vec::new(),
+                },
+                Some(&prompt),
+                completion,
+            );
+        };
     match outcome {
-        Ok(Ok(reply)) => {
+        Ok((Ok(reply), served)) => {
             record(
+                served,
                 &reply.model,
                 reply.usage.as_ref(),
                 true,
@@ -160,14 +169,14 @@ async fn classify_locale_with_llm(
             );
             parse_locale_answer(&reply.content)
         }
-        Ok(Err(e)) => {
-            record(&requested_model, None, false, None);
+        Ok((Err(e), served)) => {
+            record(served, &requested_model, None, false, None);
             warn!(error = %e, "language classification failed; the turn keeps its stored locale");
             None
         }
         Err(_) => {
             // The request may already have been billed when the wait ends.
-            record(&requested_model, None, false, None);
+            record(None, &requested_model, None, false, None);
             warn!(
                 timeout_secs = CLASSIFICATION_TIMEOUT.as_secs(),
                 "language classification timed out; the turn keeps its stored locale"
@@ -484,9 +493,12 @@ mod tests {
         );
     }
 
-    /// A `copilot_sdk`-named runner that names Spanish and remembers the model
-    /// each call asked for.
+    /// A runner named `name` that names Spanish, or refuses as a provider
+    /// fault when `answers` is false, and remembers the model each call asked
+    /// for.
     struct SdkClassifier {
+        name: &'static str,
+        answers: bool,
         requested: Arc<Mutex<Vec<Option<String>>>>,
         models: Vec<String>,
     }
@@ -494,9 +506,9 @@ mod tests {
     #[async_trait]
     impl EmbacleLlmProvider for SdkClassifier {
         fn name(&self) -> &'static str {
-            "copilot_sdk"
+            self.name
         }
-        fn display_name(&self) -> &str {
+        fn display_name(&self) -> &'static str {
             "Copilot SDK classifier (scripted)"
         }
         fn capabilities(&self) -> LlmCapabilities {
@@ -513,6 +525,9 @@ mod tests {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(request.model.clone());
+            if !self.answers {
+                return Err(RunnerError::external_service(self.name, "scripted refusal"));
+            }
             Ok(ChatResponse {
                 content: "es".to_owned(),
                 model: request
@@ -544,6 +559,8 @@ mod tests {
         let provider = ChatProvider::Embacle(
             EmbacleProvider::from_runner(
                 Box::new(SdkClassifier {
+                    name: "copilot_sdk",
+                    answers: true,
                     requested: Arc::clone(&requested),
                     models: vec!["claude-sonnet-5.5".to_owned()],
                 }),
@@ -574,6 +591,79 @@ mod tests {
         assert_eq!(records.len(), 1, "{records:?}");
         assert_eq!(records[0].model, COPILOT_SDK_BACKGROUND_MODEL);
         assert_eq!(records[0].provider, "copilot_sdk");
+    }
+
+    /// A stage model the head refuses moves the call to the next tier, which
+    /// answers on its own model; the record names that tier, so the row is
+    /// priced where the call was served rather than against the head.
+    ///
+    /// The only chain in this test binary whose head fails: the circuit
+    /// breaker on a chain's primary is process-wide.
+    #[tokio::test]
+    async fn a_classification_the_head_refuses_is_recorded_against_the_tier_that_answered() {
+        let head_requested = Arc::new(Mutex::new(Vec::new()));
+        let tail_requested = Arc::new(Mutex::new(Vec::new()));
+        let provider = ChatProvider::Embacle(
+            EmbacleProvider::chain(vec![
+                EmbacleProvider::from_runner(
+                    Box::new(SdkClassifier {
+                        name: "copilot_sdk",
+                        answers: false,
+                        requested: Arc::clone(&head_requested),
+                        models: vec!["claude-sonnet-5.5".to_owned()],
+                    }),
+                    "Copilot SDK classifier (scripted)",
+                )
+                .with_stage_models(StageModels::resolve(
+                    Some(LlmProviderType::CopilotSdk),
+                    |_| None,
+                )),
+                EmbacleProvider::from_runner(
+                    Box::new(SdkClassifier {
+                        name: "claude_code",
+                        answers: true,
+                        requested: Arc::clone(&tail_requested),
+                        models: vec!["claude-sonnet-5".to_owned()],
+                    }),
+                    "Claude Code classifier (scripted)",
+                ),
+            ])
+            .unwrap(),
+        );
+        let captured = Arc::new(Captured::default());
+        let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+        let classifier = LocaleClassifier {
+            provider: &provider,
+            prompt: LANGUAGE_CLASSIFICATION_PROMPT,
+            recorder: Some(&recorder),
+        };
+
+        let locale =
+            classify_locale_with_llm(classifier, "Muéstrame mis últimas cinco actividades").await;
+
+        assert_eq!(locale, Some("es"));
+        assert_eq!(
+            mem::take(
+                &mut *head_requested
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+            ),
+            vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned())]
+        );
+        assert_eq!(
+            mem::take(
+                &mut *tail_requested
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+            ),
+            vec![None],
+            "the tier behind the head resolves its own model"
+        );
+        let records = captured.taken();
+        assert_eq!(records.len(), 1, "{records:?}");
+        assert_eq!(records[0].provider, "claude_code");
+        assert_eq!(records[0].model, "claude-sonnet-5");
+        assert!(records[0].success);
     }
 
     #[cfg(feature = "language-detection")]

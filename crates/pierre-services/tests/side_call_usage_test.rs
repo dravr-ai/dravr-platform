@@ -58,7 +58,7 @@ impl EmbacleLlmProvider for Scripted {
         "copilot_sdk"
     }
 
-    fn display_name(&self) -> &str {
+    fn display_name(&self) -> &'static str {
         "Copilot SDK (scripted)"
     }
 

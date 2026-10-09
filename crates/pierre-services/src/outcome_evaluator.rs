@@ -950,7 +950,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "copilot_sdk"
         }
-        fn display_name(&self) -> &str {
+        fn display_name(&self) -> &'static str {
             "Copilot SDK judge (scripted)"
         }
         fn capabilities(&self) -> LlmCapabilities {
