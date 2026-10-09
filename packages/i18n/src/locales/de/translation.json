@@ -2906,7 +2906,18 @@
     "themeSwitchToDark": "Zum dunklen Design wechseln",
     "themeSwitchToLight": "Zum hellen Design wechseln",
     "themeSyncFailed": "Das Design wurde hier geändert, die Einstellung konnte aber nicht in deinem Konto gespeichert werden. Versuch es erneut.",
-    "title": "Einstellungen"
+    "title": "Einstellungen",
+    "selectUnits": "Einheiten wählen",
+    "units": "Einheiten",
+    "unitsAutomatic": "Automatisch",
+    "unitsDescription": "Distanzen, Höhenmeter und Pace auf der Startseite, in deinen Aktivitäten und in den Antworten deines Agenten folgen dieser Einstellung.",
+    "unitsFromLocale": "Automatisch folgt der Region deines Geräts: {{system}}.",
+    "unitsFromProvider": "Automatisch folgt deiner {{provider}}-Einstellung: {{system}}.",
+    "unitsImperial": "Imperial (mi, ft)",
+    "unitsMetric": "Metrisch (km, m)",
+    "unitsSaveFailed": "Deine Einheiten konnten nicht gespeichert werden. Versuch es erneut.",
+    "unitsSystemImperial": "imperial",
+    "unitsSystemMetric": "metrisch"
   },
   "settingsErr": {
     "connectFailed": "Keine Verbindung zu",

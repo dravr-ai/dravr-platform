@@ -2906,7 +2906,18 @@
     "themeSwitchToDark": "Switch to dark mode",
     "themeSwitchToLight": "Switch to light mode",
     "themeSyncFailed": "Your theme changed here, but the preference could not be saved to your account. Try again.",
-    "title": "Settings"
+    "title": "Settings",
+    "selectUnits": "Select units",
+    "units": "Units",
+    "unitsAutomatic": "Automatic",
+    "unitsDescription": "Distances, elevation and pace on Home, in your activities and in your agent's replies follow this setting.",
+    "unitsFromLocale": "Automatic follows your device's region: {{system}}.",
+    "unitsFromProvider": "Automatic follows your {{provider}} setting: {{system}}.",
+    "unitsImperial": "Imperial (mi, ft)",
+    "unitsMetric": "Metric (km, m)",
+    "unitsSaveFailed": "Your units could not be saved. Try again.",
+    "unitsSystemImperial": "imperial",
+    "unitsSystemMetric": "metric"
   },
   "settingsErr": {
     "connectFailed": "Failed to connect",

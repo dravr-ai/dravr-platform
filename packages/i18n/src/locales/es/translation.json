@@ -2906,7 +2906,18 @@
     "themeSwitchToDark": "Cambiar al modo oscuro",
     "themeSwitchToLight": "Cambiar al modo claro",
     "themeSyncFailed": "El tema cambió aquí, pero la preferencia no se pudo guardar en tu cuenta. Inténtalo de nuevo.",
-    "title": "Ajustes"
+    "title": "Ajustes",
+    "selectUnits": "Elegir unidades",
+    "units": "Unidades",
+    "unitsAutomatic": "Automático",
+    "unitsDescription": "Las distancias, el desnivel y los ritmos de Inicio, de tus actividades y de las respuestas de tu agente siguen este ajuste.",
+    "unitsFromLocale": "Automático sigue la región de tu dispositivo: {{system}}.",
+    "unitsFromProvider": "Automático sigue tu ajuste de {{provider}}: {{system}}.",
+    "unitsImperial": "Imperial (mi, ft)",
+    "unitsMetric": "Métrico (km, m)",
+    "unitsSaveFailed": "No se pudieron guardar tus unidades. Inténtalo de nuevo.",
+    "unitsSystemImperial": "imperial",
+    "unitsSystemMetric": "métrico"
   },
   "settingsErr": {
     "connectFailed": "No se pudo conectar con",
