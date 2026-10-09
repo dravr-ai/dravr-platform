@@ -10,48 +10,53 @@ import { useTranslation } from '@pierre/i18n';
 import { settingsPane } from '@pierre/shared-constants';
 import { HeaderCloseButton } from '../../src/components/ui/HeaderCloseButton';
 import { useStackScreenOptions } from '../../src/navigation/stackOptions';
+import { UnitsProvider } from '../../src/providers/UnitsProvider';
 
 export default function AppLayout() {
   const { t } = useTranslation();
   const closeButton = () => <HeaderCloseButton />;
+  const screenOptions = useStackScreenOptions();
+  // Every screen in the signed-in app prints distances in the athlete's units (carnet#835).
   return (
-    <Stack screenOptions={useStackScreenOptions()}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      {/* The thread names itself: title, avatar and subtitle come from the conversation. */}
-      <Stack.Screen name="chat/[conversationId]" options={{ title: '' }} />
-      <Stack.Screen name="activity/[provider]/[activityId]" options={{ title: '' }} />
-      <Stack.Screen
-        name="connections"
-        options={{
-          presentation: 'modal',
-          gestureEnabled: true,
-          title: t(settingsPane('connections').nameKey),
-          headerLeft: closeButton,
-        }}
-      />
-      <Stack.Screen
-        name="notifications"
-        options={{
-          presentation: 'modal',
-          gestureEnabled: true,
-          title: t('common.notifications'),
-          headerLeft: () => <HeaderCloseButton testID="notifications-back" />,
-        }}
-      />
-      {/* Memory names itself: both clients read the one `shell.memoryTitle`. */}
-      <Stack.Screen
-        name="memory"
-        options={{ presentation: 'modal', gestureEnabled: true, title: '', headerLeft: closeButton }}
-      />
-      <Stack.Screen
-        name="billing"
-        options={{
-          presentation: 'modal',
-          gestureEnabled: true,
-          title: t(settingsPane('billing').nameKey),
-          headerLeft: closeButton,
-        }}
-      />
-    </Stack>
+    <UnitsProvider>
+      <Stack screenOptions={screenOptions}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        {/* The thread names itself: title, avatar and subtitle come from the conversation. */}
+        <Stack.Screen name="chat/[conversationId]" options={{ title: '' }} />
+        <Stack.Screen name="activity/[provider]/[activityId]" options={{ title: '' }} />
+        <Stack.Screen
+          name="connections"
+          options={{
+            presentation: 'modal',
+            gestureEnabled: true,
+            title: t(settingsPane('connections').nameKey),
+            headerLeft: closeButton,
+          }}
+        />
+        <Stack.Screen
+          name="notifications"
+          options={{
+            presentation: 'modal',
+            gestureEnabled: true,
+            title: t('common.notifications'),
+            headerLeft: () => <HeaderCloseButton testID="notifications-back" />,
+          }}
+        />
+        {/* Memory names itself: both clients read the one `shell.memoryTitle`. */}
+        <Stack.Screen
+          name="memory"
+          options={{ presentation: 'modal', gestureEnabled: true, title: '', headerLeft: closeButton }}
+        />
+        <Stack.Screen
+          name="billing"
+          options={{
+            presentation: 'modal',
+            gestureEnabled: true,
+            title: t(settingsPane('billing').nameKey),
+            headerLeft: closeButton,
+          }}
+        />
+      </Stack>
+    </UnitsProvider>
   );
 }

@@ -16,6 +16,7 @@ import {
   weeklyReportSummary,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
+import { useDistanceUnit } from '@pierre/ui-logic';
 
 interface GroupInsightsPanelProps {
   groupId: string;
@@ -58,6 +59,7 @@ export default function GroupInsightsPanel({
   weeklyDigestEnabled,
 }: GroupInsightsPanelProps) {
   const { t, language } = useTranslation();
+  const units = useDistanceUnit();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
@@ -103,7 +105,7 @@ export default function GroupInsightsPanel({
             <h4 className="text-sm font-semibold text-on-surface">{t('groups.thisWeek')}</h4>
           </div>
           <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
-            {weeklyReportSummary(t, language, report.stats)}
+            {weeklyReportSummary(t, language, report.stats, units)}
           </p>
 
           {report.fresh_members.length > 0 && (

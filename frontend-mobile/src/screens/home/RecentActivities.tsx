@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import type { RecentActivitiesSync, UseActivityUploadResult } from '@pierre/ui-logic';
+import { useDistanceUnit, type RecentActivitiesSync, type UseActivityUploadResult } from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { ActivityMap } from './ActivityMap';
@@ -18,9 +18,10 @@ import { activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './
 
 type OpenActivity = (activity: HomeActivity) => void;
 
-/** "Sat 20 Sep · Ride · 92.0 km · 3h 41m 5s" — the row's second line, its figures in mono. */
+/** "Sat 20 Sep · Ride · 92.0 km · 3h 41m 5s" (or "57.2 mi") — the row's second line, its figures in mono. */
 function ActivityFacts({ activity }: { activity: HomeActivity }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   return (
     <Text className="text-sm text-text-secondary" numberOfLines={1}>
       <Text className="font-mono tabular-nums">{instantShortDate(activity.start_date, language)}</Text>
@@ -28,7 +29,7 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
       {sportLabel(t, activity.sport_type)}
       {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
       {activity.attribution && <Text testID="activity-attribution">{` · ${activity.attribution}`}</Text>}
-      {activityFigures(t, activity, language).map((figure, index) => (
+      {activityFigures(t, activity, language, unit).map((figure, index) => (
         // Positional: the figures are distance, time and climb, in that order.
         <Text key={index}>
           {' · '}

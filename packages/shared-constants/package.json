@@ -52,6 +52,7 @@
     "generate:client-css": "bun scripts/generate-client-css.ts"
   },
   "dependencies": {
+    "@pierre/chat-utils": "*",
     "@pierre/shared-types": "*"
   },
   "devDependencies": {

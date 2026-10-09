@@ -17,6 +17,7 @@ import InstallAppBanner from './components/InstallAppBanner';
 import ServiceWorkerUpdatePrompt from './components/ServiceWorkerUpdatePrompt';
 import OAuthCallback from './components/OAuthCallback';
 import ErrorBoundary from './components/ErrorBoundary';
+import UnitsProvider from './components/UnitsProvider';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
@@ -347,10 +348,12 @@ function AppContent() {
         state={onboarding}
         userDisplayName={user?.display_name}
         fallback={
-          <Dashboard
-            pendingInviteCode={pendingInviteCode}
-            onInviteCodeConsumed={() => setPendingInviteCode(null)}
-          />
+          <UnitsProvider>
+            <Dashboard
+              pendingInviteCode={pendingInviteCode}
+              onInviteCodeConsumed={() => setPendingInviteCode(null)}
+            />
+          </UnitsProvider>
         }
       />
     </div>

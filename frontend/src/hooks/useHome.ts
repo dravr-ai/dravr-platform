@@ -26,6 +26,7 @@ import {
   createHomePreferencesHook,
   readActivityRoute,
   recentActivitiesSync,
+  useDistanceUnit,
   useRequestsInFlight,
   type RecentActivitiesSync,
 } from '@pierre/ui-logic';
@@ -361,11 +362,12 @@ export function useTrainingVolume() {
  */
 export function useTodayRouteDraft(): string {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const plan = useTrainingPlan();
   const response = plan.data;
   if (response?.plan) {
     try {
-      const named = planDayRouteDraft(t, language, response.today, planDayOn(response.plan, response.today));
+      const named = planDayRouteDraft(t, language, response.today, planDayOn(response.plan, response.today), unit);
       if (named !== null) return named;
     } catch (error) {
       // A `today` that is not a calendar day cannot be named; the plain

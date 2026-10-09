@@ -49,6 +49,7 @@ import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import UnitsSettings from './settings/UnitsSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -692,7 +693,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               </div>
 
               {/* Language — the switcher's only reachable home. It sets the
-                  chrome language AND `users.locale`, so the coach answers in
+                  chrome language AND `users.locale`, so the agent answers in
                   the language the athlete reads the app in. */}
               <div className="mt-5 pt-5 border-t ghost-border-faint flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -701,6 +702,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 </div>
                 <LanguageSwitcher serverLocale={user?.locale} />
               </div>
+              <UnitsSettings />
             </Section>
 
             {/* Two numbers, label over value, set apart by space — not two

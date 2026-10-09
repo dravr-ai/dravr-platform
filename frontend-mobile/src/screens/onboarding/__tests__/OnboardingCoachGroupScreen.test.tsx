@@ -12,6 +12,10 @@ import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
 import { useOnboardingFlag } from '../../../hooks/useOnboardingFlag';
 
+const mockReplace = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ replace: mockReplace }),
+}));
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', display_name: 'Jean' } }),
 }));
@@ -88,6 +92,7 @@ async function nameAndCreate() {
 describe('OnboardingCoachGroupScreen', () => {
   beforeEach(() => {
     mockMark.mockReset().mockResolvedValue(undefined);
+    mockReplace.mockReset();
     createGroup.mockReset().mockResolvedValue(group('u1'));
     createConversation.mockReset().mockResolvedValue({ id: 'c-1' });
     createInvite.mockReset().mockResolvedValue({ code: 'ABCD2345' });
@@ -260,13 +265,36 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(createGroup).toHaveBeenCalledTimes(1);
   });
 
-  it('completes the step from the share screen', async () => {
+  it('retries a failed invite without making a second thread', async () => {
+    createInvite.mockRejectedValueOnce(new Error('network'));
     render(<OnboardingCoachGroupScreen />);
     await nameAndCreate();
-    await waitFor(() => expect(screen.getByText('Go to my group')).toBeTruthy());
 
-    fireEvent.press(screen.getByText('Go to my group'));
-    await waitFor(() => expect(mockMark).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText("We couldn't create the group. Try again.")).toBeTruthy());
+    fireEvent.press(screen.getByTestId('onboarding-group-create'));
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-group-link')).toBeTruthy());
+    expect(createConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes the step from the share screen, then opens the group thread', async () => {
+    // The thread replaces the step only once the step is recorded.
+    mockMark.mockImplementation(async () => {
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+    render(<OnboardingCoachGroupScreen />);
+    await nameAndCreate();
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(screen.getByText('Go to my group')).toBeTruthy();
+
+    fireEvent.press(done);
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/(app)/chat/[conversationId]',
+        params: { conversationId: 'c-1' },
+      }),
+    );
+    expect(mockMark).toHaveBeenCalledTimes(1);
     expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
   });
 
@@ -277,5 +305,7 @@ describe('OnboardingCoachGroupScreen', () => {
     await waitFor(() => expect(mockMark).toHaveBeenCalled());
     expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'skipped');
     expect(createGroup).not.toHaveBeenCalled();
+    // Later leaves the landing to the layout (Home), never a thread.
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });

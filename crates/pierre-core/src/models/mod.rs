@@ -61,6 +61,8 @@ mod tool_selection;
 /// Endurance daily training-state rollup (`DailyTrainingState`) backing
 /// the `training_history` table and the training-history tools.
 pub mod training_history;
+/// The athlete's unit system (metric or imperial) and the one rule that resolves it.
+pub mod units;
 mod user;
 /// Endurance calendar-ledger shapes (`PlannedSession`, `CalendarKey`,
 /// `PrescribedWorkout`) backing the `prescribed_workouts` table; the workout
@@ -138,6 +140,7 @@ pub use athlete::{Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
 };
+pub use units::{resolve_units, ResolvedUnits, UnitPreference, UnitSource, UnitSystem};
 
 // Physiology provenance domain
 pub use measurement::{

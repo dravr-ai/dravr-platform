@@ -338,6 +338,7 @@ fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
         lastname: profile_name(profile.lastname, target),
         profile_picture: profile.profile_picture_url,
         provider: "sciotte".to_owned(),
+        preferred_units: None,
     }
 }
 
@@ -380,6 +381,7 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
         lastname: None,
         profile_picture: None,
         provider: "sciotte".to_owned(),
+        preferred_units: None,
     })
 }
 

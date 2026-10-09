@@ -85,6 +85,7 @@
 //!             lastname: Some("Doe".to_owned()),
 //!             profile_picture: None,
 //!             provider: "custom".to_owned(),
+//!             preferred_units: None,
 //!         })
 //!     }
 //!

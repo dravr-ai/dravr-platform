@@ -477,6 +477,7 @@ async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
         lastname: None,
         profile_picture: None,
         provider: oauth_providers::SCIOTTE_GARMIN.to_owned(),
+        preferred_units: None,
     };
     let canonical_key = CacheKey::new(
         tenant_id,
@@ -1539,6 +1540,7 @@ async fn get_athlete_serves_canonical_cache_key_for_trainingpeaks_alias() {
         lastname: None,
         profile_picture: None,
         provider: oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned(),
+        preferred_units: None,
     };
     let canonical_key = CacheKey::new(
         tenant_id,

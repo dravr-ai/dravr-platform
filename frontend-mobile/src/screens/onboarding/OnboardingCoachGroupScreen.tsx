@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -23,6 +24,7 @@ import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboa
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { inviteLink } from '../../constants/inviteLink';
 import { CoachAccessRequest } from '../../components/CoachAccessRequest';
+import { threadHref } from '../../navigation/routes';
 
 /**
  * How long the onboarding athlete invite stays valid — the web step's value:
@@ -41,18 +43,21 @@ const QR_INK = BOREAL_LIGHT.onSurface;
  * inherited from the coach's own selection — a coach who does not train never
  * picked one. The server decides whether the coach is set as the group's
  * coach; a group that comes back without one is shown as access pending, with
- * a one-tap request a super-admin grants or declines (carnet#738).
+ * a one-tap request a super-admin grants or declines (carnet#738). "Go to my
+ * group" lands in the group's thread, the one this step creates with its agent.
  */
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { mark } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const progress = useOnboardingProgress('coach_group');
   const [name, setName] = useState('');
   const [pickingAgent, setPickingAgent] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [created, setCreated] = useState<CoachingGroup | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -61,6 +66,14 @@ export function OnboardingCoachGroupScreen() {
   const finish = async (status: 'complete' | 'skipped') => {
     userApi.setOnboardingStep('coach_group', status).catch(() => {});
     await mark();
+  };
+
+  // The step is recorded first, so the layout no longer holds the coach in
+  // onboarding; then the group's thread replaces the step. Nothing sits
+  // beneath it, so the thread's Back falls back to the conversation list.
+  const goToGroup = async (conversationId: string) => {
+    await finish('complete');
+    router.replace(threadHref(conversationId));
   };
 
   const create = async () => {
@@ -74,9 +87,13 @@ export function OnboardingCoachGroupScreen() {
         created ??
         (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
       setCreated(group);
-      await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id });
+      // Nor a second thread: the one made here is where "Go to my group" lands.
+      const conversationId =
+        threadId ??
+        (await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id })).id;
+      setThreadId(conversationId);
       // The chat list may already be cached from sign-in: the group's thread
-      // must be on it when "Go to my group" leads there.
+      // must be on it when the coach steps back from the thread to the list.
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       const invite = await groupsApi.createInvite(group.id, {
         expires_in_days: ONBOARDING_INVITE_DAYS,
@@ -89,7 +106,7 @@ export function OnboardingCoachGroupScreen() {
     }
   };
 
-  if (created && link) {
+  if (created && threadId && link) {
     return (
       <SafeAreaView className="flex-1 bg-surface">
         <ScrollView contentContainerClassName="py-10 px-4">
@@ -152,7 +169,7 @@ export function OnboardingCoachGroupScreen() {
           <View className="mt-8">
             <Button
               title={t('onboarding.groupDone')}
-              onPress={() => void finish('complete')}
+              onPress={() => void goToGroup(threadId)}
               testID="onboarding-group-done"
             />
           </View>

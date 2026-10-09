@@ -33,7 +33,7 @@ mod group_digest_room_tests {
         MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
-    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, UnitPreference, User, UserStatus};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
     use pierre_database::RepositoryRegistry;
@@ -439,6 +439,67 @@ mod group_digest_room_tests {
         assert_eq!(again.groups_reported, 0, "{again:?}");
         assert_eq!(h.poster.posts().len(), 1);
         assert_eq!(h.digest_rows(alice, tenant).await.len(), 1);
+    }
+
+    /// A manager on imperial units reads their own copy in miles, while the
+    /// one message every member reads in the group's chat stays metric: a
+    /// room cannot print one reader's miles beside another's kilometres
+    /// (carnet#835).
+    #[tokio::test]
+    async fn the_room_copy_stays_metric_while_an_imperial_manager_reads_miles() {
+        let h = Harness::new().await;
+        let alice = h
+            .person("Alice Martin", "fr", Some("America/Toronto"))
+            .await;
+        let bruno = h.person("Bruno Roy", "fr", None).await;
+        h.resources
+            .common
+            .repos
+            .unit_preferences
+            .set_unit_preference(alice, UnitPreference::Imperial)
+            .await
+            .unwrap();
+        let tenant = h.tenant(alice).await;
+        h.group(
+            tenant,
+            "Les Rouleurs",
+            GroupDigestMode::Chat,
+            Some(("telegram", "-1005284201189")),
+            &[
+                (alice, GroupRole::Owner, true),
+                (bruno, GroupRole::Admin, true),
+            ],
+        )
+        .await;
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(outcome.room_posts, 1, "{outcome:?}");
+
+        let posts = h.poster.posts();
+        let (_, _, _, text) = &posts[0];
+        assert!(text.contains("0,0 km en moyenne par membre"), "{text}");
+        assert!(text.contains("• Alice Martin : 0,0 km"), "{text}");
+        assert!(!text.contains(" mi"), "the room copy is metric: {text}");
+
+        let imperial = h.digest_rows(alice, tenant).await;
+        assert_eq!(imperial.len(), 1);
+        assert!(
+            imperial[0].contains("0,0 mi en moyenne par membre"),
+            "{}",
+            imperial[0]
+        );
+        assert!(
+            imperial[0].contains("• Bruno Roy : 0,0 mi"),
+            "{}",
+            imperial[0]
+        );
+
+        let metric = h.digest_rows(bruno, tenant).await;
+        assert!(
+            metric[0].contains("• Alice Martin : 0,0 km"),
+            "{}",
+            metric[0]
+        );
     }
 
     /// A group whose digest is off gets nothing — no post, no manager copy —

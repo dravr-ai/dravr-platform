@@ -236,11 +236,18 @@ describe('OnboardingCoachGroup', () => {
     expect(requestCoachAccessMock).toHaveBeenCalledTimes(2);
   });
 
-  it('completes the step from the share screen', async () => {
+  it('completes the step from the share screen and opens the group thread', async () => {
+    window.location.hash = '';
     const { onComplete } = renderStep();
     await nameAndCreate();
-    await userEvent.click(await screen.findByRole('button', { name: 'Go to my group' }));
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(done).toHaveTextContent('Go to my group');
+    // The hash is the dashboard's hand-off: it is written only once the step is recorded.
+    onComplete.mockImplementation(() => expect(window.location.hash).toBe(''));
+    await userEvent.click(done);
     expect(onComplete).toHaveBeenCalledWith('complete');
+    expect(window.location.hash).toBe('#chat/c-1');
+    window.location.hash = '';
   });
 
   it('keeps the coach on the step after a failure and retries without a second group', async () => {
@@ -255,6 +262,8 @@ describe('OnboardingCoachGroup', () => {
 
     expect(await screen.findByTestId('onboarding-group-link')).toBeInTheDocument();
     expect(createGroupMock).toHaveBeenCalledTimes(1);
+    // Nor a second thread: the group's one thread is the one "Go to my group" opens.
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
   });
 
   it('says so when the agents cannot be loaded', async () => {
@@ -266,10 +275,13 @@ describe('OnboardingCoachGroup', () => {
   });
 
   it('puts the step off with Later and creates nothing', async () => {
+    window.location.hash = '';
     const { onComplete } = renderStep();
     await userEvent.click(screen.getByRole('button', { name: 'Later' }));
     expect(onComplete).toHaveBeenCalledWith('skipped');
     expect(createGroupMock).not.toHaveBeenCalled();
+    // Later lands where the dashboard defaults, not in a thread.
+    expect(window.location.hash).toBe('');
   });
 
   it('cannot move on without a name', () => {

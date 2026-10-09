@@ -21,6 +21,7 @@ import {
   isDeletableActivity,
   lapsTable,
   splitsTable,
+  useDistanceUnit,
   type SegmentTable,
 } from '@pierre/ui-logic';
 import { EmptyState, HeaderActions, Section } from '../../components/ui';
@@ -39,9 +40,10 @@ import { activityNaming, instantShortDate, sportLabel } from '../home/homeFormat
 /** The figures, label over value, two to a row. */
 function Figures({ detail }: { detail: ActivityDetailResponse }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   return (
     <View className="flex-row flex-wrap px-4" testID="activity-figures">
-      {activityFigures(t, detail, language).map((figure) => (
+      {activityFigures(t, detail, language, unit).map((figure) => (
         <View key={figure.id} className="w-1/2 py-2" testID={`activity-figure-${figure.id}`}>
           <Text className="text-sm text-text-secondary">{t(figure.labelKey)}</Text>
           <Text className="font-mono text-base tabular-nums text-text-primary">{figure.value}</Text>
@@ -140,9 +142,10 @@ function ActivityHeader({
   onSend: (text: string) => void;
 }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const sport = sportLabel(t, detail.activity.sport_type);
-  const splits = splitsTable(detail, language);
-  const laps = lapsTable(detail, language);
+  const splits = splitsTable(detail, language, unit);
+  const laps = lapsTable(detail, language, unit);
   // The thread's list pads its rows; the header runs edge to edge like the
   // screen it replaced, each block keeping its own gutter.
   return (

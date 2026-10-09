@@ -155,6 +155,8 @@ pub mod user_rate_limit_overrides;
 pub mod user_tier_overrides;
 /// Per-user admin tool override table (`SQLite`) backing `UserToolOverrideRepository`.
 pub mod user_tool_overrides;
+/// Per-user unit preference inputs (`SQLite`) backing `UnitPreferencesRepository`.
+pub mod user_unit_preferences;
 /// User account management and authentication
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)

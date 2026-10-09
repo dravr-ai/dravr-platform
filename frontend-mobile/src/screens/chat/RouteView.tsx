@@ -38,6 +38,7 @@ import {
   type RasterStyle,
 } from '@pierre/shared-constants';
 
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { useTheme } from '../../constants/theme';
 
 function layerById(id: string): MapLayer {
@@ -380,6 +381,8 @@ export default function RouteView({
   markerUnit?: DistanceUnit | null;
 }) {
   const { t, language } = useTranslation();
+  // The climbs' ranges read in the athlete's units (carnet#835).
+  const unit = useDistanceUnit();
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   // Every map opens on the default layer; a pick holds for this map, inline and
@@ -508,7 +511,7 @@ export default function RouteView({
             <Text className="ml-1.5 text-xs text-text-secondary">{t('chat.routeClimbs')}</Text>
           </View>
           {route.climbs.map((climb) => {
-            const range = climbRange(distances, climb, language);
+            const range = climbRange(distances, climb, language, unit);
             const grade = climbGrade(climb, t);
             return (
               <View

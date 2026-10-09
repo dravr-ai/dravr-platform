@@ -18,6 +18,7 @@ import {
   weeklyReportSummary,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
+import { useDistanceUnit } from '@pierre/ui-logic';
 
 /** Corpus key per flag. Module scope, so the section resolves it at render. */
 const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
@@ -61,6 +62,7 @@ export function GroupInsightsSection({
   weeklyDigestEnabled,
 }: GroupInsightsSectionProps) {
   const { t, language } = useTranslation();
+  const units = useDistanceUnit();
   const colors = useThemeColors();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
@@ -110,7 +112,7 @@ export function GroupInsightsSection({
         <View className="mb-4">
           <Text className="text-text-primary text-sm font-semibold mb-2">{t('groups.thisWeek')}</Text>
           <Text className="text-text-secondary text-sm" testID="group-report-summary">
-            {weeklyReportSummary(t, language, report.stats)}
+            {weeklyReportSummary(t, language, report.stats, units)}
           </Text>
 
           {report.fresh_members.length > 0 && (

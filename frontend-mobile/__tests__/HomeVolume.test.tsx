@@ -7,6 +7,7 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
+import { UnitsContext } from '@pierre/ui-logic';
 import { HomeVolume } from '../src/screens/home/HomeVolume';
 import { VOLUME_RESPONSE } from '../integration/app/helpers/homeFixtures';
 
@@ -31,6 +32,19 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-time')).toHaveTextContent('3h 31m');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('530 m');
     expect(screen.getByTestId('home-volume-count')).toHaveTextContent('3 activities');
+  });
+
+  it('reads the week in miles and feet for an athlete on imperial units (carnet#835)', () => {
+    const screen = render(
+      <UnitsContext.Provider value="imperial">
+        <HomeVolume response={VOLUME_RESPONSE} isError={false} onRetry={jest.fn()} />
+      </UnitsContext.Provider>,
+    );
+    layOut(screen);
+
+    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('34.2 mi');
+    expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('1739 ft');
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 34.2 mi');
   });
 
   it('draws one bar per week the server sent, this week in full ink and read out', () => {

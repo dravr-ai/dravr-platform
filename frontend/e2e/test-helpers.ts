@@ -114,6 +114,27 @@ export async function applyTestStubs(page: Page) {
       body: body ?? JSON.stringify({ plan_suggestion_hidden: false }),
     });
   });
+  // The athlete's units (carnet#835): automatic, resolved to metric, the
+  // device locale the browser reports already stored; a PUT answers as the
+  // read does.
+  await page.route('**/api/me/units**', async (route) => {
+    const request = route.request();
+    const update =
+      request.method() === 'PUT' ? (request.postDataJSON() as { preference?: string; device_locale?: string }) : null;
+    const preference = update?.preference ?? 'automatic';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        preference,
+        units: preference === 'imperial' ? 'imperial' : 'metric',
+        source: preference === 'automatic' ? 'locale' : 'override',
+        provider: null,
+        provider_units: null,
+        device_locale: update?.device_locale ?? new URL(request.url()).searchParams.get('device_locale'),
+      }),
+    });
+  });
   await page.route('**/api/me/activities/recent**', async (route) => {
     await route.fulfill({
       status: 200,

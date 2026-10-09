@@ -8,6 +8,7 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup } from '@pierre/shared-types';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { DayRow, Figure } from '../chat/WorkoutPlanCard';
 import { activityFigures, planDayDraft, sportLabel } from './homeFormat';
 
@@ -57,6 +58,7 @@ function ActivityLine({
   openActivity: (activity: HomeActivity) => void;
 }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   return (
     <Pressable
       onPress={() => openActivity(activity)}
@@ -68,7 +70,7 @@ function ActivityLine({
         {activity.name}
       </Text>
       <Text className="text-xs text-text-secondary" numberOfLines={1}>
-        {[sportLabel(t, activity.sport_type), ...activityFigures(t, activity, language)].join(' · ')}
+        {[sportLabel(t, activity.sport_type), ...activityFigures(t, activity, language, unit)].join(' · ')}
       </Text>
     </Pressable>
   );

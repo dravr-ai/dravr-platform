@@ -233,6 +233,8 @@ export {
   freshMemberLine,
   weeklyReportSummary,
   weeklyReportRecommendations,
+  weeklyVolume,
+  weeklyVolumeFigure,
 } from './groups';
 
 // Coaching-platform link vocabulary: each refusal the group's link routes

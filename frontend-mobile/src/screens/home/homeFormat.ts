@@ -7,14 +7,12 @@
 import { planDayDistanceMeters, type HomeActivity, type PlanDay } from '@pierre/shared-types';
 import { activitySportLabelKey, sportHasRoutes } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
-import { formatDecimal } from '@pierre/chat-utils';
+import { formatDistance, formatElevation, formatSpokenDistance, type DistanceUnit } from '@pierre/chat-utils';
 
 /** The translator the helpers take; module scope holds no hook. */
 export type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const METRES_PER_KILOMETRE = 1000;
-const TENTHS = 10;
 
 /**
  * Midnight UTC of a `YYYY-MM-DD` date. A civil date carries no zone, so it is
@@ -96,16 +94,16 @@ export function syncedAtLabel(instant: string, language: string): string {
 }
 
 /**
- * The distance a Home row prints: metres as one decimal of a kilometre, in
- * the notation of `language` — `92.0 km`, `92,0 km`.
+ * The distance a Home row prints: one decimal of a kilometre or a mile, in
+ * the notation of `language` — `92.0 km`, `92,0 km`, `57.2 mi`.
  */
-export function kilometres(metres: number, language: string): string {
-  return `${formatDecimal(metres / METRES_PER_KILOMETRE, 1, language)} km`;
+export function rowDistance(metres: number, unit: DistanceUnit, language: string): string {
+  return formatDistance(metres, unit, 1, language);
 }
 
-/** Metres climbed, rounded to the metre, in the notation of `language`. */
-export function climbed(metres: number, language: string): string {
-  return `+${formatDecimal(Math.round(metres), 0, language)} m`;
+/** Metres climbed, rounded to the metre or the foot, in the notation of `language`. */
+export function climbed(metres: number, unit: DistanceUnit, language: string): string {
+  return `+${formatElevation(metres, unit, language)}`;
 }
 
 /**
@@ -120,17 +118,23 @@ export function sportLabel(t: Translate, sportType: string): string {
 /**
  * The figures a row prints after its name: distance, then duration, then the
  * climb — only the ones the provider reported, in the notation of `language`
- * and the duration in the words of `t` (`45 min 45 s` in French).
- * A missing distance is left out rather than printed as zero.
+ * and the athlete's `unit` system, the duration in the words of `t`
+ * (`45 min 45 s` in French). A missing distance is left out rather than
+ * printed as zero.
  */
-export function activityFigures(t: Translate, activity: HomeActivity, language: string): string[] {
+export function activityFigures(
+  t: Translate,
+  activity: HomeActivity,
+  language: string,
+  unit: DistanceUnit,
+): string[] {
   const figures: string[] = [];
   if (activity.distance_meters !== null && activity.distance_meters > 0) {
-    figures.push(kilometres(activity.distance_meters, language));
+    figures.push(rowDistance(activity.distance_meters, unit, language));
   }
   figures.push(formatDuration(t, activity.duration_seconds));
   if (activity.elevation_gain_meters !== null && activity.elevation_gain_meters > 0) {
-    figures.push(climbed(activity.elevation_gain_meters, language));
+    figures.push(climbed(activity.elevation_gain_meters, unit, language));
   }
   return figures;
 }
@@ -163,9 +167,10 @@ export function planDayDraft(t: Translate, day: PlanDay, language: string): stri
  * has none to look for: a rest day, or a session in a sport with no route (a
  * swim, strength work, the trainer). It names the day and the workout — and
  * the session's distance when the plan gives one, so the agent can rank
- * routes against it — and leaves the agent to ask where the athlete is.
+ * routes against it, in the athlete's `unit` system — and leaves the agent to
+ * ask where the athlete is.
  */
-export function planDayRouteDraft(t: Translate, day: PlanDay, language: string): string | null {
+export function planDayRouteDraft(t: Translate, day: PlanDay, language: string, unit: DistanceUnit): string | null {
   if (day.rest || typeof day.sport !== 'string' || !sportHasRoutes(day.sport)) {
     return null;
   }
@@ -173,14 +178,6 @@ export function planDayRouteDraft(t: Translate, day: PlanDay, language: string):
   const metres = planDayDistanceMeters(day);
   return metres === null
     ? t('home.plan.routeDraft', { date, workout: day.workout })
-    : t('home.plan.routeDistanceDraft', { distance: draftKilometres(metres, language), date, workout: day.workout });
+    : t('home.plan.routeDistanceDraft', { distance: formatSpokenDistance(metres, unit, language), date, workout: day.workout });
 }
 
-/**
- * A session's distance as a draft says it: "15 km", "12.5 km" — to the tenth
- * of a kilometre, without the decimal a whole figure does not need.
- */
-function draftKilometres(metres: number, language: string): string {
-  const tenths = Math.round(metres / (METRES_PER_KILOMETRE / TENTHS));
-  return `${formatDecimal(tenths / TENTHS, tenths % TENTHS === 0 ? 0 : 1, language)} km`;
-}

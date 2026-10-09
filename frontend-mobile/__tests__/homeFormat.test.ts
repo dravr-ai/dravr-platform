@@ -44,16 +44,16 @@ describe('civil dates', () => {
 
 describe('durations and figures', () => {
   it('prints only the figures the provider reported', () => {
-    expect(activityFigures(t, ACTIVITIES[0], 'en')).toEqual(['92.0 km', '3h 41m 5s', '+850 m']);
-    expect(activityFigures(t, ACTIVITIES[3], 'en')).toEqual(['30.0 km', '1h']);
-    expect(activityFigures(t, ACTIVITIES[4], 'en')).toEqual(['45m']);
+    expect(activityFigures(t, ACTIVITIES[0], 'en', 'metric')).toEqual(['92.0 km', '3h 41m 5s', '+850 m']);
+    expect(activityFigures(t, ACTIVITIES[3], 'en', 'metric')).toEqual(['30.0 km', '1h']);
+    expect(activityFigures(t, ACTIVITIES[4], 'en', 'metric')).toEqual(['45m']);
   });
 
   // `toFixed` writes a full stop in every language; a French athlete read
   // "92.0 km" until the row's figures went through Intl.NumberFormat.
   it('writes the distance in the athlete\'s notation, a decimal comma in French', () => {
-    expect(activityFigures(tFr, ACTIVITIES[0], 'fr')).toEqual(['92,0 km', '3 h 41 min 5 s', '+850 m']);
-    expect(activityFigures(tIn('de'), ACTIVITIES[3], 'de')[0]).toBe('30,0 km');
+    expect(activityFigures(tFr, ACTIVITIES[0], 'fr', 'metric')).toEqual(['92,0 km', '3 h 41 min 5 s', '+850 m']);
+    expect(activityFigures(tIn('de'), ACTIVITIES[3], 'de', 'metric')[0]).toBe('30,0 km');
   });
 
   // The row printed "45m 45s" in every language; each writes its own units.
@@ -69,9 +69,14 @@ describe('durations and figures', () => {
         tIn(language),
         { ...ACTIVITIES[4], duration_seconds: seconds, distance_meters: null, elevation_gain_meters: null },
         language,
+        'metric',
       );
     expect(figures(2_745)).toEqual([underAnHour]);
     expect(figures(5_410)).toEqual([overAnHour]);
+  });
+
+  it('prints miles and feet for an athlete on imperial units (carnet#835)', () => {
+    expect(activityFigures(t, ACTIVITIES[0], 'en', 'imperial')).toEqual(['57.2 mi', '3h 41m 5s', '+2789 ft']);
   });
 
   it('names a sport the vocabulary knows, and shows the provider spelling of one it does not', () => {
@@ -119,8 +124,14 @@ describe('the route draft for a planned session', () => {
   };
 
   it('carries the session distance when every step has one', () => {
-    expect(planDayRouteDraft(t, intervals, 'en')).toBe(
+    expect(planDayRouteDraft(t, intervals, 'en', 'metric')).toBe(
       'Suggest a 15 km route close to where I am for my session on Thursday, September 24: 8 × 1 km',
+    );
+  });
+
+  it('names the distance in miles for an athlete on imperial units (carnet#835)', () => {
+    expect(planDayRouteDraft(t, intervals, 'en', 'imperial')).toBe(
+      'Suggest a 9.3 mi route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
   });
 
@@ -129,17 +140,17 @@ describe('the route draft for a planned session', () => {
       ...intervals,
       steps: [{ label: 'Run', duration_seconds: 3600, distance_meters: 12_540, target_zone: 'Z2' }],
     };
-    expect(planDayRouteDraft(tFr, day, 'fr')).toBe(
+    expect(planDayRouteDraft(tFr, day, 'fr', 'metric')).toBe(
       "Propose-moi un parcours de 12,5 km près d'où je suis pour ma séance du jeudi 24 septembre : 8 × 1 km",
     );
   });
 
   it('names no distance for a session set by time, and has no draft where there is no route', () => {
     const timed = { ...intervals, steps: [{ label: 'Tempo', duration_seconds: 1500, target_zone: 'Z3' }] };
-    expect(planDayRouteDraft(t, timed, 'en')).toBe(
+    expect(planDayRouteDraft(t, timed, 'en', 'metric')).toBe(
       'Suggest a route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
-    expect(planDayRouteDraft(t, { ...intervals, sport: 'swim' }, 'en')).toBeNull();
-    expect(planDayRouteDraft(t, { ...intervals, rest: true }, 'en')).toBeNull();
+    expect(planDayRouteDraft(t, { ...intervals, sport: 'swim' }, 'en', 'metric')).toBeNull();
+    expect(planDayRouteDraft(t, { ...intervals, rest: true }, 'en', 'metric')).toBeNull();
   });
 });

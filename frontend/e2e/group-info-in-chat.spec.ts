@@ -646,6 +646,33 @@ test.describe('Group info — settings and consent', () => {
     await expect(page.getByText('Health flags (2)')).toBeVisible();
   });
 
+  test('a reader on imperial units reads the group volume in miles (carnet#835)', async ({ page }) => {
+    await openGroupInfo(page, {}, async (p) => {
+      await p.route('**/api/me/units**', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            preference: 'imperial',
+            units: 'imperial',
+            source: 'override',
+            provider: null,
+            provider_units: null,
+            device_locale: 'en-US',
+          }),
+        }),
+      );
+    });
+
+    // 38.5 km is 23.9 mi.
+    await expect(page.getByTestId('group-report-summary')).toHaveText(
+      '4/5 members active this week, averaging 23.9 mi each.',
+    );
+    const stats = page.getByTestId('group-info-stats');
+    await expect(stats).toContainText('23.9mi');
+    await expect(stats).not.toContainText('km');
+  });
+
   test('withholds the weekly report when the tenant tier does not include it', async ({ page }) => {
     await openGroupInfo(page, { weeklyDigest: false });
 

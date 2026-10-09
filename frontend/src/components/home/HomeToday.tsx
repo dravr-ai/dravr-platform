@@ -8,6 +8,7 @@ import { MapPin } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
 import { planDayOn } from '@pierre/shared-types';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import {
   DRAFT_DATE,
@@ -130,7 +131,8 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
   const { t, language } = useTranslation();
   const today = planDayOn(plan, calendar.today);
   const tomorrow = planDayOn(plan, calendar.tomorrow);
-  const routeDraft = planDayRouteDraft(t, language, calendar.today, today);
+  const unit = useDistanceUnit();
+  const routeDraft = planDayRouteDraft(t, language, calendar.today, today, unit);
   return (
     <Section
       title={t('chat.dayToday')}

@@ -667,6 +667,34 @@ test.describe('Athlete Home', () => {
     }
   });
 
+  test('an athlete on imperial units reads Home and the activity view in miles (carnet#835)', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockActivityView(page);
+    // Strava's own setting says feet: Automatic resolves to imperial.
+    await page.route('**/api/me/units**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          preference: 'automatic',
+          units: 'imperial',
+          source: 'provider',
+          provider: 'strava',
+          provider_units: 'imperial',
+          device_locale: 'en-US',
+        }),
+      }),
+    );
+    await login(page);
+
+    await expect(page.getByTestId('home-activity-row').first()).toContainText(' mi');
+    await page.getByTestId('home-activity-row').first().getByRole('button').click();
+    const view = page.getByTestId('activity-view');
+    await expect(view.getByTestId('activity-figure-distance')).toContainText('6.34 mi');
+    await expect(view.getByTestId('activity-figure-average_speed')).toContainText('/mi');
+  });
+
   test("tapping an activity opens its view: the map, its figures and splits, then a chat whose question goes out and is answered there", async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);

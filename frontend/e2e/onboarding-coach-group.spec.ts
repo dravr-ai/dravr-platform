@@ -89,10 +89,33 @@ async function setupCoach(page: Page, managesRoster: boolean) {
     }
     await json(route, 200, { request: accessRequest });
   });
-  await page.route('**/api/chat/conversations', async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    await json(route, 201, { id: 'c-1', title: 'Les Rouleurs', group_id: 'g-1' });
+  // The group's thread, made in the same step with the chosen agent: on the
+  // chat list once it exists, so the dashboard can open it.
+  let threadMade = false;
+  const groupThread = {
+    id: 'c-1',
+    title: 'Les Rouleurs',
+    agent_id: 'a-2',
+    agent_title: 'Triathlon Agent',
+    group_id: 'g-1',
+    group_name: 'Les Rouleurs',
+    message_count: 0,
+    unread_count: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    last_message: null,
+  };
+  await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route) => {
+    if (route.request().method() === 'POST') {
+      threadMade = true;
+      return json(route, 201, groupThread);
+    }
+    const conversations = threadMade ? [groupThread] : [];
+    await json(route, 200, { conversations, total: conversations.length, limit: 50, offset: 0 });
   });
+  await page.route('**/api/chat/conversations/c-1/messages', (route) =>
+    json(route, 200, { messages: [] }),
+  );
 
   await page.goto('/');
   await signInThroughHostedPage(page);
@@ -124,9 +147,14 @@ test('a coach with coach access leaves onboarding with a group, its link and its
   ]);
   expect(calls.invites).toEqual([{ expires_in_days: 30 }]);
 
-  await page.getByRole('button', { name: 'Go to my group' }).click();
+  await page.getByTestId('onboarding-group-done').click();
   await expect(page.getByTestId('onboarding-flow')).toHaveCount(0, { timeout: 10_000 });
   expect(calls.steps).toContain('coach_group:complete');
+  // "Go to my group" lands in the group's thread, not on Home.
+  await expect(page).toHaveURL(/#chat\/c-1$/);
+  await expect(page.getByTestId('conversation-header-title')).toHaveText(/Les Rouleurs/, {
+    timeout: 10_000,
+  });
 });
 
 test('a coach without coach access gets the group and asks for access in one tap', async ({
@@ -154,4 +182,6 @@ test('a coach can put the group step off', async ({ page }) => {
   await expect(page.getByTestId('onboarding-flow')).toHaveCount(0, { timeout: 10_000 });
   expect(calls.steps).toContain('coach_group:skipped');
   expect(calls.createGroup).toEqual([]);
+  // Later lands where it always has: the dashboard's default, Home.
+  await expect(page).toHaveURL(/#home$/);
 });

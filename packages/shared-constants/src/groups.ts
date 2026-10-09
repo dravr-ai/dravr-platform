@@ -4,6 +4,7 @@
 // ABOUTME: Phrases group health flags and the weekly report from their numbers, in the reader's language
 // ABOUTME: The server sends evidence and stats only; both clients render them through these keys and their own t()
 
+import { distanceInUnit, distanceSymbol, METRES_PER_KILOMETRE, type DistanceUnit } from '@pierre/chat-utils';
 import type {
   FreshMember,
   GroupAggregateStats,
@@ -22,7 +23,7 @@ export const HEALTH_FLAG_DETAIL_KEY = {
 
 /** The corpus key for each line of the weekly report. */
 export const WEEKLY_REPORT_KEY = {
-  summary: 'groups.report.summary',
+  summary: 'groups.report.summaryDistance',
   fresh: 'groups.report.fresh',
   concern: 'groups.report.concern',
   reviewFlagged: 'groups.report.reviewFlagged',
@@ -149,12 +150,32 @@ export function freshMemberLine(t: Translate, member: FreshMember): string {
   });
 }
 
-/** The weekly report's opening sentence: who was active, and how far they went. */
-export function weeklyReportSummary(t: Translate, language: string, stats: GroupAggregateStats): string {
+/**
+ * A weekly volume the server counts in kilometres, as the reader's `units`
+ * count it, to one decimal in the reader's notation and without its unit:
+ * `41.5` km reads `25.8` on imperial. Rounded like the server's digest
+ * ([`oneDecimal`]), so the panel and the reader's own digest agree.
+ */
+export function weeklyVolumeFigure(language: string, km: number, units: DistanceUnit): string {
+  return oneDecimal(language, distanceInUnit(km * METRES_PER_KILOMETRE, units));
+}
+
+/** A weekly volume in kilometres as the reader's `units` say it, unit included: `41.5 km`, `25.8 mi`. */
+export function weeklyVolume(language: string, km: number, units: DistanceUnit): string {
+  return `${weeklyVolumeFigure(language, km, units)} ${distanceSymbol(units)}`;
+}
+
+/** The weekly report's opening sentence: who was active, and how far they went, in the reader's units. */
+export function weeklyReportSummary(
+  t: Translate,
+  language: string,
+  stats: GroupAggregateStats,
+  units: DistanceUnit,
+): string {
   return t(WEEKLY_REPORT_KEY.summary, {
     active: stats.active_members,
     total: stats.total_members,
-    km: oneDecimal(language, stats.avg_weekly_volume_km),
+    distance: weeklyVolume(language, stats.avg_weekly_volume_km, units),
   });
 }
 

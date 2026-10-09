@@ -155,6 +155,8 @@ pub mod user_rate_limit_overrides;
 pub mod user_tier_overrides;
 /// Per-user admin tool override table (`Postgres`) backing `UserToolOverrideRepository`.
 pub mod user_tool_overrides;
+/// Per-user unit preference inputs (`Postgres`) backing `UnitPreferencesRepository`.
+pub mod user_unit_preferences;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
 /// dravr.ai docs sign-in link tokens (Postgres)

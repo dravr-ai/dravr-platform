@@ -1,4 +1,4 @@
-// ABOUTME: The NotificationLocalizer SPI impl — renders a dispatched event in the recipient's locale
+// ABOUTME: The NotificationLocalizer SPI impl — renders a dispatched event in the recipient's locale and units
 // ABOUTME: Sits beside the messaging sink and the persona gate as the third thing hanging off dispatch
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,9 +8,9 @@
 //!
 //! An Expo push and a message on a linked chat channel are read once and
 //! cannot be re-rendered later, so the sentence they carry has to be right the
-//! first time. This gate resolves the recipient's stored locale and renders
-//! the event through [`NotificationTextRenderer`] before the pipeline
-//! persists and pushes.
+//! first time. This gate resolves the recipient's stored locale and unit
+//! system and renders the event through [`NotificationTextRenderer`] before
+//! the pipeline persists and pushes.
 //!
 //! It hangs off the [`NotificationLocalizer`] SPI — like
 //! [`crate::notification_channel_sink::MessagingChannelSink`] hangs off the
@@ -28,6 +28,7 @@ use serde_json::Map;
 use tracing::debug;
 
 use crate::notification_text::NotificationTextRenderer;
+use crate::units::resolve_user_units;
 
 /// Renders a dispatched event in the recipient's stored locale.
 pub struct UserLocaleNotificationLocalizer {
@@ -50,7 +51,8 @@ impl UserLocaleNotificationLocalizer {
 
 #[async_trait]
 impl NotificationLocalizer for UserLocaleNotificationLocalizer {
-    /// Render the event in the recipient's language.
+    /// Render the event in the recipient's language, with every distance in
+    /// the recipient's units.
     ///
     /// A user row that cannot be read (deleted mid-dispatch, database error)
     /// falls back to the default locale rather than to English text baked into
@@ -69,7 +71,15 @@ impl NotificationLocalizer for UserLocaleNotificationLocalizer {
                 default_locale()
             }
         };
-        let renderer = NotificationTextRenderer::new(&self.strings, &locale);
+        let units = resolve_user_units(
+            self.repos.users.as_ref(),
+            self.repos.unit_preferences.as_ref(),
+            dispatch.user_id,
+            None,
+        )
+        .await;
+        let renderer =
+            NotificationTextRenderer::new(&self.strings, &locale).with_units(units.resolved.system);
         let empty = Map::new();
         let params = dispatch.params.as_object().unwrap_or(&empty);
         NotificationText {

@@ -1,4 +1,4 @@
-// ABOUTME: Profile pane — the identity row, then display name, account email, appearance and app language as Sections
+// ABOUTME: Profile pane — the identity row, then display name, account email, appearance, app language and units as Sections
 // ABOUTME: Holds what the web Profile pane holds, so the two clients group the same things
 
 import React, { useState } from 'react';
@@ -10,6 +10,7 @@ import { spacing, useThemeColors, useTheme } from '../../constants/theme';
 import type { AppearancePref } from '../../hooks/useAppearancePref';
 import { Button, InitialsAvatar, Input, PaneScrollView, Row, Section } from '../../components/ui';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { UnitsSettingsSection } from './UnitsSettingsSection';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
@@ -155,6 +156,8 @@ export function ProfileScreen() {
           >
             <LanguageSwitcher serverLocale={user?.locale} />
           </Section>
+
+          <UnitsSettingsSection />
 
           <View className="px-4">
             <Button

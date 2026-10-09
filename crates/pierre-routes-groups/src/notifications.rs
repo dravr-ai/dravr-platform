@@ -47,6 +47,7 @@ use pierre_notifications::{
 };
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
+use pierre_services::units::resolve_user_units;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// The rows an external caller's feed read scans per request to the upstream
@@ -62,7 +63,8 @@ struct FeedFilter<'a> {
     unread_only: bool,
 }
 
-/// Rewrite one feed row's title, body and action labels in the reader's locale.
+/// Rewrite one feed row's title, body and action labels in the reader's
+/// locale, with every distance in the reader's units.
 ///
 /// A row carrying its event parameters is rendered from the catalogue, so the
 /// same row reads French for a French athlete and English for an English one,
@@ -493,10 +495,19 @@ impl NotificationRoutes {
         // Render last, over the collapsed feed, so a group's own sentence is
         // the one the athlete reads rather than the representative row's.
         let locale = Self::reader_locale(&resources, auth.user_id).await;
+        let repos = resources.repos();
+        let units = resolve_user_units(
+            repos.users.as_ref(),
+            repos.unit_preferences.as_ref(),
+            auth.user_id,
+            None,
+        )
+        .await;
         let renderer = NotificationTextRenderer::new(
             GroupsCtx::messaging_strings_registry(resources.as_ref()),
             &locale,
-        );
+        )
+        .with_units(units.resolved.system);
         for item in &mut collapsed_items {
             localize_item(item, renderer);
         }

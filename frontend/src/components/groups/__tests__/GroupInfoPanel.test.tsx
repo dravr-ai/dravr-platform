@@ -12,6 +12,8 @@ import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
 import type { CoachingGroup, DelegatedConnection, GroupMember } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
+import { UnitsContext } from '@pierre/ui-logic';
+import type { DistanceUnit } from '@pierre/chat-utils';
 
 const CALLER_ID = 'user-caller';
 const OTHER_ID = 'user-other';
@@ -136,16 +138,18 @@ function member(overrides: Partial<GroupMember> = {}): GroupMember {
   } as GroupMember;
 }
 
-function renderPanel() {
+function renderPanel(units: DistanceUnit = 'metric') {
   const onMembershipEnded = vi.fn();
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <GroupInfoPanel groupId={GROUP_ID} onMembershipEnded={onMembershipEnded} />
-      </ToastProvider>
+      <UnitsContext.Provider value={units}>
+        <ToastProvider>
+          <GroupInfoPanel groupId={GROUP_ID} onMembershipEnded={onMembershipEnded} />
+        </ToastProvider>
+      </UnitsContext.Provider>
     </QueryClientProvider>,
   );
   return { ...utils, onMembershipEnded };
@@ -517,6 +521,19 @@ describe('GroupInfoPanel', () => {
     expect(within(rows[0]).getByText('No activity for 11 days')).toBeInTheDocument();
     expect(screen.getByText('Health flags (2)')).toBeInTheDocument();
     expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
+  });
+
+  it('prints the group volume in miles for a reader on imperial units', async () => {
+    renderPanel('imperial');
+
+    expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
+      '2/2 members active this week, averaging 25.8 mi each.',
+    );
+    const stats = within(screen.getByTestId('group-info-stats'));
+    // 41.5 km is 25.8 mi, with its unit beside it.
+    expect(stats.getByText('25.8')).toBeInTheDocument();
+    expect(stats.getByText('mi')).toBeInTheDocument();
+    expect(stats.queryByText('km')).toBeNull();
   });
 
   describe('in French', () => {

@@ -813,6 +813,7 @@ impl FitnessProvider for IntervalsIcuProvider {
             lastname: None,
             profile_picture: raw.profile_medium,
             provider: "intervals_icu".to_owned(),
+            preferred_units: None,
         })
     }
 

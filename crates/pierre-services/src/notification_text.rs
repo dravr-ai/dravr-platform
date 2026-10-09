@@ -25,12 +25,14 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
     KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
     KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MEMBERS_HEADER,
-    KEY_GROUP_DIGEST_MEMBER_LINE, KEY_GROUP_DIGEST_MEMBER_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
-    KEY_GROUP_DIGEST_SUMMARY, KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
+    KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV,
+    KEY_GROUP_DIGEST_ROOM_SCOPE, KEY_GROUP_DIGEST_SUMMARY_DISTANCE,
+    KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
     KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY, KEY_NOTIFICATION_PR_DISTANCE_10K,
     KEY_NOTIFICATION_PR_DISTANCE_5K, KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON,
     KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
+use pierre_core::models::UnitSystem;
 use pierre_notifications::events::{action_label_key, NotificationEvent};
 use serde_json::{Map, Value};
 
@@ -62,20 +64,39 @@ pub const PARAM_SHARED_MEMBERS: &str = "shared_members";
 /// members the group holds.
 pub const PARAM_ROSTER_MEMBERS: &str = "roster_members";
 
-/// Renders notification events as sentences in one locale.
+/// Renders notification events as sentences in one locale and one unit
+/// system.
 #[derive(Clone, Copy)]
 pub struct NotificationTextRenderer<'a> {
     /// The live catalogue, contremaitre overlays included.
     strings: &'a MessagingStringsRegistry,
     /// The locale every string is rendered in.
     locale: &'a str,
+    /// The unit system every distance is written in.
+    units: UnitSystem,
 }
 
 impl<'a> NotificationTextRenderer<'a> {
-    /// A renderer for `locale` over the live string catalogue.
+    /// A renderer for `locale` over the live string catalogue, writing
+    /// distances in metric.
+    ///
+    /// Metric is the neutral choice for a text several people read at once —
+    /// the digest posted into a group's chat. A text one person reads names
+    /// that reader's units with [`Self::with_units`] (carnet#835).
     #[must_use]
     pub const fn new(strings: &'a MessagingStringsRegistry, locale: &'a str) -> Self {
-        Self { strings, locale }
+        Self {
+            strings,
+            locale,
+            units: UnitSystem::Metric,
+        }
+    }
+
+    /// The same renderer writing distances in `units`: the reader's own
+    /// system, for a text only that reader sees.
+    #[must_use]
+    pub const fn with_units(self, units: UnitSystem) -> Self {
+        Self { units, ..self }
     }
 
     /// The notification title for `event`, filled from `params`.
@@ -178,11 +199,11 @@ impl<'a> NotificationTextRenderer<'a> {
             .flat_map(|line| [line, String::new()])
             .collect();
         lines.push(self.line(
-            KEY_GROUP_DIGEST_SUMMARY,
+            KEY_GROUP_DIGEST_SUMMARY_DISTANCE,
             &[
                 &whole(params.get("active_members")),
                 &whole(params.get("total_members")),
-                &self.decimal(params.get("avg_volume_km")),
+                &self.distance(params.get("avg_volume_km")),
             ],
         ));
         let trend_key = match params.get("trend").and_then(Value::as_str) {
@@ -198,13 +219,13 @@ impl<'a> NotificationTextRenderer<'a> {
         let members: Vec<String> = entries(params, "members")
             .map(|m| {
                 let name = param_text(m.get("name"));
-                let km = self.decimal(m.get("km"));
+                let distance = self.distance(m.get("km"));
                 m.get("prev_km").filter(|v| !v.is_null()).map_or_else(
-                    || self.line(KEY_GROUP_DIGEST_MEMBER_LINE, &[&name, &km]),
+                    || self.line(KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE, &[&name, &distance]),
                     |prev| {
                         self.line(
-                            KEY_GROUP_DIGEST_MEMBER_LINE_PREV,
-                            &[&name, &km, &self.decimal(Some(prev))],
+                            KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV,
+                            &[&name, &distance, &self.distance(Some(prev))],
                         )
                     },
                 )
@@ -278,12 +299,22 @@ impl<'a> NotificationTextRenderer<'a> {
         self.strings.render(key, self.locale, args)
     }
 
+    /// A distance stored in kilometres, written in this renderer's unit
+    /// system with its symbol: `41.5 km`, `25.8 mi`, `41,5 km` in French.
+    /// A missing value renders as an empty slot.
+    fn distance(&self, km: Option<&Value>) -> String {
+        km.and_then(Value::as_f64).map_or_else(String::new, |km| {
+            format!(
+                "{} {}",
+                self.decimal(self.units.distance_from_km(km)),
+                self.units.distance_symbol()
+            )
+        })
+    }
+
     /// A one-decimal number in this locale's notation: English writes
     /// `211.4`, and every other supported locale writes `211,4`.
-    fn decimal(&self, value: Option<&Value>) -> String {
-        let Some(number) = value.and_then(Value::as_f64) else {
-            return String::new();
-        };
+    fn decimal(&self, number: f64) -> String {
         let text = format!("{number:.1}");
         if self.locale.starts_with("en") {
             text

@@ -21,6 +21,10 @@ jest.mock('../src/services/api', () => ({
 
 const mockUpdateUser = jest.fn();
 const mockUseAuth = jest.fn();
+// The units section reads its own query; UnitsSettingsSection.test.tsx covers it.
+jest.mock('../src/screens/settings/UnitsSettingsSection', () => ({
+  UnitsSettingsSection: () => null,
+}));
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));

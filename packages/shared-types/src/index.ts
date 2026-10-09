@@ -213,6 +213,10 @@ export { ACTIVITY_UPLOAD_MAX_BYTES, UPLOAD_PROVIDER, parseActivityUploadResponse
 export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
 export { parseTrainingVolumeResponse } from './training-volume.js';
 
+// The athlete's units: the Settings choice and the system it resolves to (carnet#835)
+export type { UnitPreference, UnitPreferences, UnitPreferencesUpdate, UnitSource, UnitSystem } from './units.js';
+export { parseUnitPreferences } from './units.js';
+
 // Notification types (push notifications, device tokens, preferences)
 export type {
   NotificationCategory,

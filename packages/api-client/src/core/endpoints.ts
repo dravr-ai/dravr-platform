@@ -315,6 +315,8 @@ export const ENDPOINTS = {
     TRAINING_VOLUME: '/api/me/training-volume',
     /** What the athlete chose about Home — today, whether the plan suggestion is set aside (`GET`, `PUT`) */
     HOME_PREFERENCES: '/api/me/home-preferences',
+    /** The athlete's units and the Settings choice behind them (`GET ?device_locale=`, `PUT`) */
+    UNITS: '/api/me/units',
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },

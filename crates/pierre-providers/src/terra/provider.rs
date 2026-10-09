@@ -154,6 +154,7 @@ impl FitnessProvider for TerraProvider {
                     lastname: None,
                     profile_picture: None,
                     provider: format!("terra:{}", user.provider.to_lowercase()),
+                    preferred_units: None,
                 });
             }
         }
@@ -166,6 +167,7 @@ impl FitnessProvider for TerraProvider {
             lastname: None,
             profile_picture: None,
             provider: "terra".to_owned(),
+            preferred_units: None,
         })
     }
 

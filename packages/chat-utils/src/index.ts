@@ -113,7 +113,25 @@ export {
   DENSE_MARKER_LIMIT,
   LONG_ROUTE_STEP,
 } from './route';
-export type { DistanceUnit, RouteMarker } from './route';
+export type { RouteMarker } from './route';
+
+// Distances, elevation, pace and speed in the athlete's unit system (carnet#835)
+export {
+  METRES_PER_FOOT,
+  METRES_PER_KILOMETRE,
+  METRES_PER_MILE,
+  distanceInUnit,
+  distanceSymbol,
+  formatDistance,
+  formatElevation,
+  formatSignedElevation,
+  formatSpeedIn,
+  formatSpokenDistance,
+  metresPerDistanceUnit,
+  paceSymbol,
+  secondsPerDistanceUnit,
+} from './units';
+export type { DistanceUnit } from './units';
 export { fuelParts, stepDuration } from './workout-plan';
 
 // A figure in the athlete's own decimal notation, for every figure both clients print

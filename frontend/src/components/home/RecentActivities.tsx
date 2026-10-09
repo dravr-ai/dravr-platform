@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import type { HomeActivity } from '@pierre/shared-types';
 import { decodePolyline, type LatLon } from '@pierre/domain-utils';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
@@ -51,6 +52,7 @@ function polylinePoints(activity: HomeActivity): LatLon[] | null {
  */
 function ActivitySummary({ activity }: { activity: HomeActivity }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const sport = sportLabel(t, activity.sport_type);
   return (
     <span className="block min-w-0 flex-1">
@@ -68,7 +70,7 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
             {activity.attribution}
           </span>
         )}
-        {activityFigures(t, activity, language).map((figure) => (
+        {activityFigures(t, activity, language, unit).map((figure) => (
           <span key={figure}>
             {' · '}
             <span className="font-mono">{figure}</span>

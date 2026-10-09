@@ -172,6 +172,7 @@ impl FitnessProvider for Relay {
             lastname: Some("Rider".to_owned()),
             profile_picture: None,
             provider: RELAY.to_owned(),
+            preferred_units: None,
         })
     }
 

@@ -15,18 +15,18 @@ const t = tIn('en');
 
 describe('activityFigures', () => {
   it('writes the distance with a full stop in English', () => {
-    expect(activityFigures(t, activity({ id: 'a' }), 'en')).toEqual(['10.20 km', '1h', '+85 m']);
+    expect(activityFigures(t, activity({ id: 'a' }), 'en', 'metric')).toEqual(['10.20 km', '1h', '+85 m']);
   });
 
   it('writes the distance with a decimal comma in French, German, Spanish and Portuguese', () => {
     for (const language of ['fr', 'de', 'es', 'pt']) {
-      expect(activityFigures(tIn(language), activity({ id: 'a', distance_meters: 42_000 }), language)[0]).toBe('42,00 km');
+      expect(activityFigures(tIn(language), activity({ id: 'a', distance_meters: 42_000 }), language, 'metric')[0]).toBe('42,00 km');
     }
   });
 
   it('prints metres under a kilometre and leaves out a figure the activity does not carry', () => {
     expect(
-      activityFigures(tIn('fr'), activity({ id: 'a', distance_meters: 850, elevation_gain_meters: null }), 'fr'),
+      activityFigures(tIn('fr'), activity({ id: 'a', distance_meters: 850, elevation_gain_meters: null }), 'fr', 'metric'),
     ).toEqual(['850 m', '1 h']);
   });
 
@@ -38,7 +38,7 @@ describe('activityFigures', () => {
     ['pt', '45 min 45 s', '1 h 30 min 10 s'],
   ])('writes the time in the words of %s', (language, underAnHour, overAnHour) => {
     const figures = (seconds: number) =>
-      activityFigures(tIn(language), activity({ id: 'a', duration_seconds: seconds, distance_meters: null, elevation_gain_meters: null }), language);
+      activityFigures(tIn(language), activity({ id: 'a', duration_seconds: seconds, distance_meters: null, elevation_gain_meters: null }), language, 'metric');
     expect(figures(2_745)).toEqual([underAnHour]);
     expect(figures(5_410)).toEqual([overAnHour]);
   });
@@ -62,28 +62,34 @@ describe('planDayRouteDraft', () => {
   const session = (day: PlanDay): PlanDayLookup => ({ kind: 'session', day, week });
 
   it('carries the session distance when every step has one', () => {
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals))).toBe(
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals), 'metric')).toBe(
       'Suggest a 15 km route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
   });
 
   it('writes a fractional distance in the notation of the language', () => {
     const day = { ...intervals, steps: [{ label: 'Run', duration_seconds: 3600, distance_meters: 12_540, target_zone: 'Z2' }] };
-    expect(planDayRouteDraft(tIn('fr'), 'fr', '2026-09-24', session(day))).toBe(
+    expect(planDayRouteDraft(tIn('fr'), 'fr', '2026-09-24', session(day), 'metric')).toBe(
       "Propose-moi un parcours de 12,5 km près d'où je suis pour ma séance du jeudi 24 septembre : 8 × 1 km",
+    );
+  });
+
+  it('names the distance in miles for an athlete on imperial units (carnet#835)', () => {
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(intervals), 'imperial')).toBe(
+      'Suggest a 9.3 mi route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
   });
 
   it('names no distance for a session set by time', () => {
     const day = { ...intervals, steps: [{ label: 'Tempo', duration_seconds: 1500, target_zone: 'Z3' }] };
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(day))).toBe(
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session(day), 'metric')).toBe(
       'Suggest a route close to where I am for my session on Thursday, September 24: 8 × 1 km',
     );
   });
 
   it('has no draft for a rest day, an uncovered day, or a sport with no route', () => {
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'uncovered' })).toBeNull();
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'rest', day: { ...intervals, rest: true }, week })).toBeNull();
-    expect(planDayRouteDraft(t, 'en', '2026-09-24', session({ ...intervals, sport: 'swim' }))).toBeNull();
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'uncovered' }, 'metric')).toBeNull();
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', { kind: 'rest', day: { ...intervals, rest: true }, week }, 'metric')).toBeNull();
+    expect(planDayRouteDraft(t, 'en', '2026-09-24', session({ ...intervals, sport: 'swim' }), 'metric')).toBeNull();
   });
 });

@@ -28,6 +28,7 @@ import {
   mapLayerStyle,
   type MapLayer,
 } from '@pierre/shared-constants';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { useTheme } from '../../hooks/useTheme';
 import { addRouteLayers } from './routeLayers';
 import { addRouteMarkers } from './routeMarkers';
@@ -147,6 +148,8 @@ export default function RouteView({
   markerUnit?: DistanceUnit | null;
 }) {
   const { t, language } = useTranslation();
+  // The climbs' ranges read in the athlete's units (carnet#835).
+  const unit = useDistanceUnit();
   const { scheme } = useTheme();
   const container = useRef<HTMLDivElement | null>(null);
   const figure = useRef<HTMLElement | null>(null);
@@ -475,7 +478,7 @@ export default function RouteView({
           </p>
           <ul className="mt-1 space-y-0.5 text-xs text-on-surface-variant">
             {view.climbs.map((climb) => {
-              const range = climbRange(distances, climb, language);
+              const range = climbRange(distances, climb, language, unit);
               const grade = climbGrade(climb, t);
               return (
                 <li

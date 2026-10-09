@@ -27,7 +27,7 @@ const ONBOARDING_INVITE_DAYS = 30;
 type Phase =
   | { kind: 'name' }
   | { kind: 'agent' }
-  | { kind: 'share'; group: CoachingGroup; link: string };
+  | { kind: 'share'; group: CoachingGroup; link: string; conversationId: string };
 
 /**
  * The coach's group step: name the group, pick its agent, then share the
@@ -44,7 +44,7 @@ type Phase =
  * request a super-admin grants or declines (carnet#738); a grant makes the
  * coach this group's coach with no further step. The coach's chat thread for
  * the group is opened here too, since a group nobody has a thread for is a
- * group the coach cannot find.
+ * group the coach cannot find, and "Go to my group" lands in that thread.
  */
 export default function OnboardingCoachGroup({
   userDisplayName,
@@ -59,6 +59,7 @@ export default function OnboardingCoachGroup({
   const [phase, setPhase] = useState<Phase>({ kind: 'name' });
   const [agentId, setAgentId] = useState<string | null>(null);
   const [created, setCreated] = useState<CoachingGroup | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -74,14 +75,17 @@ export default function OnboardingCoachGroup({
         created ??
         (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
       setCreated(group);
-      await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id });
+      const conversationId =
+        threadId ??
+        (await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id })).id;
+      setThreadId(conversationId);
       // The chat list may already be cached: the group's thread must be on it.
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       const invite = await groupsApi.createInvite(group.id, {
         expires_in_days: ONBOARDING_INVITE_DAYS,
       });
       const link = `${window.location.origin}/groups/join/${encodeURIComponent(invite.code)}`;
-      setPhase({ kind: 'share', group, link });
+      setPhase({ kind: 'share', group, link, conversationId });
     } catch {
       setFailed(true);
     } finally {
@@ -92,7 +96,17 @@ export default function OnboardingCoachGroup({
   if (phase.kind === 'share') {
     return (
       <OnboardingShell heading={t('onboarding.groupInviteHeading')}>
-        <InviteShare group={phase.group} link={phase.link} onDone={() => onComplete('complete')} />
+        <InviteShare
+          group={phase.group}
+          link={phase.link}
+          onDone={() => {
+            // The step is recorded before the hand-off. The dashboard reads
+            // `#chat/<id>` when it mounts, which opens the group's thread in
+            // the Groups tab instead of Home.
+            onComplete('complete');
+            window.location.hash = `#chat/${encodeURIComponent(phase.conversationId)}`;
+          }}
+        />
       </OnboardingShell>
     );
   }
@@ -356,7 +370,12 @@ function InviteShare({
         </div>
       )}
 
-      <Button variant="primary" onClick={onDone} className="mt-8 w-full">
+      <Button
+        variant="primary"
+        onClick={onDone}
+        className="mt-8 w-full"
+        data-testid="onboarding-group-done"
+      >
         {t('onboarding.groupDone')}
       </Button>
     </>

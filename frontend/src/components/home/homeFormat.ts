@@ -9,13 +9,11 @@ import type { HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/sh
 import { addCivilDays, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
 import { activitySportLabelKey, sportHasRoutes } from '@pierre/shared-constants';
 import { formatDuration } from '@pierre/domain-utils';
-import { formatDecimal } from '@pierre/chat-utils';
-import { formatKilometres } from '@pierre/ui-logic';
+import { formatElevation, formatSpokenDistance, type DistanceUnit } from '@pierre/chat-utils';
+import { formatActivityDistance } from '@pierre/ui-logic';
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAYS_PER_WEEK = 7;
-const METRES_PER_KILOMETRE = 1000;
-const TENTHS = 10;
 
 /** The weekday, day and month a chat draft names a day by — "Tuesday 23 September", "mardi 23 septembre". */
 export const DRAFT_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' };
@@ -77,16 +75,22 @@ export function sportLabel(t: TFunction, sport: string): string {
 /**
  * The figures a row prints after the sport: distance, time, climbing — each
  * only when the activity carries it, in the notation of `language`
- * (`42,00 km` in French) and the time in the words of `t` (`45 min 45 s`).
+ * (`42,00 km` in French), the athlete's `unit` system (`26.10 mi`, `+279 ft`)
+ * and the time in the words of `t` (`45 min 45 s`).
  */
-export function activityFigures(t: TFunction, activity: HomeActivity, language: string): string[] {
+export function activityFigures(
+  t: TFunction,
+  activity: HomeActivity,
+  language: string,
+  unit: DistanceUnit,
+): string[] {
   const figures: string[] = [];
   if (activity.distance_meters !== null && activity.distance_meters > 0) {
-    figures.push(formatKilometres(activity.distance_meters, language));
+    figures.push(formatActivityDistance(activity.distance_meters, unit, language));
   }
   figures.push(formatDuration(t, activity.duration_seconds));
   if (activity.elevation_gain_meters !== null && activity.elevation_gain_meters > 0) {
-    figures.push(`+${formatDecimal(Math.round(activity.elevation_gain_meters), 0, language)} m`);
+    figures.push(`+${formatElevation(activity.elevation_gain_meters, unit, language)}`);
   }
   return figures;
 }
@@ -170,9 +174,16 @@ export function planDayDraft(t: TFunction, language: string, date: string, looku
  * session in a sport with no route (a swim, strength work, the trainer). The
  * draft names the day and the workout — and the session's distance when the
  * plan gives one, so the agent can rank routes against it — and leaves the
- * agent to ask where the athlete is before it searches.
+ * agent to ask where the athlete is before it searches. The distance reads
+ * in the athlete's `unit` system.
  */
-export function planDayRouteDraft(t: TFunction, language: string, date: string, lookup: PlanDayLookup): string | null {
+export function planDayRouteDraft(
+  t: TFunction,
+  language: string,
+  date: string,
+  lookup: PlanDayLookup,
+  unit: DistanceUnit,
+): string | null {
   if (lookup.kind !== 'session' || typeof lookup.day.sport !== 'string' || !sportHasRoutes(lookup.day.sport)) {
     return null;
   }
@@ -181,19 +192,10 @@ export function planDayRouteDraft(t: TFunction, language: string, date: string, 
   return meters === null
     ? t('home.plan.routeDraft', { date: named, workout: lookup.day.workout })
     : t('home.plan.routeDistanceDraft', {
-        distance: draftKilometres(meters, language),
+        distance: formatSpokenDistance(meters, unit, language),
         date: named,
         workout: lookup.day.workout,
       });
-}
-
-/**
- * A session's distance as a draft says it: "15 km", "12.5 km" — to the tenth
- * of a kilometre, without the decimal a whole figure does not need.
- */
-function draftKilometres(meters: number, language: string): string {
-  const tenths = Math.round(meters / (METRES_PER_KILOMETRE / TENTHS));
-  return `${formatDecimal(tenths / TENTHS, tenths % TENTHS === 0 ? 0 : 1, language)} km`;
 }
 
 /** A session's sport, minutes and intensity, in that order, each only when the day carries it. */

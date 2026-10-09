@@ -6,6 +6,8 @@ import { render, fireEvent, waitFor, act, within } from '@testing-library/react-
 import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
+import { UnitsContext } from '@pierre/ui-logic';
+import type { DistanceUnit } from '@pierre/chat-utils';
 import type {
   CoachingGroup,
   GroupHealthFlagsResponse,
@@ -171,13 +173,15 @@ const onLeft = jest.fn();
  * the open thread is scoped to. Sections other than Members start collapsed,
  * so a test opens the one it is about.
  */
-function renderGroup() {
+function renderGroup(units: DistanceUnit = 'metric') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <GroupInfoSheet groupId="group-1" fallbackName="Harricana 2027" onClose={onClose} onLeft={onLeft} />
+      <UnitsContext.Provider value={units}>
+        <GroupInfoSheet groupId="group-1" fallbackName="Harricana 2027" onClose={onClose} onLeft={onLeft} />
+      </UnitsContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -432,6 +436,24 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
     expect(getByText('No activity for 11 days')).toBeTruthy();
   });
 
+  it('reads the group volume in miles for a reader on imperial units (carnet#835)', async () => {
+    const { getByTestId, getByText, findByTestId } = renderGroup('imperial');
+
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-analytics-toggle'));
+    });
+    // 61.5 km is 38.2 mi, in the report and in the stat with its unit label.
+    await waitFor(() => {
+      expect(getByTestId('group-report-summary').props.children).toBe(
+        '2/2 members active this week, averaging 38.2 mi each.',
+      );
+    });
+    await waitFor(() => {
+      expect(getByTestId('group-stat-volume').props.children).toBe('38.2');
+    });
+    expect(getByText('Avg Vol (mi)')).toBeTruthy();
+  });
+
   describe('in French', () => {
     beforeEach(async () => {
       await i18n.changeLanguage('fr');
@@ -459,6 +481,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       await waitFor(() => {
         expect(getByTestId('group-stat-volume').props.children).toBe('61,5');
       });
+      expect(getByText('Vol. moy. (km)')).toBeTruthy();
     });
   });
 });

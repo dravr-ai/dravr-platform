@@ -4,18 +4,31 @@
 // ABOUTME: What one activity's view prints — its figures, its split and lap rows, pace or speed by sport — and the questions it offers
 // ABOUTME: Both clients render these lists as given, so the web and the phone show the same figures in the same order and units
 
-import { formatDecimal } from '@pierre/chat-utils';
+import {
+  formatDecimal,
+  formatDistance,
+  formatElevation,
+  formatSignedElevation,
+  formatSpeedIn,
+  METRES_PER_KILOMETRE,
+  paceSymbol,
+  secondsPerDistanceUnit,
+  type DistanceUnit,
+} from '@pierre/chat-utils';
 import { formatDuration, type DurationTranslate } from '@pierre/domain-utils';
 import type { ActivityDetailResponse } from '@pierre/shared-types';
 
-/** How a sport's speed reads: a pace per kilometre on foot, per 100 m in the water, a speed otherwise. */
-export type SpeedForm = 'pace_km' | 'pace_100m' | 'speed';
+/**
+ * How a sport's speed reads: a pace per kilometre or mile on foot, per 100 m
+ * in the water, a speed otherwise.
+ */
+export type SpeedForm = 'pace' | 'pace_100m' | 'speed';
 
 /**
- * Sports whose speed an athlete reads as a pace per kilometre — the canonical
- * keys `sport_type` carries (`activity-sports.json`).
+ * Sports whose speed an athlete reads as a pace per kilometre or mile — the
+ * canonical keys `sport_type` carries (`activity-sports.json`).
  */
-const PACE_PER_KM_SPORTS: ReadonlySet<string> = new Set([
+const PACE_SPORTS: ReadonlySet<string> = new Set([
   'run',
   'virtual_run',
   'trail_running',
@@ -29,14 +42,13 @@ const PACE_PER_100M_SPORTS: ReadonlySet<string> = new Set(['swim']);
 
 /** How `sport` reads its speed. A sport outside the vocabulary reads a speed. */
 export function speedForm(sport: string): SpeedForm {
-  if (PACE_PER_KM_SPORTS.has(sport)) return 'pace_km';
+  if (PACE_SPORTS.has(sport)) return 'pace';
   if (PACE_PER_100M_SPORTS.has(sport)) return 'pace_100m';
   return 'speed';
 }
 
 const SECONDS_PER_HOUR = 3600;
 const SECONDS_PER_MINUTE = 60;
-const METRES_PER_KM = 1000;
 const METRES_PER_POOL_UNIT = 100;
 
 /** `m:ss`, or `h:mm:ss` from an hour up. */
@@ -54,23 +66,32 @@ function formatWhole(value: number, language: string): string {
   return formatDecimal(Math.round(value), 0, language);
 }
 
-/** `10.00 km` (`10,00 km` in French), or `850 m` under a kilometre. */
-export function formatKilometres(meters: number, language: string): string {
-  return meters >= METRES_PER_KM
-    ? `${formatDecimal(meters / METRES_PER_KM, 2, language)} km`
-    : `${formatWhole(meters, language)} m`;
+/**
+ * An activity's distance as `unit` reads it: `10.00 km` (`10,00 km` in
+ * French), or `850 m` under a kilometre; `6.21 mi` on imperial units, to the
+ * hundredth of a mile at every length.
+ */
+export function formatActivityDistance(meters: number, unit: DistanceUnit, language: string): string {
+  if (unit === 'metric' && meters < METRES_PER_KILOMETRE) return `${formatWhole(meters, language)} m`;
+  return formatDistance(meters, unit, 2, language);
 }
 
 /**
- * A speed in metres per second as `form` reads it: `4:16 /km`, `1:52 /100 m`
- * or `28.4 km/h` (`28,4 km/h` in French). Null for a speed of zero, which has
- * no pace.
+ * A speed in metres per second as `form` and `unit` read it: `4:16 /km` or
+ * `6:52 /mi`, `1:52 /100 m` (a pool reads metres whatever the units), or
+ * `28.4 km/h` / `17.6 mph` (`28,4 km/h` in French). Null for a speed of zero,
+ * which has no pace.
  */
-export function formatSpeed(metersPerSecond: number, form: SpeedForm, language: string): string | null {
+export function formatSpeed(
+  metersPerSecond: number,
+  form: SpeedForm,
+  unit: DistanceUnit,
+  language: string,
+): string | null {
   if (!(metersPerSecond > 0)) return null;
-  if (form === 'pace_km') return `${formatClock(METRES_PER_KM / metersPerSecond)} /km`;
+  if (form === 'pace') return `${formatClock(secondsPerDistanceUnit(metersPerSecond, unit))} ${paceSymbol(unit)}`;
   if (form === 'pace_100m') return `${formatClock(METRES_PER_POOL_UNIT / metersPerSecond)} /100 m`;
-  return `${formatDecimal((metersPerSecond * SECONDS_PER_HOUR) / METRES_PER_KM, 1, language)} km/h`;
+  return formatSpeedIn(metersPerSecond, unit, language);
 }
 
 /** One figure of the view: the catalogue key of its label and its value with its unit. */
@@ -138,14 +159,15 @@ function averageSpeed(detail: ActivityDetailResponse, moving: number | null): nu
  * out from distance and moving time when the provider sent none
  * ({@link averageSpeed}); a top speed is printed only where the sport reads a
  * speed, since a best pace over one GPS sample says nothing an athlete can use.
- * Every figure is written in the notation of `language`, and the two times in
- * its words (`t`): `45 min 45 s` in French, where a bare `45:45` could be read
- * as hours and minutes.
+ * Every figure is written in the notation of `language` and the athlete's
+ * `unit` system, and the two times in its words (`t`): `45 min 45 s` in
+ * French, where a bare `45:45` could be read as hours and minutes.
  */
 export function activityFigures(
   t: DurationTranslate,
   detail: ActivityDetailResponse,
   language: string,
+  unit: DistanceUnit,
 ): ActivityFigure[] {
   const { activity } = detail;
   const form = speedForm(activity.sport_type);
@@ -159,7 +181,7 @@ export function activityFigures(
     'distance',
     'home.activity.figure.distance',
     activity.distance_meters !== null && activity.distance_meters > 0
-      ? formatKilometres(activity.distance_meters, language)
+      ? formatActivityDistance(activity.distance_meters, unit, language)
       : null,
   );
   push('moving_time', 'home.activity.figure.movingTime', moving !== null ? formatDuration(t, moving) : null);
@@ -167,17 +189,17 @@ export function activityFigures(
   push(
     'elevation_gain',
     'home.activity.figure.elevationGain',
-    activity.elevation_gain_meters !== null ? `${formatWhole(activity.elevation_gain_meters, language)} m` : null,
+    activity.elevation_gain_meters !== null ? formatElevation(activity.elevation_gain_meters, unit, language) : null,
   );
   push(
     'average_speed',
     form === 'speed' ? 'home.activity.figure.avgSpeed' : 'home.activity.figure.avgPace',
-    average !== null ? formatSpeed(average, form, language) : null,
+    average !== null ? formatSpeed(average, form, unit, language) : null,
   );
   push(
     'max_speed',
     'home.activity.figure.maxSpeed',
-    form === 'speed' && detail.max_speed_mps !== null ? formatSpeed(detail.max_speed_mps, form, language) : null,
+    form === 'speed' && detail.max_speed_mps !== null ? formatSpeed(detail.max_speed_mps, form, unit, language) : null,
   );
   push(
     'average_heart_rate',
@@ -229,17 +251,6 @@ interface Segment {
 }
 
 /**
- * A climb or a descent to the metre with its sign — `+4 m`, `-3 m` — the sign
- * written here rather than by `Intl`, which spells a minus differently by
- * locale; a change that rounds to zero carries none.
- */
-function signedMetres(metres: number, language: string): string {
-  const rounded = Math.round(metres);
-  const sign = rounded > 0 ? '+' : rounded < 0 ? '-' : '';
-  return `${sign}${formatWhole(Math.abs(rounded), language)} m`;
-}
-
-/**
  * A segment's speed in metres per second: its distance over its moving time
  * when the provider split that time out, so the pace agrees with the time
  * printed beside it — a provider rounds its own speed to the centimetre per
@@ -258,6 +269,7 @@ function segmentTable<T extends Segment>(
   segments: readonly T[],
   elevation: (segment: T) => number | null,
   language: string,
+  unit: DistanceUnit,
 ): SegmentTable {
   const form = speedForm(sport);
   const rows = segments.map((segment) => {
@@ -265,15 +277,15 @@ function segmentTable<T extends Segment>(
     const speed = segmentSpeed(segment);
     return {
       index: segment.index,
-      distance: formatKilometres(segment.distance_meters, language),
+      distance: formatActivityDistance(segment.distance_meters, unit, language),
       // Moving time when the provider split it out, as the provider's own
       // split pace is computed on it; elapsed time otherwise. A clock, as
       // the pace beside it is: a column of `m:ss` reads alike in every
       // language the app speaks and lines up digit for digit.
       time: formatClock(segment.moving_time_seconds ?? segment.elapsed_time_seconds),
-      speed: speed !== null ? formatSpeed(speed, form, language) : null,
+      speed: speed !== null ? formatSpeed(speed, form, unit, language) : null,
       heartRate: segment.average_heart_rate !== null ? `${formatWhole(segment.average_heart_rate, language)} bpm` : null,
-      elevation: climb !== null ? signedMetres(climb, language) : null,
+      elevation: climb !== null ? formatSignedElevation(climb, unit, language) : null,
     };
   });
   return {
@@ -286,13 +298,18 @@ function segmentTable<T extends Segment>(
 }
 
 /** The splits table, or null when the platform holds no splits for the activity. */
-export function splitsTable(detail: ActivityDetailResponse, language: string): SegmentTable | null {
+export function splitsTable(
+  detail: ActivityDetailResponse,
+  language: string,
+  unit: DistanceUnit,
+): SegmentTable | null {
   if (detail.splits.length === 0) return null;
   return segmentTable(
     detail.activity.sport_type,
     detail.splits,
     (split) => split.elevation_difference_meters,
     language,
+    unit,
   );
 }
 
@@ -300,9 +317,13 @@ export function splitsTable(detail: ActivityDetailResponse, language: string): S
  * The laps table, or null when the platform holds none — and when the only
  * lap is the whole activity, which repeats the figures above it.
  */
-export function lapsTable(detail: ActivityDetailResponse, language: string): SegmentTable | null {
+export function lapsTable(
+  detail: ActivityDetailResponse,
+  language: string,
+  unit: DistanceUnit,
+): SegmentTable | null {
   if (detail.laps.length < 2) return null;
-  return segmentTable(detail.activity.sport_type, detail.laps, (lap) => lap.elevation_gain_meters, language);
+  return segmentTable(detail.activity.sport_type, detail.laps, (lap) => lap.elevation_gain_meters, language, unit);
 }
 
 /**

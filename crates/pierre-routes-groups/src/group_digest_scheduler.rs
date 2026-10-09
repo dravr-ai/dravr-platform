@@ -544,6 +544,9 @@ where
     )
     .await;
     let empty = Map::new();
+    // Distances stay metric here, unlike the managers' own copies: one
+    // message is read by every member at once, and a room cannot print one
+    // member's miles beside another's kilometres (carnet#835).
     let text = NotificationTextRenderer::new(GroupsCtx::messaging_strings_registry(ctx), &locale)
         .channel_text(
             NotificationEvent::GroupWeeklyDigest,

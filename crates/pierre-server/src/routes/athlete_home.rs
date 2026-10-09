@@ -88,6 +88,8 @@
 //! - `GET`/`PUT /api/me/home-preferences` — the athlete's choices about what
 //!   Home offers, stored per user so web and mobile agree (see
 //!   [`home_preferences`]).
+//! - `GET`/`PUT /api/me/units` — the unit system the athlete reads distances
+//!   in, and the Settings choice behind it (see [`units`]).
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -97,6 +99,8 @@ pub mod calendar;
 pub mod home_preferences;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
+/// The athlete's units: the Settings choice and the system it resolves to.
+pub mod units;
 /// The upload of a completed workout's `.fit` file.
 pub mod upload;
 /// The weekly training volume read.
@@ -503,6 +507,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             "/api/me/home-preferences",
             get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
         )
+        .route("/api/me/units", get(units::get_units).put(units::put_units))
         .route("/api/me/calendar", get(calendar::get_calendar))
         .merge(upload::upload_routes())
 }

@@ -16,6 +16,7 @@ import {
   signedWhole,
   weeklyReportRecommendations,
   weeklyReportSummary,
+  weeklyVolume,
 } from '@pierre/shared-constants';
 import type { FlagEvidence, GroupAggregateStats, GroupHealthFlag } from '@pierre/shared-types';
 import en from '../../../../packages/i18n/src/locales/en/translation.json';
@@ -117,8 +118,11 @@ describe('group flag and weekly-report phrasing', () => {
     expect(
       freshMemberLine(t, { user_id: 'user-2', display_name: 'Phil', form_pct: 12.4, tsb: 8.6 }),
     ).toBe('Phil : forme fraîche (+12 % de sa charge chronique, TSB +9)');
-    expect(weeklyReportSummary(t, 'fr', STATS)).toBe(
+    expect(weeklyReportSummary(t, 'fr', STATS, 'metric')).toBe(
       '2/3 membres actifs cette semaine, 140,8 km en moyenne par membre.',
+    );
+    expect(weeklyReportSummary(t, 'fr', STATS, 'imperial')).toBe(
+      '2/3 membres actifs cette semaine, 87,5 mi en moyenne par membre.',
     );
     expect(weeklyReportRecommendations(t, STATS)).toEqual([
       'Membres à risque de surentraînement élevé : 1. Pense à adapter leur récupération.',
@@ -131,6 +135,13 @@ describe('group flag and weekly-report phrasing', () => {
     expect(weeklyReportRecommendations(t, { ...STATS, flagged_members: 0, weekly_trend: 'stable' })).toEqual([
       'Group volume is steady compared with last week.',
     ]);
+  });
+
+  it('writes a weekly volume in the reader units, rounded like the server digest', () => {
+    expect(weeklyVolume('en', 41.5, 'metric')).toBe('41.5 km');
+    expect(weeklyVolume('en', 41.5, 'imperial')).toBe('25.8 mi');
+    expect(weeklyVolume('fr', 242, 'imperial')).toBe('150,4 mi');
+    expect(weeklyVolume('en', 0, 'imperial')).toBe('0.0 mi');
   });
 
   it('writes decimals in the reader notation and signs whole numbers like the server digest', () => {

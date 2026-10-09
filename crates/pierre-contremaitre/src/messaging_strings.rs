@@ -1312,11 +1312,18 @@ pub const KEY_GROUP_DIGEST_TREND_STABLE: &str = "notifications.group_digest.tren
 pub const KEY_GROUP_DIGEST_TREND_DECLINING: &str = "notifications.group_digest.trend.declining";
 /// Key: heading over the per-member volume lines. No format placeholders.
 pub const KEY_GROUP_DIGEST_MEMBERS_HEADER: &str = "notifications.group_digest.members_header";
-/// Key: one member's week. `{0}` name, `{1}` km.
-pub const KEY_GROUP_DIGEST_MEMBER_LINE: &str = "notifications.group_digest.member_line";
-/// Key: one member's week beside the one before. `{0}` name, `{1}` km,
-/// `{2}` previous week's km.
-pub const KEY_GROUP_DIGEST_MEMBER_LINE_PREV: &str = "notifications.group_digest.member_line_prev";
+/// Key: the digest's opening line with its distance in the reader's units.
+/// `{0}` active members, `{1}` members, `{2}` average weekly distance per
+/// member with its unit (`41.5 km`, `25.8 mi`).
+pub const KEY_GROUP_DIGEST_SUMMARY_DISTANCE: &str = "notifications.group_digest.summary_distance";
+/// Key: one member's week in the reader's units. `{0}` name, `{1}` distance
+/// with its unit.
+pub const KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE: &str =
+    "notifications.group_digest.member_distance_line";
+/// Key: one member's week beside the one before, in the reader's units.
+/// `{0}` name, `{1}` distance with its unit, `{2}` the previous week's.
+pub const KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV: &str =
+    "notifications.group_digest.member_distance_line_prev";
 /// Key: heading over the members in fresh form. No format placeholders.
 pub const KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER: &str = "notifications.group_digest.highlights_header";
 /// Key: a member in fresh form. `{0}` name, `{1}` form as a signed % of CTL.

@@ -254,6 +254,7 @@
       "name": "@pierre/shared-constants",
       "version": "1.0.0",
       "dependencies": {
+        "@pierre/chat-utils": "*",
         "@pierre/shared-types": "*",
       },
       "devDependencies": {

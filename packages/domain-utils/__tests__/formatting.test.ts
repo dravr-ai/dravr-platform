@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for date and text formatting utilities
-// ABOUTME: Tests formatDuration in all five catalogue languages, formatDistance, formatPace, truncateText
+// ABOUTME: Tests formatDuration in all five catalogue languages and truncateText
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import en from '../../i18n/src/locales/en/translation.json';
@@ -10,8 +10,6 @@ import pt from '../../i18n/src/locales/pt/translation.json';
 import {
   type DurationTranslate,
   formatDuration,
-  formatDistance,
-  formatPace,
   truncateText,
 } from '../src/formatting';
 
@@ -78,54 +76,6 @@ describe('formatDuration', () => {
     expect(formatDuration(localized, 2745)).toBe(underAnHour);
     expect(formatDuration(localized, 5410)).toBe(overAnHour);
     expect(formatDuration(localized, 7200)).toBe(wholeHours);
-  });
-});
-
-describe('formatDistance', () => {
-  describe('metric', () => {
-    it('formats meters under 1000 as m', () => {
-      expect(formatDistance(500)).toBe('500 m');
-    });
-
-    it('formats meters >= 1000 as km', () => {
-      expect(formatDistance(5000)).toBe('5.00 km');
-    });
-
-    it('formats partial kilometers', () => {
-      expect(formatDistance(1500)).toBe('1.50 km');
-    });
-
-    it('handles zero', () => {
-      expect(formatDistance(0)).toBe('0 m');
-    });
-  });
-
-  describe('imperial', () => {
-    it('formats as miles for >= 1 mile', () => {
-      expect(formatDistance(5000, 'imperial')).toBe('3.11 mi');
-    });
-
-    it('formats as feet for < 1 mile', () => {
-      expect(formatDistance(100, 'imperial')).toBe('328 ft');
-    });
-  });
-});
-
-describe('formatPace', () => {
-  it('formats pace in metric', () => {
-    expect(formatPace(300)).toBe('5:00 /km');
-  });
-
-  it('formats pace in imperial', () => {
-    expect(formatPace(480, 'imperial')).toBe('8:00 /mi');
-  });
-
-  it('pads seconds with zero', () => {
-    expect(formatPace(305)).toBe('5:05 /km');
-  });
-
-  it('handles sub-minute pace', () => {
-    expect(formatPace(45)).toBe('0:45 /km');
   });
 });
 

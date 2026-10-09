@@ -19,6 +19,7 @@ import {
   createHomePreferencesHook,
   readActivityRoute,
   recentActivitiesSync,
+  useDistanceUnit,
   useRequestsInFlight,
 } from '@pierre/ui-logic';
 import { athleteApi, oauthApi } from '../services/api';
@@ -444,12 +445,13 @@ export function useTrainingVolume() {
  */
 export function useTodayRouteDraft(): string {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const { response } = useTrainingPlan();
   if (response?.plan) {
     const lookup = planDayOn(response.plan, response.today);
     if (lookup.kind === 'session') {
       try {
-        const named = planDayRouteDraft(t, lookup.day, language);
+        const named = planDayRouteDraft(t, lookup.day, language, unit);
         if (named !== null) return named;
       } catch (error) {
         // A day that is not a calendar day cannot be named; the plain

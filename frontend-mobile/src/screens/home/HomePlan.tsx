@@ -19,6 +19,7 @@ import {
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useHomePreferences } from '../../hooks/useHome';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -125,6 +126,7 @@ type OpenDraft = (draft: string) => void;
  */
 function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft: OpenDraft }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const colors = useThemeColors();
   const { todayLookup, tomorrowLookup, phaseWeek } = calendar;
   const phaseLabel =
@@ -136,7 +138,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
         });
 
   const routeDraft =
-    todayLookup.kind === 'session' ? planDayRouteDraft(t, todayLookup.day, language) : null;
+    todayLookup.kind === 'session' ? planDayRouteDraft(t, todayLookup.day, language, unit) : null;
 
   const today =
     todayLookup.kind === 'uncovered' ? (

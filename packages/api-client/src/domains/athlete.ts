@@ -8,6 +8,7 @@ import type { AxiosInstance } from 'axios';
 import {
   parseActivityUploadResponse,
   parseHomePreferences,
+  parseUnitPreferences,
   parseActivityDetailResponse,
   parseCalendarResponse,
   parseActivityRouteResponse,
@@ -24,6 +25,8 @@ import {
   type CalendarResponse,
   type HomeActivity,
   type HomePreferences,
+  type UnitPreferences,
+  type UnitPreferencesUpdate,
   type RecentActivitiesResponse,
   type TrainingPlanResponse,
   type TrainingStatusResponse,
@@ -266,6 +269,24 @@ export function createAthleteApi(axios: AxiosInstance) {
     async updateHomePreferences(prefs: HomePreferences): Promise<HomePreferences> {
       const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.HOME_PREFERENCES, prefs);
       return requireShape(parseHomePreferences(response.data), ENDPOINTS.ATHLETE.HOME_PREFERENCES);
+    },
+
+    /**
+     * The units the athlete reads, resolved by the server: their Settings
+     * choice, else their provider's own setting, else `deviceLocale` (the
+     * locale this device reports, empty when it reports none), which decides
+     * the answer without being stored.
+     */
+    async getUnitPreferences(deviceLocale: string): Promise<UnitPreferences> {
+      const params = deviceLocale === '' ? undefined : { device_locale: deviceLocale };
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.UNITS, { params });
+      return requireShape(parseUnitPreferences(response.data), ENDPOINTS.ATHLETE.UNITS);
+    },
+
+    /** Store the athlete's Settings choice and, when sent, the device's locale; answers as the read does. */
+    async updateUnitPreferences(update: UnitPreferencesUpdate): Promise<UnitPreferences> {
+      const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.UNITS, update);
+      return requireShape(parseUnitPreferences(response.data), ENDPOINTS.ATHLETE.UNITS);
     },
 
     /**

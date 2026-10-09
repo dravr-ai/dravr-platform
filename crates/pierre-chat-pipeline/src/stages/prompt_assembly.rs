@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::units::append_units_context;
 use pierre_providers::ai_scope;
 use std::sync::Arc;
 
@@ -783,6 +784,9 @@ pub(crate) async fn assemble_prompt_and_messages(
     } else {
         format!("{base_prompt}{provider_context}")
     };
+    // Stage 7b.1: the units the reader writes in (carnet#835).
+    let group_scoped = conv.group_id.is_some();
+    let base_prompt = append_units_context(&ctx.repos, user_uuid, group_scoped, base_prompt).await;
 
     // Stage 7c: Inject group coaching context — only when the conversation is
     // explicitly group-scoped. Personal 1:1 chats never inherit group context

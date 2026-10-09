@@ -14,6 +14,7 @@ import {
   isDeletableActivity,
   lapsTable,
   splitsTable,
+  useDistanceUnit,
   type SegmentTable,
 } from '@pierre/ui-logic';
 import type { ActivityDetailResponse } from '@pierre/shared-types';
@@ -56,9 +57,10 @@ function ViewHeader({ title, onBack, action }: { title: string; onBack: () => vo
 /** The activity's figures, label over value, as many to a row as the width holds; two in the side panel. */
 function Figures({ detail }: { detail: ActivityDetailResponse }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-2" data-testid="activity-figures">
-      {activityFigures(t, detail, language).map((figure) => (
+      {activityFigures(t, detail, language, unit).map((figure) => (
         <div key={figure.id} data-testid={`activity-figure-${figure.id}`}>
           <dt className="text-xs text-on-surface-variant">{t(figure.labelKey)}</dt>
           <dd className="mt-0.5 font-mono text-base font-medium text-on-surface">{figure.value}</dd>
@@ -231,6 +233,7 @@ function ActivityChat({
 
 export default function ActivityView({ activity, onBack, onNavigate }: ActivityViewProps) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const detail = useActivityDetail(activity.provider, activity.id);
 
   if (detail.data === undefined) {
@@ -260,8 +263,8 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
 
   const data = detail.data;
   const sport = sportLabel(t, data.activity.sport_type);
-  const splits = splitsTable(data, language);
-  const laps = lapsTable(data, language);
+  const splits = splitsTable(data, language, unit);
+  const laps = lapsTable(data, language, unit);
   // The chat comes straight after the map, in the document and on screen, so
   // the question field is there on arrival at every width; the figures,
   // splits and laps read after it. Below `lg` they follow it down the one

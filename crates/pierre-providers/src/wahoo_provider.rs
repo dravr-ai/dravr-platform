@@ -696,6 +696,7 @@ impl FitnessProvider for WahooProvider {
             lastname: user.last,
             profile_picture: None,
             provider: oauth_providers::WAHOO.to_owned(),
+            preferred_units: None,
         })
     }
 

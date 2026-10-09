@@ -41,9 +41,10 @@ import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
-import { coachPlatformName, oneDecimal } from '@pierre/shared-constants';
+import { coachPlatformName, oneDecimal, weeklyVolumeFigure } from '@pierre/shared-constants';
+import { distanceSymbol } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, useDistanceUnit } from '@pierre/ui-logic';
 
 interface GroupInfoPanelProps {
   /** The group this conversation is scoped to. */
@@ -110,6 +111,7 @@ export default function GroupInfoPanel({
   onOpenConnections,
 }: GroupInfoPanelProps) {
   const { t, language } = useTranslation();
+  const units = useDistanceUnit();
   const auth = useAuth();
   const { group, isLoading: isGroupLoading } = useGroup(groupId);
   const { members, isLoading: isMembersLoading } = useGroupMembers(groupId);
@@ -503,8 +505,8 @@ export default function GroupInfoPanel({
             <div className="stat-card-dark">
               <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
               <p className="text-xl font-bold text-on-surface">
-                {oneDecimal(language, stats.avg_weekly_volume_km)}
-                <span className="text-sm text-on-surface-variant ml-1">km</span>
+                {weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)}
+                <span className="text-sm text-on-surface-variant ml-1">{distanceSymbol(units)}</span>
               </p>
             </div>
             <div className="stat-card-dark">

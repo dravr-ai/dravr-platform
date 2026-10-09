@@ -8,6 +8,8 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
+import { UnitsContext } from '@pierre/ui-logic';
+import type { DistanceUnit } from '@pierre/chat-utils';
 import type { GroupHealthFlagsResponse, GroupWeeklyReportResponse } from '@pierre/shared-types';
 
 const mockReport: GroupWeeklyReportResponse = {
@@ -53,11 +55,13 @@ jest.mock('../src/services/api', () => ({
 
 import { GroupInsightsSection } from '../src/screens/groups/GroupInsightsSection';
 
-function renderSection() {
+function renderSection(units: DistanceUnit = 'metric') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={client}>
-      <GroupInsightsSection groupId="group-1" isAdmin weeklyDigestEnabled />
+      <UnitsContext.Provider value={units}>
+        <GroupInsightsSection groupId="group-1" isAdmin weeklyDigestEnabled />
+      </UnitsContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -98,5 +102,15 @@ describe('GroupInsightsSection', () => {
     });
     expect(getByText('Form at -40% of chronic load (TSB -40), deepest fatigue band')).toBeTruthy();
     expect(getByText('Luc: No activity for 10 days')).toBeTruthy();
+  });
+
+  it('reads the group volume in miles for an admin on imperial units', async () => {
+    const { getByTestId } = renderSection('imperial');
+
+    await waitFor(() => {
+      expect(getByTestId('group-report-summary').props.children).toBe(
+        '2/3 members active this week, averaging 87.5 mi each.',
+      );
+    });
   });
 });

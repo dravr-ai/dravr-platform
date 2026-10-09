@@ -8,7 +8,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { coachPlatformName, oneDecimal } from '@pierre/shared-constants';
+import { coachPlatformName, weeklyVolumeFigure } from '@pierre/shared-constants';
+import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -39,7 +40,7 @@ import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CONNECTIONS_ROUTE } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, useDistanceUnit } from '@pierre/ui-logic';
 import { inviteLink } from '../../constants/inviteLink';
 
 /** How long an invite created from this sheet stays redeemable. */
@@ -85,6 +86,7 @@ export interface GroupInfoSheetProps {
  */
 export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: GroupInfoSheetProps) {
   const { t, language } = useTranslation();
+  const units = useDistanceUnit();
   const colors = useThemeColors();
   const { user } = useAuth();
   const router = useRouter();
@@ -602,10 +604,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 {isLoadingStats
                   ? '…'
                   : stats?.avg_weekly_volume_km !== undefined
-                    ? oneDecimal(language, stats.avg_weekly_volume_km)
+                    ? weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)
                     : '--'}
               </Text>
-              <Text className="text-xs text-text-tertiary mt-0.5">{t('groups.avgVolumeKm')}</Text>
+              <Text className="text-xs text-text-tertiary mt-0.5">
+                {t('groups.avgVolumeIn', { unit: distanceSymbol(units) })}
+              </Text>
             </View>
           </View>
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />

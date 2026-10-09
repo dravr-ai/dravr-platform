@@ -29,8 +29,8 @@ use crate::repositories::{
     SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UploadedActivityFileRepository, UsageCounterRepository, UsageRepository,
-    UseCaseExposureRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
+    UsageRepository, UseCaseExposureRepository, UserMcpTokenRepository, UserOnboardingRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
     UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
@@ -199,6 +199,8 @@ pub struct RepositoryRegistry {
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
+    /// Per-user inputs that decide the unit system an athlete reads (carnet#835)
+    pub unit_preferences: Arc<dyn UnitPreferencesRepository>,
     /// Per-user admin tool override. Row presence force-enables/disables a
     /// single MCP tool for one user, overlaid above the tenant tool-selection
     /// computation (below `PIERRE_DISABLED_TOOLS`, above plan + tenant override).
@@ -311,6 +313,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            unit_preferences: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
@@ -400,6 +403,7 @@ impl RepositoryRegistry {
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             home_preferences: db.clone(),
+            unit_preferences: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),

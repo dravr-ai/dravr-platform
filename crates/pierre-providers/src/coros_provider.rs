@@ -481,6 +481,7 @@ impl FitnessProvider for CorosProvider {
             lastname: profile.last_name,
             profile_picture: profile.avatar_url,
             provider: oauth_providers::COROS.to_owned(),
+            preferred_units: None,
         })
     }
 

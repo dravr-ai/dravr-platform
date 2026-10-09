@@ -21,6 +21,7 @@ mod group_weekly_digest_tests {
     use pierre_core::models::groups::{
         GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
+    use pierre_core::models::{UnitPreference, UnitSystem};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_groups::GroupService;
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -183,6 +184,31 @@ En forme :
         assert!(body.contains("• Luc: no activity for 10 days"), "{body}");
     }
 
+    /// A manager on imperial units reads every distance in miles, from the
+    /// same kilometres the parameters store (carnet#835).
+    #[test]
+    fn an_imperial_manager_reads_the_distances_in_miles() {
+        let strings = MessagingStringsRegistry::new();
+        let renderer =
+            NotificationTextRenderer::new(&strings, "en").with_units(UnitSystem::Imperial);
+        let empty = Map::new();
+        let params = params();
+        let body = renderer.body(
+            NotificationEvent::GroupWeeklyDigest,
+            params.as_object().unwrap_or(&empty),
+        );
+        assert!(
+            body.starts_with("2/3 members active this week, averaging 87.5 mi each."),
+            "{body}"
+        );
+        assert!(
+            body.contains("• Marie: 150.4 mi (previous week: 124.3 mi)"),
+            "{body}"
+        );
+        assert!(body.contains("• Luc: 0.0 mi"), "{body}");
+        assert!(!body.contains("km"), "{body}");
+    }
+
     /// With nobody fresh and nobody flagged the digest says so, instead of
     /// ending on the roster as if something were missing.
     #[test]
@@ -293,6 +319,28 @@ En forme :
                 .contains("• Marie: form at -40% of chronic load, deepest fatigue band"),
             "{}",
             row["body"]
+        );
+
+        // Switching to imperial repairs the same row's distances too.
+        resources
+            .common
+            .repos
+            .unit_preferences
+            .set_unit_preference(user.id, UnitPreference::Imperial)
+            .await
+            .unwrap();
+        let rows = feed(&router, &token).await;
+        let body = rows.first().expect("the same row")["body"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            body.starts_with("2/3 members active this week, averaging 87.5 mi each."),
+            "{body}"
+        );
+        assert!(
+            body.contains("• Marie: 150.4 mi (previous week: 124.3 mi)"),
+            "{body}"
         );
     }
 }

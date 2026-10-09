@@ -44,37 +44,6 @@ export function formatDuration(t: DurationTranslate, seconds: number): string {
 }
 
 /**
- * Format distance in meters to human readable string
- * Uses km for >= 1000m, otherwise meters
- */
-export function formatDistance(meters: number, unit: 'metric' | 'imperial' = 'metric'): string {
-  if (unit === 'imperial') {
-    const miles = meters / 1609.344;
-    if (miles >= 1) {
-      return `${miles.toFixed(2)} mi`;
-    }
-    const feet = meters * 3.28084;
-    return `${Math.round(feet)} ft`;
-  }
-
-  if (meters >= 1000) {
-    return `${(meters / 1000).toFixed(2)} km`;
-  }
-  return `${Math.round(meters)} m`;
-}
-
-/**
- * Format pace (seconds per km or mile) to human readable string
- * e.g., 300 -> "5:00 /km"
- */
-export function formatPace(secondsPerUnit: number, unit: 'metric' | 'imperial' = 'metric'): string {
-  const minutes = Math.floor(secondsPerUnit / 60);
-  const seconds = Math.floor(secondsPerUnit % 60);
-  const unitLabel = unit === 'imperial' ? '/mi' : '/km';
-  return `${minutes}:${seconds.toString().padStart(2, '0')} ${unitLabel}`;
-}
-
-/**
  * Truncate text to a maximum length with ellipsis
  */
 export function truncateText(text: string, maxLength: number): string {

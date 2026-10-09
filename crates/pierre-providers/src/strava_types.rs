@@ -11,7 +11,8 @@
 // the visibility it had inside `strava_provider`; fields that were private to
 // that module are `pub(crate)` so the provider can still read them.
 
-use crate::models::PeriodTotals;
+use crate::constants::oauth_providers;
+use crate::models::{Athlete, PeriodTotals, UnitSystem};
 use serde::Deserialize;
 
 /// Strava API error response format
@@ -36,6 +37,28 @@ pub(crate) struct StravaAthleteResponse {
     pub(crate) firstname: Option<String>,
     pub(crate) lastname: Option<String>,
     pub(crate) profile_medium: Option<String>,
+    /// The athlete's own unit setting on Strava: `feet` or `meters`. Sent on
+    /// the authenticated athlete's own profile (`GET /athlete`) only.
+    pub(crate) measurement_preference: Option<String>,
+}
+
+impl StravaAthleteResponse {
+    /// The shared athlete, its unit setting read from `measurement_preference`
+    /// (`feet` is imperial, `meters` metric).
+    pub(crate) fn into_athlete(self) -> Athlete {
+        Athlete {
+            id: self.id.to_string(),
+            username: self.username.unwrap_or_default(),
+            firstname: self.firstname,
+            lastname: self.lastname,
+            profile_picture: self.profile_medium,
+            provider: oauth_providers::STRAVA.to_owned(),
+            preferred_units: self
+                .measurement_preference
+                .as_deref()
+                .and_then(UnitSystem::from_strava_measurement_preference),
+        }
+    }
 }
 
 /// Strava map data in API responses
@@ -286,4 +309,35 @@ pub struct StravaStreamSet {
     pub distance: Option<StravaStream<f64>>,
     /// GPS positions as `[lat, lng]`.
     pub latlng: Option<StravaStream<[f64; 2]>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn athlete(json: &str) -> Athlete {
+        serde_json::from_str::<StravaAthleteResponse>(json)
+            .expect("a Strava athlete body")
+            .into_athlete()
+    }
+
+    #[test]
+    fn measurement_preference_feet_reads_imperial_and_meters_metric() {
+        let feet = athlete(r#"{"id":1,"firstname":"Ann","measurement_preference":"feet"}"#);
+        assert_eq!(feet.preferred_units, Some(UnitSystem::Imperial));
+        assert_eq!(feet.provider, oauth_providers::STRAVA);
+        assert_eq!(feet.id, "1");
+
+        let meters = athlete(r#"{"id":2,"measurement_preference":"meters"}"#);
+        assert_eq!(meters.preferred_units, Some(UnitSystem::Metric));
+    }
+
+    #[test]
+    fn an_absent_or_unknown_measurement_preference_says_nothing() {
+        assert_eq!(athlete(r#"{"id":3}"#).preferred_units, None);
+        assert_eq!(
+            athlete(r#"{"id":4,"measurement_preference":"furlongs"}"#).preferred_units,
+            None
+        );
+    }
 }

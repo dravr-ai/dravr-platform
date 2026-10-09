@@ -35,6 +35,8 @@ export const QUERY_KEYS = {
     providerConnections: () => ['provider-connections'] as const,
     onboardingStatus: () => ['user-onboarding-status'] as const,
     coachAccessRequest: () => ['user-coach-access-request'] as const,
+    /** The units the athlete reads, and the Settings choice behind them. */
+    units: () => ['user-units'] as const,
   },
 
   // ==================== OAUTH ====================

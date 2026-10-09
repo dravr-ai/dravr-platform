@@ -89,6 +89,16 @@ export { type GroupFreshness, createGroupHooks } from './groupHooks';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
+// The athlete's units: the Settings hook, and the context every distance a surface prints reads (carnet#835).
+export {
+  type UnitsAutomaticHint,
+  type UseUnitPreferencesResult,
+  UNIT_PREFERENCE_OPTIONS,
+  UnitsContext,
+  createUnitPreferencesHook,
+  unitsAutomaticHint,
+  useDistanceUnit,
+} from './unitsHook';
 export {
   type ActivityUploadFailure,
   type ActivityUploadOutcome,
@@ -134,7 +144,7 @@ export {
   activityFigures,
   activityFirstLine,
   formatClock,
-  formatKilometres,
+  formatActivityDistance,
   formatSpeed,
   lapsTable,
   speedForm,

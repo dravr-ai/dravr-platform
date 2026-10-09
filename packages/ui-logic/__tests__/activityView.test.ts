@@ -18,7 +18,7 @@ import {
   activityFigures,
   activityFirstLine,
   formatClock,
-  formatKilometres,
+  formatActivityDistance,
   formatSpeed,
   lapsTable,
   speedForm,
@@ -71,9 +71,9 @@ function detail(overrides: Partial<ActivityDetailResponse> = {}, sport = 'run'):
 
 describe('speedForm', () => {
   it('reads a pace on foot, a pace per 100 m in the water, and a speed otherwise', () => {
-    expect(speedForm('run')).toBe('pace_km');
-    expect(speedForm('trail_running')).toBe('pace_km');
-    expect(speedForm('hike')).toBe('pace_km');
+    expect(speedForm('run')).toBe('pace');
+    expect(speedForm('trail_running')).toBe('pace');
+    expect(speedForm('hike')).toBe('pace');
     expect(speedForm('swim')).toBe('pace_100m');
     expect(speedForm('ride')).toBe('speed');
     expect(speedForm('Pickleball')).toBe('speed');
@@ -82,10 +82,10 @@ describe('speedForm', () => {
 
 describe('formatSpeed and formatClock', () => {
   it('prints a pace per km, per 100 m, and a speed in km/h', () => {
-    expect(formatSpeed(1000 / 256, 'pace_km', 'en')).toBe('4:16 /km');
-    expect(formatSpeed(100 / 112, 'pace_100m', 'en')).toBe('1:52 /100 m');
-    expect(formatSpeed(7.9, 'speed', 'en')).toBe('28.4 km/h');
-    expect(formatSpeed(0, 'pace_km', 'en')).toBeNull();
+    expect(formatSpeed(1000 / 256, 'pace', 'metric', 'en')).toBe('4:16 /km');
+    expect(formatSpeed(100 / 112, 'pace_100m', 'metric', 'en')).toBe('1:52 /100 m');
+    expect(formatSpeed(7.9, 'speed', 'metric', 'en')).toBe('28.4 km/h');
+    expect(formatSpeed(0, 'pace', 'metric', 'en')).toBeNull();
   });
 
   it('prints h:mm:ss from an hour up', () => {
@@ -96,7 +96,7 @@ describe('formatSpeed and formatClock', () => {
 
 describe('activityFigures', () => {
   it('prints every figure a run carries, pace for its speed and no top speed', () => {
-    expect(activityFigures(translator('en'), detail(), 'en').map((figure) => [figure.labelKey, figure.value])).toEqual([
+    expect(activityFigures(translator('en'), detail(), 'en', 'metric').map((figure) => [figure.labelKey, figure.value])).toEqual([
       ['home.activity.figure.distance', '10.00 km'],
       ['home.activity.figure.duration', '45m'],
       ['home.activity.figure.elevationGain', '64 m'],
@@ -110,7 +110,7 @@ describe('activityFigures', () => {
 
   it('prints a ride its speed and top speed', () => {
     const ride = detail({ average_speed_mps: 7.9, max_speed_mps: 15 }, 'ride');
-    const values = Object.fromEntries(activityFigures(translator('en'), ride, 'en').map((figure) => [figure.id, figure.value]));
+    const values = Object.fromEntries(activityFigures(translator('en'), ride, 'en', 'metric').map((figure) => [figure.id, figure.value]));
     expect(values.average_speed).toBe('28.4 km/h');
     expect(values.max_speed).toBe('54.0 km/h');
   });
@@ -125,7 +125,7 @@ describe('activityFigures', () => {
       average_power: null,
       calories: null,
     });
-    expect(activityFigures(translator('en'), bare, 'en').map((figure) => figure.id)).toEqual(['duration']);
+    expect(activityFigures(translator('en'), bare, 'en', 'metric').map((figure) => figure.id)).toEqual(['duration']);
   });
 });
 
@@ -222,7 +222,7 @@ describe('the moving time and duration figures', () => {
     const run = detail({ average_speed_mps: null, max_speed_mps: null, laps: [lap(1, 5_000, 1_200), lap(2, 5_000, 1_260)] });
     const long = { ...run, activity: { ...run.activity, duration_seconds: 4_530 } };
     const values = Object.fromEntries(
-      activityFigures(translator(language), long, language).map((figure) => [figure.id, figure.value]),
+      activityFigures(translator(language), long, language, 'metric').map((figure) => [figure.id, figure.value]),
     );
     expect(values.moving_time).toBe(moving);
     expect(values.duration).toBe(duration);
@@ -241,7 +241,7 @@ describe('the moving time and duration figures', () => {
       },
       'run',
     );
-    const figures = activityFigures(translator('en'), garmin, 'en');
+    const figures = activityFigures(translator('en'), garmin, 'en', 'metric');
     expect(figures.map((figure) => [figure.id, figure.labelKey, figure.value])).toEqual([
       ['distance', 'home.activity.figure.distance', '10.00 km'],
       ['duration', 'home.activity.figure.duration', '43m'],
@@ -293,7 +293,7 @@ describe('the average pace or speed without the provider\'s figure', () => {
   });
 
   it('keeps the provider\'s own figure when it sent one', () => {
-    const figures = Object.fromEntries(activityFigures(translator('en'), detail(), 'en').map((figure) => [figure.id, figure]));
+    const figures = Object.fromEntries(activityFigures(translator('en'), detail(), 'en', 'metric').map((figure) => [figure.id, figure]));
     expect(figures.average_speed.labelKey).toBe('home.activity.figure.avgPace');
     expect(figures.average_speed.value).toBe('4:16 /km');
   });
@@ -330,6 +330,7 @@ describe('splitsTable and lapsTable', () => {
         ],
       }),
       'en',
+      'metric',
     );
     expect(table).not.toBeNull();
     expect(table?.speedLabelKey).toBe('home.activity.column.pace');
@@ -354,12 +355,12 @@ describe('splitsTable and lapsTable', () => {
       average_speed_mps: 3.07,
       average_heart_rate: null,
     };
-    const row = splitsTable(detail({ splits: [split] }), 'fr')?.rows[0];
+    const row = splitsTable(detail({ splits: [split] }), 'fr', 'metric')?.rows[0];
     expect(row?.time).toBe('5:25');
     expect(row?.speed).toBe('5:25 /km');
     // Without a moving time, the elapsed time counts the stops, so the
     // provider's own speed is the one to print.
-    const elapsedOnly = splitsTable(detail({ splits: [{ ...split, moving_time_seconds: null }] }), 'fr')?.rows[0];
+    const elapsedOnly = splitsTable(detail({ splits: [{ ...split, moving_time_seconds: null }] }), 'fr', 'metric')?.rows[0];
     expect(elapsedOnly?.time).toBe('5:30');
     expect(elapsedOnly?.speed).toBe('5:26 /km');
   });
@@ -376,9 +377,9 @@ describe('splitsTable and lapsTable', () => {
       max_heart_rate: 176,
       average_power: 287,
     };
-    expect(splitsTable(detail(), 'en')).toBeNull();
-    expect(lapsTable(detail({ laps: [lap] }), 'en')).toBeNull();
-    expect(lapsTable(detail({ laps: [lap, { ...lap, index: 2 }] }), 'en')?.rows).toHaveLength(2);
+    expect(splitsTable(detail(), 'en', 'metric')).toBeNull();
+    expect(lapsTable(detail({ laps: [lap] }), 'en', 'metric')).toBeNull();
+    expect(lapsTable(detail({ laps: [lap, { ...lap, index: 2 }] }), 'en', 'metric')?.rows).toHaveLength(2);
   });
 });
 
@@ -405,22 +406,63 @@ describe('figures in the athlete\'s notation', () => {
       },
       'ride',
     );
-    const values = Object.fromEntries(activityFigures(translator('fr'), ride, 'fr').map((figure) => [figure.id, figure.value]));
+    const values = Object.fromEntries(activityFigures(translator('fr'), ride, 'fr', 'metric').map((figure) => [figure.id, figure.value]));
     expect(values.distance).toBe('42,00 km');
     expect(values.average_speed).toBe('29,7 km/h');
     expect(values.max_speed).toBe('54,0 km/h');
     expect(values.elevation_gain).toBe('1234 m');
-    expect(splitsTable(ride, 'fr')?.rows).toEqual([
+    expect(splitsTable(ride, 'fr', 'metric')?.rows).toEqual([
       { index: 1, distance: '1,50 km', time: '3:00', speed: '30,0 km/h', heartRate: '151 bpm', elevation: '-3 m' },
     ]);
   });
 
   it('keeps the full stop in English and German its comma', () => {
-    expect(formatKilometres(42_000, 'en')).toBe('42.00 km');
-    expect(formatKilometres(42_000, 'de')).toBe('42,00 km');
-    expect(formatKilometres(850, 'fr')).toBe('850 m');
-    expect(formatSpeed(29.7 / 3.6, 'speed', 'pt')).toBe('29,7 km/h');
+    expect(formatActivityDistance(42_000, 'metric', 'en')).toBe('42.00 km');
+    expect(formatActivityDistance(42_000, 'metric', 'de')).toBe('42,00 km');
+    expect(formatActivityDistance(850, 'metric', 'fr')).toBe('850 m');
+    expect(formatSpeed(29.7 / 3.6, 'speed', 'metric', 'pt')).toBe('29,7 km/h');
     expect(formatDecimal(1234.5, 1, 'es')).toBe('1234,5');
+  });
+});
+
+describe('figures on imperial units (carnet#835)', () => {
+  it('prints a run in miles, feet and minutes per mile', () => {
+    const values = Object.fromEntries(
+      activityFigures(translator('en'), detail(), 'en', 'imperial').map((figure) => [figure.id, figure.value]),
+    );
+    expect(values.distance).toBe('6.21 mi');
+    expect(values.elevation_gain).toBe('210 ft');
+    // 4:16 per kilometre is 6:53 per mile.
+    expect(values.average_speed).toBe('6:53 /mi');
+  });
+
+  it('prints a ride in mph, and a swim per 100 m whatever the units', () => {
+    expect(formatSpeed(7.9, 'speed', 'imperial', 'en')).toBe('17.7 mph');
+    expect(formatSpeed(100 / 112, 'pace_100m', 'imperial', 'en')).toBe('1:52 /100 m');
+    expect(formatActivityDistance(850, 'imperial', 'en')).toBe('0.53 mi');
+  });
+
+  it('prints a split in miles with its climb in feet', () => {
+    const table = splitsTable(
+      detail({
+        splits: [
+          {
+            index: 1,
+            distance_meters: 1_609.344,
+            elapsed_time_seconds: 420,
+            moving_time_seconds: 412,
+            elevation_difference_meters: 3,
+            average_speed_mps: 1_609.344 / 412,
+            average_heart_rate: null,
+          },
+        ],
+      }),
+      'en',
+      'imperial',
+    );
+    expect(table?.rows).toEqual([
+      { index: 1, distance: '1.00 mi', time: '6:52', speed: '6:52 /mi', heartRate: null, elevation: '+10 ft' },
+    ]);
   });
 });
 

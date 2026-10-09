@@ -111,13 +111,13 @@ describe('kilometres and metresAt', () => {
 
 describe('climbRange', () => {
   it('spells the climb as a kilometre range read off the distances', () => {
-    expect(climbRange([0, 4000, 6000, 8000], climb(1, 3, '2'), 'en')).toBe('km 4.0–8.0');
-    expect(climbRange([0, 12_400, 13_000, 15_000], climb(1, 3, '2'), 'fr')).toBe('km 12,4–15,0');
+    expect(climbRange([0, 4000, 6000, 8000], climb(1, 3, '2'), 'en', 'metric')).toBe('km 4.0–8.0');
+    expect(climbRange([0, 12_400, 13_000, 15_000], climb(1, 3, '2'), 'fr', 'metric')).toBe('km 12,4–15,0');
   });
 
   it('prints nothing when the track carried no distances or the climb points past them', () => {
-    expect(climbRange(null, climb(1, 3, '2'), 'en')).toBeNull();
-    expect(climbRange([0, 4000], climb(1, 3, '2'), 'en')).toBeNull();
+    expect(climbRange(null, climb(1, 3, '2'), 'en', 'metric')).toBeNull();
+    expect(climbRange([0, 4000], climb(1, 3, '2'), 'en', 'metric')).toBeNull();
   });
 });
 

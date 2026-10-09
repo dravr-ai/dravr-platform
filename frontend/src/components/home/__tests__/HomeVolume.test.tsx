@@ -9,6 +9,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
+import { UnitsContext } from '@pierre/ui-logic';
 import { HomeVolume } from '../HomeVolume';
 
 const api = vi.hoisted(() => ({
@@ -36,11 +37,13 @@ function volume(overrides: Partial<TrainingVolumeResponse> = {}): TrainingVolume
   };
 }
 
-function renderVolume() {
+function renderVolume(unit: 'metric' | 'imperial' = 'metric') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <HomeVolume />
+      <UnitsContext.Provider value={unit}>
+        <HomeVolume />
+      </UnitsContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -61,6 +64,15 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-time')).toHaveTextContent('3h 31m');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('530 m');
     expect(screen.getByTestId('home-volume-count')).toHaveTextContent('3 activities');
+  });
+
+  it('reads the week in miles and feet for an athlete on imperial units (carnet#835)', async () => {
+    api.getTrainingVolume.mockResolvedValue(volume());
+    renderVolume('imperial');
+
+    expect(await screen.findByTestId('home-volume-distance')).toHaveTextContent('34.18 mi');
+    expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('1739 ft');
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Oct 5: 34.18 mi');
   });
 
   it('draws one bar per week the server sent, this week highlighted and read out', async () => {

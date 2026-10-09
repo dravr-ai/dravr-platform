@@ -89,6 +89,8 @@ pub mod subject_context;
 pub mod tool_dispatch;
 /// Post-turn memory extraction, recorded before it runs
 pub mod turn_extraction;
+/// The unit system the reader writes in (prompt stage 7b.1).
+pub mod units;
 #[cfg(feature = "tools-verification")]
 pub mod verification;
 /// Inline visual blocks lifted out of a reply's prose.

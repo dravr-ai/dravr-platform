@@ -339,6 +339,9 @@ pub mod personal_bests;
 /// The language an athlete reads, resolved once for every surface
 pub mod locale;
 
+/// The unit system an athlete reads distances in, resolved once for every surface
+pub mod units;
+
 /// One tick loop for every background worker
 pub mod periodic;
 

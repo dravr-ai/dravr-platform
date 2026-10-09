@@ -8,6 +8,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ActivityRouteResponse, FeatureFlagMap } from '@pierre/shared-types';
+import type { DistanceUnit } from '@pierre/chat-utils';
+import { UnitsContext } from '@pierre/ui-logic';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { ActivityMap } from '../ActivityMap';
 import { activity, routeView } from './homeFixtures';
@@ -55,13 +57,15 @@ vi.mock('maplibre-gl', () => ({
   setWorkerUrl: () => {},
 }));
 
-function renderMap(sport: string, armed: boolean) {
+function renderMap(sport: string, armed: boolean, unit: DistanceUnit = 'metric') {
   api.getMyFeatures.mockResolvedValue({ flags: { route_km_markers: armed }, known: [] });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ActivityMap activity={activity({ id: 'act-1', sport_type: sport })} />
+        <UnitsContext.Provider value={unit}>
+          <ActivityMap activity={activity({ id: 'act-1', sport_type: sport })} />
+        </UnitsContext.Provider>
       </ThemeProvider>
     </QueryClientProvider>
   );
@@ -81,6 +85,18 @@ describe('ActivityMap markers', () => {
     await waitFor(() => expect(pinned.kinds).toContain('start'));
     expect(pinned.kinds).toContain('finish');
     expect(pinned.kinds[pinned.kinds.length - 1]).toBe('start');
+  });
+
+  it('counts the distance marks in the athlete units (carnet#835)', async () => {
+    // The fixture's track runs 4.5 km: four kilometre marks, two mile marks.
+    renderMap('run', true);
+    await waitFor(() => expect(pinned.kinds).toContain('finish'));
+    expect(pinned.kinds.filter((kind) => kind === 'distance')).toHaveLength(4);
+
+    pinned.kinds.length = 0;
+    renderMap('run', true, 'imperial');
+    await waitFor(() => expect(pinned.kinds).toContain('finish'));
+    expect(pinned.kinds.filter((kind) => kind === 'distance')).toHaveLength(2);
   });
 
   it('marks a hike and a trail run the same way', async () => {

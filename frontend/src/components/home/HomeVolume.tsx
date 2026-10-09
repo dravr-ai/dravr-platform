@@ -27,8 +27,8 @@ import {
   type VolumeMetric,
   type VolumeTotals,
 } from '@pierre/domain-utils';
-import { formatDecimal } from '@pierre/chat-utils';
-import { formatKilometres } from '@pierre/ui-logic';
+import { formatElevation, type DistanceUnit } from '@pierre/chat-utils';
+import { formatActivityDistance, useDistanceUnit } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { Tabs } from '../ui/Tabs';
@@ -45,21 +45,28 @@ const VOLUME_BOX: SketchBox = { width: 240, height: 72, padding: VOLUME_PADDING 
 /** A week's Monday as the readout and the axis ends print it: "20 Jul". */
 const WEEK_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
 
-/** A week's figure for the metric the bars stand for, in the reader's notation. */
-function metricText(t: TFunction, metric: VolumeMetric, value: number, language: string): string {
-  return metric === 'distance' ? formatKilometres(value, language) : formatDuration(t, weekMinutesSeconds(value));
+/** A week's figure for the metric the bars stand for, in the reader's notation and units. */
+function metricText(t: TFunction, metric: VolumeMetric, value: number, language: string, unit: DistanceUnit): string {
+  return metric === 'distance'
+    ? formatActivityDistance(value, unit, language)
+    : formatDuration(t, weekMinutesSeconds(value));
 }
 
 /** This week's three figures and its session count, for the selected sport or all of them. */
 function ThisWeek({ totals }: { totals: VolumeTotals }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const figures = [
-    { key: 'distance', label: t(TRAINING_VOLUME_KEY.distance), value: formatKilometres(totals.distance_meters, language) },
+    {
+      key: 'distance',
+      label: t(TRAINING_VOLUME_KEY.distance),
+      value: formatActivityDistance(totals.distance_meters, unit, language),
+    },
     { key: 'time', label: t(TRAINING_VOLUME_KEY.time), value: formatDuration(t, weekMinutesSeconds(totals.duration_seconds)) },
     {
       key: 'elevation',
       label: t(TRAINING_VOLUME_KEY.elevation),
-      value: `${formatDecimal(Math.round(totals.elevation_gain_meters), 0, language)} m`,
+      value: formatElevation(totals.elevation_gain_meters, unit, language),
     },
   ];
   return (
@@ -91,6 +98,7 @@ function ThisWeek({ totals }: { totals: VolumeTotals }) {
  */
 function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: readonly VolumeTotals[] }) {
   const { t, language } = useTranslation();
+  const unit = useDistanceUnit();
   const [pointed, setPointed] = useState<number | null>(null);
   const metric = volumeMetric(totals);
   const values = totals.map((week) => metricValue(week, metric));
@@ -132,8 +140,8 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
           aria-label={t(TRAINING_VOLUME_KEY.chartAlt, {
             label,
             from: day(starts[0]),
-            first: metricText(t, metric, values[0], language),
-            last: metricText(t, metric, values[last], language),
+            first: metricText(t, metric, values[0], language, unit),
+            last: metricText(t, metric, values[last], language, unit),
           })}
           data-testid="home-volume-trend"
           className="block h-full w-full"
@@ -166,7 +174,7 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
         <span>{day(starts[last])}</span>
       </div>
       <p data-testid="home-volume-readout" className="mt-2 text-xs text-on-surface-variant">
-        {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: metricText(t, metric, values[shown], language) })}
+        {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: metricText(t, metric, values[shown], language, unit) })}
       </p>
     </div>
   );

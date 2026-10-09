@@ -6,6 +6,9 @@ import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
 
 import { formatDecimal } from './number-format';
 import type { Translate } from './text';
+import { distanceInUnit, distanceSymbol, metresPerDistanceUnit, type DistanceUnit } from './units';
+
+export type { DistanceUnit } from './units';
 
 /**
  * The narrowest box a route map frames, in degrees, on either axis.
@@ -68,19 +71,21 @@ export function metresAt(series: number[], index: number): number | null {
 }
 
 /**
- * `km 4.0–8.0` for one climb (`km 4,0–8,0` in French), or null when the track
- * carried no distances.
+ * `km 4.0–8.0` for one climb (`km 4,0–8,0` in French; `mi 2.5–5.0` on
+ * imperial units), or null when the track carried no distances.
  */
 export function climbRange(
   distances: number[] | null,
   climb: RouteClimb,
   language: string,
+  unit: DistanceUnit,
 ): string | null {
   if (distances === null) return null;
   const from = metresAt(distances, climb.start_index);
   const to = metresAt(distances, climb.end_index);
   if (from === null || to === null) return null;
-  return `km ${kilometres(from, language)}–${kilometres(to, language)}`;
+  const at = (metres: number) => formatDecimal(distanceInUnit(metres, unit), 1, language);
+  return `${distanceSymbol(unit)} ${at(from)}–${at(to)}`;
 }
 
 /** A climb's average gradient to one decimal, `5.3%` (`5,3%` in French). */
@@ -155,15 +160,6 @@ export function climbGeometry(
   };
 }
 
-/** The unit a route's distance markers count in. */
-export type DistanceUnit = 'metric' | 'imperial';
-
-/** Metres in one marker unit: a kilometre, or a statute mile. */
-const METRES_PER_UNIT: Record<DistanceUnit, number> = {
-  metric: 1000,
-  imperial: 1609.344,
-};
-
 /**
  * The longest route, in marker units, that is marked at every unit. Past it
  * the marks thin to every `LONG_ROUTE_STEP` units, so a marathon carries 8
@@ -203,7 +199,7 @@ export function routeMarkers(
   const markers: RouteMarker[] = [{ kind: 'start', position: coordinates[0] }];
   const series = alignedSeries(distances, coordinates.length);
   if (series !== null && coordinates.length > 1) {
-    const metresPerUnit = METRES_PER_UNIT[unit];
+    const metresPerUnit = metresPerDistanceUnit(unit);
     const first = series[0];
     const last = series[series.length - 1];
     const step = last / metresPerUnit > DENSE_MARKER_LIMIT ? LONG_ROUTE_STEP : 1;

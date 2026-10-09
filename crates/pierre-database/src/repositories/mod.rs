@@ -185,6 +185,8 @@ pub(crate) mod user_references;
 pub mod user_tier_overrides;
 /// Repository trait, statements and shared body for per-user admin tool overrides.
 pub mod user_tool_overrides;
+/// Repository trait and shared body for the inputs that decide each athlete's unit system (carnet#835).
+pub mod user_unit_preferences;
 /// Repository traits for user accounts, profiles, password resets, physiological profile.
 pub mod users;
 /// The per-backend uuid column codec shared repository bodies take as an argument.
@@ -266,6 +268,7 @@ pub use user_references::{
 };
 pub use user_tier_overrides::*;
 pub use user_tool_overrides::*;
+pub use user_unit_preferences::{StoredUnitPreferences, UnitPreferencesRepository};
 pub use users::*;
 pub use weather::*;
 pub use website_sign_in_tokens::WebsiteSignInTokenRepository;

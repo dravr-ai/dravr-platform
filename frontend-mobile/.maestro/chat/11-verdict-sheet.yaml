@@ -159,12 +159,31 @@ onFlowComplete:
       id: "verdict-study-link"
     direction: DOWN
     timeout: 10000
+# The hand-off is awaited, never asserted the moment the link is tapped: on
+# iOS Safari can take several seconds to come up, and a tap that lands while
+# the sheet is still settling may not register at all (carnet#844). So the
+# first wait is allowed to run out; if the sheet is still in front after it
+# and no "could not open" alert came up, the link is tapped once more, and
+# the hand-off is then awaited with a generous timeout.
 - tapOn:
     id: "verdict-study-link"
 - extendedWaitUntil:
     notVisible:
       id: "verdict-sheet"
-    timeout: 20000
+    timeout: 15000
+    optional: true
+- runFlow:
+    when:
+      visible:
+        id: "verdict-sheet"
+    commands:
+      - assertNotVisible: "Could not open link|Impossible d'ouvrir le lien"
+      - tapOn:
+          id: "verdict-study-link"
+- extendedWaitUntil:
+    notVisible:
+      id: "verdict-sheet"
+    timeout: 45000
 - assertNotVisible: "Could not open link|Impossible d'ouvrir le lien"
 - takeScreenshot: "verdict-study-browser"
 # Back in the app the sheet is where it was: it did not close, the browser

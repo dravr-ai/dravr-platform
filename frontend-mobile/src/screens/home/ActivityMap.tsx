@@ -8,6 +8,7 @@ import React from 'react';
 import { Text, View } from 'react-native';
 import type { HomeActivity } from '@pierre/shared-types';
 import { sportIsOnFoot } from '@pierre/shared-constants';
+import { useDistanceUnit } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState } from '../../components/ui';
 import { useActivityRoute } from '../../hooks/useHome';
@@ -38,9 +39,8 @@ function MapNote({ children, testID }: { children: string; testID: string }) {
  * `burst` marks Home's map, one of its screen's burst of route reads.
  *
  * A run, trail run, walk or hike is drawn with its start, finish and distance
- * marks — the beta the `route_km_markers` flag arms per athlete. Counted in
- * kilometres: the platform holds no unit preference, and every distance it
- * prints is metric.
+ * marks — the beta the `route_km_markers` flag arms per athlete — counted in
+ * kilometres or miles, the athlete's own units (carnet#835).
  */
 export function ActivityMap({
   activity,
@@ -55,8 +55,8 @@ export function ActivityMap({
   const { t } = useTranslation();
   const route = useActivityRoute(activity.provider, activity.id, activity.has_gps, { burst });
   const { flags } = useFeatureFlags();
-  // LIMITATION(registre#835): markerUnit is metric for everyone — no per-user unit preference exists.
-  const markerUnit = flags[FEATURE_KEYS.routeKmMarkers] && sportIsOnFoot(activity.sport_type) ? 'metric' : null;
+  const unit = useDistanceUnit();
+  const markerUnit = flags[FEATURE_KEYS.routeKmMarkers] && sportIsOnFoot(activity.sport_type) ? unit : null;
 
   if (!activity.has_gps || route.reason === 'no_gps') {
     return <MapNote testID={`${testIDPrefix}-no-track`}>{t('chat.routeNoTrack')}</MapNote>;
