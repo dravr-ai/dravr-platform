@@ -1850,7 +1850,8 @@
       "summary": "{{active}}/{{total}} membros ativos esta semana, com média de {{km}} km cada.",
       "trendDeclining": "O volume do grupo caiu em relação à semana passada — fala com os membros menos ativos.",
       "trendImproving": "O volume do grupo subiu em relação à semana passada — garante que a recuperação acompanha.",
-      "trendStable": "O volume do grupo está estável em relação à semana passada."
+      "trendStable": "O volume do grupo está estável em relação à semana passada.",
+      "summaryDistance": "{{active}}/{{total}} membros ativos esta semana, com média de {{distance}} cada."
     },
     "respondEvery": "A cada mensagem",
     "respondMentioned": "Só quando é mencionado",
@@ -1882,7 +1883,8 @@
     "emptyBody": "Convida o teu clube ou um parceiro de treino: o Dravr responde quando o mencionam. As tuas conversas com o Dravr ficam no Início.",
     "createCta": "Criar um grupo",
     "pickOne": "Escolhe um grupo para o abrires.",
-    "searchPlaceholder": "Pesquisar um grupo"
+    "searchPlaceholder": "Pesquisar um grupo",
+    "avgVolumeIn": "Vol. médio ({{unit}})"
   },
   "home": {
     "plan": {
@@ -2561,7 +2563,10 @@
         "declining": "O volume do grupo caiu em relação à semana passada — fala com os membros menos ativos.",
         "improving": "O volume do grupo subiu em relação à semana passada — garante que a recuperação acompanha.",
         "stable": "O volume do grupo está estável em relação à semana passada."
-      }
+      },
+      "summary_distance": "{0}/{1} membros ativos esta semana, com média de {2} cada.",
+      "member_distance_line": "• {0}: {1}",
+      "member_distance_line_prev": "• {0}: {1} (semana anterior: {2})"
     },
     "hoursAgo": "há {{count}} h",
     "justNow": "Agora mesmo",

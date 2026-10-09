@@ -1850,7 +1850,8 @@
       "summary": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{km}} km pro Mitglied.",
       "trendDeclining": "Das Gruppenvolumen liegt unter der Vorwoche – melde dich bei den weniger aktiven Mitgliedern.",
       "trendImproving": "Das Gruppenvolumen liegt über der Vorwoche – achte darauf, dass die Erholung mithält.",
-      "trendStable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil."
+      "trendStable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil.",
+      "summaryDistance": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{distance}} pro Mitglied."
     },
     "respondEvery": "Auf jede Nachricht",
     "respondMentioned": "Nur wenn er erwähnt wird",
@@ -1882,7 +1883,8 @@
     "emptyBody": "Lade deinen Verein oder einen Trainingspartner ein: Dravr antwortet, wenn ihr es erwähnt. Deine Gespräche mit Dravr bleiben auf Start.",
     "createCta": "Gruppe erstellen",
     "pickOne": "Wähle eine Gruppe, um sie zu öffnen.",
-    "searchPlaceholder": "Gruppe suchen"
+    "searchPlaceholder": "Gruppe suchen",
+    "avgVolumeIn": "Ø Vol. ({{unit}})"
   },
   "home": {
     "plan": {
@@ -2561,7 +2563,10 @@
         "declining": "Das Gruppenvolumen liegt unter der Vorwoche – melde dich bei den weniger aktiven Mitgliedern.",
         "improving": "Das Gruppenvolumen liegt über der Vorwoche – achte darauf, dass die Erholung mithält.",
         "stable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil."
-      }
+      },
+      "summary_distance": "{0}/{1} Mitglieder diese Woche aktiv, im Schnitt {2} pro Mitglied.",
+      "member_distance_line": "• {0}: {1}",
+      "member_distance_line_prev": "• {0}: {1} (Vorwoche: {2})"
     },
     "hoursAgo": "vor {{count}} Std.",
     "justNow": "Gerade eben",

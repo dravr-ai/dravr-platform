@@ -1850,7 +1850,8 @@
       "summary": "{{active}}/{{total}} members active this week, averaging {{km}} km each.",
       "trendDeclining": "Group volume is down on last week — check in with the less active members.",
       "trendImproving": "Group volume is up on last week — make sure recovery keeps pace.",
-      "trendStable": "Group volume is steady compared with last week."
+      "trendStable": "Group volume is steady compared with last week.",
+      "summaryDistance": "{{active}}/{{total}} members active this week, averaging {{distance}} each."
     },
     "respondEvery": "To every message",
     "respondMentioned": "Only when mentioned",
@@ -1882,7 +1883,8 @@
     "emptyBody": "Invite your club or a training partner: Dravr answers when you mention it. Your own conversations with Dravr stay on Home.",
     "createCta": "Create a group",
     "pickOne": "Pick a group to open it.",
-    "searchPlaceholder": "Search groups"
+    "searchPlaceholder": "Search groups",
+    "avgVolumeIn": "Avg Vol ({{unit}})"
   },
   "home": {
     "plan": {
@@ -2561,7 +2563,10 @@
         "declining": "Group volume is down on last week — check in with the less active members.",
         "improving": "Group volume is up on last week — make sure recovery keeps pace.",
         "stable": "Group volume is steady compared with last week."
-      }
+      },
+      "summary_distance": "{0}/{1} members active this week, averaging {2} each.",
+      "member_distance_line": "• {0}: {1}",
+      "member_distance_line_prev": "• {0}: {1} (previous week: {2})"
     },
     "hoursAgo": "{{count}}h ago",
     "justNow": "Just now",
