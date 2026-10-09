@@ -24,13 +24,21 @@
 //! 3. Otherwise nothing: the call runs on the head's model (`PIERRE_LLM_MODEL`),
 //!    exactly as it did before stages existed.
 //!
+//! Then [`StageModels::checked_against`] holds each one to the head: a model
+//! the head's published list leaves out puts its stage back on the head's own
+//! model, with a warning naming the stage's variable. The head would refuse
+//! that id as an unavailable model, which the chain treats as a provider fault,
+//! so every call of the stage would be served by the next tier — a pooled
+//! account — instead of the head. An empty list publishes nothing to check
+//! against, and the configured model stands.
+//!
 //! What a stage model never reaches:
 //!
 //! - **A tier behind the head.** The runtime chain's strict policy clears
 //!   `request.model` on every hop (embacle `ResponsePolicy::strict`), so a stage
 //!   call that falls back — a provider fault, an empty completion, a head the
 //!   guard passes over — runs on that tier's own model. The ids are the head's
-//!   namespace; `claude-haiku-4.5` means nothing to Gemini.
+//!   namespace; `claude-haiku-5.5` means nothing to Gemini.
 //! - **A tenant's own provider.** A BYO key builds its provider from the
 //!   tenant's credential, never through [`ChatProvider::from_env`], so it
 //!   carries no stage models and every call it serves runs on its own model.
@@ -47,14 +55,18 @@ use tracing::{info, warn};
 use crate::config::LlmProviderType;
 use crate::LlmProvider;
 
-/// The model every [`LlmStage`] defaults to when the head is `copilot_sdk`.
+/// The model every [`LlmStage`] defaults to when the head is `copilot_sdk`:
+/// Copilot's id for Claude Haiku 5.5.
 ///
-/// Haiku 4.5 bills 0.33 of a premium request per Copilot turn against 1.0 for
-/// Sonnet (measured 2026-09-18), it is in the Copilot catalogue the SDK
-/// validates against, and every stage is a machine-read call — the reply the
-/// athlete reads stays on the main model. Set `PIERRE_LLM_MODEL_<STAGE>` to
-/// move one stage, or to `inherit` to keep it on the main model.
-pub const COPILOT_SDK_BACKGROUND_MODEL: &str = "claude-haiku-4.5";
+/// Haiku is Copilot's cheapest Claude tier — Haiku 4.5 billed 0.33 of a
+/// premium request per turn against 1.0 for Sonnet (measured 2026-09-18) — and
+/// every stage is a machine-read call, so the reply the athlete reads stays on
+/// the main model. Copilot ids spell the version with a dot, as the head's own
+/// `claude-sonnet-5.5` does. A head whose published list leaves the id out
+/// keeps every stage on its own model ([`StageModels::checked_against`]). Set
+/// `PIERRE_LLM_MODEL_<STAGE>` to move one stage, or to `inherit` to keep it on
+/// the main model.
+pub const COPILOT_SDK_BACKGROUND_MODEL: &str = "claude-haiku-5.5";
 
 /// A stage's environment value that keeps the stage on the head's own model.
 const INHERIT: &str = "inherit";
@@ -192,37 +204,51 @@ impl StageModels {
         self.models[stage.index()].as_deref()
     }
 
-    /// Log each stage's model, and warn for one the head does not publish.
+    /// These stage models held to `head`: each model the head publishes, or
+    /// that it cannot be checked against, stays; each one the head's published
+    /// list leaves out is dropped, so its stage runs on the head's own model.
     ///
-    /// A warning, not a refusal, as for the head's own model: the published
-    /// list can lag the vendor's catalogue. A stage model the head cannot serve
-    /// is refused at call time as an unavailable model, which the chain treats
-    /// as a provider fault, so the call moves to the next tier on that tier's
-    /// own model — it is served, but not where it was routed.
-    pub fn report_against(&self, head: &(impl LlmProvider + ?Sized)) {
-        let available = head.available_models();
+    /// Dropped rather than kept with a warning: the head refuses a model it
+    /// cannot serve as an unavailable model, which the chain treats as a
+    /// provider fault, so every call of that stage would move to the next tier
+    /// — a pooled account on its own model — while the head sat idle. An empty
+    /// list is a provider that publishes none, and the configured model is
+    /// trusted. Logged once per stage, here, when the head is built.
+    #[must_use]
+    pub fn checked_against(self, head: &(impl LlmProvider + ?Sized)) -> Self {
+        self.keep_published(head.name(), head.default_model(), head.available_models())
+    }
+
+    /// [`Self::checked_against`] over the head's name, own model and published
+    /// list.
+    fn keep_published(mut self, provider: &str, head_model: &str, available: &[String]) -> Self {
         for stage in LlmStage::ALL {
-            let Some(model) = self.model_for(stage) else {
+            let slot = &mut self.models[stage.index()];
+            let Some(model) = slot.take() else {
                 continue;
             };
-            if available.is_empty() || available.iter().any(|m| m == model) {
+            if available.is_empty() || available.contains(&model) {
                 info!(
-                    provider = head.name(),
+                    provider,
                     stage = stage.call_type(),
-                    model,
+                    model = %model,
                     "LLM stage routed to its own model"
                 );
+                *slot = Some(model);
             } else {
                 warn!(
-                    provider = head.name(),
+                    provider,
                     stage = stage.call_type(),
-                    model,
+                    model = %model,
                     env_var = stage.env_var(),
-                    "LLM stage model is not in the head provider's published list — a call the \
-                     provider refuses for it falls back to the next tier's own model"
+                    head_model,
+                    "LLM stage model is not in the head provider's published list, so the \
+                     stage runs on the head's own model — set the variable to a published id, \
+                     or to `inherit` to silence this"
                 );
             }
         }
+        self
     }
 }
 
@@ -261,7 +287,7 @@ mod tests {
         for stage in LlmStage::ALL {
             assert_eq!(
                 stages.model_for(stage),
-                Some("claude-haiku-4.5"),
+                Some(COPILOT_SDK_BACKGROUND_MODEL),
                 "{stage:?}"
             );
         }
@@ -276,7 +302,7 @@ mod tests {
         assert_eq!(stages.model_for(LlmStage::ClaimJudge), Some("gpt-5-mini"));
         assert_eq!(
             stages.model_for(LlmStage::MemoryExtraction),
-            Some("claude-haiku-4.5")
+            Some(COPILOT_SDK_BACKGROUND_MODEL)
         );
 
         let off_sdk = StageModels::resolve(
@@ -302,8 +328,59 @@ mod tests {
         assert_eq!(stages.model_for(LlmStage::MemoryExtraction), None);
         assert_eq!(
             stages.model_for(LlmStage::OutcomeEvaluation),
-            Some("claude-haiku-4.5")
+            Some(COPILOT_SDK_BACKGROUND_MODEL)
         );
+    }
+
+    fn published(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| (*id).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_stage_model_the_head_does_not_publish_runs_on_the_head_model() {
+        let stages = StageModels::resolve(
+            Some(LlmProviderType::CopilotSdk),
+            lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
+        )
+        .keep_published(
+            "copilot_sdk",
+            "claude-sonnet-5.5",
+            &published(&["claude-sonnet-5.5", "gpt-5-mini"]),
+        );
+
+        assert_eq!(
+            stages.model_for(LlmStage::ClaimJudge),
+            Some("gpt-5-mini"),
+            "a published override is kept"
+        );
+        for stage in LlmStage::ALL {
+            if stage != LlmStage::ClaimJudge {
+                assert_eq!(
+                    stages.model_for(stage),
+                    None,
+                    "{stage:?}: an unpublished id stays off the head, so the call is never \
+                     refused onto the next tier"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_published_stage_model_is_kept_and_an_empty_list_trusts_the_configuration() {
+        for available in [
+            published(&["claude-sonnet-5.5", COPILOT_SDK_BACKGROUND_MODEL]),
+            Vec::new(),
+        ] {
+            let stages = StageModels::resolve(Some(LlmProviderType::CopilotSdk), lookup(&[]))
+                .keep_published("copilot_sdk", "claude-sonnet-5.5", &available);
+            for stage in LlmStage::ALL {
+                assert_eq!(
+                    stages.model_for(stage),
+                    Some(COPILOT_SDK_BACKGROUND_MODEL),
+                    "{stage:?} against {available:?}"
+                );
+            }
+        }
     }
 
     #[test]

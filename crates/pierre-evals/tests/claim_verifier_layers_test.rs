@@ -22,6 +22,7 @@ use pierre_evals::{
 };
 use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
+use pierre_llm::stage::COPILOT_SDK_BACKGROUND_MODEL;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
 };
@@ -501,7 +502,7 @@ async fn the_judge_asks_for_its_stage_model_and_records_each_claim() {
     let judge = ClaimJudge {
         provider: &provider,
         system_prompt: CLAIM_JUDGE_PROMPT,
-        model: Some("claude-haiku-4.5"),
+        model: Some(COPILOT_SDK_BACKGROUND_MODEL),
         recorder: Some(&recorder),
     };
 
@@ -514,7 +515,10 @@ async fn the_judge_asks_for_its_stage_model_and_records_each_claim() {
 
     assert_eq!(first.status, ClaimStatus::Supported);
     assert_eq!(second.status, ClaimStatus::Supported);
-    assert_eq!(provider.last_model().as_deref(), Some("claude-haiku-4.5"));
+    assert_eq!(
+        provider.last_model().as_deref(),
+        Some(COPILOT_SDK_BACKGROUND_MODEL)
+    );
     let records = mem::take(&mut *captured.0.lock().expect("records lock"));
     assert_eq!(records.len(), 2, "one record per judged claim: {records:?}");
     assert!(records

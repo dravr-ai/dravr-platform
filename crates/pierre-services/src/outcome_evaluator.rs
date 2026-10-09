@@ -1004,7 +1004,10 @@ mod tests {
             EmbacleProvider::from_runner(
                 Box::new(SdkJudge {
                     requested: Arc::clone(&requested),
-                    models: vec!["claude-sonnet-5.5".to_owned()],
+                    models: vec![
+                        "claude-sonnet-5.5".to_owned(),
+                        COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
+                    ],
                 }),
                 "Copilot SDK judge (scripted)",
             )

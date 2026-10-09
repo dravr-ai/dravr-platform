@@ -562,7 +562,10 @@ mod tests {
                     name: "copilot_sdk",
                     answers: true,
                     requested: Arc::clone(&requested),
-                    models: vec!["claude-sonnet-5.5".to_owned()],
+                    models: vec![
+                        "claude-sonnet-5.5".to_owned(),
+                        COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
+                    ],
                 }),
                 "Copilot SDK classifier (scripted)",
             )
@@ -593,9 +596,10 @@ mod tests {
         assert_eq!(records[0].provider, "copilot_sdk");
     }
 
-    /// A stage model the head refuses moves the call to the next tier, which
-    /// answers on its own model; the record names that tier, so the row is
-    /// priced where the call was served rather than against the head.
+    /// A stage model the head publishes and still refuses (an entitlement
+    /// withdrawn after boot) moves the call to the next tier, which answers on
+    /// its own model; the record names that tier, so the row is priced where
+    /// the call was served rather than against the head.
     ///
     /// The only chain in this test binary whose head fails: the circuit
     /// breaker on a chain's primary is process-wide.
@@ -610,7 +614,10 @@ mod tests {
                         name: "copilot_sdk",
                         answers: false,
                         requested: Arc::clone(&head_requested),
-                        models: vec!["claude-sonnet-5.5".to_owned()],
+                        models: vec![
+                            "claude-sonnet-5.5".to_owned(),
+                            COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
+                        ],
                     }),
                     "Copilot SDK classifier (scripted)",
                 )

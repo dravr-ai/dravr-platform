@@ -197,6 +197,10 @@ fn default_candidates() -> Vec<Candidate> {
             kind: Kind::Copilot("claude-haiku-4.5"),
         },
         Candidate {
+            label: "claude:haiku-5.5",
+            kind: Kind::Copilot("claude-haiku-5.5"),
+        },
+        Candidate {
             label: "gemini:flash-lite",
             kind: Kind::Gemini("gemini-flash-lite-latest"),
         },

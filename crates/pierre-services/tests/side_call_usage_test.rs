@@ -109,7 +109,10 @@ fn copilot_sdk_head(answer: &'static str) -> (ChatProvider, ModelLog) {
     let requested = Arc::new(Mutex::new(Vec::new()));
     let runner = Scripted {
         answer,
-        models: vec!["claude-sonnet-5.5".to_owned()],
+        models: vec![
+            "claude-sonnet-5.5".to_owned(),
+            COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
+        ],
         requested: Arc::clone(&requested),
     };
     let head = EmbacleProvider::from_runner(Box::new(runner), "Copilot SDK (scripted)")

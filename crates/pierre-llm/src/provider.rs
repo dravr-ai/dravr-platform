@@ -124,13 +124,13 @@ impl ChatProvider {
     }
 
     /// This provider with its background stages routed per [`StageModels::from_env`],
-    /// for the kind its head was built as. A primary that failed to build
-    /// leaves a fallback at the head, and the stages follow that kind.
+    /// for the kind its head was built as and held to the models that head
+    /// publishes. A primary that failed to build leaves a fallback at the head,
+    /// and the stages follow that kind.
     fn with_stage_models_from_env(self) -> Self {
         match self {
             Self::Embacle(provider) => {
                 let stage_models = StageModels::from_env(provider.kind());
-                stage_models.report_against(&provider);
                 Self::Embacle(provider.with_stage_models(stage_models))
             }
             Self::Custom(provider) => Self::Custom(provider),

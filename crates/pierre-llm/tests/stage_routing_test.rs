@@ -8,6 +8,8 @@
 //! receives, and nothing else. A request nobody routed — the reply's draft, a
 //! re-ask pinned to the turn's model — reaches the head unchanged. A provider
 //! not built as the platform's head (a tenant's own key) routes nothing. A
+//! stage model the head does not publish is never sent to it, so the stage is
+//! served by the head on its own model rather than refused down the chain. A
 //! stage call the chain falls back on reaches the next tier with its model
 //! cleared, because the head's model ids are not that tier's to resolve.
 
@@ -56,6 +58,12 @@ impl Recording {
             answer: None,
             ..Self::answering(name, "")
         }
+    }
+
+    /// Also publish `model`, as a head whose catalogue lists it does.
+    fn publishing(mut self, model: &str) -> Self {
+        self.models.push(model.to_owned());
+        self
     }
 
     fn with_usage(mut self, usage: TokenUsage) -> Self {
@@ -155,7 +163,7 @@ fn ask() -> ChatRequest {
 
 #[tokio::test]
 async fn every_background_stage_reaches_a_copilot_sdk_head_on_haiku() {
-    let runner = Recording::answering("copilot_sdk", "en");
+    let runner = Recording::answering("copilot_sdk", "en").publishing(COPILOT_SDK_BACKGROUND_MODEL);
     let log = runner.log();
     let head = ChatProvider::Embacle(
         EmbacleProvider::from_runner(Box::new(runner), "Copilot SDK (scripted)")
@@ -171,15 +179,16 @@ async fn every_background_stage_reaches_a_copilot_sdk_head_on_haiku() {
         vec![Some(COPILOT_SDK_BACKGROUND_MODEL.to_owned()); LlmStage::ALL.len()],
         "each of the six stages asked the head for the background model"
     );
-    // A wire value: the id Copilot's catalogue publishes for Haiku 4.5, which
-    // the SDK runtime refuses to substitute for. The routing decision is that
-    // every background stage runs on it.
-    assert_eq!(COPILOT_SDK_BACKGROUND_MODEL, "claude-haiku-4.5");
+    // A wire value: Copilot's id for Haiku 5.5, which the SDK runtime refuses
+    // to substitute for. The routing decision is that every background stage
+    // runs on it.
+    assert_eq!(COPILOT_SDK_BACKGROUND_MODEL, "claude-haiku-5.5");
 }
 
 #[tokio::test]
 async fn a_request_nobody_routed_keeps_the_turn_model() {
-    let runner = Recording::answering("copilot_sdk", "the reply");
+    let runner =
+        Recording::answering("copilot_sdk", "the reply").publishing(COPILOT_SDK_BACKGROUND_MODEL);
     let log = runner.log();
     let head = ChatProvider::Embacle(
         EmbacleProvider::from_runner(Box::new(runner), "Copilot SDK (scripted)")
@@ -216,7 +225,7 @@ async fn a_provider_not_built_as_the_head_routes_nothing() {
 
     let double = ChatProvider::Custom(Arc::new(ChatProvider::Embacle(
         EmbacleProvider::from_runner(
-            Box::new(Recording::answering("double", "en")),
+            Box::new(Recording::answering("double", "en").publishing(COPILOT_SDK_BACKGROUND_MODEL)),
             "Test double (scripted)",
         )
         .with_stage_models(sdk_defaults()),
@@ -225,12 +234,64 @@ async fn a_provider_not_built_as_the_head_routes_nothing() {
     assert_eq!(double.routed(LlmStage::ClaimJudge, ask()).model, None);
 }
 
+#[tokio::test]
+async fn a_stage_model_the_head_does_not_publish_is_served_by_the_head_on_its_own_model() {
+    // The head publishes its own model only — the catalogue of a runtime that
+    // predates the stage model's id.
+    let head = Recording::answering("copilot_sdk", "en");
+    let head_log = head.log();
+    let tail = Recording::answering("claude-code", "en");
+    let tail_log = tail.log();
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(vec![
+            EmbacleProvider::from_runner(Box::new(head), "Copilot SDK (scripted)"),
+            EmbacleProvider::from_runner(Box::new(tail), "Claude Code (scripted)"),
+        ])
+        .unwrap()
+        .with_stage_models(sdk_defaults()),
+    );
+    let captured = Arc::new(Captured::default());
+    let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+
+    for stage in LlmStage::ALL {
+        assert_eq!(
+            chain.stage_model(stage),
+            None,
+            "{stage:?} inherits the head's model"
+        );
+        let request = chain.routed(stage, ask());
+        complete_recorded(&chain, &request, Some(&recorder))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(
+        requested(&head_log),
+        vec![None; LlmStage::ALL.len()],
+        "the head serves every stage on its own model"
+    );
+    assert!(
+        requested(&tail_log).is_empty(),
+        "no stage call was refused onto the next tier"
+    );
+    let records = captured.taken();
+    assert_eq!(records.len(), LlmStage::ALL.len(), "{records:?}");
+    for record in &records {
+        assert_eq!(
+            (record.provider.as_str(), record.model.as_str()),
+            ("copilot_sdk", "copilot_sdk-model")
+        );
+    }
+}
+
 /// The one test in this binary whose chain head fails: the circuit breaker is
 /// process-wide and opens after three consecutive primary failures, so a second
 /// would make the head's attempt depend on test order.
 #[tokio::test]
 async fn a_stage_call_that_falls_back_runs_on_the_next_tier_own_model() {
-    let head = Recording::failing("copilot_sdk");
+    // The head publishes Haiku and refuses it anyway — an account the vendor
+    // stopped entitling between boot and the call.
+    let head = Recording::failing("copilot_sdk").publishing(COPILOT_SDK_BACKGROUND_MODEL);
     let head_log = head.log();
     let tail = Recording::answering("claude-code", "en");
     let tail_log = tail.log();
@@ -284,6 +345,7 @@ async fn a_recorded_side_call_writes_one_record_answered_or_failed() {
         EmbacleProvider::from_runner(
             Box::new(
                 Recording::answering("copilot_sdk", "en")
+                    .publishing(COPILOT_SDK_BACKGROUND_MODEL)
                     .with_usage(TokenUsage::new(120, 3, 123).with_cache(Some(100), Some(20))),
             ),
             "Copilot SDK (scripted)",
@@ -306,7 +368,7 @@ async fn a_recorded_side_call_writes_one_record_answered_or_failed() {
 
     let fails = ChatProvider::Embacle(
         EmbacleProvider::from_runner(
-            Box::new(Recording::failing("copilot_sdk")),
+            Box::new(Recording::failing("copilot_sdk").publishing(COPILOT_SDK_BACKGROUND_MODEL)),
             "Copilot SDK (scripted)",
         )
         .with_stage_models(sdk_defaults()),

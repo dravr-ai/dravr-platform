@@ -357,9 +357,11 @@ export GROQ_API_KEY="your-groq-api-key"
 # export PIERRE_LLM_MODEL=claude-sonnet-5
 # The background stages — language classification, memory extraction,
 # compaction summary, claim judge, advice capture, outcome eval — run on
-# claude-haiku-4.5 on this head. PIERRE_LLM_MODEL_<STAGE> moves one stage
+# claude-haiku-5.5 on this head. PIERRE_LLM_MODEL_<STAGE> moves one stage
 # (LANGUAGE_CLASSIFICATION, MEMORY_EXTRACTION, COMPACTION_SUMMARY, CLAIM_JUDGE,
-# ADVICE_CAPTURE, OUTCOME_EVAL); `inherit` keeps it on PIERRE_LLM_MODEL.
+# ADVICE_CAPTURE, OUTCOME_EVAL); `inherit` keeps it on PIERRE_LLM_MODEL. A
+# stage model the runner's published list leaves out is dropped at boot with a
+# warning naming its variable, and that stage runs on PIERRE_LLM_MODEL.
 # export PIERRE_LLM_MODEL_MEMORY_EXTRACTION=inherit
 # github-copilot-sdk's build script downloads and embeds the Copilot CLI
 # (~163 MB) unless told not to; the runtime is the file above, never a payload.

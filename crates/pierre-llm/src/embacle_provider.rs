@@ -140,7 +140,11 @@ impl EmbacleProvider {
         self.kind
     }
 
-    /// Route this provider's background stages to `stage_models`.
+    /// Route this provider's background stages to `stage_models`, each held
+    /// to the models this provider's head publishes
+    /// ([`StageModels::checked_against`]): a stage whose model the head leaves
+    /// out runs on the head's own model, so an id the head would refuse never
+    /// sends that stage's calls down the chain.
     ///
     /// The models are the head's: a chain built over this provider clears a
     /// request's model on every hop, so a stage call that falls back runs on
@@ -148,7 +152,7 @@ impl EmbacleProvider {
     /// production caller; nothing routes a tenant's own provider.
     #[must_use]
     pub fn with_stage_models(mut self, stage_models: StageModels) -> Self {
-        self.stage_models = stage_models;
+        self.stage_models = stage_models.checked_against(&self);
         self
     }
 
@@ -391,8 +395,9 @@ impl EmbacleProvider {
     /// SDK-specific `COPILOT_SDK_MODEL`.
     ///
     /// The background stages run on [`crate::stage::COPILOT_SDK_BACKGROUND_MODEL`]
-    /// here unless configured otherwise: each is its own SDK session, and the
-    /// runtime validates the requested id against its catalogue per session.
+    /// here unless configured otherwise, once the runner publishes that id:
+    /// each is its own SDK session, and the runtime validates the requested id
+    /// against its catalogue per session.
     ///
     /// LIMITATION(registre#104): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
     fn build_sdk(model_override: Option<&str>) -> Self {
