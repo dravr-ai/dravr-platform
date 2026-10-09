@@ -575,9 +575,9 @@ impl SyncCursorStore for PierreSyncStorage {
 /// carries none; [`RequestBudget::admit`] always states one.
 const UNSTATED_RETRY_AFTER_SECS: u64 = 60;
 
-/// The signing app's request budget as enforme's [`RequestGate`], so the
-/// health sync's provider calls are admitted against the same windows as
-/// every other call that app signs.
+/// A token's request budget as enforme's [`RequestGate`], so the health
+/// sync's provider calls are admitted against the same windows as every
+/// other call the token makes.
 struct BudgetGate(RequestBudget);
 
 #[async_trait]

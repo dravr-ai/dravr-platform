@@ -18,6 +18,7 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::errors::ErrorCode;
 use pierre_database::repositories::UsageCounterRepository;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     api_key_counter_key, budget_counter_key, budget_period, grant_counter_key, in_background,
     ProviderRateLimiter, RateLimitStatus, RequestBudget, FIFTEEN_MINUTES, ONE_DAY, PLATFORM_SCOPE,
@@ -583,5 +584,27 @@ async fn an_api_key_is_held_to_no_grant_or_app_window() {
     assert_eq!(
         spent(&counters, &budget_counter_key(INTERVALS, APP), ONE_DAY).await,
         0
+    );
+}
+
+/// A key whose account is unknown is counted nowhere rather than under an
+/// empty account, where every such key would share one set of windows; a key
+/// whose account is known is counted in its own.
+#[tokio::test]
+async fn a_key_with_no_account_shares_no_windows() {
+    let counters = counters().await;
+    let registry = ProviderRegistry::new()
+        .with_request_limiter(Arc::new(ProviderRateLimiter::new(Arc::clone(&counters))));
+
+    assert!(registry.api_key_budget("").is_none());
+    registry
+        .api_key_budget(ATHLETE)
+        .expect("a key with its account carries its budget")
+        .admit(INTERVALS)
+        .await
+        .unwrap();
+    assert_eq!(
+        spent(&counters, &api_key_counter_key(INTERVALS, ATHLETE), ONE_DAY).await,
+        1
     );
 }

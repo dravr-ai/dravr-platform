@@ -453,8 +453,8 @@ async fn disconnect_revokes_an_oauth_grant_but_not_an_api_key() {
 
 /// A session token for a new user with an active tenant, as a client presents
 /// it to the OAuth start routes.
-async fn signed_in_user(resources: &ServerContext, email: &str) -> (Uuid, TenantId, String) {
-    let (user_id, user, tenant_id) =
+async fn signed_in_user(resources: &ServerContext, email: &str) -> String {
+    let (_, user, tenant_id) =
         common::create_test_user_with_plan(&resources.agent.database, email, "starter")
             .await
             .unwrap();
@@ -467,7 +467,7 @@ async fn signed_in_user(resources: &ServerContext, email: &str) -> (Uuid, Tenant
             Some(tenant_id.to_string()),
         )
         .unwrap();
-    (user_id, tenant_id, format!("Bearer {token}"))
+    format!("Bearer {token}")
 }
 
 /// The query parameters of an authorize URL, decoded.
@@ -540,8 +540,7 @@ async fn the_mobile_init_carries_the_apps_deep_link_in_the_state() {
     let (base, _mock) = mock_intervals().await;
     let (resources, _env) = context_pointed_at(&base).await;
     let _base_url = EnvGuard::set(&[("BASE_URL", PUBLIC_BASE_URL.to_owned())]);
-    let (_user_id, _tenant_id, session) =
-        signed_in_user(&resources, "icu-mobile-init@example.com").await;
+    let session = signed_in_user(&resources, "icu-mobile-init@example.com").await;
     let deep_link = "dravr://oauth-callback";
 
     let response = AxumTestRequest::get(&format!(

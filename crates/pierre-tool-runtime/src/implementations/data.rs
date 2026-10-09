@@ -28,7 +28,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
-use tracing::{debug, error, field, info, warn, Span};
+use tracing::{debug, error, field, info, Span};
 
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
@@ -51,6 +51,7 @@ use crate::conversions::{
     tool_result_to_response,
 };
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
+use crate::implementations::activity_detail_promotion::promote_to_detail;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
     backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
@@ -82,7 +83,7 @@ use pierre_core::config::fitness::{
 };
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::constants::provider_capture::current_capture_version;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
@@ -1026,54 +1027,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 auto_promote_to_detail && !filtered_activities.is_empty(),
                 provider.as_ref(),
             ) {
-                let mut detailed = Vec::with_capacity(filtered_activities.len());
-                let original_count = filtered_activities.len();
-                // Set once the provider's request budget refuses a detail
-                // read: every further one would be refused as well, so the
-                // rest keep their summaries rather than ask again.
-                let mut requests_spent = false;
-                for (rank, activity) in filtered_activities.iter().enumerate() {
-                    if rank >= detail_budget || requests_spent {
-                        // Past the budget: keep the summary. Rationing, not
-                        // truncation — every activity is still returned.
-                        detailed.push(activity.clone());
-                        continue;
-                    }
-                    // A merged-in row from another provider cannot be detailed
-                    // through the primary provider's client — its id would 404
-                    // (or worse, collide). Keep its summary.
-                    if activity.provider() != provider_name
-                        && activity.provider() != display_provider
-                    {
-                        detailed.push(activity.clone());
-                        continue;
-                    }
-                    match provider.get_activity_detailed(activity.id()).await {
-                        // The summary may carry fields the merge took from
-                        // another recording of the session; the detail row
-                        // keeps its own values and gains those.
-                        Ok(mut detail) => {
-                            detail.fill_missing_from(activity);
-                            detailed.push(detail);
-                        }
-                        Err(err) => {
-                            requests_spent = err.code == ErrorCode::ExternalRateLimited;
-                            warn!(
-                                activity_id = %activity.id(),
-                                error = %err,
-                                requests_spent,
-                                "Detail fetch failed — retaining summary for this activity"
-                            );
-                            detailed.push(activity.clone());
-                        }
-                    }
-                }
+                filtered_activities = promote_to_detail(
+                    provider.as_ref(),
+                    &filtered_activities,
+                    detail_budget,
+                    &[provider_name.as_str(), display_provider.as_str()],
+                )
+                .await;
                 debug!(
-                    count = original_count,
+                    count = filtered_activities.len(),
                     threshold = detail_threshold,
                     "Auto-promoted get_activities to detailed (N+1 fetch)"
                 );
-                filtered_activities = detailed;
                 "detailed"
             } else {
                 mode

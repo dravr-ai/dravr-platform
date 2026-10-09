@@ -243,12 +243,6 @@ impl Holder {
             Self::ApiKey { .. } => None,
         }
     }
-
-    /// Whether the request is counted for a provider account as well as, or
-    /// in place of, an app.
-    const fn counts_account(&self) -> bool {
-        matches!(self, Self::App { grant: Some(_), .. } | Self::ApiKey { .. })
-    }
 }
 
 /// Result of a rate limit check.
@@ -399,7 +393,7 @@ impl ProviderRateLimiter {
             .await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
             let app = holder.app();
-            let per_account = holder.counts_account();
+            let per_account = self.counts_account(provider, holder);
             if background {
                 debug!(
                     provider,
@@ -419,6 +413,19 @@ impl ProviderRateLimiter {
             }
         }
         Ok(status)
+    }
+
+    /// Whether a request to `provider` counted for `holder` is taken from
+    /// windows the provider keeps for a provider account, as well as or in
+    /// place of an app's: only a provider that limits each grant counts a
+    /// grant's account.
+    fn counts_account(&self, provider: &str, holder: &Holder) -> bool {
+        match holder {
+            Holder::App { grant, .. } => {
+                grant.is_some() && self.grant_budgets.contains_key(provider)
+            }
+            Holder::ApiKey { .. } => self.api_key_budgets.contains_key(provider),
+        }
     }
 
     /// The windows a request to `provider` must fit: the provider's, with the

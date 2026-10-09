@@ -471,7 +471,7 @@ impl AuthService {
             && registry.requires_oauth(provider_name);
         if !needs_client {
             let account = token_data.provider_user_id.clone().unwrap_or_default();
-            let budget = if token_data.kind == CredentialKind::ApiKey && !account.is_empty() {
+            let budget = if token_data.kind == CredentialKind::ApiKey {
                 registry.api_key_budget(&account)
             } else {
                 None
@@ -491,6 +491,7 @@ impl AuthService {
         let account = token_data
             .provider_user_id
             .clone()
+            .filter(|id| !id.is_empty())
             .unwrap_or_else(|| user_id.to_string());
         let budget = registry.grant_budget(&signing.client_id, signing.daily_limit, &account);
         Ok((signing.client_id, signing.client_secret, budget))

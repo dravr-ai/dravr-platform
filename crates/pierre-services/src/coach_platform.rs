@@ -325,11 +325,7 @@ pub fn with_key_budget(
     mut credentials: OAuth2Credentials,
 ) -> OAuth2Credentials {
     if credentials.kind == CredentialKind::ApiKey {
-        if let Some(account) = token
-            .provider_user_id
-            .as_deref()
-            .filter(|id| !id.is_empty())
-        {
+        if let Some(account) = token.provider_user_id.as_deref() {
             credentials.request_budget = registry.api_key_budget(account);
         }
     }

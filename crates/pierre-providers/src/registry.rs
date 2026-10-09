@@ -776,9 +776,14 @@ impl ProviderRegistry {
 
     /// The budget of the personal API key that belongs to `account`, the
     /// provider's id for its account: the windows the provider keeps for
-    /// each key. `None` when this registry counts nothing.
+    /// each key. `None` when this registry counts nothing, or when `account`
+    /// is empty and so names no key: counted under it, every key whose
+    /// account is unknown would share one set of windows.
     #[must_use]
     pub fn api_key_budget(&self, account: &str) -> Option<RequestBudget> {
+        if account.is_empty() {
+            return None;
+        }
         self.request_limiter
             .as_ref()
             .map(|limiter| RequestBudget::for_api_key(Arc::clone(limiter), account.to_owned()))
