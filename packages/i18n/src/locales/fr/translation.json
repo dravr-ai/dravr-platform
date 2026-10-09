@@ -956,7 +956,7 @@
     "dismissWarning": "Ignorer l’avertissement",
     "editAgent": "Modifier l'agent",
     "editAgentTitle": "Modifier l'agent",
-    "emptyStateBody": "Ton agent lit ton entraînement et te répond ici. Choisis une discussion à gauche, ou lances-en une nouvelle.",
+    "emptyStateBody": "Ton agent lit ton entraînement et te répond ici. Lance une nouvelle discussion, ou pars d'un des liens ci-dessous.",
     "emptyStatePrompt": "Choisis un chat, ou démarres-en un",
     "evidenceLabel": "preuves : {{strength}}",
     "evidenceMixed": "mitigée",
@@ -1736,7 +1736,6 @@
     "admin": "Admin",
     "allGroups": "Tous les groupes",
     "avgCtl": "CTL moyen",
-    "avgVolumeKm": "Vol. moy. (km)",
     "avgWeeklyVolume": "Volume hebdo moyen",
     "backToGroups": "Retour aux groupes",
     "chatFailed": "Impossible d’ouvrir le salon du groupe",
@@ -1847,7 +1846,6 @@
       "concern": "{{name}} : {{detail}}",
       "fresh": "{{name}} : forme fraîche ({{pct}} % de sa charge chronique, TSB {{tsb}})",
       "reviewFlagged": "Membres à risque de surentraînement élevé : {{n}}. Pense à adapter leur récupération.",
-      "summary": "{{active}}/{{total}} membres actifs cette semaine, {{km}} km en moyenne par membre.",
       "trendDeclining": "Volume du groupe en baisse par rapport à la semaine dernière — prends des nouvelles des membres moins actifs.",
       "trendImproving": "Volume du groupe en hausse par rapport à la semaine dernière — veille à ce que la récupération suive.",
       "trendStable": "Volume du groupe stable par rapport à la semaine dernière.",
@@ -2214,10 +2212,12 @@
     },
     "agent_proposal": {
       "footer": "\nRéponds avec un numéro pour commencer, ou pose-moi simplement ta question.",
+      "footer_buttons": "\nChoisis un agent ci-dessous pour commencer, ou pose-moi simplement ta question.",
       "welcome": "Bienvenue ! D'après ton entraînement récent en {0}, voici {1} agents pour toi :\n\n",
       "welcome_generic": "Bienvenue ! Voici {0} agents pour bien démarrer :\n\n"
     },
     "agent_welcome": {
+      "can_see": "Je vois ce que partagent tes services connectés, comme tes séances, ton sommeil et ta récupération, et ce que tu me dis. Je ne vois rien d'autre, et je ne remplace pas un médecin.",
       "greeting": "Bonjour ! {0} de Dravr, à ton écoute.\n\n{1}",
       "greeting_no_role": "Bonjour ! {0} de Dravr, à ton écoute.",
       "starters_title": "Pour commencer, tu peux me demander :"
@@ -2373,6 +2373,10 @@
     },
     "attribution": {
       "garmin": "Analyse issue en partie de données provenant d’appareils Garmin."
+    },
+    "telegram": {
+      "bot_description": "Dravr lit ton entraînement et te coache ici, dans le chat. Connecte ta montre ou ton app d'entraînement, puis demande ce que tu veux : comment s'est passée ta dernière séance, si tu es récupéré, quelle séance faire aujourd'hui, comment planifier ta saison. Les réponses viennent de tes propres données. Ton agent ne voit que ce que partagent tes services connectés et ce que tu lui dis, et il ne remplace pas un médecin. Tape / pour les commandes.",
+      "bot_short_description": "Dravr lit ton entraînement et te coache ici : séances, récupération et plan, en mots simples."
     }
   },
   "msgChan": {
@@ -2460,6 +2464,10 @@
       "reply": "Répondre"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "data_synced": {
+      "body": "{0} nouveaux enregistrements synchronisés depuis {1}",
+      "title": "Données synchronisées"
+    },
     "daysAgo": "il y a {{count}} j",
     "digest": {
       "athlete": {
@@ -2553,8 +2561,6 @@
       "concerns_header": "À surveiller :",
       "fresh": "• {0} : forme fraîche ({1} % de sa charge chronique)",
       "highlights_header": "En forme :",
-      "member_line": "• {0} : {1} km",
-      "member_line_prev": "• {0} : {1} km (semaine précédente : {2} km)",
       "members_header": "Volume de la semaine :",
       "room_scope": "Ce récap ne couvre que les membres qui partagent leur entraînement avec le groupe ({0} sur {1}). Pour y apparaître, envoie /group consent yes",
       "summary": "{0}/{1} membres actifs cette semaine, {2} km en moyenne par membre.",
@@ -2769,6 +2775,11 @@
       "paid": "Payée",
       "uncollectible": "Irrécouvrable",
       "void": "Annulée"
+    }
+  },
+  "platform_post": {
+    "first_sync": {
+      "prompt": "Mes données {0} viennent de se synchroniser pour la première fois. Lis mes activités récentes et écris-moi un court message à leur sujet : deux ou trois observations concrètes sur mon entraînement (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Dis-moi en une phrase ce que tu vois (ce que partagent mes services connectés et ce que je te dis) et ce que tu ne vois pas. Termine en me demandant sur quoi j'aimerais travailler. Pas de titres, moins de 120 mots."
     }
   },
   "profile": {
@@ -3269,6 +3280,10 @@
     "can_see": {
       "label": "Que vois-tu de moi ?"
     },
+    "compare_week": {
+      "label": "Compare ma semaine",
+      "prompt": "Compare mes 7 derniers jours d'entraînement avec les 7 jours d'avant. Qu'est-ce qui a changé en volume et en intensité, et qu'est-ce que j'en retiens ?"
+    },
     "connect": {
       "label": "Connecte ma montre",
       "prompt": "Aide-moi à connecter ma montre ou mon app d'entraînement."
@@ -3291,6 +3306,7 @@
       "label": "Mes 6 semaines",
       "prompt": "Comment ma charge d'entraînement a-t-elle évolué sur les 6 dernières semaines, par rapport à mon niveau habituel ?"
     },
+    "next_time": "La prochaine fois, tape simplement {0}.",
     "recovered": {
       "label": "Où en est ma récup ?",
       "prompt": "Où en est ma récupération aujourd'hui ? Je peux m'entraîner normalement ?"

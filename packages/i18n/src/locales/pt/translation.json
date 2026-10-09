@@ -956,7 +956,7 @@
     "dismissWarning": "Dispensar o aviso",
     "editAgent": "Editar agente",
     "editAgentTitle": "Editar agente",
-    "emptyStateBody": "O teu agente lê o teu treino e responde aqui. Escolhe uma conversa à esquerda ou começa uma nova.",
+    "emptyStateBody": "O teu agente lê o teu treino e responde aqui. Começa uma conversa nova ou parte de um dos links abaixo.",
     "emptyStatePrompt": "Escolhe um chat, ou começa um",
     "evidenceLabel": "evidência: {{strength}}",
     "evidenceMixed": "mista",
@@ -1736,7 +1736,6 @@
     "admin": "Admin",
     "allGroups": "Todos os grupos",
     "avgCtl": "CTL médio",
-    "avgVolumeKm": "Vol. médio (km)",
     "avgWeeklyVolume": "Volume semanal médio",
     "backToGroups": "Voltar aos grupos",
     "chatFailed": "Não foi possível abrir o chat do grupo",
@@ -1847,7 +1846,6 @@
       "concern": "{{name}}: {{detail}}",
       "fresh": "{{name}}: forma fresca ({{pct}}% da carga crónica, TSB {{tsb}})",
       "reviewFlagged": "Membros com risco elevado de sobretreino: {{n}}. Pondera ajustar a recuperação deles.",
-      "summary": "{{active}}/{{total}} membros ativos esta semana, com média de {{km}} km cada.",
       "trendDeclining": "O volume do grupo caiu em relação à semana passada — fala com os membros menos ativos.",
       "trendImproving": "O volume do grupo subiu em relação à semana passada — garante que a recuperação acompanha.",
       "trendStable": "O volume do grupo está estável em relação à semana passada.",
@@ -2214,10 +2212,12 @@
     },
     "agent_proposal": {
       "footer": "\nResponde com um número para começar, ou pergunta-me o que quiseres.",
+      "footer_buttons": "\nEscolhe um agente abaixo para começar, ou pergunta-me o que quiseres.",
       "welcome": "Bem-vindo! Com base no teu treino recente de {0}, aqui estão {1} agentes para ti:\n\n",
       "welcome_generic": "Bem-vindo! Aqui estão {0} agentes para começar:\n\n"
     },
     "agent_welcome": {
+      "can_see": "Vejo o que os teus serviços ligados partilham, como os teus treinos, o teu sono e a tua recuperação, e o que me contas. Não vejo mais nada, e não substituo um médico.",
       "greeting": "Olá! Aqui {0} do Dravr, ao teu dispor.\n\n{1}",
       "greeting_no_role": "Olá! Aqui {0} do Dravr, ao teu dispor.",
       "starters_title": "Para começar, podes perguntar-me:"
@@ -2373,6 +2373,10 @@
     },
     "attribution": {
       "garmin": "Análise derivada em parte de dados provenientes de dispositivos Garmin."
+    },
+    "telegram": {
+      "bot_description": "O Dravr lê o teu treino e acompanha-te aqui mesmo, no chat. Liga o teu relógio ou a tua app de treino e pergunta o que quiseres: como correu o teu último treino, se estás recuperado, que sessão fazer hoje, como planear a tua temporada. As respostas vêm dos teus próprios dados. O teu agente só vê o que os teus serviços ligados partilham e o que lhe contas, e não substitui um médico. Escreve / para os comandos.",
+      "bot_short_description": "O Dravr lê o teu treino e acompanha-te aqui: treinos, recuperação e plano, em palavras simples."
     }
   },
   "msgChan": {
@@ -2460,6 +2464,10 @@
       "reply": "Responder"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "data_synced": {
+      "body": "{0} registos novos sincronizados de {1}",
+      "title": "Dados sincronizados"
+    },
     "daysAgo": "há {{count}} d",
     "digest": {
       "athlete": {
@@ -2553,8 +2561,6 @@
       "concerns_header": "A acompanhar:",
       "fresh": "• {0}: forma fresca ({1}% da carga crónica)",
       "highlights_header": "Em boa forma:",
-      "member_line": "• {0}: {1} km",
-      "member_line_prev": "• {0}: {1} km (semana anterior: {2} km)",
       "members_header": "Volume da semana:",
       "room_scope": "Este resumo só inclui os membros que partilham o treino com o grupo ({0} de {1}). Para apareceres, envia /group consent yes",
       "summary": "{0}/{1} membros ativos esta semana, com média de {2} km cada.",
@@ -2769,6 +2775,11 @@
       "paid": "Paga",
       "uncollectible": "Incobrável",
       "void": "Anulada"
+    }
+  },
+  "platform_post": {
+    "first_sync": {
+      "prompt": "Os meus dados do {0} acabaram de sincronizar pela primeira vez. Lê as minhas atividades recentes e escreve-me uma mensagem curta sobre elas: duas ou três observações concretas sobre o meu treino (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto. Descreve a carga face ao meu nível habitual, nunca como um risco. Diz-me numa frase o que vês (o que os meus serviços ligados partilham e o que te conto) e o que não vês. Termina a perguntar-me em que gostaria de trabalhar. Sem títulos, menos de 120 palavras."
     }
   },
   "profile": {
@@ -3269,6 +3280,10 @@
     "can_see": {
       "label": "O que vês de mim?"
     },
+    "compare_week": {
+      "label": "Compara a semana",
+      "prompt": "Compara os meus últimos 7 dias de treino com os 7 dias anteriores. O que mudou em volume e intensidade, e o que devo tirar daí?"
+    },
     "connect": {
       "label": "Ligar o meu relógio",
       "prompt": "Ajuda-me a ligar o meu relógio ou a minha app de treino."
@@ -3291,6 +3306,7 @@
       "label": "As minhas 6 semanas",
       "prompt": "Como evoluiu a minha carga de treino nas últimas 6 semanas, comparada com o meu nível habitual?"
     },
+    "next_time": "Da próxima vez, escreve só {0}.",
     "recovered": {
       "label": "A minha recuperação",
       "prompt": "Como está a minha recuperação hoje? Posso treinar normalmente?"

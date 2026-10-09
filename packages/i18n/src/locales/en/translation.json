@@ -956,7 +956,7 @@
     "dismissWarning": "Dismiss warning",
     "editAgent": "Edit agent",
     "editAgentTitle": "Edit Agent",
-    "emptyStateBody": "Your agent reads your training and answers here. Pick a conversation on the left, or start a new one.",
+    "emptyStateBody": "Your agent reads your training and answers here. Start a new conversation, or begin from one of the links below.",
     "emptyStatePrompt": "Pick a chat, or start one",
     "evidenceLabel": "evidence: {{strength}}",
     "evidenceMixed": "mixed",
@@ -1736,7 +1736,6 @@
     "admin": "Admin",
     "allGroups": "All Groups",
     "avgCtl": "Avg CTL",
-    "avgVolumeKm": "Avg Vol (km)",
     "avgWeeklyVolume": "Avg Weekly Volume",
     "backToGroups": "Back to Groups",
     "chatFailed": "Failed to open group chat",
@@ -1847,7 +1846,6 @@
       "concern": "{{name}}: {{detail}}",
       "fresh": "{{name}}: fresh form ({{pct}}% of chronic load, TSB {{tsb}})",
       "reviewFlagged": "Members at high overtraining risk: {{n}}. Consider adjusting their recovery.",
-      "summary": "{{active}}/{{total}} members active this week, averaging {{km}} km each.",
       "trendDeclining": "Group volume is down on last week — check in with the less active members.",
       "trendImproving": "Group volume is up on last week — make sure recovery keeps pace.",
       "trendStable": "Group volume is steady compared with last week.",
@@ -2214,10 +2212,12 @@
     },
     "agent_proposal": {
       "footer": "\nReply with a number to start, or just ask me anything.",
+      "footer_buttons": "\nPick an agent below to start, or just ask me anything.",
       "welcome": "Welcome! Based on your recent {0} training, here are {1} agents for you:\n\n",
       "welcome_generic": "Welcome! Here are {0} agents to get you started:\n\n"
     },
     "agent_welcome": {
+      "can_see": "I see what your connected services share, like your workouts, sleep and recovery, plus what you tell me. I can't see anything else, and I don't replace a doctor.",
       "greeting": "Hi! Dravr's {0} here.\n\n{1}",
       "greeting_no_role": "Hi! Dravr's {0} here.",
       "starters_title": "To get started, you can ask me:"
@@ -2373,6 +2373,10 @@
     },
     "attribution": {
       "garmin": "Insights derived in part from Garmin device-sourced data."
+    },
+    "telegram": {
+      "bot_description": "Dravr reads your training and coaches you right here in chat. Connect your watch or training app, then ask anything: how your last workout went, whether you're recovered, what today's session should be, how to plan your season. Answers come from your own data. Your agent sees only what your connected services share and what you tell it, and it doesn't replace a doctor. Type / for commands.",
+      "bot_short_description": "Dravr reads your training and coaches you right here: workouts, recovery and plan, in plain words."
     }
   },
   "msgChan": {
@@ -2460,6 +2464,10 @@
       "reply": "Reply"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "data_synced": {
+      "body": "Synced {0} new records from {1}",
+      "title": "Data synced"
+    },
     "daysAgo": "{{count}}d ago",
     "digest": {
       "athlete": {
@@ -2553,8 +2561,6 @@
       "concerns_header": "Keep an eye on:",
       "fresh": "• {0}: fresh form ({1}% of chronic load)",
       "highlights_header": "Looking fresh:",
-      "member_line": "• {0}: {1} km",
-      "member_line_prev": "• {0}: {1} km (previous week: {2} km)",
       "members_header": "This week's volume:",
       "room_scope": "This recap covers only the members who share their training with the group ({0} of {1}). To be included, send /group consent yes",
       "summary": "{0}/{1} members active this week, averaging {2} km each.",
@@ -2769,6 +2775,11 @@
       "paid": "Paid",
       "uncollectible": "Uncollectible",
       "void": "Void"
+    }
+  },
+  "platform_post": {
+    "first_sync": {
+      "prompt": "My {0} data has just synced for the first time. Read my recent activities and write me a short message about them: two or three concrete observations on my training (volume, consistency, the kinds of sessions I do), quoting only figures you actually fetched. Describe load against my usual level, never as a risk. Say in one sentence what you can see (what my connected services share and what I tell you) and what you can't. End by asking me what I'd like to work on. No headings, under 120 words."
     }
   },
   "profile": {
@@ -3269,6 +3280,10 @@
     "can_see": {
       "label": "What can you see?"
     },
+    "compare_week": {
+      "label": "This week vs last",
+      "prompt": "Compare my last 7 days of training with the 7 days before. What changed in volume and intensity, and what should I take from it?"
+    },
     "connect": {
       "label": "Connect my watch",
       "prompt": "Help me connect my watch or training app."
@@ -3291,6 +3306,7 @@
       "label": "My last 6 weeks",
       "prompt": "How has my training load moved over the last 6 weeks, compared with my usual level?"
     },
+    "next_time": "Next time, just type {0}.",
     "recovered": {
       "label": "Am I recovered?",
       "prompt": "Am I recovered enough to train normally today?"
