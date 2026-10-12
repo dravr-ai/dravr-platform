@@ -189,7 +189,14 @@ WORKDIR /app
 # through CVE-2026-102329: V8 type confusion, use-after-free and out-of-bounds
 # reads/writes); the 2026-10-01 deploy of 9ba210b0f, which touched no Docker
 # file, was gated with 154.0.8037.57-1~deb13u1 installed.
-ARG APT_SECURITY_EPOCH=2026-10-01
+# chromium 155.0.8059.39-1~deb13u1 closes 74 CVEs (CVE-2026-102322 through
+# CVE-2026-106426; two CRITICAL: CVE-2026-106195, incorrect authorization in
+# Chromoting, and CVE-2026-106237, an information leak in Permissions), 148
+# findings counted once per source package (chromium, chromium-common). The
+# 2026-10-12 deploy of a4840b475, which touched no Docker file, was gated with
+# 154.0.8037.92-1~deb13u1 served from the cached apt layer (step logged CACHED
+# under "apt security epoch: 2026-10-01").
+ARG APT_SECURITY_EPOCH=2026-10-12
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
