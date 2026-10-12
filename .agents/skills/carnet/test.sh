@@ -73,7 +73,7 @@ export CLAUDE_CONFIG_DIR="$tmp/cfg"
 export CLAUDE_CODE_SESSION_ID="11111111-aaaa-bbbb-cccc-000000000001"
 export CLAUDE_PID=$$
 mkdir -p "$tmp/cfg/sessions"
-printf '{"pid":%s,"sessionId":"%s","name":"TestSession"}\n' "$$" "$CLAUDE_CODE_SESSION_ID" > "$tmp/cfg/sessions/$$.json"
+printf '{"pid":%s,"sessionId":"%s","name":"TestSession","nameSource":"user"}\n' "$$" "$CLAUDE_CODE_SESSION_ID" > "$tmp/cfg/sessions/$$.json"
 # The suite runs in cloud containers too, where carnet.sh folds the remote session id into the
 # host; the cases below are written against a bare hostname, so start from a local session.
 unset CLAUDE_CODE_REMOTE_SESSION_ID
@@ -85,7 +85,7 @@ ledger="$tmp/state/carnet-claims/$ME.jsonl"
 
 # A live peer session on this host: a real process plus its sessions file.
 sleep 600 & peer_pid=$!
-printf '{"pid":%s,"sessionId":"%s","name":"PeerSession"}\n' "$peer_pid" "$PEER" > "$tmp/cfg/sessions/$peer_pid.json"
+printf '{"pid":%s,"sessionId":"%s","name":"PeerSession","nameSource":"user"}\n' "$peer_pid" "$PEER" > "$tmp/cfg/sessions/$peer_pid.json"
 
 # ------------------------------------------------------------------ fixtures
 issue() { # <state> <labels-json> <assignees-json> [body]
@@ -142,7 +142,7 @@ run_carnet claim 42
 assert_eq "claim on an unclaimed issue exits 0" "$rc" 0
 assert_grep "assigns me" 'issues/42/assignees -X POST -f assignees\[\]=tester' "$S/calls.log"
 assert_grep "adds the label" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
-assert_grep "posts a claim marker" '^BODY <!-- carnet-claim \{"v":1,"session":"11111111' "$S/calls.log"
+assert_grep "posts a claim marker" '^BODY <!-- carnet-claim \{"v":2,"session":"11111111' "$S/calls.log"
 assert_grep "marker carries the session name" '"name":"TestSession"' "$S/calls.log"
 assert_grep "marker carries repo and branch" '"repo":"dravr-test","branch":"main"' "$S/calls.log"
 assert_grep "ledger records the claim" '"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42' "$ledger"
@@ -159,19 +159,19 @@ reset
 comments < <(claim_marker "$PEER" PeerSession peer "$HOST" "$peer_pid")
 run_carnet claim 42
 assert_eq "refuses a claim held by a live session on this host" "$rc" 2
-assert_grep "names the holder" "held by @peer · session PeerSession \(22222222\) on $HOST, still running" "$tmp/err"
+assert_grep "names the holder" "held by @peer · session 22222222 \"PeerSession\" on $HOST, still running" "$tmp/err"
 assert_eq "no tracker write when refused" "$(count_calls "$WRITES")" 0
 run_carnet claim 42 --steal
 assert_eq "--steal overrides" "$rc" 0
-assert_grep "warns locally" "stealing carnet#42 from live session PeerSession" "$tmp/err"
-assert_grep "the comment says it was stolen from a live session" "Stolen from live session \*\*PeerSession\*\*" "$S/calls.log"
+assert_grep "warns locally" "stealing carnet#42 from live session 22222222 \"PeerSession\"" "$tmp/err"
+assert_grep "the comment says it was stolen from a live session" "Stolen from live session \`22222222\` \"PeerSession\"" "$S/calls.log"
 assert_grep "the displaced human is unassigned" 'issues/42/assignees -X DELETE -f assignees\[\]=peer' "$S/calls.log"
 
 reset
 comments < <(claim_marker "$DEAD" GoneSession peer "$HOST" 999999)
 run_carnet claim 42
 assert_eq "takes over a claim whose session ended on this host" "$rc" 0
-assert_grep "the comment says it took over" "Took over from ended session \*\*GoneSession\*\*" "$S/calls.log"
+assert_grep "the comment says it took over" "Took over from ended session \`33333333\` \"GoneSession\"" "$S/calls.log"
 
 reset
 export CLAUDE_CODE_REMOTE_SESSION_ID="cse_test_container_a"
@@ -191,7 +191,7 @@ assert_eq "refuses a claim held on another host" "$rc" 2
 assert_grep "explains liveness is unknowable" "on host elsewhere since .* liveness cannot be checked from $HOST" "$tmp/err"
 run_carnet claim 42 --steal
 assert_eq "--steal takes it" "$rc" 0
-assert_grep "the comment warns the displaced session" "Stolen from session \*\*RemoteSession\*\* \(\`22222222\`\) of @phil on elsewhere" "$S/calls.log"
+assert_grep "the comment warns the displaced session" "Stolen from session \`22222222\` \"RemoteSession\" of @phil on elsewhere" "$S/calls.log"
 
 reset
 comments < <(claim_marker "$PEER" PeerSession peer "$HOST" "$peer_pid"; release_marker "$PEER")
@@ -211,6 +211,39 @@ assert_eq "dry-run exits 0" "$rc" 0
 assert_eq "dry-run writes nothing" "$(count_calls "$WRITES")" 0
 assert_grep "dry-run prints the edit" '\[dry-run\] api repos/dravr-ai/dravr-carnet/issues/42' "$tmp/err"
 [ -f "$ledger" ] && bad "dry-run must not touch the ledger" || ok "dry-run leaves no ledger"
+
+# carnet#877: a derived name (`<cwd>-<2 hex>`) is regenerated on every restart while the id
+# stays, so one session read as user-4b and user-5d and another as user-b4. Only a name a human
+# set is recorded, and a v1 marker's derived name is shown by id alone.
+reset
+printf '{"pid":%s,"sessionId":"%s","name":"repo-9b","nameSource":"derived"}\n' "$$" "$ME" > "$tmp/cfg/sessions/$$.json"
+run_carnet claim 42
+assert_grep "a derived name is not recorded" '"v":2,"session":"11111111[^"]*","name":""' "$S/calls.log"
+assert_grep "the comment names the session by id" 'Claimed by @tester · session `11111111` on' "$S/calls.log"
+assert_no_grep "and never by the derived name" 'repo-9b' "$S/calls.log"
+printf '{"pid":%s,"sessionId":"%s","name":"TestSession","nameSource":"user"}\n' "$$" "$ME" > "$tmp/cfg/sessions/$$.json"
+
+reset
+comments < <(claim_marker "$PEER" user-4b peer elsewhere 4242)
+run_carnet status 42
+assert_grep "a v1 marker's derived name is shown by id alone" 'held by @peer · session 22222222 on elsewhere' "$tmp/out"
+assert_no_grep "the derived name is dropped" 'user-4b' "$tmp/out"
+reset
+comments < <(claim_marker "$PEER" dravr-platform-6c peer elsewhere 4242)
+run_carnet status 42
+assert_grep "a multi-word derived name too" 'held by @peer · session 22222222 on elsewhere' "$tmp/out"
+reset
+comments < <(claim_marker "$PEER" "Trelevern 2" peer elsewhere 4242)
+run_carnet status 42
+assert_grep "a v1 marker keeps a name a human chose" 'session 22222222 "Trelevern 2" on elsewhere' "$tmp/out"
+reset
+comments < <(claim_marker "$PEER" 22222222 peer elsewhere 4242)
+run_carnet status 42
+assert_grep "a v1 marker's id-prefix fallback is shown by id alone" 'held by @peer · session 22222222 on elsewhere' "$tmp/out"
+reset
+comments < <(claim_marker "$PEER" auth-db peer elsewhere 4242 | sed 's/"v":1/"v":2/')
+run_carnet status 42
+assert_grep "a v2 marker's name is a human's, even when it reads as derived" 'session 22222222 "auth-db" on elsewhere' "$tmp/out"
 
 # ================================================================== release
 section "release"
@@ -377,10 +410,10 @@ run_carnet status 42 --short
 assert_grep "a label without a marker is called stale" 'stale in-progress label' "$tmp/out"
 comments < <(claim_marker "$ME" TestSession tester "$HOST" "$$")
 run_carnet status 42 --short
-assert_grep "my own claim" 'held by THIS session \(TestSession\)' "$tmp/out"
+assert_grep "my own claim" 'held by THIS session \(11111111 "TestSession"\)' "$tmp/out"
 comments < <(claim_marker "$PEER" PeerSession peer "$HOST" "$peer_pid")
 run_carnet status 42 --short
-assert_grep "a live peer" "held by @peer · session PeerSession \(22222222\) on $HOST \[running\] · main" "$tmp/out"
+assert_grep "a live peer" "held by @peer · session 22222222 \"PeerSession\" on $HOST \[running\] · main" "$tmp/out"
 comments < <(claim_marker "$DEAD" GoneSession peer "$HOST" 999999)
 run_carnet status 42 --short
 assert_grep "an ended peer" '\[session ended' "$tmp/out"
@@ -501,7 +534,7 @@ printf '{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":91,"at":"2026-
 run_carnet mine
 assert_grep "an empty ledger still says so" 'holds nothing' "$tmp/out"
 assert_grep "but a prior session id's claims are surfaced" 'other session ids on this machine still list claims' "$tmp/out"
-assert_grep "named, with the issue" 'EarlierMe \(33333333\): 91' "$tmp/out"
+assert_grep "named, with the issue" '33333333 "EarlierMe": 91' "$tmp/out"
 assert_grep "and not asserted as mine" 'NOT necessarily yours' "$tmp/out"
 assert_eq "surfacing them costs no API call" "$(count_calls 'api repos/[^ ]*/issues/42$')" 0
 

@@ -13,12 +13,15 @@
 #   assignee            = the human accountable (gh login)
 #   label  in-progress  = a live session holds the issue
 #   newest marker line  = which session — an HTML comment carrying one JSON object:
-#       <!-- carnet-claim {"v":1,"session":"<uuid>","name":"…","user":"…","host":"…","pid":N,"repo":"…","branch":"…","at":"…"} -->
+#       <!-- carnet-claim {"v":2,"session":"<uuid>","name":"…","user":"…","host":"…","pid":N,"repo":"…","branch":"…","at":"…"} -->
 #       <!-- carnet-release {…,"reason":"…"} -->
 # `status` reads the newest marker; the label and assignee are the list-view mirrors of it.
+#
+# The session id is the identity; `name` is only a label. v2 records a name a human set and
+# nothing else (carnet#877). A v1 marker may carry a derived one, which is shown by id alone.
 set -euo pipefail
 
-MARKER_VERSION=1
+MARKER_VERSION=2
 CLAIM_LABEL="in-progress"
 DRY_RUN=0
 
@@ -145,7 +148,7 @@ BRANCH=${BRANCH//--/-}
 
 # ------------------------------------------------------------------ session identity
 # Claude Code exports the session id and its own pid; the per-process file under the config
-# dir carries the name set by /rename (or the derived one). Outside Claude Code the claim is
+# dir carries its display name (see session_name). Outside Claude Code the claim is
 # a manual one: it still records the human, and nothing auto-releases it.
 #
 # The ledger is NOT under the config dir. ChefFamille switches Claude accounts, sometimes inside
@@ -181,16 +184,41 @@ NAME=""
 USER_LOGIN=""
 SHORT_ID=""
 
+# Only a name a human set (/rename, a launcher title) is recorded. A derived name is the cwd's
+# basename plus two hex digits, regenerated each time the process restarts while the session id
+# stays: cloud session 660b88d8 held claims as both user-4b and user-5d, and user-b4 was another
+# session entirely (carnet#877). Empty when the session has no such name.
 session_name() {
     local f="$CFG/sessions/${SESSION_PID:-none}.json" n=""
     if [ -n "$SESSION_PID" ] && [ -f "$f" ]; then
-        n=$(jq -r --arg sid "$SESSION_ID" 'select(.sessionId == $sid) | .name // empty' "$f" 2>/dev/null || true)
+        n=$(jq -r --arg sid "$SESSION_ID" \
+            'select(.sessionId == $sid and .nameSource == "user") | .name // empty' "$f" 2>/dev/null || true)
     fi
-    [ -n "$n" ] || n=${SESSION_ID:0:8}
-    [ -n "$n" ] || n="shell"
     # "--" would end the HTML comment the marker lives in.
     printf '%s' "${n//--/-}"
 }
+
+# The name worth showing for a marker or ledger identity. A v1 entry recorded whatever name the
+# session had, so its derived names (`<word>-<2 hex>`) and the id-prefix fallback are dropped.
+# shellcheck disable=SC2016 # $n is a jq variable
+SHOWN_NAME_JQ='def shown_name:
+    (.name // "") as $n
+    | if (.v // 1) >= 2 then $n
+      elif $n == ((.session // "") | .[0:8]) or $n == "shell" or ($n | test("^[A-Za-z0-9._]+(-[A-Za-z0-9._]+)*-[0-9a-f]{2}$")) then ""
+      else $n end;'
+
+# `<id8>` or `<id8> "<name>"`: the id leads every mention of a session, so one session reads the
+# same wherever it appears. <md> = 1 wraps the id in backticks for a tracker comment.
+session_label() { # <short-id> <name> [md]
+    if [ "${3:-0}" = 1 ]; then printf '`%s`' "$1"; else printf '%s' "$1"; fi
+    [ -z "$2" ] || printf ' "%s"' "$2"
+}
+holder_label() { # <marker-or-identity-json> [md]
+    local sid
+    sid=$(jq -r '.session // "manual"' <<<"$1")
+    session_label "${sid:0:8}" "$(jq -r "$SHOWN_NAME_JQ shown_name" <<<"$1")" "${2:-0}"
+}
+self_label() { session_label "$SHORT_ID" "$NAME" "${1:-0}"; } # [md]
 
 gh_login() {
     local cache="$LEDGER_DIR/gh-login" login
@@ -387,23 +415,24 @@ cmd_claim() { # <n> <steal>
     marker=$(last_marker "$n")
     if [ -n "$marker" ] && [ "$(marker_kind "$marker")" = claim ]; then
         holder=$(marker_json "$marker")
-        local hs hn hu hh hp ha
-        hs=$(jq -r .session <<<"$holder"); hn=$(jq -r .name <<<"$holder"); hu=$(jq -r .user <<<"$holder")
+        local hs hl hm hu hh hp ha
+        hs=$(jq -r .session <<<"$holder"); hu=$(jq -r .user <<<"$holder")
         hh=$(jq -r .host <<<"$holder");    hp=$(jq -r .pid <<<"$holder");  ha=$(jq -r .at <<<"$holder")
+        hl=$(holder_label "$holder");      hm=$(holder_label "$holder" 1)
         if [ "$hs" = "${SESSION_ID:-manual}" ]; then
-            say "🔒 carnet#$n is already held by this session ($NAME)"
+            say "🔒 carnet#$n is already held by this session ($(self_label))"
             model_hint "$n" "$(jq -r .model <<<"$issue")"
             return 0
         fi
         if holder_alive "$hh" "$hp" "$hs"; then st=0; else st=$?; fi
         case $st in
-            0)  [ "$steal" = 1 ] || die "carnet#$n is held by @$hu · session $hn (${hs:0:8}) on $hh, still running since $ha. Re-run with --steal to take it over." 2
-                warn "stealing carnet#$n from live session $hn (${hs:0:8}) of @$hu"
-                extra="⚠️ Stolen from live session **$hn** (\`${hs:0:8}\`) of @$hu, held since $ha — that session no longer owns this issue." ;;
-            1)  extra="♻️ Took over from ended session **$hn** (\`${hs:0:8}\`) of @$hu, held since $ha." ;;
-            2)  [ "$steal" = 1 ] || die "carnet#$n is held by @$hu · session $hn (${hs:0:8}) on host $hh since $ha — liveness cannot be checked from $HOST. Re-run with --steal to take it over." 2
-                warn "stealing carnet#$n from session $hn (${hs:0:8}) of @$hu on $hh"
-                extra="⚠️ Stolen from session **$hn** (\`${hs:0:8}\`) of @$hu on $hh, held since $ha — that session no longer owns this issue." ;;
+            0)  [ "$steal" = 1 ] || die "carnet#$n is held by @$hu · session $hl on $hh, still running since $ha. Re-run with --steal to take it over." 2
+                warn "stealing carnet#$n from live session $hl of @$hu"
+                extra="⚠️ Stolen from live session $hm of @$hu, held since $ha — that session no longer owns this issue." ;;
+            1)  extra="♻️ Took over from ended session $hm of @$hu, held since $ha." ;;
+            2)  [ "$steal" = 1 ] || die "carnet#$n is held by @$hu · session $hl on host $hh since $ha — liveness cannot be checked from $HOST. Re-run with --steal to take it over." 2
+                warn "stealing carnet#$n from session $hl of @$hu on $hh"
+                extra="⚠️ Stolen from session $hm of @$hu on $hh, held since $ha — that session no longer owns this issue." ;;
         esac
         prev_user=$hu
     fi
@@ -412,8 +441,8 @@ cmd_claim() { # <n> <steal>
     body=$(mktemp)
     {
         printf '<!-- carnet-claim %s -->\n' "$(identity_json)"
-        printf '🔒 Claimed by @%s · session **%s** (`%s`) on %s · `%s` @ `%s` · %s\n' \
-            "$USER_LOGIN" "$NAME" "$SHORT_ID" "$HOST" "$REPO_NAME" "$BRANCH" "$(now)"
+        printf '🔒 Claimed by @%s · session %s on %s · `%s` @ `%s` · %s\n' \
+            "$USER_LOGIN" "$(self_label 1)" "$HOST" "$REPO_NAME" "$BRANCH" "$(now)"
         [ -z "$extra" ] || printf '\n%s\n' "$extra"
     } > "$body"
 
@@ -425,7 +454,7 @@ cmd_claim() { # <n> <steal>
     api_comment "$n" "$body"
     rm -f "$body"
     [ "$DRY_RUN" = 1 ] || ledger_add "$n"
-    say "🔒 carnet#$n claimed by @$USER_LOGIN · session $NAME ($SHORT_ID) · $(jq -r .title <<<"$issue")"
+    say "🔒 carnet#$n claimed by @$USER_LOGIN · session $(self_label) · $(jq -r .title <<<"$issue")"
     model_hint "$n" "$(jq -r .model <<<"$issue")"
 }
 
@@ -465,7 +494,7 @@ cmd_model() { # <n> <model-or-empty>
 release_comment() { # <reason> [extra lines...]
     local reason=$1; shift
     printf '<!-- carnet-release %s -->\n' "$(identity_json | jq -c --arg r "$reason" '. + {reason:$r}')"
-    printf '🔓 Released by @%s · session **%s** (`%s`) · %s\n' "$USER_LOGIN" "$NAME" "$SHORT_ID" "$reason"
+    printf '🔓 Released by @%s · session %s · %s\n' "$USER_LOGIN" "$(self_label 1)" "$reason"
     local line
     for line in "$@"; do printf '%s\n' "$line"; done
 }
@@ -478,7 +507,7 @@ cmd_release() { # <n> <reason>
         if [ "$(jq -r .session <<<"$holder")" = "${SESSION_ID:-manual}" ]; then
             held_by_me=1
         else
-            die "carnet#$n is held by @$(jq -r .user <<<"$holder") · session $(jq -r .name <<<"$holder") — take it over with 'claim $n --steal' rather than releasing someone else's claim" 2
+            die "carnet#$n is held by @$(jq -r .user <<<"$holder") · session $(holder_label "$holder") — take it over with 'claim $n --steal' rather than releasing someone else's claim" 2
         fi
     fi
     if [ $held_by_me = 0 ] && ! ledger_has "$n"; then
@@ -506,7 +535,7 @@ cmd_release_all() { # <reason> <session-or-empty>
         local id
         id=$(head -1 "$f")
         SESSION_ID=$sid
-        NAME=$(jq -r .name <<<"$id"); USER_LOGIN=$(jq -r .user <<<"$id"); SHORT_ID=${sid:0:8}
+        NAME=$(jq -r "$SHOWN_NAME_JQ shown_name" <<<"$id"); USER_LOGIN=$(jq -r .user <<<"$id"); SHORT_ID=${sid:0:8}
         SESSION_PID=$(jq -r .pid <<<"$id")
     else
         f=$(ledger_file) || { say "not inside a Claude Code session — nothing to release"; return 0; }
@@ -538,7 +567,7 @@ cmd_close() { # <n> <why> <commit>
     if [ -n "$marker" ] && [ "$(marker_kind "$marker")" = claim ]; then
         holder=$(marker_json "$marker")
         if [ "$(jq -r .session <<<"$holder")" != "${SESSION_ID:-manual}" ]; then
-            die "carnet#$n is held by @$(jq -r .user <<<"$holder") · session $(jq -r .name <<<"$holder") — 'claim $n' (or 'claim $n --steal') first, then close" 2
+            die "carnet#$n is held by @$(jq -r .user <<<"$holder") · session $(holder_label "$holder") — 'claim $n' (or 'claim $n --steal') first, then close" 2
         fi
     fi
 
@@ -546,7 +575,7 @@ cmd_close() { # <n> <why> <commit>
     body=$(mktemp)
     {
         printf '<!-- carnet-release %s -->\n' "$(identity_json | jq -c '. + {reason:"closed"}')"
-        printf '✅ Closed by @%s · session **%s** (`%s`) · `%s` @ `%s`\n\n' "$USER_LOGIN" "$NAME" "$SHORT_ID" "$REPO_NAME" "$BRANCH"
+        printf '✅ Closed by @%s · session %s · `%s` @ `%s`\n\n' "$USER_LOGIN" "$(self_label 1)" "$REPO_NAME" "$BRANCH"
         printf '**Why:** %s\n' "$why"
         [ -z "$commit_url" ] || printf '\n**Commit:** %s\n' "$commit_url"
     } > "$body"
@@ -660,17 +689,17 @@ status_line() { # <n> <short>
         marker=$(last_marker "$n")
         if [ -n "$marker" ] && [ "$(marker_kind "$marker")" = claim ]; then
             holder=$(marker_json "$marker")
-            local hs hn hu hh hp ha hb live
-            hs=$(jq -r .session <<<"$holder"); hn=$(jq -r .name <<<"$holder"); hu=$(jq -r .user <<<"$holder")
+            local hs hl hu hh hp ha hb live
+            hs=$(jq -r .session <<<"$holder"); hl=$(holder_label "$holder"); hu=$(jq -r .user <<<"$holder")
             hh=$(jq -r .host <<<"$holder");    hp=$(jq -r .pid <<<"$holder");  ha=$(jq -r .at <<<"$holder")
             hb=$(jq -r .branch <<<"$holder")
             if [ "$hs" = "${SESSION_ID:-manual}" ]; then
-                line="carnet#$n · held by THIS session ($hn) · $hb · since $ha"
+                line="carnet#$n · held by THIS session ($hl) · $hb · since $ha"
             else
                 if holder_alive "$hh" "$hp" "$hs"; then live="running"; else
                     case $? in 1) live="session ended — stale, 'claim $n' takes it over" ;; *) live="other host" ;; esac
                 fi
-                line="carnet#$n · held by @$hu · session $hn (${hs:0:8}) on $hh [$live] · $hb · since $ha"
+                line="carnet#$n · held by @$hu · session $hl on $hh [$live] · $hb · since $ha"
             fi
             has_label "$issue" "$CLAIM_LABEL" || line="$line · (label missing)"
         else
@@ -721,10 +750,10 @@ mine_elsewhere() {
         [ "$(printf '%s' "$ident" | jq -r '.host // empty' 2>/dev/null)" = "$HOST" ] || continue
         claims=$(ledger_issues "$other" | paste -sd, - 2>/dev/null)
         [ -n "$claims" ] || continue
-        who=$(printf '%s' "$ident" | jq -r '.name // "unknown"' 2>/dev/null)
+        who=$(holder_label "$(printf '%s' "$ident" | jq -c --arg s "$id" '.session = $s' 2>/dev/null)")
         [ "$any" = 0 ] && say "" && say "other session ids on this machine still list claims:"
         any=1
-        say "  $who (${id:0:8}): $claims"
+        say "  $who: $claims"
     done
     [ "$any" = 1 ] || return 0
     say ""
@@ -737,14 +766,14 @@ cmd_mine() { # <verify>
     local f n
     f=$(ledger_file) || die "not inside a Claude Code session"
     if [ -s "$f" ]; then
-        say "session $NAME ($SHORT_ID) holds:"
+        say "session $(self_label) holds:"
         for n in $(ledger_issues "$f"); do
             if [ "$1" = 1 ]; then status_line "$n" 1; else
                 say "  carnet#$n · since $(jq -r --argjson n "$n" 'select(.kind == "claim" and .issue == $n) | .at' "$f")"
             fi
         done
     else
-        say "this session ($NAME) holds nothing"
+        say "this session ($(self_label)) holds nothing"
     fi
     mine_elsewhere
 }
