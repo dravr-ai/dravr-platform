@@ -2495,7 +2495,7 @@
     "messengerPageTokenHint": "Messenger page access token",
     "metaAppSecretHint": "Meta App Secret for webhook signature verification",
     "pageAccessToken": "Page Access Token",
-    "phoneNumber": "Phone Number",
+    "phoneNumber": "Phone number ID",
     "publicKey": "Public Key",
     "removeChannelConfig": "Remove Channel Configuration",
     "removeFailed": "Failed to remove configuration",

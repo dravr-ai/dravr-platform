@@ -2495,7 +2495,7 @@
     "messengerPageTokenHint": "Token de acesso da página do Messenger",
     "metaAppSecretHint": "Segredo da aplicação Meta para verificar a assinatura do webhook",
     "pageAccessToken": "Token de acesso da página",
-    "phoneNumber": "Número de telefone",
+    "phoneNumber": "ID do número de telefone",
     "publicKey": "Chave pública",
     "removeChannelConfig": "Remover a configuração do canal",
     "removeFailed": "Não foi possível remover a configuração",
