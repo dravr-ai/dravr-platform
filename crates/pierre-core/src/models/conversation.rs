@@ -76,8 +76,6 @@ pub enum InputSource {
     /// (carnet#830). Counted apart from [`Self::UseCase`] because a step the
     /// reply handed over is a different signal from a starter the athlete
     /// picked unprompted.
-    ///
-    /// LIMITATION(registre#830): `InputSource::NextStep` has no producer — no reply offers a next step until the transition table picks them from the use-case catalogue, so no tap resolves to one.
     NextStep,
 }
 

@@ -229,6 +229,7 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     };
     let profile = SurfaceProfile::resolve(&messaging_surface_request(
         ChannelType::Slack,

@@ -37,6 +37,7 @@ use uuid::Uuid;
 
 use super::completion;
 use super::deterministic_reply::PlatformReply;
+use crate::next_steps::NextSteps;
 use crate::ChatPipelineContext;
 
 /// How many turns the fortnight rail owns before it retires.
@@ -145,7 +146,14 @@ pub enum GuidedResolution {
         /// safety-critical.
         answered: Option<GuidedTarget>,
     },
-    /// Not in a guided flow, or the pillars walk just ended — normal coaching.
+    /// The pillars walk just ended. The agent answers the turn, as on any
+    /// coaching turn — the platform has no wrap-up of its own to send for it —
+    /// and its reply carries these next steps.
+    PillarsComplete {
+        /// What the agent's closing reply offers next.
+        next_steps: NextSteps,
+    },
+    /// Not in a guided flow — normal coaching.
     Inactive,
 }
 
@@ -153,8 +161,9 @@ pub enum GuidedResolution {
 ///
 /// Returns [`GuidedResolution::Inactive`] (run the turn as normal coaching)
 /// when the conversation is not in a guided flow, when the speaker is not the
-/// walk's subject, when the pillars walk has nothing left to probe — in which
-/// case the active marker is cleared — or when the dossier cannot be composed.
+/// walk's subject, or when the dossier cannot be composed; and
+/// [`GuidedResolution::PillarsComplete`] when the pillars walk has nothing
+/// left to probe, in which case the active marker is retired.
 ///
 /// `tenant_id` is the tenant that owns the conversation row (where the state
 /// marker lives); `facts_tenant` is the tenant that owns the subject's own
@@ -207,7 +216,17 @@ pub async fn resolve(
             // the conversation: the athlete keeps adjusting, just as ordinary
             // coaching, and the wrap-up reads the saved weeks back.
             let subject = walk_subject_id(&state, conv).map(|id| id.to_string());
-            return finish_fortnight(ctx, conv, tenant_id, facts_tenant, subject, locale).await;
+            return finish_fortnight(
+                ctx,
+                FinishFortnight {
+                    conv,
+                    tenant_id,
+                    facts_tenant,
+                    subject_user_id: subject,
+                    locale,
+                },
+            )
+            .await;
         }
         return GuidedResolution::Probe(Box::new(OnboardingTurn {
             target: None,
@@ -383,6 +402,18 @@ struct LeaveGuidedMode<'a> {
     locale: &'a str,
 }
 
+/// Where the fortnight rail ends, and for whom.
+struct FinishFortnight<'a> {
+    conv: &'a ConversationRecord,
+    /// Owns the conversation row the marker is cleared on.
+    tenant_id: TenantId,
+    /// Owns the subject's plan, for the re-check's reads.
+    facts_tenant: TenantId,
+    /// The member the rail drafted for, when the state names one.
+    subject_user_id: Option<String>,
+    locale: &'a str,
+}
+
 /// End the fortnight rail: read the saved weeks back, then retire the marker.
 ///
 /// Separate from [`leave_guided_mode`] because that one needs a dossier and a
@@ -391,12 +422,15 @@ struct LeaveGuidedMode<'a> {
 /// have is a claim to check: the agent said it wrote two weeks.
 async fn finish_fortnight(
     ctx: &ChatPipelineContext,
-    conv: &ConversationRecord,
-    tenant_id: TenantId,
-    facts_tenant: TenantId,
-    subject_user_id: Option<String>,
-    locale: &str,
+    inputs: FinishFortnight<'_>,
 ) -> GuidedResolution {
+    let FinishFortnight {
+        conv,
+        tenant_id,
+        facts_tenant,
+        subject_user_id,
+        locale,
+    } = inputs;
     // Rendered before the marker is retired, so a failed write does not also
     // cost the athlete the answer to "did it land?".
     let Some(subject) = subject_user_id else {
@@ -409,7 +443,13 @@ async fn finish_fortnight(
         clear_marker(ctx, conv, tenant_id).await;
         return GuidedResolution::Inactive;
     };
-    let reply = completion::render_fortnight(ctx, facts_tenant, &subject, locale).await;
+    // A thread bound to a coaching group is read by the room.
+    let audience = if conv.group_id.is_some() {
+        WalkAudience::Room
+    } else {
+        WalkAudience::Private
+    };
+    let reply = completion::render_fortnight(ctx, facts_tenant, &subject, audience, locale).await;
     clear_marker(ctx, conv, tenant_id).await;
     GuidedResolution::WalkComplete {
         reply,
@@ -458,20 +498,19 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
     // counts facts under the subject's own tenant — where this walk's
     // extraction lands them — never the conversation tenant a room row lives
     // under.
-    let reply = match state.flow {
-        GuidedFlow::Calibration => Some(
+    let ending = match state.flow {
+        GuidedFlow::Calibration => Some(Ending::WrapUp(
             completion::render(ctx, &state, facts_tenant, subject_user_id, dossier, locale).await,
-        ),
-        GuidedFlow::Season => Some(
+        )),
+        GuidedFlow::Season => Some(Ending::WrapUp(
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
-        ),
-        // The pillars walk records its completion, but the agent still
-        // answers its last turn: the platform has no wrap-up of its own to
-        // send for it (see `completion::record_pillars`).
-        GuidedFlow::Pillars => {
-            completion::record_pillars(ctx, &state, facts_tenant, subject_user_id).await;
-            None
-        }
+        )),
+        // The pillars walk records its completion and picks its next steps,
+        // but the agent still answers its last turn: the platform has no
+        // wrap-up of its own to send for it (see `completion::record_pillars`).
+        GuidedFlow::Pillars => Some(Ending::AgentCloses(
+            completion::record_pillars(ctx, &state, facts_tenant, subject_user_id, locale).await,
+        )),
         // The intake writes its own wrap-up when the platform closes it out,
         // and the fortnight's is the command's own reply — neither has a
         // wrap-up to render here.
@@ -512,9 +551,19 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
         tracing::warn!(error = %e, "failed to retire completed onboarding_state");
     }
 
-    reply.map_or(GuidedResolution::Inactive, |reply| {
-        GuidedResolution::WalkComplete { reply, answered }
-    })
+    match ending {
+        Some(Ending::WrapUp(reply)) => GuidedResolution::WalkComplete { reply, answered },
+        Some(Ending::AgentCloses(next_steps)) => GuidedResolution::PillarsComplete { next_steps },
+        None => GuidedResolution::Inactive,
+    }
+}
+
+/// How a walk that had nothing left to ask closes.
+enum Ending {
+    /// The platform's wrap-up answers the turn.
+    WrapUp(PlatformReply),
+    /// The agent answers the turn, offering these next steps.
+    AgentCloses(NextSteps),
 }
 
 /// Stamp the walk's completion into the athlete's profile window.
@@ -646,6 +695,19 @@ pub async fn record_delivered_probe(
 pub fn just_completed_interview(raw: Option<&str>, now: DateTime<Utc>) -> bool {
     OnboardingState::just_completed(raw, now)
         && OnboardingState::retired_flow(raw).is_some_and(GuidedFlow::is_interview)
+}
+
+/// Whether this turn laid out the season the season walk just offered: the
+/// walk retired within the release window, and the turn saved a plan.
+///
+/// That is where the season walk really lands — its wrap-up only offers the
+/// layout — so it is where the walk's next step, the fortnight, can first
+/// stand on a season.
+#[must_use]
+pub fn season_laid_out(raw: Option<&str>, now: DateTime<Utc>, plan_saved: bool) -> bool {
+    plan_saved
+        && OnboardingState::just_completed(raw, now)
+        && OnboardingState::retired_flow(raw) == Some(GuidedFlow::Season)
 }
 
 /// The system-prompt block the first turn after a guided flow ends carries.

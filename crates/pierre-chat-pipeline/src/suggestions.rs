@@ -1,5 +1,5 @@
-// ABOUTME: Suggestion postbacks — the opaque value a tapped suggestion sends, resolved before the turn is dispatched
-// ABOUTME: Makes a tap measurable (suggestion.shown / .tapped, InputSource::UseCase) and keeps the id out of the transcript
+// ABOUTME: Suggestion postbacks — the opaque value a tapped starter or next step sends, resolved before dispatch
+// ABOUTME: Makes a tap measurable (suggestion.shown / .tapped, InputSource) and keeps the id out of the transcript
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,14 +11,20 @@
 //! whether suggestions are used at all. A suggestion now posts an opaque value
 //! that `resolve` turns back into its words before the turn is dispatched:
 //! the athlete's bubble and the transcript carry the question, the turn is
-//! tagged [`InputSource::UseCase`](pierre_core::models::InputSource), and
+//! tagged [`InputSource::UseCase`], and
 //! `suggestion.tapped` records which suggestion, from which slot.
 //!
-//! Two grammars:
+//! Three grammars:
 //!
 //! - `uc:<position>:<id>` — the catalogue starter `id`, shown in slot
 //!   `position`. It resolves to its slash command, which then dispatches, or
 //!   to its prompt in the athlete's language.
+//! - `nx:<position>:<id>` — the catalogue entry `id` offered as a next step
+//!   once a reply ended (carnet#830), in slot `position`. It resolves exactly
+//!   as a starter does, but the turn is tagged
+//!   [`InputSource::NextStep`] and reported under the `next_step` surface, so
+//!   a step a reply handed over is never counted as a starter the athlete
+//!   picked unprompted.
 //! - `ex:<position>:<index>` — the agent's Example Input at `index` in
 //!   `starter_samples` order, shown in slot `position`. The two numbers are
 //!   kept apart because ranked starters can take the slots ahead of the
@@ -36,27 +42,32 @@ use chrono::Utc;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{is_use_case_id, UseCaseCatalogue, UseCaseRun};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::models::{ConversationRecord, InputSource, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_services::use_case_rank::{
-    offer, rank_for_athlete, rotation_for, starter_category, use_case_postback, OfferedStarter,
-    USE_CASE_POSTBACK_PREFIX,
+    offer, rank_for_athlete, rotation_for, starter_category, use_case_line, use_case_postback,
+    OfferedStarter, USE_CASE_POSTBACK_PREFIX,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::agent_welcome::{localized_agent, starter_samples};
+use crate::envelope::TurnAction;
 use crate::surface_profile::SurfaceId;
 
 /// The `surface` an agent welcome's starters are reported under.
 pub(crate) const SURFACE_AGENT_WELCOME: &str = "agent_welcome";
+
+/// The `surface` the next steps a reply ends on are reported under.
+pub(crate) const SURFACE_NEXT_STEP: &str = "next_step";
 
 /// The `surface` the starters of an empty thread are reported under: the web
 /// pane with no thread open, the phone's thread before its first message.
 pub(crate) const SURFACE_EMPTY_THREAD: &str = "empty_thread";
 
 const EXAMPLE_PREFIX: &str = "ex:";
+const NEXT_STEP_PREFIX: &str = "nx:";
 
 /// Where a suggestion's words came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +76,8 @@ pub(crate) enum SuggestionSource {
     Static,
     /// A catalogue starter ranked from the athlete's state.
     State,
+    /// A catalogue entry a reply offered as what to do next.
+    NextStep,
 }
 
 impl SuggestionSource {
@@ -74,6 +87,7 @@ impl SuggestionSource {
         match self {
             Self::Static => "static",
             Self::State => "state",
+            Self::NextStep => "next_step",
         }
     }
 }
@@ -96,6 +110,13 @@ pub(crate) enum Postback {
         /// The starter's catalogue id.
         id: String,
     },
+    /// The catalogue entry `id`, offered as a next step in slot `position`.
+    NextStep {
+        /// 0-based slot the step was shown in.
+        position: usize,
+        /// The entry's catalogue id.
+        id: String,
+    },
 }
 
 impl Postback {
@@ -105,6 +126,7 @@ impl Postback {
         match self {
             Self::Example { position, index } => format!("{EXAMPLE_PREFIX}{position}:{index}"),
             Self::UseCase { position, id } => use_case_postback(*position, id),
+            Self::NextStep { position, id } => format!("{NEXT_STEP_PREFIX}{position}:{id}"),
         }
     }
 
@@ -119,16 +141,12 @@ impl Postback {
                 index: parse_slot(index)?,
             });
         }
-        let (position, id) = text
-            .strip_prefix(USE_CASE_POSTBACK_PREFIX)?
-            .split_once(':')?;
-        if !is_use_case_id(id) {
-            return None;
+        if let Some(rest) = text.strip_prefix(NEXT_STEP_PREFIX) {
+            let (position, id) = catalogue_slot(rest)?;
+            return Some(Self::NextStep { position, id });
         }
-        Some(Self::UseCase {
-            position: parse_slot(position)?,
-            id: id.to_owned(),
-        })
+        let (position, id) = catalogue_slot(text.strip_prefix(USE_CASE_POSTBACK_PREFIX)?)?;
+        Some(Self::UseCase { position, id })
     }
 
     /// The suggestion's identity in analytics: a starter's catalogue id, or
@@ -137,7 +155,7 @@ impl Postback {
     pub fn use_case(&self) -> String {
         match self {
             Self::Example { index, .. } => format!("{EXAMPLE_PREFIX}{index}"),
-            Self::UseCase { id, .. } => id.clone(),
+            Self::UseCase { id, .. } | Self::NextStep { id, .. } => id.clone(),
         }
     }
 
@@ -145,7 +163,9 @@ impl Postback {
     #[must_use]
     pub const fn position(&self) -> usize {
         match self {
-            Self::Example { position, .. } | Self::UseCase { position, .. } => *position,
+            Self::Example { position, .. }
+            | Self::UseCase { position, .. }
+            | Self::NextStep { position, .. } => *position,
         }
     }
 
@@ -155,6 +175,37 @@ impl Postback {
         match self {
             Self::Example { .. } => SuggestionSource::Static,
             Self::UseCase { .. } => SuggestionSource::State,
+            Self::NextStep { .. } => SuggestionSource::NextStep,
+        }
+    }
+
+    /// The placement a tap on the suggestion is reported under: a welcome's
+    /// starter, or a step a reply ended on. A tap carries nothing but its
+    /// grammar, so a starter is a welcome's whichever surface showed it; a
+    /// showing names its own placement ([`SuggestionEvent::surface`]).
+    #[must_use]
+    pub const fn surface(&self) -> &'static str {
+        match self {
+            Self::Example { .. } | Self::UseCase { .. } => SURFACE_AGENT_WELCOME,
+            Self::NextStep { .. } => SURFACE_NEXT_STEP,
+        }
+    }
+
+    /// How a turn this suggestion resolved into was produced.
+    #[must_use]
+    pub const fn input_source(&self) -> InputSource {
+        match self {
+            Self::Example { .. } | Self::UseCase { .. } => InputSource::UseCase,
+            Self::NextStep { .. } => InputSource::NextStep,
+        }
+    }
+
+    /// The catalogue entry the suggestion stands for; `None` for an example.
+    #[must_use]
+    pub fn catalogue_id(&self) -> Option<&str> {
+        match self {
+            Self::Example { .. } => None,
+            Self::UseCase { id, .. } | Self::NextStep { id, .. } => Some(id),
         }
     }
 }
@@ -164,6 +215,16 @@ impl Postback {
 #[must_use]
 pub fn is_postback(value: &str) -> bool {
     Postback::parse(value).is_some()
+}
+
+/// `<position>:<id>` after a catalogue prefix, with an id of the catalogue's
+/// shape.
+fn catalogue_slot(rest: &str) -> Option<(usize, String)> {
+    let (position, id) = rest.split_once(':')?;
+    if !is_use_case_id(id) {
+        return None;
+    }
+    Some((parse_slot(position)?, id.to_owned()))
 }
 
 /// A slot or index: ASCII digits only, so `+1` or ` 1` never parse.
@@ -229,7 +290,7 @@ pub(crate) async fn resolve(
     };
     let words = match &postback {
         Postback::Example { index, .. } => example_words(repos, tap, *index).await?,
-        Postback::UseCase { id, .. } => {
+        Postback::UseCase { id, .. } | Postback::NextStep { id, .. } => {
             use_case_words(UseCaseCatalogue::pinned(), strings, tap.locale, id)
         }
     };
@@ -265,9 +326,9 @@ async fn example_words(
         .nth(index))
 }
 
-/// What the starter `id` stands for: its slash command, or its prompt in
-/// `locale`. `None` when the catalogue no longer lists it or its prompt has no
-/// words in the strings.
+/// What the catalogue entry `id` stands for: its slash command, or its prompt
+/// in `locale`. `None` when the catalogue no longer lists it or its prompt has
+/// no words in the strings.
 fn use_case_words(
     catalogue: &UseCaseCatalogue,
     strings: &MessagingStringsRegistry,
@@ -282,13 +343,50 @@ fn use_case_words(
     (!words.trim().is_empty()).then_some(words)
 }
 
+/// The text form of a reply's untitled suggestion controls.
+///
+/// For a channel that lists them rather than drawing them: one `- ` line per
+/// control, each written as [`use_case_line`] writes its catalogue entry.
+///
+/// `None` unless every control is a catalogue postback whose entry still has
+/// words — a set it cannot write whole is left to the caller's own rendering,
+/// so no control is dropped from it silently.
+#[must_use]
+pub fn suggestion_lines(
+    actions: &[TurnAction],
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> Option<String> {
+    if actions.is_empty() {
+        return None;
+    }
+    let catalogue = UseCaseCatalogue::pinned();
+    let lines = actions
+        .iter()
+        .map(|action| {
+            let postback = Postback::parse(&action.value)?;
+            let entry = catalogue.get(postback.catalogue_id()?)?;
+            use_case_line(entry, &action.label, strings, locale)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(
+        lines
+            .iter()
+            .map(|line| format!("- {line}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
 /// Who a suggestion event is about and where it happened.
 pub(crate) struct SuggestionEvent<'a> {
     /// The athlete the suggestion was offered to.
     pub user_id: &'a str,
     /// Tenant of the conversation the suggestion lives in.
     pub tenant_id: TenantId,
-    /// The placement: [`SURFACE_AGENT_WELCOME`].
+    /// The placement: [`SURFACE_AGENT_WELCOME`], [`SURFACE_EMPTY_THREAD`] or
+    /// [`SURFACE_NEXT_STEP`] where it was shown, [`Postback::surface`] for a
+    /// tap.
     pub surface: &'a str,
     /// The chat surface, as [`crate::SurfaceId::as_str`] names it.
     pub channel: &'a str,
@@ -326,9 +424,11 @@ pub(crate) fn emit_tapped(event: &SuggestionEvent<'_>, postback: &Postback) {
     );
 }
 
-/// Report the athlete's tap on `postback` and, for a ranked starter, count
-/// it toward retiring the starter under `exposure_tenant`. Best-effort: an
-/// unrecorded tap only lets the starter be offered once more than it should.
+/// Report the athlete's tap on `postback` and, for a catalogue entry — a
+/// ranked starter or a next step — count it under `exposure_tenant`: a
+/// `once` entry is used whether a welcome offered it or a reply did.
+/// Best-effort: an unrecorded tap only lets the entry be offered once more
+/// than it should.
 pub(crate) async fn record_tap(
     repos: &RepositoryRegistry,
     event: &SuggestionEvent<'_>,
@@ -337,18 +437,19 @@ pub(crate) async fn record_tap(
     user: Uuid,
 ) {
     emit_tapped(event, postback);
-    if let Postback::UseCase { id, .. } = postback {
+    if let Some(id) = postback.catalogue_id() {
         if let Err(e) = repos
             .use_case_exposures
             .record_use_case_tapped(exposure_tenant, user, id, Utc::now())
             .await
         {
-            warn!(error = %e, use_case = %id, "a starter tap could not be recorded");
+            warn!(error = %e, use_case = %id, "a use-case tap could not be recorded");
         }
     }
 }
 
-/// Who tapped a starter on a channel that routes commands itself.
+/// Who tapped a starter or a next step on a channel that routes commands
+/// itself.
 pub struct CommandTap {
     /// The athlete who tapped.
     pub user_id: Uuid,
@@ -360,25 +461,36 @@ pub struct CommandTap {
     pub surface: SurfaceId,
 }
 
-/// The command a tapped starter runs, when `text` is the postback of a
-/// catalogue starter that runs one — reported and counted as a tap.
+/// A tapped starter or next step that runs a command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TappedCommand {
+    /// The command the catalogue entry runs, as the athlete would type it.
+    pub command: String,
+    /// How the athlete produced it: [`InputSource::UseCase`] for a starter,
+    /// [`InputSource::NextStep`] for a step a reply offered — so its reply
+    /// teaches the command it stood for.
+    pub input_source: InputSource,
+}
+
+/// The command a tapped catalogue entry runs, when `text` is the postback of
+/// a starter or a next step that runs one — reported and counted as a tap.
 ///
 /// For a channel that routes a typed command itself before the turn — a
 /// messaging channel answers a command privately in a room and deletes its
 /// echo — so a tapped `/pillars` takes the same road as a typed one rather
-/// than the turn's. `None` for anything else, a prompt starter or an
-/// example included: the turn resolves those, and reports their taps, as it
-/// always has.
+/// than the turn's. `None` for anything else, a prompt entry or an example
+/// included: the turn resolves those, and reports their taps, as it always
+/// has.
 pub async fn resolve_command_tap(
     repos: &RepositoryRegistry,
     tap: &CommandTap,
     text: &str,
-) -> Option<String> {
+) -> Option<TappedCommand> {
     let postback = Postback::parse(text)?;
-    let Postback::UseCase { id, .. } = &postback else {
-        return None;
-    };
-    let UseCaseRun::Command(command) = &UseCaseCatalogue::pinned().get(id)?.run else {
+    let UseCaseRun::Command(command) = &UseCaseCatalogue::pinned()
+        .get(postback.catalogue_id()?)?
+        .run
+    else {
         return None;
     };
     let user_id = tap.user_id.to_string();
@@ -387,7 +499,7 @@ pub async fn resolve_command_tap(
         &SuggestionEvent {
             user_id: &user_id,
             tenant_id: tap.conversation_tenant_id,
-            surface: SURFACE_AGENT_WELCOME,
+            surface: postback.surface(),
             channel: tap.surface.as_str(),
         },
         &postback,
@@ -395,7 +507,10 @@ pub async fn resolve_command_tap(
         tap.user_id,
     )
     .await;
-    Some(command.clone())
+    Some(TappedCommand {
+        command: command.clone(),
+        input_source: postback.input_source(),
+    })
 }
 
 /// Who an empty thread's starters are offered to, and where.
@@ -479,9 +594,11 @@ pub async fn offer_empty_thread_starters(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::envelope::ActionKind;
 
     const CATALOGUE: &str = "
 - {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
+- {id: season, run: command, command: /season, requires: [pillars_done, no_season], stage: first_week, domains: [training], repeat: once}
 - {id: today, run: command, command: /plan today, requires: [plan_active], stage: any, domains: [training], repeat: recurring}
 ";
 
@@ -514,6 +631,96 @@ mod tests {
         assert_eq!(postback.use_case(), "last_workout");
         assert_eq!(postback.position(), 1);
         assert_eq!(postback.source(), SuggestionSource::State);
+    }
+
+    #[test]
+    fn a_next_step_postback_round_trips_and_is_counted_apart_from_a_starter() {
+        let step = Postback::NextStep {
+            position: 2,
+            id: "fortnight".to_owned(),
+        };
+        assert_eq!(step.encode(), "nx:2:fortnight");
+        assert_eq!(Postback::parse("nx:2:fortnight"), Some(step.clone()));
+        assert_eq!(step.use_case(), "fortnight");
+        assert_eq!(step.catalogue_id(), Some("fortnight"));
+        assert_eq!(step.position(), 2);
+        assert_eq!(step.source().as_str(), "next_step");
+        assert_eq!(step.surface(), "next_step");
+        assert_eq!(step.input_source(), InputSource::NextStep);
+
+        let starter = Postback::parse("uc:2:fortnight").expect("a starter");
+        assert_eq!(starter.source().as_str(), "state");
+        assert_eq!(starter.surface(), "agent_welcome");
+        assert_eq!(starter.input_source(), InputSource::UseCase);
+        let example = Postback::parse("ex:0:1").expect("an example");
+        assert_eq!(example.surface(), "agent_welcome");
+        assert_eq!(example.input_source(), InputSource::UseCase);
+        assert_eq!(example.catalogue_id(), None);
+    }
+
+    #[test]
+    fn a_next_step_resolves_to_the_words_its_entry_stands_for() {
+        let catalogue = catalogue();
+        let strings = MessagingStringsRegistry::new();
+        let id = |text: &str| {
+            Postback::parse(text)
+                .and_then(|postback| postback.catalogue_id().map(ToOwned::to_owned))
+                .expect("a catalogue postback")
+        };
+        assert_eq!(
+            use_case_words(&catalogue, &strings, "en", &id("nx:0:season")).as_deref(),
+            Some("/season")
+        );
+        assert_eq!(
+            use_case_words(&catalogue, &strings, "en", &id("nx:1:today")).as_deref(),
+            Some("/plan today")
+        );
+    }
+
+    #[test]
+    fn untitled_steps_are_listed_as_the_command_to_type_or_the_words_to_send() {
+        let strings = MessagingStringsRegistry::new();
+        let pinned = UseCaseCatalogue::pinned();
+        let season = pinned.get("season").expect("season is catalogued");
+        let connect = pinned.get("connect").expect("connect is catalogued");
+        let actions = [
+            TurnAction {
+                label: "Plan my season".to_owned(),
+                kind: ActionKind::Postback,
+                value: Postback::NextStep {
+                    position: 0,
+                    id: season.id.clone(),
+                }
+                .encode(),
+            },
+            TurnAction {
+                label: "Connect my watch".to_owned(),
+                kind: ActionKind::Postback,
+                value: Postback::NextStep {
+                    position: 1,
+                    id: connect.id.clone(),
+                }
+                .encode(),
+            },
+        ];
+        let prompt = strings.get(&connect.prompt_key(), "en");
+        assert!(!prompt.is_empty(), "connect's prompt has words");
+        assert_eq!(
+            suggestion_lines(&actions, &strings, "en").as_deref(),
+            Some(format!("- /season — Plan my season\n- {prompt}").as_str())
+        );
+
+        let command_button = TurnAction {
+            label: "Plan".to_owned(),
+            kind: ActionKind::Postback,
+            value: "/plan".to_owned(),
+        };
+        assert_eq!(
+            suggestion_lines(&[actions[0].clone(), command_button], &strings, "en"),
+            None,
+            "a set it cannot list whole is left to the card"
+        );
+        assert_eq!(suggestion_lines(&[], &strings, "en"), None);
     }
 
     #[test]
@@ -567,6 +774,13 @@ mod tests {
             "uc:1:load now",
             "uc:1:_load",
             "uc:1:/pillars",
+            "nx:",
+            "nx:1",
+            "nx::season",
+            "nx:-1:season",
+            "nx:1:Season",
+            "NX:1:season",
+            "nx:1:season now",
             "/plan",
             "What is my FTP?",
         ] {
@@ -579,5 +793,6 @@ mod tests {
         assert!(!is_postback("/agent add @fuel"));
         assert!(is_postback("ex:0:0"));
         assert!(is_postback("uc:0:connect"));
+        assert!(is_postback("nx:0:fortnight"));
     }
 }

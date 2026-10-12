@@ -23,6 +23,13 @@
 //! The pillars walk is counted the same way, by the facts that landed inside
 //! its window, and reported as `onboarding.completed` like the others — but
 //! it closes on the agent's own reply rather than one written here.
+//!
+//! Each ending also picks what the athlete can do next from the transition
+//! table ([`StepsAfter`]): the season wrap-up offers the fortnight, a landed
+//! fortnight the calendar and today's session, the pillars walk the season or
+//! a calibration — each only once its catalogue requirements hold. The
+//! wrap-up's own words stay the reply; the steps are the same choices as
+//! taps.
 
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -32,15 +39,17 @@ use pierre_contremaitre::messaging_strings::{
     KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
-    CalibrationTopic, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId,
+    CalibrationTopic, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource, UserFact};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::training_plan_render::fortnight_is_covered;
+use uuid::Uuid;
 
 use super::deterministic_reply::PlatformReply;
 use super::onboarding::{calibration_conditions, season_conditions};
+use crate::next_steps::{NextSteps, StepsAfter, StepsFor};
 use crate::ChatPipelineContext;
 
 /// Upper bound on facts pulled when counting what the interview landed. An
@@ -87,6 +96,39 @@ async fn landed_onboarding_facts(
         });
     ai_scope::retain_admitted(&mut landed, |fact| fact.transport_policy);
     landed
+}
+
+/// The steps `after` offers the walk's subject, in their language.
+///
+/// None in a room: the steps are picked from one athlete's state, and the
+/// whole room would read them back. None either for a subject that is not a
+/// user id, whose state there is no reading.
+async fn steps_after(
+    ctx: &ChatPipelineContext,
+    after: StepsAfter,
+    audience: WalkAudience,
+    facts_tenant: TenantId,
+    subject_user_id: &str,
+    locale: &str,
+) -> NextSteps {
+    let Ok(user_id) = subject_user_id.parse::<Uuid>() else {
+        return NextSteps::default();
+    };
+    if audience == WalkAudience::Room {
+        return NextSteps::default();
+    }
+    NextSteps::after(
+        &ctx.repos,
+        &ctx.messaging_strings_registry,
+        after,
+        &StepsFor {
+            user_id,
+            tenant_id: facts_tenant,
+            locale,
+            ran: None,
+        },
+    )
+    .await
 }
 
 /// The locale string naming a safety-critical topic in the wrap-up.
@@ -184,7 +226,9 @@ fn assess_season(
 /// Never claims success it cannot evidence: the header states the real count,
 /// and a missing safety answer is named with an instruction to redo it.
 ///
-/// LIMITATION(registre#830): `render`, `render_season` and `render_fortnight` close with `PlatformReply::text_only` — no next steps, and no line naming the command a step runs — because the transition table that picks each walk's steps from the use-case catalogue, filtered by its `requires` predicates, does not exist.
+/// It offers no next step: it closes on a question — rebuild the plan, or
+/// build one — that the athlete answers in their own words, and the
+/// transition table gives it no row ([`StepsAfter::candidates`]).
 pub async fn render(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
@@ -257,6 +301,10 @@ pub async fn render(
 /// the offer to lay the season out deferred until the athlete names it.
 /// Otherwise the message closes on the offer, and a yes on the next turn
 /// runs `recommend_plan_flavour` under the release directive.
+///
+/// Its next step is the fortnight, offered only once a season is set — on a
+/// re-run of the walk over a season already laid out. A first season is not
+/// laid out until the athlete says yes, and that turn offers it then.
 pub async fn render_season(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
@@ -293,7 +341,18 @@ pub async fn render_season(
         KEY_SEASON_FOLLOWUP_LAY_OUT
     };
     out.push_str(&reg.render(followup, locale, &[]));
-    PlatformReply::text_only(out)
+    PlatformReply {
+        text: out,
+        next_steps: steps_after(
+            ctx,
+            StepsAfter::SeasonWalk,
+            state.audience,
+            facts_tenant,
+            subject_user_id,
+            locale,
+        )
+        .await,
+    }
 }
 
 /// The fortnight rail's wrap-up: did the two weeks actually land?
@@ -308,10 +367,14 @@ pub async fn render_season(
 /// which the stored weeks answer directly; readiness and compliance are the
 /// drafting turn's inputs, and re-gathering them here would spend the rails'
 /// whole gather to say something the athlete did not ask.
+///
+/// Weeks that landed lead on to the calendar and today's session; weeks that
+/// did not offer nothing to tap, since every next step stands on them.
 pub async fn render_fortnight(
     ctx: &ChatPipelineContext,
     facts_tenant: TenantId,
     subject_user_id: &str,
+    audience: WalkAudience,
     locale: &str,
 ) -> PlatformReply {
     let reg = &ctx.messaging_strings_registry;
@@ -356,16 +419,28 @@ pub async fn render_fortnight(
         "guided interview completed"
     );
 
-    let key = if covered {
-        KEY_FORTNIGHT_RECHECK_LANDED
-    } else {
-        KEY_FORTNIGHT_RECHECK_MISSING
-    };
-    PlatformReply::text_only(reg.render(key, locale, &[]))
+    if !covered {
+        return PlatformReply::text_only(reg.render(KEY_FORTNIGHT_RECHECK_MISSING, locale, &[]));
+    }
+    PlatformReply {
+        text: reg.render(KEY_FORTNIGHT_RECHECK_LANDED, locale, &[]),
+        next_steps: steps_after(
+            ctx,
+            StepsAfter::FortnightSaved,
+            audience,
+            facts_tenant,
+            subject_user_id,
+            locale,
+        )
+        .await,
+    }
 }
 
-/// Record that the pillars walk reached its end, as `onboarding.completed`
-/// with `flow = pillars`.
+/// Record that the pillars walk reached its end, and pick its next steps.
+///
+/// The record is `onboarding.completed` with `flow = pillars`; the steps are
+/// the season or a calibration ([`StepsAfter::PillarsWalk`]), carried by the
+/// agent's closing reply.
 ///
 /// Counted like the fixed-list walks, from the facts that landed inside the
 /// walk's window. The topics asked are the distinct ones the delivered-probe
@@ -376,15 +451,17 @@ pub async fn render_fortnight(
 /// window's count, so it reports what this walk captured and nothing an
 /// earlier walk did.
 ///
-/// It sends nothing, so the walk closes on the agent's own reply.
+/// It sends nothing, so the walk closes on the agent's own reply, with the
+/// steps beside it.
 ///
-/// LIMITATION(registre#830): `record_pillars` writes no wrap-up and offers no next step — contremaitre has no pillars completion string for the platform to send in the agent's place.
+/// LIMITATION(registre#830): `record_pillars` writes no wrap-up of the pillars walk — contremaitre has no pillars completion string for the platform to send in the agent's place, so the count it records is never stated to the athlete.
 pub async fn record_pillars(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
     facts_tenant: TenantId,
     subject_user_id: &str,
-) {
+    locale: &str,
+) -> NextSteps {
     let asked = pillars_asked(state);
     let started_at = walk_started_at(state);
     let landed = landed_onboarding_facts(ctx, facts_tenant, subject_user_id, "pillars").await;
@@ -406,6 +483,16 @@ pub async fn record_pillars(
         facts_landed = in_window.len(),
         "guided interview completed"
     );
+
+    steps_after(
+        ctx,
+        StepsAfter::PillarsWalk,
+        state.audience,
+        facts_tenant,
+        subject_user_id,
+        locale,
+    )
+    .await
 }
 
 /// The distinct pillars-walk topics the ledger records a delivered probe

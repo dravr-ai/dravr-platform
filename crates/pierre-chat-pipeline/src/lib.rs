@@ -92,6 +92,7 @@ pub use turn::{TurnInput, UserMessageResult};
 #[cfg(feature = "tools-verification")]
 use follow_through::persist_verdicts_for_turn;
 use follow_through::{finish_turn_follow_through, FinishTurnInputs};
+use next_steps::NextSteps;
 use pierre_core::uuid_utils::parse_uuid;
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::sync::Arc;
@@ -659,7 +660,9 @@ async fn run_turn(
     // outright) and the athlete would get an interview summary where their
     // history was supposed to arrive — the same impersonation as the `user`
     // row above, one table over.
-    let onboarding_turn = if input.origin.persists_user_row() {
+    // A pillars walk that just ended leaves its next steps for the agent's
+    // closing reply to carry.
+    let (onboarding_turn, closing_steps) = if input.origin.persists_user_row() {
         match resolve_guided_or_answer(GuidedStageInputs {
             ctx,
             input: &input,
@@ -671,10 +674,10 @@ async fn run_turn(
         .await?
         {
             GuidedOutcome::Answered(result) => return Ok(*result),
-            GuidedOutcome::Continue(turn) => turn,
+            GuidedOutcome::Continue { probe, next_steps } => (probe, next_steps),
         }
     } else {
-        None
+        (None, NextSteps::default())
     };
 
     // Stage 4.6: scope rails. An athlete's message reporting acute red-flag
@@ -815,8 +818,25 @@ async fn run_turn(
     )
     .await;
     result.content = post_processed.content;
-    let content_blocks = post_processed.content_blocks;
     let leak_replaced = post_processed.leak_replaced;
+    let plan_was_saved = result
+        .tools_called
+        .iter()
+        .any(|t| t == SAVE_TRAINING_PLAN_TOOL);
+    // The steps this reply hands over ride its stored row and its live
+    // actions alike. A reply withheld for a leak is an apology, not the
+    // answer the steps would have followed.
+    let next_steps = if leak_replaced {
+        NextSteps::default()
+    } else {
+        next_steps::for_reply(ctx, &input, profile, &conv, closing_steps, plan_was_saved).await
+    };
+    let content_blocks = next_steps
+        .stored_blocks(post_processed.content_blocks.as_deref())
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "next steps could not be stored; persisting the reply without them");
+            post_processed.content_blocks.clone()
+        });
     let identity_leak = post_processed.identity_leak;
     let verdict_chips = post_processed.verdict_chips;
 
@@ -911,10 +931,7 @@ async fn run_turn(
         onboarding: onboarding_turn.as_ref(),
         introduction: intro.as_ref(),
         leak_replaced,
-        plan_was_saved: result
-            .tools_called
-            .iter()
-            .any(|t| t == SAVE_TRAINING_PLAN_TOOL),
+        plan_was_saved,
     })
     .await;
 
@@ -945,6 +962,11 @@ async fn run_turn(
     // Settled here, with a reply persisted for the notice to ride under — see
     // `settle_turn_notice` for why it cannot be decided any earlier.
     let quota = settle_turn_notice(ctx, &input).await;
+    next_steps.report_shown(
+        &input.user_id,
+        input.conversation_tenant_id,
+        profile.surface,
+    );
 
     Ok(build_envelope(
         profile,
@@ -971,7 +993,7 @@ async fn run_turn(
             reconnect,
             verdict_chips,
             scene_images,
-            actions: Vec::new(),
+            actions: next_steps.into_actions(),
             actions_title: None,
             answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
         },
@@ -1024,8 +1046,13 @@ struct GuidedStageInputs<'a> {
 enum GuidedOutcome {
     /// The platform answered the turn itself; the caller returns this verbatim.
     Answered(Box<TurnEnvelope>),
-    /// Run the turn normally, probing this topic if one is set.
-    Continue(Option<stages::onboarding::OnboardingTurn>),
+    /// Run the turn normally.
+    Continue {
+        /// The topic to probe, when one is set.
+        probe: Option<stages::onboarding::OnboardingTurn>,
+        /// The steps the reply offers because a walk ended on this turn.
+        next_steps: NextSteps,
+    },
 }
 
 /// Stage 4.5: resolve the guided flow, answering the turn outright when a
@@ -1056,10 +1083,20 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     .await;
 
     match guided {
-        stages::onboarding::GuidedResolution::Probe(turn) => {
-            Ok(GuidedOutcome::Continue(Some(*turn)))
+        stages::onboarding::GuidedResolution::Probe(turn) => Ok(GuidedOutcome::Continue {
+            probe: Some(*turn),
+            next_steps: NextSteps::default(),
+        }),
+        stages::onboarding::GuidedResolution::PillarsComplete { next_steps } => {
+            Ok(GuidedOutcome::Continue {
+                probe: None,
+                next_steps,
+            })
         }
-        stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue(None)),
+        stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue {
+            probe: None,
+            next_steps: NextSteps::default(),
+        }),
         stages::onboarding::GuidedResolution::WalkComplete { reply, answered } => {
             let result = stages::deterministic_reply::deliver(
                 stages::deterministic_reply::DeterministicReplyInputs {

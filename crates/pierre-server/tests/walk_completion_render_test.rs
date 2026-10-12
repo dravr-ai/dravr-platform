@@ -14,9 +14,12 @@
 //!
 //! The pillars walk ends through the guided resolver rather than a renderer:
 //! it reports `onboarding.completed` from the same window and leaves the turn
-//! to the agent. And a platform reply's next steps (carnet#830) are delivered
-//! the way a command's controls are — on the live envelope, and on the stored
-//! row a reload reads.
+//! to the agent. Each ending also picks its next steps from the transition
+//! table (carnet#830), filtered by what the athlete's state allows — the
+//! season after the pillars, the fortnight once a season is set, the
+//! calendar and today's session once the fortnight landed — and a platform
+//! reply delivers them the way a command's controls are: on the live
+//! envelope, and on the stored row a reload reads.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -27,12 +30,11 @@ mod helpers;
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_chat_pipeline::next_steps::NextSteps;
 use pierre_chat_pipeline::stages::completion;
 use pierre_chat_pipeline::stages::deterministic_reply::{
     deliver, DeterministicReplyInputs, PlatformReply, DETERMINISTIC_FINISH_REASON,
@@ -40,21 +42,28 @@ use pierre_chat_pipeline::stages::deterministic_reply::{
 use pierre_chat_pipeline::stages::onboarding::{self, GuidedResolution};
 use pierre_chat_pipeline::{
     ActionKind, ChatPipelineContext, InputSource, QuotaState, ReplyBlock, SurfaceId,
-    SurfaceProfile, SurfaceRequest, TurnAction, TurnInput, TurnOrigin,
+    SurfaceProfile, SurfaceRequest, TurnAction, TurnEnvelope, TurnInput, TurnOrigin,
 };
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_TOPIC_INJURY,
-    KEY_CALIBRATE_TOPIC_RECOVERY, KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL,
-    KEY_SEASON_FOLLOWUP_LAY_OUT,
+    KEY_CALIBRATE_TOPIC_RECOVERY, KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING,
+    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
+use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    AddMessageParams, CalibrationTopic, ConversationRecord, ConversationTurnId, CoverageTarget,
-    Dossier, DossierFact, GuidedFlow, OnboardingState, PersistedAction, PersistedReplyBlock,
-    Pillar, SeasonTopic, TenantId, TopicVisibility, WalkAudience, MAX_PROBE_ATTEMPTS,
+    AddMessageParams, CalibrationTopic, ConnectionType, ConversationRecord, ConversationTurnId,
+    CoverageTarget, Dossier, DossierFact, GuidedFlow, MessageRecord, OnboardingState,
+    PersistedAction, PersistedReplyBlock, Pillar, SeasonTopic, TenantId, TopicVisibility,
+    WalkAudience, MAX_PROBE_ATTEMPTS,
 };
-use pierre_database::repositories::UpsertUserFactParams;
+use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::{
+    PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use std::collections::BTreeMap;
 
 const LOCALE: &str = "en";
 
@@ -469,9 +478,12 @@ async fn the_pillars_walk_reports_its_completion_and_leaves_the_last_turn_to_the
     let (events, _guard) = capture_notify();
     let resolution = a.resolve_pillars_end(&conversation).await;
 
+    let GuidedResolution::PillarsComplete { next_steps } = resolution else {
+        panic!("the platform has no pillars wrap-up, so the agent answers the walk's last turn");
+    };
     assert!(
-        matches!(resolution, GuidedResolution::Inactive),
-        "the platform has no pillars wrap-up, so the agent answers the walk's last turn"
+        next_steps.is_empty(),
+        "five pillars untold: no season to plan yet, and no plan to calibrate"
     );
     let completed = only(&events, "onboarding.completed");
     assert_eq!(completed.field("flow"), "pillars");
@@ -562,11 +574,356 @@ async fn a_walk_still_under_way_reports_no_completion() {
     assert!(named(&events, "onboarding.completed").is_empty());
 }
 
-fn step(label: &str, value: &str) -> TurnAction {
-    TurnAction {
-        label: label.to_owned(),
-        kind: ActionKind::Postback,
-        value: value.to_owned(),
+/// The postbacks `actions` send, slot by slot.
+fn values(actions: &[TurnAction]) -> Vec<String> {
+    actions.iter().map(|action| action.value.clone()).collect()
+}
+
+/// Every pillar told, and the North Star: the dossier is complete.
+async fn every_pillar_told(a: &Athlete) {
+    let mut answers = vec![(FactKind::NorthStar, None)];
+    answers.extend(
+        Pillar::ALL
+            .into_iter()
+            .map(|pillar| (FactKind::Preference, Some(pillar))),
+    );
+    a.land_answers(&answers).await;
+}
+
+impl Athlete {
+    /// A season laid out from this Monday, with `weeks` written weeks — two
+    /// cover the fortnight the rail drafts.
+    async fn season(&self, weeks: usize) {
+        let today = Utc::now().date_naive();
+        let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
+        let race = GoalRace {
+            name: "Gran Fondo".to_owned(),
+            date: (monday + Duration::weeks(12)).to_string(),
+            discipline: "road".to_owned(),
+            priority: RacePriority::A,
+        };
+        let phases = [PlanPhase {
+            kind: PhaseKind::Build,
+            start: monday.to_string(),
+            weeks: 12,
+            intent: "build the engine".to_owned(),
+            target_hours: Some(8.0),
+            purpose: String::new(),
+            volume_share_of_peak: None,
+            tid_target: None,
+            hard_sessions_max: None,
+            session_mix: BTreeMap::new(),
+            flavour_override: None,
+            loading_pattern: None,
+            skeleton_id: None,
+        }];
+        let starts: Vec<String> = (0..weeks)
+            .map(|week| (monday + Duration::weeks(i64::try_from(week).unwrap())).to_string())
+            .collect();
+        let days: Vec<[PlannedDay; 1]> = starts
+            .iter()
+            .map(|start| {
+                [PlannedDay {
+                    date: start.clone(),
+                    sport: "ride".to_owned(),
+                    workout: "endurance".to_owned(),
+                    duration_min: Some(90),
+                    intensity: "Z2".to_owned(),
+                    steps: Vec::new(),
+                    fueling: None,
+                    template_slug: None,
+                    template_params: None,
+                    template_source: None,
+                }]
+            })
+            .collect();
+        let written: Vec<PlanWeekInput> = starts
+            .iter()
+            .zip(&days)
+            .map(|(start, days)| PlanWeekInput {
+                week_start: start,
+                focus: "volume",
+                days,
+                adjustment_reason: "",
+                phase_index: Some(0),
+            })
+            .collect();
+        self.ctx
+            .repos
+            .training_plans
+            .save_plan_bundle(&SavePlanBundleParams {
+                tenant_id: &self.tenant_id.to_string(),
+                user_id: &self.user_id.to_string(),
+                author: PlanAuthor::agent("endurance-coach"),
+                goal_fact_id: None,
+                replace_season: false,
+                outline: Some(PlanOutlineInput {
+                    goal_race: &race,
+                    races: Some(&[]),
+                    strategy: "build, then sharpen",
+                    flavour: None,
+                    season_start: None,
+                    season_end: None,
+                    phases: &phases,
+                    source_conversation_id: None,
+                }),
+                weeks: &written,
+                transport_policy: TransportPolicy::AnyTransport,
+            })
+            .await
+            .unwrap();
+    }
+
+    /// A connection to a provider that takes a pushed plan.
+    async fn calendar(&self) {
+        self.ctx
+            .repos
+            .provider_connections
+            .register_connection(
+                self.user_id,
+                self.tenant_id,
+                "intervals_icu",
+                &ConnectionType::OAuth,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn season_reply(&self) -> PlatformReply {
+        let state = OnboardingState::start(an_hour_ago(), GuidedFlow::Season);
+        completion::render_season(
+            &self.ctx,
+            &state,
+            self.tenant_id,
+            &self.user_id.to_string(),
+            LOCALE,
+        )
+        .await
+    }
+
+    async fn fortnight_reply(&self, audience: WalkAudience) -> PlatformReply {
+        completion::render_fortnight(
+            &self.ctx,
+            self.tenant_id,
+            &self.user_id.to_string(),
+            audience,
+            LOCALE,
+        )
+        .await
+    }
+}
+
+#[tokio::test]
+async fn a_pillars_walk_with_every_pillar_told_leads_to_the_season() {
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    every_pillar_told(&a).await;
+    let conversation = a.conversation_in(&spent_pillars_walk(an_hour_ago())).await;
+
+    let GuidedResolution::PillarsComplete { next_steps } =
+        a.resolve_pillars_end(&conversation).await
+    else {
+        panic!("the walk had nothing left to ask");
+    };
+    let steps = next_steps.into_actions();
+    assert_eq!(
+        values(&steps),
+        ["nx:0:season"],
+        "no plan yet, so no calibration: the season is the one step"
+    );
+    assert_eq!(steps[0].kind, ActionKind::Postback);
+    assert_eq!(steps[0].label, a.render("use_cases.season.label", &[]));
+}
+
+#[tokio::test]
+async fn a_room_walk_offers_no_step_even_when_its_subject_could_take_one() {
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    every_pillar_told(&a).await;
+    let conversation = a
+        .conversation_in(&spent_walk_for(an_hour_ago(), WalkAudience::Room))
+        .await;
+
+    let GuidedResolution::PillarsComplete { next_steps } =
+        a.resolve_pillars_end(&conversation).await
+    else {
+        panic!("the walk had nothing left to ask");
+    };
+    assert!(
+        next_steps.is_empty(),
+        "steps are picked from one athlete's state, and the room would read them"
+    );
+}
+
+#[tokio::test]
+async fn the_calibration_wrap_up_closes_on_its_question_and_offers_no_step() {
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    a.season(2).await;
+    let state = OnboardingState::start(an_hour_ago(), GuidedFlow::Calibration);
+    let reply = completion::render(
+        &a.ctx,
+        &state,
+        a.tenant_id,
+        &a.user_id.to_string(),
+        &core_dossier(),
+        LOCALE,
+    )
+    .await;
+    assert!(reply.next_steps.is_empty());
+}
+
+#[tokio::test]
+async fn the_season_wrap_up_offers_the_fortnight_only_over_a_season_already_set() {
+    let resources = resources().await;
+
+    let first = athlete(&resources).await;
+    assert!(
+        first.season_reply().await.next_steps.is_empty(),
+        "a first season is not laid out until the athlete says yes"
+    );
+
+    let rerun = athlete(&resources).await;
+    rerun.season(1).await;
+    assert_eq!(
+        values(&rerun.season_reply().await.next_steps.into_actions()),
+        ["nx:0:fortnight"]
+    );
+}
+
+#[tokio::test]
+async fn a_landed_fortnight_leads_to_the_calendar_and_today() {
+    let resources = resources().await;
+
+    let landed = athlete(&resources).await;
+    landed.season(2).await;
+    landed.calendar().await;
+    let reply = landed.fortnight_reply(WalkAudience::Private).await;
+    assert_eq!(reply.text, landed.render(KEY_FORTNIGHT_RECHECK_LANDED, &[]));
+    assert_eq!(
+        values(&reply.next_steps.into_actions()),
+        ["nx:0:calendar", "nx:1:today"]
+    );
+
+    let no_calendar = athlete(&resources).await;
+    no_calendar.season(2).await;
+    assert_eq!(
+        values(
+            &no_calendar
+                .fortnight_reply(WalkAudience::Private)
+                .await
+                .next_steps
+                .into_actions()
+        ),
+        ["nx:0:today"],
+        "no connection takes a pushed plan"
+    );
+
+    assert!(
+        landed
+            .fortnight_reply(WalkAudience::Room)
+            .await
+            .next_steps
+            .is_empty(),
+        "a room rail offers nothing"
+    );
+
+    let missing = athlete(&resources).await;
+    let reply = missing.fortnight_reply(WalkAudience::Private).await;
+    assert_eq!(
+        reply.text,
+        missing.render(KEY_FORTNIGHT_RECHECK_MISSING, &[])
+    );
+    assert!(
+        reply.next_steps.is_empty(),
+        "every step stands on weeks that did not land"
+    );
+}
+
+impl Athlete {
+    /// Deliver `reply` as the platform's answer to the athlete's line in a
+    /// fresh thread of theirs: alone with the agent, or read by a room.
+    async fn deliver_reply(
+        &self,
+        is_direct_message: bool,
+        reply: PlatformReply,
+    ) -> (ConversationRecord, TurnEnvelope) {
+        let user_id = self.user_id.to_string();
+        let conversation = self
+            .ctx
+            .repos
+            .chat
+            .create_conversation(&user_id, self.tenant_id, "Walk", "mock-model", None, None)
+            .await
+            .unwrap();
+        let user_message = self
+            .ctx
+            .repos
+            .chat
+            .add_message(&AddMessageParams {
+                tenant_id: self.tenant_id,
+                conversation_id: &conversation.id,
+                user_id: &user_id,
+                role: "user",
+                content: "That covers my season.",
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+                content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
+            })
+            .await
+            .unwrap();
+        let input = TurnInput {
+            conversation_id: conversation.id.clone(),
+            user_id,
+            conversation_tenant_id: self.tenant_id,
+            tool_tenant_id: self.tenant_id,
+            is_direct_message,
+            content: user_message.content.clone(),
+            origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
+            turn_id: ConversationTurnId::new(),
+            ambient_context: None,
+            quota: QuotaState::Ok,
+            mentioned_agent: None,
+            steps_after: None,
+        };
+        let profile = SurfaceProfile::resolve(&SurfaceRequest {
+            surface: SurfaceId::Web,
+            locale: LOCALE.to_owned(),
+            transport: None,
+            prose_contract: None,
+        });
+        let envelope = deliver(
+            DeterministicReplyInputs {
+                ctx: &self.ctx,
+                input: &input,
+                profile: &profile,
+                active_model: "mock-model".to_owned(),
+                user_message,
+                conv: &conversation,
+            },
+            reply,
+        )
+        .await
+        .unwrap();
+        (conversation, envelope)
+    }
+
+    /// The platform's persisted reply in `conversation`.
+    async fn platform_row(&self, conversation: &ConversationRecord) -> MessageRecord {
+        self.ctx
+            .repos
+            .chat
+            .get_messages(&conversation.id, &self.user_id.to_string(), self.tenant_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.finish_reason.as_deref() == Some(DETERMINISTIC_FINISH_REASON))
+            .expect("the platform reply is persisted")
     }
 }
 
@@ -574,117 +931,94 @@ fn step(label: &str, value: &str) -> TurnAction {
 async fn a_platform_reply_offers_its_next_steps_live_and_on_the_stored_row() {
     let resources = resources().await;
     let a = athlete(&resources).await;
-    let user_id = a.user_id.to_string();
-    let conversation = a
-        .ctx
-        .repos
-        .chat
-        .create_conversation(&user_id, a.tenant_id, "Walk", "mock-model", None, None)
-        .await
-        .unwrap();
-    let user_message = a
-        .ctx
-        .repos
-        .chat
-        .add_message(&AddMessageParams {
-            tenant_id: a.tenant_id,
-            conversation_id: &conversation.id,
-            user_id: &user_id,
-            role: "user",
-            content: "That covers my season.",
-            token_count: None,
-            finish_reason: None,
-            prompt_tokens: None,
-            model: None,
-            content_blocks: None,
-            transport_policy: TransportPolicy::AnyTransport,
-        })
-        .await
-        .unwrap();
-    let input = TurnInput {
-        conversation_id: conversation.id.clone(),
-        user_id: user_id.clone(),
-        conversation_tenant_id: a.tenant_id,
-        tool_tenant_id: a.tenant_id,
-        is_direct_message: true,
-        content: user_message.content.clone(),
-        origin: TurnOrigin::Athlete,
-        input_source: InputSource::Typed,
-        turn_id: ConversationTurnId::new(),
-        ambient_context: None,
-        quota: QuotaState::Ok,
-        mentioned_agent: None,
-    };
-    let profile = SurfaceProfile::resolve(&SurfaceRequest {
-        surface: SurfaceId::Web,
-        locale: LOCALE.to_owned(),
-        transport: None,
-        prose_contract: None,
-    });
-    let steps = vec![
-        step("Plan my fortnight", "/fortnight"),
-        step("Today's session", "/plan today"),
-    ];
+    a.season(1).await;
+    let reply = a.season_reply().await;
+    let text = reply.text.clone();
+    let steps = reply.next_steps.clone().into_actions();
+    assert_eq!(values(&steps), ["nx:0:fortnight"]);
 
-    let envelope = deliver(
-        DeterministicReplyInputs {
-            ctx: &a.ctx,
-            input: &input,
-            profile: &profile,
-            active_model: "mock-model".to_owned(),
-            user_message,
-            conv: &conversation,
-        },
-        PlatformReply {
-            text: "Your season is laid out.".to_owned(),
-            next_steps: NextSteps::new(steps.clone()),
-        },
-    )
-    .await
-    .unwrap();
+    let (events, _guard) = capture_notify();
+    let (conversation, envelope) = a.deliver_reply(true, reply).await;
 
     assert!(
         envelope.assistant.blocks.contains(&ReplyBlock::Actions {
             title: None,
-            actions: steps,
+            actions: steps.clone(),
         }),
         "the live reply carries the steps as buttons: {:?}",
         envelope.assistant.blocks
     );
+    assert!(
+        !envelope
+            .assistant
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ReplyBlock::Scene { .. })),
+        "the stored steps are not read back as a chart"
+    );
+    let shown = only(&events, "suggestion.shown");
+    assert_eq!(shown.field("use_case"), "fortnight");
+    assert_eq!(shown.field("source"), "next_step");
+    assert_eq!(shown.field("surface"), "next_step");
+    assert_eq!(shown.field("position"), "0");
+    assert_eq!(shown.field("channel"), SurfaceId::Web.as_str());
 
-    let rows = a
-        .ctx
-        .repos
-        .chat
-        .get_messages(&conversation.id, &user_id, a.tenant_id)
-        .await
-        .unwrap();
-    let reply = rows
-        .iter()
-        .find(|row| row.finish_reason.as_deref() == Some(DETERMINISTIC_FINISH_REASON))
-        .expect("the platform reply is persisted");
-    assert_eq!(reply.content, "Your season is laid out.");
+    let stored_reply = a.platform_row(&conversation).await;
+    assert_eq!(stored_reply.content, text);
     let stored: Vec<PersistedReplyBlock> = serde_json::from_str(
-        reply
+        stored_reply
             .content_blocks
             .as_deref()
             .expect("the steps are stored"),
     )
     .unwrap();
-    let persisted = |label: &str, value: &str| PersistedAction {
-        label: label.to_owned(),
-        action_type: "postback".to_owned(),
-        value: value.to_owned(),
-    };
     assert_eq!(
         stored,
         [PersistedReplyBlock::Actions {
             title: None,
-            actions: vec![
-                persisted("Plan my fortnight", "/fortnight"),
-                persisted("Today's session", "/plan today"),
-            ],
+            actions: vec![PersistedAction {
+                label: steps[0].label.clone(),
+                action_type: "postback".to_owned(),
+                value: "nx:0:fortnight".to_owned(),
+            }],
         }],
         "a reload shows the buttons the live turn did"
     );
+}
+
+/// A wrap-up's steps are picked from its subject's state, so a reply a room
+/// reads offers none — whatever the renderer picked — live, on the row, or
+/// in the analytics a showing reports.
+#[tokio::test]
+async fn a_platform_reply_a_room_reads_offers_no_step() {
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    a.season(1).await;
+    let reply = a.season_reply().await;
+    let text = reply.text.clone();
+    assert_eq!(
+        values(&reply.next_steps.clone().into_actions()),
+        ["nx:0:fortnight"],
+        "the renderer picked a step for the athlete"
+    );
+
+    let (events, _guard) = capture_notify();
+    let (conversation, envelope) = a.deliver_reply(false, reply).await;
+
+    assert!(
+        !envelope
+            .assistant
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ReplyBlock::Actions { .. })),
+        "no step reaches the room: {:?}",
+        envelope.assistant.blocks
+    );
+    assert!(named(&events, "suggestion.shown").is_empty());
+    let stored_reply = a.platform_row(&conversation).await;
+    assert_eq!(
+        stored_reply.content, text,
+        "the wrap-up's words still go out"
+    );
+    assert_eq!(stored_reply.content_blocks, None);
 }

@@ -159,18 +159,33 @@ pub fn worded<'a>(
     if label.trim().is_empty() {
         return None;
     }
-    let line = match &entry.run {
-        UseCaseRun::Command(command) => format!("{command} — {label}"),
-        UseCaseRun::Prompt => strings.get(&entry.prompt_key(), locale),
-    };
-    if line.trim().is_empty() {
-        return None;
-    }
+    let line = use_case_line(entry, &label, strings, locale)?;
     Some(WordedStarter {
         use_case: entry,
         label,
         line,
     })
+}
+
+/// How a surface that lists the catalogue entry `entry` as text, rather than
+/// drawing it as a button labelled `label`, writes it: a command entry as
+/// `/command — label`, so the athlete can type it, and a prompt entry as its
+/// prompt in `locale` — the words a tap would have sent. `None` when the
+/// strings hold no words for it.
+///
+/// A welcome's starters and a reply's next steps are listed this one way.
+#[must_use]
+pub fn use_case_line(
+    entry: &UseCase,
+    label: &str,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> Option<String> {
+    let line = match &entry.run {
+        UseCaseRun::Command(command) => format!("{command} — {label}"),
+        UseCaseRun::Prompt => strings.get(&entry.prompt_key(), locale),
+    };
+    (!line.trim().is_empty()).then_some(line)
 }
 
 /// A starter as a surface offers it: what it shows and what a tap sends.

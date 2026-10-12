@@ -248,6 +248,7 @@ async fn delivered_reply(
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     };
     let ctx = resources.chat_pipeline_context();
     // Tracked the way `turn_service::execute`, the only caller of `run`,

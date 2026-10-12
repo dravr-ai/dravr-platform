@@ -301,6 +301,7 @@ fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: 
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     }
 }
 

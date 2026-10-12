@@ -26,6 +26,7 @@
 //! [`TurnEnvelope`]: pierre_chat_pipeline::TurnEnvelope
 
 use dravr_canot::rich_text::{parse_markdown, render_plain};
+use pierre_chat_pipeline::suggestions::suggestion_lines;
 use pierre_chat_pipeline::{
     AssistantTurn, NoticeKind, QuotaLevel, QuotaWarningState, RenderCapabilities, ReplyBlock,
 };
@@ -172,18 +173,26 @@ pub fn render_reply(
             // The envelope emits this block only where controls render; on a
             // channel without them it folded the `label: value` lines into the
             // prose instead, so there is no text fallback to repeat here.
-            ReplyBlock::Actions { title, actions } => attachments.push(MessageContent::Card {
-                title: title.clone().unwrap_or_default(),
-                body: String::new(),
-                actions: actions
-                    .iter()
-                    .map(|action| CardAction {
-                        label: action.label.clone(),
-                        action_type: action.kind.as_str().to_owned(),
-                        value: action.value.clone(),
-                    })
-                    .collect(),
-            }),
+            // Untitled suggestions — the next steps a reply ends on — are the
+            // exception, listed as text: a channel card needs a heading they
+            // do not have, and a listed command is one the athlete can type.
+            ReplyBlock::Actions { title, actions } => {
+                match (title, suggestion_lines(actions, registry, locale)) {
+                    (None, Some(lines)) => append_lines(&mut prose, &lines, render.max_reply_chars),
+                    _ => attachments.push(MessageContent::Card {
+                        title: title.clone().unwrap_or_default(),
+                        body: String::new(),
+                        actions: actions
+                            .iter()
+                            .map(|action| CardAction {
+                                label: action.label.clone(),
+                                action_type: action.kind.as_str().to_owned(),
+                                value: action.value.clone(),
+                            })
+                            .collect(),
+                    }),
+                }
+            }
             // A usage cap the athlete is close to. There is no notice element
             // on a chat channel, so it arrives as its own short message after
             // the coaching text — the same standing the in-app client draws as
@@ -203,6 +212,21 @@ pub fn render_reply(
     }
 
     RenderedReply { prose, attachments }
+}
+
+/// Close the reply's last message with `lines` when the two fit the channel's
+/// ceiling together, so the steps read under the words they follow; otherwise
+/// they travel as messages of their own.
+fn append_lines(prose: &mut Vec<String>, lines: &str, max_chars: usize) {
+    match prose.last_mut() {
+        Some(last)
+            if max_chars == 0 || last.chars().count() + 2 + lines.chars().count() <= max_chars =>
+        {
+            last.push_str("\n\n");
+            last.push_str(lines);
+        }
+        _ => prose.extend(chunk_reply(lines, max_chars)),
+    }
 }
 
 /// The one-line form of a quota standing, for a surface with no notice

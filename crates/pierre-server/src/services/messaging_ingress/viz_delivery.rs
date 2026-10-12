@@ -31,7 +31,7 @@ use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::RenderCapabilities;
 use pierre_core::models::messaging::{CardAction, MessageContent};
-use pierre_core::models::{ColorScheme, TenantId};
+use pierre_core::models::{ColorScheme, TenantId, ACTIONS_BLOCK_TYPE};
 use serde_json::Value;
 use tracing::debug;
 
@@ -91,9 +91,13 @@ pub fn plan_media(delivery: &VizDelivery<'_>, secret: &str) -> Vec<VizMedia> {
     };
     let specs: Vec<Value> = serde_json::from_str(raw).unwrap_or_default();
 
+    // A token addresses its block by its index in the stored array, so the
+    // reply's stored controls — the one actions entry, which is no chart —
+    // are skipped after the indexes are taken.
     specs
         .iter()
         .enumerate()
+        .filter(|(_, spec)| spec.get("type").and_then(Value::as_str) != Some(ACTIONS_BLOCK_TYPE))
         .map(|(index, spec)| {
             let token = VizToken::for_block(
                 delivery.target.clone(),
@@ -211,5 +215,71 @@ pub fn card_or_rich_text(
     }
     MessageContent::RichText {
         body: render_rich_text(&parse_markdown(&text)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_chat_pipeline::{SurfaceId, SurfaceProfile, SurfaceRequest};
+    use uuid::Uuid;
+
+    use super::*;
+
+    const SECRET: &str = "viz-delivery-test-secret";
+
+    /// A surface that fetches rasterised charts.
+    fn rasterising() -> RenderCapabilities {
+        let mut render = SurfaceProfile::resolve(&SurfaceRequest {
+            surface: SurfaceId::Web,
+            locale: "en".to_owned(),
+            transport: None,
+            prose_contract: None,
+        })
+        .render;
+        render.blocks.scene_raster = true;
+        render
+    }
+
+    /// A reply's stored next steps sit in the same array as its charts; they
+    /// are no chart, and the chart after them keeps the index its token names
+    /// (carnet#830).
+    #[test]
+    fn a_stored_actions_entry_mints_no_chart_and_shifts_no_index() {
+        let stored = r#"[
+            {"type":"line","title":"Weekly load"},
+            {"type":"actions","title":null,"actions":[{"label":"My next 2 weeks","action_type":"postback","value":"nx:0:fortnight"}]},
+            {"type":"bar","title":"Sleep"}
+        ]"#;
+        let render = rasterising();
+        let media = plan_media(
+            &VizDelivery {
+                target: target(
+                    "conv-1".to_owned(),
+                    Uuid::new_v4().to_string(),
+                    TenantId::from_uuid(Uuid::new_v4()),
+                    "msg-1".to_owned(),
+                ),
+                stored_blocks: Some(stored),
+                render: &render,
+                locale: "en",
+                theme: ColorScheme::resolve(None),
+                base_url: "https://dravr.test",
+                press_enabled: true,
+            },
+            SECRET,
+        );
+        let minted: Vec<(usize, Option<&str>)> = media
+            .iter()
+            .map(|media| {
+                let raw = media
+                    .url
+                    .strip_prefix("https://dravr.test/api/viz/")
+                    .and_then(|rest| rest.strip_suffix(".png"))
+                    .expect("a signed viz URL");
+                let token = VizToken::verify(raw, SECRET).expect("the token verifies");
+                (token.block_index, media.caption.as_deref())
+            })
+            .collect();
+        assert_eq!(minted, [(0, Some("Weekly load")), (2, Some("Sleep"))]);
     }
 }

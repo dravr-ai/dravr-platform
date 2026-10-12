@@ -231,6 +231,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     };
 
     let ctx = resources.chat_pipeline_context();
@@ -338,6 +339,7 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     };
     let ctx = resources.chat_pipeline_context();
     let envelope = pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none())
@@ -499,6 +501,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     };
 
     let ctx = resources.chat_pipeline_context();

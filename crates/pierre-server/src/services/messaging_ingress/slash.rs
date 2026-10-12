@@ -21,10 +21,10 @@ use pierre_auth::auth::AuthResult;
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::agent_welcome::{PostedWelcome, WelcomeCard};
 use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
-use pierre_chat_pipeline::suggestions::{resolve_command_tap, CommandTap};
+use pierre_chat_pipeline::suggestions::{resolve_command_tap, suggestion_lines, CommandTap};
 use pierre_chat_pipeline::{
-    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest, TurnAction,
-    TurnOrigin,
+    dispatch_slash, CommandPersistence, CommandTurn, InputSource, RenderCapabilities, SlashRequest,
+    TurnAction, TurnOrigin,
 };
 use pierre_services::channel_error_reply::ChannelErrorReply;
 use pierre_services::conversation_forge::conversation_cap_reply;
@@ -35,7 +35,7 @@ use super::connect::build_connect_card_direct;
 use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
 use super::surface::{messaging_render_profile, surface_id};
 use super::ResolvedSession;
-use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_NO_PROVIDER_CONNECTED};
 use pierre_services::locale::resolve_channel_locale;
 
 /// True when `text` is the `/connect` command (first whitespace-delimited token,
@@ -295,10 +295,10 @@ pub(super) async fn try_handle_slash_command(
         webhook_tenant_id
     };
 
-    // A tapped starter that runs a command is that command from here on, so
-    // it takes the road a typed one takes: answered privately in a room, its
-    // reply ledgered like any command turn (carnet#829). The turn would run
-    // it too, but past this routing.
+    // A tapped starter or next step that runs a command is that command from
+    // here on, so it takes the road a typed one takes: answered privately in
+    // a room, its reply ledgered like any command turn (carnet#829). The turn
+    // would run it too, but past this routing.
     let tapped = resolve_command_tap(
         &resources.common.repos,
         &CommandTap {
@@ -310,7 +310,9 @@ pub(super) async fn try_handle_slash_command(
         text,
     )
     .await;
-    let text = tapped.as_deref().unwrap_or(text);
+    let text = tapped
+        .as_ref()
+        .map_or(text, |tapped| tapped.command.as_str());
 
     // Fast path: not a command. Avoids any lookup.
     if !text.trim().starts_with('/') {
@@ -424,7 +426,12 @@ pub(super) async fn try_handle_slash_command(
             },
             sender_id: Some(sender_id),
             text,
-            // The athlete typed it into the channel.
+            // Typed into the channel, unless a tap stood for it — whose reply
+            // then teaches the command to type next time (carnet#830).
+            input_source: tapped
+                .as_ref()
+                .map_or(InputSource::Typed, |tapped| tapped.input_source),
+            // The athlete sent it into the channel.
             origin: TurnOrigin::Athlete,
         },
     )
@@ -486,7 +493,12 @@ pub(super) async fn try_handle_slash_command(
         message: OutgoingMessage {
             channel_type,
             recipient_id: reply_target,
-            content: command_content(&profile.render, command),
+            content: command_content(
+                &profile.render,
+                &resources.mcp.messaging_strings_registry,
+                &locale,
+                command,
+            ),
             turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id,
@@ -504,9 +516,16 @@ pub(super) async fn try_handle_slash_command(
 /// where it asked for formatting; plain text otherwise. The choice is the
 /// surface's capability, never its name — a channel without buttons gets the
 /// same answer with its actions written out as text by [`card_or_rich_text`].
-fn command_content(render: &RenderCapabilities, command: CommandTurn) -> MessageContent {
+/// The next steps a reply offers carry no card title, so they are listed
+/// under its text by [`command_body`].
+fn command_content(
+    render: &RenderCapabilities,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+    command: CommandTurn,
+) -> MessageContent {
+    let text = command_body(&command, strings, locale);
     let CommandTurn {
-        text,
         is_rich_text,
         card_title,
         actions,
@@ -526,6 +545,27 @@ fn command_content(render: &RenderCapabilities, command: CommandTurn) -> Message
         };
     }
     MessageContent::Text { body: text }
+}
+
+/// A command's text as a channel sends it: with its untitled suggestion
+/// controls — the next steps the reply offers (carnet#830) — listed under it,
+/// since a channel card needs a heading they do not have and a listed
+/// command is one the athlete can type. A titled card's controls are its own.
+pub(super) fn command_body(
+    command: &CommandTurn,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> String {
+    let listed = command
+        .card_title
+        .is_none()
+        .then(|| suggestion_lines(&command.actions, strings, locale))
+        .flatten();
+    match listed {
+        Some(lines) if command.text.trim().is_empty() => lines,
+        Some(lines) => format!("{}\n\n{lines}", command.text),
+        None => command.text.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -647,5 +687,60 @@ mod tests {
             matches!(content, MessageContent::RichText { .. }),
             "nothing to tap, nothing to card: {content:?}"
         );
+    }
+
+    fn command(card_title: Option<&str>, actions: Vec<TurnAction>) -> CommandTurn {
+        CommandTurn {
+            command_name: Some("status".to_owned()),
+            text: "Your account.".to_owned(),
+            is_rich_text: false,
+            card_title: card_title.map(ToOwned::to_owned),
+            actions,
+            rotated_to: None,
+            persisted: None,
+            welcome: None,
+        }
+    }
+
+    fn step(label: &str, value: &str) -> TurnAction {
+        TurnAction {
+            label: label.to_owned(),
+            kind: ActionKind::Postback,
+            value: value.to_owned(),
+        }
+    }
+
+    /// A command's next steps have no card heading, so a channel lists them
+    /// under its text — a command step as the command to type (carnet#830).
+    #[test]
+    fn a_commands_next_steps_are_listed_under_its_text() {
+        let strings = MessagingStringsRegistry::new();
+        let steps = command(None, vec![step("Plan my season", "nx:0:season")]);
+        assert_eq!(
+            command_body(&steps, &strings, "en"),
+            "Your account.\n\n- /season — Plan my season"
+        );
+        match command_content(
+            &messaging_render_profile(ChannelType::Telegram, "en").render,
+            &strings,
+            "en",
+            steps,
+        ) {
+            MessageContent::Text { body } => {
+                assert_eq!(body, "Your account.\n\n- /season — Plan my season");
+            }
+            other => panic!("a plain reply stays text: {other:?}"),
+        }
+    }
+
+    /// A titled card's controls are its own, and a reply with no steps is its
+    /// text alone.
+    #[test]
+    fn a_card_or_a_reply_without_steps_keeps_its_text() {
+        let strings = MessagingStringsRegistry::new();
+        let card = command(Some("Your agents"), vec![step("Marc", "nx:0:season")]);
+        assert_eq!(command_body(&card, &strings, "en"), "Your account.");
+        let plain = command(None, Vec::new());
+        assert_eq!(command_body(&plain, &strings, "en"), "Your account.");
     }
 }

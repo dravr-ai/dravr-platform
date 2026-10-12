@@ -34,7 +34,7 @@
 
 use std::fmt::Write as _;
 
-use pierre_core::models::ConversationTurnId;
+use pierre_core::models::{ConversationTurnId, ACTIONS_BLOCK_TYPE};
 use pierre_core::narration::IdentityLeakMatch;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::TokenUsage;
@@ -734,9 +734,12 @@ fn push_actions(
 /// Split the stored `content_blocks` array into the workout plan and the
 /// scene specs.
 ///
-/// One stored rail, two block kinds: the plan extraction and the inline-viz
+/// One stored rail, three block kinds: the plan extraction and the inline-viz
 /// extraction both write this array, and they are told apart by the block's
-/// own `type` rather than by which stage produced them.
+/// own `type` rather than by which stage produced them. The reply's controls
+/// are stored there too, as one actions entry, so a reload draws them; the
+/// live turn carries them as [`TurnState::actions`], so that entry is neither
+/// a plan nor a scene.
 fn split_stored_blocks(stored: Option<&str>) -> (Option<String>, Option<String>) {
     let Some(raw) = stored else {
         return (None, None);
@@ -744,9 +747,11 @@ fn split_stored_blocks(stored: Option<&str>) -> (Option<String>, Option<String>)
     let Ok(entries) = serde_json::from_str::<Vec<Value>>(raw) else {
         return (None, None);
     };
-    let (plans, scenes): (Vec<Value>, Vec<Value>) = entries.into_iter().partition(|entry| {
-        entry.get("type").and_then(Value::as_str) == Some(WORKOUT_PLAN_BLOCK_TYPE)
-    });
+    let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
+    let (plans, scenes): (Vec<Value>, Vec<Value>) = entries
+        .into_iter()
+        .filter(|entry| block_type(entry).as_deref() != Some(ACTIONS_BLOCK_TYPE))
+        .partition(|entry| block_type(entry).as_deref() == Some(WORKOUT_PLAN_BLOCK_TYPE));
     let plan = plans
         .into_iter()
         .next()
@@ -823,5 +828,31 @@ mod tests {
                 text: "Hi.\n\nYou can ask me:\nHow do I carb load?\nPlan: /plan".to_owned(),
             }]
         );
+    }
+
+    /// A reply's stored controls are drawn from the live turn's actions, so
+    /// the stored actions entry beside a chart is neither a scene nor a plan
+    /// (carnet#830).
+    #[test]
+    fn a_stored_actions_entry_is_not_read_as_a_scene_or_a_plan() {
+        let stored = serde_json::json!([
+            { "type": "line", "title": "Load" },
+            { "type": "workout_plan", "plan": { "weeks": 2 } },
+            { "type": "actions", "title": null, "actions": [
+                { "label": "My next 2 weeks", "action_type": "postback", "value": "nx:0:fortnight" }
+            ] }
+        ])
+        .to_string();
+        let (plan, scenes) = split_stored_blocks(Some(&stored));
+        assert_eq!(plan.as_deref(), Some(r#"{"weeks":2}"#));
+        let scenes: Vec<Value> = serde_json::from_str(&scenes.expect("the chart")).unwrap();
+        assert_eq!(
+            scenes,
+            [serde_json::json!({ "type": "line", "title": "Load" })]
+        );
+
+        let only_actions =
+            serde_json::json!([{ "type": "actions", "title": null, "actions": [] }]).to_string();
+        assert_eq!(split_stored_blocks(Some(&only_actions)), (None, None));
     }
 }

@@ -246,6 +246,9 @@ pub const KEY_AGENT_WELCOME_CAN_SEE: &str = "messaging.agent_welcome.can_see";
 /// lost its agent, or the agent's examples changed since it was posted
 /// (carnet#828). No placeholders.
 pub const KEY_USE_CASES_UNAVAILABLE: &str = "use_cases.unavailable";
+/// Key: the quiet line a command's reply ends on when a tapped suggestion ran
+/// it, teaching the athlete to type it (carnet#830). `{0}` = the slash command.
+pub const KEY_USE_CASES_NEXT_TIME: &str = "use_cases.next_time";
 
 /// Key: account-approval welcome, sent on each linked messaging channel when a
 /// user's account is approved. No placeholders.

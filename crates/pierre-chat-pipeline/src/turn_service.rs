@@ -35,11 +35,13 @@
 use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
-use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_USE_CASES_NEXT_TIME, KEY_USE_CASES_UNAVAILABLE,
+};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::{
-    ConversationRecord, ConversationTurnId, InputSource, TenantId, TurnOrigin,
+    ConversationRecord, ConversationTurnId, InputSource, OnboardingState, TenantId, TurnOrigin,
 };
 use pierre_core::transport::Transport;
 use pierre_llm::ChatProvider;
@@ -56,6 +58,7 @@ use crate::chat_provider_from_resources_arc;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::language::{resolve_turn_locale, LocaleClassifier, LANGUAGE_CLASSIFICATION_CALL_TYPE};
+use crate::next_steps::{NextSteps, StepsAfter, StepsFor};
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
 use crate::recorders::UsageRepoCallRecorder;
 use crate::stages::agent_mention::resolve_agent_mention;
@@ -63,7 +66,7 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME};
+use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
@@ -102,7 +105,8 @@ pub struct TurnRequest<'a> {
     pub origin: TurnOrigin,
     /// How the athlete produced [`Self::content`], as the surface saw it
     /// (carnet#828). A suggestion's postback is resolved by [`execute`], which
-    /// overrides this with [`InputSource::UseCase`].
+    /// overrides this with [`InputSource::UseCase`] for a starter, or
+    /// [`InputSource::NextStep`] for a step a reply offered (carnet#830).
     pub input_source: InputSource,
     /// Correlation id minted at the inbound boundary.
     pub turn_id: ConversationTurnId,
@@ -231,6 +235,10 @@ pub struct SlashRequest<'a> {
     pub sender_id: Option<&'a str>,
     /// The raw text the athlete typed.
     pub text: &'a str,
+    /// How the athlete produced [`Self::text`]. A command a tapped suggestion
+    /// stood for ([`InputSource::UseCase`], [`InputSource::NextStep`]) ends
+    /// its reply teaching the athlete to type it next time (carnet#830).
+    pub input_source: InputSource,
     /// Who the text came from. A command the platform composed never takes an
     /// archived thread's quota slot back; the athlete's may — the same rule
     /// [`execute`] applies to a coaching turn.
@@ -318,21 +326,23 @@ async fn execute_turn(
     // ladder reads the text, so everything after — the command dispatch, the
     // persisted user row, the athlete's bubble — sees the words it stands for
     // (carnet#828).
-    if let Some(notice) =
-        resolve_suggestion_tap(ctx, &mut request, conversation.as_ref(), profile).await?
-    {
-        let quota = settle_quota_notice(
-            ctx.repos.usage_counters.as_ref(),
-            request.tool_tenant_id,
-            &user_id_str,
-            quota,
-        )
-        .await;
-        return Ok(ServedTurn::Command {
-            command: Box::new(notice),
-            quota,
-        });
-    }
+    let steps_after =
+        match resolve_suggestion_tap(ctx, &mut request, conversation.as_ref(), profile).await? {
+            TapOutcome::Proceed { steps_after } => steps_after,
+            TapOutcome::Unavailable(notice) => {
+                let quota = settle_quota_notice(
+                    ctx.repos.usage_counters.as_ref(),
+                    request.tool_tenant_id,
+                    &user_id_str,
+                    quota,
+                )
+                .await;
+                return Ok(ServedTurn::Command {
+                    command: notice,
+                    quota,
+                });
+            }
+        };
 
     if let Some(command) = dispatch_slash(
         ctx,
@@ -348,6 +358,7 @@ async fn execute_turn(
             persistence: request.command_persistence,
             sender_id: request.sender_id,
             text: &request.content,
+            input_source: request.input_source,
             origin: request.origin,
             transport: request.transport,
             surface: profile.surface,
@@ -458,6 +469,7 @@ async fn execute_turn(
         ambient_context: request.ambient_context,
         quota,
         mentioned_agent: mentioned_agent.map(Box::new),
+        steps_after,
     };
 
     let run = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks);
@@ -579,6 +591,8 @@ pub async fn dispatch_slash(
     let Some(mut command) = command_turn(outcome, request.channel_type) else {
         return Ok(None);
     };
+    teach_tapped_command(ctx, request, &mut command);
+    offer_command_steps(ctx, request, &user_id, &mut command).await;
     persist_if_covered(ctx, request, &mut command).await;
     command.welcome = match command.rotated_to.as_deref() {
         // A thread the command just forged held no agent before it existed.
@@ -598,6 +612,128 @@ pub async fn dispatch_slash(
         },
     };
     Ok(Some(command))
+}
+
+/// End a command a tapped suggestion stood for with one quiet line naming
+/// it, so an athlete who only ever taps learns they could have typed it
+/// (carnet#830).
+///
+/// The command is the text that ran — the catalogue entry's own `command:`.
+/// A typed command teaches nothing: the athlete already knows it. Nor does
+/// one that matched no command, which is not one to type again.
+fn teach_tapped_command(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    command: &mut CommandTurn,
+) {
+    teach(
+        &ctx.messaging_strings_registry,
+        request.input_source,
+        request.locale,
+        request.text,
+        command,
+    );
+}
+
+/// [`teach_tapped_command`]'s rule, over the strings it renders the line
+/// from: `text` ran as `command` after the athlete produced it as `source`.
+fn teach(
+    strings: &MessagingStringsRegistry,
+    source: InputSource,
+    locale: &str,
+    text: &str,
+    command: &mut CommandTurn,
+) {
+    if !matches!(source, InputSource::UseCase | InputSource::NextStep)
+        || command.command_name.is_none()
+    {
+        return;
+    }
+    let line = strings.render(KEY_USE_CASES_NEXT_TIME, locale, &[text.trim()]);
+    if line.trim().is_empty() {
+        return;
+    }
+    if !command.text.trim().is_empty() {
+        command.text.push_str("\n\n");
+    }
+    command.text.push_str(&line);
+}
+
+/// Give a command's reply the next steps the transition table names for it
+/// ([`StepsAfter::for_command`]), picked from the athlete's state.
+///
+/// None when the reply already carries controls of its own (`/help`'s
+/// shortcuts, `/agent`'s and `/discover`'s cards), in a shared room — the
+/// steps are one athlete's state — when the command moved the athlete to
+/// another thread, or when a guided walk now owns this one: the command
+/// started it, and its reply is the walk's first question, which the athlete
+/// answers in their own words. Read over the transport the command was served
+/// on, so a step never leads to an answer this surface cannot ground.
+async fn offer_command_steps(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    user_id: &str,
+    command: &mut CommandTurn,
+) {
+    let Some(after) = command
+        .command_name
+        .as_deref()
+        .and_then(StepsAfter::for_command)
+    else {
+        return;
+    };
+    if !command.actions.is_empty()
+        || !request.is_direct_message
+        || command.rotated_to.is_some()
+        || walk_owns_thread(ctx, request, user_id).await
+    {
+        return;
+    }
+    let steps = Box::pin(ai_scope::serve_over(
+        request.transport,
+        NextSteps::after(
+            &ctx.repos,
+            &ctx.messaging_strings_registry,
+            after,
+            &StepsFor {
+                user_id: request.user_id,
+                tenant_id: request.tenant_id,
+                locale: request.locale,
+                ran: Some(request.text),
+            },
+        ),
+    ))
+    .await;
+    steps.report_shown(user_id, request.conversation_tenant_id, request.surface);
+    command.actions = steps.into_actions();
+}
+
+/// Whether a guided walk owns the thread the command was typed in. A thread
+/// that cannot be read is treated as owned, so no step competes with a walk
+/// nobody could rule out.
+async fn walk_owns_thread(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+    user_id: &str,
+) -> bool {
+    match ctx
+        .repos
+        .chat
+        .get_conversation(
+            request.conversation_id,
+            user_id,
+            request.conversation_tenant_id,
+        )
+        .await
+    {
+        Ok(conversation) => conversation.is_some_and(|conversation| {
+            OnboardingState::from_column(conversation.onboarding_state.as_deref()).is_some()
+        }),
+        Err(e) => {
+            warn!(error = %e, conversation_id = %request.conversation_id, "thread unreadable after the command; its reply offers no next step");
+            true
+        }
+    }
 }
 
 /// The agent the thread is bound to, read before a command runs; `None` when
@@ -673,13 +809,23 @@ async fn welcome_if_bound(
     }
 }
 
+/// What resolving a turn's text as a tapped suggestion concluded.
+enum TapOutcome {
+    /// The turn goes on, with its text resolved or as it was sent.
+    Proceed {
+        /// The transition the turn completes, whose next steps its reply
+        /// offers; `None` for every turn but the athlete's first tapped
+        /// workout analysis.
+        steps_after: Option<StepsAfter>,
+    },
+    /// A postback that no longer resolves, answered with this notice — no
+    /// model runs and nothing is written.
+    Unavailable(Box<CommandTurn>),
+}
+
 /// Rewrite `request` in place when its text is a suggestion's postback: the
 /// words it stands for become the content, and the turn is reported as a
-/// tapped suggestion (carnet#828).
-///
-/// `Some` is the notice a postback that no longer resolves is answered with —
-/// no model runs and nothing is written; `None` means the turn goes on, with
-/// the text resolved or as it was sent.
+/// tapped starter or next step (carnet#828, carnet#830).
 ///
 /// # Errors
 ///
@@ -689,7 +835,7 @@ async fn resolve_suggestion_tap(
     request: &mut TurnRequest<'_>,
     conversation: Option<&ConversationRecord>,
     profile: &SurfaceProfile,
-) -> AppResult<Option<CommandTurn>> {
+) -> AppResult<TapOutcome> {
     let tap = TapContext {
         conversation,
         user_id: request.user_id,
@@ -704,15 +850,24 @@ async fn resolve_suggestion_tap(
     )
     .await?
     {
-        Resolution::NotAPostback => Ok(None),
+        Resolution::NotAPostback => Ok(TapOutcome::Proceed { steps_after: None }),
         Resolution::Resolved { content, postback } => {
+            // Read before this tap is recorded, which would make every tap
+            // look like a repeat.
+            let steps_after = match postback.catalogue_id() {
+                Some(id) => match StepsAfter::on_first_tap(id) {
+                    Some(after) if !ever_tapped(ctx, request, id).await => Some(after),
+                    _ => None,
+                },
+                None => None,
+            };
             let user_id = request.user_id.to_string();
             suggestions::record_tap(
                 &ctx.repos,
                 &SuggestionEvent {
                     user_id: &user_id,
                     tenant_id: request.conversation_tenant_id,
-                    surface: SURFACE_AGENT_WELCOME,
+                    surface: postback.surface(),
                     channel: profile.surface.as_str(),
                 },
                 &postback,
@@ -721,8 +876,8 @@ async fn resolve_suggestion_tap(
             )
             .await;
             request.content = content;
-            request.input_source = InputSource::UseCase;
-            Ok(None)
+            request.input_source = postback.input_source();
+            Ok(TapOutcome::Proceed { steps_after })
         }
         Resolution::Unresolvable { postback } => {
             warn!(
@@ -730,7 +885,30 @@ async fn resolve_suggestion_tap(
                 conversation_id = %request.conversation_id,
                 "a tapped suggestion no longer resolves; the athlete is told, no model runs"
             );
-            Ok(Some(unavailable_suggestion(ctx, &profile.locale)))
+            Ok(TapOutcome::Unavailable(Box::new(unavailable_suggestion(
+                ctx,
+                &profile.locale,
+            ))))
+        }
+    }
+}
+
+/// Whether the athlete tapped the catalogue entry `id` before this tap. An
+/// unreadable ledger answers yes, so a first-time step is never offered on a
+/// guess.
+async fn ever_tapped(ctx: &ChatPipelineContext, request: &TurnRequest<'_>, id: &str) -> bool {
+    match ctx
+        .repos
+        .use_case_exposures
+        .use_case_exposures(request.tool_tenant_id, request.user_id)
+        .await
+    {
+        Ok(exposures) => exposures
+            .iter()
+            .any(|exposure| exposure.use_case_id == id && exposure.tapped_at.is_some()),
+        Err(e) => {
+            warn!(error = %e, use_case = %id, "use-case taps unreadable; the tap is not taken for a first one");
+            true
         }
     }
 }
@@ -901,4 +1079,82 @@ async fn resolve_byo_chat_provider(
         user_id,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reply(command_name: Option<&str>, text: &str) -> CommandTurn {
+        CommandTurn {
+            command_name: command_name.map(ToOwned::to_owned),
+            text: text.to_owned(),
+            is_rich_text: true,
+            card_title: None,
+            actions: Vec::new(),
+            rotated_to: None,
+            persisted: None,
+            welcome: None,
+        }
+    }
+
+    /// The line's words are contremaitre's; a template is installed here so
+    /// this pins what the platform does with them — names the command that
+    /// ran, once, after the reply — whatever the copy says.
+    fn strings_with_the_line() -> MessagingStringsRegistry {
+        let strings = MessagingStringsRegistry::new();
+        strings.update(
+            KEY_USE_CASES_NEXT_TIME,
+            "en",
+            "Next time, type {0}.".to_owned(),
+            "test".to_owned(),
+        );
+        strings
+    }
+
+    #[test]
+    fn a_tapped_command_ends_on_the_line_naming_it() {
+        let strings = strings_with_the_line();
+        for source in [InputSource::UseCase, InputSource::NextStep] {
+            let mut command = reply(Some("plan"), "Today: endurance ride.");
+            teach(&strings, source, "en", " /plan today ", &mut command);
+            assert_eq!(
+                command.text,
+                "Today: endurance ride.\n\nNext time, type /plan today."
+            );
+        }
+    }
+
+    #[test]
+    fn a_typed_or_unknown_command_teaches_nothing() {
+        let strings = strings_with_the_line();
+        for source in [InputSource::Typed, InputSource::Draft, InputSource::Chip] {
+            let mut command = reply(Some("status"), "Your account.");
+            teach(&strings, source, "en", "/status", &mut command);
+            assert_eq!(command.text, "Your account.", "{source:?}");
+        }
+        let mut unknown = reply(None, "No such command.");
+        teach(&strings, InputSource::NextStep, "en", "/nope", &mut unknown);
+        assert_eq!(unknown.text, "No such command.");
+    }
+
+    #[test]
+    fn a_catalogue_without_the_line_leaves_the_reply_as_it_was() {
+        let strings = MessagingStringsRegistry::new();
+        strings.update(
+            KEY_USE_CASES_NEXT_TIME,
+            "en",
+            String::new(),
+            "test".to_owned(),
+        );
+        let mut command = reply(Some("status"), "Your account.");
+        teach(
+            &strings,
+            InputSource::NextStep,
+            "en",
+            "/status",
+            &mut command,
+        );
+        assert_eq!(command.text, "Your account.");
+    }
 }

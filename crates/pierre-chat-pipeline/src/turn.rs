@@ -11,6 +11,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use crate::envelope::QuotaState;
+use crate::next_steps::StepsAfter;
 use crate::stages::agent_mention::MentionedAgent;
 
 /// Result of persisting a user message and resolving the parent conversation.
@@ -102,6 +103,11 @@ pub struct TurnInput {
     /// pushed the messaging ingress future past clippy's `large_futures`
     /// budget, and a turn that mentions nobody pays for none of it.
     pub mentioned_agent: Option<Box<MentionedAgent>>,
+    /// The transition this turn completes, whose next steps its reply offers
+    /// ([`crate::next_steps`]) — the athlete's first tapped workout analysis.
+    /// Set by [`crate::turn_service::execute`] when it resolves the tap;
+    /// `None` for a turn that ends nothing, which offers no step.
+    pub steps_after: Option<StepsAfter>,
 }
 
 impl TurnInput {

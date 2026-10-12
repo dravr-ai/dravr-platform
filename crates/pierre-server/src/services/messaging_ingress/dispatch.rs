@@ -42,6 +42,7 @@ use super::resume::{
     finish_turn_record, hand_off_drained_turn, keep_lease, note_placeholder,
     release_turn_for_retry, DrainHandOff, MAX_TURN_ATTEMPTS,
 };
+use super::slash::command_body;
 use super::turn_guard::{
     acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
     TurnInterruption, TurnOutcome,
@@ -905,14 +906,22 @@ async fn serve_turn(
         }
     };
 
-    // A slash command reaches the turn service only when the ingress did not
+    // A slash command reaches the turn service when the ingress did not
     // already answer it — the catalog was unavailable when the message
-    // arrived, say. Its reply is account state, not coaching: send the text
-    // and stop, rather than handing the athlete an LLM answer to a command.
+    // arrived, say — or when a tapped suggestion stood for it, which only the
+    // turn service resolves. Its reply is account state, not coaching: send
+    // the text, with any next steps listed under it as a typed command's
+    // are, and stop rather than handing the athlete an LLM answer to a
+    // command.
     let dispatch_result = match dispatch_result {
         ServedTurn::Pipeline(envelope) => *envelope,
         ServedTurn::Command { command, .. } => {
-            send_plain_reply(dispatch, channel_config, &command.text).await;
+            let body = command_body(
+                &command,
+                &dispatch.resources.mcp.messaging_strings_registry,
+                &dispatch.locale,
+            );
+            send_plain_reply(dispatch, channel_config, &body).await;
             return Served::Ended(TurnClose::Finished);
         }
     };

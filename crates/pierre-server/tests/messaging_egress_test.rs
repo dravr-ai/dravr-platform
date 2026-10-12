@@ -868,6 +868,47 @@ fn attached_controls_render_as_a_card_where_they_are_supported() {
     }
 }
 
+/// The next steps a reply ends on carry no heading, which a channel card
+/// needs, so a channel lists them under the reply: a command step as the
+/// command to type, a prompt step as the words a tap would have sent, and no
+/// postback leaks (carnet#830).
+#[test]
+fn untitled_next_steps_are_listed_under_the_reply() {
+    let strings = strings();
+    let connect_prompt = strings.get("use_cases.connect.prompt", "fr");
+    assert!(!connect_prompt.is_empty(), "connect's prompt has words");
+    let mut state = turn_state("Ton bilan est prêt.");
+    state.actions = vec![
+        TurnAction {
+            label: "Planifier ma saison".to_owned(),
+            kind: ActionKind::Postback,
+            value: "nx:0:season".to_owned(),
+        },
+        TurnAction {
+            label: "Connecter ma montre".to_owned(),
+            kind: ActionKind::Postback,
+            value: "nx:1:connect".to_owned(),
+        },
+    ];
+
+    for channel in [ChannelType::Telegram, ChannelType::Slack] {
+        let turn = envelope(channel, state.clone());
+        let rendered = render_reply(&profile(channel).render, &turn.assistant, &strings, "fr");
+        assert!(
+            rendered.attachments.is_empty(),
+            "{channel:?}: no headless card: {:?}",
+            rendered.attachments
+        );
+        assert_eq!(
+            rendered.prose,
+            [format!(
+                "Ton bilan est prêt.\n\n- /season — Planifier ma saison\n- {connect_prompt}"
+            )],
+            "{channel:?}"
+        );
+    }
+}
+
 /// The positional chart markers are stripped before the split, so they never
 /// reach the athlete and never spend the channel's ceiling.
 #[test]

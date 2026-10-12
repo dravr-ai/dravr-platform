@@ -18,7 +18,8 @@
 //! there.
 //!
 //! A tapped starter that runs a command takes the road a typed command takes
-//! on the channel: it is answered by the command, before the turn.
+//! on the channel: it is answered by the command, before the turn, and the
+//! answer teaches the command to type next time.
 //!
 //! The proposal's "Reply with a number" is the messaging « Démarrer »: the pick
 //! now binds the thread at once and the agent opens it, instead of the
@@ -42,6 +43,7 @@ mod messaging_welcome {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
     use pierre_commands::agent_create::AGENT_PROPOSAL_ACTION;
+    use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_USE_CASES_NEXT_TIME};
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::groups::GroupRespondMode;
     use pierre_core::models::onboarding::GuidedFlow;
@@ -309,6 +311,16 @@ mod messaging_welcome {
         assert_eq!(tapped.field("position"), "1");
         assert_eq!(tapped.field("source"), "state");
         assert_eq!(tapped.field("channel"), "telegram");
+        // A tap stood for the command, so its reply teaches the command to
+        // type next time, as a tapped command does in the app (carnet#830).
+        // The member set no language, so they read the default one.
+        let next_time = e2e.resources.mcp.messaging_strings_registry.render(
+            KEY_USE_CASES_NEXT_TIME,
+            DEFAULT_LOCALE,
+            &["/pillars"],
+        );
+        assert!(next_time.contains("/pillars"), "{next_time:?}");
+        e2e.wait_outbound_containing(&next_time, 1).await;
         let exposures = e2e
             .resources
             .common

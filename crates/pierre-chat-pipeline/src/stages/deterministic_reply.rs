@@ -127,6 +127,13 @@ pub async fn deliver(
         text: content,
         next_steps,
     } = reply;
+    // The steps were picked from one athlete's state, and a shared room would
+    // read them back to everyone: a reply the room reads offers none.
+    let next_steps = if input.is_direct_message {
+        next_steps
+    } else {
+        NextSteps::default()
+    };
 
     // A platform reply carries no chart or plan, so its steps are the row's
     // only stored block.
@@ -166,6 +173,11 @@ pub async fn deliver(
     // Same rule as the model path: the slot is taken only once a reply exists
     // (registre#260).
     let quota = settle_turn_notice(ctx, input).await;
+    next_steps.report_shown(
+        &input.user_id,
+        input.conversation_tenant_id,
+        profile.surface,
+    );
 
     Ok(build_envelope(
         profile,

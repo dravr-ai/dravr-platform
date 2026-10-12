@@ -383,10 +383,7 @@ async fn record_shown(
     }
     let ranked: Vec<&str> = postbacks
         .iter()
-        .filter_map(|postback| match postback {
-            Postback::UseCase { id, .. } => Some(id.as_str()),
-            Postback::Example { .. } => None,
-        })
+        .filter_map(Postback::catalogue_id)
         .collect();
     if ranked.is_empty() {
         return;

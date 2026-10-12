@@ -129,6 +129,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         ambient_context: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
+        steps_after: None,
     }
 }
 
