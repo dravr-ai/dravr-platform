@@ -162,7 +162,21 @@ state_adopt || true
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 SESSION_ID=${CLAUDE_CODE_SESSION_ID:-}
 SESSION_PID=${CLAUDE_PID:-}
-HOST=$(hostname -s 2>/dev/null || hostname)
+# Every Claude cloud container answers `hostname` with the same `vm`, so a bare hostname makes a
+# claim from one container read as "this host" in every other, where the missing local sessions
+# file reports a live peer's claim as ended (47 of 54 claims on 2026-10-12). In a remote
+# session the host carries the remote session id, which is one per container; a legacy bare `vm`
+# marker then compares as another host, whose liveness is unknowable rather than "ended".
+host_id() {
+    local h
+    h=$(hostname -s 2>/dev/null || hostname)
+    if [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ]; then
+        printf '%s:%s' "$h" "$CLAUDE_CODE_REMOTE_SESSION_ID"
+    else
+        printf '%s' "$h"
+    fi
+}
+HOST=$(host_id)
 NAME=""
 USER_LOGIN=""
 SHORT_ID=""

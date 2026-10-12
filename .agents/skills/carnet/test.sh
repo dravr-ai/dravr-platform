@@ -74,6 +74,9 @@ export CLAUDE_CODE_SESSION_ID="11111111-aaaa-bbbb-cccc-000000000001"
 export CLAUDE_PID=$$
 mkdir -p "$tmp/cfg/sessions"
 printf '{"pid":%s,"sessionId":"%s","name":"TestSession"}\n' "$$" "$CLAUDE_CODE_SESSION_ID" > "$tmp/cfg/sessions/$$.json"
+# The suite runs in cloud containers too, where carnet.sh folds the remote session id into the
+# host; the cases below are written against a bare hostname, so start from a local session.
+unset CLAUDE_CODE_REMOTE_SESSION_ID
 HOST=$(hostname -s 2>/dev/null || hostname)
 ME=$CLAUDE_CODE_SESSION_ID
 PEER="22222222-aaaa-bbbb-cccc-000000000002"
@@ -169,6 +172,17 @@ comments < <(claim_marker "$DEAD" GoneSession peer "$HOST" 999999)
 run_carnet claim 42
 assert_eq "takes over a claim whose session ended on this host" "$rc" 0
 assert_grep "the comment says it took over" "Took over from ended session \*\*GoneSession\*\*" "$S/calls.log"
+
+reset
+export CLAUDE_CODE_REMOTE_SESSION_ID="cse_test_container_a"
+comments < <(claim_marker "$DEAD" OtherContainer peer "$HOST" 999999)
+run_carnet claim 42
+assert_eq "refuses a claim another cloud container holds under the shared hostname" "$rc" 2
+assert_eq "no tracker write when refused" "$(count_calls "$WRITES")" 0
+reset
+run_carnet claim 42
+assert_grep "a cloud claim stamps the remote session id into the host" '"host":"[^"]+:cse_test_container_a"' "$S/calls.log"
+unset CLAUDE_CODE_REMOTE_SESSION_ID
 
 reset
 comments < <(claim_marker "$PEER" RemoteSession phil elsewhere 4242)
@@ -373,6 +387,20 @@ assert_grep "an ended peer" '\[session ended' "$tmp/out"
 comments < <(claim_marker "$PEER" R phil elsewhere 1)
 run_carnet status 42 --short
 assert_grep "another host" '\[other host\]' "$tmp/out"
+
+# Cloud containers all share the hostname: the remote session id is what tells them apart.
+export CLAUDE_CODE_REMOTE_SESSION_ID="cse_test_container_a"
+comments < <(claim_marker "$DEAD" OtherContainer peer "$HOST" 999999)
+run_carnet status 42 --short
+assert_grep "a bare-hostname claim from another container is another host" '\[other host\]' "$tmp/out"
+assert_no_grep "and never reads as ended" 'session ended' "$tmp/out"
+comments < <(claim_marker "$DEAD" OtherContainer peer "$HOST:cse_test_container_b" 999999)
+run_carnet status 42 --short
+assert_grep "a claim from another remote session is another host" '\[other host\]' "$tmp/out"
+comments < <(claim_marker "$DEAD" GoneSession peer "$HOST:cse_test_container_a" 999999)
+run_carnet status 42 --short
+assert_grep "an ended session in this container still reads as ended" '\[session ended' "$tmp/out"
+unset CLAUDE_CODE_REMOTE_SESSION_ID
 issue_closed
 run_carnet status 42 --short
 assert_grep "closed" '^carnet#42 · closed' "$tmp/out"
