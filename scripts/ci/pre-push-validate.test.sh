@@ -42,14 +42,15 @@ require_fixture() {
 }
 
 # Every helper the validator invokes, stubbed as a no-op so the tier body it
-# guards runs and returns. Tier 1e-move is the one invoked with no existence
-# guard, so without its stub a Rust diff aborts there and every later assertion
+# guards runs and returns. Tiers 1e-move and 1o are invoked with no existence
+# guard, so without their stubs a diff aborts there and every later assertion
 # passes vacuously. Tier 4 is the exception to the pattern: it calls no script,
 # so it is stubbed by its inputs instead — a package test file for its count
 # guard and a `bun` on PATH for the two scripts it runs.
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
-pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh"
+pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh \
+check-merge-risk.sh"
 
 make_repo() {
   local dir
@@ -142,6 +143,7 @@ expect_contains "the echo block shows why the web tier ran" "Frontend: false (ti
 expect_contains "the echo block shows why the mobile tier ran" "Mobile: false (tier runs: true)"
 expect_contains "the catalogue flag still reaches Tier 1b" "Tier 1b: Contremaitre Coupling Sync"
 expect_contains "the shared-package flag still reaches Tier 1d" "Tier 1d: Turn Envelope Convergence"
+expect_contains "the Merge-Risk tier runs whatever the diff touches" "Tier 1o: Merge-Risk one-way doors"
 expect_exit "locale diff passes" 0
 
 # 2. packages/mcp-types is the SDK's alone — no client imports it, so widening
@@ -273,6 +275,24 @@ run_change "$dir" frontend/package.json '{"name":"probe-frontend"}'
 expect_contains "the nested manifest reads as not the root one" "Root manifest: false"
 expect_absent "a web manifest leaves the mobile tier alone" "Tier 7: Mobile Validation"
 expect_exit "web manifest diff passes" 0
+
+# 13. Tier 1o takes the base as given, not the HEAD~1 fallback. It judges
+#     commit messages, and the tip's message alone is not the push's. The
+#     fixture has no origin/main, so every other tier lands on HEAD~1 while
+#     this one must still be handed origin/main. GATE_BASE_REF is emptied for
+#     the run so a value inherited from a caller cannot stand in for the rule.
+echo "  case 13: Tier 1o is handed the push's own base"
+dir="$(make_repo)"
+# Single quotes on purpose: the stub expands its argument when it runs, not here.
+printf '#!/bin/sh\necho "merge-risk-base=$1"\n' >"$dir/scripts/ci/check-merge-risk.sh"
+chmod +x "$dir/scripts/ci/check-merge-risk.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "merge-risk stub"
+GATE_BASE_REF="" run_change "$dir" README.md "probe"
+expect_contains "Tier 1o receives origin/main, not the fallback" "merge-risk-base=origin/main"
+expect_absent "Tier 1o never receives the HEAD~1 fallback" \
+  "merge-risk-base=$(git -C "$dir" rev-parse HEAD~1)"
+expect_exit "the base-as-given case passes" 0
 
 echo ""
 if [ "$failures" -ne 0 ]; then

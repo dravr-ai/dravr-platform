@@ -30,7 +30,7 @@
 //!   only when the earlier layers were inconclusive *and* a provider was
 //!   injected. Emits the judge's `ClaimStatus` with `VerdictLayer::Judge`.
 //!
-//! Three entry points share the same layer logic:
+//! Four entry points share the same layer logic:
 //!
 //! - [`check_claim`] runs a single claim through every pure-Rust layer (the
 //!   LLM-free path). Sibling claims for the consistency-check layer are passed
@@ -41,15 +41,20 @@
 //! - [`check_reply`] runs a whole reply's claims through every layer,
 //!   threading each claim's siblings into the consistency-check layer and the
 //!   optional judge provider into the LLM-judge layer.
+//! - [`verify_reply`] is the chat stage's entry: it extracts the claims from
+//!   the reply text and honours the agent's [`VerificationConfig`] before
+//!   running each claim through [`check_claim_judged`]. The seeded-fabrication
+//!   eval calls it too, so the eval measures the loop production runs.
 
 use crate::athlete_data::{check as athlete_data_check, AthleteRecord};
-use crate::claim_extractor::ExtractedClaim;
+use crate::claim_extractor::{extract_heuristic, ExtractedClaim};
 use crate::consistency::find_contradiction;
 use crate::deterministic_bounds;
 use crate::evidence_retriever::{EvidenceCorpus, EvidenceMatch};
 use crate::judge::{judge_claim, ClaimJudge};
 use crate::personalized::{check as personalized_check, PersonalizedContext};
 use crate::rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
+use crate::verification_config::VerificationConfig;
 use pierre_core::errors::AppResult;
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
@@ -199,6 +204,52 @@ pub async fn check_claim_judged(
             run_judge_or_settle(claim, &matches, minimum_strength, judge).await
         }
     }
+}
+
+/// Verify a whole agent reply honouring the agent's [`VerificationConfig`],
+/// running all five layers including the LLM-judge fallback.
+///
+/// Returns an empty vec when the config has `enabled = false`. Otherwise the
+/// claims are extracted heuristically; a claim whose category the agent opted
+/// out of is dropped (not even persisted as a verdict), and every other claim
+/// runs through [`check_claim_judged`] at its category's `min_strength`. Each
+/// is cross-checked against every extracted claim, not just the enabled ones —
+/// a self-contradiction is worth flagging even when the sibling falls in a
+/// category the agent opted out of. The personalized layer fires when
+/// `personalized` is supplied, the athlete-data layer when `athlete_record`
+/// is. Pass `judge: None` to keep the run fully deterministic.
+///
+/// # Errors
+///
+/// Propagates the LLM error when the judge is invoked and the provider call
+/// (or its JSON parse) fails.
+pub async fn verify_reply(
+    agent_reply: &str,
+    config: &VerificationConfig,
+    corpus: &EvidenceCorpus,
+    judge: Option<ClaimJudge<'_>>,
+    personalized: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
+) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
+    if !config.enabled {
+        return Ok(Vec::new());
+    }
+    let claims = extract_heuristic(agent_reply);
+    let mut out = Vec::with_capacity(claims.len());
+    for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
+        let outcome = check_claim_judged(
+            claim,
+            &claims,
+            corpus,
+            config.for_category(claim.category).min_strength,
+            judge,
+            personalized,
+            athlete_record,
+        )
+        .await?;
+        out.push((claim.clone(), outcome));
+    }
+    Ok(out)
 }
 
 /// Run the pure-Rust layers (rhetoric, deterministic, evidence,

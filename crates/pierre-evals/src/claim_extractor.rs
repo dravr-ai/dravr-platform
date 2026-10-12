@@ -141,20 +141,20 @@ fn finalize_sentence(buf: &mut String, out: &mut Vec<String>) {
 /// chars first; a multi-word keyword like "vo2 max" or "long run" is matched
 /// by sliding over the token window of equal length.
 fn keyword_hits(lower: &str, keyword: &str) -> bool {
-    let kw_tokens: Vec<&str> = keyword
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let kw_tokens = tokens_of(keyword);
     if kw_tokens.is_empty() {
         return false;
     }
-    let tokens: Vec<&str> = lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .collect();
-    tokens
+    tokens_of(lower)
         .windows(kw_tokens.len())
         .any(|w| w == kw_tokens.as_slice())
+}
+
+/// The whole-word tokens of a text, split on every non-alphanumeric char.
+fn tokens_of(text: &str) -> Vec<&str> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 /// Assign a sentence to its best-matching [`ClaimCategory`] by keyword count.
@@ -335,14 +335,11 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
             // "you ran 21 km on Sunday" is a database row. What separates them
             // is the second-person past tense and the time reference, so those
             // are what this bucket scores.
+            //
+            // The past-tense verbs are scored by [`record_verb_hits`], which the
+            // prescription guard reads too.
             ClaimCategory::AthleteData,
             &[
-                "you ran",
-                "you rode",
-                "you swam",
-                "you covered",
-                "you logged",
-                "you completed",
                 "your longest",
                 "your fastest",
                 "your last",
@@ -354,11 +351,6 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "this week",
                 "so far this",
                 // French
-                "tu as couru",
-                "tu as roulé",
-                "tu as roule",
-                "tu as nagé",
-                "tu as nage",
                 "ta plus longue",
                 "hier",
                 "la semaine dernière",
@@ -376,13 +368,25 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
         // activities it was never about — a guaranteed miss on a correct reply.
         // Only this category needs the guard: the other six are keyed on subject
         // matter, which tense does not change.
-        if cat == ClaimCategory::AthleteData && is_prescriptive(&lower) {
+        //
+        // A question or a supposition is not a claim about the past either:
+        // "¿Corriste los 10 km?" and "if you ran 30 km" use the very verb a
+        // report does.
+        if cat == ClaimCategory::AthleteData
+            && (is_prescriptive(&lower) || is_question(sentence) || opens_with_condition(&lower))
+        {
             continue;
         }
+        let verbs = if cat == ClaimCategory::AthleteData {
+            record_verb_hits(&lower)
+        } else {
+            0
+        };
         let score = keywords
             .iter()
             .filter(|kw| keyword_hits(&lower, kw))
-            .count();
+            .count()
+            + verbs;
         if score > 0 && best.is_none_or(|(_, b)| score > b) {
             best = Some((cat, score));
         }
@@ -408,8 +412,15 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
 /// category bucket in this file uses. A raw `contains` fired `"should"` inside
 /// `"shoulder"` and `"target"` inside `"targeted"`, silently reclassifying
 /// ordinary sentences about a sore shoulder.
+///
+/// "This week" and "cette semaine" point both ways: "this week, aim for 40 km"
+/// plans it, "you ran 42 km this week" reports it. They mark a prescription
+/// only when no verb [`record_verb_hits`] reads reports past training — otherwise the
+/// weekly total, the figure a coach writes most often, never reached the
+/// athlete-data layer that adds the week up (carnet#846).
 fn is_prescriptive(lower: &str) -> bool {
-    const MARKERS: [&str; 26] = [
+    const CURRENT_PERIOD: [&str; 2] = ["this week", "cette semaine"];
+    const MARKERS: [&str; 24] = [
         // Modal / intent
         "aim for",
         "let's",
@@ -428,17 +439,175 @@ fn is_prescriptive(lower: &str) -> bool {
         // Future time
         "tomorrow",
         "next week",
-        "this week",
         // French
         "vise",
         "on va",
         "tu devrais",
         "la semaine prochaine",
-        "cette semaine",
         "demain",
         "je te propose",
         "commence par",
         "essaie",
     ];
     MARKERS.iter().any(|m| keyword_hits(lower, m))
+        || (CURRENT_PERIOD.iter().any(|m| keyword_hits(lower, m)) && record_verb_hits(lower) == 0)
 }
+
+/// Whether a sentence asks rather than states.
+///
+/// Spanish, German and Portuguese ask with the very verb form they state with
+/// ("¿Corriste los 10 km que tocaban ayer?", "Bist du gestern die 10 km
+/// gelaufen?"), and French often does ("Tu as couru 10 km hier ?"). A coach
+/// asking what the athlete did claims nothing about their record; routed to the
+/// athlete-data layer, the figure in the question reads as invented for an
+/// athlete with nothing connected.
+fn is_question(sentence: &str) -> bool {
+    let trimmed = sentence.trim();
+    trimmed.ends_with('?') || trimmed.starts_with('\u{bf}')
+}
+
+/// Words that open a condition, in the five shipped locales.
+///
+/// Portuguese `se` is also the everyday reflexive, which is why it counts only
+/// where a condition can stand: opening the sentence, or right before a record
+/// verb, where a reflexive cannot.
+const CONDITIONALS: &[&str] = &["if", "unless", "si", "wenn", "falls", "se", "caso"];
+
+/// Subject pronouns that may stand between a conditional and a verb form that
+/// carries none: "si tú corriste", "se tu correste".
+const SUBJECT_PRONOUNS: &[&str] = &["tú", "tu", "você", "voce", "du"];
+
+/// Whether a sentence opens with a condition: "If your volume last week was
+/// 30 km, rest on Sunday" supposes the figure and claims nothing.
+fn opens_with_condition(lower: &str) -> bool {
+    tokens_of(lower)
+        .first()
+        .is_some_and(|first| CONDITIONALS.contains(first))
+}
+
+/// Whether the words before position `at` open a condition: a conditional
+/// right before it, or one with a subject pronoun between.
+fn supposed(tokens: &[&str], at: usize) -> bool {
+    let word = |back: usize| at.checked_sub(back).and_then(|i| tokens.get(i));
+    let conditional = |back: usize| word(back).is_some_and(|w| CONDITIONALS.contains(w));
+    conditional(1) || (word(1).is_some_and(|w| SUBJECT_PRONOUNS.contains(w)) && conditional(2))
+}
+
+/// Whether `verb` occurs in the sentence other than as a supposition.
+fn states(tokens: &[&str], verb: &str) -> bool {
+    let words = tokens_of(verb);
+    !words.is_empty()
+        && tokens
+            .windows(words.len())
+            .enumerate()
+            .any(|(at, window)| window == words.as_slice() && !supposed(tokens, at))
+}
+
+/// How many verbs in the sentence report the athlete's own past training.
+///
+/// A verb right after a conditional supposes the training instead ("if you
+/// ran 30 km this week, take Sunday off"), so it does not count.
+///
+/// German reports with an auxiliary and a participle on either side of the
+/// figure — "du bist diese Woche 42 km gelaufen" — so a German report counts
+/// once when a [`GERMAN_PARTICIPLES`] participle and `du` share the sentence,
+/// and no `wenn` or `falls` turns it into a supposition. The participle alone
+/// is past tense whoever ran: "Kipchoge ist den Marathon in 2 h gelaufen" is
+/// about someone else, and routing it here would contradict the figure for an
+/// athlete with nothing connected.
+fn record_verb_hits(lower: &str) -> usize {
+    let tokens = tokens_of(lower);
+    let german = tokens.contains(&"du")
+        && !tokens.iter().any(|t| matches!(*t, "wenn" | "falls"))
+        && GERMAN_PARTICIPLES
+            .iter()
+            .any(|participle| tokens.contains(participle));
+    RECORD_VERBS
+        .iter()
+        .filter(|verb| states(&tokens, verb))
+        .count()
+        + usize::from(german)
+}
+
+/// Second-person past-tense verbs that report the athlete's own training, in
+/// the five shipped locales.
+///
+/// The past tense is what separates a record from a plan: "you ran 42 km"
+/// happened, "run 42 km" has not. That is why Spanish, German and Portuguese
+/// enter the athlete-data bucket through these verbs alone, with no time words:
+/// a time word ("esta semana") is as at home in a plan as in a report, and
+/// those locales carry no prescription markers to tell the two apart.
+///
+/// Every form is second person, so a sentence about another athlete's result
+/// is not read as one about this athlete. German is read separately, through
+/// [`GERMAN_PARTICIPLES`].
+const RECORD_VERBS: &[&str] = &[
+    // English
+    "you ran",
+    "you rode",
+    "you swam",
+    "you covered",
+    "you logged",
+    "you completed",
+    "you clocked",
+    "you averaged",
+    "you've run",
+    "you have run",
+    "you've ridden",
+    "you've covered",
+    "you've logged",
+    // French
+    "tu as couru",
+    "tu as roulé",
+    "tu as roule",
+    "tu as nagé",
+    "tu as nage",
+    "tu as parcouru",
+    "tu as cumulé",
+    "tu as cumule",
+    "tu as bouclé",
+    "tu as boucle",
+    "vous avez couru",
+    "vous avez roulé",
+    "vous avez roule",
+    "vous avez parcouru",
+    // Spanish
+    "corriste",
+    "rodaste",
+    "pedaleaste",
+    "nadaste",
+    "recorriste",
+    "acumulaste",
+    "completaste",
+    "has corrido",
+    "has rodado",
+    "has pedaleado",
+    "has nadado",
+    "has recorrido",
+    "has acumulado",
+    // Portuguese
+    "correste",
+    "pedalaste",
+    "percorreste",
+    "você correu",
+    "voce correu",
+    "você pedalou",
+    "voce pedalou",
+    "você nadou",
+    "voce nadou",
+    "você percorreu",
+    "voce percorreu",
+    "você acumulou",
+    "voce acumulou",
+];
+
+/// German participles that report training, read with `du` by
+/// [`record_verb_hits`].
+const GERMAN_PARTICIPLES: &[&str] = &[
+    "gelaufen",
+    "gefahren",
+    "geradelt",
+    "geschwommen",
+    "zurückgelegt",
+    "absolviert",
+];

@@ -44,6 +44,7 @@ fn raphs_week() -> AthleteRecord {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![
             RecordedActivity {
                 date: day(1),
@@ -141,6 +142,7 @@ fn a_sub_discipline_matches_its_family() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::MountainBike,
@@ -285,6 +287,7 @@ fn a_two_letter_activity_name_is_never_matched() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -390,6 +393,7 @@ fn an_activity_name_inside_a_longer_word_does_not_name_it() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -494,6 +498,7 @@ fn a_session_named_for_an_ordinary_training_word_is_not_matched() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -527,6 +532,7 @@ fn a_default_provider_name_is_not_matched() {
             has_provider: true,
             today: day(7),
             locale: "fr".to_owned(),
+            history: None,
             activities: vec![RecordedActivity {
                 date: day(1),
                 sport: SportType::Ride,
@@ -581,6 +587,7 @@ fn a_distance_in_metres_is_not_checked_against_climbing() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Run,
@@ -609,6 +616,7 @@ fn a_distance_in_metres_is_matched_against_distance() {
         has_provider: true,
         today: day(7),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Swim,
@@ -701,6 +709,7 @@ fn jfs_week() -> AthleteRecord {
         has_provider: true,
         today: day(21),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![
             RecordedActivity {
                 date: day(20),

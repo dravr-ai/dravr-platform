@@ -24,7 +24,8 @@ use serde_json::{json, Map, Value};
 
 use uuid::Uuid;
 
-use crate::models::{NotificationActionType, NotificationCategory};
+use crate::constants::FIRST_PARTY_ONLY_DATA_KEY;
+use crate::models::{is_first_party_only, NotificationActionType, NotificationCategory};
 use crate::TenantId;
 
 /// Key under a notification's `data` object holding the event's parameters.
@@ -299,19 +300,14 @@ pub fn action_label_key(id: &str) -> Option<&'static str> {
     }
 }
 
-/// Key under a notification's `data` object stamping it as derived from data
-/// whose terms keep it on Dravr's own surfaces (carnet#769).
-///
-/// The rows are stored by `dravr-commere`, whose table this platform does not
-/// add columns to, so the stamp rides in the row's own `data` object. Absent
-/// on every row written before stamping existed, which reads as unstamped.
-pub(crate) const FIRST_PARTY_ONLY_DATA_KEY: &str = "first_party_only";
-
 /// `data` stamped with `policy`.
 ///
-/// A first-party-only notification carries a `first_party_only: true` key,
-/// anything else is returned as it was. A non-object payload is kept under `"payload"`, the way the persona gate
-/// keeps one.
+/// A notification derived from data whose terms keep it on Dravr's own
+/// surfaces (carnet#769) carries [`FIRST_PARTY_ONLY_DATA_KEY`] set to `true`
+/// in its own `data` object, the key `dravr-commere` reads to push it only to
+/// devices Dravr's own app registered (carnet#789). Anything else is returned
+/// as it was. A non-object payload is kept under `"payload"`, the way the
+/// persona gate keeps one.
 #[must_use]
 pub fn stamp_data(data: Option<Value>, policy: TransportPolicy) -> Option<Value> {
     if !policy.is_first_party_only() {
@@ -331,13 +327,13 @@ pub fn stamp_data(data: Option<Value>, policy: TransportPolicy) -> Option<Value>
 }
 
 /// The stamp a stored notification's `data` carries.
+///
+/// It is the reading `dravr-commere`'s push routing applies, so the feed and
+/// the push agree on which rows are stamped. A row written before stamping
+/// existed reads as unstamped.
 #[must_use]
 pub fn data_transport_policy(data: Option<&Value>) -> TransportPolicy {
-    TransportPolicy::from_first_party_only(
-        data.and_then(|data| data.get(FIRST_PARTY_ONLY_DATA_KEY))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
+    TransportPolicy::from_first_party_only(is_first_party_only(data))
 }
 
 /// Merge an event's parameters into its deep-link routing payload, producing

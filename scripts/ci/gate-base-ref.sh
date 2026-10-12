@@ -21,6 +21,12 @@
 #   exports the result as $GATE_BASE_REF, so a gate it calls without an argument
 #   diffs against the same commit as one it hands the base to.
 #
+#   The exception is check-merge-risk.sh, which names this file but does not
+#   source it. It judges commit messages, which belong to the commits a push
+#   adds, so it takes the same priority order without the HEAD~1 fallback: the
+#   tip's message alone is not the push's, and a base naming no range there
+#   means nothing to judge.
+#
 # Usage:
 #   . "$SCRIPT_DIR/gate-base-ref.sh"
 #   if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then ... skip ... ; fi

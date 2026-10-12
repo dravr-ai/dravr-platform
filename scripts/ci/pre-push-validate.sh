@@ -32,6 +32,10 @@ rm -f "$MARKER_FILE"
 # then narrowed to its merge-base with HEAD, so a rebased branch does not report
 # the main commits it picked up as its own, and exported: the gates below that
 # take no argument read the same base as the ones handed $BASE_REF.
+# Tier 1o judges commit messages, which belong to the commits a push adds, so
+# it takes the base as given: the HEAD~1 fallback below would hand it the tip
+# commit alone when nothing is ahead of origin/main.
+PUSH_BASE="${GATE_BASE_REF:-origin/main}"
 # shellcheck source=scripts/ci/gate-base-ref.sh
 . "$PROJECT_ROOT/scripts/ci/gate-base-ref.sh"
 if GATE_BASE="$(resolve_gate_base_ref)"; then
@@ -771,6 +775,36 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-agents-md-budget.sh" ]] \
     fi
     echo ""
 fi
+
+# ----------------------------------------------------------------------------
+# Tier 1o: Merge-Risk one-way doors (compile-free, instant, every push)
+# ----------------------------------------------------------------------------
+#
+# carnet#663. A revert undoes most changes, but not an applied migration, a
+# destroyed secret or a delivered notification, and nothing at commit or squash
+# time told those apart. A push whose diff touches one of those surfaces fails
+# here until a commit in the range carries `Merge-Risk: ONE-WAY · <why>`, so the
+# reviewer reads it in full. Every push, not a changed-file class: the surfaces
+# span migrations, infra, crates and any file that could run a whole-set secret
+# replace. Not existence-guarded, like Tier 1e-move: a missing gate fails.
+echo "Tier 1o: Merge-Risk one-way doors"
+echo "---------------------------------"
+if ! "$PROJECT_ROOT/scripts/ci/check-merge-risk.sh" "$PUSH_BASE"; then
+    echo ""
+    echo "FAIL: Merge-Risk one-way-door check failed!"
+    exit 1
+fi
+# The self-test also lifts the fast gate's Merge-Risk step out of ci-backend.yml
+# and runs it, so an edit to the workflow runs it too.
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^(scripts/ci/check-merge-risk(\.test)?\.sh|\.github/workflows/ci-backend\.yml)$'; then
+    if ! "$PROJECT_ROOT/scripts/ci/check-merge-risk.test.sh"; then
+        echo ""
+        echo "FAIL: the Merge-Risk gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+fi
+echo ""
 
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted

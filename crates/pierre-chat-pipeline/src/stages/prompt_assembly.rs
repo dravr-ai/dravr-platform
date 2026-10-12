@@ -182,12 +182,12 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 /// as the weak one — mid-file scored 9/12 against 12/12 at the tail.
 ///
 /// The identity got a tail anchor from that finding; the agent's *specialisation*
-/// never did. `Chat Eval` caught the consequence: the strength agent answered
-/// "How should I improve recovery this week?" correctly, in Dravr's voice, and
-/// in nobody's vocabulary — none of `strength`, `lift`, `deload`, `rir`, `set`,
-/// `volume`, `soreness`. That scenario's header calls itself a ~50% flake, and
-/// it was, until `c9dd838ef` moved the persona; it then failed 15 nightly runs
-/// in a row, which at p=0.5 is p ≈ 0.00003.
+/// never did. That placement result is the whole evidence for this block: no
+/// live lane grades it, because the scenario driver binds no agent and never
+/// runs this stage (registre#493). Chat Eval's 15 straight reds on
+/// `strength_coach_vocabulary_en` after `c9dd838ef` are not evidence for it —
+/// that driver never carried a persona to dilute, and what the commit took from
+/// it was the platform contract (carnet#107).
 ///
 /// Voice only, deliberately. It restates *how* to answer, never *what* may be
 /// answered, so the contract above keeps sole authority — an agent that regains

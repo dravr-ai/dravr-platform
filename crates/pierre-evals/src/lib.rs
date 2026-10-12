@@ -28,6 +28,11 @@
 /// Claim verifier: claims about the athlete's own records, checked against
 /// their own data rather than the literature.
 pub mod athlete_data;
+/// Blind grading: a stratified sample of production verdicts into grader
+/// sheets and the operator's key (carnet#854).
+pub mod blind_grading;
+/// Blind grading: graded sheets joined back to the key and scored.
+pub mod blind_grading_score;
 /// Claim verifier: claim extraction from agent replies.
 pub mod claim_extractor;
 /// Claim verifier: consistency cross-check against sibling claims.
@@ -42,6 +47,10 @@ pub mod evidence_retriever;
 pub mod explanation_gen;
 /// Eval harness: golden fixture loader.
 pub mod fixtures;
+/// Blind grading: the CSV the grader sheets are written and read in.
+mod grading_csv;
+/// Blind grading: Wilson intervals and Cohen's kappa.
+pub mod grading_stats;
 /// LLM-as-judge invocation backed by `pierre_llm::judge` (used by both the eval
 /// harness and the claim verifier).
 pub mod judge;
@@ -55,6 +64,9 @@ pub mod report;
 pub mod rhetoric_detector;
 /// Rubric definitions used by the judge.
 pub mod rubrics;
+/// Claim checker catch rate on coach replies seeded with one known-false
+/// sentence each (carnet#854).
+pub mod seeded_fabrications;
 /// Claim verifier: pipeline synthesis — runs a claim through the verifier stages
 /// and emits a single verdict.
 pub mod verdict_engine;
@@ -75,7 +87,9 @@ pub use personalized::{
 pub use report::{EvalSummary, RubricKind};
 pub use rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 pub use rubrics::Rubric;
-pub use verdict_engine::{check_claim, check_claim_judged, check_reply, VerdictOutcome};
+pub use verdict_engine::{
+    check_claim, check_claim_judged, check_reply, verify_reply, VerdictOutcome,
+};
 pub use verification_config::{
     ActionMode, AuditOnlyPolicy, CategoryConfig, ContradictionPolicy, InheritConfigPolicy,
     PersonalizedConfig, ResolvedAction, ToleranceMode, UserWarnPolicy, VerificationConfig,

@@ -1,0 +1,239 @@
+# ABOUTME: Measures thin vs fat LTO on one commit in one job: cold build time, binary size and Criterion runtime (carnet#499)
+# ABOUTME: Dispatch only; one table to the job summary and lto-compare.json as an artifact, so the image's LTO mode is decided on numbers
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# WHY. Fat LTO (`release-lto`) went into the image on 2026-09-18 to bring the
+# binary back under its size ceiling (carnet#471). Two of the three numbers that
+# decide whether to keep it were never measured under controlled conditions:
+# build time compares different commits and cache states, and runtime was never
+# measured at all. This job measures all three for one commit, on one runner, in
+# one job, with only the LTO mode changing.
+#
+# WHAT IT RUNS (scripts/ci/lto-compare.py has each step; lto-compare.test.sh
+# pins it, and the first step below runs that test so a broken driver fails in
+# seconds, not after hours):
+#   1. Both profiles are resolved through cargo's unit graph and refused unless
+#      they really are one thin and one fat. The feature set, RUSTFLAGS and
+#      binaries are read from .github/actions/server-binaries/action.yml, the
+#      action the image build and the release-binary size gate both call.
+#   2. Each profile is built from an EMPTY target dir with that invocation,
+#      after `cargo fetch`, offline: wall clock, CPU time, peak RSS, and the size
+#      of each binary (`stat -c %s`, `size`, `.text`). No rust-cache anywhere:
+#      this job must not restore a warm target dir.
+#   3. The Criterion benches are built under the same profile (`cargo bench
+#      --profile`, not the `bench` profile, which would measure neither), their
+#      executables kept, the target dir dropped.
+#   4. Every bench executable of both profiles runs `repetitions` times, thin and
+#      fat back to back per suite with the order alternating, so runner drift
+#      lands on both sides. A difference is named only when every repetition
+#      agrees and it clears 5%; Criterion noise on shared runners reaches ~40%
+#      between identical runs, so a single pair of numbers proves nothing.
+#
+# THE TWO PROFILES. The default pair, `lto-compare-thin` and `lto-compare-fat`
+# in Cargo.toml, differ in `lto` only and both pin codegen-units = 1 (JF,
+# 2026-09-21). The image's `release-lto` does NOT pin it: it inherits 16 from
+# `release`. To measure exactly the choice in front of us, dispatch a second time
+# with thin_profile=release and fat_profile=release-lto, which also differ in
+# `lto` only. The report prints the effective settings and says when the pair
+# differs in anything else.
+#
+# WHAT THE BENCHES COVER. The decision turns on CPU-bound code: request paths
+# dominated by HTTP, the database and the network will not show an LTO
+# difference. Criterion benches exist for the package pierre_mcp_server only
+# (crates/pierre-server/benches/; the root benches/ directory belongs to no
+# package and is not built).
+#   Exist today:
+#     JSON (de)serialisation   serialization_bench: serde_json over Activity,
+#                              MCP tool results, API responses, intelligence
+#                              structs, sleep data, Value conversions.
+#     Fitness compute          intelligence_bench: dravr-cageux training load
+#                              (CTL/ATL/TSB), TSS, metrics, sleep statistics, the
+#                              training pipeline, aggregation up to 500 activities.
+#     Catalogue assembly       tool_dispatch_bench: registry schemas, `tools/list`
+#                              visibility filtering, `tools/call` gating, the
+#                              configuration catalogue tool, and the JWT auth hook
+#                              (RS256 verification). Mixed: part of it runs against
+#                              in-memory SQLite.
+#     Concurrency primitives   guardian_bench (dispatch gate, contended and not),
+#                              sse_concurrency_bench (DashMap against RwLock),
+#                              cache_bench (in-memory cache over serialised payloads).
+#     Storage                  database_bench: in-memory SQLite through sqlx. The
+#                              least LTO-sensitive suite (the engine is C); kept so
+#                              the table covers every existing bench.
+#   Missing (CPU-bound code with no bench):
+#     Prompt assembly          pierre-chat-pipeline stages/prompt_assembly.rs and
+#                              stages/prompt_builder.rs; pierre-llm prompts.
+#     Catalogue assembly       the training and use-case catalogues and tool
+#                              descriptions in pierre-contremaitre (only the tool
+#                              registry is benched).
+#     TOON encoding            pierre-formatters, in the shipped set via `toon`.
+#     Fitness compute          dravr-cageux recovery_calculator, nutrition_calculator,
+#                              pattern_detection, performance_prediction,
+#                              best_efforts, statistical_analysis; and
+#                              pierre-fitness-compute polyline, route_track,
+#                              route_privacy, threshold_estimation,
+#                              training_history_compute.
+#   A "no clear difference" in the table therefore speaks for the benched code
+#   only. Closing the gaps above is what would let it speak for the rest.
+#
+# COST. A cold fat build with codegen-units = 1 on four vCPUs has not been timed
+# before this job, so the budget is hours: two cold builds, two bench builds, and
+# repetitions x 2 profiles x 7 suites of Criterion. timeout-minutes is the
+# runner's six-hour ceiling less margin; the report step runs even when the job
+# is cut short, so what finished is still tabulated.
+
+name: "Measure: Thin vs Fat LTO"
+
+on:
+  workflow_dispatch:
+    inputs:
+      thin_profile:
+        description: 'Cargo profile for the thin side (release measures what shipped until 2026-09-18)'
+        required: false
+        default: lto-compare-thin
+        type: string
+      fat_profile:
+        description: 'Cargo profile for the fat side (release-lto measures what ships)'
+        required: false
+        default: lto-compare-fat
+        type: string
+      repetitions:
+        description: 'Criterion repetitions per profile; each runs every suite once'
+        required: false
+        default: '3'
+        type: string
+      suites:
+        description: 'Space-separated bench targets to build and run (empty: all seven)'
+        required: false
+        default: ''
+        type: string
+      build_order:
+        description: 'Which profile is built first; run it both ways to see whether order matters'
+        required: false
+        default: thin-first
+        type: choice
+        options:
+          - thin-first
+          - fat-first
+
+concurrency:
+  # One multi-hour measurement at a time; a second dispatch waits rather than
+  # cancelling the first, since a cancelled run measured nothing.
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The same three the server-binaries action writes before it builds, so the
+  # cargo environment here is the shipped one.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  lto-compare:
+    name: Thin vs fat LTO
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Self-test the driver
+        # The instrument is verified on the run that depends on it: the driver
+        # against a stand-in cargo, in seconds, before any hour is spent.
+        run: ./scripts/ci/lto-compare.test.sh
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Free disk space
+        # Two profiles' bench executables and one target dir at a time; the same
+        # sweep the release build runs under (rust-setup's free-disk-space),
+        # keeping swap so a link that outgrows 16 GB degrades instead of dying.
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Install Rust
+        # No rust-cache and no mold: the experiment builds cold, and the shipped
+        # build sets RUSTFLAGS, which takes the linker flags out of play anyway.
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Fetch dependencies
+        # Downloaded once, outside every timed step, so neither cold build pays
+        # for the network and both build with --offline.
+        run: cargo fetch --locked
+
+      - name: Pin the SDK state for both builds
+        # pierre-server's build script runs `npm install` and a TypeScript build
+        # when sdk/dist/cli.js is missing and skips both when it exists. That
+        # cost does not depend on LTO, and the second cold build would find what
+        # the first left behind, charging the first profile with minutes the
+        # second never pays. Nothing embeds the file, so an empty one puts both
+        # builds in the same state; the driver refuses to report builds that
+        # started in different ones.
+        run: mkdir -p sdk/dist && touch sdk/dist/cli.js
+
+      - name: Resolve the shipped invocation and both profiles
+        id: describe
+        env:
+          THIN_PROFILE: ${{ inputs.thin_profile }}
+          FAT_PROFILE: ${{ inputs.fat_profile }}
+        run: python3 scripts/ci/lto-compare.py describe --thin-profile "$THIN_PROFILE" --fat-profile "$FAT_PROFILE"
+
+      - name: Cold builds and bench builds
+        env:
+          SUITES: ${{ inputs.suites }}
+          BUILD_ORDER: ${{ inputs.build_order }}
+        run: |
+          set -euo pipefail
+          if [ "$BUILD_ORDER" = "fat-first" ]; then labels="fat thin"; else labels="thin fat"; fi
+          for label in $labels; do
+            echo "::group::cold build, $label"
+            python3 scripts/ci/lto-compare.py build --label "$label"
+            echo "::endgroup::"
+            echo "::group::bench build, $label"
+            python3 scripts/ci/lto-compare.py bench-build --label "$label" --suites "$SUITES"
+            echo "::endgroup::"
+          done
+
+      - name: Run the benchmarks, thin and fat interleaved
+        env:
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python3 scripts/ci/lto-compare.py bench --reps "$REPETITIONS"
+
+      - name: Report
+        # Runs after a failed or cut-short job too: a table of what finished,
+        # with the Problems section naming what did not, beats no table. It
+        # exits non-zero on any such problem, so the job still ends red.
+        if: ${{ always() && steps.describe.outcome == 'success' }}
+        run: python3 scripts/ci/lto-compare.py report
+
+      - name: Upload results
+        if: ${{ always() && steps.describe.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lto-compare-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/lto-compare/lto-compare.json
+            ${{ runner.temp }}/lto-compare/meta.json
+            ${{ runner.temp }}/lto-compare/bench.json
+            ${{ runner.temp }}/lto-compare/bench-failures.txt
+            ${{ runner.temp }}/lto-compare/build/*.json
+            ${{ runner.temp }}/lto-compare/logs/bench-*.log
+          if-no-files-found: error
+          # The weekly artifact purge deletes after 14 days; the table stays in
+          # the run summary regardless.
+          retention-days: 14

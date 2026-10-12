@@ -248,6 +248,7 @@ fn probe_providerless_check_does_not_flag_a_real_ride() {
         has_provider: true,
         today: NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
         locale: "en".to_owned(),
+        history: None,
         activities: vec![ride(12.2, 38.0), ride(5.0, 0.0)],
     };
 

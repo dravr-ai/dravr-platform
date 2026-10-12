@@ -17,12 +17,15 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, VerdictLayer,
+    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, GradingPool, VerdictLayer,
 };
 use sqlx::Row;
 use uuid::Uuid;
 
 use super::Database;
+use crate::repositories::claim_verdict_grading::{
+    grading_read_failed, GradingWindow, GRADING_POOL_SQL, GRADING_WITHHELD_SQL,
+};
 use crate::repositories::claim_verdicts::{
     agent_health, apply_status_count, category_health, daily_health, fold_health_breakdown,
     health_breakdown_rows, health_totals, impl_claim_verdict_repository, layer_health,

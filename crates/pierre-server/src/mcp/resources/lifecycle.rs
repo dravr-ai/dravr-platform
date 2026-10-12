@@ -420,7 +420,15 @@ impl ServerContext {
                 // only programmatic path replaces the whole app config
                 // app-globally behind a 12h human-bootstrapped token, and its
                 // slash commands cannot be invoked in threads, where the
-                // agent conversation lives; Discord is deprioritized.
+                // agent conversation lives. Discord has a bulk-register
+                // endpoint (`PUT /applications/{app_id}/commands`), but a
+                // registered name moves `/name` off the Gateway text path it
+                // arrives on today and onto the Interactions webhook, which
+                // cannot serve it: dravr-canot keeps an APPLICATION_COMMAND's
+                // first option value and drops `data.name`, and the webhook
+                // answers `{"status":"ok"}` where Discord requires an
+                // interaction response. Publishing a menu there would turn
+                // working typed commands into failed ones.
                 publish_messenger_menu(&messenger_commands).await;
             });
             // A panic in a detached task is otherwise swallowed, leaving a

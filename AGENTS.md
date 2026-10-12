@@ -240,6 +240,7 @@ The score is `min()` over caps, each printing its evidence and remedy: a held or
   ```
 - Do not reference AI assistance in git commit messages.
 - **Every squash to main is reviewed first (carnet#660).** After the branch's gate and tests pass, run the `review-standards` skill over `origin/main...HEAD`. It applies `docs/coding-standards.md` in fix mode, and you commit its fixes on the branch. The squash message then ends with the trailer it prints: `Reviewed-Standards: <blob sha of docs/coding-standards.md>`. A direct bug-fix push gets the same review whenever it can wait. A pushed commit with no trailer caps bilan at 8 and never blocks the push; clear it by reviewing that commit and landing the follow-up with `Reviewed-Standards: <sha> covers <short sha>…`.
+- **The landing commit also declares its merge risk (carnet#663)**, as a trailer at the start of a line: `Merge-Risk: two-way · blast radius: <area>`, or `Merge-Risk: ONE-WAY · <why a revert cannot undo it>`. Reviewers skim a two-way door and read a one-way door in full. A range touching a one-way surface — a migrations dir, Secret Manager or KMS definitions, a whole-set `gcloud --set-secrets`, an athlete-facing send path (`scripts/ci/check-merge-risk.sh --list-surfaces`) — fails pre-push and the fast gate until a commit in it carries the ONE-WAY line.
 </important>
 
 <important if="you are about to push, or have just pushed, to a remote branch">

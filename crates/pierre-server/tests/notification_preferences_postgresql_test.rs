@@ -15,7 +15,7 @@
 
 use chrono::{NaiveTime, Utc};
 use pierre_notifications::models::{
-    CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform,
+    CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform, DeviceRegistrar,
     NotificationCategory, UpsertNotificationPreferenceParams,
 };
 use pierre_notifications::{NotificationService, TenantId};
@@ -136,6 +136,7 @@ async fn test_pg_notification_service_round_trips_every_table() {
             "ExponentPushToken[pg-lane]",
             "ios",
             Some("Phone"),
+            DeviceRegistrar::FirstParty,
         )
         .await
         .unwrap();
@@ -145,6 +146,24 @@ async fn test_pg_notification_service_round_trips_every_table() {
     assert_eq!(tokens[0].expo_push_token, "ExponentPushToken[pg-lane]");
     assert_eq!(tokens[0].platform, DevicePlatform::Ios);
     assert_eq!(tokens[0].device_name.as_deref(), Some("Phone"));
+    assert_eq!(tokens[0].registrar, DeviceRegistrar::FirstParty);
+    let again = service
+        .upsert_device_token(
+            user_id,
+            tenant_id,
+            "ExponentPushToken[pg-lane]",
+            "ios",
+            Some("Phone"),
+            DeviceRegistrar::External,
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.id, token.id);
+    assert_eq!(
+        again.registrar,
+        DeviceRegistrar::External,
+        "a re-registration records the surface that made it"
+    );
     assert!(service
         .deactivate_device_token(user_id, tenant_id, token.id)
         .await
@@ -251,4 +270,32 @@ async fn test_pg_notification_service_round_trips_every_table() {
         .await
         .unwrap()
         .is_empty());
+}
+
+// A device row written without naming `first_party` — every row from before
+// 20261012153700, and any writer that predates it — reads as externally
+// registered, so it never receives a first-party-only push (carnet#789).
+#[tokio::test]
+async fn test_pg_a_device_registered_without_a_registrar_reads_as_external() {
+    let db = create_test_db().await.unwrap();
+    let pool = db.postgres_pool().expect("PG lane");
+    let service = NotificationService::from_postgres(pool.clone(), TaskTracker::new());
+    let user_id = Uuid::new_v4();
+    let tenant_id = TenantId(Uuid::new_v4());
+
+    sqlx::query(
+        "INSERT INTO device_tokens (id, user_id, tenant_id, expo_push_token, platform) \
+         VALUES ($1, $2, $3, $4, 'android')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(user_id.to_string())
+    .bind(tenant_id.to_string())
+    .bind("ExponentPushToken[pg-unvouched]")
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let tokens = service.get_device_tokens(user_id, tenant_id).await.unwrap();
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].registrar, DeviceRegistrar::External);
 }

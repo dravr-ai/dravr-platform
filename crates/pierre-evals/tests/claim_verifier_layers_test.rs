@@ -18,7 +18,8 @@ use pierre_evals::judge::judge_claim;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim, check_claim_judged, check_reply, claim_extractor::ExtractedClaim,
-    evidence_retriever::EvidenceCorpus, find_contradiction, ClaimJudge,
+    evidence_retriever::EvidenceCorpus, find_contradiction, verify_reply, CategoryConfig,
+    ClaimJudge, VerificationConfig,
 };
 use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
@@ -524,4 +525,91 @@ async fn the_judge_asks_for_its_stage_model_and_records_each_claim() {
     assert!(records
         .iter()
         .all(|r| r.success && r.provider == "canned-judge"));
+}
+
+// ---------------------------------------------------------------------------
+// verify_reply — the whole-reply entry the chat stage and the seeded eval share
+// ---------------------------------------------------------------------------
+
+const MIXED_REPLY: &str =
+    "Aim for 1.6 grams per kg of protein daily. Take 5 g of creatine per day. \
+     Sleep 8 hours per night to recover.";
+
+#[tokio::test]
+async fn verify_reply_checks_nothing_when_the_agent_switched_verification_off() {
+    let judge = CannedJudge::new(r#"{"verdict":"contradicted","confidence":1.0,"rationale":"x"}"#);
+    let config = VerificationConfig {
+        enabled: false,
+        ..VerificationConfig::default()
+    };
+    let verdicts = verify_reply(
+        MIXED_REPLY,
+        &config,
+        &corpus(),
+        Some(claim_judge(&judge)),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(verdicts.is_empty());
+    assert_eq!(judge.call_count(), 0);
+}
+
+#[tokio::test]
+async fn verify_reply_drops_an_opted_out_category_and_checks_the_rest() {
+    let everything = verify_reply(
+        MIXED_REPLY,
+        &VerificationConfig::default(),
+        &corpus(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let supplements = everything
+        .iter()
+        .filter(|(c, _)| c.category == ClaimCategory::Supplement)
+        .count();
+    assert!(supplements > 0, "{everything:?}");
+
+    let mut config = VerificationConfig::default();
+    config.categories.insert(
+        ClaimCategory::Supplement.as_str().to_owned(),
+        CategoryConfig {
+            enabled: false,
+            ..CategoryConfig::default()
+        },
+    );
+    let kept = verify_reply(MIXED_REPLY, &config, &corpus(), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(kept.len(), everything.len() - supplements);
+    assert!(kept
+        .iter()
+        .all(|(c, _)| c.category != ClaimCategory::Supplement));
+}
+
+#[tokio::test]
+async fn verify_reply_hands_an_inconclusive_claim_to_the_judge() {
+    let judge = CannedJudge::new(
+        r#"{"verdict":"contradicted","confidence":0.9,"rationale":"Not what the trials found."}"#,
+    );
+    // Plausible numbers, no sibling, and an empty corpus: only the judge can
+    // settle it.
+    let verdicts = verify_reply(
+        "Drinking beetroot juice daily raises your lactate threshold by 12% within two weeks.",
+        &VerificationConfig::default(),
+        &EvidenceCorpus::default(),
+        Some(claim_judge(&judge)),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(verdicts.len(), 1, "{verdicts:?}");
+    assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Judge);
+    assert_eq!(verdicts[0].1.status, ClaimStatus::Contradicted);
+    assert_eq!(judge.call_count(), 1);
 }

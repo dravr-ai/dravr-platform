@@ -55,5 +55,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std"],
 urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
+[dev-dependencies]
+# The claim-verdict types the grading-sheet test seeds its database with.
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+
 [lints]
 workspace = true

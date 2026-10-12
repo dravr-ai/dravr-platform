@@ -32,7 +32,7 @@ dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.7.2" }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.3.4" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", rev = "54a945c89e0f80e146792a18b073aaffb55dcf62" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
@@ -147,6 +147,23 @@ strip = true
 [profile.release-lto]
 inherits = "release"
 lto = "fat"
+
+# Measurement fixtures for .github/workflows/lto-comparison.yml (carnet#499).
+# The two differ in `lto` and nothing else, so whatever separates their builds
+# is the LTO mode. Both pin codegen-units = 1 so LTO is not confounded with how
+# the compile is partitioned. Neither ships: the image and release.yml build
+# `release-lto`, whose codegen-units is the 16 it inherits from `release`. The
+# workflow takes the profile names as inputs, so that pair (`release` against
+# `release-lto`) can be measured on the same footing.
+[profile.lto-compare-thin]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+
+[profile.lto-compare-fat]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
 
 # ============================================================================
 # Workspace Lint Configuration

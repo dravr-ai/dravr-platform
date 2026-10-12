@@ -14,6 +14,9 @@ publish = false
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["llm", "all-errors"] }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+# The compiled-in evidence corpus (`EvidenceCorpus::compiled_in`): the
+# propositions production falls back to when its runtime registry is empty.
+dravr-contremaitre = { workspace = true }
 
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }

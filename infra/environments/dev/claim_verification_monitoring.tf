@@ -25,7 +25,7 @@
 #                      catch, so every occurrence is a reply that should have
 #                      been checked and was not.
 #   verification.rs   "claim verification failed — skipping claim verdicts"
-#                      WARN. verify_reply_with_config_and_judge returned Err,
+#                      WARN. pierre_evals::verify_reply returned Err,
 #                      and its only error source is the LLM-judge layer: the
 #                      configured judge provider refused, timed out or answered
 #                      something that did not parse. The whole reply is
@@ -87,7 +87,7 @@ resource "google_logging_metric" "claim_verification_failed" {
   project = var.project_id
   name    = "dravr-claim-verification-failed"
 
-  description = "Counts agent replies whose claim verification returned an error and skipped every verdict. Emitted by apply_claim_verification in crates/pierre-chat-pipeline/src/stages/verification.rs when verify_reply_with_config_and_judge (crates/pierre-services/src/claim_verification.rs) fails; that call propagates only the LLM-judge layer's error, so this is the judge provider refusing, timing out or answering unparseable JSON. The reply is delivered with no chips and no rows, for every claim in it, not only the ones the judge was asked about. Added 2026-09-21 (carnet#455)."
+  description = "Counts agent replies whose claim verification returned an error and skipped every verdict. Emitted by apply_claim_verification in crates/pierre-chat-pipeline/src/stages/verification.rs when pierre_evals::verify_reply (crates/pierre-evals/src/verdict_engine.rs) fails; that call propagates only the LLM-judge layer's error, so this is the judge provider refusing, timing out or answering unparseable JSON. The reply is delivered with no chips and no rows, for every claim in it, not only the ones the judge was asked about. Added 2026-09-21 (carnet#455)."
 
   filter = <<-EOT
     resource.type="cloud_run_revision"

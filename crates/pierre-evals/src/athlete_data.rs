@@ -34,6 +34,13 @@
 //! When we do hold records, a figure that matches one is supported and a figure
 //! that matches none is *unsupported* rather than contradicted — our cache is a
 //! window, not the whole truth, and it can legitimately miss an activity.
+//!
+//! A figure stated over a period — "42 km this week", "6 h per week this
+//! block" — is the exception: it is compared with the same total or average
+//! over the same days, and contradicted when the record holds every one of
+//! those days and disagrees. A figure no word calls the total disagrees only
+//! above it, since below it may be some of the sessions. The `period` module
+//! states the windows.
 
 use chrono::{Datelike, NaiveDate};
 use pierre_core::civil_time::{
@@ -44,6 +51,12 @@ use pierre_core::models::{resolve_sport_type, sport_family_head, SportType};
 use crate::claim_extractor::ExtractedClaim;
 use crate::verdict_engine::VerdictOutcome;
 use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+
+mod period;
+pub use period::{
+    BackfillDepth, CacheRead, HistoryInputs, PeriodHistory, SourceCoverage, SourceSessions,
+    ATHLETE_RECORD_WINDOW,
+};
 
 /// One activity as this layer holds it.
 ///
@@ -90,6 +103,10 @@ pub struct AthleteRecord {
     /// vocabulary is *read*: French `hier` is German `hier` (here), so the
     /// forms cannot be scanned across locales the way weekday names are.
     pub locale: String,
+    /// What the record vouches for when a claim adds up a period — "42 km
+    /// this week". `None` when no window can be vouched for, and a total is
+    /// then never contradicted.
+    pub history: Option<PeriodHistory>,
 }
 
 impl AthleteRecord {
@@ -101,6 +118,7 @@ impl AthleteRecord {
             activities: Vec::new(),
             today,
             locale: locale.to_owned(),
+            history: None,
         }
     }
 
@@ -114,13 +132,20 @@ impl AthleteRecord {
     fn held(&self, unit: Unit) -> Vec<f64> {
         self.activities
             .iter()
-            .filter_map(|a| match unit {
-                Unit::Kilometres => a.distance_km,
-                Unit::Minutes => Some(a.duration_min),
-                Unit::ElevationMetres => a.elevation_m,
-                Unit::DistanceMetres => a.distance_km.map(|km| km * 1000.0),
-            })
+            .filter_map(|a| a.value_in(unit))
             .collect()
+    }
+}
+
+impl RecordedActivity {
+    /// The activity's value in `unit`, when the source recorded it.
+    fn value_in(&self, unit: Unit) -> Option<f64> {
+        match unit {
+            Unit::Kilometres => self.distance_km,
+            Unit::Minutes => Some(self.duration_min),
+            Unit::ElevationMetres => self.elevation_m,
+            Unit::DistanceMetres => self.distance_km.map(|km| km * 1000.0),
+        }
     }
 }
 
@@ -136,6 +161,10 @@ const MATCH_TOLERANCE: f64 = 0.05;
 struct AssertedFigure {
     value: f64,
     unit: Unit,
+    /// The unit divides by another — "28 km/h", "5 min/km" — so the figure is
+    /// a speed or a pace, not an amount of training. Read by the period check,
+    /// which never adds one up.
+    rate: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,6 +256,12 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
         ));
     }
 
+    // A figure stated over a period is checked against that period's total or
+    // average, which no single activity can match (carnet#846).
+    if let Some(verdict) = period::check(&claim.text, &figures, record) {
+        return Some(verdict);
+    }
+
     let matched = figures
         .iter()
         .filter(|f| matches_record(**f, record))
@@ -249,9 +284,10 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
         // for a *connected* athlete.
         //
         // This layer compares a figure against per-activity distances and
-        // durations. It cannot sum, cannot window, and cannot see an activity we
-        // failed to sync — so "you covered 40 km this week", a correct statement
-        // about a week that was four 10 km runs, matches nothing here. Reporting
+        // durations, and sums only a period the claim names in words `period`
+        // reads. It cannot see an activity we failed to sync, and a total it
+        // cannot window — "you covered 40 km", a correct statement about a week
+        // that was four 10 km runs — matches nothing here. Reporting
         // that as `Unsupported` makes it actionable (see `actionable_flag` in the
         // verification stage: `Unsupported` is `Some(false)`, and anything
         // `Some` drives `reply_action`), which appends a warning banner to a
@@ -268,8 +304,8 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
             layer_fired: VerdictLayer::AthleteData,
             explanation: format!(
                 "States {} and no single activity on record matches. This layer compares \
-                 against per-activity values only — it cannot sum a week or see an unsynced \
-                 activity — so it cannot settle the claim either way.",
+                 against per-activity values and sums only a period the claim names — it \
+                 cannot see an unsynced activity — so it cannot settle the claim either way.",
                 describe(&figures)
             ),
             evidence_refs: None,
@@ -899,10 +935,90 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
             out.push(AssertedFigure {
                 value: value * to_canonical,
                 unit,
+                rate: rate_at(&rate_tokens(tail)),
             });
         }
     }
     out
+}
+
+/// Units that are rates by themselves: a speed in "28 kph", a heart rate in
+/// "150 bpm", a cadence in "90 rpm".
+const RATE_UNITS: &[&str] = &["kph", "kmh", "mph", "bpm", "rpm", "spm"];
+
+/// What divides one unit by the next: "min/km", "min per km", "km par heure",
+/// "min por km", "km pro Stunde".
+const RATE_DIVIDERS: &[&str] = &["/", "per", "par", "por", "pro"];
+
+/// Units a rate divides by: a distance for a pace, a time for a speed, a body
+/// weight for power. Never a period or a session — "40 km per week" and
+/// "10 km par sortie" are amounts the period check averages.
+const RATE_DENOMINATORS: &[&str] = &[
+    "h",
+    "hr",
+    "hour",
+    "heure",
+    "hora",
+    "std",
+    "stunde",
+    "km",
+    "k",
+    "kilometre",
+    "kilometer",
+    "kilomètre",
+    "kilómetro",
+    "kilometro",
+    "quilômetro",
+    "quilometro",
+    "mi",
+    "mile",
+    "s",
+    "sec",
+    "kg",
+];
+
+/// The words of `text` in order, with a `/` token wherever a slash separates
+/// two of them: "5:20 min/km" reads `5 20 min / km`.
+fn rate_tokens(text: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut previous = 0;
+    for (a, b) in word_spans(text) {
+        if text.get(previous..a).is_some_and(|gap| gap.contains('/')) {
+            tokens.push("/");
+        }
+        tokens.extend(text.get(a..b));
+        previous = b;
+    }
+    tokens
+}
+
+/// Whether `tokens` open with a rate: a rate unit ("kph", "28kph"), or a
+/// token divided by a distance, a time or a weight ("km / h", "min per km",
+/// "20 / km", "min / 100m").
+fn rate_at(tokens: &[&str]) -> bool {
+    fn unit_of(token: &str) -> &str {
+        token.trim_start_matches(|c: char| c.is_ascii_digit())
+    }
+    let rate_unit = |token: &str| RATE_UNITS.contains(&unit_of(token));
+    let denominator = |token: &str| {
+        let unit = unit_of(token);
+        RATE_DENOMINATORS.contains(&token)
+            || (unit.len() < token.len() && matches!(unit, "m" | "yd"))
+    };
+    match tokens {
+        [first, divider, divisor, ..] => {
+            rate_unit(first) || (RATE_DIVIDERS.contains(divider) && denominator(divisor))
+        }
+        [first, ..] => rate_unit(first),
+        [] => false,
+    }
+}
+
+/// Whether the text states a pace or a speed anywhere — "5:20/km" included,
+/// whose clock-shaped numerator is never a figure.
+fn spells_rate(lower: &str) -> bool {
+    let tokens = rate_tokens(lower);
+    (0..tokens.len()).any(|at| tokens.get(at..).is_some_and(rate_at))
 }
 
 /// The unit a claim's tail begins with, and the factor that converts the number

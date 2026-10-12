@@ -1537,10 +1537,12 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
 
 #[cfg(feature = "client-notifications")]
 #[tokio::test]
-async fn the_feed_withholds_a_stamped_notification_and_devices_register_from_the_app_only() {
+async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_devices() {
     use pierre_notifications::events::stamp_data;
-    use pierre_notifications::models::NotificationCategory;
-    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
+    use pierre_notifications::models::{DeviceRegistrar, NotificationCategory};
+    use pierre_notifications::{
+        DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId,
+    };
 
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
@@ -1592,17 +1594,77 @@ async fn the_feed_withholds_a_stamped_notification_and_devices_register_from_the
     let (_, own) = get(&app, "/api/notifications", &session).await;
     assert!(own.to_string().contains("Garmin Hills"), "{own}");
 
-    let device = serde_json::json!({
-        "expo_push_token": "ExponentPushToken[transport-gate]",
+    // An external caller registers a device like the app does; the row
+    // records which surface registered it (carnet#789).
+    let key_device = serde_json::json!({
+        "expo_push_token": "ExponentPushToken[transport-gate-key]",
         "platform": "ios",
     });
-    let (status, refused) =
-        send_json(&app, "POST", "/api/notifications/device", &key, &device).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
-    assert_eq!(refused["code"], "UnavailableOverTransport", "{refused}");
     let (status, registered) =
-        send_json(&app, "POST", "/api/notifications/device", &session, &device).await;
-    assert!(status.is_success(), "{registered}");
+        send_json(&app, "POST", "/api/notifications/device", &key, &key_device).await;
+    assert_eq!(status, StatusCode::CREATED, "{registered}");
+
+    // With only that device, a stamped notification is stored and pushed
+    // nowhere: the device an API key registered never receives it.
+    let tenant_id = CommTenantId(rider.tenant.as_uuid());
+    let outcome = service
+        .dispatch_with_tier(
+            &DispatchRequest {
+                user_id: rider.user_id,
+                tenant_id,
+                category: NotificationCategory::System,
+                notification_type: "system_notice".to_owned(),
+                title: "Relay split on Garmin Hills".to_owned(),
+                body: "Relay split on Garmin Hills".to_owned(),
+                data: stamp_data(None, TransportPolicy::FirstPartyOnly),
+                image_url: None,
+                actions: None,
+                bypass_frequency_cap: true,
+            },
+            PushTier::P0,
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, DispatchOutcome::PersistedNoDevices { .. }),
+        "a stamped push must skip an externally registered device: {outcome:?}"
+    );
+
+    let app_device = serde_json::json!({
+        "expo_push_token": "ExponentPushToken[transport-gate-app]",
+        "platform": "ios",
+    });
+    let (status, registered) = send_json(
+        &app,
+        "POST",
+        "/api/notifications/device",
+        &session,
+        &app_device,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{registered}");
+
+    let mut devices: Vec<(String, DeviceRegistrar)> = service
+        .get_device_tokens(rider.user_id, tenant_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|token| (token.expo_push_token, token.registrar))
+        .collect();
+    devices.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        devices,
+        vec![
+            (
+                "ExponentPushToken[transport-gate-app]".to_owned(),
+                DeviceRegistrar::FirstParty
+            ),
+            (
+                "ExponentPushToken[transport-gate-key]".to_owned(),
+                DeviceRegistrar::External
+            ),
+        ]
+    );
 }
 
 #[tokio::test]

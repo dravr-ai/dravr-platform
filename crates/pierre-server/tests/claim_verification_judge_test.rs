@@ -18,11 +18,10 @@ use std::sync::Arc;
 
 use common::TestLlmProvider;
 use pierre_chat_pipeline::stages::verification::resolve_claim_judge;
-use pierre_evals::{ClaimJudge, EvidenceCorpus, VerificationConfig};
+use pierre_evals::{verify_reply, ClaimJudge, EvidenceCorpus, VerificationConfig};
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_memory::claims::{ClaimStatus, VerdictLayer};
-use pierre_services::claim_verification::verify_reply_with_config_and_judge;
 
 fn chat_provider() -> Arc<ChatProvider> {
     Arc::new(ChatProvider::Custom(Arc::new(TestLlmProvider::valid())))
@@ -68,16 +67,9 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
 
     // Without a judge: the claim extracts but settles on a deterministic
     // layer — nothing may settle on the Judge layer.
-    let without = verify_reply_with_config_and_judge(
-        INCONCLUSIVE_REPLY,
-        &config,
-        &empty_corpus,
-        None,
-        None,
-        None,
-    )
-    .await
-    .expect("deterministic pipeline succeeds");
+    let without = verify_reply(INCONCLUSIVE_REPLY, &config, &empty_corpus, None, None, None)
+        .await
+        .expect("deterministic pipeline succeeds");
     assert!(
         !without.is_empty(),
         "the lactate-threshold claim must be extracted"
@@ -95,7 +87,7 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
         r#"{"verdict":"contradicted","confidence":0.9,"rationale":"No consensus supports this effect size."}"#
             .to_owned(),
     );
-    let with = verify_reply_with_config_and_judge(
+    let with = verify_reply(
         INCONCLUSIVE_REPLY,
         &config,
         &empty_corpus,

@@ -14,6 +14,10 @@ on:
       # never reaches check-migration-immutability.sh, on the very backend the
       # long-lived dev DB uses.
       - 'migrations_pg/**'
+      # The Merge-Risk gate's one-way infra surfaces (check-merge-risk.sh): an
+      # infra-only push touching them would otherwise never reach the fast gate.
+      - 'infra/modules/secrets/**'
+      - 'infra/modules/kms/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
@@ -78,6 +82,9 @@ on:
       # never reaches check-migration-immutability.sh, on the very backend the
       # long-lived dev DB uses.
       - 'migrations_pg/**'
+      # The Merge-Risk gate's one-way infra surfaces (check-merge-risk.sh).
+      - 'infra/modules/secrets/**'
+      - 'infra/modules/kms/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
@@ -327,6 +334,50 @@ jobs:
       - name: Backend Pair Duplication
         run: ./scripts/ci/check-backend-pairs.sh "${{ steps.gate_base.outputs.sha }}"
 
+      # A revert undoes most changes, but not an applied migration, a destroyed
+      # secret or a delivered notification (carnet#663). A push whose diff
+      # touches one of those surfaces needs `Merge-Risk: ONE-WAY · <why>` on a
+      # commit in the range. The pre-push Tier 1o runs the same script, but a
+      # worktree without core.hooksPath skips it.
+      # Push and PR events only. A commit message belongs to the push that
+      # carried it, and only those events name that range. A schedule or
+      # dispatch run's base collapses to HEAD and would judge the tip's message
+      # alone: a burst push whose ONE-WAY line sits on an earlier commit passes
+      # here, then the next cron would fail it, and since every heavy job needs
+      # fast-gate, main would go red and skip the SQLite suite over no defect.
+      # The script itself also judges nothing when its base names no range.
+      # The range is the one Tier 1o judges before the push:
+      # merge-base(origin/main, HEAD)..HEAD. A pull request's base and a push to
+      # main's before-sha name it already. A branch push's before-sha does not:
+      # it covers that push alone, while Tier 1o covers every commit since the
+      # branch forked, because a branch declares ONE-WAY once and its squash
+      # restates it. Judged from its before-sha, a second push re-touching a
+      # migration the first push declared passed before the push and failed
+      # here, skipping every heavy job. So a branch push is judged from its
+      # fork point, found in this commit's history and main's, each fetched 200
+      # commits deep (the checkout holds 50). A fork point beyond that judges
+      # nothing, as a base the checkout lacks does; the squash that lands the
+      # branch is judged then.
+      # check-merge-risk.test.sh lifts this run block and drives it.
+      - name: Merge-Risk one-way doors
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        env:
+          GATE_BASE: ${{ steps.gate_base.outputs.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
+        run: |
+          base="$GATE_BASE"
+          if [ "$EVENT_NAME" = push ] && [ "$PUSHED_REF" != refs/heads/main ]; then
+            git fetch --no-tags --depth=200 origin "$(git rev-parse HEAD)"
+            git fetch --no-tags --depth=200 origin main
+            if ! base="$(git merge-base FETCH_HEAD HEAD)"; then
+              echo "::warning::merge-risk: no fork point from main within 200 commits of HEAD, so this branch push is not judged; the squash that lands it on main is."
+              exit 0
+            fi
+            echo "Merge-Risk base: $base, where this branch forked from main"
+          fi
+          ./scripts/ci/check-merge-risk.sh "$base"
+
       # Both fixture tests build throwaway repos and assert their gate FAILS on
       # a violation. They existed and ran nowhere, which is the failure mode
       # their own headers warn about: "An unverified gate is worse than no gate:
@@ -339,7 +390,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, shared test-module filter)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -375,8 +426,10 @@ jobs:
           ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
+          ./scripts/ci/lto-compare.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-agents-md-budget.test.sh
+          ./scripts/ci/check-merge-risk.test.sh
           bash .build/validation/test-test-module-lines.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 

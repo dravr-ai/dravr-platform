@@ -1457,8 +1457,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.3.4"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.3.4#8ebe5d9aa2c3976a535e3eb1bb57d6f9e8a95789"
+version = "0.4.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?rev=54a945c89e0f80e146792a18b073aaffb55dcf62#54a945c89e0f80e146792a18b073aaffb55dcf62"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2535,7 +2535,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3841,6 +3841,7 @@ dependencies = [
  "pierre-database",
  "pierre-evals",
  "pierre-llm",
+ "pierre-memory",
  "pierre-middleware",
  "pierre-seeders",
  "pierre-services",
@@ -4024,6 +4025,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "dravr-contremaitre",
  "pierre-core",
  "pierre-llm",
  "pierre-memory",
@@ -4995,7 +4997,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5033,7 +5035,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7329,7 +7331,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

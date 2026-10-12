@@ -622,9 +622,13 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
             location: "crates/pierre-evals/src/athlete_data.rs".to_owned(),
             detail: "`check` compares the figures the claim asserts against the athlete's \
                      AthleteRecord within MATCH_TOLERANCE; a named activity is matched by \
-                     `check_named_activity`. A false positive here is either a record that \
-                     was stale when the reply was verified or a tolerance tighter than the \
-                     provider's own rounding."
+                     `check_named_activity`, and a figure stated over a period (\"42 km this \
+                     week\") by `period::check` in athlete_data/period.rs, against the \
+                     record's PeriodHistory. A false positive here is either a record that \
+                     was stale when the reply was verified, a tolerance tighter than the \
+                     provider's own rounding, a period read in a way the windows table in \
+                     period.rs does not list, or a day period/coverage.rs vouched for that \
+                     the cache did not hold."
                 .to_owned(),
             propositions: Vec::new(),
         },

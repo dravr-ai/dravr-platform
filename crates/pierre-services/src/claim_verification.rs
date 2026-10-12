@@ -16,11 +16,9 @@
 //! argument verify against that compiled-in fallback.
 
 use pierre_contremaitre::evidence_registry::compiled_in_corpus;
-use pierre_core::errors::AppResult;
 use pierre_evals::{
-    athlete_data::AthleteRecord, check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
-    evidence_retriever::EvidenceCorpus, extract_heuristic, ClaimJudge, PersonalizedContext,
-    VerdictOutcome, VerificationConfig,
+    check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
+    extract_heuristic, VerdictOutcome, VerificationConfig,
 };
 use pierre_memory::claims::EvidenceStrength;
 use std::slice;
@@ -109,55 +107,6 @@ pub fn verify_reply_with_config_and_corpus(
             (claim.clone(), outcome)
         })
         .collect()
-}
-
-/// Verify an agent reply honoring the per-agent [`VerificationConfig`], running
-/// the full five-layer pipeline including the LLM judge fallback.
-///
-/// Identical category filtering and per-category `min_strength` handling to
-/// [`verify_reply_with_config_and_corpus`], but each inconclusive claim (one
-/// that the pure-Rust layers could not resolve) is handed to `judge` as the
-/// LLM-judge fallback. Pass `judge: None` to keep the run fully deterministic — in that
-/// case this is the async equivalent of the synchronous variant.
-///
-/// # Errors
-///
-/// Propagates the LLM error when the judge is invoked and the provider call
-/// (or its JSON parse) fails.
-pub async fn verify_reply_with_config_and_judge(
-    agent_reply: &str,
-    config: &VerificationConfig,
-    corpus: &EvidenceCorpus,
-    judge: Option<ClaimJudge<'_>>,
-    athlete: Option<&PersonalizedContext<'_>>,
-    athlete_record: Option<&AthleteRecord>,
-) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
-    if !config.enabled {
-        return Ok(Vec::new());
-    }
-    let claims = extract_heuristic(agent_reply);
-    if claims.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
-        let min_strength = config.for_category(claim.category).min_strength;
-        // Cross-check the consistency-check layer against every extracted claim, matching the
-        // synchronous variant's semantics. The personalized layer fires when `athlete` is
-        // supplied (the chat pipeline builds it from the athlete's physiology).
-        let outcome = check_claim_judged(
-            claim,
-            &claims,
-            corpus,
-            min_strength,
-            judge,
-            athlete,
-            athlete_record,
-        )
-        .await?;
-        out.push((claim.clone(), outcome));
-    }
-    Ok(out)
 }
 
 /// Verify a single claim against a caller-provided corpus.

@@ -504,7 +504,9 @@ impl NotificationService {
         fan_out: ChannelFanOut,
     ) -> CommereResult<Delivery> {
         // The stored row carries the stamp of what it was derived from: the
-        // caller's, tightened to the derivation this dispatch runs in.
+        // caller's, tightened to the derivation this dispatch runs in. The
+        // upstream pipeline reads the same stamp to keep a stamped push off
+        // every device an external caller registered (carnet#789).
         let caller_policy = events::data_transport_policy(request.data.as_ref());
         let policy = caller_policy.strictest(self.derived_policy());
         let stamped;

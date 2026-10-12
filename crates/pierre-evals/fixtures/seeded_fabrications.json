@@ -1,0 +1,334 @@
+{
+  "note": "Seeded fabrications for the claim checker's catch rate (carnet#854). Each case is a coach reply carrying exactly one false sentence about a synthetic athlete; `truth` states what that athlete's record actually says. HRV, sleep and CTL are not fields the checker reads, so for those cases `truth` is the only record of them. Today is Thursday 2026-10-08 for every athlete. Every athlete with a provider is fully synced: the record is read this turn over the 90 days to today, the provider's list head was read this turn, and its history is backfilled to the end of its feed, so the activities listed are every session of that quarter and a total stated over a week or a month is checked against them.",
+  "athletes": [
+    {
+      "id": "lea_fr",
+      "locale": "fr",
+      "today": "2026-10-08",
+      "has_provider": true,
+      "activities": [
+        { "date": "2026-09-02", "sport": "Run", "name": "Footing", "distance_km": 8.5, "duration_min": 47.0, "elevation_m": 30.0 },
+        { "date": "2026-09-04", "sport": "Run", "name": "Seuil 3x8", "distance_km": 12.0, "duration_min": 62.0, "elevation_m": 80.0 },
+        { "date": "2026-09-06", "sport": "Run", "name": "Sortie longue", "distance_km": 17.2, "duration_min": 98.0, "elevation_m": 260.0 },
+        { "date": "2026-09-09", "sport": "Run", "name": "Footing", "distance_km": 9.1, "duration_min": 51.0, "elevation_m": 40.0 },
+        { "date": "2026-09-11", "sport": "Run", "name": "VMA 10x400", "distance_km": 10.4, "duration_min": 56.0, "elevation_m": 45.0 },
+        { "date": "2026-09-13", "sport": "Run", "name": "Sortie longue", "distance_km": 19.0, "duration_min": 108.0, "elevation_m": 300.0 },
+        { "date": "2026-09-16", "sport": "Run", "name": "Footing", "distance_km": 8.8, "duration_min": 49.0, "elevation_m": 35.0 },
+        { "date": "2026-09-18", "sport": "Run", "name": "Seuil 2x12", "distance_km": 12.6, "duration_min": 64.0, "elevation_m": 85.0 },
+        { "date": "2026-09-20", "sport": "Run", "name": "Trail des Crêts", "distance_km": 23.5, "duration_min": 150.0, "elevation_m": 820.0 },
+        { "date": "2026-09-23", "sport": "Run", "name": "Footing", "distance_km": 9.3, "duration_min": 52.0, "elevation_m": 40.0 },
+        { "date": "2026-09-25", "sport": "Run", "name": "Seuil 2x15", "distance_km": 13.4, "duration_min": 68.0, "elevation_m": 95.0 },
+        { "date": "2026-09-27", "sport": "Run", "name": "Sortie longue", "distance_km": 18.7, "duration_min": 105.0, "elevation_m": 320.0 },
+        { "date": "2026-09-28", "sport": "Run", "name": "VMA courte", "distance_km": 10.2, "duration_min": 55.0, "elevation_m": 50.0 },
+        { "date": "2026-09-30", "sport": "Run", "name": "Footing", "distance_km": 9.0, "duration_min": 50.0, "elevation_m": 35.0 },
+        { "date": "2026-10-02", "sport": "Run", "name": "Seuil 3x10", "distance_km": 13.1, "duration_min": 66.0, "elevation_m": 90.0 },
+        { "date": "2026-10-04", "sport": "Run", "name": "Sortie longue Vercors", "distance_km": 21.4, "duration_min": 124.0, "elevation_m": 480.0 },
+        { "date": "2026-10-05", "sport": "Run", "name": "Fractionné 6x1000", "distance_km": 11.6, "duration_min": 58.0, "elevation_m": 60.0 },
+        { "date": "2026-10-07", "sport": "Run", "name": "Footing récup", "distance_km": 8.2, "duration_min": 46.0, "elevation_m": 40.0 }
+      ],
+      "metrics": {
+        "vdot": 49.0,
+        "max_hr": 189.0,
+        "recent_tsb": -7.0,
+        "threshold_pace_range": [268.0, 278.0],
+        "easy_pace_range": [320.0, 355.0],
+        "data_days": 90
+      }
+    },
+    {
+      "id": "tom_en",
+      "locale": "en",
+      "today": "2026-10-08",
+      "has_provider": true,
+      "activities": [
+        { "date": "2026-09-22", "sport": "Ride", "name": "Endurance", "distance_km": 58.4, "duration_min": 132.0, "elevation_m": 470.0 },
+        { "date": "2026-09-24", "sport": "Ride", "name": "Sweet spot 3x12", "distance_km": 45.1, "duration_min": 90.0, "elevation_m": 290.0 },
+        { "date": "2026-09-26", "sport": "Ride", "name": "Group ride", "distance_km": 81.3, "duration_min": 175.0, "elevation_m": 760.0 },
+        { "date": "2026-09-27", "sport": "Ride", "name": "Recovery spin", "distance_km": 28.7, "duration_min": 65.0, "elevation_m": 110.0 },
+        { "date": "2026-09-29", "sport": "Ride", "name": "Endurance", "distance_km": 61.2, "duration_min": 140.0, "elevation_m": 520.0 },
+        { "date": "2026-10-01", "sport": "Ride", "name": "Sweet spot 2x20", "distance_km": 48.6, "duration_min": 95.0, "elevation_m": 310.0 },
+        { "date": "2026-10-03", "sport": "Ride", "name": "Group ride", "distance_km": 74.8, "duration_min": 160.0, "elevation_m": 690.0 },
+        { "date": "2026-10-04", "sport": "Ride", "name": "Col de la Croix", "distance_km": 96.4, "duration_min": 245.0, "elevation_m": 1840.0 },
+        { "date": "2026-10-05", "sport": "Ride", "name": "Recovery spin", "distance_km": 31.0, "duration_min": 70.0, "elevation_m": 120.0 },
+        { "date": "2026-10-07", "sport": "Ride", "name": "Tempo intervals", "distance_km": 52.3, "duration_min": 105.0, "elevation_m": 380.0 }
+      ],
+      "metrics": {
+        "ftp_watts": 265.0,
+        "max_hr": 182.0,
+        "recent_tsb": -14.0,
+        "data_days": 120
+      }
+    },
+    {
+      "id": "sam_en",
+      "locale": "en",
+      "today": "2026-10-08",
+      "has_provider": true,
+      "activities": []
+    },
+    {
+      "id": "nadia_fr",
+      "locale": "fr",
+      "today": "2026-10-08",
+      "has_provider": false,
+      "activities": []
+    },
+    {
+      "id": "ben_en",
+      "locale": "en",
+      "today": "2026-10-08",
+      "has_provider": false,
+      "activities": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "F01",
+      "kind": "wrong_single_figure",
+      "athlete": "lea_fr",
+      "reply": "Belle sortie longue dimanche dans le Vercors ! Tu as couru 24,6 km avec 480 m de dénivelé, c'est ta plus longue sortie du bloc. On garde une semaine tranquille pour bien assimiler.",
+      "fabricated": "Tu as couru 24,6 km avec 480 m de dénivelé, c'est ta plus longue sortie du bloc.",
+      "truth": "Sortie longue Vercors (Sun 4 Oct) was 21.4 km with 480 m of climbing."
+    },
+    {
+      "id": "F02",
+      "kind": "wrong_single_figure",
+      "athlete": "tom_en",
+      "reply": "Sunday was a big day out. You rode 96 km with 2400 m of climbing on Col de la Croix, your biggest day of the block. Keep tomorrow easy.",
+      "fabricated": "You rode 96 km with 2400 m of climbing on Col de la Croix, your biggest day of the block.",
+      "truth": "Col de la Croix (Sun 4 Oct) was 96.4 km with 1840 m of climbing."
+    },
+    {
+      "id": "F03",
+      "kind": "wrong_single_figure",
+      "athlete": "tom_en",
+      "reply": "Your FTP is 290 W, so the 2x20 at 95% should sit around 275 W. Keep your cadence above 85 rpm on the climbs.",
+      "fabricated": "Your FTP is 290 W, so the 2x20 at 95% should sit around 275 W.",
+      "truth": "FTP on record is 265 W; 290 W is 9% high."
+    },
+    {
+      "id": "F04",
+      "kind": "wrong_single_figure",
+      "athlete": "lea_fr",
+      "reply": "Ta FC max est de 201 bpm, donc ta zone 2 monte jusqu'à 150 bpm. Reste bien en dessous pendant les footings.",
+      "fabricated": "Ta FC max est de 201 bpm, donc ta zone 2 monte jusqu'à 150 bpm.",
+      "truth": "Max HR on record is 189 bpm."
+    },
+    {
+      "id": "F05",
+      "kind": "wrong_single_figure",
+      "athlete": "lea_fr",
+      "reply": "Lundi, ton fractionné 6x1000 t'a pris 72 minutes au total, échauffement compris. C'est une bonne base pour la suite du bloc.",
+      "fabricated": "Lundi, ton fractionné 6x1000 t'a pris 72 minutes au total, échauffement compris.",
+      "truth": "Fractionné 6x1000 (Mon 5 Oct) took 58 min."
+    },
+    {
+      "id": "F06",
+      "kind": "wrong_single_figure",
+      "athlete": "tom_en",
+      "reply": "Nice work yesterday, you rode 68 km at tempo and held your power well. Recovery spin today, nothing harder.",
+      "fabricated": "Nice work yesterday, you rode 68 km at tempo and held your power well.",
+      "truth": "Yesterday's Tempo intervals (Wed 7 Oct) was 52.3 km."
+    },
+    {
+      "id": "F07",
+      "kind": "wrong_weekly_total",
+      "athlete": "lea_fr",
+      "reply": "La semaine dernière, tu as couru 68 km au total, ton plus gros volume depuis l'été. On redescend un peu cette semaine.",
+      "fabricated": "La semaine dernière, tu as couru 68 km au total, ton plus gros volume depuis l'été.",
+      "truth": "Last week (28 Sep – 4 Oct) holds 53.7 km over four runs."
+    },
+    {
+      "id": "F08",
+      "kind": "wrong_weekly_total",
+      "athlete": "tom_en",
+      "reply": "Last week you covered 340 km across four rides, your biggest week of the block. This week we back off to around 200 km.",
+      "fabricated": "Last week you covered 340 km across four rides, your biggest week of the block.",
+      "truth": "Last week (28 Sep – 4 Oct) holds 281.0 km over four rides."
+    },
+    {
+      "id": "F09",
+      "kind": "wrong_weekly_total",
+      "athlete": "lea_fr",
+      "reply": "Cette semaine tu en es déjà à 31 km, il te reste la sortie longue de dimanche. Garde-la en endurance fondamentale.",
+      "fabricated": "Cette semaine tu en es déjà à 31 km, il te reste la sortie longue de dimanche.",
+      "truth": "This week so far (5–8 Oct) holds 19.8 km."
+    },
+    {
+      "id": "F10",
+      "kind": "wrong_weekly_total",
+      "athlete": "tom_en",
+      "reply": "So far this month you've logged 610 km and 18 hours on the bike. That is plenty of volume for October.",
+      "fabricated": "So far this month you've logged 610 km and 18 hours on the bike.",
+      "truth": "October so far (1–8 Oct) holds 303.1 km and 11 h 15 min."
+    },
+    {
+      "id": "F11",
+      "kind": "wrong_weekly_total",
+      "athlete": "lea_fr",
+      "reply": "Le mois dernier tu as couru 236 km, c'est ton record sur un mois. Septembre a été très régulier.",
+      "fabricated": "Le mois dernier tu as couru 236 km, c'est ton record sur un mois.",
+      "truth": "September holds 181.7 km over fourteen runs."
+    },
+    {
+      "id": "F12",
+      "kind": "wrong_weekly_total",
+      "athlete": "tom_en",
+      "reply": "Over the last seven days you have climbed 5200 m in total. Your legs will need the rest day.",
+      "fabricated": "Over the last seven days you have climbed 5200 m in total.",
+      "truth": "1–7 Oct holds 3340 m of climbing."
+    },
+    {
+      "id": "F13",
+      "kind": "wrong_form_percentage",
+      "athlete": "lea_fr",
+      "reply": "Ta forme est à -28 % de ta condition, on est dans un bloc chargé. Pas d'intensité avant dimanche.",
+      "fabricated": "Ta forme est à -28 % de ta condition, on est dans un bloc chargé.",
+      "truth": "Form is -12% of fitness (TSB -7 on CTL 58): productive, not a heavy block."
+    },
+    {
+      "id": "F14",
+      "kind": "wrong_form_percentage",
+      "athlete": "lea_fr",
+      "reply": "Ta forme actuelle est à -31 %, tu es en fatigue profonde. On annule le seuil de vendredi.",
+      "fabricated": "Ta forme actuelle est à -31 %, tu es en fatigue profonde.",
+      "truth": "Form is -12% of fitness (TSB -7 on CTL 58): productive, not deep fatigue."
+    },
+    {
+      "id": "F15",
+      "kind": "wrong_form_percentage",
+      "athlete": "tom_en",
+      "reply": "Your current form is -8% of fitness, nicely balanced for Saturday's race. Keep the openers short.",
+      "fabricated": "Your current form is -8% of fitness, nicely balanced for Saturday's race.",
+      "truth": "Form is -19% of fitness (TSB -14 on CTL 74): productive, not balanced."
+    },
+    {
+      "id": "F16",
+      "kind": "wrong_form_percentage",
+      "athlete": "tom_en",
+      "reply": "You're sitting at +6% form, fresh enough to go hard this weekend. Make the most of the legs.",
+      "fabricated": "You're sitting at +6% form, fresh enough to go hard this weekend.",
+      "truth": "Form is -19% of fitness (TSB -14 on CTL 74): productive, not fresh."
+    },
+    {
+      "id": "F17",
+      "kind": "wrong_form_percentage",
+      "athlete": "lea_fr",
+      "reply": "Avec une forme à +12 %, tu arrives fraîche pour le semi de dimanche. Hydrate-toi bien samedi.",
+      "fabricated": "Avec une forme à +12 %, tu arrives fraîche pour le semi de dimanche.",
+      "truth": "Form is -12% of fitness (TSB -7 on CTL 58): productive, not fresh."
+    },
+    {
+      "id": "F18",
+      "kind": "wrong_form_percentage",
+      "athlete": "tom_en",
+      "reply": "Your TSB sits at -2% of your CTL, so you are balanced going into the weekend. A short opener on Friday is enough.",
+      "fabricated": "Your TSB sits at -2% of your CTL, so you are balanced going into the weekend.",
+      "truth": "Form is -19% of fitness (TSB -14 on CTL 74): productive, not balanced."
+    },
+    {
+      "id": "F19",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "lea_fr",
+      "reply": "Ta VFC est remontée à 74 ms ce matin, bien au-dessus de ta moyenne. Tu peux pousser aujourd'hui.",
+      "fabricated": "Ta VFC est remontée à 74 ms ce matin, bien au-dessus de ta moyenne.",
+      "truth": "HRV this morning was 58 ms against a 62 ms baseline."
+    },
+    {
+      "id": "F20",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "tom_en",
+      "reply": "Your HRV dropped to 38 ms overnight, well below your 7-day baseline of 61 ms. Swap today's intervals for an easy spin.",
+      "fabricated": "Your HRV dropped to 38 ms overnight, well below your 7-day baseline of 61 ms.",
+      "truth": "HRV overnight was 63 ms against a 60 ms baseline."
+    },
+    {
+      "id": "F21",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "lea_fr",
+      "reply": "Tu as dormi 5 h 40 cette nuit, c'est trop peu pour une séance au seuil. On décale à demain.",
+      "fabricated": "Tu as dormi 5 h 40 cette nuit, c'est trop peu pour une séance au seuil.",
+      "truth": "Sleep last night was 7 h 10."
+    },
+    {
+      "id": "F22",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "tom_en",
+      "reply": "You slept 9 hours last night, so you are well recovered for today's intervals. Go get them.",
+      "fabricated": "You slept 9 hours last night, so you are well recovered for today's intervals.",
+      "truth": "Sleep last night was 6 h 20."
+    },
+    {
+      "id": "F23",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "tom_en",
+      "reply": "Your resting heart rate was 41 bpm this morning, the lowest of the month. That points to good recovery.",
+      "fabricated": "Your resting heart rate was 41 bpm this morning, the lowest of the month.",
+      "truth": "Resting HR this morning was 49 bpm; the month's lowest was 46 bpm."
+    },
+    {
+      "id": "F24",
+      "kind": "invented_hrv_or_sleep",
+      "athlete": "lea_fr",
+      "reply": "Ton sommeil profond a atteint 2 h 30 cette nuit selon ta montre, excellent pour la récupération. Profite de cette fraîcheur.",
+      "fabricated": "Ton sommeil profond a atteint 2 h 30 cette nuit selon ta montre, excellent pour la récupération.",
+      "truth": "Deep sleep last night was 1 h 05."
+    },
+    {
+      "id": "F25",
+      "kind": "activity_never_happened",
+      "athlete": "lea_fr",
+      "reply": "Bravo pour ta sortie vélo d'hier, 45 km à bonne allure ! Le vélo est un excellent complément à la course.",
+      "fabricated": "Bravo pour ta sortie vélo d'hier, 45 km à bonne allure !",
+      "truth": "Yesterday (7 Oct) holds one activity, an 8.2 km recovery run; no ride is on record at all."
+    },
+    {
+      "id": "F26",
+      "kind": "activity_never_happened",
+      "athlete": "tom_en",
+      "reply": "Nice swim yesterday, 2.5 km in the pool is a solid aerobic session. It will help your recovery this week.",
+      "fabricated": "Nice swim yesterday, 2.5 km in the pool is a solid aerobic session.",
+      "truth": "No swim is on record; yesterday holds Tempo intervals, a ride."
+    },
+    {
+      "id": "F27",
+      "kind": "activity_never_happened",
+      "athlete": "nadia_fr",
+      "reply": "Ta sortie de 12 km hier montre que tu progresses bien. Continue sur cette lancée.",
+      "fabricated": "Ta sortie de 12 km hier montre que tu progresses bien.",
+      "truth": "Nothing is connected; no run is on record anywhere."
+    },
+    {
+      "id": "F28",
+      "kind": "activity_never_happened",
+      "athlete": "lea_fr",
+      "reply": "Ta course du 10 km de Lyon samedi s'est bien passée, 44 minutes c'est un record ! Profite de la récupération.",
+      "fabricated": "Ta course du 10 km de Lyon samedi s'est bien passée, 44 minutes c'est un record !",
+      "truth": "Saturday 3 Oct holds no activity; no race is on record."
+    },
+    {
+      "id": "F29",
+      "kind": "activity_never_happened",
+      "athlete": "tom_en",
+      "reply": "You completed the Col du Galibier ride on Tuesday, 3 hours and 2100 m of climbing. Your climbing legs are coming along.",
+      "fabricated": "You completed the Col du Galibier ride on Tuesday, 3 hours and 2100 m of climbing.",
+      "truth": "No Galibier ride exists; Tuesday 29 Sep holds Endurance, 61.2 km, 140 min, 520 m."
+    },
+    {
+      "id": "F30",
+      "kind": "activity_never_happened",
+      "athlete": "sam_en",
+      "reply": "Your long run on Sunday was 26 km, great endurance work. Keep the next one at the same pace.",
+      "fabricated": "Your long run on Sunday was 26 km, great endurance work.",
+      "truth": "Injured for three weeks, the athlete recorded nothing; the provider holds no Sunday run, and the synced record holds nothing either."
+    },
+    {
+      "id": "F31",
+      "kind": "activity_never_happened",
+      "athlete": "ben_en",
+      "reply": "Your last run was 8 km on Tuesday at an easy pace. Let's build on that next week.",
+      "fabricated": "Your last run was 8 km on Tuesday at an easy pace.",
+      "truth": "Nothing is connected; no run is on record anywhere."
+    }
+  ]
+}

@@ -787,6 +787,28 @@ async fn main() -> Result<()> {
         return commands::provider_data::dispatch(action).await;
     }
 
+    // `harness grading-score` reads a key and graded sheets from disk: it
+    // needs neither a database nor the encryption key, and is usually run
+    // where neither is reachable.
+    #[cfg(feature = "tools-verification")]
+    if let Command::Harness { action } = cli.command {
+        if let commands::harness::HarnessCommand::GradingScore {
+            key,
+            grades,
+            adjudication,
+            out,
+        } = action
+        {
+            return commands::harness::score_grades(
+                &key,
+                &grades,
+                adjudication.as_deref(),
+                out.as_deref(),
+            );
+        }
+        cli.command = Command::Harness { action };
+    }
+
     // `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` and the three pre-approval
     // verbs are remote, and have to dispatch here for the reason they exist: every other user command
     // holds a repository handle and therefore needs DATABASE_URL plus

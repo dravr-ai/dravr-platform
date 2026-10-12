@@ -4,9 +4,21 @@
 # The daily GCP cost tracks development activity, not user traffic. On
 # 2026-08-27 the bill peaked for the month while Cloud Run served 212 requests
 # all day; the same day was among the busiest in the repo's history. The
-# mechanism is the image build: every one pulls a multi-GB registry buildcache
-# back out of Artifact Registry to a GitHub-hosted runner, which is billed
-# internet egress because the runners sit outside GCP.
+# mechanism was the image build pulling a multi-GB registry buildcache back out
+# of Artifact Registry to a GitHub-hosted runner, which is billed internet
+# egress because the runners sit outside GCP (carnet#333). What a build reads
+# from the registry now depends on the image:
+#   * A server build (publish-images, fasttrack-deploy) pulls no cached layer
+#     when warm: the binaries are compiled on the runner against the
+#     GitHub-hosted rust-cache, and nothing after the runtime stage's last
+#     `COPY --link` reads the cached rootfs. A publish-images build then reads
+#     back the layers its Trivy scan has not analysed: the new binary layers
+#     (~0.1 GiB before compression), or the whole ~1 GiB image after its
+#     runtime layers are rebuilt. fasttrack-deploy runs no scan.
+#   * A sciotte or photograveur build still builds its own repository's
+#     Dockerfile against a mode=max buildcache, and pulls the cached layers
+#     that build needs: ~0.67 GB for the 2026-10-04 sciotte build whose
+#     binaries changed.
 #
 # What counts as a build. A deploy workflow run is not a build: a workflow_run
 # event from a failed or cron-triggered CI run creates a run whose every job
@@ -16,13 +28,15 @@
 # (server and frontend), so `build_runs` is a floor on images built, not a count.
 #
 # The builder set is derived, not listed. It is the workflows with a build step
-# declaring `cache-from` — the exact egress this watches. The first
-# version of this file hand-copied two names from their FILENAMES
+# declaring `cache-from`; every workflow here that builds an image has one.
+# The first version of this file hand-copied two names from their FILENAMES
 # (publish-*.yml) and never matched their `name:` fields at all.
 #
 # This watches two things:
-#   * build_runs — the egress driver. The threshold is calibrated on the real
-#     figures: 11 / 13 / 20 / 8 for 2026-08-26..29.
+#   * build_runs — the churn the build cost multiplies: a server build holds a
+#     runner 25–30 min compiling the binaries, and every build adds the
+#     registry reads above. The threshold is calibrated on the real figures:
+#     11 / 13 / 20 / 8 for 2026-08-26..29.
 #   * concurrent_builds — the deploy group's job is to serialise builds so a
 #     burst costs two instead of N. Two real builds of that workflow executing
 #     at the same moment means the group has stopped doing its job. This is
@@ -169,7 +183,7 @@ jobs:
 
           reasons = []
           if len(executed) > threshold:
-              reasons.append(f"- `build_runs` = {len(executed)}, above the threshold of {threshold}. Each executed build pulls the buildcache out of Artifact Registry as billed egress.")
+              reasons.append(f"- `build_runs` = {len(executed)}, above the threshold of {threshold}. Each executed server build holds a runner 25–30 min compiling the binaries, and a `publish-images` build then reads its new layers back out of Artifact Registry for the Trivy scan; a sciotte or photograveur build still pulls cached layers from its mode=max buildcache. Every registry read from a runner is billed egress.")
           if overlaps:
               pairs = ", ".join(f"{a}/{b}" for a, b in overlaps)
               reasons.append(f"- {len(overlaps)} pair(s) of real `{deploy_group}` builds executed at the same time ({pairs}). That workflow's concurrency group exists to serialise them; it did not.")

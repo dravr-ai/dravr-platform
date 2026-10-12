@@ -110,6 +110,7 @@ fn a_figure_matching_a_recorded_activity_is_supported() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![
             session(Some(21.4), 118.0),
             session(Some(8.0), 42.0),
@@ -149,6 +150,7 @@ fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(Some(5.0), 30.0), session(Some(8.0), 0.0)],
     };
 
@@ -178,6 +180,7 @@ fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: Vec::new(),
     };
 
@@ -206,6 +209,7 @@ fn an_hours_claim_is_converted_before_matching() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(None, 120.0)],
     };
 
@@ -227,6 +231,7 @@ fn an_hours_claim_is_converted_before_matching() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(None, 2.0)],
     };
     let wrong = check(
@@ -336,6 +341,7 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         // Four 10 km runs — a real week totalling 40 km, held per-activity.
         activities: vec![
             session(Some(10.0), 50.0),
@@ -386,6 +392,7 @@ fn a_comma_decimal_is_one_figure() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(Some(21.4), 0.0)],
     };
     let claim = claim("Tu as couru 21,4 km hier.");
@@ -420,6 +427,7 @@ fn a_pace_expression_injects_no_phantom_figure() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(Some(10.0), 50.0)],
     };
     let claim = claim("You ran 10 km at 5:00 min/km.");
@@ -473,6 +481,7 @@ fn a_sleep_claim_is_not_supported_by_a_workout_duration() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        history: None,
         activities: vec![session(None, 480.0)],
     };
     for text in ["You slept 8 hours last night.", "Tu as dormi 8 heures."] {

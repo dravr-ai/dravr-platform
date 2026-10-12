@@ -39,6 +39,8 @@ pub mod chat;
 pub(crate) mod chat_backend;
 /// Repository trait for the check-in cadence each athlete chose.
 pub mod check_in_preferences;
+/// Statements and decoders for the blind-grading pool of claim verdicts.
+pub mod claim_verdict_grading;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).

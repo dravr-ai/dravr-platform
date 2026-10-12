@@ -19,6 +19,7 @@
 //! Phase A keeps this deterministic — no embeddings yet. Phase D wires
 //! `GeminiEmbeddingProvider` for semantic retrieval over the same corpus.
 
+use dravr_contremaitre::evidence::SPORTS_SCIENCE;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::{ClaimCategory, EvidenceCitation, EvidenceStrength};
 use serde::{Deserialize, Serialize};
@@ -153,6 +154,18 @@ impl EvidenceCorpus {
             records.push(parse_markdown_record(contents, name)?);
         }
         Ok(Self { records })
+    }
+
+    /// The corpus compiled into this build: every proposition under the pinned
+    /// dravr-contremaitre crate's `evidence/sports_science/`. Production reads
+    /// it when its runtime registry holds none, through the cached
+    /// `pierre_contremaitre::evidence_registry::compiled_in_corpus`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error naming the first proposition file that fails to parse.
+    pub fn compiled_in() -> AppResult<Self> {
+        Self::from_markdown_files(SPORTS_SCIENCE.iter().copied())
     }
 
     /// Append records from another corpus. Used by the registry when

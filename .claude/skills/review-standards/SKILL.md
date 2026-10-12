@@ -1,6 +1,6 @@
 ---
 name: review-standards
-description: Review a finished diff against docs/coding-standards.md and the carnet issue it implements, in fix mode, in a fresh subagent context. Run before every squash to main, and on a direct bug-fix push whenever it can wait. Prints the Reviewed-Standards trailer the landing commit carries.
+description: Review a finished diff against docs/coding-standards.md and the carnet issue it implements, in fix mode, in a fresh subagent context. Run before every squash to main, and on a direct bug-fix push whenever it can wait. Prints the Reviewed-Standards and Merge-Risk trailers the landing commit carries.
 argument-hint: "[<base>...<head>]  (default origin/main...HEAD)"
 user-invocable: true
 ---
@@ -46,8 +46,10 @@ it can apply every standard reliably. Give it:
     scope call, a trade-off the standards don't settle).
   - Touch only code the diff added or changed, plus what a fix strictly requires.
   - Never weaken a test or an assertion to make something pass.
-  - Report: each fix (file:line, rule it enforces), each open question, and the rules checked
-    that found nothing.
+  - Report: each fix (file:line, rule it enforces), each open question, the rules checked
+    that found nothing, and the merge risk: a one-way door (a revert cannot undo it: an
+    applied migration, a destroyed secret, a delivered notification or email) or a two-way
+    door, with its blast radius.
 
 ## 3. Validate and commit the fixes (main session)
 
@@ -60,20 +62,40 @@ git commit -m "review: apply coding standards to <slice>"
 
 Put each open question in front of ChefFamille; do not squash over an unanswered one.
 
-## 4. The trailer
+## 4. The trailers
 
-The landing commit ends with the trailer below: the squash message on the feature path, the
-commit itself on a direct fix. The value pins which version of the standards the diff was
-judged against.
+The landing commit ends with the trailers below: the squash message on the feature path, the
+commit itself on a direct fix. `Reviewed-Standards` pins which version of the standards the diff
+was judged against.
 
 ```bash
 printf 'Reviewed-Standards: %s\n' "$(git rev-parse --short=12 HEAD:docs/coding-standards.md)"
 ```
 
-A commit already pushed without one caps `bilan` at 8. Review it (`/review-standards
-<sha>~1...<sha>`), then land the follow-up with the trailer extended by the commits it covers:
-`Reviewed-Standards: <standards sha> covers <short sha> <short sha>`. That clears the cap for
-the named commits.
+`Merge-Risk` (carnet#663) tells the reader how carefully to read: a two-way door is skimmed, a
+one-way door is read in full. Take it from the review's merge-risk finding:
+
+```
+Merge-Risk: two-way · blast radius: <area a bad change reaches>
+Merge-Risk: ONE-WAY · <why a revert cannot undo it>
+```
+
+`scripts/ci/check-merge-risk.sh` decides the cases that are not a judgement call: when the range
+touches a one-way surface (`--list-surfaces` prints them, the script says why each is one) and no
+commit in it carries the ONE-WAY line, pre-push Tier 1o and the fast gate fail. Run it over the
+range to see which applies:
+
+```bash
+./scripts/ci/check-merge-risk.sh origin/main
+```
+
+Both trailers start a line of the landing message itself. `git merge --squash` quotes the
+branch's own messages indented, and an indented line declares nothing.
+
+A commit already pushed without a `Reviewed-Standards` trailer caps `bilan` at 8. Review it
+(`/review-standards <sha>~1...<sha>`), then land the follow-up with the trailer extended by the
+commits it covers: `Reviewed-Standards: <standards sha> covers <short sha> <short sha>`. That
+clears the cap for the named commits.
 
 ## Pilot
 

@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
 use pierre_core::models::TenantId;
+use pierre_memory::claims::GradingPool;
 use pierre_memory::{
     ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, EvidenceStrength,
     VerdictDisposition, VerdictLayer,
@@ -403,6 +404,12 @@ pub trait ClaimVerdictRepository: Send + Sync {
         tenant_id: TenantId,
         window_days: i64,
     ) -> AppResult<VerdictHealthStats>;
+
+    /// The tenant's verdicts of the last `days` (clamped to `1..=365`) a person outside the
+    /// conversation may grade blind (carnet#854), newest first, at most `limit`, with the counts
+    /// withheld — the rules are [`super::claim_verdict_grading`]'s.
+    async fn grading_pool(&self, tenant: TenantId, days: i64, limit: i64)
+        -> AppResult<GradingPool>;
 }
 
 /// Persist one verdict. `$n` placeholders throughout: sqlx accepts them on
@@ -427,6 +434,7 @@ macro_rules! verdict_columns {
                    first_party_only"
     };
 }
+pub(crate) use verdict_columns;
 
 /// One verdict by id, scoped by tenant.
 pub(crate) const GET_VERDICT_SQL: &str = concat!(
@@ -1160,6 +1168,29 @@ macro_rules! impl_claim_verdict_repository {
                     by_reason,
                     daily: daily_health(fold_health_breakdown(&daily_rows)),
                 })
+            }
+
+            async fn grading_pool(
+                &self,
+                tenant: TenantId,
+                days: i64,
+                limit: i64,
+            ) -> AppResult<GradingPool> {
+                let window = GradingWindow::new(tenant, days);
+                let counts = sqlx::query(GRADING_WITHHELD_SQL)
+                    .bind(&window.tenant)
+                    .bind(window.start)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| grading_read_failed(&e))?;
+                let candidates = sqlx::query(GRADING_POOL_SQL)
+                    .bind(&window.tenant)
+                    .bind(window.start)
+                    .bind(limit.max(1))
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| grading_read_failed(&e))?;
+                window.pool(&counts, &candidates)
             }
         }
     };

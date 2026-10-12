@@ -27,15 +27,15 @@ use tracing::info;
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
-use pierre_core::ai_policy::first_party_only;
 use pierre_core::errors::AppError;
 use pierre_core::models::default_locale;
+use pierre_core::transport::Transport;
 use pierre_middleware::AuthenticatedUser;
 use pierre_notifications::constants as notif_constants;
 use pierre_notifications::events::{data_transport_policy, event_params};
 use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
-    ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
+    DeviceRegistrar, ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
     NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
     NotificationPreferencesResponse, RegisterDeviceTokenRequest, ScheduledNotificationItem,
     TenantId, UpdateNotificationPreferenceRequest, UpdateScheduledNotificationParams,
@@ -48,7 +48,6 @@ use pierre_notifications::{
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
 use pierre_services::units::resolve_user_units;
-use pierre_tool_runtime::runtime::ToolRuntime;
 
 /// The rows an external caller's feed read scans per request to the upstream
 /// store.
@@ -95,6 +94,19 @@ fn localize_item(item: &mut NotificationItem, renderer: NotificationTextRenderer
     };
     item.title = renderer.title(event, params);
     item.body = renderer.body(event, params);
+}
+
+/// The surface registering a push device on the calling request.
+///
+/// Dravr's own app only when the request was declared as served to one of
+/// Dravr's own surfaces; a request served over an external transport, or
+/// declared over none, is not vouched for and registers an external device.
+fn device_registrar() -> DeviceRegistrar {
+    if ai_scope::declared_transport().is_some_and(Transport::is_first_party) {
+        DeviceRegistrar::FirstParty
+    } else {
+        DeviceRegistrar::External
+    }
 }
 
 /// Convert `CommereResult<T>` to `AppResult<T>` using structured error mapping
@@ -146,7 +158,7 @@ impl NotificationRoutes {
     /// - `POST /api/notifications/scheduled` - Create scheduled notification
     /// - `PUT /api/notifications/scheduled/{id}` - Update scheduled notification
     /// - `DELETE /api/notifications/scheduled/{id}` - Delete scheduled notification
-    pub fn routes<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(resources: Arc<C>) -> Router {
+    pub fn routes<C: GroupsCtx + MiddlewareCtx>(resources: Arc<C>) -> Router {
         Router::new()
             // Device token management
             .route(
@@ -220,22 +232,6 @@ impl NotificationRoutes {
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
-    /// Whether the athlete holds a connection, in any tenant, to a provider
-    /// whose terms keep its data on Dravr's own surfaces.
-    async fn holds_first_party_only_connection<C: MiddlewareCtx + ToolRuntime>(
-        resources: &Arc<C>,
-        user_id: Uuid,
-    ) -> Result<bool, AppError> {
-        let terms = ToolRuntime::provider_registry(resources.as_ref());
-        let connections = MiddlewareCtx::repos(resources.as_ref())
-            .provider_connections
-            .get_for_user(user_id, None)
-            .await?;
-        Ok(connections
-            .iter()
-            .any(|connection| first_party_only(terms.as_ref(), &connection.provider, None)))
-    }
-
     /// Get the notification service from the context, returning an error if not initialized
     fn get_service<C: GroupsCtx>(resources: &Arc<C>) -> Result<&NotificationService, AppError> {
         resources
@@ -245,25 +241,17 @@ impl NotificationRoutes {
     }
 
     /// Handle POST /api/notifications/device - Register a device token
-    async fn handle_register_device<C: GroupsCtx + MiddlewareCtx + ToolRuntime>(
+    ///
+    /// Any transport may register a device. The row records whether Dravr's
+    /// own app registered it, and a notification stamped first-party-only
+    /// (carnet#769) is pushed only to such devices (carnet#789).
+    async fn handle_register_device<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
         Json(request): Json<RegisterDeviceTokenRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
-        // LIMITATION(registre#789): `handle_register_device` refuses an
-        // external caller for an athlete holding a first-party-only
-        // connection, because the push fan-out sends every notification to
-        // every active device and cannot keep a stamped push off a device an
-        // external caller registered.
-        if ai_scope::serving_external()
-            && Self::holds_first_party_only_connection(&resources, auth.user_id).await?
-        {
-            return Err(AppError::unavailable_over_transport(
-                "push devices for this athlete are registered from the Dravr app only",
-            ));
-        }
 
         // Validate expo push token format
         if !request.expo_push_token.starts_with("ExponentPushToken[")
@@ -283,6 +271,7 @@ impl NotificationRoutes {
                     &request.expo_push_token,
                     request.platform.as_str(),
                     request.device_name.as_deref(),
+                    device_registrar(),
                 )
                 .await,
         )?;
@@ -291,6 +280,7 @@ impl NotificationRoutes {
             user_id = %auth.user_id,
             tenant_id = %tenant_id.as_uuid(),
             platform = %token.platform,
+            registrar = ?token.registrar,
             "Device token registered"
         );
 
@@ -973,5 +963,41 @@ impl NotificationRoutes {
         let count = notif(service.get_unread_count(auth.user_id, tenant_id).await)?;
 
         Ok((StatusCode::OK, Json(serde_json::json!({"count": count}))).into_response())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn only_dravrs_own_surfaces_register_a_first_party_device() {
+        for (transport, expected) in [
+            (Transport::MobileApp, DeviceRegistrar::FirstParty),
+            (Transport::WebApp, DeviceRegistrar::FirstParty),
+            (Transport::ApiKey, DeviceRegistrar::External),
+            (Transport::McpHttp, DeviceRegistrar::External),
+            (Transport::A2a, DeviceRegistrar::External),
+        ] {
+            assert_eq!(
+                ai_scope::serve_over(transport, async { device_registrar() }).await,
+                expected,
+                "{transport:?}"
+            );
+        }
+        assert_eq!(
+            ai_scope::serve_over(
+                Transport::ApiKey,
+                ai_scope::serve_over(Transport::MobileApp, async { device_registrar() })
+            )
+            .await,
+            DeviceRegistrar::External,
+            "an external call stays external whatever it declares inside"
+        );
+        assert_eq!(
+            device_registrar(),
+            DeviceRegistrar::External,
+            "a request declared over no transport is not vouched for"
+        );
     }
 }

@@ -64,19 +64,21 @@ permissions:
   security-events: write  # For Trivy SARIF upload
   actions: read  # List and download the Trivy layer-cache artifacts
 
-# A push burst on main fires one workflow_run event per Backend CI run,
-# and every deploy that actually builds pulls from the registry buildcache
-# back out of Artifact Registry — billed internet egress, because the runners sit
-# outside GCP. The group below serialises those builds: one runs, at most one
-# waits, and a newer arrival replaces the waiting one. A burst of N pushes costs
-# two builds (the first and the newest) instead of N.
+# A push burst on main fires one workflow_run event per Backend CI run, and
+# every deploy that actually builds holds a runner while it compiles the server
+# binaries, then reads its new image layers back out of Artifact Registry for
+# the Trivy scan — billed internet egress, because the runners sit outside GCP.
+# The group below serialises those builds: one runs, at most one waits, and a
+# newer arrival replaces the waiting one. A burst of N pushes costs two builds
+# (the first and the newest) instead of N.
 #
 # Two things here are deliberate and were each learned from a real run.
 #
 # The group is queued, not cancelling. With cancel-in-progress a superseded build
-# has already paid for its cache pull, so a burst costs N pulls for one finished
-# build — the opposite of the saving. Queueing lets the running build finish and
-# lands the newest SHA one build-duration later, which dev can afford.
+# has already paid for the compile it was cancelled in, so a burst costs N
+# compiles for one finished build — the opposite of the saving. Queueing lets the
+# running build finish and lands the newest SHA one build-duration later, which
+# dev can afford.
 #
 # A run that will skip every job gets a group of its own. GitHub claims the
 # concurrency group at run creation, BEFORE the job-level `if:` on resolve-sha
@@ -222,8 +224,8 @@ jobs:
       # in flight, so the label read here is the commit dev will still be
       # serving when the build finishes.
       #
-      # The steps sit in this job, before publish-server pulls from the
-      # registry buildcache, so a refused deploy costs a few seconds and no
+      # The steps sit in this job, before publish-server compiles anything or
+      # reads the registry, so a refused deploy costs a few seconds and no
       # egress. workflow_run only: a push deploy builds github.sha, which is
       # the tip and cannot be behind dev, and a workflow_dispatch is a person
       # asking for exactly this commit — a deliberate rollback stays possible.

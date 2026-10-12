@@ -469,3 +469,47 @@ pub struct ClaimVerdict {
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
 }
+
+/// A verdict offered to blind grading (carnet#854), with the locale of the
+/// athlete the claim was said to — the one stratum the verdict row does not
+/// carry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GradingCandidate {
+    /// The verdict, as the pipeline recorded it.
+    pub verdict: ClaimVerdict,
+    /// The athlete's locale (`users.locale`).
+    pub locale: String,
+}
+
+/// How many verdicts in a grading window were kept away from graders, by the
+/// first rule each one failed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GradingWithheld {
+    /// Judged a reply built from data whose provider keeps it on Dravr's own
+    /// surfaces (carnet#769); a grader outside the conversation is not one.
+    pub first_party_only: i64,
+    /// The athlete has not opted in to analytics.
+    pub no_analytics_consent: i64,
+    /// The athlete withheld sharing their training data with their group's
+    /// coach in this tenant.
+    pub coach_sharing_withheld: i64,
+}
+
+/// The verdicts of one tenant's window that may be graded blind, and what the
+/// consent and provenance rules withheld.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GradingPool {
+    /// Window lower bound (inclusive).
+    pub window_start: DateTime<Utc>,
+    /// Number of days scanned.
+    pub window_days: i64,
+    /// Every verdict the tenant recorded in the window.
+    pub in_window: i64,
+    /// What the rules withheld, by reason.
+    pub withheld: GradingWithheld,
+    /// Verdicts that passed every rule. Above `candidates.len()` when the read
+    /// was capped, in which case the newest were kept.
+    pub eligible: i64,
+    /// The eligible verdicts read, newest first.
+    pub candidates: Vec<GradingCandidate>,
+}
