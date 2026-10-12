@@ -661,7 +661,7 @@ async fn run_turn(
     // row above, one table over.
     // A pillars walk that just ended leaves its next steps for the agent's
     // closing reply to carry.
-    let (onboarding_turn, closing_steps) = if input.origin.persists_user_row() {
+    let onboarding_turn = if input.origin.persists_user_row() {
         match resolve_guided_or_answer(GuidedStageInputs {
             ctx,
             input: &input,
@@ -673,10 +673,10 @@ async fn run_turn(
         .await?
         {
             GuidedOutcome::Answered(result) => return Ok(*result),
-            GuidedOutcome::Continue { probe, next_steps } => (probe, next_steps),
+            GuidedOutcome::Continue { probe } => probe,
         }
     } else {
-        (None, NextSteps::default())
+        None
     };
 
     // Stage 4.6: scope rails. An athlete's message reporting acute red-flag
@@ -879,7 +879,7 @@ async fn run_turn(
     let next_steps = if leak_replaced {
         NextSteps::default()
     } else {
-        next_steps::for_reply(ctx, &input, profile, &conv, closing_steps, plan_was_saved).await
+        next_steps::for_reply(ctx, &input, profile, &conv, plan_was_saved).await
     };
     let content_blocks = next_steps
         .stored_blocks(post_processed.content_blocks.as_deref())
@@ -1074,13 +1074,11 @@ enum GuidedOutcome {
     Continue {
         /// The topic to probe, when one is set.
         probe: Option<stages::onboarding::OnboardingTurn>,
-        /// The steps the reply offers because a walk ended on this turn.
-        next_steps: NextSteps,
     },
 }
 
 /// Stage 4.5: resolve the guided flow, answering the turn outright when a
-/// fixed-list walk — calibration or season — has just finished.
+/// walk — calibration, season or pillars — has just finished.
 ///
 /// The wrap-up reports how many answers actually landed and names a safety
 /// topic that produced none — claims only the platform can make truthfully,
@@ -1107,20 +1105,12 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     .await;
 
     match guided {
-        stages::onboarding::GuidedResolution::Probe(turn) => Ok(GuidedOutcome::Continue {
-            probe: Some(*turn),
-            next_steps: NextSteps::default(),
-        }),
-        stages::onboarding::GuidedResolution::PillarsComplete { next_steps } => {
-            Ok(GuidedOutcome::Continue {
-                probe: None,
-                next_steps,
-            })
+        stages::onboarding::GuidedResolution::Probe(turn) => {
+            Ok(GuidedOutcome::Continue { probe: Some(*turn) })
         }
-        stages::onboarding::GuidedResolution::Inactive => Ok(GuidedOutcome::Continue {
-            probe: None,
-            next_steps: NextSteps::default(),
-        }),
+        stages::onboarding::GuidedResolution::Inactive => {
+            Ok(GuidedOutcome::Continue { probe: None })
+        }
         stages::onboarding::GuidedResolution::WalkComplete { reply, answered } => {
             let result = stages::deterministic_reply::deliver(
                 stages::deterministic_reply::DeterministicReplyInputs {

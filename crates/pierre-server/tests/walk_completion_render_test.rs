@@ -47,7 +47,8 @@ use pierre_chat_pipeline::{
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_TOPIC_INJURY,
     KEY_CALIBRATE_TOPIC_RECOVERY, KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING,
-    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
+    KEY_PILLARS_COMPLETED, KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL,
+    KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -463,7 +464,7 @@ fn spent_walk_for(started_at: String, audience: WalkAudience) -> OnboardingState
 }
 
 #[tokio::test]
-async fn the_pillars_walk_reports_its_completion_and_leaves_the_last_turn_to_the_agent() {
+async fn the_pillars_walk_states_its_count_and_answers_its_last_turn() {
     let resources = resources().await;
     let a = athlete(&resources).await;
     // The North Star answer and the fuelling answer landed; the five other
@@ -478,12 +479,21 @@ async fn the_pillars_walk_reports_its_completion_and_leaves_the_last_turn_to_the
     let (events, _guard) = capture_notify();
     let resolution = a.resolve_pillars_end(&conversation).await;
 
-    let GuidedResolution::PillarsComplete { next_steps } = resolution else {
-        panic!("the platform has no pillars wrap-up, so the agent answers the walk's last turn");
+    let GuidedResolution::WalkComplete { reply, answered } = resolution else {
+        panic!("the walk had nothing left to ask, so the platform's wrap-up answers the turn");
     };
+    assert_eq!(
+        reply.text,
+        a.render(KEY_PILLARS_COMPLETED, &["2", &PILLARS_TOPICS.to_string()]),
+        "the count is the platform's, read from the facts that landed"
+    );
     assert!(
-        next_steps.is_empty(),
+        reply.next_steps.is_empty(),
         "five pillars untold: no season to plan yet, and no plan to calibrate"
+    );
+    assert!(
+        answered.is_some(),
+        "the turn answers the walk's last question, which still has to be extracted"
     );
     let completed = only(&events, "onboarding.completed");
     assert_eq!(completed.field("flow"), "pillars");
@@ -721,12 +731,11 @@ async fn a_pillars_walk_with_every_pillar_told_leads_to_the_season() {
     every_pillar_told(&a).await;
     let conversation = a.conversation_in(&spent_pillars_walk(an_hour_ago())).await;
 
-    let GuidedResolution::PillarsComplete { next_steps } =
-        a.resolve_pillars_end(&conversation).await
+    let GuidedResolution::WalkComplete { reply, .. } = a.resolve_pillars_end(&conversation).await
     else {
         panic!("the walk had nothing left to ask");
     };
-    let steps = next_steps.into_actions();
+    let steps = reply.next_steps.into_actions();
     assert_eq!(
         values(&steps),
         ["nx:0:season"],
@@ -745,14 +754,50 @@ async fn a_room_walk_offers_no_step_even_when_its_subject_could_take_one() {
         .conversation_in(&spent_walk_for(an_hour_ago(), WalkAudience::Room))
         .await;
 
-    let GuidedResolution::PillarsComplete { next_steps } =
-        a.resolve_pillars_end(&conversation).await
+    let GuidedResolution::WalkComplete { reply, .. } = a.resolve_pillars_end(&conversation).await
     else {
         panic!("the walk had nothing left to ask");
     };
     assert!(
-        next_steps.is_empty(),
+        reply.next_steps.is_empty(),
         "steps are picked from one athlete's state, and the room would read them"
+    );
+    let room_topics = (1 + Pillar::ALL
+        .into_iter()
+        .filter(|pillar| pillar.visibility() == TopicVisibility::RoomSafe)
+        .count())
+    .to_string();
+    assert_eq!(
+        reply.text,
+        a.render(KEY_PILLARS_COMPLETED, &[&room_topics, &room_topics]),
+        "a room is told only about the topics it may hear, never the DM-only pillars"
+    );
+}
+
+#[tokio::test]
+async fn a_rerun_over_a_complete_profile_reports_it_complete() {
+    // `/pillars` on a profile that was already complete asks nothing, so the
+    // walk's own count is nothing of nothing; the wrap-up states the profile.
+    let resources = resources().await;
+    let a = athlete(&resources).await;
+    every_pillar_told(&a).await;
+    let conversation = a
+        .conversation_in(&OnboardingState::start(an_hour_ago(), GuidedFlow::Pillars))
+        .await;
+
+    let (events, _guard) = capture_notify();
+    let GuidedResolution::WalkComplete { reply, .. } = a.resolve_pillars_end(&conversation).await
+    else {
+        panic!("every topic was covered before the walk began");
+    };
+    let total = PILLARS_TOPICS.to_string();
+    assert_eq!(
+        reply.text,
+        a.render(KEY_PILLARS_COMPLETED, &[&total, &total])
+    );
+    assert_eq!(
+        only(&events, "onboarding.completed").field("topics_asked"),
+        "0"
     );
 }
 

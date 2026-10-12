@@ -37,7 +37,6 @@ use uuid::Uuid;
 
 use super::completion;
 use super::deterministic_reply::PlatformReply;
-use crate::next_steps::NextSteps;
 use crate::ChatPipelineContext;
 
 /// How many turns the fortnight rail owns before it retires.
@@ -131,7 +130,7 @@ pub(super) fn season_conditions(snapshot: Option<&LoadSnapshot>) -> SeasonCondit
 pub enum GuidedResolution {
     /// A topic to probe this turn; the agent asks it.
     Probe(Box<OnboardingTurn>),
-    /// A fixed-list walk — calibration or season — or the fortnight rail just
+    /// A walk — calibration, season or pillars — or the fortnight rail just
     /// finished. The turn answers with the platform's own reply instead of
     /// dispatching to the LLM — the wrap-up reports what was actually
     /// captured, which only holds if the platform writes it.
@@ -146,13 +145,6 @@ pub enum GuidedResolution {
         /// safety-critical.
         answered: Option<GuidedTarget>,
     },
-    /// The pillars walk just ended. The agent answers the turn, as on any
-    /// coaching turn — the platform has no wrap-up of its own to send for it —
-    /// and its reply carries these next steps.
-    PillarsComplete {
-        /// What the agent's closing reply offers next.
-        next_steps: NextSteps,
-    },
     /// Not in a guided flow — normal coaching.
     Inactive,
 }
@@ -162,8 +154,8 @@ pub enum GuidedResolution {
 /// Returns [`GuidedResolution::Inactive`] (run the turn as normal coaching)
 /// when the conversation is not in a guided flow, when the speaker is not the
 /// walk's subject, or when the dossier cannot be composed; and
-/// [`GuidedResolution::PillarsComplete`] when the pillars walk has nothing
-/// left to probe, in which case the active marker is retired.
+/// [`GuidedResolution::WalkComplete`] when a walk has nothing left to probe,
+/// in which case the active marker is retired.
 ///
 /// `tenant_id` is the tenant that owns the conversation row (where the state
 /// marker lives); `facts_tenant` is the tenant that owns the subject's own
@@ -498,19 +490,17 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
     // counts facts under the subject's own tenant — where this walk's
     // extraction lands them — never the conversation tenant a room row lives
     // under.
-    let ending = match state.flow {
-        GuidedFlow::Calibration => Some(Ending::WrapUp(
+    let wrap_up = match state.flow {
+        GuidedFlow::Calibration => Some(
             completion::render(ctx, &state, facts_tenant, subject_user_id, dossier, locale).await,
-        )),
-        GuidedFlow::Season => Some(Ending::WrapUp(
+        ),
+        GuidedFlow::Season => Some(
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
-        )),
-        // The pillars walk records its completion and picks its next steps,
-        // but the agent still answers its last turn: the platform has no
-        // wrap-up of its own to send for it (see `completion::record_pillars`).
-        GuidedFlow::Pillars => Some(Ending::AgentCloses(
-            completion::record_pillars(ctx, &state, facts_tenant, subject_user_id, locale).await,
-        )),
+        ),
+        GuidedFlow::Pillars => Some(
+            completion::render_pillars(ctx, &state, facts_tenant, subject_user_id, dossier, locale)
+                .await,
+        ),
         // The intake writes its own wrap-up when the platform closes it out,
         // and the fortnight's is the command's own reply — neither has a
         // wrap-up to render here.
@@ -551,19 +541,9 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
         tracing::warn!(error = %e, "failed to retire completed onboarding_state");
     }
 
-    match ending {
-        Some(Ending::WrapUp(reply)) => GuidedResolution::WalkComplete { reply, answered },
-        Some(Ending::AgentCloses(next_steps)) => GuidedResolution::PillarsComplete { next_steps },
-        None => GuidedResolution::Inactive,
-    }
-}
-
-/// How a walk that had nothing left to ask closes.
-enum Ending {
-    /// The platform's wrap-up answers the turn.
-    WrapUp(PlatformReply),
-    /// The agent answers the turn, offering these next steps.
-    AgentCloses(NextSteps),
+    wrap_up.map_or(GuidedResolution::Inactive, |reply| {
+        GuidedResolution::WalkComplete { reply, answered }
+    })
 }
 
 /// Stamp the walk's completion into the athlete's profile window.

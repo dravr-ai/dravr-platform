@@ -340,8 +340,7 @@ impl NextSteps {
 ///
 /// A post the platform composed on its own ends on the catalogue's use cases
 /// ranked for the athlete ([`platform_grounding::closing_steps`],
-/// carnet#831). A walk that ended on this turn picked them already
-/// (`closing`). Otherwise a reply offers steps only after a transition the
+/// carnet#831). Otherwise a reply offers steps only after a transition the
 /// turn itself completed:
 /// the athlete's first tapped workout analysis ([`TurnInput::steps_after`]),
 /// or the season the season walk offered, laid out on the turn after it.
@@ -352,7 +351,6 @@ pub(crate) async fn for_reply(
     input: &TurnInput,
     profile: &SurfaceProfile,
     conv: &ConversationRecord,
-    closing: NextSteps,
     plan_was_saved: bool,
 ) -> NextSteps {
     if !input.origin.persists_user_row() {
@@ -361,18 +359,15 @@ pub(crate) async fn for_reply(
     if !input.is_direct_message {
         return NextSteps::default();
     }
-    if !closing.is_empty() {
-        return closing;
-    }
     let laid_out = season_laid_out(conv.onboarding_state.as_deref(), Utc::now(), plan_was_saved);
     let Some(after) = input
         .steps_after
         .or_else(|| laid_out.then_some(StepsAfter::SeasonWalk))
     else {
-        return closing;
+        return NextSteps::default();
     };
     let Ok(user_id) = parse_uuid(&input.user_id) else {
-        return closing;
+        return NextSteps::default();
     };
     NextSteps::after(
         &ctx.repos,

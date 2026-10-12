@@ -6,6 +6,7 @@
 
 use crate::transport::TransportPolicy;
 use std::collections::BTreeMap;
+use std::iter;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -475,12 +476,8 @@ impl CoverageMap {
     /// is the walk's completion signal, so a merely-skipped topic would keep
     /// the walk alive with nothing left it may ask.
     fn uncovered(&self, audience: WalkAudience) -> Vec<CoverageTarget> {
-        let audible = |t: &CoverageTarget| match audience {
-            WalkAudience::Private => true,
-            WalkAudience::Room => t.visibility() == TopicVisibility::RoomSafe,
-        };
         let mut out = Vec::with_capacity(1 + Pillar::ALL.len());
-        if !self.north_star_covered && audible(&CoverageTarget::NorthStar) {
+        if !self.north_star_covered && Self::audible(CoverageTarget::NorthStar, audience) {
             out.push(CoverageTarget::NorthStar);
         }
         out.extend(
@@ -488,9 +485,34 @@ impl CoverageMap {
                 .into_iter()
                 .filter(|p| !self.pillars.get(p).copied().unwrap_or(false))
                 .map(CoverageTarget::Pillar)
-                .filter(|t| audible(t)),
+                .filter(|t| Self::audible(*t, audience)),
         );
         out
+    }
+
+    /// Whether a walk before `audience` may ask `target`.
+    fn audible(target: CoverageTarget, audience: WalkAudience) -> bool {
+        match audience {
+            WalkAudience::Private => true,
+            WalkAudience::Room => target.visibility() == TopicVisibility::RoomSafe,
+        }
+    }
+
+    /// How many of the topics `audience` may hear are covered, out of how
+    /// many it may hear — the progress a pillars walk's wrap-up states.
+    ///
+    /// A room is told only about the topics it may hear, so the count never
+    /// reveals whether the athlete answered a DM-only pillar in private.
+    #[must_use]
+    pub fn audible_progress(&self, audience: WalkAudience) -> (usize, usize) {
+        let audible = iter::once(CoverageTarget::NorthStar)
+            .chain(Pillar::ALL.into_iter().map(CoverageTarget::Pillar))
+            .filter(|t| Self::audible(*t, audience))
+            .count();
+        (
+            audible.saturating_sub(self.uncovered(audience).len()),
+            audible,
+        )
     }
 
     /// How many delivered probes `probed` records for `target`.

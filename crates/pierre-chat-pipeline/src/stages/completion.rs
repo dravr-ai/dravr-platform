@@ -1,4 +1,4 @@
-// ABOUTME: The guided walks' completions — calibration, season and fortnight wrap-ups, and the pillars walk's record
+// ABOUTME: The guided walks' completions — calibration, season, pillars and fortnight wrap-ups
 // ABOUTME: Reports what was actually captured, and names the answer whose absence the next step cannot survive
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -20,9 +20,9 @@
 //! [`CalibrationTopic::fact_kind`]), which is what makes their absence
 //! detectable at all.
 //!
-//! The pillars walk is counted the same way, by the facts that landed inside
-//! its window, and reported as `onboarding.completed` like the others — but
-//! it closes on the agent's own reply rather than one written here.
+//! The pillars walk's completion is counted the same way, by the facts that
+//! landed inside its window; its wrap-up states where the athlete's profile
+//! stands, which the dossier reads from the same facts.
 //!
 //! Each ending also picks what the athlete can do next from the transition
 //! table ([`StepsAfter`]): the season wrap-up offers the fortnight, a landed
@@ -35,11 +35,12 @@ use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
     KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN,
     KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY,
-    KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_SEASON_COMPLETE_HEADER,
-    KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
+    KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_PILLARS_COMPLETED,
+    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
-    CalibrationTopic, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId, WalkAudience,
+    CalibrationTopic, CoverageMap, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId,
+    WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource, UserFact};
 use pierre_providers::ai_scope;
@@ -436,32 +437,34 @@ pub async fn render_fortnight(
     }
 }
 
-/// Record that the pillars walk reached its end, and pick its next steps.
+/// Render the pillars walk's closing message.
 ///
-/// The record is `onboarding.completed` with `flow = pillars`; the steps are
-/// the season or a calibration ([`StepsAfter::PillarsWalk`]), carried by the
-/// agent's closing reply.
+/// The platform states where the athlete's profile stands, since the agent has
+/// no view of what the extractor wrote: how many of the topics this walk's
+/// audience may hear are covered ([`CoverageMap::audible_progress`]), read
+/// from the `dossier` the turn composed. A re-run over a profile that was
+/// already complete therefore reports it complete rather than a count of
+/// nothing asked, and a room never learns about a DM-only pillar. The answer
+/// to the last question is extracted after this reply, so the count can fall
+/// short and never runs over. The steps are the season or a calibration
+/// ([`StepsAfter::PillarsWalk`]).
 ///
-/// Counted like the fixed-list walks, from the facts that landed inside the
-/// walk's window. The topics asked are the distinct ones the delivered-probe
-/// ledger names — a topic already covered when the walk began was never asked,
-/// so it counts neither way — and one is answered when a fact in the window
-/// is about it: the North Star by the kind extraction forces on that answer,
-/// a pillar by the pillar extraction stamps on it. `facts_landed` is the
-/// window's count, so it reports what this walk captured and nothing an
-/// earlier walk did.
-///
-/// It sends nothing, so the walk closes on the agent's own reply, with the
-/// steps beside it.
-///
-/// LIMITATION(registre#830): `record_pillars` writes no wrap-up of the pillars walk — contremaitre has no pillars completion string for the platform to send in the agent's place, so the count it records is never stated to the athlete.
-pub async fn record_pillars(
+/// The record is `onboarding.completed` with `flow = pillars`, counted like
+/// the fixed-list walks from the facts that landed inside the walk's window.
+/// The topics asked are the distinct ones the delivered-probe ledger names —
+/// a topic already covered when the walk began was never asked, so it counts
+/// neither way — and one is answered when a fact in the window is about it:
+/// the North Star by the kind extraction forces on that answer, a pillar by
+/// the pillar extraction stamps on it. `facts_landed` is the window's count,
+/// so it reports what this walk captured and nothing an earlier walk did.
+pub async fn render_pillars(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
     facts_tenant: TenantId,
     subject_user_id: &str,
+    dossier: &Dossier,
     locale: &str,
-) -> NextSteps {
+) -> PlatformReply {
     let asked = pillars_asked(state);
     let started_at = walk_started_at(state);
     let landed = landed_onboarding_facts(ctx, facts_tenant, subject_user_id, "pillars").await;
@@ -484,15 +487,23 @@ pub async fn record_pillars(
         "guided interview completed"
     );
 
-    steps_after(
-        ctx,
-        StepsAfter::PillarsWalk,
-        state.audience,
-        facts_tenant,
-        subject_user_id,
-        locale,
-    )
-    .await
+    let (covered, audible) = CoverageMap::from_dossier(dossier).audible_progress(state.audience);
+    PlatformReply {
+        text: ctx.messaging_strings_registry.render(
+            KEY_PILLARS_COMPLETED,
+            locale,
+            &[&covered.to_string(), &audible.to_string()],
+        ),
+        next_steps: steps_after(
+            ctx,
+            StepsAfter::PillarsWalk,
+            state.audience,
+            facts_tenant,
+            subject_user_id,
+            locale,
+        )
+        .await,
+    }
 }
 
 /// The distinct pillars-walk topics the ledger records a delivered probe
