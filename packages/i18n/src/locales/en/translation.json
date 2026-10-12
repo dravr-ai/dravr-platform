@@ -1135,8 +1135,8 @@
     "verdictCategoryInjuryRehab": "injury rehab",
     "verdictCategoryAthleteData": "your data",
     "verdictCategoryOther": "other",
-    "roomCorrectionOwn": "Your coach's correction",
-    "roomCorrectionTo": "Coach's correction for {{name}}",
+    "roomCorrectionOwn": "Your human coach's correction",
+    "roomCorrectionTo": "Human coach's correction for {{name}}",
     "roomCorrectionOf": "On: {{excerpt}}"
   },
   "coachReview": {
@@ -1156,7 +1156,7 @@
     "loadFailed": "Couldn't load the replies.",
     "loadOlder": "Show older replies",
     "nav": "Replies",
-    "notACoach": "You don't coach a group yet. Once you do, every reply Dravr sends your athletes shows up here.",
+    "notACoach": "You don't run a coaching group yet. Once you do, every reply Dravr sends your athletes shows up here.",
     "notSharing": "{{name}} (not shared with you)",
     "noteLabel": "Note (only you see it)",
     "reasonLabel": "Why",

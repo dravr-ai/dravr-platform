@@ -1135,8 +1135,8 @@
     "verdictCategoryInjuryRehab": "Verletzungsreha",
     "verdictCategoryAthleteData": "deine Daten",
     "verdictCategoryOther": "Sonstiges",
-    "roomCorrectionOwn": "Korrektur deines Coaches",
-    "roomCorrectionTo": "Korrektur des Coaches für {{name}}",
+    "roomCorrectionOwn": "Korrektur deines menschlichen Coaches",
+    "roomCorrectionTo": "Korrektur des menschlichen Coaches für {{name}}",
     "roomCorrectionOf": "Zu: {{excerpt}}"
   },
   "coachReview": {
