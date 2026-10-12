@@ -104,13 +104,40 @@ appId: host.exp.Exponent
             platform: iOS
             visible: ".*taking much longer than it should.*"
           commands:
-            - tapOn: "Go back"
+            # The button is optional because the loader can time out between
+            # this check and the tap: "Go back" is then gone and the screen
+            # already reads "There was a problem running the requested project.
+            # The request timed out." (run 38136889248, 2026-10-11, failed
+            # 02-coach-group-step on a required tap). The error-screen block
+            # below handles that screen in the same round. A loader still up
+            # after the tap is restarted, so the link sent below starts a fresh
+            # load.
+            - tapOn:
+                text: "Go back"
+                optional: true
+            - runFlow:
+                when:
+                  visible: ".*taking much longer than it should.*"
+                commands:
+                  - stopApp
+                  - launchApp
       - runFlow:
           when:
             platform: iOS
             visible: "There was a problem running the requested project.*"
           commands:
-            - tapOn: "Go home"
+            # Optional like "Go back": a screen that changes between the check
+            # and the tap must not fail the flow, and one that outlives the tap
+            # is restarted.
+            - tapOn:
+                text: "Go home"
+                optional: true
+            - runFlow:
+                when:
+                  visible: "There was a problem running the requested project.*"
+                commands:
+                  - stopApp
+                  - launchApp
       - runFlow:
           when:
             platform: iOS

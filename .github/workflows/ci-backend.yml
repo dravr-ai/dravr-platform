@@ -310,7 +310,18 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
+      # The fixture repos turn off git's auto maintenance: a commit can leave a
+      # detached `maintenance run --auto` writing into .git/objects while the
+      # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
+      # every assertion green: "rm: cannot remove '.../.git/objects': Directory
+      # not empty". Only a process writing into the repo mid-delete does that.
       - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, shared test-module filter)
+        env:
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: maintenance.auto
+          GIT_CONFIG_VALUE_0: "false"
+          GIT_CONFIG_KEY_1: gc.auto
+          GIT_CONFIG_VALUE_1: "0"
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh

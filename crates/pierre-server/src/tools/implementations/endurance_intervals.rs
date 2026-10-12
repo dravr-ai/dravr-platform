@@ -231,10 +231,10 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): real streams arrive from Strava and
-            // Intervals.icu via get_activity_with_streams; on every other
-            // provider integration (Garmin, COROS, WHOOP, Terra, sciotte) this
-            // branch still always fires — no sample source yet.
+            // LIMITATION(registre#6): streams arrive via get_activity_with_streams
+            // from Strava, Intervals.icu, Wahoo, uploaded files and sciotte
+            // (except TrainingPeaks); on the direct Garmin, COROS, WHOOP and
+            // Terra integrations this branch always fires — no sample source.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -351,10 +351,10 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): real streams arrive from Strava and
-            // Intervals.icu via get_activity_with_streams; on every other
-            // provider integration this branch still always fires — no
-            // sample source yet.
+            // LIMITATION(registre#6): streams arrive via get_activity_with_streams
+            // from Strava, Intervals.icu, Wahoo, uploaded files and sciotte
+            // (except TrainingPeaks); on the direct Garmin, COROS, WHOOP and
+            // Terra integrations this branch always fires — no sample source.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

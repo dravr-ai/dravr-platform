@@ -18,9 +18,12 @@
 
 use std::time::{Duration, Instant};
 
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::SportType;
 use pierre_fitness_compute::location::LocationService;
-use pierre_fitness_compute::{RouteDiscoveryService, RouteSource, RouteType};
+use pierre_fitness_compute::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 /// Prévost, Québec — reference point for route-discovery integration tests.
 /// Nominatim resolves this to roughly 45.87, -74.08. Well-trafficked OSM area
@@ -33,17 +36,59 @@ const PREVOST_QC_LON: f64 = -74.08;
 /// or we're parsing the response wrong.
 const MIN_EXPECTED_REAL_ROUTES: usize = 1;
 
+/// Attempts per Overpass query. The service already walks every public mirror
+/// within its own deadline; a second and third pass only matters when all of
+/// them are busy at once, which is what the scheduled runs hit (HTTP
+/// 504/429/500 from every mirror on 10-07, 10-08, 10-09 and 10-11, carnet#867).
+const OVERPASS_ATTEMPTS: u32 = 3;
+const OVERPASS_BACKOFF: Duration = Duration::from_secs(45);
+
+/// Serialises the Overpass-backed tests. The live-apis lane already passes
+/// `--test-threads=1`, but the run command in the module docs does not, and
+/// `overpass-api.de` forbids parallel requests from one client — the policy
+/// the service honours by walking its instances sequentially.
+static OVERPASS_GATE: Mutex<()> = Mutex::const_new(());
+
+/// Queries Overpass one test at a time and retries only
+/// `ExternalServiceUnavailable`. Any other error, and the last unavailable
+/// one, is returned so the test still fails: nothing here skips (carnet#805).
+async fn discover_with_retry(
+    sport: &SportType,
+    radius_meters: u32,
+) -> AppResult<Vec<DiscoveredRoute>> {
+    let _gate = OVERPASS_GATE.lock().await;
+    let service = RouteDiscoveryService::with_defaults();
+    let mut attempt = 1;
+    loop {
+        let result = service
+            .discover_routes_for_sport(
+                sport,
+                PREVOST_QC_LAT,
+                PREVOST_QC_LON,
+                Some(radius_meters),
+                None,
+            )
+            .await;
+        match result {
+            Err(e)
+                if e.code == ErrorCode::ExternalServiceUnavailable
+                    && attempt < OVERPASS_ATTEMPTS =>
+            {
+                eprintln!(
+                    "overpass attempt {attempt} unavailable, retrying: {}",
+                    e.message
+                );
+                attempt += 1;
+                sleep(OVERPASS_BACKOFF).await;
+            }
+            other => return other,
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_discover_running_routes_around_prevost() {
-    let service = RouteDiscoveryService::with_defaults();
-    let routes = service
-        .discover_routes_for_sport(
-            &SportType::Run,
-            PREVOST_QC_LAT,
-            PREVOST_QC_LON,
-            Some(10_000),
-            None,
-        )
+    let routes = discover_with_retry(&SportType::Run, 10_000)
         .await
         .expect("Overpass query should succeed");
 
@@ -82,17 +127,8 @@ async fn test_discover_running_routes_around_prevost() {
 
 #[tokio::test]
 async fn test_discover_routes_for_sport_dispatches_by_type() {
-    let service = RouteDiscoveryService::with_defaults();
-
     // SportType::Run should dispatch to the running route query
-    let run_routes = service
-        .discover_routes_for_sport(
-            &SportType::Run,
-            PREVOST_QC_LAT,
-            PREVOST_QC_LON,
-            Some(5_000),
-            None,
-        )
+    let run_routes = discover_with_retry(&SportType::Run, 5_000)
         .await
         .expect("run dispatch should succeed");
     for route in &run_routes {
@@ -105,14 +141,7 @@ async fn test_discover_routes_for_sport_dispatches_by_type() {
 
     // SportType::CrossCountrySkiing should dispatch to the ski query and
     // yield piste-tagged results labelled as either XC or downhill ski
-    let ski_routes = service
-        .discover_routes_for_sport(
-            &SportType::CrossCountrySkiing,
-            PREVOST_QC_LAT,
-            PREVOST_QC_LON,
-            Some(20_000),
-            None,
-        )
+    let ski_routes = discover_with_retry(&SportType::CrossCountrySkiing, 20_000)
         .await
         .expect("xc ski dispatch should succeed");
     for route in &ski_routes {

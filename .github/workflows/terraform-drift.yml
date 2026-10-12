@@ -126,6 +126,17 @@ jobs:
             echo "✅ No drift — live dev infra matches infra/environments/dev."
             exit 0
           fi
+          # Name the drifting resources in the alert itself; the pattern leaves
+          # out data sources that are merely "read during apply". A replacement can
+          # be a cascade of a pending change (a data.google_project deferred
+          # behind a not-yet-enabled API makes an IAM member read as "must be
+          # replaced"). Terraform lists resources by address, not by cause,
+          # so read a replacement next to the creates it may depend on.
+          changed=$(grep -E '^  # .* (will be (created|updated in-place|destroyed)|must be replaced|has been (changed|deleted))' plan-output.txt \
+            | sed -E 's/^  # //' | head -20 | paste -sd ';' - || true)
+          if [ -n "$changed" ]; then
+            echo "::error title=Drifting resources::${changed}"
+          fi
           echo "::error title=Terraform drift detected::live dev infra differs from infra/environments/dev (exit=${code}, plan-text=${text}). Review the plan in the job summary, then reconcile via 'gh workflow run terraform.yml --ref main -f environment=dev -f action=apply' (or correct the code to match reality)."
           exit 1
 
