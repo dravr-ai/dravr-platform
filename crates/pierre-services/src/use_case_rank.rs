@@ -167,13 +167,13 @@ pub fn worded<'a>(
     })
 }
 
-/// How a surface that lists the catalogue entry `entry` as text, rather than
-/// drawing it as a button labelled `label`, writes it: a command entry as
-/// `/command — label`, so the athlete can type it, and a prompt entry as its
-/// prompt in `locale` — the words a tap would have sent. `None` when the
-/// strings hold no words for it.
+/// The catalogue entry `entry` as a line of text, for a surface that lists
+/// it rather than drawing a button labelled `label`.
 ///
-/// A welcome's starters and a reply's next steps are listed this one way.
+/// A command entry is written `/command — label`, so the athlete can type it;
+/// a prompt entry as its prompt in `locale`, the words a tap would have sent.
+/// `None` when the strings hold no words for it. A welcome's starters and a
+/// reply's next steps are listed this one way.
 #[must_use]
 pub fn use_case_line(
     entry: &UseCase,

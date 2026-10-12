@@ -182,9 +182,11 @@ impl Postback {
     }
 
     /// The placement a tap on the suggestion is reported under: a welcome's
-    /// starter, or a step a reply ended on. A tap carries nothing but its
-    /// grammar, so a starter is a welcome's whichever surface showed it; a
-    /// showing names its own placement ([`SuggestionEvent::surface`]).
+    /// starter, or a step a reply ended on.
+    ///
+    /// A tap carries nothing but its grammar, so a starter is a welcome's
+    /// whichever surface showed it; a showing names its own placement
+    /// ([`SuggestionEvent::surface`]).
     #[must_use]
     pub const fn surface(&self) -> &'static str {
         match self {
@@ -426,11 +428,12 @@ pub(crate) fn emit_tapped(event: &SuggestionEvent<'_>, postback: &Postback) {
     );
 }
 
-/// Report the athlete's tap on `postback` and, for a catalogue entry — a
-/// ranked starter or a next step — count it under `exposure_tenant`: a
-/// `once` entry is used whether a welcome offered it or a reply did.
-/// Best-effort: an unrecorded tap only lets the entry be offered once more
-/// than it should.
+/// Report the athlete's tap on `postback`, and count a catalogue entry's tap
+/// under `exposure_tenant`.
+///
+/// A ranked starter and a next step are both counted: a `once` entry is used
+/// whether a welcome offered it or a reply did. Best-effort: an unrecorded
+/// tap only lets the entry be offered once more than it should.
 pub(crate) async fn record_tap(
     repos: &RepositoryRegistry,
     event: &SuggestionEvent<'_>,

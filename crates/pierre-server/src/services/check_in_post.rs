@@ -474,7 +474,7 @@ async fn coach_quiet_hours(
     false
 }
 
-/// Report one check-in: where it was posted, and whether the coach's reply
+/// Report one check-in: where it was posted, and whether the agent's reply
 /// grounded in the athlete's data and was stored.
 fn report_check_in(
     user_id: Uuid,

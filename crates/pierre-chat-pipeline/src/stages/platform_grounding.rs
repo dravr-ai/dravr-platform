@@ -216,8 +216,9 @@ pub(crate) fn withheld_platform_reply(
 }
 
 /// The steps a platform-composed reply that is about to be stored ends on:
-/// the catalogue's use cases ranked for the athlete's state and the thread
-/// agent's domain, as a welcome's starters are, offered as next steps
+/// the catalogue's use cases ranked for the athlete and the thread's agent.
+///
+/// They are ranked as a welcome's starters are, and offered as next steps
 /// labelled in the post's language.
 ///
 /// None on a turn the athlete sent, in a room (one athlete's state is not

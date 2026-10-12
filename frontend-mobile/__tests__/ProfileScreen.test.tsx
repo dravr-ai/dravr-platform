@@ -25,6 +25,10 @@ const mockUseAuth = jest.fn();
 jest.mock('../src/screens/settings/UnitsSettingsSection', () => ({
   UnitsSettingsSection: () => null,
 }));
+// The check-in section reads its own query too; CheckInSettingsSection.test.tsx covers it.
+jest.mock('../src/screens/settings/CheckInSettingsSection', () => ({
+  CheckInSettingsSection: () => null,
+}));
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));

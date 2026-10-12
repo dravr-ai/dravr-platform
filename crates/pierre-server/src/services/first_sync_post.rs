@@ -284,7 +284,7 @@ struct FirstPostSubject<'a> {
     provider: &'a str,
 }
 
-/// Report one destination's first post: whether the coach's reply grounded in
+/// Report one destination's first post: whether the agent's reply grounded in
 /// the athlete's data and was posted.
 fn report_first_post(subject: &FirstPostSubject<'_>, surface: PostSurface, grounded: bool) {
     info!(
