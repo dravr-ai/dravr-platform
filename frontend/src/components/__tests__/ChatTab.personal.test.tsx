@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Home's personal surface — Today beside the thread, its folded line, the history and where a Today tap drafts
+// ABOUTME: Tests Home's personal surface — Today beside the thread, its folded line, the history, where a Today tap drafts, and the empty thread's starters
 // ABOUTME: Drives ChatTab's personal layout against mocked chat reads; Today is a stand-in the test hands it
 
+import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { UseCaseStarter } from '@pierre/shared-types';
 import ChatTab, { type PersonalToday } from '../ChatTab';
 import { ToastProvider } from '../ui';
 
@@ -17,6 +19,7 @@ const getConversationVerdicts = vi.fn();
 const createConversation = vi.fn();
 const markConversationRead = vi.fn();
 const sendTurn = vi.fn();
+const listStarters = vi.fn();
 const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 
@@ -30,6 +33,7 @@ vi.mock('../../services/api', () => ({
     createConversation: (...a: unknown[]) => createConversation(...a),
     markConversationRead: (...a: unknown[]) => markConversationRead(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
+    listStarters: (...a: unknown[]) => listStarters(...a),
     listParticipants: vi.fn().mockResolvedValue([]),
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
@@ -65,7 +69,10 @@ const TODAY: PersonalToday = {
   ),
 };
 
-function renderHome(selected: string | null, props: { onSelectConversation?: (id: string | null) => void } = {}) {
+function renderHome(
+  selected: string | null,
+  props: { onSelectConversation?: (id: string | null) => void; resolving?: boolean } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -77,10 +84,24 @@ function renderHome(selected: string | null, props: { onSelectConversation?: (id
           selectedConversation={selected}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           today={TODAY}
+          resolving={props.resolving}
         />
       </ToastProvider>
     </QueryClientProvider>,
   );
+}
+
+/** The three starters the server ranked for a new athlete, as it words them. */
+const STARTERS: UseCaseStarter[] = [
+  { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
+  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'can_see', label: 'What can you see?', postback: 'uc:2:can_see' },
+];
+
+/** Home as the shell hosts it: the thread a created conversation selects is the one drawn. */
+function StatefulHome() {
+  const [selected, setSelected] = useState<string | null>(null);
+  return <ChatTab layout="personal" selectedConversation={selected} onSelectConversation={setSelected} today={TODAY} />;
 }
 
 function composer(): HTMLTextAreaElement {
@@ -124,6 +145,8 @@ describe('Home — the personal surface', () => {
     markConversationRead.mockResolvedValue(undefined);
     listCoaches.mockResolvedValue({ agents: [] });
     createConversation.mockResolvedValue({ id: 'conv-new', title: 'Chat' });
+    listStarters.mockResolvedValue(STARTERS);
+    sendTurn.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -206,5 +229,53 @@ describe('Home — the personal surface', () => {
     renderHome('conv-1');
     await screen.findByRole('button', { name: 'Show Today' });
     expect(screen.queryByTestId('home-today-panel')).toBeNull();
+  });
+
+  it('offers the starters ranked for the athlete with no thread open, and a tap opens a thread on its postback', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <StatefulHome />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    const empty = await screen.findByTestId('chat-empty-state');
+    await within(empty).findByTestId('chat-empty-starter-connect');
+    expect(within(empty).getAllByTestId(/^chat-empty-starter-/).map((link) => link.textContent)).toEqual(
+      STARTERS.map((starter) => starter.label),
+    );
+    expect(listStarters).toHaveBeenCalledTimes(1);
+
+    await user.click(within(empty).getByTestId('chat-empty-starter-about_me'));
+
+    // The athlete speaks first: the thread is created without a welcome, so
+    // the same starters are not offered again over the answer.
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
+    expect(createConversation.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    const [conversationId, content] = sendTurn.mock.calls[0];
+    expect(conversationId).toBe('conv-new');
+    expect(content).toBe('uc:1:about_me');
+    // The bubble shows the label, never the postback.
+    expect(await screen.findByText('Get to know me')).toBeInTheDocument();
+    expect(screen.queryByText('uc:1:about_me')).toBeNull();
+  });
+
+  it('asks for no starters while a thread is open', async () => {
+    renderHome('conv-1');
+    await screen.findByTestId('peek');
+    expect(listStarters).not.toHaveBeenCalled();
+  });
+
+  it('asks for no starters while Home is still choosing its thread: no one sees them behind the spinner', async () => {
+    renderHome(null, { resolving: true });
+    await screen.findByRole('status', { name: 'Loading...' });
+    expect(screen.queryByTestId('chat-empty-state')).toBeNull();
+    expect(listStarters).not.toHaveBeenCalled();
   });
 });

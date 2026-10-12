@@ -121,7 +121,8 @@ impl MessagingRoutes {
             // Webhook-initiated channel linking (HTML pages, public, no auth)
             .route("/messaging/link/{code}", get(linking::channel_link_page))
             .route("/messaging/link/auth", post(linking::channel_link_auth))
-            // Slack interactive actions (approve/reject from ops notifications)
+            // Slack interactive actions: ops approve/reject, command postbacks,
+            // and buttons standing for the athlete's own words
             .route("/api/ops/slack/actions", post(handle_slack_ops_action))
             // Constructor-time injection: the one factory this router will
             // ever use, chosen by whoever built it.
@@ -140,6 +141,7 @@ impl MessagingRoutes {
 /// a request signed under the empty key is one anyone can forge.
 async fn handle_slack_ops_action(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, AppError> {
@@ -157,7 +159,7 @@ async fn handle_slack_ops_action(
             .into_response());
     }
 
-    match slack_actions::handle_slack_action(&resources, &body).await {
+    match slack_actions::handle_slack_action(&resources, adapters.as_ref(), &headers, &body).await {
         Ok(response) => Ok(response.into_response()),
         Err(e) => {
             tracing::warn!(error = %e, "Slack ops action failed");

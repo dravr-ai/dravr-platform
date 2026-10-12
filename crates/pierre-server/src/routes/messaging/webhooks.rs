@@ -185,8 +185,31 @@ pub async fn handle_webhook(
         }
     }
 
-    let verification =
-        parse_and_verify(&resources, adapters.as_ref(), &channel, &headers, &body).await?;
+    ingest(&resources, adapters.as_ref(), &channel, &headers, &body).await
+}
+
+/// Verify `body` against `channel`'s tenant configs, persist the messages it
+/// carries, apply its reactions and hand each turn to the runner — everything
+/// a webhook does once its channel's own preliminaries are answered.
+///
+/// The Slack interactivity endpoint ingests a tapped button standing for the
+/// athlete's own words here too (carnet#829): canot reads a `block_actions`
+/// payload as the message its `action_id` spells, so the tap reaches the
+/// athlete's turn exactly as the message would.
+///
+/// # Errors
+///
+/// Returns the verification refusal when no tenant's config verifies the
+/// body, or more than one does, and the parse error when it carries no
+/// payload the channel's adapter reads.
+pub(crate) async fn ingest(
+    resources: &Arc<ServerContext>,
+    adapters: &dyn ChannelAdapterFactory,
+    channel: &str,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<(StatusCode, Json<Value>), AppError> {
+    let verification = parse_and_verify(resources, adapters, channel, headers, body).await?;
 
     // Populate the parent span so downstream log lines (including those
     // emitted from the spawned dispatch task via `in_current_span`) carry
@@ -207,12 +230,12 @@ pub async fn handle_webhook(
     // drops (it parses only inbound messages), so a FAILED async push — a
     // backfill-ready notice or reconnect nudge that Meta accepted but never
     // delivered — was previously invisible (a silent `message_count=0` webhook).
-    log_whatsapp_delivery_statuses(&channel, &body);
+    log_whatsapp_delivery_statuses(channel, body);
 
     // Persist messages synchronously and collect pending dispatches for background processing
     let (stored_count, pending_dispatches) = messaging_ingress::persist_inbound(
-        &resources,
-        &channel,
+        resources,
+        channel,
         verification.tenant_id,
         verification.channel_type,
         &verification.adapter,
@@ -225,7 +248,7 @@ pub async fn handle_webhook(
 
     // Handle platform-specific handshake responses (Slack url_verification, Discord PING)
     if verification.messages.is_empty() {
-        if let Some(handshake) = detect_handshake_response(&channel, &body) {
+        if let Some(handshake) = detect_handshake_response(channel, body) {
             return Ok((StatusCode::OK, Json(handshake)));
         }
     }
@@ -235,7 +258,7 @@ pub async fn handle_webhook(
     // Applied before the dispatch spawn so a payload carrying only reactions
     // finishes its work inside the request.
     if !verification.reactions.is_empty() {
-        messaging_ingress::reactions::apply_reactions(&resources, &verification.reactions).await;
+        messaging_ingress::reactions::apply_reactions(resources, &verification.reactions).await;
     }
 
     // Each turn is recorded and handed to the runner before the 200 below
@@ -246,7 +269,7 @@ pub async fn handle_webhook(
     // log line of the turn carries the same `turn_id`, `channel` and
     // `tenant_id` fields.
     for dispatch in pending_dispatches {
-        messaging_ingress::start_turn(&resources, dispatch).await;
+        messaging_ingress::start_turn(resources, dispatch).await;
     }
 
     Ok((

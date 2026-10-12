@@ -1,5 +1,5 @@
-// ABOUTME: Slack interactive actions handler for ops notifications and messaging command postbacks
-// ABOUTME: Verifies and parses the payload through canot's Slack transport, routes ops and command callbacks
+// ABOUTME: Slack interactive actions handler for ops notifications, command postbacks and athlete taps
+// ABOUTME: Verifies and parses the payload through canot's Slack transport, routes each tap to its handler
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,14 +14,18 @@ use dravr_canot::channels::slack::transport::{
     parse_slack_body, verify_slack_signature as verify_slack_v0,
 };
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
+use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_core::constant_time::{configured_secret, is_unset_secret};
 use pierre_core::models::TenantId;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::webhooks;
 use crate::mcp::resources::ServerContext;
+use crate::services::messaging_ingress::parse_choice;
 use crate::services::user_approval_notifier::ApprovalNotifier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
@@ -38,11 +42,50 @@ use pierre_services::tenant_admin as tenant_admin_service;
 /// path uses.
 const SLACK_CHANNEL: &str = "slack";
 
+/// Where a tapped button's `action_id` is answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActionRoute {
+    /// A `/command` postback from a messaging card, run through the command
+    /// system for the clicker.
+    Command,
+    /// A button standing for the athlete's own words — a welcome starter's
+    /// suggestion postback, an agent's number on the onboarding proposal —
+    /// ingested as the message it spells, into the athlete's turn.
+    AthleteTurn,
+    /// Anything else: the ops channel's approve/reject, which refuses what it
+    /// cannot parse.
+    Ops,
+}
+
+impl ActionRoute {
+    /// The route `action_id` takes.
+    ///
+    /// Only a value the athlete's turn knows how to read is routed there: a
+    /// suggestion postback the turn resolves back into its words, or the bare
+    /// number a pick from the proposal is. Everything else stays on the ops
+    /// path, which refuses it outside the ops channel, so an unknown button
+    /// never becomes something the athlete said.
+    fn of(action_id: &str) -> Self {
+        if action_id.starts_with('/') {
+            Self::Command
+        } else if is_postback(action_id) || parse_choice(action_id).is_some() {
+            Self::AthleteTurn
+        } else {
+            Self::Ops
+        }
+    }
+}
+
 /// Handle Slack interactive action payloads (button clicks)
 ///
-/// Routes two kinds of actions:
+/// Routes three kinds of actions:
 /// - **Command postbacks**: `action_id` starts with `/` (e.g. `/agent add @handle`).
 ///   These come from messaging card buttons and are routed through the command system.
+/// - **The athlete's own words**: a welcome starter's suggestion postback or
+///   a numbered pick from the agent proposal (carnet#829). Ingested through
+///   the messaging webhook path as the message the button spells, so it
+///   reaches the athlete's turn under the tenant whose Slack config verifies
+///   it — the same session, gates and turn a typed message gets.
 /// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
 ///   notifications. Requires Pierre admin role.
 ///
@@ -50,11 +93,13 @@ const SLACK_CHANNEL: &str = "slack";
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
 /// 3. Per-route authorization — the ops channel for approve/reject, the
-///    channel link and user-status gate for command postbacks. The signature
-///    proves the click came from Slack, never that the clicking Slack identity
-///    may act as a given Dravr user.
+///    channel link and user-status gate for command postbacks and the
+///    athlete's taps. The signature proves the click came from Slack, never
+///    that the clicking Slack identity may act as a given Dravr user.
 pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
+    adapters: &dyn ChannelAdapterFactory,
+    headers: &HeaderMap,
     body: &Bytes,
 ) -> AppResult<(StatusCode, Json<Value>)> {
     let action = parse_slack_action(body)?;
@@ -65,9 +110,14 @@ pub(crate) async fn handle_slack_action(
         "Processing Slack interactive action"
     );
 
-    // Route command postbacks (action_id starts with `/`) through the command system
-    if action.action_id.starts_with('/') {
-        return handle_command_postback(resources, &action, &action.action_id).await;
+    match ActionRoute::of(&action.action_id) {
+        ActionRoute::Command => {
+            return handle_command_postback(resources, &action, &action.action_id).await;
+        }
+        ActionRoute::AthleteTurn => {
+            return webhooks::ingest(resources, adapters, SLACK_CHANNEL, headers, body).await;
+        }
+        ActionRoute::Ops => {}
     }
 
     // --- Ops actions below (approve/reject users) ---
@@ -652,7 +702,36 @@ mod tests {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
-    use super::verify_slack_signature;
+    use super::{verify_slack_signature, ActionRoute};
+
+    #[test]
+    fn a_suggestion_or_a_proposal_pick_is_the_athletes_turn() {
+        for value in [
+            "ex:0:0",
+            "ex:2:5",
+            "uc:0:connect",
+            "uc:2:last_workout",
+            "1",
+            "3",
+        ] {
+            assert_eq!(ActionRoute::of(value), ActionRoute::AthleteTurn, "{value}");
+        }
+    }
+
+    #[test]
+    fn a_command_postback_is_a_command_and_the_rest_stay_on_the_ops_path() {
+        assert_eq!(ActionRoute::of("/agent add @coach"), ActionRoute::Command);
+        for value in [
+            "approve_user:6f1c2b9e-0000-4000-8000-000000000001",
+            "reject_user:6f1c2b9e-0000-4000-8000-000000000001",
+            "0",
+            "ex:one:1",
+            "uc:one:connect",
+            "an unknown button",
+        ] {
+            assert_eq!(ActionRoute::of(value), ActionRoute::Ops, "{value}");
+        }
+    }
 
     const BODY: &[u8] = b"payload=%7B%22type%22%3A%22block_actions%22%7D";
 

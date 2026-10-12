@@ -114,6 +114,8 @@ describe('chat "+" menu', () => {
 
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
     expect(createConversation.mock.calls[0][0]).not.toHaveProperty('group_id');
+    // Nothing is waiting to be sent, so the thread's agent opens it with its welcome.
+    expect(createConversation.mock.calls[0][0].athlete_speaks_first).toBeFalsy();
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
   });
 
@@ -129,9 +131,11 @@ describe('chat "+" menu', () => {
     await user.click(screen.getByTestId('group-name-submit'));
 
     // A plain thread is created first — the command carries the group, so
-    // nothing here posts a group. The queued command lands as its first turn.
+    // nothing here posts a group. The queued command lands as its first turn,
+    // so the athlete speaks first and no agent welcome lands over its answer.
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
     expect(createConversation.mock.calls[0][0]).not.toHaveProperty('group_id');
+    expect(createConversation.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
   });
 

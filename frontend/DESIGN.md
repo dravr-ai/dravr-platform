@@ -595,6 +595,7 @@ followed yet: its Chat tab still holds every thread.
 | Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. |
 | Thread canvas | `surface` | `surface` | One 720px reading column. The agent's turn is **prose on the canvas** — a 24px avatar, the name and the time on one line, the words under them to 620px, no fill, no border; the athlete's is the one bubble, on `primary-container`, on the right. Day labels are plain 12px text between days. |
 | Composer | `surface` with a field on `surface-container-lowest` | same tokens | No bar and no hairline above it: the field is the one white shape on the paper — 40px, radius 12, a `ghost-border` hairline, the slash inside on the left and the send inside on the right, 720px wide like the column. The field grows with the draft, one line at a time, up to eight lines and then scrolls; the slash and the send stay pinned to its last line. No helper line under it; the placeholder says what `/` does. |
+| Empty thread | `surface` | `surface` | With no thread open: the mark, one 18px line, one sentence, then the `+` and **three use-case links** in `primary` ink — the starters ranked for the athlete (`GET /api/chat/starters`), worded the way they would ask, never pills. A tap opens a thread on its starter: the postback is the first line, the label the athlete's bubble, and the agent posts no welcome over the answer. Under them, in the caption size, what the agent can see and the `/` + `@` hint. The phone's empty thread draws the same three links under its line and hint (carnet#829). |
 
 **Mark only on web, mark plus name on the phone — because they are different
 shells.** The rail is a persistent 72px column that never leaves the screen, so
@@ -761,7 +762,7 @@ in the vault under `Design/Boreal v2.1 — Less`.
 | Controls | 40 (44 auth) | **32** (44 auth); 44 everywhere on a coarse pointer or under `lg` |
 | Page header | 72px, title + subtitle | **52px**, one row |
 | Grouping | white hairline card | **`Section`**: title, line, rows, space |
-| Empty state | boxed icon + headline | **one sentence, one ink link** |
+| Empty state | boxed icon + headline | **one sentence, one ink link**; the empty thread: **one sentence, three use-case links** |
 | Chat list / rows | 400px, 68px rows, 44px avatars | **340px, 60px rows, 36px avatars** |
 | Agent turn | white hairline bubble | **prose on the canvas**, 24px avatar |
 | Composer | grey tint, helper line | **white field with a hairline**, no helper line |

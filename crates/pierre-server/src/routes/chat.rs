@@ -11,6 +11,7 @@
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
 //! - [`chat::participants`] — who is in a conversation: list / add / remove
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
+//! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
@@ -25,6 +26,7 @@ mod group_transcript;
 mod participants;
 mod read_marker;
 mod send_message;
+mod starters;
 mod stop_turn;
 mod turn_response;
 
@@ -41,7 +43,8 @@ pub use dto::{
     ConversationResponse, ConversationSummaryResponse, CreateConversationRequest, FeedbackRating,
     LastMessageResponse, ListConversationsQuery, MessageActionsResponse, MessageFeedbackEntry,
     MessageResponse, MessagesListResponse, ParticipantListResponse, ParticipantResponse,
-    SendMessageRequest, UpdateConversationRequest, UpsertFeedbackRequest, MAX_LIST_LIMIT,
+    SendMessageRequest, StarterResponse, StartersResponse, UpdateConversationRequest,
+    UpsertFeedbackRequest, MAX_LIST_LIMIT,
 };
 pub use read_marker::MarkReadRequest;
 pub use stop_turn::StopTurnResponse;
@@ -78,6 +81,9 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}",
                 delete(conversations::delete_conversation),
             )
+            // The use-case starters an empty thread offers, ranked from the
+            // athlete's state (carnet#829)
+            .route("/api/chat/starters", get(starters::list_starters))
             // Participants: who can read and post in the conversation
             .route(
                 "/api/chat/conversations/{conversation_id}/participants",

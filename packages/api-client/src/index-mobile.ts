@@ -48,6 +48,7 @@ export type {
   SendTurnOptions,
   ChatMessageAction,
   CreateConversationOptions,
+  UseCaseStarter,
 } from './domains/chat';
 // The turn envelope's own shapes live in @pierre/shared-types, where web and
 // mobile read them from one declaration; re-exported here so a client that

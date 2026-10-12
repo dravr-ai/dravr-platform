@@ -37,10 +37,11 @@
 
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
-    format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_GREETING,
-    KEY_AGENT_WELCOME_GREETING_NO_ROLE, KEY_AGENT_WELCOME_STARTERS_TITLE,
+    format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_CAN_SEE,
+    KEY_AGENT_WELCOME_GREETING, KEY_AGENT_WELCOME_GREETING_NO_ROLE,
+    KEY_AGENT_WELCOME_STARTERS_TITLE,
 };
-use pierre_contremaitre::use_case_catalogue::{UseCase, UseCaseCatalogue, UseCaseRun};
+use pierre_contremaitre::use_case_catalogue::UseCase;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
@@ -52,7 +53,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use pierre_services::agents::meets_prerequisites;
-use pierre_services::athlete_state::AthleteState;
+use pierre_services::use_case_rank::{rank_for_athlete, rotation_for, worded, MAX_STARTERS};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -60,14 +61,8 @@ use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
 use crate::stages::introduction::{collapse_whitespace, display_title, introduction_thread};
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{
-    emit_shown, rank, rotation_for, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME,
-};
+use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME};
 use crate::surface_profile::SurfaceId;
-
-/// The most starter questions a welcome offers. Three fit one glance and one
-/// row of chips on a phone; the rest of an agent's examples stay on Discover.
-pub const MAX_STARTERS: usize = 3;
 
 /// Where an agent's welcome lands and who it speaks to.
 pub struct WelcomeTarget<'a> {
@@ -86,6 +81,10 @@ pub struct WelcomeTarget<'a> {
     pub locale: &'a str,
     /// The chat surface the bind happened on, reported with each starter.
     pub surface: SurfaceId,
+    /// Whether that surface draws the starters as buttons a tap sends — the
+    /// app always, a messaging channel when its transport renders cards.
+    /// Only a starter the athlete could tap is counted as shown.
+    pub renders_buttons: bool,
 }
 
 /// A welcome that was written.
@@ -95,11 +94,26 @@ pub struct PostedWelcome {
     /// its starters in the actions block.
     pub message: MessageRecord,
     /// The same welcome as one text, starters listed, for a messaging
-    /// channel — inline markdown its egress converts like a command reply.
+    /// channel that draws no buttons — inline markdown its egress converts
+    /// like a command reply.
     pub channel_text: String,
+    /// The same welcome as a card, for a messaging channel that draws
+    /// buttons; `None` when it offers no starter.
+    pub card: Option<WelcomeCard>,
 }
 
-/// The three templates a welcome is rendered from, in one locale.
+/// An agent welcome as a card: what a channel that draws buttons sends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WelcomeCard {
+    /// The agent's title — never empty, which Slack and Messenger refuse.
+    pub title: String,
+    /// The greeting, then the lead-in above the buttons, as inline markdown.
+    pub body: String,
+    /// One postback per starter, slot by slot.
+    pub actions: Vec<TurnAction>,
+}
+
+/// The templates a welcome is rendered from, in one locale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WelcomeTemplates {
     /// `{0}` = title, `{1}` = role.
@@ -108,6 +122,8 @@ pub struct WelcomeTemplates {
     pub greeting_no_role: String,
     /// The lead-in above the starters.
     pub starters_title: String,
+    /// What the coach can see and cannot do, said to one athlete.
+    pub can_see: String,
 }
 
 impl WelcomeTemplates {
@@ -118,6 +134,7 @@ impl WelcomeTemplates {
             greeting: strings.get(KEY_AGENT_WELCOME_GREETING, locale),
             greeting_no_role: strings.get(KEY_AGENT_WELCOME_GREETING_NO_ROLE, locale),
             starters_title: strings.get(KEY_AGENT_WELCOME_STARTERS_TITLE, locale),
+            can_see: strings.get(KEY_AGENT_WELCOME_CAN_SEE, locale),
         }
     }
 }
@@ -138,7 +155,10 @@ pub struct Starter {
 /// A welcome's words, before it is written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WelcomeText {
-    /// The row's content: the greeting, with the role when there is one.
+    /// The agent's title, as the greeting names it.
+    pub title: String,
+    /// The row's content: the greeting, with the role when there is one, and
+    /// what the coach can see when the welcome says it.
     pub content: String,
     /// The lead-in above [`Self::starters`]; `None` when there are none.
     pub starters_title: Option<String>,
@@ -150,21 +170,28 @@ impl WelcomeText {
     /// Compose the welcome of the agent titled `title`, offering `starters`.
     ///
     /// `role` is the agent's one-line description; a blank one renders the
-    /// greeting without it.
+    /// greeting without it. `capability` is what the coach can see and cannot
+    /// do (PAIR, HAX G1–G2), said under the greeting; a blank one is not said.
     #[must_use]
     pub fn compose(
         templates: &WelcomeTemplates,
         title: &str,
         role: Option<&str>,
+        capability: Option<&str>,
         starters: Vec<Starter>,
     ) -> Self {
         let role = role.map(collapse_whitespace).filter(|r| !r.is_empty());
-        let content = role.as_deref().map_or_else(
+        let mut content = role.as_deref().map_or_else(
             || format_template(&templates.greeting_no_role, &[title]),
             |role| format_template(&templates.greeting, &[title, role]),
         );
+        if let Some(capability) = capability.map(str::trim).filter(|c| !c.is_empty()) {
+            content.push_str("\n\n");
+            content.push_str(capability);
+        }
         let starters_title = (!starters.is_empty()).then(|| templates.starters_title.clone());
         Self {
+            title: title.to_owned(),
             content,
             starters_title,
             starters,
@@ -191,6 +218,18 @@ impl WelcomeText {
                 value: starter.postback.encode(),
             })
             .collect()
+    }
+
+    /// The welcome as a card whose buttons are the starters, for a channel
+    /// that draws buttons; `None` when it offers no starter.
+    #[must_use]
+    pub fn card(&self) -> Option<WelcomeCard> {
+        let lead_in = self.starters_title.as_deref()?;
+        Some(WelcomeCard {
+            title: self.title.clone(),
+            body: format!("{}\n\n{lead_in}", self.content),
+            actions: self.actions(),
+        })
     }
 
     /// The welcome as one text with the starters listed, for a channel that
@@ -237,20 +276,10 @@ fn use_case_starter(
     locale: &str,
     position: usize,
 ) -> Option<Starter> {
-    let label = strings.get(&entry.label_key(), locale);
-    if label.trim().is_empty() {
-        return None;
-    }
-    let line = match &entry.run {
-        UseCaseRun::Command(command) => format!("{command} — {label}"),
-        UseCaseRun::Prompt => strings.get(&entry.prompt_key(), locale),
-    };
-    if line.trim().is_empty() {
-        return None;
-    }
+    let worded = worded(entry, strings, locale)?;
     Some(Starter {
-        label,
-        line,
+        label: worded.label,
+        line: worded.line,
         postback: Postback::UseCase {
             position,
             id: entry.id.clone(),
@@ -320,14 +349,15 @@ pub async fn post_agent_welcome(
         "agent welcome posted"
     );
     // `suggestion.shown` counts a starter the athlete could tap, and so does
-    // the exposure the ranker retires starters by. A messaging channel
-    // receives the welcome as text (`channel_text`), where a starter typed
-    // back is the athlete's own words, so only the app's surfaces count.
-    if matches!(target.surface, SurfaceId::Web | SurfaceId::Mobile) {
+    // the exposure the ranker retires starters by. A messaging channel that
+    // draws no buttons receives the welcome as text (`channel_text`), where a
+    // starter typed back is the athlete's own words, so it does not count.
+    if target.renders_buttons {
         record_shown(repos, &target, user, &text).await;
     }
     Ok(Some(PostedWelcome {
         channel_text: text.channel_text(),
+        card: text.card(),
         message,
     }))
 }
@@ -404,10 +434,20 @@ async fn welcome_text(
     };
     let (starters, transport_policy) =
         choose_starters(repos, strings, target, &canonical, &localized, user).await;
+    let templates = WelcomeTemplates::resolve(strings, target.locale);
+    // Said to one athlete about their own data; a room's welcome speaks to
+    // every member, whose data the room's agent reads under each one's
+    // consent, so it does not say it.
+    let capability = target
+        .conversation
+        .group_id
+        .is_none()
+        .then_some(templates.can_see.as_str());
     let text = WelcomeText::compose(
-        &WelcomeTemplates::resolve(strings, target.locale),
+        &templates,
         &title,
         localized.description.as_deref(),
+        capability,
         starters,
     );
     if text.content.trim().is_empty() {
@@ -448,42 +488,28 @@ async fn choose_starters(
     if target.conversation.group_id.is_some() {
         return examples_only();
     }
-    let (state, transport_policy) = match AthleteState::read(
+    let ranked = match rank_for_athlete(
         repos,
         target.agent_tenant_id,
         user,
-        Utc::now(),
+        agent.category,
+        rotation_for(&target.conversation.id),
     )
     .await
     {
-        Ok(read) => read,
+        Ok(ranked) => ranked,
         Err(e) => {
             warn!(error = %e, conversation_id = %target.conversation.id, "athlete state unreadable; the welcome offers the agent's examples");
             return examples_only();
         }
     };
-    let exposures = repos
-        .use_case_exposures
-        .use_case_exposures(target.agent_tenant_id, user)
-        .await
-        .unwrap_or_else(|e| {
-            warn!(error = %e, conversation_id = %target.conversation.id, "starter exposures unreadable; ranking as if none were shown");
-            Vec::new()
-        });
-    let ranked = rank(
-        UseCaseCatalogue::pinned(),
-        &state,
-        agent.category,
-        &exposures,
-        rotation_for(&target.conversation.id),
-    );
     let mut starters = Vec::with_capacity(MAX_STARTERS);
-    for entry in ranked {
+    for entry in ranked.entries {
         if let Some(starter) = use_case_starter(entry, strings, target.locale, starters.len()) {
             starters.push(starter);
         }
     }
-    if meets_prerequisites(&agent.prerequisites, state.has_provider) {
+    if meets_prerequisites(&agent.prerequisites, ranked.state.has_provider) {
         let first_slot = starters.len();
         starters.extend(example_starters(
             &localized.sample_prompts,
@@ -491,7 +517,7 @@ async fn choose_starters(
             MAX_STARTERS.saturating_sub(first_slot),
         ));
     }
-    (starters, transport_policy)
+    (starters, ranked.policy)
 }
 
 /// `agent_id` as `user` sees it — canonical, and translated into `locale` —
@@ -578,12 +604,16 @@ async fn after_written(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_contremaitre::use_case_catalogue::UseCaseCatalogue;
+
+    const CAN_SEE: &str = "I see what your connected services share.";
 
     fn templates() -> WelcomeTemplates {
         WelcomeTemplates {
             greeting: "Hi! Dravr's {0} here.\n\n{1}".to_owned(),
             greeting_no_role: "Hi! Dravr's {0} here.".to_owned(),
             starters_title: "To get started, you can ask me:".to_owned(),
+            can_see: CAN_SEE.to_owned(),
         }
     }
 
@@ -611,6 +641,7 @@ mod tests {
             &templates(),
             "Fuelling Agent",
             Some("Fuelling  specialist\nfor endurance."),
+            None,
             Vec::new(),
         );
         assert_eq!(
@@ -622,7 +653,7 @@ mod tests {
     #[test]
     fn blank_role_uses_the_no_role_greeting() {
         for role in [None, Some(""), Some("  \n ")] {
-            let text = WelcomeText::compose(&templates(), "Agent", role, Vec::new());
+            let text = WelcomeText::compose(&templates(), "Agent", role, None, Vec::new());
             assert_eq!(text.content, "Hi! Dravr's Agent here.");
         }
     }
@@ -646,6 +677,7 @@ mod tests {
             &templates(),
             "Agent",
             Some("Role."),
+            None,
             examples(&["", "One?", "Two?"]),
         );
         assert_eq!(
@@ -696,7 +728,8 @@ mod tests {
 
     #[test]
     fn no_starters_means_no_actions_and_no_title() {
-        let text = WelcomeText::compose(&templates(), "Agent", Some("Role."), examples(&[" "]));
+        let text =
+            WelcomeText::compose(&templates(), "Agent", Some("Role."), None, examples(&[" "]));
         assert!(text.starters.is_empty());
         assert!(text.starters_title.is_none());
         assert!(text.actions().is_empty());
@@ -713,6 +746,7 @@ mod tests {
             &templates(),
             "Agent",
             Some("Role."),
+            None,
             examples(&["One?", "Two?"]),
         );
         assert_eq!(
@@ -723,5 +757,48 @@ mod tests {
         assert!(!opaque
             .iter()
             .any(|prefix| text.channel_text().contains(prefix)));
+    }
+
+    #[test]
+    fn the_capability_line_follows_the_greeting_when_it_is_said() {
+        let said = WelcomeText::compose(
+            &templates(),
+            "Agent",
+            Some("Role."),
+            Some(CAN_SEE),
+            Vec::new(),
+        );
+        assert_eq!(
+            said.content,
+            format!("Hi! Dravr's Agent here.\n\nRole.\n\n{CAN_SEE}")
+        );
+        let unsaid = WelcomeText::compose(&templates(), "Agent", None, None, Vec::new());
+        assert_eq!(unsaid.content, "Hi! Dravr's Agent here.");
+        let blank = WelcomeText::compose(&templates(), "Agent", None, Some("  "), Vec::new());
+        assert_eq!(blank.content, "Hi! Dravr's Agent here.");
+    }
+
+    #[test]
+    fn a_card_titles_the_agent_and_carries_one_button_per_starter() {
+        let text = WelcomeText::compose(
+            &templates(),
+            "Fuelling Agent",
+            Some("Role."),
+            Some(CAN_SEE),
+            examples(&["One?", "Two?"]),
+        );
+        let card = text.card().expect("a welcome with starters has a card");
+        assert_eq!(card.title, "Fuelling Agent");
+        assert_eq!(
+            card.body,
+            format!(
+                "Hi! Dravr's Fuelling Agent here.\n\nRole.\n\n{CAN_SEE}\n\nTo get started, you can ask me:"
+            )
+        );
+        let values: Vec<&str> = card.actions.iter().map(|a| a.value.as_str()).collect();
+        assert_eq!(values, ["ex:0:0", "ex:1:1"]);
+
+        let bare = WelcomeText::compose(&templates(), "Agent", None, None, examples(&[]));
+        assert_eq!(bare.card(), None, "no starter, no buttons to draw");
     }
 }

@@ -244,6 +244,9 @@ describe('ActivityScreen', () => {
     expect(mockPush).not.toHaveBeenCalled();
     expect(screen.getByTestId('activity-figures')).toBeTruthy();
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+    // carnet#829: the thread exists for the question just sent, so its agent
+    // posts no welcome over the answer.
+    expect(mockCreateConversation).toHaveBeenCalledWith({ athlete_speaks_first: true });
     // carnet#828: a chip's question is reported as one, not as typed.
     expect(mockSendTurn).toHaveBeenLastCalledWith(THREAD, compare, expect.objectContaining({ origin: 'chip' }));
     expect(mockLinkActivityConversation).toHaveBeenCalledWith('strava', '9000', THREAD);

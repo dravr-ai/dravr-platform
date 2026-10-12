@@ -797,6 +797,7 @@ async fn an_agent_that_welcomed_the_thread_is_not_introduced_again() {
             agent_tenant_id: fx.tenant_id,
             locale: "fr",
             surface: SurfaceId::Web,
+            renders_buttons: true,
         },
     )
     .await

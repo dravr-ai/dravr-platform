@@ -19,9 +19,12 @@ use tracing::info;
 use pierre_auth::auth::AuthResult;
 
 use crate::mcp::resources::ServerContext;
+use pierre_chat_pipeline::agent_welcome::{PostedWelcome, WelcomeCard};
 use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
+use pierre_chat_pipeline::suggestions::{resolve_command_tap, CommandTap};
 use pierre_chat_pipeline::{
-    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest, TurnOrigin,
+    dispatch_slash, CommandPersistence, CommandTurn, RenderCapabilities, SlashRequest, TurnAction,
+    TurnOrigin,
 };
 use pierre_services::channel_error_reply::ChannelErrorReply;
 use pierre_services::conversation_forge::conversation_cap_reply;
@@ -30,7 +33,7 @@ use super::addressing::reply_recipient;
 use super::card_or_rich_text;
 use super::connect::build_connect_card_direct;
 use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
-use super::surface::messaging_render_profile;
+use super::surface::{messaging_render_profile, surface_id};
 use super::ResolvedSession;
 use pierre_contremaitre::messaging_strings::KEY_NO_PROVIDER_CONNECTED;
 use pierre_services::locale::resolve_channel_locale;
@@ -121,11 +124,47 @@ pub(super) struct WelcomeReply {
     pub(super) chat_message_id: String,
 }
 
-/// An agent welcome's channel text as the content a channel carries: its
-/// inline markdown — the starters are a list — in the channel's dialect.
-pub(super) fn welcome_content(channel_text: &str) -> MessageContent {
-    MessageContent::RichText {
-        body: render_rich_text(&parse_markdown(channel_text)),
+/// An agent welcome as the content a channel carries.
+///
+/// On a channel that draws buttons it is a card whose buttons are the
+/// starters, each posting back what the app's chip posts, so a tap is
+/// resolved — and counted — the same way (carnet#829): an inline keyboard on
+/// Telegram, reply buttons on `WhatsApp`, Block Kit on Slack. Elsewhere it is
+/// the channel text, the starters written out as a list, in the channel's
+/// rich-text dialect.
+pub(super) fn welcome_content(
+    render: &RenderCapabilities,
+    welcome: &PostedWelcome,
+) -> MessageContent {
+    welcome_card_or_text(render, welcome.card.as_ref(), &welcome.channel_text)
+}
+
+/// [`welcome_content`] from the welcome's card, when it has starters, and its
+/// channel text.
+fn welcome_card_or_text(
+    render: &RenderCapabilities,
+    card: Option<&WelcomeCard>,
+    channel_text: &str,
+) -> MessageContent {
+    match card {
+        Some(card) if render.blocks.action_buttons => card_or_rich_text(
+            render,
+            card.title.clone(),
+            card.body.clone(),
+            card.actions.iter().map(card_action).collect(),
+        ),
+        _ => MessageContent::RichText {
+            body: render_rich_text(&parse_markdown(channel_text)),
+        },
+    }
+}
+
+/// A reply control as the card button a channel draws.
+fn card_action(action: &TurnAction) -> CardAction {
+    CardAction {
+        label: action.label.clone(),
+        action_type: action.kind.as_str().to_owned(),
+        value: action.value.clone(),
     }
 }
 
@@ -231,11 +270,6 @@ pub(super) async fn try_handle_slash_command(
         webhook_tenant_id,
     } = ctx;
 
-    // Fast path: not a command. Avoids any auth/tenant lookups.
-    if !text.trim().starts_with('/') {
-        return None;
-    }
-
     let user_uuid = auth_result.user_id;
     // Tenant comes straight from AuthResult — same path as the JWT middleware,
     // falling back to the webhook tenant exactly as `persist_single_message`
@@ -260,6 +294,29 @@ pub(super) async fn try_handle_slash_command(
     } else {
         webhook_tenant_id
     };
+
+    // A tapped starter that runs a command is that command from here on, so
+    // it takes the road a typed one takes: answered privately in a room, its
+    // reply ledgered like any command turn (carnet#829). The turn would run
+    // it too, but past this routing.
+    let tapped = resolve_command_tap(
+        &resources.common.repos,
+        &CommandTap {
+            user_id: user_uuid,
+            user_tenant_id: user_tenant,
+            conversation_tenant_id: conversation_tenant,
+            surface: surface_id(channel_type),
+        },
+        text,
+    )
+    .await;
+    let text = tapped.as_deref().unwrap_or(text);
+
+    // Fast path: not a command. Avoids any lookup.
+    if !text.trim().starts_with('/') {
+        return None;
+    }
+
     let locale = resolve_channel_locale(
         resources.common.repos.messaging.as_ref(),
         resources.common.repos.users.as_ref(),
@@ -352,6 +409,7 @@ pub(super) async fn try_handle_slash_command(
             locale: &locale,
             transport: Transport::Messaging,
             surface: profile.surface,
+            renders_buttons: profile.render.blocks.action_buttons,
             is_direct_message,
             // A DM with the bot is the athlete's one thread, so a `/group`
             // command typed there means the group they are in.
@@ -417,7 +475,7 @@ pub(super) async fn try_handle_slash_command(
         message: OutgoingMessage {
             channel_type,
             recipient_id: reply_target.clone(),
-            content: welcome_content(&posted.channel_text),
+            content: welcome_content(&profile.render, posted),
             turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: thread_id.clone(),
@@ -459,14 +517,7 @@ fn command_content(render: &RenderCapabilities, command: CommandTurn) -> Message
             render,
             title,
             text,
-            actions
-                .into_iter()
-                .map(|action| CardAction {
-                    label: action.label,
-                    action_type: action.kind.as_str().to_owned(),
-                    value: action.value,
-                })
-                .collect(),
+            actions.iter().map(card_action).collect(),
         );
     }
     if is_rich_text {
@@ -475,4 +526,126 @@ fn command_content(render: &RenderCapabilities, command: CommandTurn) -> Message
         };
     }
     MessageContent::Text { body: text }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_chat_pipeline::ActionKind;
+
+    fn card() -> WelcomeCard {
+        WelcomeCard {
+            title: "Tempo Agent".to_owned(),
+            body: "Hi! Dravr's Tempo Agent here.\n\nTo get started, you can ask me:".to_owned(),
+            actions: vec![
+                TurnAction {
+                    label: "Connect my watch".to_owned(),
+                    kind: ActionKind::Postback,
+                    value: "uc:0:connect".to_owned(),
+                },
+                TurnAction {
+                    label: "Plan my tempo week".to_owned(),
+                    kind: ActionKind::Postback,
+                    value: "ex:1:0".to_owned(),
+                },
+            ],
+        }
+    }
+
+    const TEXT: &str = "Hi! Dravr's Tempo Agent here.\n\nTo get started, you can ask me:\n- Help me connect my watch.\n- Plan my tempo week";
+
+    /// Every channel the platform speaks, so a channel added to canot is
+    /// judged here the day it is matched.
+    const CHANNELS: [ChannelType; 5] = [
+        ChannelType::Telegram,
+        ChannelType::WhatsApp,
+        ChannelType::Slack,
+        ChannelType::Messenger,
+        ChannelType::Discord,
+    ];
+
+    /// Each channel whose transport draws buttons gets the welcome as a card
+    /// of its starters, posting back what the app's chips post; each one
+    /// that does not gets the starters written out.
+    #[test]
+    fn every_channel_that_draws_buttons_gets_the_welcome_as_a_card_of_its_starters() {
+        let card = card();
+        let mut drawn = Vec::new();
+        for channel in CHANNELS {
+            let render = messaging_render_profile(channel, "en").render;
+            let content = welcome_card_or_text(&render, Some(&card), TEXT);
+            if !render.blocks.action_buttons {
+                assert!(
+                    matches!(content, MessageContent::RichText { .. }),
+                    "{channel:?} draws no buttons, so it gets text: {content:?}"
+                );
+                continue;
+            }
+            let MessageContent::Card {
+                title,
+                body,
+                actions,
+            } = content
+            else {
+                panic!("{channel:?} draws buttons, so it gets a card, got {content:?}");
+            };
+            assert_eq!(title, "Tempo Agent", "{channel:?}");
+            assert!(body.contains("To get started"), "{channel:?}: {body}");
+            assert!(
+                !body.contains("uc:") && !body.contains("ex:"),
+                "{channel:?}: {body}"
+            );
+            let sent: Vec<(&str, &str, &str)> = actions
+                .iter()
+                .map(|a| (a.label.as_str(), a.action_type.as_str(), a.value.as_str()))
+                .collect();
+            assert_eq!(
+                sent,
+                [
+                    ("Connect my watch", "postback", "uc:0:connect"),
+                    ("Plan my tempo week", "postback", "ex:1:0"),
+                ],
+                "{channel:?}"
+            );
+            drawn.push(channel);
+        }
+        // The channels the issue names as button channels: a canot that
+        // stopped drawing cards on any of them would quietly send text.
+        for expected in [
+            ChannelType::Telegram,
+            ChannelType::WhatsApp,
+            ChannelType::Slack,
+        ] {
+            assert!(
+                drawn.contains(&expected),
+                "{expected:?} draws the welcome as buttons; drawn: {drawn:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_channel_without_buttons_gets_the_starters_listed_as_text() {
+        let mut render = messaging_render_profile(ChannelType::Telegram, "en").render;
+        render.blocks.action_buttons = false;
+
+        let content = welcome_card_or_text(&render, Some(&card()), TEXT);
+
+        let MessageContent::RichText { body } = content else {
+            panic!("a channel without buttons gets text, got {content:?}");
+        };
+        assert!(body.contains("Plan my tempo week"), "{body}");
+        assert!(!body.contains("uc:") && !body.contains("ex:"), "{body}");
+    }
+
+    #[test]
+    fn a_welcome_with_no_starter_is_text_even_where_buttons_draw() {
+        let render = messaging_render_profile(ChannelType::Telegram, "en").render;
+
+        let content = welcome_card_or_text(&render, None, "Hi! Dravr's Tempo Agent here.");
+
+        assert!(
+            matches!(content, MessageContent::RichText { .. }),
+            "nothing to tap, nothing to card: {content:?}"
+        );
+    }
 }

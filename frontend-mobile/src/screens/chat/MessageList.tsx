@@ -1,4 +1,4 @@
-// ABOUTME: Chat message list — one switch over the turn's reply blocks, and the empty thread's one line
+// ABOUTME: Chat message list — one switch over the turn's reply blocks, and the empty thread's line and ranked starters
 // ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
 import React, { useEffect, useRef, useState, useMemo } from 'react';
@@ -35,7 +35,7 @@ import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { spacing, typeScale, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
-import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
+import type { ChatMessageAction, ClaimVerdict, ReplyBlock, UseCaseStarter, VerdictTone } from '@pierre/shared-types';
 import {
   parseWorkoutPlan,
   summarizeVerdicts,
@@ -439,12 +439,13 @@ interface MessageListProps {
    */
   header?: React.ReactElement;
   /**
-   * Put the suggested question — a route for today's session — in the
-   * composer, for the athlete to finish and send. The host words it, since
-   * the host knows what today's session is. Without it, the empty thread
-   * stays the one line.
+   * The use-case starters ranked for the athlete, drawn as the empty
+   * thread's ink links — three at most. Without them, the empty thread
+   * stays its one line and the slash hint.
    */
-  onSuggestRoute?: () => void;
+  starters?: UseCaseStarter[];
+  /** Open the thread on a starter: the host sends its postback under its label. */
+  onStarter?: (starter: UseCaseStarter) => void;
 }
 
 export function MessageList({
@@ -466,7 +467,8 @@ export function MessageList({
   onActionClick,
   onShowVerdict,
   header,
-  onSuggestRoute,
+  starters,
+  onStarter,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -916,9 +918,11 @@ export function MessageList({
    * An empty thread.
    *
    * One line and the two ways in: `/` for the command palette, `@handle` to
-   * bring an agent in for a turn — then one suggested question, a route for
-   * today's session, as an ink link that drafts it. No agent grid, no picker — an agent is chosen
-   * with `/agent add @handle`, exactly as it is on web and in messaging.
+   * bring an agent in for a turn — then the three starters ranked for the
+   * athlete, as ink links that open the thread on them (carnet#829): use
+   * cases, not features, and no pills. No agent grid, no picker — an agent is
+   * chosen with `/agent add @handle`, exactly as it is on web and in
+   * messaging.
    */
   const renderEmptyChat = () => (
     <ScrollView
@@ -940,22 +944,19 @@ export function MessageList({
       <Text className="text-sm text-text-tertiary text-center mt-2" testID="chat-slash-hint">
         {t(SLASH_HINT_KEY)}
       </Text>
-      {onSuggestRoute ? (
-        <Pressable
-          onPress={onSuggestRoute}
-          accessibilityRole="button"
-          className="mt-4 min-h-11 flex-row items-center"
-          testID="chat-empty-route"
-        >
-          <Ionicons
-            name="location-outline"
-            size={16}
-            color={colors.tokens.primary}
-            style={{ marginRight: spacing.xs }}
-          />
-          <Text className="text-sm font-medium text-primary">{t('chat.quickRoute')}</Text>
-        </Pressable>
-      ) : null}
+      {onStarter
+        ? (starters ?? []).map((starter, index) => (
+            <Pressable
+              key={starter.id}
+              onPress={() => onStarter(starter)}
+              accessibilityRole="button"
+              className={`${index === 0 ? 'mt-4' : 'mt-1'} min-h-11 flex-row items-center`}
+              testID={`chat-empty-starter-${starter.id}`}
+            >
+              <Text className="text-sm font-medium text-primary">{starter.label}</Text>
+            </Pressable>
+          ))
+        : null}
     </ScrollView>
   );
 

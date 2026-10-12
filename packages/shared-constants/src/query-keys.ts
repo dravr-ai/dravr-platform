@@ -101,6 +101,8 @@ export const QUERY_KEYS = {
     commands: (conversationId?: string | null) => ['chat-commands', conversationId ?? null] as const,
     /** The claim-verification verdict rows of every reply in the conversation. */
     verdicts: (conversationId: string | null) => ['chat', 'verdicts', conversationId] as const,
+    /** The use-case starters an empty thread offers, ranked from the athlete's state. */
+    starters: () => ['chat', 'starters'] as const,
   },
 
   // ==================== COACHES ====================

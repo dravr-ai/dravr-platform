@@ -28,7 +28,8 @@ use pierre_providers::ai_scope;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model, SlotQuota,
+    counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model,
+    selected_or_system_agent, SlotQuota,
 };
 use pierre_services::locale::{resolve_user_locale, user_locale};
 use pierre_tool_runtime::derived_content;
@@ -89,6 +90,8 @@ async fn post_welcome_best_effort(
         agent_tenant_id: tenant_id,
         locale: &locale,
         surface,
+        // Both apps draw a welcome's starters as chips.
+        renders_buttons: true,
     };
     if let Err(e) =
         post_agent_welcome(repos, &resources.mcp.messaging_strings_registry, target).await
@@ -153,6 +156,22 @@ pub async fn create_conversation(
         }
     };
 
+    // The agent the thread is bound to. One the caller named wins. A personal
+    // thread created without one is bound to the athlete's selected agent,
+    // else their own thread's default — the one answer the messaging DM forge
+    // binds (carnet#829) — so the thread opens on an agent's welcome and the
+    // starters it offers resolve against that agent. A room created without
+    // one stays unbound: who answers there is the group's agent. The title
+    // above still follows what the caller named, so two threads bound by
+    // default keep their dated stamps apart in a list.
+    let agent_id = match (request.agent_id.as_deref(), request.group_id.as_deref()) {
+        (Some(named), _) => Some(named.to_owned()),
+        (None, None) => {
+            selected_or_system_agent(&resources.common.repos, tenant_id, auth.user_id).await
+        }
+        (None, Some(_)) => None,
+    };
+
     // Created under max_active_conversations — the same locked count-and-
     // insert `/reset` runs — so two requests at the cap's edge cannot both
     // get the last slot.
@@ -171,7 +190,7 @@ pub async fn create_conversation(
             tenant_id,
             title: &title,
             model: &model,
-            agent_id: request.agent_id.as_deref(),
+            agent_id: agent_id.as_deref(),
             group_id: request.group_id.as_deref(),
         },
     )
@@ -182,19 +201,23 @@ pub async fn create_conversation(
     // stuck at "0 uses" because nothing on the chat path called
     // record_usage even though the field is shown in the Coaches UI.
     //
-    // LIMITATION(registre#829): `create_conversation` welcomes only a thread
-    // created with an `agent_id`; a thread created without one opens empty.
-    if let Some(agent_id) = request.agent_id.as_deref() {
+    // The agent then opens the thread with its welcome — unless the athlete
+    // is about to speak first, in which case its first reply introduces it.
+    // A thread opened from an empty thread's starter is such a thread: the
+    // starter is its first line, so no welcome offers the same starters again.
+    if let Some(agent_id) = agent_id.as_deref() {
         record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
-        post_welcome_best_effort(
-            &resources,
-            &conv,
-            agent_id,
-            auth.user_id,
-            tenant_id,
-            client_surface(&headers),
-        )
-        .await;
+        if !request.athlete_speaks_first {
+            post_welcome_best_effort(
+                &resources,
+                &conv,
+                agent_id,
+                auth.user_id,
+                tenant_id,
+                client_surface(&headers),
+            )
+            .await;
+        }
     }
 
     let response = ConversationResponse {

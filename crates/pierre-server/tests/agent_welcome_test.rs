@@ -39,7 +39,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
 use pierre_contremaitre::messaging_strings::{
-    KEY_AGENT_WELCOME_GREETING, KEY_AGENT_WELCOME_GREETING_NO_ROLE,
+    KEY_AGENT_WELCOME_CAN_SEE, KEY_AGENT_WELCOME_GREETING, KEY_AGENT_WELCOME_GREETING_NO_ROLE,
     KEY_AGENT_WELCOME_STARTERS_TITLE,
 };
 use pierre_core::models::agents::{
@@ -304,6 +304,19 @@ fn render(resources: &Arc<ServerContext>, key: &str, locale: &str, args: &[&str]
         .render(key, locale, args)
 }
 
+/// A one-to-one welcome's content: `greeting`, then what the coach can see
+/// and cannot do, when the catalogue words it in `locale` (carnet#829). A
+/// room's welcome says the greeting alone.
+fn one_to_one(resources: &Arc<ServerContext>, greeting: String, locale: &str) -> String {
+    let can_see = render(resources, KEY_AGENT_WELCOME_CAN_SEE, locale, &[]);
+    let can_see = can_see.trim();
+    if can_see.is_empty() {
+        greeting
+    } else {
+        format!("{greeting}\n\n{can_see}")
+    }
+}
+
 /// A welcome's starters, read off its controls (carnet#828).
 struct Starters {
     /// The ranked use cases' catalogue ids, sorted: a thread rotates them.
@@ -377,11 +390,15 @@ async fn creating_an_agent_thread_posts_one_localized_welcome() {
     );
     assert_eq!(
         welcome.content,
-        render(
+        one_to_one(
             &resources,
-            KEY_AGENT_WELCOME_GREETING,
-            "fr",
-            &[FUELLING_TITLE_FR, FUELLING_ROLE_FR]
+            render(
+                &resources,
+                KEY_AGENT_WELCOME_GREETING,
+                "fr",
+                &[FUELLING_TITLE_FR, FUELLING_ROLE_FR]
+            ),
+            "fr"
         )
     );
     assert!(
@@ -436,11 +453,15 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
     assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].content,
-        render(
+        one_to_one(
             &resources,
-            KEY_AGENT_WELCOME_GREETING,
-            "es",
-            &[FUELLING_TITLE, FUELLING_ROLE]
+            render(
+                &resources,
+                KEY_AGENT_WELCOME_GREETING,
+                "es",
+                &[FUELLING_TITLE, FUELLING_ROLE]
+            ),
+            "es"
         )
     );
     let offered = starters(&rows[0]);
@@ -453,11 +474,15 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
     assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].content,
-        render(
+        one_to_one(
             &resources,
-            KEY_AGENT_WELCOME_GREETING_NO_ROLE,
-            "es",
-            &["Bare Agent"]
+            render(
+                &resources,
+                KEY_AGENT_WELCOME_GREETING_NO_ROLE,
+                "es",
+                &["Bare Agent"]
+            ),
+            "es"
         )
     );
     let offered = starters(&rows[0]);
@@ -537,11 +562,15 @@ async fn agent_add_welcomes_after_the_command_rows() {
     assert_eq!(rows[2].id, carried.id, "the turn carries the persisted row");
     assert_eq!(
         rows[2].content,
-        render(
+        one_to_one(
             &resources,
-            KEY_AGENT_WELCOME_GREETING,
-            "fr",
-            &["Tempo Agent", "Tempo runs for the marathon build."]
+            render(
+                &resources,
+                KEY_AGENT_WELCOME_GREETING,
+                "fr",
+                &["Tempo Agent", "Tempo runs for the marathon build."]
+            ),
+            "fr"
         )
     );
     assert!(introduced(&resources, &conv, &agent, dan.tenant_id).await);
@@ -689,6 +718,7 @@ async fn a_room_is_welcomed_once_per_agent() {
                 agent_tenant_id: tenant,
                 locale: "en",
                 surface: SurfaceId::Web,
+                renders_buttons: true,
             },
         )
         .await
@@ -958,11 +988,15 @@ async fn reset_reopens_the_fresh_thread_with_the_agent_welcome() {
     assert_eq!(posted.len(), 1, "the agent opens the fresh thread once");
     assert_eq!(
         posted[0].content,
-        render(
+        one_to_one(
             &resources,
-            KEY_AGENT_WELCOME_GREETING,
-            "fr",
-            &["Reset Agent", "Keeps the marathon build on track."]
+            render(
+                &resources,
+                KEY_AGENT_WELCOME_GREETING,
+                "fr",
+                &["Reset Agent", "Keeps the marathon build on track."]
+            ),
+            "fr"
         )
     );
     let offered = starters(posted[0]);

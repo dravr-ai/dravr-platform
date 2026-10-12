@@ -57,7 +57,6 @@ import {
 import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
 import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
-import { useTodayRouteDraft } from '../hooks/useHome';
 import { Button, Sheet, useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -68,6 +67,7 @@ import type {
   MessageOrigin,
   ReplyBlock,
   TurnSendOptions,
+  UseCaseStarter,
 } from '@pierre/shared-types';
 import type {
   Message,
@@ -102,6 +102,15 @@ interface FailedTurnNote {
   retryable: boolean;
 }
 
+/** How a new thread is started. */
+interface NewThreadOptions {
+  /**
+   * The thread exists to carry a line about to be sent, so the agent the
+   * server binds posts no welcome over its answer.
+   */
+  athleteSpeaksFirst?: boolean;
+}
+
 /** The newest row the server has persisted — the one the read marker follows. */
 function latestPersistedMessageId(messages: Message[] | undefined): string | null {
   if (!messages) return null;
@@ -126,6 +135,11 @@ export interface PendingComposerAction {
    * `chip`. A `draft` is reported as one when the athlete sends it.
    */
   origin?: MessageOrigin;
+  /**
+   * What the athlete's bubble shows for a `send` whose text is a starter's
+   * postback: its label, until the turn echoes the words it stands for.
+   */
+  display?: string;
 }
 
 /**
@@ -232,7 +246,7 @@ export default function ChatTab({
   // turn refused before the server stored it stays on screen with a retry.
   const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<FailedTurnNote>, null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
-  const [pendingPrompt, setPendingPrompt] = useState<{ text: string; origin?: MessageOrigin } | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<Omit<PendingComposerAction, 'kind'> | null>(null);
   // Whether the composer holds text a draft affordance put there (Home Today,
   // the route draft, "back up this claim"), so its send is reported as a
   // draft rather than as typed. Cleared when the composer empties.
@@ -495,15 +509,16 @@ export default function ChatTab({
     );
   }, [showSuccessToast, showErrorToast, t]);
 
-  // Mutations. Takes an optional coach ID; the server resolves the
-  // agent's system prompt at runtime from the coaches table.
-  const createConversation = useMutation<{ id: string }, Error, string | void>({
+  // Mutations. The server resolves the agent's system prompt at runtime from
+  // the coaches table, and binds the athlete's own agent when none is named.
+  const createConversation = useMutation<{ id: string }, Error, NewThreadOptions | void>({
     // The server names the thread — after its agent when one is attached,
     // else for the moment it starts in the viewer's language; a rename
     // replaces that. The stored title is what both clients print.
-    mutationFn: (agentId) =>
+    mutationFn: (options) =>
       chatApi.createConversation({
-        agent_id: agentId || pendingCoachId || undefined,
+        agent_id: pendingCoachId || undefined,
+        athlete_speaks_first: options?.athleteSpeaksFirst || undefined,
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
@@ -966,7 +981,7 @@ export default function ChatTab({
     if (pendingPrompt && selectedConversation && !isStreaming) {
       const promptToSend = pendingPrompt;
       setPendingPrompt(null);
-      void sendTurn(promptToSend.text, { origin: promptToSend.origin });
+      void sendTurn(promptToSend.text, { origin: promptToSend.origin, display: promptToSend.display });
     }
   }, [pendingPrompt, selectedConversation, isStreaming, sendTurn]);
 
@@ -979,14 +994,15 @@ export default function ChatTab({
    */
   const runComposerAction = useCallback((action: PendingComposerAction) => {
     if (action.kind === 'send' && selectedConversation) {
-      void sendTurn(action.text, { origin: action.origin });
+      void sendTurn(action.text, { origin: action.origin, display: action.display });
       return;
     }
     if (action.kind === 'send') {
       // No thread yet: queue the text and let the pending-prompt effect send
-      // it the moment the fresh conversation exists.
-      setPendingPrompt({ text: action.text, origin: action.origin });
-      startConversation();
+      // it the moment the fresh conversation exists. The athlete speaks
+      // first, so the thread's agent posts no welcome over the answer.
+      setPendingPrompt({ text: action.text, origin: action.origin, display: action.display });
+      startConversation({ athleteSpeaksFirst: true });
       return;
     }
     if (!selectedConversation) startConversation();
@@ -996,16 +1012,34 @@ export default function ChatTab({
     inputRef.current?.focus();
   }, [selectedConversation, startConversation, sendTurn]);
 
-  /** Start a fresh thread whose composer already holds `/`, palette open. */
-  const handleOpenCommands = useCallback(() => {
-    runComposerAction({ kind: 'draft', text: '/' });
-  }, [runComposerAction]);
+  /**
+   * The starters the empty thread offers, ranked from the athlete's state.
+   * Read each time the empty thread is drawn — the server counts each read
+   * as one showing — and never while Home is still choosing its thread (a
+   * spinner stands there, and the thread it lands on is usually not empty),
+   * on a focus or on a reconnect, which would count showings nobody looked
+   * at.
+   */
+  const emptyThread = layout === 'personal' && !selectedConversation && !resolving;
+  const { data: starters } = useQuery<UseCaseStarter[]>({
+    queryKey: QUERY_KEYS.chat.starters(),
+    queryFn: () => chatApi.listStarters(),
+    enabled: emptyThread,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
 
-  /** Start a fresh thread whose composer holds the route question for today's session. */
-  const routeDraft = useTodayRouteDraft();
-  const handleSuggestRoute = useCallback(() => {
-    runComposerAction({ kind: 'draft', text: routeDraft });
-  }, [runComposerAction, routeDraft]);
+  /**
+   * A starter tapped in the empty thread: a fresh thread whose first line is
+   * the starter's postback, its label on the athlete's bubble. The athlete
+   * speaks first, so the agent posts no welcome offering the same starters
+   * over the answer (carnet#829).
+   */
+  const handleStarter = useCallback((starter: UseCaseStarter) => {
+    runComposerAction({ kind: 'send', text: starter.postback, display: starter.label });
+  }, [runComposerAction]);
 
   // The shell's own composer action — the `/groups/join/:code` deep link, which
   // lands on chat and sends `/group join CODE` as its first turn.
@@ -1481,10 +1515,9 @@ export default function ChatTab({
         emptyState={
           <ChatEmptyState
             compose={composeMenu(false)}
-            onOpenCommands={handleOpenCommands}
-            onSuggestRoute={handleSuggestRoute}
+            starters={starters ?? []}
+            onStarter={handleStarter}
             disabled={createConversation.isPending}
-            onNavigate={onNavigate}
             providerStatus={providerStatus}
           />
         }

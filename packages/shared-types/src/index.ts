@@ -92,6 +92,8 @@ export type {
   ListResponse,
   CommandEntry,
   CommandCatalogueResponse,
+  UseCaseStarter,
+  StartersResponse,
 } from './api.js';
 
 // Chat turn envelope (the terminal document of one turn, on every surface)

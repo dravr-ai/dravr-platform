@@ -46,6 +46,9 @@ pub mod athlete_clock;
 /// The athlete's state as the use-case starters read it (carnet#828).
 pub mod athlete_state;
 
+/// The use-case starters ranked from that state, worded for a surface.
+pub mod use_case_rank;
+
 /// Athlete physiology snapshot builder for the personalized-physiology layer.
 #[cfg(feature = "tools-verification")]
 pub mod athlete_snapshot;

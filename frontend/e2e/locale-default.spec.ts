@@ -22,7 +22,7 @@ test.describe('default locale', () => {
         window.localStorage.setItem('pierre_app_language', 'fr');
       } catch { /* */ }
     });
-    await setupDashboardMocks(page, { role: 'user' });
+    await setupDashboardMocks(page, { role: 'user', language: 'fr' });
     await loginToDashboard(page);
   });
 

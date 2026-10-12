@@ -18,7 +18,6 @@ import type {
   TrainingStatusResponse,
   TrainingVolumeResponse,
 } from '@pierre/shared-types';
-import { planDayOn } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   classifyApiError,
@@ -26,12 +25,10 @@ import {
   createHomePreferencesHook,
   readActivityRoute,
   recentActivitiesSync,
-  useDistanceUnit,
   useRequestsInFlight,
   type RecentActivitiesSync,
 } from '@pierre/ui-logic';
 import { athleteApi, providersApi } from '../services/api';
-import { planDayRouteDraft } from '../components/home/homeFormat';
 
 /**
  * The recent-activities read, one cache entry for every reader: Home's list,
@@ -350,32 +347,6 @@ export function useTrainingVolume() {
     queryKey: QUERY_KEYS.home.trainingVolume(),
     queryFn: () => athleteApi.getTrainingVolume(),
   });
-}
-
-/**
- * The question the empty chat suggests: a route for today's session.
- *
- * When the plan holds a session today in a sport with routes, the draft names
- * it — the day, the workout, its distance when the plan gives one — exactly
- * as Home's link does. With no plan, no session today, or the plan not yet
- * read, it is the plain question and the agent looks the session up itself.
- */
-export function useTodayRouteDraft(): string {
-  const { t, language } = useTranslation();
-  const unit = useDistanceUnit();
-  const plan = useTrainingPlan();
-  const response = plan.data;
-  if (response?.plan) {
-    try {
-      const named = planDayRouteDraft(t, language, response.today, planDayOn(response.plan, response.today), unit);
-      if (named !== null) return named;
-    } catch (error) {
-      // A `today` that is not a calendar day cannot be named; the plain
-      // question still can be asked.
-      if (!(error instanceof RangeError)) throw error;
-    }
-  }
-  return t('chat.quickRouteDraft');
 }
 
 /** What the Home page reads from the provider-status query. */

@@ -33,7 +33,8 @@ import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigati
 import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
-import { useProviderConnected, useTodayRouteDraft } from '../../hooks/useHome';
+import { useProviderConnected } from '../../hooks/useHome';
+import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
@@ -51,7 +52,6 @@ export function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
   const inputRef = useRef<TextInput>(null);
-  const routeDraft = useTodayRouteDraft();
 
   // UI State
   const [inputText, setInputText] = useState('');
@@ -69,6 +69,17 @@ export function ChatScreen() {
   const { providers: statusRows } = useProviderConnected();
   const headerProviderStatus = useMemo(() => providerStatusLine(t, statusRows, statusRows !== null), [statusRows, t]);
   const usageStatus = useUsageStatus();
+  // The starters the empty thread offers, read while it is the thread on
+  // screen: the new thread, which exists only once its first line is sent,
+  // with nothing in it yet and nothing on its way. An open thread whose
+  // messages are still loading is not empty, so opening one is never counted
+  // as a showing.
+  const starters = useEmptyThreadStarters(
+    conversations.currentConversation === null &&
+      !conversations.isLoading &&
+      !messagesHook.isSending &&
+      messagesHook.messages.length === 0,
+  );
   // The flow state behind the info sheet's "Participants" row. The tab bar's
   // "+" holds its own copy for the same thread, so "add someone to this
   // discussion" and "Participants" open the same control either way.
@@ -218,8 +229,10 @@ export function ChatScreen() {
       // else for the moment it starts in the athlete's language — so the
       // stored title is the one both clients print. The first line used to
       // become the title, so a thread was named after whatever was typed into
-      // it and a rename had to undo that.
-      const newConversation = await conversations.createConversation({});
+      // it and a rename had to undo that. The athlete speaks first here, so
+      // the agent the server binds posts no welcome: it would land in the
+      // same instant as the answer to the line being sent.
+      const newConversation = await conversations.createConversation({ athlete_speaks_first: true });
       if (!newConversation) return;
       conversationId = newConversation.id;
     }
@@ -411,7 +424,7 @@ export function ChatScreen() {
           inputRef={inputRef}
           sendText={sendText}
           composerOrigin={draftSeeded ? 'draft' : undefined}
-          routeDraft={routeDraft}
+          starters={starters}
         />
 
         <PromptDialog

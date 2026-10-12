@@ -1,5 +1,5 @@
-// ABOUTME: A thread created with an agent is read on open — the agent's welcome is already in it
-// ABOUTME: An agentless create keeps skipping the first read of a thread known to be empty
+// ABOUTME: A new thread is read on open — the agent's welcome is already in it
+// ABOUTME: Only a thread created to carry the line being sent skips its first read, being empty
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,14 +47,30 @@ describe('useConversations create', () => {
     expect(result.current.justCreatedConversationRef.current).toBeNull();
   });
 
-  it('skips the first read of an agentless thread, which is empty', async () => {
-    mockCreateConversation.mockResolvedValue({ id: 'conv-plain', title: 'New thread' });
+  // carnet#829: the server binds the athlete's own agent to a thread created
+  // without one, and that agent's welcome is in it too.
+  it('reads a thread created without an agent on open', async () => {
+    mockCreateConversation.mockResolvedValue({ id: 'conv-plain', title: 'New thread', agent_id: 'a1' });
     const { result } = render();
 
     await act(async () => {
       await result.current.createConversation({});
     });
 
-    expect(result.current.justCreatedConversationRef.current).toBe('conv-plain');
+    expect(result.current.justCreatedConversationRef.current).toBeNull();
+  });
+
+  // A thread created for the line being sent gets no welcome: it is empty,
+  // and a read still in flight when the line lands would wipe it.
+  it('skips the first read of a thread the athlete speaks first in', async () => {
+    mockCreateConversation.mockResolvedValue({ id: 'conv-first', title: 'New thread', agent_id: 'a1' });
+    const { result } = render();
+
+    await act(async () => {
+      await result.current.createConversation({ athlete_speaks_first: true });
+    });
+
+    expect(mockCreateConversation).toHaveBeenCalledWith({ athlete_speaks_first: true });
+    expect(result.current.justCreatedConversationRef.current).toBe('conv-first');
   });
 });

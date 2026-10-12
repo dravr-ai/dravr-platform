@@ -212,6 +212,19 @@ pub const KEY_AGENT_PROPOSAL_WELCOME: &str = "messaging.agent_proposal.welcome";
 pub const KEY_AGENT_PROPOSAL_WELCOME_GENERIC: &str = "messaging.agent_proposal.welcome_generic";
 /// Key: agent-proposal closing line inviting the user to reply with a number.
 pub const KEY_AGENT_PROPOSAL_FOOTER: &str = "messaging.agent_proposal.footer";
+/// Key: agent-proposal closing line on a channel that draws the agents as
+/// buttons — the athlete taps one rather than typing its number. No
+/// placeholders.
+pub const KEY_AGENT_PROPOSAL_FOOTER_BUTTONS: &str = "messaging.agent_proposal.footer_buttons";
+
+// ── Telegram bot profile keys ─────────────────────────────────────────────
+// Published at startup beside the `/` menu, per `language_code`: what
+// Telegram shows in an empty chat with the bot and on its profile.
+
+/// Key: the bot description Telegram shows in an empty chat. No placeholders.
+pub const KEY_TELEGRAM_BOT_DESCRIPTION: &str = "messaging.telegram.bot_description";
+/// Key: the one-line bot pitch on its profile and share link. No placeholders.
+pub const KEY_TELEGRAM_BOT_SHORT_DESCRIPTION: &str = "messaging.telegram.bot_short_description";
 
 // ── Agent welcome keys ────────────────────────────────────────────────────
 // Rendered when an agent is bound into a thread (carnet#735): the agent's
@@ -225,6 +238,9 @@ pub const KEY_AGENT_WELCOME_GREETING: &str = "messaging.agent_welcome.greeting";
 pub const KEY_AGENT_WELCOME_GREETING_NO_ROLE: &str = "messaging.agent_welcome.greeting_no_role";
 /// Key: the lead-in above the starter questions. No placeholders.
 pub const KEY_AGENT_WELCOME_STARTERS_TITLE: &str = "messaging.agent_welcome.starters_title";
+/// Key: what the coach can see and cannot do, said under a one-to-one
+/// welcome's greeting (carnet#829). No placeholders.
+pub const KEY_AGENT_WELCOME_CAN_SEE: &str = "messaging.agent_welcome.can_see";
 
 /// Key: the reply to a tapped suggestion that no longer resolves — the thread
 /// lost its agent, or the agent's examples changed since it was posted

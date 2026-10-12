@@ -176,7 +176,9 @@ pub struct CreateConversationRequest {
     #[serde(default)]
     pub model: Option<String>,
     /// Agent ID to attach to this conversation (optional). The agent's
-    /// system prompt is resolved at runtime from the `agents` table.
+    /// system prompt is resolved at runtime from the `agents` table. Omitted
+    /// on a thread with no `group_id`, the thread is bound to the athlete's
+    /// selected agent, else their own thread's default (carnet#829).
     #[serde(default)]
     pub agent_id: Option<String>,
     /// Coaching group ID to scope this conversation to (optional). When
@@ -185,6 +187,33 @@ pub struct CreateConversationRequest {
     /// summaries). The caller must be an active member of the group.
     #[serde(default)]
     pub group_id: Option<String>,
+    /// The caller creates the thread to send the athlete's first line into it
+    /// at once — the mobile composer creates its thread on the first send, and
+    /// a prompt queued before any thread existed goes out the moment one does.
+    /// The athlete speaks first, so the bound agent posts no welcome: its
+    /// starters would land in the same instant as the answer to a question
+    /// already asked. Its first reply introduces it instead (carnet#501).
+    #[serde(default)]
+    pub athlete_speaks_first: bool,
+}
+
+/// One use-case starter an empty thread offers (carnet#829).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StarterResponse {
+    /// The catalogue id.
+    pub id: String,
+    /// What the link shows, in the athlete's language.
+    pub label: String,
+    /// What a tap sends as the thread's first line: `uc:<slot>:<id>`, which
+    /// the turn resolves into the command or the question it stands for.
+    pub postback: String,
+}
+
+/// The starters an empty thread offers, ranked from the athlete's state.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StartersResponse {
+    /// At most three, in slot order.
+    pub starters: Vec<StarterResponse>,
 }
 
 /// Response for conversation creation

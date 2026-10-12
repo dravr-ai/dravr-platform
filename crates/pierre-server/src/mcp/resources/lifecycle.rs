@@ -124,7 +124,8 @@ use pierre_services::pricing_loader;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 #[cfg(feature = "client-messaging")]
 use pierre_services::telegram_bot_commands::{
-    publish_telegram_commands, CommandScope, PERSONAL_MARKER,
+    publish_telegram_commands, publish_telegram_descriptions, telegram_description_calls,
+    CommandScope, PERSONAL_MARKER,
 };
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
@@ -403,10 +404,14 @@ impl ServerContext {
             ));
             // Messenger's menu is the plain DM list in the frontmatter's language.
             let messenger_commands = registry.bot_command_list();
+            // The bot's description — the empty chat's text and the profile's
+            // one-line pitch — in the same languages as the menu (carnet#829).
+            let descriptions = telegram_description_calls(&strings, &SUPPORTED_LOCALES);
             let publish = tokio::spawn(async move {
                 for (commands, scope, language_code) in &lists {
                     publish_telegram_commands(commands, *scope, *language_code).await;
                 }
+                publish_telegram_descriptions(&descriptions).await;
                 // Messenger has no group thread, so its menu is the DM list —
                 // the same one, unmarked.
                 // LIMITATION(registre#129): `publish_messenger_menu` and

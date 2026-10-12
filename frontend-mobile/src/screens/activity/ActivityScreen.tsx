@@ -255,7 +255,8 @@ function ActivityThread({
     if (target === null) {
       if (typed) line = activityFirstLine(t, naming, trimmed);
       try {
-        const created = await conversations.createConversation({});
+        // Created for the line being sent: the agent posts no welcome over it.
+        const created = await conversations.createConversation({ athlete_speaks_first: true });
         target = created.id;
       } catch (err) {
         // Nothing was sent: the question goes back where it was typed, and

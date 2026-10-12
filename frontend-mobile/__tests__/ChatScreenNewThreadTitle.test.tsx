@@ -210,7 +210,9 @@ describe('ChatScreen new-thread title', () => {
     // that stored title. The old title was the first line truncated to 50
     // characters, which is what a thread named after its own question looks
     // like; the one after that was a dated stamp each client spelled itself.
-    expect(params).toEqual({});
+    // The thread is created for the line being sent, so the athlete speaks
+    // first and its agent posts no welcome over the answer (carnet#829).
+    expect(params).toEqual({ athlete_speaks_first: true });
     expect(params.title).toBeUndefined();
 
     // The line itself is still the turn, sent on the thread that was created.

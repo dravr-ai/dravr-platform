@@ -61,6 +61,11 @@ use outbound_send::{
     send_channel_response, send_channel_responses, send_private_channel_response,
     OutboundPersistSpec,
 };
+/// The text and type of a channel message's content, as the ledgers read them.
+mod content;
+/// The tapped button's label, echoed where a Telegram inline tap posts nothing.
+mod tap_echo;
+use content::{content_body_text, content_type_label};
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
 
@@ -93,7 +98,7 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 use dravr_canot::channel::MessagingChannel;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::GroupRespondMode;
-use pierre_core::models::messaging::{ChannelType, IncomingMessage, MessageContent};
+use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_database::backends::{InsertMessageParams, MessagingRepository};
@@ -666,6 +671,18 @@ async fn persist_single_message(
         tenant_id
     };
 
+    // A tapped inline button posts nothing visible: its label is echoed first.
+    tap_echo::echo_tapped_button(
+        resources,
+        tenant_id,
+        channel,
+        adapter,
+        message,
+        session_tenant_id,
+        &session,
+    )
+    .await;
+
     // The athlete's stored locale for this channel, resolved once and shared by
     // every reply this turn can produce — the reset confirmation, an intake or
     // agent-choice answer, and every downstream stage of a dispatched turn
@@ -1214,27 +1231,5 @@ async fn store_inbound_message(
             );
             Err(())
         }
-    }
-}
-
-/// Extract a content type label from the message content variant
-fn content_type_label(content: &MessageContent) -> &'static str {
-    match content {
-        MessageContent::Text { .. } => "text",
-        MessageContent::RichText { .. } => "rich_text",
-        MessageContent::Media { .. } => "media",
-        MessageContent::Location { .. } => "location",
-        MessageContent::Card { .. } => "card",
-    }
-}
-
-/// Extract the text body from the message content (if applicable)
-pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
-    match content {
-        MessageContent::Text { body }
-        | MessageContent::RichText { body }
-        | MessageContent::Card { body, .. } => Some(body.clone()),
-        MessageContent::Media { caption, .. } => caption.clone(),
-        MessageContent::Location { .. } => None,
     }
 }

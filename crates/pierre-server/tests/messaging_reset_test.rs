@@ -76,7 +76,7 @@ mod reset_locale {
     };
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
-    use pierre_core::models::{MessageRecord, AGENT_WELCOME_FINISH_REASON};
+    use pierre_core::models::{MessageRecord, PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -1048,8 +1048,9 @@ mod reset_locale {
 
     /// `/reset` on an agent-bound DM (carnet#750): the athlete hears the
     /// confirmation, then the agent opening the fresh thread with its starters
-    /// listed — the same welcome as any new thread — and the row is in the
-    /// thread the session now names, not the one it left.
+    /// as buttons — the same welcome as any new thread, a card on Telegram
+    /// (carnet#829) — and the row is in the thread the session now names, not
+    /// the one it left.
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_of_an_agent_thread_sends_the_agent_welcome_after_the_confirmation() {
@@ -1129,15 +1130,13 @@ mod reset_locale {
         );
         assert_eq!(bodies[0], en_confirm, "the confirmation goes first");
         assert!(bodies[1].contains("Tempo Agent"), "{}", bodies[1]);
-        // Starters ranked from the athlete's state lead (carnet#828); the
-        // agent's first example fills a slot they leave.
-        assert_eq!(bodies[1].matches("\n- ").count(), 3, "{}", bodies[1]);
-        assert!(
-            bodies[1].contains(WELCOME_STARTERS[0]),
-            "{:?} missing from {}",
-            WELCOME_STARTERS[0],
-            bodies[1]
-        );
+        let types: Vec<String> = e2e
+            .outbound_types_for_session(&session)
+            .await
+            .into_iter()
+            .skip(usize::try_from(bound).unwrap())
+            .collect();
+        assert_eq!(types[1], "card", "the starters ride as buttons: {types:?}");
         assert!(!bodies[1].contains("uc:") && !bodies[1].contains("ex:"));
 
         let fresh = e2e
@@ -1152,15 +1151,34 @@ mod reset_locale {
         };
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
-        assert_eq!(
-            welcomes(
-                chat.get_messages(&fresh, &user, member.home_tenant)
-                    .await
+        let fresh_rows = chat
+            .get_messages(&fresh, &user, member.home_tenant)
+            .await
+            .unwrap();
+        // Starters ranked from the athlete's state lead (carnet#828); the
+        // agent's first example fills a slot they leave.
+        let buttons: Vec<String> = fresh_rows
+            .iter()
+            .filter(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
+            .filter_map(|row| row.content_blocks.as_deref())
+            .flat_map(|blocks| {
+                serde_json::from_str::<Vec<PersistedReplyBlock>>(blocks)
                     .unwrap()
-            ),
-            1,
-            "the agent opened the fresh thread"
+                    .into_iter()
+            })
+            .flat_map(|block| match block {
+                PersistedReplyBlock::Actions { actions, .. } => actions,
+                _ => Vec::new(),
+            })
+            .map(|action| action.label)
+            .collect();
+        assert_eq!(buttons.len(), 3, "{buttons:?}");
+        assert!(
+            buttons.iter().any(|label| label == WELCOME_STARTERS[0]),
+            "{:?} missing from {buttons:?}",
+            WELCOME_STARTERS[0]
         );
+        assert_eq!(welcomes(fresh_rows), 1, "the agent opened the fresh thread");
         assert_eq!(
             welcomes(
                 chat.get_messages(&before, &user, member.home_tenant)

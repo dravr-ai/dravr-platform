@@ -15,6 +15,7 @@ import type {
   ClaimVerdict,
   MessageOrigin,
   TurnSendOptions,
+  UseCaseStarter,
 } from '@pierre/shared-types';
 
 import { Sheet } from '../../components/ui';
@@ -58,10 +59,10 @@ export interface ChatThreadProps {
   /** Drawn above the transcript, scrolling with it. */
   header?: React.ReactElement;
   /**
-   * The route question the empty thread suggests, worded by the host for
-   * today's session. A host that leaves it out gets no suggestion.
+   * The use-case starters the empty thread offers, ranked for the athlete. A
+   * host that leaves them out draws the empty thread without them.
    */
-  routeDraft?: string;
+  starters?: UseCaseStarter[];
   /** How the transcript follows its content; the list's own scroll-to-end when absent. */
   onScrollToBottom?: () => void;
   /**
@@ -92,7 +93,7 @@ export function ChatThread({
   sendText,
   composerOrigin,
   header,
-  routeDraft,
+  starters,
   onScrollToBottom,
   conversationTitle,
 }: ChatThreadProps) {
@@ -128,18 +129,20 @@ export function ChatThread({
   }, [quotaNotice, applyNotice]);
 
   // Whether the composer holds a draft this thread's own affordances put there
-  // — the suggested route, "back up this claim" — so its send is reported as
-  // one (carnet#828). A draft the athlete erased entirely is no longer one.
+  // — "back up this claim" — so its send is reported as one (carnet#828). A
+  // draft the athlete erased entirely is no longer one.
   const [threadDrafted, setThreadDrafted] = useState(false);
 
-  // The suggested question lands in the composer, focused, and the send is
-  // left to the athlete — the shape a Home draft takes.
-  const handleSuggestRoute = useCallback(() => {
-    if (routeDraft === undefined) return;
-    setThreadDrafted(true);
-    onChangeInputText(routeDraft);
-    inputRef.current?.focus();
-  }, [routeDraft, onChangeInputText, inputRef]);
+  // A starter tapped in the empty thread is sent at once: its postback, under
+  // its label. The host opens the thread for it with the athlete speaking
+  // first, so the agent posts no welcome offering the same starters again
+  // over the answer (carnet#829).
+  const handleStarter = useCallback(
+    (starter: UseCaseStarter) => {
+      void sendText(starter.postback, { display: starter.label });
+    },
+    [sendText],
+  );
   useEffect(() => {
     if (inputText === '') setThreadDrafted(false);
   }, [inputText]);
@@ -334,7 +337,8 @@ export function ChatThread({
         onActionClick={handleActionClick}
         onShowVerdict={handleShowVerdict}
         header={header}
-        onSuggestRoute={routeDraft === undefined ? undefined : handleSuggestRoute}
+        starters={starters}
+        onStarter={handleStarter}
       />
 
       <ChatProgressStrip statusText={messagesHook.progressText} />

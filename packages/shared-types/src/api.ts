@@ -274,6 +274,30 @@ export interface CommandEntry {
   domain: string;
 }
 
+/**
+ * One use-case starter an empty thread offers (carnet#829).
+ *
+ * Mirrors `StarterResponse` in `routes/chat/dto.rs`.
+ */
+export interface UseCaseStarter {
+  /** The catalogue id (`connect`, `last_workout`). */
+  id: string;
+  /** What the link shows, in the athlete's language. */
+  label: string;
+  /**
+   * What a tap sends as the thread's first line: `uc:<slot>:<id>`. The server
+   * resolves it into the command or the question it stands for, so the
+   * athlete's bubble shows `label` until the turn echoes those words.
+   */
+  postback: string;
+}
+
+/** Response for `GET /api/chat/starters`. Mirrors `StartersResponse`. */
+export interface StartersResponse {
+  /** At most three, ranked from the athlete's state, in slot order. */
+  starters: UseCaseStarter[];
+}
+
 /** Response for `GET /api/commands`. */
 export interface CommandCatalogueResponse {
   /**

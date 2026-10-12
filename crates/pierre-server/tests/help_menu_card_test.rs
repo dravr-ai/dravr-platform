@@ -1,5 +1,5 @@
-// ABOUTME: /help is the cross-channel menu — a card with native buttons, not a wall of text
-// ABOUTME: and in a shared room it marks the commands that act on one athlete alone
+// ABOUTME: /help is the cross-channel menu — a card with native buttons, not a wall of text: the athlete's ranked
+// ABOUTME: starters in their own thread, the command shortcuts in a room, where it also marks the personal commands
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,11 +14,17 @@
 //! natively (a Telegram inline keyboard, Slack Block Kit, `WhatsApp` reply
 //! buttons, a Messenger template).
 //!
+//! In the athlete's own thread the buttons are the starters ranked from their
+//! state — the ones their agent's welcome leads with — each posting back its
+//! `uc:` postback (carnet#829). A room reads no one athlete's state, so it
+//! keeps the command shortcuts.
+//!
 //! The assertions are on content, not on `is_ok()`: a handler that quietly
 //! stopped returning a card, or stopped marking personal commands, would
 //! still answer successfully with a plausible-looking body.
 
 use anyhow::Result;
+use chrono::Utc;
 use dravr_canot::commands::{CommandRegistry, CommandResponse};
 use pierre_commands::help::{HelpHandler, PERSONAL_MARKER};
 use pierre_commands::plan::PlanShareHandler;
@@ -116,9 +122,96 @@ async fn run(is_direct_message: bool) -> Result<CommandResponse> {
         .await?)
 }
 
+/// The athlete's own thread offers the starters ranked for them: a fresh
+/// athlete with nothing connected is offered "Connect my watch" first, worded
+/// in their language, posting back its slot — never a command line.
 #[tokio::test]
-async fn help_comes_back_as_a_card_with_tappable_shortcuts() -> Result<()> {
-    let response = run(true).await?;
+async fn help_in_a_personal_thread_offers_the_starters_ranked_for_the_athlete() -> Result<()> {
+    let (resources, user_id, tenant) = setup().await?;
+    let response = handler()
+        .execute(&ctx(&resources, user_id, tenant, true))
+        .await?;
+
+    assert!(
+        response.is_card(),
+        "/help stays a card: title={:?} actions={}",
+        response.card_title,
+        response.actions.len()
+    );
+    assert!(
+        !response.actions.is_empty() && response.actions.len() <= 3,
+        "1-3 starters, got {}",
+        response.actions.len()
+    );
+    let connect = &response.actions[0];
+    assert_eq!(connect.action_type, "postback");
+    assert_eq!(connect.value, "uc:0:connect");
+    assert_eq!(
+        connect.label,
+        resources
+            .mcp
+            .messaging_strings_registry
+            .get("use_cases.connect.label", "en")
+    );
+    for (slot, action) in response.actions.iter().enumerate() {
+        assert!(
+            action.value.starts_with(&format!("uc:{slot}:")),
+            "starter {:?} posts back its slot, got {:?}",
+            action.label,
+            action.value
+        );
+        assert!(
+            !action.label.starts_with('/'),
+            "a starter is worded as a use case, not a command: {:?}",
+            action.label
+        );
+    }
+    Ok(())
+}
+
+/// An athlete for whom no starter fits any more still gets /help's buttons:
+/// once every starter a newcomer could be offered has been tapped, the card
+/// falls back to the command shortcuts rather than losing its buttons.
+#[tokio::test]
+async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_shortcuts() -> Result<()>
+{
+    let (resources, user_id, tenant) = setup().await?;
+    // Every starter a newcomer's state admits is a `once` starter, retired by
+    // its tap whatever the agent's domain.
+    for id in ["connect", "about_me", "can_see", "zone2", "fuel"] {
+        resources
+            .common
+            .repos
+            .use_case_exposures
+            .record_use_case_tapped(tenant, user_id, id, Utc::now())
+            .await?;
+    }
+
+    let response = handler()
+        .execute(&ctx(&resources, user_id, tenant, true))
+        .await?;
+
+    assert!(
+        response.is_card(),
+        "/help keeps its buttons: title={:?} actions={}",
+        response.card_title,
+        response.actions.len()
+    );
+    let values: Vec<&str> = response
+        .actions
+        .iter()
+        .map(|action| action.value.as_str())
+        .collect();
+    assert!(
+        !values.is_empty() && values.iter().all(|value| value.starts_with('/')),
+        "the command shortcuts, not starters: {values:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn help_in_a_room_comes_back_as_a_card_with_command_shortcuts() -> Result<()> {
+    let response = run(false).await?;
 
     assert!(
         response.is_card(),

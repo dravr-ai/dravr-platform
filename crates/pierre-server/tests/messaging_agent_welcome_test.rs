@@ -1,5 +1,5 @@
-// ABOUTME: A messaging athlete who binds an agent hears its welcome as text, starters listed, after the confirmation
-// ABOUTME: Drives /agent add and the proposal's numeric pick over a signed Telegram webhook and reads the ledger
+// ABOUTME: A messaging athlete who binds an agent hears its welcome as a card, its starters the buttons, after the confirmation
+// ABOUTME: Drives /agent add, the proposal's numeric pick and a tapped command starter over a signed Telegram webhook
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,15 @@
 //! carnet#735 on the messaging surfaces.
 //!
 //! A channel gets the agent's welcome as one more message after the command's
-//! answer, its starter questions written out as a list — buttons would not fit
-//! Telegram's 64-byte callback data. The same row is in the thread, so the app
-//! draws it with buttons when the athlete opens the DM there.
+//! answer. On a channel that draws buttons it is a card whose buttons are the
+//! starters, each posting back what the app's chip posts — a `uc:`/`ex:`
+//! postback well inside Telegram's 64-byte callback data — so a tap is
+//! resolved and counted the same way (carnet#829). The same row is in the
+//! thread, so the app draws the same buttons when the athlete opens the DM
+//! there.
+//!
+//! A tapped starter that runs a command takes the road a typed command takes
+//! on the channel: it is answered by the command, before the turn.
 //!
 //! The proposal's "Reply with a number" is the messaging « Démarrer »: the pick
 //! now binds the thread at once and the agent opens it, instead of the
@@ -38,8 +44,11 @@ mod messaging_welcome {
     use pierre_commands::agent_create::AGENT_PROPOSAL_ACTION;
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::groups::GroupRespondMode;
-    use pierre_core::models::AGENT_WELCOME_FINISH_REASON;
+    use pierre_core::models::onboarding::GuidedFlow;
+    use pierre_core::models::{PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
     use pierre_database::repositories::{MessagingRepository, PendingGuardianAction};
+
+    use crate::helpers::notify_capture::{capture_notify, only};
 
     const TITLE: &str = "Tempo Agent";
     const STARTERS: [&str; 3] = [
@@ -123,30 +132,68 @@ mod messaging_welcome {
             .collect()
     }
 
-    /// A welcome as a channel gets it lists three starters: those ranked from
-    /// the athlete's state lead (carnet#828), and the agent's first example
-    /// fills a slot they leave. No postback reaches the text.
-    fn assert_lists_starters(welcome: &str) {
-        assert_eq!(welcome.matches("\n- ").count(), 3, "{welcome}");
-        assert!(
-            welcome.contains(STARTERS[0]),
-            "{:?} missing from {welcome}",
-            STARTERS[0]
-        );
+    /// The postbacks the welcome row of `conversation` carries, slot by slot:
+    /// the buttons a channel that draws them sends, and the app's chips.
+    async fn welcome_postbacks(e2e: &CommandE2e, m: &Member, conversation: &str) -> Vec<String> {
+        let row = e2e
+            .resources
+            .common
+            .repos
+            .chat
+            .get_messages(conversation, &m.user_id.to_string(), m.home_tenant)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
+            .expect("the agent welcomed the thread");
+        let blocks: Vec<PersistedReplyBlock> = serde_json::from_str(
+            row.content_blocks
+                .as_deref()
+                .expect("the welcome carries its starters"),
+        )
+        .unwrap();
+        blocks
+            .into_iter()
+            .flat_map(|block| match block {
+                PersistedReplyBlock::Actions { actions, .. } => {
+                    actions.into_iter().map(|action| action.value).collect()
+                }
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The welcome as Telegram gets it: a card, its body the greeting and no
+    /// postback, its buttons the three starters the thread's row carries —
+    /// those ranked from the athlete's state lead (carnet#828), and the
+    /// agent's first example fills a slot they leave. The starters were
+    /// counted as shown, since a tap can reach them.
+    async fn assert_welcome_card(e2e: &CommandE2e, m: &Member, session: &str, conversation: &str) {
+        let bodies = e2e.outbound_bodies_for_session(session).await;
+        let types = e2e.outbound_types_for_session(session).await;
+        let welcome = bodies.last().expect("the welcome was ledgered");
+        assert_eq!(types.last().map(String::as_str), Some("card"), "{types:?}");
+        assert!(welcome.contains(TITLE), "{welcome}");
         assert!(
             !welcome.contains("uc:") && !welcome.contains("ex:"),
             "{welcome}"
         );
-    }
-
-    /// The last ledgered message lists the starters, after one naming the
-    /// agent — the welcome follows the answer that bound it.
-    fn assert_welcome_follows(bodies: &[String]) {
-        let (welcome, before) = bodies.split_last().expect("the welcome was ledgered");
-        assert_lists_starters(welcome);
+        let postbacks = welcome_postbacks(e2e, m, conversation).await;
+        assert_eq!(postbacks.len(), 3, "{postbacks:?}");
         assert!(
-            before.last().is_some_and(|reply| reply.contains(TITLE)),
-            "the answer naming the agent precedes the welcome: {before:?}"
+            postbacks.contains(&format!("ex:{}:0", postbacks.len() - 1)),
+            "the first example fills the slot the ranked starters leave: {postbacks:?}"
+        );
+        assert!(
+            !e2e.resources
+                .common
+                .repos
+                .use_case_exposures
+                .use_case_exposures(m.home_tenant, m.user_id)
+                .await
+                .unwrap()
+                .is_empty(),
+            "starters a tap can reach are counted as shown"
         );
     }
 
@@ -161,7 +208,16 @@ mod messaging_welcome {
         e2e.send_dm(&member, &format!("/agent add {agent}")).await;
 
         e2e.wait_outbound_for_session(&session, baseline + 2).await;
-        assert_welcome_follows(&e2e.outbound_bodies_for_session(&session).await);
+        let bodies = e2e.outbound_bodies_for_session(&session).await;
+        assert!(
+            bodies
+                .iter()
+                .rev()
+                .nth(1)
+                .is_some_and(|reply| reply.contains(TITLE)),
+            "the answer naming the agent precedes the welcome: {bodies:?}"
+        );
+        assert_welcome_card(&e2e, &member, &session, &conversation).await;
         let rows = welcome_rows(&e2e, &member, &conversation).await;
         assert_eq!(rows.len(), 1, "one welcome row in the DM thread");
         assert!(rows[0].contains(TITLE));
@@ -207,8 +263,66 @@ mod messaging_welcome {
         e2e.wait_outbound_for_session(&session, baseline + 1).await;
         let rows = welcome_rows(&e2e, &member, &conversation).await;
         assert_eq!(rows.len(), 1, "the picked agent opened the thread");
-        let bodies = e2e.outbound_bodies_for_session(&session).await;
-        assert_lists_starters(bodies.last().unwrap());
+        assert_welcome_card(&e2e, &member, &session, &conversation).await;
+    }
+
+    /// A tapped starter that runs a command is answered by the command on the
+    /// channel's own road, before the turn: `uc:<slot>:about_me` runs
+    /// `/pillars` — the walk opens, no model runs, nothing is stored for the
+    /// pipeline — and the tap is counted, for the starter it was.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn a_tapped_command_starter_runs_its_command_through_the_channel() {
+        let e2e = start().await;
+        let (member, _session, conversation) = primed_member(&e2e).await;
+        // Retire the intake the DM opened with, so the walk the command opens
+        // is the only one in the thread.
+        e2e.resources
+            .common
+            .repos
+            .chat
+            .set_conversation_onboarding_state(&conversation, None, member.home_tenant)
+            .await
+            .unwrap();
+        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
+        let (events, _guard) = capture_notify();
+
+        let outcome = e2e.send_dm(&member, "uc:1:about_me").await;
+
+        assert_eq!(
+            outcome.messages_stored(),
+            0,
+            "answered as a command, never stored for the pipeline"
+        );
+        let state = e2e
+            .onboarding_state(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("/pillars opened its walk");
+        assert_eq!(state.flow, GuidedFlow::Pillars);
+        assert_eq!(
+            e2e.llm.turn_calls.load(Ordering::SeqCst),
+            turns_before,
+            "no model ran"
+        );
+        let tapped = only(&events, "suggestion.tapped");
+        assert_eq!(tapped.field("use_case"), "about_me");
+        assert_eq!(tapped.field("position"), "1");
+        assert_eq!(tapped.field("source"), "state");
+        assert_eq!(tapped.field("channel"), "telegram");
+        let exposures = e2e
+            .resources
+            .common
+            .repos
+            .use_case_exposures
+            .use_case_exposures(member.home_tenant, member.user_id)
+            .await
+            .unwrap();
+        assert!(
+            exposures
+                .iter()
+                .any(|e| e.use_case_id == "about_me" && e.tapped_at.is_some()),
+            "the tap retires a once-only starter: {exposures:?}"
+        );
     }
 
     /// Regression: the pick never spent the proposal, so every later bare

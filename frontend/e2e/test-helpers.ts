@@ -4,6 +4,8 @@
 // ABOUTME: Shared test helper functions for Playwright E2E tests.
 // ABOUTME: Provides reusable authentication mocks and login helpers.
 
+import fs from 'fs';
+import path from 'path';
 import type { Page, Route } from '@playwright/test';
 
 interface UserOptions {
@@ -25,6 +27,13 @@ interface UserOptions {
    * while it is still in flight.
    */
   skipProvidersRoute?: boolean;
+  /**
+   * The athlete's language, which the server words its own content in — the
+   * empty thread's starters (`GET /api/chat/starters`). English when absent;
+   * a spec that switches the app to another language passes it here too, so
+   * the mocked server agrees with the chrome it is swept against.
+   */
+  language?: string;
 }
 
 /**
@@ -220,6 +229,32 @@ export async function fulfillCalendar(route: Route, mock: CalendarMock) {
   });
 }
 
+/** The use cases every mocked dashboard is offered, in rank order. */
+const MOCK_STARTER_IDS = ['connect', 'about_me', 'can_see'];
+
+/**
+ * The starters `GET /api/chat/starters` answers, worded in `language` as the
+ * server words them: each label is the use case's own in the shared corpus.
+ * Read from disk rather than imported, as the locale sweep reads it, since
+ * Playwright's loader refuses the package's JSON imports.
+ */
+function mockStarters(language = 'en'): { id: string; label: string; postback: string }[] {
+  const corpus = JSON.parse(
+    fs.readFileSync(
+      path.resolve(process.cwd(), '../packages/i18n/src/locales', language, 'translation.json'),
+      'utf-8',
+    ),
+  ) as { use_cases: Record<string, { label: string }> };
+  return MOCK_STARTER_IDS.map((id, slot) => ({
+    id,
+    label: corpus.use_cases[id].label,
+    postback: `uc:${slot}:${id}`,
+  }));
+}
+
+/** The starters an English-speaking mocked dashboard is offered. */
+export const MOCK_STARTERS = mockStarters('en');
+
 /**
  * Sets up common API mocks for authenticated dashboard access.
  * This must be called BEFORE navigating to any page.
@@ -231,6 +266,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     displayName = 'Test Admin',
     status = 'active',
     skipProvidersRoute = false,
+    language = 'en',
   } = userOptions;
 
   // Theme pin + feature-flag stubs shared with spec-local helpers.
@@ -332,6 +368,17 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+    });
+  });
+
+  // The use-case starters the empty thread offers (carnet#829), as the server
+  // ranks them for an athlete with nothing connected yet, in their language.
+  const starters = mockStarters(language);
+  await page.route('**/api/chat/starters', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ starters }),
     });
   });
 

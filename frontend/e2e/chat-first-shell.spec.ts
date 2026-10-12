@@ -267,7 +267,39 @@ test.describe('Chat-first shell', () => {
     const empty = page.getByTestId('chat-empty-state');
     await expect(empty).toBeVisible({ timeout: 10000 });
     await expect(empty.getByText('Pick a chat, or start one')).toBeVisible();
-    await expect(page.getByTestId('chat-empty-commands')).toBeVisible();
+    await expect(page.getByTestId('chat-empty-starter-connect')).toBeVisible();
+  });
+
+  test('a starter opens a thread whose first line is its postback, with no welcome', async ({ page }) => {
+    const { created } = await setupShellMocks(page);
+    // No thread yet, so Home opens on the empty thread; a create still reaches
+    // the shell's POST mock, which records it.
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
+      if (request.method() !== 'GET') return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+      });
+    });
+    const sent: string[] = [];
+    await page.route('**/api/chat/conversations/conv-new/messages', async (route, request) => {
+      if (request.method() === 'POST') {
+        sent.push((request.postDataJSON() as { content: string }).content);
+        await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
+    });
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+    await openHome(page);
+
+    await page.getByTestId('chat-empty-starter-about_me').click();
+
+    await expect.poll(() => created.length).toBe(1);
+    expect(created[0].body).toMatchObject({ athlete_speaks_first: true });
+    await expect.poll(() => sent, { timeout: 10000 }).toEqual(['uc:1:about_me']);
   });
 
   test('the list row carries its unread count, preview and time', async ({ page }) => {

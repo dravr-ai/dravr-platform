@@ -31,6 +31,9 @@ export interface CreateConversationParams {
   title?: string;
   agent_id?: string;
   group_id?: string;
+  /** The thread is created to carry the line being sent: the agent bound to
+   *  it posts no welcome, so the new thread holds nothing to read yet. */
+  athlete_speaks_first?: boolean;
 }
 
 export interface ConversationsActions {
@@ -102,10 +105,12 @@ export function useConversations(): ConversationsState & ConversationsActions {
         throw new Error(t('app.invalidConversationResponse'));
       }
       setConversations(prev => [conversation, ...prev]);
-      // An empty thread needs no first read. One created with an agent is not
-      // empty: the agent's welcome is already in it, so it loads like any
-      // other thread.
-      justCreatedConversationRef.current = params.agent_id ? null : conversation.id;
+      // An empty thread needs no first read — a read still in flight when the
+      // first line is sent would land after it and wipe it. A thread created
+      // for the line being sent is empty: its agent posts no welcome. Any
+      // other new thread is not: the server binds an agent to it, whose
+      // welcome is already there, so it loads like any other thread.
+      justCreatedConversationRef.current = params.athlete_speaks_first ? conversation.id : null;
       setCurrentConversation(conversation);
       invalidateConversationList();
       return conversation;

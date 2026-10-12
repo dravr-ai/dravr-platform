@@ -34,7 +34,6 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
 use pierre_core::errors::AppResult;
@@ -64,9 +63,7 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{
-    self, Postback, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME,
-};
+use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext, SURFACE_AGENT_WELCOME};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
@@ -243,6 +240,9 @@ pub struct SlashRequest<'a> {
     /// The chat surface the command was typed on, reported with the starters
     /// of an agent welcome the command posts.
     pub surface: SurfaceId,
+    /// Whether that surface draws a welcome's starters as buttons. See
+    /// [`WelcomeTarget::renders_buttons`].
+    pub renders_buttons: bool,
 }
 
 /// Run one chat turn.
@@ -351,6 +351,7 @@ async fn execute_turn(
             origin: request.origin,
             transport: request.transport,
             surface: profile.surface,
+            renders_buttons: profile.render.blocks.action_buttons,
         },
     )
     .await?
@@ -661,6 +662,7 @@ async fn welcome_if_bound(
         agent_tenant_id: request.tenant_id,
         locale: request.locale,
         surface: request.surface,
+        renders_buttons: request.renders_buttons,
     };
     match post_agent_welcome(&ctx.repos, &ctx.messaging_strings_registry, target).await {
         Ok(welcome) => welcome,
@@ -705,7 +707,8 @@ async fn resolve_suggestion_tap(
         Resolution::NotAPostback => Ok(None),
         Resolution::Resolved { content, postback } => {
             let user_id = request.user_id.to_string();
-            suggestions::emit_tapped(
+            suggestions::record_tap(
+                &ctx.repos,
                 &SuggestionEvent {
                     user_id: &user_id,
                     tenant_id: request.conversation_tenant_id,
@@ -713,19 +716,10 @@ async fn resolve_suggestion_tap(
                     channel: profile.surface.as_str(),
                 },
                 &postback,
-            );
-            if let Postback::UseCase { id, .. } = &postback {
-                // Best-effort: an unrecorded tap only lets the starter be
-                // offered once more than it should.
-                if let Err(e) = ctx
-                    .repos
-                    .use_case_exposures
-                    .record_use_case_tapped(request.tool_tenant_id, request.user_id, id, Utc::now())
-                    .await
-                {
-                    warn!(error = %e, use_case = %id, "a starter tap could not be recorded");
-                }
-            }
+                request.tool_tenant_id,
+                request.user_id,
+            )
+            .await;
             request.content = content;
             request.input_source = InputSource::UseCase;
             Ok(None)

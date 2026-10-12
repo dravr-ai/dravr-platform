@@ -16,7 +16,9 @@ import type {
   Message,
   MessageFeedbackEntry,
   MessageOrigin,
+  StartersResponse,
   TurnEnvelope,
+  UseCaseStarter,
 } from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
@@ -40,6 +42,7 @@ export type {
   Message,
   MessageFeedbackEntry,
   TurnEnvelope,
+  UseCaseStarter,
 };
 
 export interface ConversationsResponse {
@@ -195,6 +198,11 @@ export interface CreateConversationOptions {
    *  role-aware summaries). The caller must be an active member of
    *  the group; the REST endpoint rejects non-members with 403. */
   group_id?: string;
+  /** The thread is created to carry the athlete's first line at once (a
+   *  composer that creates its thread on send, a prompt queued before any
+   *  thread existed). The agent bound to it then posts no welcome — the
+   *  athlete spoke first, and its first reply introduces it. */
+  athlete_speaks_first?: boolean;
 }
 
 /**
@@ -232,6 +240,19 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         : ENDPOINTS.COMMANDS;
       const response = await axios.get<CommandCatalogueResponse>(url);
       return response.data.commands;
+    },
+
+    /**
+     * The use-case starters an empty thread offers, ranked from the athlete's
+     * state for the agent a new thread would be bound to — at most three.
+     *
+     * Each read counts as one showing of them, which is how the server
+     * retires a starter the athlete keeps passing over: ask once per time
+     * the empty thread is drawn, not on every focus.
+     */
+    async listStarters(): Promise<UseCaseStarter[]> {
+      const response = await axios.get<StartersResponse>(ENDPOINTS.CHAT.STARTERS);
+      return response.data.starters;
     },
 
     /**

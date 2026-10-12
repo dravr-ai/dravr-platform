@@ -52,6 +52,8 @@ export const ENDPOINTS = {
     /** Advance (POST) or clear (DELETE) the caller's read marker on a conversation */
     READ: (id: string) => `/api/chat/conversations/${id}/read`,
     STOP: (id: string) => `/api/chat/conversations/${id}/stop`,
+    /** The use-case starters an empty thread offers, ranked from the athlete's state */
+    STARTERS: '/api/chat/starters',
   },
 
   // ==================== SLASH COMMANDS ====================

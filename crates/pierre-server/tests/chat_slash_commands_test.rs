@@ -618,6 +618,11 @@ async fn agent_list_shows_installed_agents_with_handles_and_no_uninstalled_syste
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-list@test.com").await;
     let own = seed_agent(&resources, user_id, tenant_id, "My Own Coach", "Mine.").await;
     let installed = install_recovery_agent(&resources, user_id, tenant_id).await;
+    // The thread is opened before the uninstalled agent exists: a thread
+    // created without an agent is bound to the athlete's default one
+    // (carnet#829), and the agent answering their thread is on their shelf.
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
     // A system agent every tenant can see — visible to `/discover`, absent
     // from the shelf until it is installed.
     let uninstalled = resources
@@ -640,8 +645,6 @@ async fn agent_list_shows_installed_agents_with_handles_and_no_uninstalled_syste
         .await
         .unwrap();
 
-    let router = ChatRoutes::routes(Arc::clone(&resources));
-    let conv_id = create_conversation(router.clone(), &auth).await;
     let body = send_command(router, &auth, &conv_id, "/coach").await;
 
     let text = &body.assistant.message.content;
@@ -765,6 +768,13 @@ async fn agent_add_by_handle_in_chat_binds_the_conversation() {
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;
+    // Created without an agent, the thread holds the athlete's own default —
+    // here the tenant's system agent (carnet#829). A refused add leaves it be.
+    let created_with = conversation_agent(&resources, &conv_id, user_id, tenant_id).await;
+    assert_eq!(
+        created_with.as_deref(),
+        Some(uninstalled_system.id.to_string().as_str())
+    );
 
     let body = send_command(router.clone(), &auth, &conv_id, "/coach add @nobody-here").await;
     assert!(
@@ -774,7 +784,7 @@ async fn agent_add_by_handle_in_chat_binds_the_conversation() {
     );
     assert_eq!(
         conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
-        None,
+        created_with,
         "an unknown handle binds nothing"
     );
 
@@ -789,7 +799,7 @@ async fn agent_add_by_handle_in_chat_binds_the_conversation() {
     .await;
     assert_eq!(
         conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
-        None,
+        created_with,
         "a coach off the shelf binds nothing: {}",
         body.assistant.message.content
     );

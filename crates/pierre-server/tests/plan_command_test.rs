@@ -1538,6 +1538,7 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         channel_type: "telegram",
         transport: Transport::Messaging,
         surface: SurfaceId::Telegram,
+        renders_buttons: true,
         locale: "en",
         is_direct_message: false,
         ambient_group_fallback: true,

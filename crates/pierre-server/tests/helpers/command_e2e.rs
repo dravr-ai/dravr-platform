@@ -622,6 +622,30 @@ impl CommandE2e {
         }
     }
 
+    /// The content type of each non-empty outbound ledger row for
+    /// `session_id`, oldest first, in step with
+    /// [`Self::outbound_bodies_for_session`]: `card` for a message sent with
+    /// buttons, `rich_text` or `text` otherwise.
+    pub async fn outbound_types_for_session(&self, session_id: &str) -> Vec<String> {
+        const SQL: &str = "SELECT content_type FROM messaging_messages \
+             WHERE direction = 'outbound' AND session_id = $1 \
+               AND content_body IS NOT NULL AND content_body != '' \
+             ORDER BY created_at ASC";
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
     /// The distinct `tenant_id`s the `direction` ledger rows of `session_id`
     /// were written under — the tenancy of a DM unit, read back from the
     /// rows themselves.

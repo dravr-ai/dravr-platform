@@ -1,37 +1,57 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the empty chat pane — one line, the host's "+", and the Commands button
-// ABOUTME: Pins that the slash hint is the shared constant, not a second copy of the sentence
+// ABOUTME: Tests for the empty chat pane — one line, the host's "+", and the three use-case links ranked for the athlete
+// ABOUTME: Pins that a link hands the host its starter and that the slash hint is the shared constant, not a second copy
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { UseCaseStarter } from '@pierre/shared-types';
 import ChatEmptyState from '../ChatEmptyState';
 
+const STARTERS: UseCaseStarter[] = [
+  { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
+  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'zone2', label: 'What is Zone 2?', postback: 'uc:2:zone2' },
+];
+
 function renderEmptyState(
-  overrides: { disabled?: boolean; providerStatus?: string | null } = {},
+  overrides: { disabled?: boolean; providerStatus?: string | null; starters?: UseCaseStarter[] } = {},
 ) {
-  const onOpenCommands = vi.fn();
+  const onStarter = vi.fn();
   render(
     <ChatEmptyState
       compose={<button type="button">Compose</button>}
-      onOpenCommands={onOpenCommands}
+      starters={overrides.starters ?? STARTERS}
+      onStarter={onStarter}
       disabled={overrides.disabled}
       providerStatus={overrides.providerStatus}
     />,
   );
-  return { onOpenCommands };
+  return { onStarter };
 }
 
 describe('ChatEmptyState', () => {
-  it('shows one line, the host compose slot and the Commands button', () => {
+  it('shows one line, the host compose slot and the three ranked starters as links, in rank order', () => {
     renderEmptyState();
 
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     expect(screen.getByText('Pick a chat, or start one')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Compose' })).toBeInTheDocument();
-    expect(screen.getByTestId('chat-empty-commands')).toHaveTextContent('Commands');
+    const links = screen.getAllByTestId(/^chat-empty-starter-/);
+    expect(links.map((link) => link.textContent)).toEqual([
+      'Connect my watch',
+      'Get to know me',
+      'What is Zone 2?',
+    ]);
+  });
+
+  it('no longer points at features: no Commands, Route, Discover or Connect link', () => {
+    renderEmptyState();
+    for (const testId of ['chat-empty-commands', 'chat-empty-route', 'chat-empty-discover', 'chat-empty-connect']) {
+      expect(screen.queryByTestId(testId)).not.toBeInTheDocument();
+    }
   });
 
   it('teaches the "/" and "@" grammar with the shared hint', () => {
@@ -41,25 +61,37 @@ describe('ChatEmptyState', () => {
     ).toBeInTheDocument();
   });
 
-  it('asks the host to open a thread with the palette when Commands is pressed', async () => {
+  it('hands the host the starter that was tapped, postback and label together', async () => {
     const user = userEvent.setup();
-    const { onOpenCommands } = renderEmptyState();
+    const { onStarter } = renderEmptyState();
 
-    await user.click(screen.getByTestId('chat-empty-commands'));
+    await user.click(screen.getByTestId('chat-empty-starter-about_me'));
 
-    expect(onOpenCommands).toHaveBeenCalledTimes(1);
+    expect(onStarter).toHaveBeenCalledExactlyOnceWith(STARTERS[1]);
   });
 
-  it('disables Commands while a conversation is being created', () => {
+  it('disables the starters while a conversation is being created', () => {
     renderEmptyState({ disabled: true });
-    expect(screen.getByTestId('chat-empty-commands')).toBeDisabled();
+    for (const link of screen.getAllByTestId(/^chat-empty-starter-/)) {
+      expect(link).toBeDisabled();
+    }
+  });
+
+  it('draws no link while the starters load or when none fits, and keeps the hint', () => {
+    renderEmptyState({ starters: [] });
+    expect(screen.queryAllByTestId(/^chat-empty-starter-/)).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Compose' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Type / for commands · @handle brings an agent in for one turn'),
+    ).toBeInTheDocument();
   });
 
   it('names what the agent can see in the footer, and stays quiet until that is known', () => {
     const { unmount } = render(
       <ChatEmptyState
         compose={<button type="button">Compose</button>}
-        onOpenCommands={vi.fn()}
+        starters={STARTERS}
+        onStarter={vi.fn()}
         providerStatus={null}
       />,
     );
@@ -70,27 +102,5 @@ describe('ChatEmptyState', () => {
     expect(screen.getByTestId('chat-empty-provider-status')).toHaveTextContent(
       'No provider connected',
     );
-  });
-  it('suggests a route for today\'s session and asks the host to draft it', async () => {
-    const user = userEvent.setup();
-    const onSuggestRoute = vi.fn();
-    render(
-      <ChatEmptyState
-        compose={<button type="button">Compose</button>}
-        onOpenCommands={vi.fn()}
-        onSuggestRoute={onSuggestRoute}
-      />,
-    );
-
-    const route = screen.getByTestId('chat-empty-route');
-    expect(route).toHaveTextContent("Route for today's session");
-    await user.click(route);
-
-    expect(onSuggestRoute).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves the suggestion out for a host that cannot draft it', () => {
-    renderEmptyState();
-    expect(screen.queryByTestId('chat-empty-route')).not.toBeInTheDocument();
   });
 });

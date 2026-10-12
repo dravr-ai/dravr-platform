@@ -5,7 +5,7 @@
 // ABOUTME: Tests conversation list, message display, prompt suggestions, and CRUD operations.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openHome, openPersonalConversation } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, MOCK_STARTERS, openHome, openPersonalConversation } from './test-helpers';
 
 /** Home's History sheet, where the athlete's own threads are listed. */
 function history(page: Page) {
@@ -282,12 +282,14 @@ test.describe('Chat - Empty pane', () => {
     await openHome(page);
   });
 
-  test('shows one line, the "+" and the Commands button', async ({ page }) => {
+  test('shows one line, the "+" and the three starters ranked for the athlete', async ({ page }) => {
     const empty = page.getByTestId('chat-empty-state');
     await expect(empty).toBeVisible({ timeout: 10000 });
     await expect(empty.getByText('Pick a chat, or start one')).toBeVisible();
     await expect(empty.getByRole('button', { name: 'New', exact: true })).toBeVisible();
-    await expect(page.getByTestId('chat-empty-commands')).toBeVisible();
+    for (const starter of MOCK_STARTERS) {
+      await expect(page.getByTestId(`chat-empty-starter-${starter.id}`)).toHaveText(starter.label);
+    }
   });
 
   test('offers no coach grid and no coach creation', async ({ page }) => {

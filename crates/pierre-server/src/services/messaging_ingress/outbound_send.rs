@@ -142,6 +142,40 @@ pub async fn send_channel_response(
     .await;
 }
 
+/// Send one reply to the room and return once the channel has taken it.
+///
+/// [`send_channel_response`] spawns its delivery, so two of its calls race
+/// each other to the channel. A message that must land ahead of whatever the
+/// same turn sends next is awaited here instead, at the cost of holding the
+/// turn for that one round trip. Split and ledgered like the spawned path.
+pub async fn send_channel_response_first(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: OutgoingMessage,
+    persist: Option<OutboundPersistSpec>,
+) {
+    let ceiling = block_render::channel_ceiling(message.channel_type);
+    let parts = block_render::fan_out(message, ceiling);
+    let db = resources.common.repos.messaging.as_ref();
+    let Some(config) = load_channel_config(db, tenant_id, channel).await else {
+        error!(
+            channel = %channel,
+            "No channel config; outbound message dropped without being sent"
+        );
+        return;
+    };
+    deliver_and_persist(
+        Arc::clone(adapter),
+        config,
+        vec![Delivery { parts, persist }],
+        DeliveryMode::Room,
+        channel.to_owned(),
+    )
+    .await;
+}
+
 /// Send several replies to the room, in order, from one delivery task.
 ///
 /// Each reply spawned on its own would race the others to the channel, so a

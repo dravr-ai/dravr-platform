@@ -28,28 +28,35 @@
 //! types — and every slash-command button, whose value starts with `/` — is
 //! never mistaken for one.
 //!
-//! [`rank`] picks the use-case starters a welcome offers from the athlete's
-//! state, out of dravr-contremaitre's catalogue.
+//! The use-case starters themselves are ranked and worded in
+//! [`pierre_services::use_case_rank`], which `/help` reaches too; an empty
+//! thread offers them through [`offer_empty_thread_starters`].
 
+use chrono::Utc;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-use pierre_contremaitre::use_case_catalogue::{
-    is_use_case_id, Domains, Repeat, Stage, UseCase, UseCaseCatalogue, UseCaseRun,
-};
-use pierre_core::errors::AppResult;
-use pierre_core::models::{AgentCategory, ConversationRecord, TenantId};
-use pierre_database::repositories::UseCaseExposure;
+use pierre_contremaitre::use_case_catalogue::{is_use_case_id, UseCaseCatalogue, UseCaseRun};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_services::athlete_state::AthleteState;
-use tracing::info;
+use pierre_providers::ai_scope;
+use pierre_services::use_case_rank::{
+    offer, rank_for_athlete, rotation_for, starter_category, use_case_postback, OfferedStarter,
+    USE_CASE_POSTBACK_PREFIX,
+};
+use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::agent_welcome::{localized_agent, starter_samples, MAX_STARTERS};
+use crate::agent_welcome::{localized_agent, starter_samples};
+use crate::surface_profile::SurfaceId;
 
 /// The `surface` an agent welcome's starters are reported under.
 pub(crate) const SURFACE_AGENT_WELCOME: &str = "agent_welcome";
 
+/// The `surface` the starters of an empty thread are reported under: the web
+/// pane with no thread open, the phone's thread before its first message.
+pub(crate) const SURFACE_EMPTY_THREAD: &str = "empty_thread";
+
 const EXAMPLE_PREFIX: &str = "ex:";
-const USE_CASE_PREFIX: &str = "uc:";
 
 /// Where a suggestion's words came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +104,7 @@ impl Postback {
     pub fn encode(&self) -> String {
         match self {
             Self::Example { position, index } => format!("{EXAMPLE_PREFIX}{position}:{index}"),
-            Self::UseCase { position, id } => format!("{USE_CASE_PREFIX}{position}:{id}"),
+            Self::UseCase { position, id } => use_case_postback(*position, id),
         }
     }
 
@@ -112,7 +119,9 @@ impl Postback {
                 index: parse_slot(index)?,
             });
         }
-        let (position, id) = text.strip_prefix(USE_CASE_PREFIX)?.split_once(':')?;
+        let (position, id) = text
+            .strip_prefix(USE_CASE_POSTBACK_PREFIX)?
+            .split_once(':')?;
         if !is_use_case_id(id) {
             return None;
         }
@@ -273,90 +282,6 @@ fn use_case_words(
     (!words.trim().is_empty()).then_some(words)
 }
 
-/// Welcomes a starter may be offered in without a tap before the ranker stops
-/// offering it (D10: "used" is a tap, not a showing).
-const MAX_UNTAPPED_SHOWINGS: u32 = 3;
-
-/// The use-case starters a welcome offers the athlete, at most
-/// [`MAX_STARTERS`], for an agent of `category`.
-///
-/// A starter is offered when every requirement holds for `state`, unless the
-/// athlete retired it: a `once` starter after its tap, any starter after
-/// [`MAX_UNTAPPED_SHOWINGS`] welcomes without one. What remains is ordered by
-/// stage — the athlete's own, then `any`, then the rest — keeping catalogue
-/// order within each, so the catalogue's order is its priority. The first
-/// slot may hold one cross-domain setup starter (D13); the rest are the
-/// agent's own domain (D4). The chosen starters are then rotated by
-/// `rotation`, so a tap says something about the starter rather than its slot.
-#[must_use]
-pub(crate) fn rank<'a>(
-    catalogue: &'a UseCaseCatalogue,
-    state: &AthleteState,
-    category: AgentCategory,
-    exposures: &[UseCaseExposure],
-    rotation: usize,
-) -> Vec<&'a UseCase> {
-    let mut ordered: Vec<&UseCase> = catalogue
-        .entries()
-        .iter()
-        .filter(|entry| entry.eligible(|predicate| state.holds(predicate)))
-        .filter(|entry| !retired(entry, exposures))
-        .collect();
-    ordered.sort_by_key(|entry| stage_order(entry.stage, state.stage));
-
-    let mut chosen: Vec<&UseCase> = ordered
-        .iter()
-        .copied()
-        .find(|entry| entry.domains == Domains::Any)
-        .into_iter()
-        .collect();
-    let room = MAX_STARTERS.saturating_sub(chosen.len());
-    chosen.extend(
-        ordered
-            .iter()
-            .copied()
-            .filter(|entry| entry.domains.includes(category))
-            .take(room),
-    );
-    if !chosen.is_empty() {
-        let len = chosen.len();
-        chosen.rotate_left(rotation % len);
-    }
-    chosen
-}
-
-/// A stable rotation for `conversation_id`: the same thread always shows its
-/// starters in the same order, and threads spread over every order.
-#[must_use]
-pub(crate) fn rotation_for(conversation_id: &str) -> usize {
-    conversation_id.bytes().fold(0usize, |acc, byte| {
-        acc.wrapping_mul(31).wrapping_add(usize::from(byte))
-    })
-}
-
-/// Whether the athlete retired `entry`: tapped a `once` starter, or let any
-/// starter go untapped through [`MAX_UNTAPPED_SHOWINGS`] welcomes.
-fn retired(entry: &UseCase, exposures: &[UseCaseExposure]) -> bool {
-    exposures
-        .iter()
-        .find(|exposure| exposure.use_case_id == entry.id)
-        .is_some_and(|exposure| {
-            (entry.repeat == Repeat::Once && exposure.tapped_at.is_some())
-                || exposure.shown_count >= MAX_UNTAPPED_SHOWINGS
-        })
-}
-
-/// Sort key: the athlete's own stage first, then `any`, then the others.
-fn stage_order(entry: Stage, athlete: Stage) -> u8 {
-    if entry == athlete {
-        0
-    } else if entry == Stage::Any {
-        1
-    } else {
-        2
-    }
-}
-
 /// Who a suggestion event is about and where it happened.
 pub(crate) struct SuggestionEvent<'a> {
     /// The athlete the suggestion was offered to.
@@ -401,148 +326,167 @@ pub(crate) fn emit_tapped(event: &SuggestionEvent<'_>, postback: &Postback) {
     );
 }
 
+/// Report the athlete's tap on `postback` and, for a ranked starter, count
+/// it toward retiring the starter under `exposure_tenant`. Best-effort: an
+/// unrecorded tap only lets the starter be offered once more than it should.
+pub(crate) async fn record_tap(
+    repos: &RepositoryRegistry,
+    event: &SuggestionEvent<'_>,
+    postback: &Postback,
+    exposure_tenant: TenantId,
+    user: Uuid,
+) {
+    emit_tapped(event, postback);
+    if let Postback::UseCase { id, .. } = postback {
+        if let Err(e) = repos
+            .use_case_exposures
+            .record_use_case_tapped(exposure_tenant, user, id, Utc::now())
+            .await
+        {
+            warn!(error = %e, use_case = %id, "a starter tap could not be recorded");
+        }
+    }
+}
+
+/// Who tapped a starter on a channel that routes commands itself.
+pub struct CommandTap {
+    /// The athlete who tapped.
+    pub user_id: Uuid,
+    /// The athlete's own tenant, where their exposures are counted.
+    pub user_tenant_id: TenantId,
+    /// Tenant of the thread the tap arrived in, reported with the tap.
+    pub conversation_tenant_id: TenantId,
+    /// The chat surface the tap arrived on.
+    pub surface: SurfaceId,
+}
+
+/// The command a tapped starter runs, when `text` is the postback of a
+/// catalogue starter that runs one — reported and counted as a tap.
+///
+/// For a channel that routes a typed command itself before the turn — a
+/// messaging channel answers a command privately in a room and deletes its
+/// echo — so a tapped `/pillars` takes the same road as a typed one rather
+/// than the turn's. `None` for anything else, a prompt starter or an
+/// example included: the turn resolves those, and reports their taps, as it
+/// always has.
+pub async fn resolve_command_tap(
+    repos: &RepositoryRegistry,
+    tap: &CommandTap,
+    text: &str,
+) -> Option<String> {
+    let postback = Postback::parse(text)?;
+    let Postback::UseCase { id, .. } = &postback else {
+        return None;
+    };
+    let UseCaseRun::Command(command) = &UseCaseCatalogue::pinned().get(id)?.run else {
+        return None;
+    };
+    let user_id = tap.user_id.to_string();
+    record_tap(
+        repos,
+        &SuggestionEvent {
+            user_id: &user_id,
+            tenant_id: tap.conversation_tenant_id,
+            surface: SURFACE_AGENT_WELCOME,
+            channel: tap.surface.as_str(),
+        },
+        &postback,
+        tap.user_tenant_id,
+        tap.user_id,
+    )
+    .await;
+    Some(command.clone())
+}
+
+/// Who an empty thread's starters are offered to, and where.
+pub struct EmptyThreadOffer<'a> {
+    /// The athlete's tenant.
+    pub tenant_id: TenantId,
+    /// The athlete.
+    pub user_id: Uuid,
+    /// Locale the starters are worded in.
+    pub locale: &'a str,
+    /// The app surface that shows them.
+    pub surface: SurfaceId,
+}
+
+/// The starters an empty thread offers: ranked for the agent a new thread
+/// would be bound to, worded in the athlete's language, at most
+/// [`pierre_services::use_case_rank::MAX_STARTERS`].
+///
+/// Each one is reported as shown and counted toward retiring it, as a
+/// welcome's are: the app asks for them when it draws the empty thread, so
+/// one request is one showing. They rotate by the athlete rather than by a
+/// thread, since no thread exists yet.
+///
+/// # Errors
+///
+/// Returns the repository error when the athlete's state cannot be read, and
+/// refuses a caller outside Dravr's apps when the starters were chosen from
+/// data that may reach the athlete's own apps only.
+pub async fn offer_empty_thread_starters(
+    repos: &RepositoryRegistry,
+    strings: &MessagingStringsRegistry,
+    offer_to: &EmptyThreadOffer<'_>,
+) -> AppResult<Vec<OfferedStarter>> {
+    let category = starter_category(repos, offer_to.tenant_id, offer_to.user_id, None).await;
+    let user_id = offer_to.user_id.to_string();
+    let ranked = rank_for_athlete(
+        repos,
+        offer_to.tenant_id,
+        offer_to.user_id,
+        category,
+        rotation_for(&user_id),
+    )
+    .await?;
+    // Which starters fit says something about what the athlete's data holds:
+    // "My last workout" means activities were read. An interface that may not
+    // carry that data is not told what it implies (carnet#769).
+    if !ai_scope::admit_derived(ranked.policy) {
+        return Err(AppError::unavailable_over_transport(
+            "these starters are not available over this interface",
+        ));
+    }
+    let offered = offer(&ranked.entries, strings, offer_to.locale);
+    let shown = SuggestionEvent {
+        user_id: &user_id,
+        tenant_id: offer_to.tenant_id,
+        surface: SURFACE_EMPTY_THREAD,
+        channel: offer_to.surface.as_str(),
+    };
+    for (position, starter) in offered.iter().enumerate() {
+        emit_shown(
+            &shown,
+            &Postback::UseCase {
+                position,
+                id: starter.id.clone(),
+            },
+        );
+    }
+    let ids: Vec<&str> = offered.iter().map(|starter| starter.id.as_str()).collect();
+    if !ids.is_empty() {
+        if let Err(e) = repos
+            .use_case_exposures
+            .record_use_cases_shown(offer_to.tenant_id, offer_to.user_id, &ids, Utc::now())
+            .await
+        {
+            warn!(error = %e, user_id = %offer_to.user_id, "empty-thread starters shown could not be counted");
+        }
+    }
+    Ok(offered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
-    use pierre_services::athlete_state::{ActivityHistory, DossierCoverage};
 
     const CATALOGUE: &str = "
-- {id: connect, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [any], repeat: once}
 - {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
-- {id: last_workout, run: prompt, command: null, requires: [has_activities], stage: first_session, domains: [analysis, training], repeat: recurring}
-- {id: zone2, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [training], repeat: once}
-- {id: fuel, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [nutrition], repeat: once}
-- {id: season, run: command, command: /season, requires: [pillars_done, no_season], stage: first_week, domains: [training], repeat: once}
-- {id: recovered, run: prompt, command: null, requires: [has_recovery_source | weeks_of_data>=2], stage: any, domains: [recovery, training], repeat: recurring}
 - {id: today, run: command, command: /plan today, requires: [plan_active], stage: any, domains: [training], repeat: recurring}
 ";
 
     fn catalogue() -> UseCaseCatalogue {
         UseCaseCatalogue::parse(CATALOGUE).expect("the fixture parses")
-    }
-
-    /// A new athlete: nothing connected, nothing told, no plan.
-    const fn newcomer() -> AthleteState {
-        AthleteState {
-            stage: Stage::FirstSession,
-            has_provider: false,
-            activities: ActivityHistory::Absent,
-            weeks_of_data: 0,
-            dossier: DossierCoverage {
-                covered: 0,
-                complete: false,
-                empty: true,
-            },
-            season_set: false,
-            plan_active: false,
-            recovery_source: false,
-            calendar_writable: false,
-        }
-    }
-
-    /// A first-week athlete with a recovery band and three weeks of rides,
-    /// pillars done, no season yet.
-    const fn settled() -> AthleteState {
-        AthleteState {
-            stage: Stage::FirstWeek,
-            has_provider: true,
-            activities: ActivityHistory::Present,
-            weeks_of_data: 3,
-            dossier: DossierCoverage {
-                covered: 6,
-                complete: true,
-                empty: false,
-            },
-            recovery_source: true,
-            ..newcomer()
-        }
-    }
-
-    fn ids(starters: &[&UseCase]) -> Vec<String> {
-        starters.iter().map(|s| s.id.clone()).collect()
-    }
-
-    fn exposure(id: &str, shown_count: u32, tapped: bool) -> UseCaseExposure {
-        UseCaseExposure {
-            use_case_id: id.to_owned(),
-            shown_count,
-            last_shown_at: None,
-            tapped_at: tapped.then(Utc::now),
-        }
-    }
-
-    #[test]
-    fn a_newcomer_gets_one_setup_starter_and_only_no_data_starters_on_topic() {
-        let catalogue = catalogue();
-        let rank_for = |category| ids(&rank(&catalogue, &newcomer(), category, &[], 0));
-        assert_eq!(rank_for(AgentCategory::Training), ["connect", "zone2"]);
-        assert_eq!(rank_for(AgentCategory::Nutrition), ["connect", "fuel"]);
-        assert_eq!(rank_for(AgentCategory::Recovery), ["connect"]);
-        assert_eq!(rank_for(AgentCategory::Custom), ["connect"]);
-    }
-
-    #[test]
-    fn the_athletes_own_stage_leads_then_any_then_the_rest() {
-        let catalogue = catalogue();
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &[], 0);
-        assert_eq!(ids(&ranked), ["season", "recovered", "last_workout"]);
-    }
-
-    #[test]
-    fn a_tapped_setup_starter_gives_its_slot_to_the_next() {
-        let catalogue = catalogue();
-        let tapped = [exposure("connect", 0, true)];
-        let ranked = rank(&catalogue, &newcomer(), AgentCategory::Training, &tapped, 0);
-        assert_eq!(ids(&ranked), ["about_me", "zone2"]);
-    }
-
-    #[test]
-    fn three_untapped_showings_retire_a_starter_and_a_tap_keeps_a_recurring_one() {
-        let catalogue = catalogue();
-        let ignored = [exposure("recovered", 3, false)];
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &ignored, 0);
-        assert_eq!(ids(&ranked), ["season", "last_workout"]);
-
-        let used = [
-            exposure("recovered", 0, true),
-            exposure("last_workout", 2, false),
-        ];
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &used, 0);
-        assert_eq!(ids(&ranked), ["season", "recovered", "last_workout"]);
-    }
-
-    #[test]
-    fn the_rotation_moves_every_starter_and_is_stable_per_thread() {
-        let catalogue = catalogue();
-        let at = |rotation| {
-            ids(&rank(
-                &catalogue,
-                &settled(),
-                AgentCategory::Training,
-                &[],
-                rotation,
-            ))
-        };
-        assert_eq!(at(1), ["recovered", "last_workout", "season"]);
-        assert_eq!(at(3), at(0));
-        assert_eq!(rotation_for("conv-1"), rotation_for("conv-1"));
-        assert_ne!(rotation_for("conv-1") % 3, rotation_for("conv-2") % 3);
-    }
-
-    #[test]
-    fn nothing_eligible_ranks_nothing() {
-        let catalogue = catalogue();
-        let quiet = AthleteState {
-            has_provider: true,
-            dossier: DossierCoverage {
-                covered: 1,
-                complete: false,
-                empty: false,
-            },
-            ..newcomer()
-        };
-        assert!(rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], 5).is_empty());
     }
 
     #[test]

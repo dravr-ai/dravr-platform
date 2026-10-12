@@ -1,5 +1,5 @@
-// ABOUTME: A tapped welcome starter reaches the turn as its words or its command — resolved on the server, counted as a tap
-// ABOUTME: Pins ex: and uc: postbacks, shown/tapped events and exposures, the origin on question_asked, and stale taps
+// ABOUTME: A tapped starter reaches the turn as its words or its command — resolved on the server, counted as a tap
+// ABOUTME: Pins ex:/uc: postbacks, shown/tapped events and exposures, the channel card, the empty thread's starters
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,6 +19,10 @@
 //! Catalogue starters ranked from the athlete's state take the slots ahead of
 //! the examples: `uc:<slot>:<id>` resolves to the starter's prompt or its
 //! slash command, and the athlete's taps and ignored showings retire starters.
+//!
+//! The empty thread offers the same ranked starters as links
+//! (`GET /api/chat/starters`, carnet#829), and a messaging channel that draws
+//! buttons gets the welcome as a card whose buttons post the same values.
 //!
 //! These drive the app's own routes with a model that records what it was
 //! sent, so they assert what the athlete's transcript holds and what the model
@@ -40,15 +44,18 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only, CapturedEvents};
 use helpers::recording_llm::RecordingProvider;
-use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
+use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
 use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-use pierre_core::models::{TenantId, AGENT_WELCOME_FINISH_REASON, COMMAND_FINISH_REASON};
+use pierre_core::models::{
+    ConnectionType, TenantId, AGENT_WELCOME_FINISH_REASON, COMMAND_FINISH_REASON,
+};
 use pierre_database::seed_models::SeedAgent;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
-    ChatRoutes, ConversationResponse, MessageResponse, MessagesListResponse, TurnResponse,
+    ChatRoutes, ConversationResponse, MessageResponse, MessagesListResponse, StarterResponse,
+    StartersResponse, TurnResponse,
 };
 use pierre_services::locale::resolve_user_locale;
 
@@ -122,6 +129,27 @@ async fn create_conversation(fx: &Fixture, agent_id: Option<&str>) -> String {
         .await;
     assert_eq!(resp.status_code(), StatusCode::CREATED);
     resp.json::<ConversationResponse>().id
+}
+
+/// A personal thread bound to no agent. The create route binds the athlete's
+/// own agent to one created without any (carnet#829), so a thread with none
+/// is written straight to the repository.
+async fn unbound_thread(fx: &Fixture) -> String {
+    fx.resources
+        .common
+        .repos
+        .chat
+        .create_conversation(
+            &fx.user_id.to_string(),
+            fx.tenant_id,
+            "Unbound",
+            "test-model",
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id
 }
 
 async fn messages(fx: &Fixture, conv: &str) -> Vec<MessageResponse> {
@@ -260,7 +288,7 @@ async fn a_stale_starter_is_told_and_never_reaches_the_model() {
     let fx = setup("stale@test.com").await;
     let (events, _guard) = capture_notify();
     let with_agent = create_conversation(&fx, Some(&fx.agent_id)).await;
-    let without_agent = create_conversation(&fx, None).await;
+    let without_agent = unbound_thread(&fx).await;
     let notice = fx
         .resources
         .mcp
@@ -491,12 +519,10 @@ async fn the_client_says_how_the_message_was_produced() {
     );
 }
 
-/// A messaging channel receives the welcome as text, where nothing can be
-/// tapped: its starters are not counted as shown suggestions.
-#[tokio::test]
-async fn a_text_welcome_shows_no_suggestion() {
-    let fx = setup("text-welcome@test.com").await;
-    let conv = create_conversation(&fx, None).await;
+/// Post the fixture agent's welcome into a fresh thread bound to it, as a
+/// messaging `surface` that does or does not draw buttons would.
+async fn channel_welcome(fx: &Fixture, surface: SurfaceId, renders_buttons: bool) -> PostedWelcome {
+    let conv = unbound_thread(fx).await;
     let repos = &fx.resources.common.repos;
     repos
         .chat
@@ -509,10 +535,8 @@ async fn a_text_welcome_shows_no_suggestion() {
         .await
         .unwrap()
         .unwrap();
-
-    let (events, _guard) = capture_notify();
     let user_id = fx.user_id.to_string();
-    let posted = post_agent_welcome(
+    post_agent_welcome(
         repos,
         &fx.resources.mcp.messaging_strings_registry,
         WelcomeTarget {
@@ -522,12 +546,23 @@ async fn a_text_welcome_shows_no_suggestion() {
             agent_id: &fx.agent_id,
             agent_tenant_id: fx.tenant_id,
             locale: &fx.locale,
-            surface: SurfaceId::Telegram,
+            surface,
+            renders_buttons,
         },
     )
     .await
     .unwrap()
-    .expect("the agent welcomes the thread");
+    .expect("the agent welcomes the thread")
+}
+
+/// A messaging channel that draws no buttons receives the welcome as text,
+/// where nothing can be tapped: its starters are not counted as shown
+/// suggestions.
+#[tokio::test]
+async fn a_text_welcome_shows_no_suggestion() {
+    let fx = setup("text-welcome@test.com").await;
+    let (events, _guard) = capture_notify();
+    let posted = channel_welcome(&fx, SurfaceId::Telegram, false).await;
 
     assert!(
         posted.channel_text.contains(SAMPLES[0]),
@@ -555,5 +590,207 @@ async fn a_text_welcome_shows_no_suggestion() {
             .unwrap()
             .is_empty(),
         "nothing was shown that could be tapped"
+    );
+}
+
+/// A messaging channel that draws buttons gets the welcome as a card — the
+/// agent's title over its greeting, one button per starter posting back what
+/// the app's chip posts (carnet#829) — so each starter is a suggestion shown
+/// on that channel, and the ranked ones count toward retiring them.
+#[tokio::test]
+async fn a_button_welcome_is_a_card_and_its_starters_are_shown() {
+    let fx = setup("card-welcome@test.com").await;
+    let (events, _guard) = capture_notify();
+    let posted = channel_welcome(&fx, SurfaceId::Telegram, true).await;
+
+    let card = posted.card.expect("a welcome with starters has a card");
+    assert_eq!(card.title, "Fuelling Agent");
+    assert!(card.body.contains("Fuelling Agent"), "{}", card.body);
+    assert!(
+        !card.body.contains("uc:") && !card.body.contains("ex:"),
+        "the postbacks ride the buttons, never the body: {}",
+        card.body
+    );
+    let values: Vec<String> = card.actions.iter().map(|a| a.value.clone()).collect();
+    assert_eq!(ranked(&values), ["connect", "fuel"]);
+    assert_eq!(values[2], "ex:2:0", "the example fills the slot left");
+
+    let shown = named(&events, "suggestion.shown");
+    assert_eq!(shown.len(), 3, "one shown event per button");
+    for (slot, event) in shown.iter().enumerate() {
+        assert_eq!(event.field("channel"), "telegram");
+        assert_eq!(event.field("surface"), "agent_welcome");
+        assert_eq!(event.field("position"), slot.to_string());
+    }
+    let mut counted: Vec<String> = fx
+        .resources
+        .common
+        .repos
+        .use_case_exposures
+        .use_case_exposures(fx.tenant_id, fx.user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.shown_count == 1)
+        .map(|e| e.use_case_id)
+        .collect();
+    counted.sort();
+    assert_eq!(counted, ["connect", "fuel"]);
+}
+
+/// The starters an empty thread offers the athlete.
+async fn starters(fx: &Fixture, auth: &str) -> Vec<StarterResponse> {
+    let resp = AxumTestRequest::get("/api/chat/starters")
+        .header("authorization", auth)
+        .send(ChatRoutes::routes(Arc::clone(&fx.resources)))
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    resp.json::<StartersResponse>().starters
+}
+
+/// The empty thread offers what a new thread's welcome ranks (carnet#829):
+/// the starters for the agent the thread would be bound to, worded in the
+/// athlete's language, each posting back its slot — and each read is one
+/// showing of them on the app's surface.
+#[tokio::test]
+async fn the_empty_thread_offers_the_ranked_starters_and_counts_each_read() {
+    let fx = setup("empty-thread@test.com").await;
+    let (events, _guard) = capture_notify();
+
+    let offered = starters(&fx, &fx.auth).await;
+
+    let postbacks: Vec<String> = offered.iter().map(|s| s.postback.clone()).collect();
+    assert_eq!(ranked(&postbacks), ["connect", "fuel"]);
+    for (slot, starter) in offered.iter().enumerate() {
+        assert_eq!(starter.postback, format!("uc:{slot}:{}", starter.id));
+        let label = string(&fx, &format!("use_cases.{}.label", starter.id));
+        assert!(!label.is_empty(), "{} has a label", starter.id);
+        assert_eq!(starter.label, label);
+    }
+    let shown = named(&events, "suggestion.shown");
+    assert_eq!(shown.len(), offered.len(), "one shown event per link");
+    for (slot, event) in shown.iter().enumerate() {
+        assert_eq!(event.field("surface"), "empty_thread");
+        assert_eq!(event.field("channel"), "web_chat");
+        assert_eq!(event.field("source"), "state");
+        assert_eq!(event.field("position"), slot.to_string());
+        assert_eq!(event.field("use_case"), offered[slot].id);
+    }
+    let mut counted: Vec<(String, u32)> = fx
+        .resources
+        .common
+        .repos
+        .use_case_exposures
+        .use_case_exposures(fx.tenant_id, fx.user_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| (e.use_case_id, e.shown_count))
+        .collect();
+    counted.sort();
+    assert_eq!(counted, [("connect".to_owned(), 1), ("fuel".to_owned(), 1)]);
+}
+
+/// The ranking follows the athlete's state: once a provider is connected,
+/// "Connect my watch" and the no-data nutrition starter give way, and the
+/// next setup starter takes the slot.
+#[tokio::test]
+async fn the_empty_threads_starters_follow_what_the_athlete_has_connected() {
+    let fx = setup("empty-thread-state@test.com").await;
+    fx.resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            fx.user_id,
+            fx.tenant_id,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let ids: Vec<String> = starters(&fx, &fx.auth)
+        .await
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+
+    assert!(!ids.contains(&"connect".to_owned()), "{ids:?}");
+    assert!(!ids.contains(&"fuel".to_owned()), "{ids:?}");
+    assert_eq!(ids, ["about_me"]);
+}
+
+/// Showings are the athlete's own, under their own tenant: three reads
+/// without a tap retire the starters this athlete was offered, and do not
+/// touch what another athlete, in another tenant, is offered.
+#[tokio::test]
+async fn three_untapped_reads_retire_my_starters_and_no_one_elses() {
+    let fx = setup("empty-thread-mine@test.com").await;
+    let (other_id, other, other_tenant) = create_test_user_with_plan(
+        &fx.resources.agent.database,
+        "empty-thread-other@test.com",
+        "professional",
+    )
+    .await
+    .unwrap();
+    assert_ne!(
+        other_tenant, fx.tenant_id,
+        "the other athlete has a tenant of their own"
+    );
+    let other_auth = format!(
+        "Bearer {}",
+        generate_test_token(&fx.resources, &other).await
+    );
+
+    for _ in 0..3 {
+        starters(&fx, &fx.auth).await;
+    }
+    let retired_to: Vec<String> = starters(&fx, &fx.auth)
+        .await
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(
+        retired_to,
+        ["about_me"],
+        "three showings without a tap retire connect and fuel"
+    );
+
+    let theirs: Vec<String> = starters(&fx, &other_auth)
+        .await
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert!(
+        theirs.contains(&"connect".to_owned()),
+        "another athlete is still offered what I passed over: {theirs:?}"
+    );
+    assert!(
+        fx.resources
+            .common
+            .repos
+            .use_case_exposures
+            .use_case_exposures(other_tenant, fx.user_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "my showings are kept under my tenant, not theirs"
+    );
+    let their_counts: Vec<u32> = fx
+        .resources
+        .common
+        .repos
+        .use_case_exposures
+        .use_case_exposures(other_tenant, other_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.shown_count)
+        .collect();
+    assert!(
+        their_counts.iter().all(|count| *count == 1),
+        "their one read is counted once: {their_counts:?}"
     );
 }

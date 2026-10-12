@@ -10,7 +10,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dravr_canot::commands::{CommandAction, CommandRegistry, CommandResponse};
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_providers::ai_scope;
+use pierre_services::use_case_rank::{offer, rank_for_athlete, rotation_for, starter_category};
 use tracing::warn;
 
 use pierre_contremaitre::messaging_strings::{
@@ -27,7 +29,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// surfaces say the same thing about the same command.
 pub const PERSONAL_MARKER: &str = "\u{1f464} ";
 
-/// The commands offered as tappable shortcuts under the listing, in
+/// The commands offered as tappable shortcuts under a room's listing, in
 /// preference order.
 ///
 /// Three, because three is the smallest cap any channel puts on a card's
@@ -35,7 +37,8 @@ pub const PERSONAL_MARKER: &str = "\u{1f464} ";
 /// built to this number renders as native controls everywhere instead of
 /// degrading to text on the strictest channel. Each is dropped if the
 /// catalogue does not carry it or the caller could not run it, so the card
-/// never offers a dead button.
+/// never offers a dead button. A personal thread offers the athlete's ranked
+/// starters instead (see [`HelpHandler::shortcuts`]).
 const SHORTCUT_COMMANDS: [&str; 3] = ["plan", "status", "discover"];
 
 /// Handler for the `/help` command.
@@ -93,13 +96,40 @@ impl HelpHandler {
         }
     }
 
-    /// The shortcut buttons this caller can actually use.
+    /// The shortcut buttons under the listing.
+    ///
+    /// In a personal thread they are the starters ranked from the athlete's
+    /// state — the ones their agent's welcome leads with, worded as use
+    /// cases — each posting back its `uc:` postback, so a tap runs the
+    /// command or asks the question it stands for and is counted as a tap
+    /// (carnet#829). A room reads no one athlete's state (D9), and neither
+    /// does a reply whose state could not be read or may not cross this
+    /// interface, so those offer the fixed command shortcuts — as does a
+    /// thread where no starter fits, so the card keeps its buttons.
+    async fn shortcuts(
+        &self,
+        ctx: &PlatformCommandContext,
+        standing: Option<&CallerGroupStanding>,
+    ) -> Vec<CommandAction> {
+        if ctx.is_direct_message {
+            match ranked_shortcuts(ctx).await {
+                Ok(Some(ranked)) if !ranked.is_empty() => return ranked,
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(user_id = %ctx.user_id, error = %e, "/help could not rank starters; offering the command shortcuts");
+                }
+            }
+        }
+        self.command_shortcuts(standing)
+    }
+
+    /// The fixed command shortcuts this caller can actually use.
     ///
     /// A button is offered only when the catalogue carries the command and
     /// its handler would not refuse the caller — the same predicate the
     /// listing filters on, so a button can never appear for a line that does
     /// not.
-    fn shortcuts(&self, standing: Option<&CallerGroupStanding>) -> Vec<CommandAction> {
+    fn command_shortcuts(&self, standing: Option<&CallerGroupStanding>) -> Vec<CommandAction> {
         SHORTCUT_COMMANDS
             .iter()
             .filter_map(|name| {
@@ -217,7 +247,7 @@ impl CommandHandler for HelpHandler {
         // a card only when it has both a title and at least one action, so a
         // caller for whom every shortcut was filtered out still gets the
         // plain listing rather than an empty-looking card.
-        let shortcuts = self.shortcuts(standing.as_ref());
+        let shortcuts = self.shortcuts(ctx, standing.as_ref()).await;
         if shortcuts.is_empty() {
             return Ok(CommandResponse::rich_text(text));
         }
@@ -227,4 +257,46 @@ impl CommandHandler for HelpHandler {
             shortcuts,
         ))
     }
+}
+
+/// The starters ranked for the caller, as `/help`'s buttons: for the agent
+/// the thread is bound to, else the one a new thread would be bound to.
+///
+/// `None` when they were chosen from data that may not cross the interface
+/// the reply goes out on — which starters fit says what that data holds.
+///
+/// # Errors
+///
+/// Returns the repository error when the thread or the athlete's state
+/// cannot be read.
+async fn ranked_shortcuts(ctx: &PlatformCommandContext) -> AppResult<Option<Vec<CommandAction>>> {
+    let repos = ctx.ctx.repos();
+    let user_key = ctx.user_id.to_string();
+    let agent_id = match ctx.conversation_id.as_deref() {
+        Some(conversation_id) => repos
+            .chat
+            .get_conversation(conversation_id, &user_key, ctx.conversation_tenant_id)
+            .await?
+            .and_then(|conversation| conversation.agent_id),
+        None => None,
+    };
+    let category = starter_category(repos, ctx.tenant_id, ctx.user_id, agent_id.as_deref()).await;
+    let rotation = rotation_for(ctx.conversation_id.as_deref().unwrap_or(user_key.as_str()));
+    let ranked = rank_for_athlete(repos, ctx.tenant_id, ctx.user_id, category, rotation).await?;
+    if !ai_scope::admit_derived(ranked.policy) {
+        return Ok(None);
+    }
+    let strings = ctx.ctx.messaging_strings_registry();
+    Ok(Some(
+        offer(&ranked.entries, strings, &ctx.locale)
+            .into_iter()
+            .map(|starter| CommandAction {
+                label: starter.label,
+                // The server resolves the postback into the command or the
+                // question, so the label is all the athlete needs to read.
+                action_type: "postback".to_owned(),
+                value: starter.postback,
+            })
+            .collect(),
+    ))
 }

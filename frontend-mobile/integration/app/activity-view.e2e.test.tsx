@@ -128,7 +128,9 @@ describe("an activity's own screen over the wire", () => {
     expect(mockPush).not.toHaveBeenCalled();
     const posts = stub.requestsFor('POST').map((request) => [request.url, request.body]);
     expect(posts).toEqual([
-      ['/api/chat/conversations', {}],
+      // carnet#829: the thread is created for the question being sent, so the
+      // agent bound to it posts no welcome over the answer.
+      ['/api/chat/conversations', { athlete_speaks_first: true }],
       [
         `/api/chat/conversations/${THREAD}/messages`,
         {

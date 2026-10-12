@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
+use pierre_chat_pipeline::RenderCapabilities;
 use pierre_contremaitre::messaging_strings::KEY_AGENT_USER_UPDATED;
 use pierre_core::models::agents::Agent;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage, OutgoingMessage};
@@ -33,7 +34,7 @@ use super::otp::apply_conversation_recipient;
 use super::outbound_send::{send_channel_responses, OutboundPersistSpec};
 use super::session::rebind_conversation_agent;
 use super::slash::welcome_content;
-use super::surface::surface_id;
+use super::surface::{messaging_render_profile, surface_id};
 use super::ResolvedSession;
 use crate::mcp::resources::ServerContext;
 
@@ -120,9 +121,10 @@ pub(super) async fn answer_agent_choice(params: AgentChoiceParams<'_>) -> bool {
         &session.conversation,
     )
     .await;
-    if let Some(welcome) = welcome_chosen_agent(&params, &agent_id).await {
+    let render = messaging_render_profile(params.channel_type, params.locale).render;
+    if let Some(welcome) = welcome_chosen_agent(&params, &agent_id, &render).await {
         let message = OutgoingMessage {
-            content: welcome_content(&welcome.channel_text),
+            content: welcome_content(&render, &welcome),
             ..proactive_text(
                 params.channel_type,
                 params.message.sender_id.clone(),
@@ -226,6 +228,7 @@ async fn apply_pick(params: &AgentChoiceParams<'_>, agent_id: &str) -> bool {
 async fn welcome_chosen_agent(
     params: &AgentChoiceParams<'_>,
     agent_id: &str,
+    render: &RenderCapabilities,
 ) -> Option<PostedWelcome> {
     let repos = &params.resources.common.repos;
     let session = params.session;
@@ -250,6 +253,7 @@ async fn welcome_chosen_agent(
         agent_tenant_id: params.user_tenant_id,
         locale: params.locale,
         surface: surface_id(params.channel_type),
+        renders_buttons: render.blocks.action_buttons,
     };
     match post_agent_welcome(
         repos,
