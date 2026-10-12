@@ -22,16 +22,13 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
-use pierre_chat_pipeline::{AssistantTurn, ReplyBlock, TurnTelemetry};
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
-};
+use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, ConnectionType, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_mcp_server::services::backfill_reentry::{
-    engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest,
+use pierre_mcp_server::services::platform_post::{
+    PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
 };
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_tool_runtime::runtime::BackfillNotifier;
@@ -460,42 +457,51 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
     );
 }
 
-/// Fake re-entry that returns a canned agent answer and records the prompt it
-/// was handed, so the test can assert the notifier (a) re-asked the user's own
-/// question and (b) delivered the synthesized reply rather than the list.
-struct FakeReentry {
-    /// The reply exactly as the pipeline would have shaped it for a messaging
-    /// surface — activity list already folded into the prose, because the
-    /// surface has no panel to draw it in.
+/// Fake platform post that returns a canned agent answer and records the
+/// prompt and surface it was handed, so the test can assert the notifier (a)
+/// re-asked the user's own question and (b) delivered the agent's reply rather
+/// than the list. Mocked rather than run: the pipeline's own rule for when a
+/// reply is posted is pinned in `platform_post_test` against a real turn.
+struct FakePost {
+    /// The reply exactly as the pipeline would have shaped it for the
+    /// surface — on a messaging surface the activity list is already folded
+    /// into the prose, because the surface has no panel to draw it in.
     body: String,
     /// The charts the pipeline minted for the channel, in reply order — what
     /// the scene publisher returns once the assistant row is durable.
     charts: Vec<ReplyBlock>,
-    /// Whether the re-entry turn actually fetched the athlete's activities.
-    fetched_activities: bool,
+    /// Whether the post grounded in the athlete's data and was stored; a
+    /// withheld post answers `None`, as the pipeline does.
+    posted: bool,
     seen_prompt: Mutex<Option<String>>,
+    seen_surface: Mutex<Option<PostSurface>>,
 }
 
-impl FakeReentry {
-    fn prose(body: &str, fetched_activities: bool) -> Self {
+impl FakePost {
+    fn prose(body: &str, posted: bool) -> Self {
         Self {
             body: body.to_owned(),
             charts: Vec::new(),
-            fetched_activities,
+            posted,
             seen_prompt: Mutex::new(None),
+            seen_surface: Mutex::new(None),
         }
     }
 }
 
 #[async_trait]
-impl ChatReentry for FakeReentry {
-    async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
+impl PlatformPost for FakePost {
+    async fn post(&self, req: PlatformPostRequest<'_>) -> Option<PostedReply> {
         *self.seen_prompt.lock().unwrap() = Some(req.prompt.to_owned());
+        *self.seen_surface.lock().unwrap() = Some(req.surface);
+        if !self.posted {
+            return None;
+        }
         let mut blocks = vec![ReplyBlock::Prose {
             text: self.body.clone(),
         }];
         blocks.extend(self.charts.iter().cloned());
-        Some(ReentryReply {
+        Some(PostedReply {
             assistant: AssistantTurn {
                 message: MessageRecord {
                     id: "msg-asst".to_owned(),
@@ -513,7 +519,6 @@ impl ChatReentry for FakeReentry {
                 blocks,
                 finish_reason: Some("stop".to_owned()),
             },
-            fetched_activities: self.fetched_activities,
         })
     }
 }
@@ -573,7 +578,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
         channel.clone() as Arc<dyn MessagingChannel>
     ));
     let chart_url = "https://dev.dravr.ai/api/viz/signed-token.png";
-    let reentry = Arc::new(FakeReentry {
+    let post = Arc::new(FakePost {
         body: "Voici la comparaison.\n\n⟦viz:0⟧\n\nLe vrai contraste : en 2023 t'étais un pur coureur de trail."
             .to_owned(),
         charts: vec![ReplyBlock::SceneImage {
@@ -581,11 +586,12 @@ async fn push_sends_the_chart_and_never_its_marker() {
             mime_type: "image/png".to_owned(),
             caption: Some("Septembre 2023 vs 2026".to_owned()),
         }],
-        fetched_activities: true,
+        posted: true,
         seen_prompt: Mutex::new(None),
+        seen_surface: Mutex::new(None),
     });
     let notifier =
-        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
 
     notifier
         .push_backfill_complete(
@@ -695,15 +701,15 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
         channel.clone() as Arc<dyn MessagingChannel>
     ));
     // The model refused without ever calling `get_activities`.
-    let reentry = Arc::new(FakeReentry::prose(
+    let post = Arc::new(FakePost::prose(
         "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.",
         false,
     ));
-    let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
         repos,
         strings(),
         resolver,
-        reentry.clone(),
+        post.clone(),
     );
 
     notifier
@@ -732,11 +738,8 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
         !body.contains("Ça sort de ce que je peux"),
         "the list-free refusal must NOT be sent in place of the data: {body}"
     );
-    // The re-entry was still attempted with the user's own question.
-    assert_eq!(
-        reentry.seen_prompt.lock().unwrap().as_deref(),
-        Some(question)
-    );
+    // The post was still attempted with the user's own question.
+    assert_eq!(post.seen_prompt.lock().unwrap().as_deref(), Some(question));
 }
 
 /// The push re-asks the question that triggered the backfill, not an older one.
@@ -810,15 +813,12 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
     ));
     // Written in markdown, as the fallback chain does when the persona rewrite
     // cannot run; the channel must receive the words without the markers.
-    let reentry = Arc::new(FakeReentry::prose(
-        "## Septembre\n\n**5 918 m** de D+.",
-        true,
-    ));
-    let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
+    let post = Arc::new(FakePost::prose("## Septembre\n\n**5 918 m** de D+.", true));
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
         repos,
         strings(),
         resolver,
-        reentry.clone(),
+        post.clone(),
     );
 
     notifier
@@ -833,7 +833,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
         .await;
 
     assert_eq!(
-        reentry.seen_prompt.lock().unwrap().as_deref(),
+        post.seen_prompt.lock().unwrap().as_deref(),
         Some(triggering),
         "the push answers the question the athlete is waiting on, not the first one \
          in the lookback"
@@ -909,12 +909,12 @@ async fn push_prepends_activity_list_to_agent_reply() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let reentry = Arc::new(FakeReentry::prose(
+    let post = Arc::new(FakePost::prose(
         &format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
         true,
     ));
     let notifier =
-        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
 
     notifier
         .push_backfill_complete(
@@ -1008,9 +1008,9 @@ async fn push_caps_long_activity_list_for_small_screens() {
     ));
     let folded =
         shape_for_fold(Some(&list), &strings(), "fr").expect("a long list must shape into prose");
-    let reentry = Arc::new(FakeReentry::prose(&format!("{folded}\n\nAnalyse."), true));
+    let post = Arc::new(FakePost::prose(&format!("{folded}\n\nAnalyse."), true));
     let notifier =
-        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
 
     notifier
         .push_backfill_complete(
@@ -1304,121 +1304,6 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
     );
 }
 
-/// The canonical French refusals, read from the same registry the system
-/// prompt interpolates them from — so the test breaks with the wording, not
-/// behind it.
-fn french_refusals() -> Vec<String> {
-    let registry = MessagingStringsRegistry::new();
-    [KEY_SCOPE_REFUSAL, KEY_CAPABILITY_REFUSAL]
-        .map(|key| registry.get(key, "fr"))
-        .to_vec()
-}
-
-fn reentry_telemetry(activity_list_captured: bool, activities_prefetched: bool) -> TurnTelemetry {
-    TurnTelemetry {
-        model: "claude-sonnet-5".to_owned(),
-        provider_name: "copilot_headless".to_owned(),
-        // What the platform's own prefetch leaves behind, and what a failed
-        // model call leaves behind: the name alone says nothing.
-        tools_called: vec!["get_activities".to_owned()],
-        tool_calls_count: 1,
-        activity_list_captured,
-        activities_prefetched,
-        usage: None,
-        identity_leak: None,
-        provider_warnings: Vec::new(),
-    }
-}
-
-/// An answer built from the prefetched window is the athlete's answer.
-///
-/// Observed 2026-09-21: "Compare mon dénivelé mensuel de mars à septembre". The
-/// backfill completed, the re-entry turn had the window prefetched into its
-/// prompt — and was told by the prompt contract not to re-fetch it — and it
-/// answered with the monthly totals. No tool call, so no captured list, and the
-/// push threw the answer away and sent 15 bullet points of raw activities.
-#[test]
-fn an_answer_from_the_prefetched_window_is_delivered() {
-    assert!(
-        engaged_with_activities(
-            &reentry_telemetry(false, true),
-            "Septembre: 5 918 m de D+, ta plus grosse sortie c'est Montagne sacrée! (924 m). \
-             Août: 7 577 m. Juillet: 7 044 m.",
-            &french_refusals(),
-        ),
-        "the model had every row in front of it and answered the question; discarding \
-         that for a templated list is what left the athlete without an answer"
-    );
-}
-
-/// A refusal is never pushed in place of the history, prefetched or not.
-///
-/// The prefetch puts the data in the prompt; it does not make the model use it.
-/// An agent that had the window and still declined the question must fall back
-/// to the list — that is the case the original predicate existed for.
-#[test]
-fn a_refusal_over_a_prefetched_window_is_not_delivered() {
-    let refusals = french_refusals();
-    for sentence in &refusals {
-        assert!(
-            !sentence.trim().is_empty(),
-            "the catalogue must carry the French refusals this test stands on"
-        );
-        assert!(!engaged_with_activities(
-            &reentry_telemetry(false, true),
-            sentence,
-            &refusals,
-        ));
-        // Re-wrapped by a channel fold, re-cased, and wrapped in other prose:
-        // still the same sentence.
-        let rewrapped = format!(
-            "Désolé!\n\n{}\n",
-            sentence.to_uppercase().replace(' ', "\n  ")
-        );
-        assert!(
-            !engaged_with_activities(&reentry_telemetry(false, true), &rewrapped, &refusals),
-            "a re-wrapped refusal is still a refusal: {rewrapped}"
-        );
-    }
-}
-
-/// The tool name alone is not grounding.
-///
-/// `tools_called` carries `get_activities` after a prefetch that injected
-/// nothing (an empty window) and after a model call that failed. Neither put a
-/// row in front of the model.
-#[test]
-fn a_tool_name_without_data_is_not_the_model_engaging_with_activities() {
-    assert!(!engaged_with_activities(
-        &reentry_telemetry(false, false),
-        "Septembre: 5 918 m de D+.",
-        &french_refusals(),
-    ));
-}
-
-/// A list the tool loop captured is trusted as it always was — the list is
-/// folded into the body, so the athlete receives their data whatever the prose.
-#[test]
-fn a_captured_list_is_trusted_whatever_the_prose() {
-    assert!(engaged_with_activities(
-        &reentry_telemetry(true, false),
-        "Voici tes sorties.",
-        &french_refusals(),
-    ));
-}
-
-/// A locale the catalogue does not carry yields an empty sentence, and an empty
-/// sentence is contained in every reply. It must not turn every answer into a
-/// refusal.
-#[test]
-fn a_missing_refusal_string_does_not_reject_every_reply() {
-    assert!(engaged_with_activities(
-        &reentry_telemetry(false, true),
-        "Septembre: 5 918 m de D+.",
-        &[String::new(), String::new()],
-    ));
-}
-
 /// The web and mobile clients create no `messaging_sessions` row and no
 /// `ChannelType` names them, so every completion notice for an in-app
 /// conversation used to die in the session reverse-lookup: the athlete asked
@@ -1494,6 +1379,167 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
     assert!(
         messages.iter().all(|m| m.role != "user"),
         "the push must not fabricate a question the athlete never asked: {messages:?}"
+    );
+}
+
+/// The in-app arm answers in the agent's own words too: the athlete's question
+/// is re-asked as a platform post into their own thread, which stores the
+/// answer itself, so the notifier writes no list turn of its own and nothing
+/// goes out on a channel.
+#[tokio::test]
+async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    let question = "Montre-moi mes sorties de 2022";
+    repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: question,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a-1", "Sortie longue", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let post = Arc::new(FakePost::prose(
+        "En 2022 tu as surtout couru en montagne.",
+        true,
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        repos.clone(),
+        strings(),
+        resolver,
+        post.clone(),
+    );
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            (Utc::now() - Duration::days(500)).timestamp(),
+            1,
+        )
+        .await;
+
+    assert_eq!(
+        post.seen_prompt.lock().unwrap().as_deref(),
+        Some(question),
+        "the athlete's own question is re-asked"
+    );
+    assert_eq!(
+        *post.seen_surface.lock().unwrap(),
+        Some(PostSurface::InApp),
+        "laid out for the app, which reads the thread"
+    );
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "an in-app conversation has no outbound channel"
+    );
+    let messages = repos
+        .chat
+        .get_messages(&conversation_id, &user_id, tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        messages.iter().filter(|m| m.role == "assistant").count(),
+        0,
+        "the post stores its own answer; the notifier must not add the list beside it: {messages:?}"
+    );
+}
+
+/// A post the pipeline withheld — the answer did not ground in the history,
+/// or refused — leaves the in-app thread to the deterministic list, so the
+/// athlete still receives the activities they asked for.
+#[tokio::test]
+async fn a_withheld_in_app_post_falls_back_to_the_list() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: "Montre-moi mes sorties de 2022",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a-1", "Sortie longue", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let post = Arc::new(FakePost::prose("unused", false));
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        repos.clone(),
+        strings(),
+        resolver,
+        post,
+    );
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            (Utc::now() - Duration::days(500)).timestamp(),
+            1,
+        )
+        .await;
+
+    let messages = repos
+        .chat
+        .get_messages(&conversation_id, &user_id, tenant_id)
+        .await
+        .unwrap();
+    let assistant: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(assistant.len(), 1, "exactly the list turn: {messages:?}");
+    assert!(
+        assistant[0].content.contains("Sortie longue"),
+        "the list carries the warmed activities: {}",
+        assistant[0].content
     );
 }
 

@@ -1,15 +1,17 @@
-// ABOUTME: The two ways a backfill-completion notice reaches an athlete — channel adapter, or in-app turn
-// ABOUTME: Routing and body composition stay in backfill_notifier; this module only puts the notice where it goes
+// ABOUTME: The two ways a proactive notice reaches an athlete — channel adapter, or in-app turn
+// ABOUTME: Routing and body composition stay with the caller; this module only puts the notice where it goes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Delivery for [`ServerBackfillNotifier`](super::backfill_notifier).
+//! Delivery for [`ServerBackfillNotifier`](super::backfill_notifier) and for
+//! the messaging copy of the coach's first post
+//! ([`FirstSyncPoster`](super::first_sync_post::FirstSyncPoster)).
 //!
 //! A messaging conversation is written to by handing an outgoing message to
 //! that channel's adapter; a first-party (web/mobile) conversation is written
 //! to by persisting a turn into the thread the client already reads. The
-//! notifier decides which applies and what the notice says — these two types
+//! caller decides which applies and what the notice says — these two types
 //! only carry it there, so the decision and the mechanics stay separable.
 
 use pierre_core::transport::TransportPolicy;
@@ -40,8 +42,8 @@ use pierre_notifications::{
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
 
-/// Routing pieces resolved for a completed backfill: where to deliver the
-/// notice plus which tenant owns the channel config/adapter.
+/// Routing pieces resolved for a proactive notice: where to deliver it plus
+/// which tenant owns the channel config/adapter.
 pub struct ResolvedRoute {
     /// Messaging-session id (the `id` column of `messaging_sessions`). Carried so
     /// a send failure can persist the dropped notice as an outbound message row
@@ -65,7 +67,7 @@ pub struct ResolvedRoute {
     pub channel_tenant_id: TenantId,
 }
 
-/// Sends a completion notice out through a messaging channel's adapter.
+/// Sends a proactive notice out through a messaging channel's adapter.
 pub struct ChannelDelivery<'a> {
     /// Repository registry — the retry queue for a dropped notice.
     pub repos: &'a RepositoryRegistry,
@@ -74,24 +76,25 @@ pub struct ChannelDelivery<'a> {
 }
 
 impl ChannelDelivery<'_> {
-    /// Hand the notice to the originating channel's adapter.
+    /// Hand the notice to the channel's adapter. Returns whether every part
+    /// went out; a part that failed is queued for the retry worker, and one
+    /// with nowhere to go is logged.
     ///
-    /// A warmed history can be long — an agent answer over a deep window, or the
-    /// templated list itself. The channel accepts a bounded message and rejects
+    /// A notice can be long — an agent answer over a deep window, or a
+    /// templated list. The channel accepts a bounded message and rejects
     /// anything past it, so the notice goes out as ordered parts, each inside
     /// the ceiling, rather than being dropped whole. The prose lands first and
-    /// the reply's attachments — the charts a re-asked question drew — follow
-    /// it, one message each, exactly as the live reply path orders them. Every
-    /// part carries one fresh proactive turn id, not the originating turn's,
-    /// so a split notice still reads as one turn in the transcript.
+    /// the reply's attachments — the charts the agent drew — follow it, one
+    /// message each, exactly as the live reply path orders them. Every part
+    /// carries one fresh proactive turn id, not the originating turn's, so a
+    /// split notice still reads as one turn in the transcript.
     pub async fn send(
         &self,
         route: ResolvedRoute,
         user_id: Uuid,
         tenant_id: TenantId,
         reply: RenderedReply,
-        count: usize,
-    ) {
+    ) -> bool {
         let ResolvedRoute {
             session_id,
             channel_str,
@@ -120,9 +123,9 @@ impl ChannelDelivery<'_> {
         if parts.is_empty() {
             warn!(
                 channel = %channel_str,
-                "Backfill push: the reply rendered to nothing for this channel; nothing sent"
+                "Proactive push: the reply rendered to nothing for this channel; nothing sent"
             );
-            return;
+            return false;
         }
 
         // Load the channel config + adapter from the BOT/channel-owner tenant
@@ -133,7 +136,7 @@ impl ChannelDelivery<'_> {
             .resolve(channel_tenant_id, &channel_str, channel_type)
             .await
         else {
-            return;
+            return false;
         };
 
         let push_user_id = user_id.to_string();
@@ -148,16 +151,8 @@ impl ChannelDelivery<'_> {
             expires_at: None,
             reauth: None,
         };
-        if self
-            .send_parts(parts, adapter.as_ref(), &channel_config, &failed)
+        self.send_parts(parts, adapter.as_ref(), &channel_config, &failed)
             .await
-        {
-            info!(
-                channel = %channel_str,
-                count,
-                "Sent backfill-ready notice on channel"
-            );
-        }
     }
 
     /// Send the parts in order, stopping at the first failure. Returns whether
@@ -182,7 +177,7 @@ impl ChannelDelivery<'_> {
             let Err(e) = adapter.send(&outgoing, channel_config).await else {
                 continue;
             };
-            warn!(error = %e, channel = %failed.channel, "Failed to send backfill-ready notice on channel");
+            warn!(error = %e, channel = %failed.channel, "Failed to send a proactive notice on channel");
             for dropped in once(outgoing).chain(remaining.by_ref()) {
                 if let Err(enqueue_err) = enqueue_failed_outbound(
                     self.repos.messaging.as_ref(),
@@ -192,7 +187,7 @@ impl ChannelDelivery<'_> {
                 )
                 .await
                 {
-                    error!(error = %enqueue_err, "Backfill push: failed to enqueue dropped notice for retry");
+                    error!(error = %enqueue_err, "Proactive push: failed to enqueue dropped notice for retry");
                 }
             }
             return false;
@@ -269,6 +264,13 @@ impl InAppDelivery<'_> {
             "Delivered backfill-ready notice into the in-app conversation"
         );
         self.push_app_notification(user_id, tenant_id, locale, count, transport_policy)
+            .await;
+    }
+
+    /// Raise only the app notification, for a notice the chat pipeline has
+    /// already stored in the conversation as the agent's own answer.
+    pub async fn ping(&self, user_id: Uuid, tenant_id: TenantId, locale: &str, count: usize) {
+        self.push_app_notification(user_id, tenant_id, locale, count, self.transport_policy)
             .await;
     }
 

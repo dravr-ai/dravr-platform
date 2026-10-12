@@ -319,6 +319,8 @@ export const ENDPOINTS = {
     HOME_PREFERENCES: '/api/me/home-preferences',
     /** The athlete's units and the Settings choice behind them (`GET ?device_locale=`, `PUT`) */
     UNITS: '/api/me/units',
+    /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
+    CHECK_IN: '/api/me/check-in',
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },

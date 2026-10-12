@@ -559,7 +559,7 @@ pub(crate) fn starter_samples(samples: &[String]) -> Vec<String> {
 /// The messaging intake is not such a walk — the platform asks and parses it
 /// at ingress, and the pipeline steps aside from it the same way — so an
 /// agent the athlete binds while it is outstanding still welcomes them.
-fn guided_walk_owns(conversation: &ConversationRecord) -> bool {
+pub(crate) fn guided_walk_owns(conversation: &ConversationRecord) -> bool {
     OnboardingState::from_column(conversation.onboarding_state.as_deref())
         .is_some_and(|state| state.flow != GuidedFlow::Intake)
 }

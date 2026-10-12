@@ -40,7 +40,7 @@ mod intake_tests {
         TokenUsage,
     };
     use pierre_core::models::agents::CreateAgentRequest;
-    use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+    use pierre_core::models::{CheckInCadence, ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -675,8 +675,9 @@ mod intake_tests {
             "the intake must open behind the served turn"
         );
 
-        // Profile type, then the seven PAR-Q+ questions. Exactly one "yes".
-        let answers = ["1", "2", "1", "2", "2", "2", "2", "2"];
+        // Profile type, then the seven PAR-Q+ questions — exactly one "yes" —
+        // then how often the coach may check in: "3", every Monday.
+        let answers = ["1", "2", "1", "2", "2", "2", "2", "2", "3"];
         for (i, answer) in answers.iter().enumerate() {
             send_turn(&resources, 8002 + i as u64, 81, answer, false).await;
             // Each answer is replied to with the next question, so the ledger
@@ -701,6 +702,21 @@ mod intake_tests {
         assert!(
             steps.contains(&("profile_type".to_owned(), "complete".to_owned())),
             "profile type must be recorded complete, got {steps:?}"
+        );
+        assert!(
+            steps.contains(&("check_in".to_owned(), "complete".to_owned())),
+            "the check-in question must be recorded answered, got {steps:?}"
+        );
+        assert_eq!(
+            resources
+                .common
+                .repos
+                .check_in_preferences
+                .check_in_cadence(tenant_id, user_id)
+                .await
+                .unwrap(),
+            Some(CheckInCadence::Weekly),
+            "the chat answer is stored where Settings stores it"
         );
 
         let flags = medical_facts(&resources, user_id).await;

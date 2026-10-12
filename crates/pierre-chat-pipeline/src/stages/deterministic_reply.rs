@@ -159,6 +159,7 @@ pub async fn deliver(
         ctx.repos.groups.as_ref(),
         &assistant_params,
         input.conversation_tenant_id,
+        input.origin,
     )
     .await?;
 

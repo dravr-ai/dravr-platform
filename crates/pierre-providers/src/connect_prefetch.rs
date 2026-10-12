@@ -90,6 +90,12 @@ impl PrefetchedWindow {
         self.head_complete
     }
 
+    /// Whether the pre-fetch read no activity at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.activities.is_empty()
+    }
+
     /// The answer to a read of `params`, out of this window, or `None` when
     /// the window cannot vouch for it.
     ///

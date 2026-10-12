@@ -32,7 +32,7 @@ use futures_util::stream;
 use uuid::Uuid;
 
 use common::{create_test_server_resources_with_llm, create_test_user_with_plan};
-use helpers::notify_capture::{capture_notify, only};
+use helpers::notify_capture::{capture_notify, named, only};
 use pierre_chat_pipeline::{
     CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnOrigin, TurnRequest,
@@ -227,8 +227,13 @@ fn request(fx: &Fixture, origin: TurnOrigin, content: &str) -> TurnRequest<'stat
     }
 }
 
-/// The whole point: a platform turn answers into the thread and leaves behind
-/// exactly one new row — the reply — never a question the athlete did not ask.
+/// The whole point: a platform turn never leaves behind a question the athlete
+/// did not ask.
+///
+/// This athlete has no provider connected, so the reply grounds in nothing of
+/// theirs and is withheld as well (carnet#831): the thread holds exactly what
+/// it held before. That a grounded reply IS stored, alone, is pinned against a
+/// real grounded turn in `platform_post_test`.
 #[tokio::test]
 async fn a_platform_turn_writes_no_message_the_athlete_never_sent() {
     let fx = setup().await;
@@ -245,13 +250,9 @@ async fn a_platform_turn_writes_no_message_the_athlete_never_sent() {
     let ServedTurn::Pipeline(envelope) = served else {
         panic!("a plain-prose turn runs the pipeline");
     };
-    // Not asserted against `MOCK_REPLY`: this athlete has no provider
-    // connection, so `auth_recovery` rewrites the reply into a reconnect
-    // offer. Which text wins is that stage's business; this test's business
-    // is which ROWS the turn leaves behind.
     assert!(
-        !envelope.assistant.message.content.trim().is_empty(),
-        "the turn still produces a reply"
+        !envelope.posted,
+        "nothing of the athlete's grounds the reply, so it is withheld"
     );
 
     let rows = fx
@@ -271,15 +272,10 @@ async fn a_platform_turn_writes_no_message_the_athlete_never_sent() {
     );
     assert_eq!(user_rows[0].content, "montre-moi mes sorties de 2022");
 
-    let assistant_rows: Vec<_> = rows.iter().filter(|m| m.role == "assistant").collect();
     assert_eq!(
-        assistant_rows.len(),
-        2,
-        "the placeholder and the answer, and nothing else: {rows:?}"
-    );
-    assert_eq!(
-        assistant_rows[1].content, envelope.assistant.message.content,
-        "the reply IS persisted — only the prompt is not"
+        rows.iter().filter(|m| m.role == "assistant").count(),
+        1,
+        "the placeholder alone — the withheld reply is not stored either: {rows:?}"
     );
 }
 
@@ -356,7 +352,9 @@ async fn an_athlete_turn_still_writes_the_message_they_sent() {
 
 /// Analytics counts how athletes produce their questions (carnet#828), and a
 /// prompt the platform composed is none of them: it reports `platform`,
-/// whatever input source the request carries.
+/// whatever input source the request carries. Its reply grounds in nothing
+/// here and is withheld, so no answer is reported delivered; a delivered
+/// platform answer reports `platform` too, pinned in `platform_post_test`.
 #[tokio::test]
 async fn a_platform_turn_reports_its_origin_as_platform() {
     let fx = setup().await;
@@ -378,8 +376,8 @@ async fn a_platform_turn_reports_its_origin_as_platform() {
         only(&events, "chat.question_asked").field("origin"),
         "platform"
     );
-    assert_eq!(
-        only(&events, "chat.answer_delivered").field("origin"),
-        "platform"
+    assert!(
+        named(&events, "chat.answer_delivered").is_empty(),
+        "a withheld reply reached nobody"
     );
 }

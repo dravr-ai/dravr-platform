@@ -505,11 +505,14 @@ pub async fn run(
     ))
     .await;
 
-    if let Ok(envelope) = &outcome {
+    if outcome.is_ok() {
         // A real served turn is the strongest proof the LLM provider is
         // live — stamp it so the periodic health probe can skip its billed
         // synthetic `copilot --acp` round-trip while real traffic flows.
         ctx.llm_health.note_success();
+    }
+    // A withheld platform reply reached nobody, so no answer was delivered.
+    if let Some(envelope) = outcome.as_ref().ok().filter(|envelope| envelope.posted) {
         emit_answer_delivered(
             persona,
             origin,
@@ -773,6 +776,7 @@ async fn run_turn(
         mut result,
         provider_name,
         activities_prefetched,
+        tool_rounds,
     } = dispatch_stage(
         DispatchStageArgs {
             hooks,
@@ -819,20 +823,6 @@ async fn run_turn(
         .tools_called
         .iter()
         .any(|t| t == SAVE_TRAINING_PLAN_TOOL);
-    // The steps this reply hands over ride its stored row and its live
-    // actions alike. A reply withheld for a leak is an apology, not the
-    // answer the steps would have followed.
-    let next_steps = if leak_replaced {
-        NextSteps::default()
-    } else {
-        next_steps::for_reply(ctx, &input, profile, &conv, closing_steps, plan_was_saved).await
-    };
-    let content_blocks = next_steps
-        .stored_blocks(post_processed.content_blocks.as_deref())
-        .unwrap_or_else(|e| {
-            warn!(error = %e, "next steps could not be stored; persisting the reply without them");
-            post_processed.content_blocks.clone()
-        });
     let identity_leak = post_processed.identity_leak;
     let verdict_chips = post_processed.verdict_chips;
 
@@ -863,6 +853,40 @@ async fn run_turn(
         stages::source_attribution::model_answered(&result),
         &profile.locale,
     );
+    // A reply the platform composed on its own initiative is posted only when
+    // it grounded in the athlete's data and did not refuse (carnet#831).
+    if let Some(withheld) = stages::platform_grounding::withheld_platform_reply(
+        ctx,
+        profile,
+        stages::platform_grounding::PlatformReplyDraft {
+            input: &input,
+            user_message: &user_message,
+            conv: &conv,
+            content: &persisted_assistant_content,
+            result: &result,
+            active_model: &active_model,
+            provider_name: &provider_name,
+            activities_prefetched,
+            identity_leak,
+            answered_by: agent_ctx.as_ref().map(|agent| agent.title.clone()),
+        },
+    ) {
+        return Ok(withheld);
+    }
+    // The steps this reply hands over ride its stored row and its live
+    // actions alike. A reply withheld for a leak is an apology, not the
+    // answer the steps would have followed.
+    let next_steps = if leak_replaced {
+        NextSteps::default()
+    } else {
+        next_steps::for_reply(ctx, &input, profile, &conv, closing_steps, plan_was_saved).await
+    };
+    let content_blocks = next_steps
+        .stored_blocks(post_processed.content_blocks.as_deref())
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "next steps could not be stored; persisting the reply without them");
+            post_processed.content_blocks.clone()
+        });
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
@@ -885,11 +909,15 @@ async fn run_turn(
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);
     }
+    // A platform turn's tool rounds land now that its reply is admitted,
+    // ahead of the reply drawn from them.
+    tool_rounds.persist_held().await;
     let (assistant_message, updated_conversation) = persist_assistant_response(
         database,
         ctx.repos.groups.as_ref(),
         &assistant_params,
         input.conversation_tenant_id,
+        input.origin,
     )
     .await?;
 

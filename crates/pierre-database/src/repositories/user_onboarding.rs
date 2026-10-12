@@ -93,6 +93,7 @@ macro_rules! personal_conversation {
          WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"
     };
 }
+pub(crate) use personal_conversation;
 
 /// The onboarding half of a reset, as `(label, statement)` pairs.
 ///

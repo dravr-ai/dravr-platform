@@ -58,6 +58,13 @@ export function useOnboardingContext(): OnboardingContextState {
   // The two pre-connect steps added alongside profile-type; same fail-open flag.
   const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
   const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
+  // How often the coach checks in (carnet#831): the same fail-open flag, plus
+  // the server's step row, which the chat intake and the web write too.
+  const { done: checkInDoneLocal } = useOnboardingFlag('dravr.check_in_done.', user?.id);
+  const checkInDone =
+    checkInDoneLocal === undefined
+      ? undefined
+      : checkInDoneLocal || isServerStepComplete(onboardingStatus?.steps, 'check_in');
   // A coach who does not train: the athlete steps leave the journey. Fails
   // closed — see useOnboardingFlag's `fallback`. The server's not_applicable
   // step rows carry it across devices and from the chat intake.
@@ -101,6 +108,7 @@ export function useOnboardingContext(): OnboardingContextState {
     (profileTypeChosen === undefined ||
       aboutYouDone === undefined ||
       parqDone === undefined ||
+      checkInDone === undefined ||
       athleteStepsWaivedLocal === undefined);
   const postConnectPending =
     postConnect &&
@@ -115,6 +123,7 @@ export function useOnboardingContext(): OnboardingContextState {
       profileTypeChosen: profileTypeChosen ?? true,
       aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
+      checkInDone: checkInDone ?? true,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,
@@ -132,6 +141,7 @@ export function useOnboardingContext(): OnboardingContextState {
       profileTypeChosen,
       aboutYouDone,
       parqDone,
+      checkInDone,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,

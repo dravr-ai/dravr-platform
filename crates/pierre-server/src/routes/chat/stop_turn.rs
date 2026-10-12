@@ -39,7 +39,7 @@ use pierre_chat_pipeline::turn_stop::{
 };
 use pierre_contremaitre::messaging_strings::KEY_TURN_STOPPED;
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, STOPPED_TURN_FINISH_REASON};
+use pierre_core::models::{AddMessageParams, TurnOrigin, STOPPED_TURN_FINISH_REASON};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::locale::resolve_user_locale;
 use serde::{Deserialize, Serialize};
@@ -129,6 +129,8 @@ pub async fn stop_turn(
         repos.groups.as_ref(),
         &params,
         tenant_id,
+        // The athlete stopped their own turn and is looking at the notice.
+        TurnOrigin::Athlete,
     )
     .await?;
 

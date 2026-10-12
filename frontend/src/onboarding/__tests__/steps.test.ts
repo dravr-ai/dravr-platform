@@ -27,6 +27,7 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     // test exercising a later step isn't intercepted by them.
     aboutYouDone: true,
     parqDone: true,
+    checkInDone: true,
     athleteStepsWaived: false,
     // An athlete unless a test says otherwise: the group step is a coach's.
     coachesOthers: false,
@@ -83,6 +84,25 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
         }),
       )?.id,
     ).toBe('parq');
+  });
+
+  it('PAR-Q done, the check-in cadence outstanding → check_in (still before the provider gate)', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: true,
+          profileTypeChosen: true,
+          aboutYouDone: true,
+          parqDone: true,
+          checkInDone: false,
+          coachProposalDone: false,
+        }),
+      )?.id,
+    ).toBe('check_in');
+  });
+
+  it('a returning user who never chose a cadence is not stopped for it (needs=false)', () => {
+    expect(currentOnboardingStep(ctx({ checkInDone: false }))).toBeNull();
   });
 
   it('skipping about-you and PAR-Q still lands on connect_provider', () => {
@@ -159,6 +179,7 @@ describe('onboardingProgress — stable position-based labeled sequence', () => 
       'onboarding.stepAboutYou',
       'onboarding.stepAboutTraining',
       'onboarding.stepHealthCheck',
+      'onboarding.stepCheckIn',
       'onboarding.stepConnect',
     ]);
   });
@@ -366,6 +387,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
       profileTypeChosen: true,
       aboutYouDone: false,
       parqDone: false,
+      checkInDone: false,
       coachProposalDone: false,
       athleteStepsWaived: true,
       ...overrides,
@@ -373,6 +395,10 @@ describe('coach who does not train — athlete steps leave the journey', () => {
 
   it('goes straight from profile_type to connect_provider, never asking about_you or parq', () => {
     expect(currentOnboardingStep(coachOnly())?.id).toBe('connect_provider');
+  });
+
+  it('is never asked how often to be checked in on: a check-in reads their own training', () => {
+    expect(currentOnboardingStep(coachOnly({ checkInDone: false }))?.id).toBe('connect_provider');
   });
 
   it('keeps the athlete steps off the progress bar instead of showing them done', () => {
@@ -435,12 +461,23 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     ).toBeNull();
   });
 
+  it('a coach who trains is asked how often to be checked in on, like any athlete', () => {
+    const trains = coachOnly({
+      coachesOthers: true,
+      athleteStepsWaived: false,
+      aboutYouDone: true,
+      parqDone: true,
+    });
+    expect(currentOnboardingStep(trains)?.id).toBe('check_in');
+  });
+
   it('a coach who trains is still held at connect_provider and waits there for the group', () => {
     const trains = coachOnly({
       coachesOthers: true,
       athleteStepsWaived: false,
       aboutYouDone: true,
       parqDone: true,
+      checkInDone: true,
     });
     expect(currentOnboardingStep(trains)?.id).toBe('connect_provider');
     expect(currentOnboardingStep({ ...trains, skippedProvider: true })).toBeNull();
@@ -454,6 +491,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
       athleteStepsWaived: false,
       aboutYouDone: true,
       parqDone: true,
+      checkInDone: true,
     });
     expect(currentOnboardingStep(connected)?.id).toBe('coach_proposal');
   });

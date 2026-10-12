@@ -86,6 +86,7 @@ describe('useOnboardingContext', () => {
       profileTypeChosen: true,
       aboutYouDone: false,
       parqDone: false,
+      checkInDone: false,
       athleteStepsWaived: false,
       coachesOthers: false,
       coachGroupDone: false,
@@ -112,6 +113,7 @@ describe('useOnboardingContext', () => {
     expect(result.current.context.profileTypeChosen).toBe(true);
     expect(result.current.context.aboutYouDone).toBe(true);
     expect(result.current.context.parqDone).toBe(true);
+    expect(result.current.context.checkInDone).toBe(true);
     // The coach-only flag removes steps, so it fails closed instead.
     expect(result.current.context.athleteStepsWaived).toBe(false);
   });
@@ -148,9 +150,33 @@ describe('useOnboardingContext', () => {
     expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
   });
 
-  it('observes the first connect as justOnboarded and makes the coach proposal current', async () => {
+  it('asks the check-in cadence after the PAR-Q, unless the server says it was answered', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(true));
     await markDone('dravr.profile_type_chosen.', 'dravr.about_you_done.', 'dravr.parq_done.');
+    const { client, wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('check_in'));
+
+    // Answered in the chat intake: the server's step row carries it here.
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(true),
+      steps: [{ step_id: 'check_in', status: 'complete' }],
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    });
+    await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider'));
+  });
+
+  it('observes the first connect as justOnboarded and makes the coach proposal current', async () => {
+    mockGetOnboardingStatus.mockResolvedValue(status(true));
+    await markDone(
+      'dravr.profile_type_chosen.',
+      'dravr.about_you_done.',
+      'dravr.parq_done.',
+      'dravr.check_in_done.',
+    );
     const { client, wrapper } = setup();
 
     const { result } = renderHook(() => useOnboardingContext(), { wrapper });
@@ -210,7 +236,12 @@ describe('useOnboardingProgress', () => {
 
   it('reads the shared context: every pre-connect step behind, connect current on the connect screen', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(true));
-    await markDone('dravr.profile_type_chosen.', 'dravr.about_you_done.', 'dravr.parq_done.');
+    await markDone(
+      'dravr.profile_type_chosen.',
+      'dravr.about_you_done.',
+      'dravr.parq_done.',
+      'dravr.check_in_done.',
+    );
     const { wrapper } = setup();
 
     const { result } = renderHook(() => useOnboardingProgress('connect_provider'), { wrapper });
@@ -220,6 +251,7 @@ describe('useOnboardingProgress', () => {
         ['profile_type', 'done'],
         ['about_you', 'done'],
         ['parq', 'done'],
+        ['check_in', 'done'],
         ['connect_provider', 'current'],
       ]),
     );
@@ -229,7 +261,12 @@ describe('useOnboardingProgress', () => {
   // its own mount never sees it; the bar still shows the step as current.
   it('puts the coach proposal on the bar as the current step from its own screen', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(false));
-    await markDone('dravr.profile_type_chosen.', 'dravr.about_you_done.', 'dravr.parq_done.');
+    await markDone(
+      'dravr.profile_type_chosen.',
+      'dravr.about_you_done.',
+      'dravr.parq_done.',
+      'dravr.check_in_done.',
+    );
     const { wrapper } = setup();
 
     const { result } = renderHook(() => useOnboardingProgress('coach_proposal'), { wrapper });
@@ -239,6 +276,7 @@ describe('useOnboardingProgress', () => {
         ['profile_type', 'done'],
         ['about_you', 'done'],
         ['parq', 'done'],
+        ['check_in', 'done'],
         ['connect_provider', 'done'],
         ['coach_proposal', 'current'],
       ]),

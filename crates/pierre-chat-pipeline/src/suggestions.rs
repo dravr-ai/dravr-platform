@@ -59,7 +59,9 @@ use crate::surface_profile::SurfaceId;
 /// The `surface` an agent welcome's starters are reported under.
 pub(crate) const SURFACE_AGENT_WELCOME: &str = "agent_welcome";
 
-/// The `surface` the next steps a reply ends on are reported under.
+/// The `surface` the next steps a reply ends on are reported under — a walk,
+/// a command or an analysis (carnet#830), and a post the coach made on its
+/// own (carnet#831).
 pub(crate) const SURFACE_NEXT_STEP: &str = "next_step";
 
 /// The `surface` the starters of an empty thread are reported under: the web

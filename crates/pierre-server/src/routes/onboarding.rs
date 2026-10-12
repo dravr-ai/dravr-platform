@@ -78,13 +78,14 @@ const ONBOARDING_TOPIC_TOTAL: usize = 7;
 
 /// The onboarding step ids the `PUT` endpoint accepts, kept in sync with the
 /// client step registry (`frontend/src/onboarding/steps.ts`).
-const ONBOARDING_STEP_IDS: [&str; 8] = [
+const ONBOARDING_STEP_IDS: [&str; 9] = [
     "profile_type",
     "about_you",
     "parq",
     "connect_provider",
     "coach_proposal",
     "coach_group",
+    intake::STEP_CHECK_IN,
     "messaging_channel",
     "messaging_configure",
 ];
@@ -242,7 +243,9 @@ pub struct ParqSubmitResponse {
     pub flags_raised: u64,
 }
 
-fn active_tenant(auth: &AuthenticatedUser) -> Result<TenantId, AppError> {
+/// The caller's active tenant, which every onboarding answer — the check-in
+/// cadence among them — is stored under.
+pub(super) fn active_tenant(auth: &AuthenticatedUser) -> Result<TenantId, AppError> {
     auth.active_tenant_id
         .map(TenantId::from_uuid)
         .ok_or_else(|| {

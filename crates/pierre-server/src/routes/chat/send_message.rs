@@ -634,6 +634,8 @@ async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
         repos.groups.as_ref(),
         &params,
         egress.tenant_id,
+        // The notice closes a turn the athlete sent and is waiting on.
+        pipeline::TurnOrigin::Athlete,
     )
     .await
     {

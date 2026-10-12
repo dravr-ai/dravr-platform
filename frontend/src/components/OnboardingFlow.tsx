@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import OnboardingProfileType from './OnboardingProfileType';
 import OnboardingAboutYou from './OnboardingAboutYou';
 import OnboardingParq from './OnboardingParq';
+import OnboardingCheckIn from './OnboardingCheckIn';
 import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
 import OnboardingCoachGroup from './OnboardingCoachGroup';
@@ -72,6 +73,8 @@ function renderStep(
       return (
         <OnboardingParq userDisplayName={userDisplayName} onComplete={state.completeParq} />
       );
+    case 'check_in':
+      return <OnboardingCheckIn onComplete={state.completeCheckIn} />;
     case 'connect_provider':
       return (
         <OnboardingConnectProvider

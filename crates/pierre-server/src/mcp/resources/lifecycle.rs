@@ -15,9 +15,9 @@ use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::ServerBackfillNotifier;
-#[cfg(feature = "client-messaging")]
-use crate::services::backfill_reentry::ChatReentry;
 use crate::services::photograveur_client::PhotograveurClient;
+#[cfg(feature = "client-messaging")]
+use crate::services::platform_post::PlatformPost;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
 #[cfg(feature = "client-messaging")]
@@ -147,7 +147,7 @@ use std::env;
 #[cfg(feature = "client-messaging")]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "protocol-rest")]
 use std::sync::OnceLock;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
@@ -619,17 +619,17 @@ impl ServerContext {
         // context so the detached historical-backfill task can push a "your
         // history is ready" notice back to the originating channel.
         //
-        // The chat-pipeline re-entry handle (which lets that push synthesize a
-        // real agent answer) needs the composition-root `Arc<ServerContext>`,
-        // which doesn't exist yet — so the notifier and the context share this
-        // empty `OnceLock` slot, filled post-`Arc` by `install_backfill_reentry`.
+        // The platform post (which lets that push answer in the agent's own
+        // words) needs the composition-root `Arc<ServerContext>`, which
+        // doesn't exist yet — so the notifier and the context share this empty
+        // `OnceLock` slot, filled post-`Arc` by `install_platform_post`.
         #[cfg(feature = "client-messaging")]
-        let backfill_reentry: Arc<OnceLock<Arc<dyn ChatReentry>>> = Arc::new(OnceLock::new());
+        let platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>> = Arc::new(OnceLock::new());
         #[cfg(feature = "client-messaging")]
         let backfill_notifier = Some(ServerBackfillNotifier::from_handles(
             common.repos.clone(),
             contremaitre_messaging_strings_registry.clone(),
-            backfill_reentry.clone(),
+            platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
             // The in-app arm's ping. Cloned from the already-assembled common
@@ -649,7 +649,10 @@ impl ServerContext {
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
             #[cfg(feature = "client-messaging")]
-            backfill_reentry,
+            platform_post,
+            // The coach's first post, installed post-`Arc` the same way.
+            #[cfg(feature = "protocol-rest")]
+            first_sync: Arc::new(OnceLock::new()),
             contremaitre_config: ContremaitreConfig::from_env(),
         };
 

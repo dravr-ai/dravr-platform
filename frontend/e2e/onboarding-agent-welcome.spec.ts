@@ -158,6 +158,7 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
     window.localStorage.setItem(`dravr.profile_type_chosen.${userId}`, '1');
     window.localStorage.setItem(`dravr.about_you_done.${userId}`, '1');
     window.localStorage.setItem(`dravr.parq_done.${userId}`, '1');
+    window.localStorage.setItem(`dravr.check_in_done.${userId}`, '1');
   }, USER_ID);
   await setupDashboardMocks(page, { role: 'user', email: 'fresh@test.com', displayName: 'Fresh User' });
   const mocks = await installMocks(page);

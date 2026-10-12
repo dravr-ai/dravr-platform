@@ -1045,6 +1045,27 @@ macro_rules! impl_chat_repository {
                 row.as_ref().map(conversation_from_row).transpose()
             }
 
+            async fn latest_personal_conversation(
+                &self,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<ConversationRecord>> {
+                // The predicate compares `CAST(user_id AS TEXT)`, so the id
+                // binds as its hyphenated text on both backends.
+                let user_id = Uuid::parse_str(user_id)
+                    .map_err(|e| AppError::invalid_input(format!("Invalid user id: {e}")))?
+                    .to_string();
+                let row = sqlx::query(LATEST_PERSONAL_CONVERSATION_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to find the personal conversation: {e}"))
+                    })?;
+                row.as_ref().map(conversation_from_row).transpose()
+            }
+
             async fn set_conversation_agent_id(
                 &self,
                 conversation_id: &str,

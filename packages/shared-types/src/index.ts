@@ -215,6 +215,10 @@ export { ACTIVITY_UPLOAD_MAX_BYTES, UPLOAD_PROVIDER, parseActivityUploadResponse
 export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
 export { parseTrainingVolumeResponse } from './training-volume.js';
 
+// How often the coach checks in on its own: daily, three a week, weekly or off (carnet#831)
+export type { CheckInCadence, CheckInPreference } from './check-in.js';
+export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './check-in.js';
+
 // The athlete's units: the Settings choice and the system it resolves to (carnet#835)
 export type { UnitPreference, UnitPreferences, UnitPreferencesUpdate, UnitSource, UnitSystem } from './units.js';
 export { parseUnitPreferences } from './units.js';

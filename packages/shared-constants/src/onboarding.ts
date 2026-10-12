@@ -11,6 +11,7 @@ export type OnboardingStepId =
   | 'profile_type'
   | 'about_you'
   | 'parq'
+  | 'check_in'
   | 'connect_provider'
   | 'coach_proposal'
   | 'coach_group'
@@ -46,6 +47,12 @@ export interface OnboardingContext {
   aboutYouDone: boolean;
   /** The PAR-Q medical screen has been answered or skipped. */
   parqDone: boolean;
+  /**
+   * How often the coach checks in on its own has been answered or skipped
+   * (carnet#831). `off` is an answer; a skip stores no cadence, which reads
+   * as off too.
+   */
+  checkInDone: boolean;
   /**
    * The user coaches others and does not train themselves, so the athlete
    * steps (`about_you`, `parq`) are not part of their journey — neither asked
@@ -156,6 +163,20 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
       !c.skippedProvider &&
       !c.athleteStepsWaived,
     isComplete: (c) => c.parqDone,
+  },
+  {
+    // How often the coach writes first: every morning, three a week, weekly or
+    // never. Asked with the other questions about the athlete, ahead of the
+    // provider gate, and changeable in Settings. A coach who does not train is
+    // not asked: a check-in reads the athlete's own training.
+    id: 'check_in',
+    labelKey: 'onboarding.stepCheckIn',
+    isApplicable: (c) =>
+      c.onboardingActive &&
+      c.needsProviderConnection === true &&
+      !c.skippedProvider &&
+      !c.athleteStepsWaived,
+    isComplete: (c) => c.checkInDone,
   },
   {
     // A coach who does not train meets this step too, offered only the

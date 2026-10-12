@@ -21,6 +21,11 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
+use crate::first_sync::spawn_on_demand_first_read;
+#[cfg(feature = "health-sync")]
+use crate::first_sync::{
+    backfill_verdict, health_sync_backfills, spawn_prefetch_landing, BackfillVerdict,
+};
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
@@ -44,8 +49,6 @@ use pierre_services::provider_refresh::RefreshService;
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_revocation::DisconnectReason;
-#[cfg(feature = "health-sync")]
-use pierre_services::sync_failure_notice::health_sync_failure_is_told;
 
 use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
@@ -150,6 +153,15 @@ pub async fn handle_oauth_callback(
         Ok(response) => {
             #[cfg(feature = "health-sync")]
             spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
+            #[cfg(feature = "health-sync")]
+            let read_on_demand = !health_sync_backfills(&resources, &response.provider);
+            // Without the health sync no provider is backfilled after a
+            // connect, so every one is read on demand.
+            #[cfg(not(feature = "health-sync"))]
+            let read_on_demand = true;
+            if read_on_demand {
+                spawn_on_demand_first_read(&resources, &response.user_id, &response.provider);
+            }
 
             // Completion reaches the client through the durable path:
             // `complete_callback` has already written the notification row, and
@@ -1062,8 +1074,11 @@ pub async fn handle_sync_provider(
 /// browser on the scraper service and a connect that fires both at once sheds
 /// its own reads (carnet#736). An API connect has none to wait on.
 ///
-/// LIMITATION(registre#831): `spawn_health_backfill` lands the athlete's first
-/// data and re-arms the notices, but no verified coach post follows it.
+/// A backfill that lands records is reported to the [`crate::FirstSyncHook`] as the
+/// athlete's data landing (carnet#831); whether it is their first is the
+/// hook's to decide. A provider the sync does not manage lands its data
+/// through the scrape pre-fetch instead, when the connect started one, and
+/// that is reported the same way.
 #[cfg(feature = "health-sync")]
 pub fn spawn_health_backfill(
     resources: &AuthRoutesContext,
@@ -1073,20 +1088,24 @@ pub fn spawn_health_backfill(
 ) {
     const BACKFILL_DAYS: u32 = 30;
 
-    let Some(orchestrator) = resources.sync_orchestrator.clone() else {
-        return;
-    };
-    if !orchestrator.provider_names().contains(&provider) {
+    if !health_sync_backfills(resources, provider) {
         tracing::debug!(
             provider,
             "No health sync for this provider; nothing to backfill"
         );
+        if let Some(prefetch) = after {
+            spawn_prefetch_landing(resources, user_id, provider, prefetch);
+        }
         return;
     }
+    let Some(orchestrator) = resources.sync_orchestrator.clone() else {
+        return;
+    };
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
     let auth_repos = resources.repos.auth_repos();
     let notices = resources.sync_failure_notices.clone();
+    let first_sync = Arc::clone(&resources.first_sync);
     tokio::spawn(async move {
         if let Some(prefetch) = after {
             // What the pre-fetch read is the activity readers'; the backfill
@@ -1110,12 +1129,14 @@ pub fn spawn_health_backfill(
                 "Initial health data backfill failed"
             );
         }
+        let verdict = backfill_verdict(outcome.as_ref().map(|landed| {
+            landed
+                .records_created
+                .saturating_add(landed.records_updated)
+        }));
         // A failure the athlete is not told about (a dead credential, the
         // shared quota) neither notifies nor re-arms.
-        if outcome
-            .as_ref()
-            .is_err_and(|e| !health_sync_failure_is_told(e))
-        {
+        if verdict == BackfillVerdict::FailedUntold {
             return;
         }
         let Ok(user_uuid) = Uuid::parse_str(&user_id) else {
@@ -1125,10 +1146,15 @@ pub fn spawn_health_backfill(
         let Some(tenant) = token_tenant(&auth_repos, user_uuid, &backend).await else {
             return;
         };
-        if outcome.is_ok() {
-            notices.sync_landed(user_uuid, tenant, &backend).await;
-        } else {
+        if verdict == BackfillVerdict::Failed {
             notices.sync_failed(user_uuid, tenant, &backend).await;
+            return;
+        }
+        notices.sync_landed(user_uuid, tenant, &backend).await;
+        if verdict == BackfillVerdict::Landed {
+            if let Some(hook) = first_sync.get() {
+                hook.data_landed(user_uuid, tenant, &provider).await;
+            }
         }
     });
 }

@@ -33,6 +33,8 @@ pub mod a2a;
 mod athlete;
 /// The difficulty-calibration interview's topic table and next-topic policy.
 pub mod calibration;
+/// How often the coach checks in with an athlete on its own (carnet#831).
+pub mod check_in;
 /// A member's provider read through their group coach's session: the
 /// `delegated_connections` row and its lifecycle vocabulary.
 pub mod delegated_connection;
@@ -141,6 +143,8 @@ pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
 };
 pub use units::{resolve_units, ResolvedUnits, UnitPreference, UnitSource, UnitSystem};
+
+pub use check_in::CheckInCadence;
 
 // Physiology provenance domain
 pub use measurement::{

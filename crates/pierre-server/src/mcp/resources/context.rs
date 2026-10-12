@@ -223,6 +223,7 @@ impl ServerContext {
             sync_orchestrator: self.fitness.sync_orchestrator.clone(),
             #[cfg(feature = "health-sync")]
             sync_failure_notices: self.sync_failure_notices(),
+            first_sync: Arc::clone(&self.mcp.first_sync),
             cache: self.common.cache.clone(),
             messaging_strings: self.mcp.messaging_strings_registry.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),

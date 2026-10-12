@@ -882,17 +882,30 @@ fn select_turn_runner() -> Arc<TurnRunner> {
 fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
-    // Install the chat-pipeline re-entry handle on the backfill-completion
-    // notifier now that the composition-root Arc<ServerContext> exists. The
-    // notifier is built pre-Arc (inside ServerContext::new), so the handle —
-    // which needs the Arc to drive `pierre_chat_pipeline::run` — is plumbed in
-    // here, holding a Weak<ServerContext> to avoid a DI-graph cycle. Mirrors the
-    // SSE protocol-factory install above. Lets a finished historical backfill
-    // push a real in-persona agent answer instead of a templated activity list.
+    // Install the platform post on the backfill-completion notifier now that
+    // the composition-root Arc<ServerContext> exists. The notifier is built
+    // pre-Arc (inside ServerContext::new), so the post — which needs the Arc
+    // to drive `pierre_chat_pipeline::execute` — is plumbed in here, holding a
+    // Weak<ServerContext> to avoid a DI-graph cycle. Mirrors the SSE
+    // protocol-factory install above. Lets a finished historical backfill push
+    // a real in-persona agent answer instead of a templated activity list, and
+    // lets the coach speak first once a connect lands an athlete's data
+    // (carnet#831): the auth routes report connects to the first-sync poster,
+    // which posts through the same handle, as does the check-in on the cadence
+    // each athlete chose.
     #[cfg(feature = "client-messaging")]
     {
-        use pierre_mcp_server::services::backfill_reentry::install_backfill_reentry;
-        install_backfill_reentry(&resources);
+        use pierre_mcp_server::services::check_in_post::start_check_in_scheduler;
+        use pierre_mcp_server::services::platform_post::install_platform_post;
+        let platform_post = install_platform_post(&resources);
+        start_check_in_scheduler(&resources, Arc::clone(&platform_post));
+        #[cfg(feature = "health-sync")]
+        {
+            use pierre_mcp_server::services::first_sync_post::install_first_sync_post;
+            install_first_sync_post(&resources, platform_post);
+        }
+        #[cfg(not(feature = "health-sync"))]
+        drop(platform_post);
     }
 
     // Install the AuthService-backed credential refresher on the health-sync

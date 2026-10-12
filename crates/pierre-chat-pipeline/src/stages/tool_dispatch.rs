@@ -108,6 +108,11 @@ pub(crate) struct DispatchedTurn {
     /// `get_activities` uses, and a model call that failed leaves the name
     /// behind with no data at all.
     pub activities_prefetched: bool,
+    /// The turn's tool rounds: written already on a turn the athlete sent,
+    /// held until the reply is admitted on one the platform composed. Shared
+    /// with the tool loop, which records into it while the turn holds it to
+    /// write what was held.
+    pub tool_rounds: Arc<ChatRepoToolMessageRecorder>,
 }
 
 #[tracing::instrument(
@@ -272,14 +277,17 @@ pub(crate) async fn dispatch_llm_with_tools(
         call_type_for_profile(profile),
     ));
     // Persist each tool round into chat_messages so follow-up turns can
-    // see the same grounded evidence the model just consumed.
+    // see the same grounded evidence the model just consumed. A platform
+    // turn's rounds wait for its reply to be admitted.
+    let tool_rounds = Arc::new(ChatRepoToolMessageRecorder::new(
+        Arc::clone(&ctx.repos.chat),
+        input.conversation_id.clone(),
+        input.user_id.clone(),
+        input.conversation_tenant_id,
+        input.origin,
+    ));
     let tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>> =
-        Some(Arc::new(ChatRepoToolMessageRecorder::new(
-            Arc::clone(&ctx.repos.chat),
-            input.conversation_id.clone(),
-            input.user_id.clone(),
-            input.conversation_tenant_id,
-        )));
+        Some(Arc::clone(&tool_rounds) as Arc<dyn ToolMessageRecorder>);
     // For ACP-managed providers (Copilot Headless with SDK tool calling),
     // expose Dravr tools natively via the MCP bridge so the model calls them
     // over ACP instead of fragile text-based `<tool_call>` simulation. The
@@ -467,5 +475,6 @@ pub(crate) async fn dispatch_llm_with_tools(
         result,
         provider_name,
         activities_prefetched: prefetched_activities,
+        tool_rounds,
     })
 }

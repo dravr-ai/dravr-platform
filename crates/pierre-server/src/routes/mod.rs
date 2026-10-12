@@ -85,6 +85,8 @@ pub mod admin;
 /// the user still needs to connect a fitness provider.
 pub mod oauth_grants;
 
+/// How often the coach checks in with the athlete on its own (carnet#831)
+pub mod check_in;
 /// A coach's own coach-access request (carnet#738)
 pub mod coach_access;
 pub mod onboarding;

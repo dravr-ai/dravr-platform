@@ -212,6 +212,9 @@ impl TurnResponse {
             quota: _,
             locale,
             answered_by: _,
+            // An in-app turn is the athlete's own, and the athlete's turn is
+            // always stored.
+            posted: _,
         } = envelope;
 
         Self {

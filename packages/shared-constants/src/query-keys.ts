@@ -37,6 +37,8 @@ export const QUERY_KEYS = {
     coachAccessRequest: () => ['user-coach-access-request'] as const,
     /** The units the athlete reads, and the Settings choice behind them. */
     units: () => ['user-units'] as const,
+    /** How often the coach checks in on its own (carnet#831). */
+    checkIn: () => ['user-check-in'] as const,
   },
 
   // ==================== OAUTH ====================

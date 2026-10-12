@@ -31,6 +31,8 @@ export interface OnboardingState {
   completeAboutYou: (status?: 'complete' | 'skipped') => void;
   /** PAR-Q answered or skipped — persist + advance. */
   completeParq: (status?: 'complete' | 'skipped') => void;
+  /** The check-in cadence chosen (stored by the step) or skipped — persist + advance. */
+  completeCheckIn: (status: 'complete' | 'skipped') => void;
   /** Coach proposal dismissed/accepted — persist + advance to the dashboard. */
   completeCoachProposal: () => void;
   /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
@@ -114,6 +116,14 @@ export function useOnboardingState(): OnboardingState {
     setParqDoneLocal(parqKey ? localStorage.getItem(parqKey) === '1' : true);
   }, [parqKey]);
 
+  // The check-in cadence question, the same local-plus-server shape: the
+  // step stores the cadence itself, this records that it was answered.
+  const checkInKey = user?.user_id ? `dravr.check_in_done.${user.user_id}` : null;
+  const [checkInDoneLocal, setCheckInDoneLocal] = useState(false);
+  useEffect(() => {
+    setCheckInDoneLocal(checkInKey ? localStorage.getItem(checkInKey) === '1' : true);
+  }, [checkInKey]);
+
   // Profile-type completion, persisted per-user so the athlete-vs-coach step
   // shows once within the first-run connect flow.
   const profileTypeKey = user?.user_id ? `dravr.profile_type_chosen.${user.user_id}` : null;
@@ -153,6 +163,7 @@ export function useOnboardingState(): OnboardingState {
     coachProposalDoneLocal || isServerStepComplete(serverSteps, 'coach_proposal');
   const aboutYouDone = aboutYouDoneLocal || isServerStepComplete(serverSteps, 'about_you');
   const parqDone = parqDoneLocal || isServerStepComplete(serverSteps, 'parq');
+  const checkInDone = checkInDoneLocal || isServerStepComplete(serverSteps, 'check_in');
   const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
   const coachGroupDone = coachGroupDoneLocal || isServerStepComplete(serverSteps, 'coach_group');
   const coachesOthers = onboardingStatus?.coaches_others === true;
@@ -261,6 +272,15 @@ export function useOnboardingState(): OnboardingState {
     [parqKey, persistStep],
   );
 
+  const completeCheckIn = useCallback(
+    (status: 'complete' | 'skipped') => {
+      if (checkInKey) localStorage.setItem(checkInKey, '1');
+      setCheckInDoneLocal(true);
+      persistStep('check_in', status);
+    },
+    [checkInKey, persistStep],
+  );
+
   const skipProvider = useCallback(() => setSkippedProvider(true), []);
 
   const chooseChannel = useCallback(
@@ -291,6 +311,7 @@ export function useOnboardingState(): OnboardingState {
     coachProposalDone,
     aboutYouDone,
     parqDone,
+    checkInDone,
     athleteStepsWaived,
     coachesOthers,
     coachGroupDone,
@@ -305,6 +326,7 @@ export function useOnboardingState(): OnboardingState {
     completeProfileType,
     completeAboutYou,
     completeParq,
+    completeCheckIn,
     completeCoachProposal,
     completeCoachGroup,
     skipProvider,

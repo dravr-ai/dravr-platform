@@ -78,6 +78,14 @@ pub struct TurnEnvelope {
     /// conversation's own title is not this, since it keeps whatever the
     /// thread was created under.
     pub answered_by: Option<String>,
+    /// Whether [`Self::assistant`] was stored in the conversation.
+    ///
+    /// Always `true` for a turn the athlete sent. `false` only for a turn the
+    /// platform composed whose reply did not ground in the athlete's data, or
+    /// refused ([`crate::stages::platform_grounding`]): nothing was written,
+    /// the assistant record is the unstored draft, and a surface delivers
+    /// nothing for it.
+    pub posted: bool,
 }
 
 /// The assistant side of a turn: the durable record plus the ordered blocks a
@@ -645,6 +653,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         quota,
         locale: profile.locale.clone(),
         answered_by,
+        posted: true,
     }
 }
 

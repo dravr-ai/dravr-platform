@@ -31,6 +31,11 @@
 //! consent-gated room view — and both advance the participant's read
 //! marker past the row they wrote, so an athlete's own turn never counts
 //! as unread for them. One rule for web, mobile and messaging.
+//!
+//! A reply the platform posted on its own initiative ([`TurnOrigin::Platform`])
+//! is the exception to both: nobody was in front of it when it landed, so it
+//! stays unread until the athlete opens the thread, and it is one athlete's
+//! own coaching, never a room's.
 
 use pierre_core::models::AddMessageParams;
 use pierre_core::transport::TransportPolicy;
@@ -338,8 +343,14 @@ pub async fn get_conversation_history(
 /// Called after LLM dispatch + tool execution completes. Returns the
 /// persisted message record and updated conversation so the caller can
 /// observe `updated_at` / `summary` fields that moved as a result.
-/// Group-bound conversations fan the reply out to the shared room
-/// transcript, attributed to the member it answered.
+///
+/// A reply to something the athlete sent advances their read marker past
+/// itself, since they are in front of it, and a group-bound conversation fans
+/// it out to the shared room transcript, attributed to the member it answered.
+/// A reply the platform posted on its own initiative (`origin` is
+/// [`TurnOrigin::Platform`]) does neither: the athlete has not seen it, so it
+/// stays unread and badges the conversation, and it is their own coaching,
+/// which no room asked for.
 ///
 /// # Errors
 ///
@@ -350,31 +361,37 @@ pub async fn persist_assistant_response(
     groups: &dyn CoachingGroupRepository,
     params: &AddMessageParams<'_>,
     tenant_id: TenantId,
+    origin: TurnOrigin,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
     let message = database.add_message(params).await?;
-    advance_read_marker(
-        database,
-        params.conversation_id,
-        params.user_id,
-        tenant_id,
-        &message.id,
-    )
-    .await;
+    let answers_the_athlete = origin == TurnOrigin::Athlete;
+    if answers_the_athlete {
+        advance_read_marker(
+            database,
+            params.conversation_id,
+            params.user_id,
+            tenant_id,
+            &message.id,
+        )
+        .await;
+    }
 
     let conversation = database
         .get_conversation(params.conversation_id, params.user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::internal("Failed to get updated conversation"))?;
 
-    fan_out_to_group_transcript(
-        groups,
-        &conversation,
-        tenant_id,
-        params.user_id,
-        TranscriptSpeaker::Coach,
-        &message,
-    )
-    .await?;
+    if answers_the_athlete {
+        fan_out_to_group_transcript(
+            groups,
+            &conversation,
+            tenant_id,
+            params.user_id,
+            TranscriptSpeaker::Coach,
+            &message,
+        )
+        .await?;
+    }
 
     Ok((message, conversation))
 }

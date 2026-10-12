@@ -89,6 +89,7 @@ pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
+pub(crate) use session::fresh_title_fallback;
 use session::{resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};

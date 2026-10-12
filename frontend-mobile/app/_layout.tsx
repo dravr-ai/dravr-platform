@@ -63,6 +63,8 @@ function routeForStep(id: OnboardingStepId) {
       return '/(onboarding)/about-you' as const;
     case 'parq':
       return '/(onboarding)/parq' as const;
+    case 'check_in':
+      return '/(onboarding)/check-in' as const;
     case 'connect_provider':
       return '/(onboarding)/connect' as const;
     case 'coach_proposal':

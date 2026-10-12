@@ -34,6 +34,8 @@ pub mod api_key;
 pub mod app_attest_keys;
 /// Chat repository implementation
 pub mod chat;
+/// The check-in cadence each athlete chose (`PostgreSQL`)
+pub mod check_in_preferences;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
 /// Coach-access requests a super-admin decides (Postgres)
@@ -89,6 +91,8 @@ pub mod password_reset_tokens;
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`PostgreSQL`)
 pub mod personal_bests;
+/// The once-claims on the coach's own posts to an athlete (`PostgreSQL`)
+pub mod platform_post_claims;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (Postgres)

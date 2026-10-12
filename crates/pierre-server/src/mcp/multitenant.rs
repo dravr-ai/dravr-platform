@@ -37,7 +37,8 @@ use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
 use crate::routes::{athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{
-    coach_access::CoachAccessRoutes, onboarding::OnboardingRoutes, viz::VizRoutes,
+    check_in::CheckInRoutes, coach_access::CoachAccessRoutes, onboarding::OnboardingRoutes,
+    viz::VizRoutes,
 };
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -622,6 +623,8 @@ impl ProviderToolRouter {
 
         // Onboarding state: cheap self-read web + mobile use to gate routing.
         let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
+        // The check-in cadence: asked during onboarding, changed in Settings.
+        let app = app.merge(CheckInRoutes::routes(Arc::clone(resources)));
         // A coach's own coach-access request, decided in the admin console.
         let app = app.merge(CoachAccessRoutes::routes(Arc::clone(resources)));
         let app = app.merge(VizRoutes::routes(Arc::clone(resources)));

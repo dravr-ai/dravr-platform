@@ -9,6 +9,7 @@ import {
   parseActivityUploadResponse,
   parseHomePreferences,
   parseUnitPreferences,
+  parseCheckInPreference,
   parseActivityDetailResponse,
   parseCalendarResponse,
   parseActivityRouteResponse,
@@ -27,6 +28,8 @@ import {
   type HomePreferences,
   type UnitPreferences,
   type UnitPreferencesUpdate,
+  type CheckInCadence,
+  type CheckInPreference,
   type RecentActivitiesResponse,
   type TrainingPlanResponse,
   type TrainingStatusResponse,
@@ -287,6 +290,18 @@ export function createAthleteApi(axios: AxiosInstance) {
     async updateUnitPreferences(update: UnitPreferencesUpdate): Promise<UnitPreferences> {
       const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.UNITS, update);
       return requireShape(parseUnitPreferences(response.data), ENDPOINTS.ATHLETE.UNITS);
+    },
+
+    /** How often the coach checks in on its own; `cadence` is null for an athlete who never chose. */
+    async getCheckIn(): Promise<CheckInPreference> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.CHECK_IN);
+      return requireShape(parseCheckInPreference(response.data), ENDPOINTS.ATHLETE.CHECK_IN);
+    },
+
+    /** Store how often the coach checks in — `off` included — and answer as the read does. */
+    async updateCheckIn(cadence: CheckInCadence): Promise<CheckInPreference> {
+      const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.CHECK_IN, { cadence });
+      return requireShape(parseCheckInPreference(response.data), ENDPOINTS.ATHLETE.CHECK_IN);
     },
 
     /**

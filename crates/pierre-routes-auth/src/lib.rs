@@ -74,6 +74,7 @@ mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
 mod email_verification;
+mod first_sync;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
 mod intervals_icu;
@@ -137,6 +138,7 @@ pub use pierre_auth::dto::auth::{
     UserStatsResponse,
 };
 
+pub use first_sync::{FirstSyncHook, FirstSyncSlot};
 pub use pierre_mcp_transport::OAuthCallbackResponse;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;
@@ -182,6 +184,10 @@ pub struct AuthRoutesContext {
     /// the backfill after a connect fails, re-armed when it lands.
     #[cfg(feature = "health-sync")]
     pub sync_failure_notices: SyncFailureNotices,
+    /// Told once a connect has landed the athlete's first data (carnet#831).
+    /// Shared with the composition root, which installs the hook after its
+    /// own `Arc` exists; empty until then.
+    pub first_sync: FirstSyncSlot,
     /// Shared cache handle — used by the Sciotte prefetch path.
     pub cache: Arc<Cache>,
     /// The hot-reloadable string catalogue — shared with every surface that

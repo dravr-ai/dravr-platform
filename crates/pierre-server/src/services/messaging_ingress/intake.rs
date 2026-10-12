@@ -1,4 +1,4 @@
-// ABOUTME: Drives the messaging intake — asks profile type and the PAR-Q+ verbatim, parses answers strictly
+// ABOUTME: Drives the messaging intake — profile type, the PAR-Q+ verbatim, the check-in cadence; strict parsing
 // ABOUTME: Owns the turn without the model, so a standardised medical instrument reaches the athlete unaltered
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -36,20 +36,22 @@
 //! worse outcome than an unscreened athlete. The steps are recorded as skipped
 //! so the screen does not reopen on their next message.
 
+use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_COMPLETE_CLEAR, KEY_INTAKE_COMPLETE_COACH, KEY_INTAKE_COMPLETE_FLAGGED,
     KEY_INTAKE_OPENER, KEY_INTAKE_PARQ_INTRO, KEY_INTAKE_RETRY, KEY_INTAKE_YESNO_HINT,
 };
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
-use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, TopicSlug};
+use pierre_core::models::{CheckInCadence, GuidedFlow, OnboardingState, TenantId, TopicSlug};
 use pierre_database::repositories::{ChatRepository, HarnessMemoryRepository};
 use pierre_memory::PredicateCode;
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
 use pierre_services::intake::{
-    coaches_others_for, parse_persona, parse_yes_no, record_parq_no, record_parq_yes, record_steps,
-    release_coach_only_agent, IntakeTopic, PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE,
-    STATUS_NOT_APPLICABLE, STATUS_SKIPPED, STEP_PARQ,
+    coaches_others_for, parse_check_in, parse_persona, parse_yes_no, record_check_in_step,
+    record_parq_no, record_parq_yes, record_steps, release_coach_only_agent, IntakeTopic,
+    PersonaAnswer, MAX_ANSWER_ATTEMPTS, STATUS_COMPLETE, STATUS_NOT_APPLICABLE, STATUS_SKIPPED,
+    STEP_PARQ,
 };
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -250,14 +252,17 @@ enum Answer {
     Persona(PersonaAnswer),
     /// PAR-Q+: `true` for a "yes", which raises a flag.
     Parq(bool),
+    /// How often the coach may check in on its own.
+    CheckIn(CheckInCadence),
 }
 
 /// Parse the reply against the question that is outstanding.
 fn interpret(topic: IntakeTopic, text: &str) -> Option<Answer> {
-    if topic == IntakeTopic::Persona {
-        return parse_persona(text).map(Answer::Persona);
+    match topic {
+        IntakeTopic::Persona => parse_persona(text).map(Answer::Persona),
+        IntakeTopic::CheckIn => parse_check_in(text).map(Answer::CheckIn),
+        _ => parse_yes_no(text).map(Answer::Parq),
     }
-    parse_yes_no(text).map(Answer::Parq)
 }
 
 /// Write the answer where its surface's equivalent writes it.
@@ -278,6 +283,38 @@ async fn persist_answer(
         // A clean answer raises no flag by definition; it retires the one an
         // earlier "yes" to the same question left, as the API path does.
         Answer::Parq(false) => retire_parq_flag(resources, tenant_id, user_id, topic).await,
+        Answer::CheckIn(cadence) => persist_check_in(resources, tenant_id, user_id, cadence).await,
+    }
+}
+
+/// Store the check-in cadence where Settings stores it, under the athlete's
+/// own tenant — the one whose thread the check-in lands in.
+async fn persist_check_in(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    cadence: CheckInCadence,
+) {
+    let Ok(uuid) = Uuid::parse_str(user_id) else {
+        return;
+    };
+    match resources
+        .common
+        .repos
+        .check_in_preferences
+        .set_check_in_cadence(tenant_id, uuid, cadence, Utc::now())
+        .await
+    {
+        Ok(()) => info!(
+            target: "notify",
+            event = "coach.check_in_cadence_set",
+            user_id = %uuid,
+            tenant_id = %tenant_id,
+            cadence = cadence.as_str(),
+            surface = "messaging",
+            "check-in cadence chosen"
+        ),
+        Err(e) => warn!(error = %e, "intake: failed to persist the check-in cadence"),
     }
 }
 
@@ -360,7 +397,7 @@ struct DeliverArgs<'a> {
 /// The ledger is written before the message goes out. A delivered question that
 /// was never recorded would be asked again on the next turn, and the athlete
 /// would answer the same question twice; a recorded question that failed to
-/// send costs one question out of eight.
+/// send costs one question out of nine.
 async fn deliver(args: DeliverArgs<'_>) -> Option<OutgoingMessage> {
     let DeliverArgs {
         resources,
@@ -414,6 +451,9 @@ fn render_question(
             reg.get(KEY_INTAKE_PARQ_INTRO, locale),
             reg.get(KEY_INTAKE_YESNO_HINT, locale)
         ),
+        // Not a yes/no question: the cadence question numbers its own four
+        // answers.
+        IntakeTopic::CheckIn => question,
         _ => format!("{question}\n\n{}", reg.get(KEY_INTAKE_YESNO_HINT, locale)),
     };
 
@@ -442,7 +482,7 @@ struct CompleteArgs<'a> {
     raw_state: Option<String>,
 }
 
-/// Every question answered: record both steps and send the wrap-up.
+/// Every question answered: record the steps and send the wrap-up.
 async fn complete(args: CompleteArgs<'_>) -> Option<OutgoingMessage> {
     let CompleteArgs {
         resources,
@@ -464,6 +504,7 @@ async fn complete(args: CompleteArgs<'_>) -> Option<OutgoingMessage> {
         raw_state,
         persona_status: STATUS_COMPLETE,
         parq_status: STATUS_COMPLETE,
+        check_in_status: Some(STATUS_COMPLETE),
     })
     .await;
 
@@ -507,6 +548,9 @@ async fn complete_coach_only(args: CompleteArgs<'_>) -> OutgoingMessage {
         raw_state,
         persona_status: STATUS_COMPLETE,
         parq_status: STATUS_NOT_APPLICABLE,
+        // The check-in reads the athlete's own training; this coach has none,
+        // so the question is not theirs and no step row claims it was asked.
+        check_in_status: None,
     })
     .await;
 
@@ -553,6 +597,8 @@ struct FinishArgs<'a> {
     raw_state: Option<String>,
     persona_status: &'a str,
     parq_status: &'a str,
+    /// The check-in step's status, or `None` when the walk never asked it.
+    check_in_status: Option<&'a str>,
 }
 
 /// Record the durable steps and clear the intake off the conversation.
@@ -569,19 +615,17 @@ async fn finish(args: FinishArgs<'_>) {
         raw_state,
         persona_status,
         parq_status,
+        check_in_status,
     } = args;
 
-    if let Err(e) = record_steps(
-        resources.common.repos.user_onboarding.as_ref(),
+    record_intake_steps(
+        resources,
+        tenant_id,
         user_id,
-        Some(tenant_id.to_string().as_str()),
-        persona_status,
-        parq_status,
+        [persona_status, parq_status],
+        check_in_status,
     )
-    .await
-    {
-        warn!(error = %e, "intake: failed to record the onboarding steps");
-    }
+    .await;
     release_agent(resources, user_id, parq_status).await;
 
     let chat: &dyn ChatRepository = resources.common.repos.chat.as_ref();
@@ -614,6 +658,30 @@ async fn finish(args: FinishArgs<'_>) {
         return;
     }
     maybe_start_pillar_walk(&resources.common.repos, tenant_id, user_id, conversation_id).await;
+}
+
+/// Write the walk's durable step rows: profile type and PAR-Q (`screen`),
+/// then the check-in when the walk asked it. Best-effort, logged: the intake
+/// has finished either way.
+async fn record_intake_steps(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    screen: [&str; 2],
+    check_in_status: Option<&str>,
+) {
+    let repo = resources.common.repos.user_onboarding.as_ref();
+    let tenant = tenant_id.to_string();
+    let [persona_status, parq_status] = screen;
+    if let Err(e) = record_steps(repo, user_id, Some(&tenant), persona_status, parq_status).await {
+        warn!(error = %e, "intake: failed to record the onboarding steps");
+    }
+    let Some(status) = check_in_status else {
+        return;
+    };
+    if let Err(e) = record_check_in_step(repo, user_id, Some(&tenant), status).await {
+        warn!(error = %e, "intake: failed to record the check-in step");
+    }
 }
 
 /// Release the athlete's agent of a coach who does not train, as the wizard's
@@ -792,12 +860,14 @@ pub(super) async fn try_build_pending_question(
     );
     // Profile type is recorded as answered when the walk got past it: topics are
     // strictly sequential, so a delivered PAR-Q question proves the persona
-    // question was answered.
+    // question was answered, and a delivered check-in question proves the
+    // whole screen was.
     let persona_status = if persona_answered(&state.probed) {
         STATUS_COMPLETE
     } else {
         STATUS_SKIPPED
     };
+    let check_in_unanswered = awaiting == IntakeTopic::CheckIn;
     finish(FinishArgs {
         resources,
         tenant_id,
@@ -805,7 +875,14 @@ pub(super) async fn try_build_pending_question(
         user_id: &user_id.to_string(),
         raw_state,
         persona_status,
-        parq_status: STATUS_SKIPPED,
+        parq_status: if check_in_unanswered {
+            STATUS_COMPLETE
+        } else {
+            STATUS_SKIPPED
+        },
+        // Skipped, not off: the athlete never said how often, so no cadence
+        // is stored and none is sent — and the step is not asked again.
+        check_in_status: check_in_unanswered.then_some(STATUS_SKIPPED),
     })
     .await;
     None

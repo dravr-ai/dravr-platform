@@ -14,6 +14,8 @@ use pierre_core::models::{ConversationPage, ConversationParticipant, Conversatio
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 use pierre_core::transport::TransportPolicy;
 
+use super::user_onboarding::personal_conversation;
+
 /// One assistant reply as the claim-verdict backfill reads it: the message,
 /// where it was said, and who it was said to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -423,6 +425,19 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
         group_id: &str,
+    ) -> AppResult<Option<ConversationRecord>>;
+
+    /// The most recently active conversation that is `user_id`'s alone in
+    /// `tenant_id` — in-app, bound to no group, shared with nobody, and not
+    /// archived — or `None` when they have none.
+    ///
+    /// "Alone" is the predicate an onboarding reset clears by, so the thread
+    /// the platform posts into is the one a reset would consider the athlete's
+    /// own.
+    async fn latest_personal_conversation(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
     ) -> AppResult<Option<ConversationRecord>>;
 
     /// Point an existing conversation at a different agent.
@@ -929,6 +944,24 @@ pub(crate) const FIND_GROUP_CONVERSATION_SQL: &str = concat!(
        AND c.archived_at IS NULL \
      ORDER BY c.updated_at DESC \
      LIMIT 1"
+);
+
+/// The newest active conversation that is the user's alone in a tenant. The
+/// predicate addresses `chat_conversations` unaliased, so it runs in a
+/// subquery of its own and the outer read projects the usual columns. `$1` is
+/// the user id as text, `$2` the tenant.
+pub(crate) const LATEST_PERSONAL_CONVERSATION_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.id = ( \
+       SELECT id FROM chat_conversations \
+       WHERE ",
+    personal_conversation!(),
+    " AND tenant_id = $2 AND archived_at IS NULL \
+       ORDER BY updated_at DESC \
+       LIMIT 1 \
+     )"
 );
 
 /// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on

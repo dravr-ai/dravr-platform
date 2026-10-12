@@ -14,7 +14,9 @@
 //! analysis to a week-on-week comparison. Every candidate is then filtered
 //! through its catalogue `requires:` against the athlete's
 //! [`AthleteState`], so no step is offered before its prerequisite holds,
-//! and a `once` entry the athlete already tapped is not offered again.
+//! and a `once` entry the athlete already tapped is not offered again. A post
+//! the coach makes on its own has no such ending: it closes on the use cases
+//! ranked for the athlete the way a welcome's starters are (carnet#831).
 //!
 //! Whatever was picked reaches the athlete one way: as the reply's actions —
 //! buttons where the surface draws them, lines of text where it does not —
@@ -45,6 +47,7 @@ use uuid::Uuid;
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_block;
 use crate::stages::onboarding::season_laid_out;
+use crate::stages::platform_grounding;
 use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_NEXT_STEP};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::TurnInput;
@@ -335,8 +338,11 @@ impl NextSteps {
 
 /// The next steps the agent's reply to `input` offers.
 ///
-/// A walk that ended on this turn picked them already (`closing`). Otherwise
-/// a reply offers steps only after a transition the turn itself completed:
+/// A post the platform composed on its own ends on the catalogue's use cases
+/// ranked for the athlete ([`platform_grounding::closing_steps`],
+/// carnet#831). A walk that ended on this turn picked them already
+/// (`closing`). Otherwise a reply offers steps only after a transition the
+/// turn itself completed:
 /// the athlete's first tapped workout analysis ([`TurnInput::steps_after`]),
 /// or the season the season walk offered, laid out on the turn after it.
 /// Never in a shared room, where one athlete's state would be read back to
@@ -349,6 +355,9 @@ pub(crate) async fn for_reply(
     closing: NextSteps,
     plan_was_saved: bool,
 ) -> NextSteps {
+    if !input.origin.persists_user_row() {
+        return platform_grounding::closing_steps(ctx, input, profile, conv).await;
+    }
     if !input.is_direct_message {
         return NextSteps::default();
     }

@@ -50,6 +50,7 @@ import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import UnitsSettings from './settings/UnitsSettings';
+import CheckInSettings from './settings/CheckInSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -703,6 +704,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 <LanguageSwitcher serverLocale={user?.locale} />
               </div>
               <UnitsSettings />
+              <CheckInSettings />
             </Section>
 
             {/* Two numbers, label over value, set apart by space — not two

@@ -114,7 +114,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
-use crate::services::backfill_reentry::ChatReentry;
+use crate::services::platform_post::PlatformPost;
 use tokio::task::AbortHandle;
 
 /// Cross-cutting handles + the master repository registry.
@@ -321,14 +321,21 @@ pub struct McpSlice {
     /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
     #[cfg(feature = "client-messaging")]
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
-    /// Chat-pipeline re-entry handle for the backfill-completion push, shared
-    /// (same `Arc`) with [`ServerBackfillNotifier`] so it can synthesize a real
-    /// agent answer instead of a templated list. Empty until the composition
-    /// root installs it post-`Arc` in `spawn_background_workers` (the handle
-    /// needs the `Arc<ServerContext>`, absent when the notifier is built).
-    /// Mirrors the SSE protocol-factory install.
+    /// The verified coach post the platform makes on its own initiative,
+    /// shared (same `Arc`) with [`ServerBackfillNotifier`] so the
+    /// backfill-completion push can answer in the agent's own words instead of
+    /// a templated list. Empty until the composition root installs it
+    /// post-`Arc` in `spawn_background_workers` (the post needs the
+    /// `Arc<ServerContext>`, absent when the notifier is built). Mirrors the
+    /// SSE protocol-factory install.
     #[cfg(feature = "client-messaging")]
-    pub backfill_reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
+    pub platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
+    /// Told once a provider connect lands an athlete's data, so the coach
+    /// speaks first (carnet#831). Shared with every
+    /// [`pierre_routes_auth::AuthRoutesContext`] built from this context, and
+    /// empty until the composition root installs the poster post-`Arc`.
+    #[cfg(feature = "protocol-rest")]
+    pub first_sync: pierre_routes_auth::FirstSyncSlot,
     /// Contremaitre configuration for GitHub sync and webhook verification.
     pub contremaitre_config: Option<ContremaitreConfig>,
 }

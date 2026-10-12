@@ -50,7 +50,6 @@ pub trait SyncNotifier: Send + Sync {
 /// Evaluates data freshness for a user's connected providers and triggers
 /// background syncs via enforme's `SyncOrchestrator` when data is stale.
 /// SSE notifications inform the client when sync completes.
-/// Push notifications are sent when the notification service is available.
 pub struct RefreshService {
     /// Narrow repository view: `RefreshService` reads `repos.oauth_tokens`
     /// (last-sync timestamps for orchestrator-managed providers, credential
@@ -72,9 +71,6 @@ pub struct RefreshService {
     /// field.
     #[cfg(feature = "health-sync")]
     sse_manager: Arc<dyn SyncNotifier>,
-    /// Optional notification service for push notifications on sync completion.
-    #[cfg(feature = "client-notifications")]
-    notification_service: Option<Arc<pierre_notifications::NotificationService>>,
 }
 
 impl RefreshService {
@@ -95,8 +91,6 @@ impl RefreshService {
             sync_orchestrator,
             #[cfg(feature = "health-sync")]
             sse_manager,
-            #[cfg(feature = "client-notifications")]
-            notification_service: None,
         }
     }
 
@@ -451,8 +445,6 @@ impl RefreshService {
             let repos = self.repos.clone();
             let sse = self.sse_manager.clone();
             let user_id_str = user_id.to_string();
-            #[cfg(feature = "client-notifications")]
-            let notif_service = self.notification_service.clone();
 
             tokio::spawn(async move {
                 let result = orchestrator.sync_user(&user_id_str, &provider).await;
@@ -509,19 +501,6 @@ impl RefreshService {
                             tracing::debug!(
                                 "SSE notification not delivered (no active stream): {e}"
                             );
-                        }
-
-                        // Send push notification for successful syncs with records
-                        #[cfg(feature = "client-notifications")]
-                        if sync_result.records_created > 0 {
-                            dispatch_sync_push_notification(
-                                notif_service.as_deref(),
-                                user_id,
-                                tenant_id,
-                                &provider,
-                                sync_result.records_created,
-                            )
-                            .await;
                         }
                     }
                     Err(e) => {
@@ -760,63 +739,6 @@ mod scheduled;
 pub use scheduled::token_tenant;
 #[cfg(feature = "health-sync")]
 pub use scheduled::{scrape_sync_not_due, start_scheduled_sync, SCRAPE_SYNC_MIN_INTERVAL};
-
-// ============================================================================
-// Push notification dispatch for sync completions
-// ============================================================================
-
-/// Dispatch a push notification after a successful sync with new records.
-///
-/// Sends via the notification service (dravr-commere) when available.
-/// Silently skips if no service is configured or dispatch fails (best-effort).
-#[cfg(all(feature = "client-notifications", feature = "health-sync"))]
-async fn dispatch_sync_push_notification(
-    service: Option<&pierre_notifications::NotificationService>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider_name: &str,
-    records_created: u32,
-) {
-    use pierre_notifications::models::NotificationCategory as CommNotifCategory;
-    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
-
-    let Some(svc) = service else {
-        return;
-    };
-
-    let request = DispatchRequest {
-        user_id,
-        tenant_id: CommTenantId(tenant_id.as_uuid()),
-        category: CommNotifCategory::Training,
-        notification_type: "data_synced".to_owned(),
-        title: "Data Synced".to_owned(),
-        body: format!("Synced {records_created} new records from {provider_name}"),
-        data: None,
-        image_url: None,
-        actions: None,
-        bypass_frequency_cap: false,
-    };
-
-    // P3: "your data synced" is a confirmation, the canonical digest item.
-    match svc.dispatch_with_tier(&request, PushTier::P3).await {
-        Ok(outcome) => {
-            tracing::debug!(
-                user_id = %user_id,
-                provider = provider_name,
-                outcome = ?outcome,
-                "Push notification dispatched for sync"
-            );
-        }
-        Err(e) => {
-            tracing::debug!(
-                user_id = %user_id,
-                provider = provider_name,
-                error = %e,
-                "Push notification dispatch failed (best-effort)"
-            );
-        }
-    }
-}
 
 // ============================================================================
 // Observability: sync metrics

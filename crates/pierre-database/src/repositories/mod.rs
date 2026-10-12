@@ -37,6 +37,8 @@ pub mod app_attest_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
+/// Repository trait for the check-in cadence each athlete chose.
+pub mod check_in_preferences;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).
@@ -103,6 +105,8 @@ pub mod password_reset_tokens;
 pub mod persona_digest_returns;
 /// Repository trait for an athlete's personal bests at the standard running distances.
 pub mod personal_bests;
+/// Repository trait for the once-claim on a post the coach makes on its own initiative.
+pub mod platform_post_claims;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
 pub mod playbooks;
 /// Shared statements and body for the pre-approved email allow-list.
@@ -214,6 +218,7 @@ pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use chat::*;
+pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
 pub use commitments::*;
@@ -238,6 +243,7 @@ pub use oauth::*;
 pub use persona_digest_returns::PersonaDigestReturnRepository;
 pub use personal_bests::{PersonalBest, PersonalBestRepository};
 pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};
+pub use platform_post_claims::PlatformPostClaimRepository;
 pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use provider_data::*;

@@ -329,14 +329,7 @@ pub async fn prefetch_activity_context(
     };
 
     match executor.execute_tool(request).await {
-        Ok(response) => {
-            let content = extract_prefetch_content(&response);
-            info!(
-                content_len = content.len(),
-                "Pre-fetched activity context for coach"
-            );
-            Some(content)
-        }
+        Ok(response) => prefetched_window(&response),
         Err(e) => {
             warn!("Failed to pre-fetch activity context: {e}");
             None
@@ -528,6 +521,29 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
         .unwrap_or(Cow::Borrowed(raw))
 }
 
+/// The activity window a prefetch response carries, or `None` when it
+/// carries none.
+///
+/// A read the platform refused — no provider connected, a grant that lapsed —
+/// answers `success: false` with no payload rather than an error. Taking one
+/// as a window would put an empty "pre-loaded" block in front of the model and
+/// count the turn as grounded in data it never had.
+fn prefetched_window(response: &UniversalResponse) -> Option<String> {
+    if !response.success {
+        info!("Pre-fetch read refused; no activity window for the coach");
+        return None;
+    }
+    let content = extract_prefetch_content(response);
+    if content.trim().is_empty() {
+        return None;
+    }
+    info!(
+        content_len = content.len(),
+        "Pre-fetched activity context for coach"
+    );
+    Some(content)
+}
+
 fn prefetch_window_is_empty(content: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(content)
         .ok()
@@ -678,4 +694,46 @@ fn log_inject(kind: &'static str, body: &str) {
         "prefetch: injecting into prompt"
     );
     tracing::trace!(kind, body = %body, "prefetch: injection body");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response(success: bool, result: Option<serde_json::Value>) -> UniversalResponse {
+        UniversalResponse {
+            success,
+            result,
+            error: (!success).then(|| "No fitness provider connected.".to_owned()),
+            metadata: None,
+        }
+    }
+
+    /// A refused read is no window: nothing is injected, and the turn does
+    /// not count as grounded in data the model never had.
+    #[test]
+    fn a_refused_read_is_no_window() {
+        assert_eq!(prefetched_window(&response(false, None)), None);
+        assert_eq!(
+            prefetched_window(&response(false, Some(serde_json::json!({ "count": 3 })))),
+            None,
+            "a refusal's payload is not the athlete's data"
+        );
+        assert_eq!(prefetched_window(&response(true, None)), None);
+    }
+
+    /// A served read is the window, as the tool rendered it.
+    #[test]
+    fn a_served_read_is_the_window() {
+        let window = prefetched_window(&response(
+            true,
+            Some(serde_json::json!({ "count": 2, "activities": [] })),
+        ))
+        .expect("a served window");
+        assert!(!prefetch_window_is_empty(&window));
+        assert_eq!(
+            prefetched_window(&response(true, Some(serde_json::json!("Ride, 42 km")))),
+            Some("Ride, 42 km".to_owned())
+        );
+    }
 }

@@ -30,6 +30,8 @@ pub mod api_keys;
 pub mod app_attest_keys;
 /// Chat conversation and message storage
 pub mod chat;
+/// The check-in cadence each athlete chose (`SQLite`)
+pub mod check_in_preferences;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
 /// Coach-access requests a super-admin decides (`SQLite`)
@@ -87,6 +89,8 @@ pub mod password_reset_tokens;
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`SQLite`)
 pub mod personal_bests;
+/// The once-claims on the coach's own posts to an athlete (`SQLite`)
+pub mod platform_post_claims;
 /// `SQLite` `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (`SQLite`)

@@ -286,6 +286,28 @@ pub const KEY_BACKFILL_PUSH_TITLE: &str = "messaging.backfill.push_title";
 /// list, which is already the persisted turn and does not fit a lock screen.
 pub const KEY_BACKFILL_PUSH_BODY: &str = "messaging.backfill.push_body";
 
+// ── Platform post keys ────────────────────────────────────────────────────
+// The instructions a server-initiated coach post runs on (carnet#831). The
+// chat pipeline answers one in the coach's voice; the instruction itself is
+// never shown to the athlete or written to their thread.
+
+/// Key: the instruction for the coach's first post once an athlete's first
+/// data lands. `{0}` = the provider's display name.
+pub const KEY_PLATFORM_POST_FIRST_SYNC_PROMPT: &str = "platform_post.first_sync.prompt";
+
+/// Key: the instruction for a check-in on the daily cadence — what changed
+/// since yesterday. No placeholders.
+pub const KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT: &str = "platform_post.check_in.daily_prompt";
+
+/// Key: the instruction for a check-in on the three-a-week cadence — the last
+/// two or three days. No placeholders.
+pub const KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT: &str =
+    "platform_post.check_in.three_per_week_prompt";
+
+/// Key: the instruction for a check-in on the weekly cadence — the week just
+/// ended. No placeholders.
+pub const KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT: &str = "platform_post.check_in.weekly_prompt";
+
 // ── Commitment verdict keys ───────────────────────────────────────────────
 // Emitted by the commitment sweep once a promise's window closes. Composed
 // from counts and the sanitized sport slug only — never from the athlete's or
@@ -764,6 +786,9 @@ pub const KEY_INTAKE_COMPLETE_CLEAR: &str = "messaging.intake.complete_clear";
 pub const KEY_INTAKE_COMPLETE_FLAGGED: &str = "messaging.intake.complete_flagged";
 /// Key: intake wrap-up for a coach who does not train — the PAR-Q+ was never asked.
 pub const KEY_INTAKE_COMPLETE_COACH: &str = "messaging.intake.complete_coach";
+/// Key: the intake's last question — how often the coach may check in on its
+/// own — with its four answers numbered 1 (every morning) to 4 (never).
+pub const KEY_INTAKE_CHECK_IN: &str = "messaging.intake.check_in";
 
 // ── /calibrate command keys ───────────────────────────────────────────────
 

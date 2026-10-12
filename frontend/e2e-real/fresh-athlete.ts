@@ -15,6 +15,7 @@ const ONBOARDING_STEPS = [
   'profile_type',
   'about_you',
   'parq',
+  'check_in',
   'coach_proposal',
   'messaging_channel',
   'messaging_configure',

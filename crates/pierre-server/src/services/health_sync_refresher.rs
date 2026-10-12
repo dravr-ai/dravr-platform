@@ -28,7 +28,7 @@ use crate::mcp::resources::ServerContext;
 /// the result, and maintains provider-connection status. Holds a
 /// `Weak<ServerContext>` — the storage this installs into lives inside the
 /// context's sync orchestrator, so a strong handle would create a DI-graph
-/// cycle (mirrors the backfill re-entry handle).
+/// cycle (mirrors the platform post handle).
 pub struct AuthServiceCredentialRefresher {
     /// Composition-root handle, upgraded per call.
     runtime: Weak<ServerContext>,

@@ -146,12 +146,22 @@ const WIZARD_STEPS: {
     ],
   },
   {
+    name: 'check_in',
+    marker: 'onboarding.checkInIntro',
+    steps: [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'complete' },
+      { step_id: 'parq', status: 'complete' },
+    ],
+  },
+  {
     name: 'connect_provider',
     marker: 'onboarding.connectProviderIntro',
     steps: [
       { step_id: 'profile_type', status: 'complete' },
       { step_id: 'about_you', status: 'complete' },
       { step_id: 'parq', status: 'complete' },
+      { step_id: 'check_in', status: 'complete' },
     ],
   },
 ];

@@ -70,6 +70,7 @@ pub mod persistence;
 pub mod persona_conformance;
 /// Stage 15.7 — the workout_plan block on the turn that saved a plan.
 pub mod plan_block;
+pub mod platform_grounding;
 /// Post-LLM content processing: canary scan, guardrails, verification, hook.
 pub mod post_process;
 pub mod prefetch;

@@ -1,4 +1,4 @@
-// ABOUTME: The messaging intake walk — profile type, then the seven PAR-Q+ questions, asked verbatim
+// ABOUTME: The messaging intake walk — profile type, the seven PAR-Q+ questions verbatim, then the check-in cadence
 // ABOUTME: Fixed topic list, strict answer parsing, and the durable step records both surfaces share
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -31,6 +31,15 @@
 //! stranger's first conversation is worse than not screening them, and the
 //! screen stays reachable afterwards.
 //!
+//! ## How often the coach writes first
+//!
+//! The walk ends on the one question that is not a screen: how often the coach
+//! may check in on its own (carnet#831) — daily, three times a week, weekly or
+//! never. The web and the phone ask it as an onboarding step; here it is the
+//! last numbered question, parsed as strictly as the others, and stored where
+//! Settings stores it. A coach who does not train is not asked: the check-in
+//! reads the athlete's own training, and they have none.
+//!
 //! ## Sharing the answer with the other surfaces
 //!
 //! Completion is recorded as the same durable step rows the wizard writes —
@@ -41,12 +50,12 @@
 //! the flag an earlier "Yes" to the same question left.
 
 use pierre_contremaitre::messaging_strings::{
-    KEY_INTAKE_PARQ_CHEST_PAIN, KEY_INTAKE_PARQ_CHRONIC_CONDITION, KEY_INTAKE_PARQ_DIZZINESS,
-    KEY_INTAKE_PARQ_HEART_CONDITION, KEY_INTAKE_PARQ_JOINT_PROBLEM, KEY_INTAKE_PARQ_MEDICATION,
-    KEY_INTAKE_PARQ_SUPERVISED_ONLY, KEY_INTAKE_PERSONA,
+    KEY_INTAKE_CHECK_IN, KEY_INTAKE_PARQ_CHEST_PAIN, KEY_INTAKE_PARQ_CHRONIC_CONDITION,
+    KEY_INTAKE_PARQ_DIZZINESS, KEY_INTAKE_PARQ_HEART_CONDITION, KEY_INTAKE_PARQ_JOINT_PROBLEM,
+    KEY_INTAKE_PARQ_MEDICATION, KEY_INTAKE_PARQ_SUPERVISED_ONLY, KEY_INTAKE_PERSONA,
 };
 use pierre_core::errors::AppResult;
-use pierre_core::models::{TenantId, TopicSlug};
+use pierre_core::models::{CheckInCadence, TenantId, TopicSlug};
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
@@ -78,6 +87,9 @@ pub const STATUS_SKIPPED: &str = "skipped";
 pub const STATUS_NOT_APPLICABLE: &str = "not_applicable";
 /// Step id for the about-you answers, shared with the web wizard.
 pub(crate) const STEP_ABOUT_YOU: &str = "about_you";
+/// Step id for the check-in cadence answer, shared with the web and mobile
+/// onboarding step.
+pub const STEP_CHECK_IN: &str = "check_in";
 
 /// One question in the intake, in the order it is asked.
 ///
@@ -102,10 +114,13 @@ pub enum IntakeTopic {
     JointProblem,
     /// PAR-Q+ Q7 — advised to train only under medical supervision.
     SupervisedOnly,
+    /// How often the coach checks in on its own — mirrors the onboarding
+    /// step of the same name.
+    CheckIn,
 }
 
 /// Every intake topic, in the order they are asked.
-pub const INTAKE_TOPICS: [IntakeTopic; 8] = [
+pub const INTAKE_TOPICS: [IntakeTopic; 9] = [
     IntakeTopic::Persona,
     IntakeTopic::HeartCondition,
     IntakeTopic::ChestPain,
@@ -114,17 +129,19 @@ pub const INTAKE_TOPICS: [IntakeTopic; 8] = [
     IntakeTopic::Medication,
     IntakeTopic::JointProblem,
     IntakeTopic::SupervisedOnly,
+    IntakeTopic::CheckIn,
 ];
 
 impl IntakeTopic {
-    /// The PAR-Q+ question id this topic screens, or `None` for profile type.
+    /// The PAR-Q+ question id this topic screens, or `None` for profile type
+    /// and the check-in cadence.
     ///
     /// These are the ids [`crate::parq::PARQ_QUESTION_IDS`] already uses, so a
     /// flag raised in chat is the same row as one raised through the API.
     #[must_use]
     pub const fn parq_id(self) -> Option<&'static str> {
         match self {
-            Self::Persona => None,
+            Self::Persona | Self::CheckIn => None,
             Self::HeartCondition => Some("heart_condition"),
             Self::ChestPain => Some("chest_pain"),
             Self::Dizziness => Some("dizziness"),
@@ -138,7 +155,11 @@ impl IntakeTopic {
     /// The slug recorded in the delivered-probe ledger.
     #[must_use]
     pub fn slug(self) -> TopicSlug {
-        let tail = self.parq_id().unwrap_or("persona");
+        let tail = match self {
+            Self::Persona => "persona",
+            Self::CheckIn => STEP_CHECK_IN,
+            screen => screen.parq_id().unwrap_or_default(),
+        };
         TopicSlug::new(format!("intake:{tail}"))
     }
 
@@ -158,6 +179,7 @@ impl IntakeTopic {
             Self::Medication => KEY_INTAKE_PARQ_MEDICATION,
             Self::JointProblem => KEY_INTAKE_PARQ_JOINT_PROBLEM,
             Self::SupervisedOnly => KEY_INTAKE_PARQ_SUPERVISED_ONLY,
+            Self::CheckIn => KEY_INTAKE_CHECK_IN,
         }
     }
 
@@ -302,6 +324,39 @@ pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
     None
 }
 
+/// Tokens naming a check-in every morning.
+const DAILY_TOKENS: [&str; 5] = ["daily", "quotidien", "diario", "taglich", "diariamente"];
+
+/// Tokens naming a check-in once a week.
+const WEEKLY_TOKENS: [&str; 5] = ["weekly", "hebdomadaire", "semanal", "wochentlich", "hebdo"];
+
+/// Tokens naming no check-in at all.
+const OFF_TOKENS: [&str; 6] = ["off", "never", "jamais", "nunca", "nie", "aucun"];
+
+/// Parse a reply to the check-in question.
+///
+/// Same strictness as [`parse_persona`], and the same numbering the question
+/// presents: 1 is every morning, 2 three mornings a week, 3 once a week, 4
+/// never. "Three a week" has no one-word form in any locale, so it is the
+/// number alone.
+#[must_use]
+pub fn parse_check_in(text: &str) -> Option<CheckInCadence> {
+    let token = normalise(text);
+    if token == "1" || DAILY_TOKENS.contains(&token.as_str()) {
+        return Some(CheckInCadence::Daily);
+    }
+    if token == "2" {
+        return Some(CheckInCadence::ThreePerWeek);
+    }
+    if token == "3" || WEEKLY_TOKENS.contains(&token.as_str()) {
+        return Some(CheckInCadence::Weekly);
+    }
+    if token == "4" || OFF_TOKENS.contains(&token.as_str()) {
+        return Some(CheckInCadence::Off);
+    }
+    None
+}
+
 /// Persist a "Yes" to one PAR-Q question as an agent-visible medical flag.
 ///
 /// A "No" raises nothing, which is what the API path does too — only a raised
@@ -394,6 +449,25 @@ where
         .await
 }
 
+/// Record the check-in step on the durable step rows, as the onboarding step
+/// on the web and the phone records it.
+///
+/// # Errors
+///
+/// Returns the repository error if the step write fails.
+pub async fn record_check_in_step<R>(
+    repo: &R,
+    user_id: &str,
+    tenant_id: Option<&str>,
+    status: &str,
+) -> AppResult<()>
+where
+    R: UserOnboardingRepository + ?Sized,
+{
+    repo.set_onboarding_step(user_id, STEP_CHECK_IN, status, None, tenant_id)
+        .await
+}
+
 /// Whether the intake still has something to ask this athlete.
 ///
 /// False once either surface has recorded both steps — answered or skipped. A
@@ -474,6 +548,33 @@ mod tests {
             status: status.to_owned(),
             chosen_channel: None,
         }
+    }
+
+    #[test]
+    fn a_check_in_answer_is_its_number_or_its_one_word_name() {
+        assert_eq!(parse_check_in("1"), Some(CheckInCadence::Daily));
+        assert_eq!(parse_check_in(" 2 "), Some(CheckInCadence::ThreePerWeek));
+        assert_eq!(parse_check_in("3."), Some(CheckInCadence::Weekly));
+        assert_eq!(parse_check_in("4"), Some(CheckInCadence::Off));
+        assert_eq!(parse_check_in("Täglich"), Some(CheckInCadence::Daily));
+        assert_eq!(parse_check_in("hebdomadaire"), Some(CheckInCadence::Weekly));
+        assert_eq!(parse_check_in("Jamais!"), Some(CheckInCadence::Off));
+    }
+
+    #[test]
+    fn anything_but_a_check_in_answer_is_left_to_the_coach() {
+        for text in ["5", "0", "every day please", "3 or 4", "", "yes"] {
+            assert_eq!(parse_check_in(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_check_in_question_is_asked_last_and_screens_nothing() {
+        assert_eq!(INTAKE_TOPICS.last(), Some(&IntakeTopic::CheckIn));
+        assert_eq!(IntakeTopic::CheckIn.parq_id(), None);
+        assert_eq!(IntakeTopic::CheckIn.slug().as_str(), "intake:check_in");
+        let probed: Vec<TopicSlug> = INTAKE_TOPICS[..8].iter().map(|t| t.slug()).collect();
+        assert_eq!(IntakeTopic::next(&probed), Some(IntakeTopic::CheckIn));
     }
 
     #[test]

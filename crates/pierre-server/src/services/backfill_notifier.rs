@@ -8,14 +8,16 @@
 //!
 //! A deep-history `get_activities` ask on a scrape-backed mirror provider warms
 //! the durable activity cache off the request path (see
-//! `pierre_tool_runtime::activity_backfill`) and returns silently. When the
-//! originating turn came from a messaging channel, this notifier resolves that
-//! channel from the Pierre conversation id and pushes the user the ACTUAL list
-//! of activities it just loaded — read straight back from the now-warm durable
+//! `pierre_tool_runtime::activity_backfill`) and returns silently. Once it is
+//! warm, this notifier answers the conversation that asked, wherever it is
+//! read: the athlete's question is re-asked as a platform post
+//! ([`PlatformPost`]), and the agent's answer is delivered when it grounded in
+//! the history and did not refuse. Otherwise the athlete gets the ACTUAL list
+//! of activities just loaded — read straight back from the now-warm durable
 //! cache via the [`pierre_database::repositories::ActivityCacheRepository`] the
-//! notifier already holds, so there is no chat-pipeline re-entry and no LLM
-//! call. If that read comes back empty (it shouldn't, post-backfill) it falls
-//! back to a templated "your history is ready, ask again" nudge.
+//! notifier already holds. If that read comes back empty (it shouldn't,
+//! post-backfill) it falls back to a templated "your history is ready, ask
+//! again" nudge.
 //!
 //! Built once from the assembled [`ServerContext`] handles (repos +
 //! messaging-strings registry) and stored on the context behind the
@@ -84,7 +86,6 @@ use uuid::Uuid;
 use pierre_notifications::NotificationService;
 
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
-use crate::services::backfill_reentry::{ChatReentry, ReentryReply, ReentryRequest};
 use crate::services::backfill_window::read_warmed_window;
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
@@ -92,6 +93,7 @@ use crate::services::messaging_ingress::outbound_retry::{
     enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
 };
 use crate::services::messaging_ingress::surface::messaging_render_profile;
+use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface, PostedReply};
 use pierre_services::messaging_broadcast::{
     proactive_text, resolve_linked_targets, LinkedChannelTarget,
 };
@@ -228,11 +230,10 @@ pub struct ServerBackfillNotifier {
     strings: Arc<MessagingStringsRegistry>,
     /// Adapter resolver (config-driven in production, faked in tests).
     resolver: Arc<dyn AdapterResolver>,
-    /// Chat-pipeline re-entry handle, shared (same `Arc`) with the context's
-    /// `mcp.backfill_reentry` slot and installed post-`Arc` by
-    /// [`install_backfill_reentry`]. Empty until then (and in tests that don't
-    /// inject one) — the push then falls back to the templated activity list.
-    reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
+    /// The platform post that re-asks the athlete's question, shared with the
+    /// context's `mcp.platform_post` slot and installed post-`Arc`. Empty until
+    /// then (and in tests that inject none): the push sends the templated list.
+    platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
     /// Admin JWT secret for signing the one-time hosted-login link in the
     /// provider-reauth nudge. Supplied from the server config via `from_handles`.
     admin_jwt_secret: Arc<str>,
@@ -254,14 +255,15 @@ impl ServerBackfillNotifier {
     /// messaging-strings registry. The adapter resolver loads each tenant's
     /// stored channel config on demand.
     ///
-    /// `reentry` is the slot shared with `ServerContext::mcp.backfill_reentry`;
-    /// it is empty here (the pipeline-re-entry handle needs the composition-root
-    /// `Arc`, installed later by [`install_backfill_reentry`]).
+    /// `platform_post` is the slot shared with
+    /// `ServerContext::mcp.platform_post`; it is empty here (the pipeline post
+    /// needs the composition-root `Arc`, installed later by
+    /// [`install_platform_post`](crate::services::platform_post::install_platform_post)).
     #[must_use]
     pub fn from_handles(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
-        reentry: Arc<OnceLock<Arc<dyn ChatReentry>>>,
+        platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
         admin_jwt_secret: Arc<str>,
         base_url: String,
         #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
@@ -271,7 +273,7 @@ impl ServerBackfillNotifier {
             repos,
             strings,
             resolver,
-            reentry,
+            platform_post,
             admin_jwt_secret,
             base_url,
             terms: global_registry(),
@@ -280,7 +282,7 @@ impl ServerBackfillNotifier {
         })
     }
 
-    /// Build a notifier with an explicit adapter resolver and no re-entry handle.
+    /// Build a notifier with an explicit adapter resolver and no platform post.
     /// Test seam so the resolve + route + templated-list path can run against a
     /// fake adapter that captures the outbound message instead of hitting a
     /// channel API.
@@ -294,7 +296,7 @@ impl ServerBackfillNotifier {
             repos,
             strings,
             resolver,
-            reentry: Arc::new(OnceLock::new()),
+            platform_post: Arc::new(OnceLock::new()),
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
             terms: global_registry(),
@@ -304,24 +306,24 @@ impl ServerBackfillNotifier {
     }
 
     /// Build a notifier with an explicit adapter resolver and a pre-installed
-    /// re-entry handle. Test seam for the agent-synthesis path: inject a fake
-    /// [`ChatReentry`] and assert the notifier sends its reply instead of the
-    /// templated list.
+    /// platform post. Test seam for the agent-answer path: inject a fake
+    /// [`PlatformPost`] and assert the notifier delivers its reply instead of
+    /// the templated list.
     #[must_use]
-    pub fn with_resolver_and_reentry(
+    pub fn with_resolver_and_platform_post(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
         resolver: Arc<dyn AdapterResolver>,
-        reentry: Arc<dyn ChatReentry>,
+        platform_post: Arc<dyn PlatformPost>,
     ) -> Self {
         let slot = Arc::new(OnceLock::new());
         // Infallible: a freshly-created slot is empty.
-        let _ = slot.set(reentry);
+        let _ = slot.set(platform_post);
         Self {
             repos,
             strings,
             resolver,
-            reentry: slot,
+            platform_post: slot,
             admin_jwt_secret: Arc::from("test-jwt-secret"),
             base_url: "https://app.test".to_owned(),
             terms: global_registry(),
@@ -749,37 +751,58 @@ impl ServerBackfillNotifier {
             .map(|m| m.content)
     }
 
-    /// Try to synthesize a real agent answer by re-entering the chat pipeline
-    /// with the user's own question, now that the activity cache is warm.
+    /// Try to answer in the agent's own words by re-asking the athlete's
+    /// question as a platform post, now that the activity cache is warm.
     ///
     /// Loop-safe: re-asking a deep window after the cache is warmed serves
     /// inline from the durable cache (`covered == true`) and never re-spawns a
-    /// backfill, so the re-entry cannot retrigger another completion push.
-    /// Returns `None` (caller falls back to the templated list) when no re-entry
-    /// handle is installed, the conversation has no re-askable question, or the
-    /// pipeline produced nothing.
-    async fn try_synthesize_agent_reply(
+    /// backfill, so the post cannot retrigger another completion push.
+    /// Returns `None` (caller falls back to the templated list) when no
+    /// platform post is installed, the conversation has no re-askable
+    /// question, or the post was withheld — the answer did not ground in the
+    /// history, or refused — in which case nothing was stored.
+    async fn try_platform_post(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         conversation_id: &str,
-        channel_type: ChannelType,
+        surface: PostSurface,
         locale: &str,
-    ) -> Option<ReentryReply> {
-        let reentry = self.reentry.get()?;
+    ) -> Option<PostedReply> {
+        let platform_post = self.platform_post.get()?;
         let prompt = self
             .recent_user_question(user_id, tenant_id, conversation_id)
             .await?;
-        reentry
-            .synthesize_reply(ReentryRequest {
+        platform_post
+            .post(PlatformPostRequest {
                 user_id,
                 tenant_id,
                 conversation_id,
-                channel_type,
+                surface,
                 locale,
                 prompt: &prompt,
             })
             .await
+    }
+
+    /// The templated "your history is ready, ask again" nudge, for a warmed
+    /// window that read back empty. The backfill's own count includes
+    /// sessions the terms withhold from a model, so it is only quoted when
+    /// nothing was withheld.
+    fn ready_nudge(
+        &self,
+        locale: &str,
+        activity_count: usize,
+        warmed: &[Activity],
+        nothing_withheld: bool,
+    ) -> String {
+        let count = if nothing_withheld {
+            activity_count
+        } else {
+            warmed.len()
+        }
+        .to_string();
+        self.strings.render(KEY_BACKFILL_READY, locale, &[&count])
     }
 }
 
@@ -887,67 +910,6 @@ impl BackfillNotifier for ServerBackfillNotifier {
             transport,
         )
         .await;
-        let reply = if warmed.is_empty() {
-            // Cache read came back empty (it shouldn't, post-backfill): fall back
-            // to the templated "your history is ready, ask again" nudge so the
-            // user still hears that their history loaded. The backfill's own
-            // count includes sessions the terms withhold from a model, so it is
-            // only quoted when nothing was withheld.
-            let count = if withheld.is_empty() {
-                activity_count
-            } else {
-                warmed.len()
-            }
-            .to_string();
-            RenderedReply::plain(self.strings.render(KEY_BACKFILL_READY, &locale, &[&count]))
-        } else if let Destination::Channel(route) = &destination {
-            // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,
-            // rendered from the warmed cache the backfill just wrote, is the SPINE
-            // — the user ALWAYS receives the data they asked for, regardless of the
-            // model. We still attempt an in-persona agent answer via chat re-entry,
-            // but only TRUST it when the turn was grounded in the data and did
-            // not refuse — `engaged_with_activities` holds the rule. A re-entry
-            // that refused ("Ça sort de ce que je peux t'aider…") or never had
-            // the activities in front of it is dropped and we render the list
-            // ourselves, never surfacing a refusal on top of (or instead of) the
-            // user's own activities. This makes the LLM a best-effort
-            // enhancement, not a gate on delivery.
-            match self
-                .try_synthesize_agent_reply(
-                    user_id,
-                    tenant_id,
-                    pierre_conversation_id,
-                    route.channel_type,
-                    &locale,
-                )
-                .await
-                .filter(|r| r.fetched_activities)
-            {
-                // The same layout the live reply path applies: the prose is
-                // reduced to what a channel shows as typed, with the chart
-                // markers stripped, and each chart follows as its own message.
-                Some(agent_reply) => render_reply(
-                    &messaging_render_profile(route.channel_type, &locale).render,
-                    &agent_reply.assistant,
-                    &self.strings,
-                    &locale,
-                ),
-                None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
-            }
-        } else {
-            // In-app: the list, never a re-entry turn. `pierre_chat_pipeline::execute`
-            // persists the prompt it is handed as a `user` row before it answers —
-            // the model reads the question back out of the conversation history, so
-            // the write is load-bearing, not incidental. On a channel that row is
-            // invisible; in the athlete's own thread it would appear as them asking
-            // the same question a second time, which they never did. The
-            // deterministic list is the spine either way, so the in-app arm ships
-            // the spine and leaves the fabricated turn unwritten. The fabricated
-            // row is itself a defect on the channel surfaces, where the unified
-            // chat list shows it: carnet#246.
-            RenderedReply::plain(self.render_list_body(&locale, zone, &warmed))
-        };
-
         // The window's true size: `warmed` when the cache read landed, else the
         // count the backfill reported.
         let count = warmed.len().max(activity_count);
@@ -957,32 +919,116 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         match destination {
             Destination::Channel(route) => {
-                ChannelDelivery {
+                let reply = if warmed.is_empty() {
+                    // Cache read came back empty (it shouldn't, post-backfill):
+                    // the user still hears that their history loaded.
+                    RenderedReply::plain(self.ready_nudge(
+                        &locale,
+                        activity_count,
+                        &warmed,
+                        withheld.is_empty(),
+                    ))
+                } else {
+                    // DECOUPLING (data delivery ≠ LLM judgment): the
+                    // deterministic list, rendered from the warmed cache the
+                    // backfill just wrote, is the SPINE — the user ALWAYS
+                    // receives the data they asked for, regardless of the
+                    // model. The agent's answer is delivered only when the
+                    // platform post was stored, which it is only when the turn
+                    // grounded in the data and did not refuse
+                    // (`platform_grounding` holds the rule). A post that
+                    // refused ("Ça sort de ce que je peux t'aider…") or never
+                    // had the activities in front of it is withheld and the
+                    // list goes out instead, never a refusal on top of (or
+                    // instead of) the user's own activities. The LLM is a
+                    // best-effort enhancement, not a gate on delivery.
+                    match self
+                        .try_platform_post(
+                            user_id,
+                            tenant_id,
+                            pierre_conversation_id,
+                            PostSurface::Channel(route.channel_type),
+                            &locale,
+                        )
+                        .await
+                    {
+                        // The same layout the live reply path applies: the
+                        // prose is reduced to what a channel shows as typed,
+                        // with the chart markers stripped, and each chart
+                        // follows as its own message.
+                        Some(agent_reply) => render_reply(
+                            &messaging_render_profile(route.channel_type, &locale).render,
+                            &agent_reply.assistant,
+                            &self.strings,
+                            &locale,
+                        ),
+                        None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
+                    }
+                };
+                let channel = route.channel_str.clone();
+                let sent = ChannelDelivery {
                     repos: &self.repos,
                     resolver: self.resolver.as_ref(),
                 }
-                .send(*route, user_id, tenant_id, reply, count)
+                .send(*route, user_id, tenant_id, reply)
                 .await;
+                if sent {
+                    info!(channel = %channel, count, "Sent backfill-ready notice on channel");
+                }
             }
             Destination::InApp => {
-                InAppDelivery {
+                let delivery = InAppDelivery {
                     repos: &self.repos,
                     strings: &self.strings,
                     #[cfg(feature = "client-notifications")]
                     notifications: self.notifications.as_ref(),
                     transport_policy: derived_from,
+                };
+                if warmed.is_empty() {
+                    let nudge =
+                        self.ready_nudge(&locale, activity_count, &warmed, withheld.is_empty());
+                    delivery
+                        .deliver(
+                            user_id,
+                            tenant_id,
+                            pierre_conversation_id,
+                            &locale,
+                            nudge,
+                            count,
+                        )
+                        .await;
+                } else if self
+                    .try_platform_post(
+                        user_id,
+                        tenant_id,
+                        pierre_conversation_id,
+                        PostSurface::InApp,
+                        &locale,
+                    )
+                    .await
+                    .is_some()
+                {
+                    // The pipeline stored the agent's answer as the unread
+                    // turn: only the ping is left to raise.
+                    info!(
+                        count,
+                        "Delivered the agent's backfill answer into the in-app conversation"
+                    );
+                    delivery.ping(user_id, tenant_id, &locale, count).await;
+                } else {
+                    // The deterministic list is the spine here as on a
+                    // channel — one text, no attachments.
+                    delivery
+                        .deliver(
+                            user_id,
+                            tenant_id,
+                            pierre_conversation_id,
+                            &locale,
+                            self.render_list_body(&locale, zone, &warmed),
+                            count,
+                        )
+                        .await;
                 }
-                // The in-app arm always ships the plain list — one text, no
-                // attachments — so the persisted turn is that single part.
-                .deliver(
-                    user_id,
-                    tenant_id,
-                    pierre_conversation_id,
-                    &locale,
-                    reply.prose.join("\n\n"),
-                    count,
-                )
-                .await;
             }
         }
     }

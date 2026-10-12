@@ -66,17 +66,27 @@ pub(crate) mod user_approval_notifier;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
-/// Chat re-entry for that notifier.
-///
-/// Re-runs the athlete's question through the pipeline once the history is
-/// warm, with the messaging scene publisher wired.
+/// A verified coach post the platform makes on its own initiative.
 #[cfg(feature = "client-messaging")]
-pub mod backfill_reentry;
+pub mod platform_post;
 
-/// The two ways a backfill-completion notice reaches an athlete: out through a
+/// Where a post the coach makes on its own lands: the athlete's own thread,
+/// and the messaging DM they last wrote from while its window is open.
+#[cfg(feature = "client-messaging")]
+pub(crate) mod post_delivery;
+
+/// The coach's first post once an athlete's data lands (carnet#831).
+#[cfg(all(feature = "client-messaging", feature = "health-sync"))]
+pub mod first_sync_post;
+
+/// The coach's check-in on the cadence the athlete chose (carnet#831).
+#[cfg(feature = "client-messaging")]
+pub mod check_in_post;
+
+/// The two ways a proactive notice reaches an athlete: out through a
 /// messaging channel's adapter, or into a first-party conversation as a
-/// persisted turn. Gated with the notifier it serves: both arms are reached
-/// only from it, and the channel arm needs the messaging adapters.
+/// persisted turn. Gated with the notifier and the first post it serves: the
+/// channel arm needs the messaging adapters.
 #[cfg(feature = "client-messaging")]
 pub(crate) mod backfill_delivery;
 
