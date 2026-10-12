@@ -30,8 +30,11 @@ MAX_DEPTH="${CARGO_SWEEP_MAX_DEPTH:-5}"
 # 2026-10-05, when four agent worktrees filled the disk inside three hours and
 # every tool call died on ENOSPC. Below MIN_FREE the run reclaims build trees
 # until the volume is back above it; below HARD_FLOOR `guard` refuses new builds.
-MIN_FREE_SPEC="${CARGO_SWEEP_MIN_FREE:-80GiB}"
-HARD_FLOOR_SPEC="${CARGO_SWEEP_HARD_FLOOR:-30GiB}"
+# Unset, each is "auto": 80 GiB and 30 GiB, or 25% and 15% of the volume when
+# that is smaller. A fixed 30 GiB floor sits above the free space a ~40 GiB cloud
+# container (Claude Code on the web) ever has, so every build there was refused.
+MIN_FREE_SPEC="${CARGO_SWEEP_MIN_FREE:-auto}"
+HARD_FLOOR_SPEC="${CARGO_SWEEP_HARD_FLOOR:-auto}"
 # A linked worktree whose content already landed keeps a full target/ until
 # someone removes it. Its tree is reclaimed once it has sat unbuilt this long,
 # so a worktree freshly cut from main and being built right now is left alone.
@@ -94,9 +97,10 @@ Options:
   --keep N         Never wholesale-drop the N most-recently-built repos
                                                     (env CARGO_SWEEP_KEEP,      default 1)
   --max-depth N    Discovery depth under the root   (env CARGO_SWEEP_MAX_DEPTH, default 5)
-  --min-free SIZE  Free-space floor the run restores (env CARGO_SWEEP_MIN_FREE, default 80GiB; 0 = off)
-  --hard-floor SIZE  Below this, `guard` refuses builds
-                                                    (env CARGO_SWEEP_HARD_FLOOR, default 30GiB; 0 = off)
+  --min-free SIZE  Free-space floor the run restores (env CARGO_SWEEP_MIN_FREE, default
+                   auto = 80GiB or 25% of the volume, whichever is smaller; 0 = off)
+  --hard-floor SIZE  Below this, `guard` refuses builds (env CARGO_SWEEP_HARD_FLOOR,
+                   default auto = 30GiB or 15% of the volume, whichever is smaller; 0 = off)
   --scheduled      Run as the LaunchAgent does: the age pass at most once per
                    CARGO_SWEEP_AGE_EVERY_HOURS (default 20); merged worktrees,
                    the cap and the floor every time
@@ -210,9 +214,34 @@ size_setting() { # $1 = flag name, $2 = value; prints bytes
 CAP_BYTES=$(size_setting cap "$CAP_SPEC") || exit $?
 CAP_KIB=$((CAP_BYTES / 1024))
 [[ "$CAP_KIB" -gt 0 ]] || is_hook_command || usage_error "--cap must be greater than zero, got: $CAP_SPEC"
-MIN_FREE_BYTES=$(size_setting min-free "$MIN_FREE_SPEC") || exit $?
+# KiB in the whole volume holding the scan root, or -1 when df gives no number
+volume_kib() {
+    local where="$SCAN_ROOT" out
+    [[ -d "$where" ]] || where="$HOME"
+    out=$( { df -Pk "$where" 2>/dev/null || true; } | awk 'NR == 2 { print $2 }')
+    [[ "$out" =~ ^[0-9]+$ ]] || out=-1
+    echo "$out"
+}
+
+# A floor setting in bytes: an explicit size as given, "auto" as the fixed size
+# $3 or $4 percent of the volume, whichever is smaller (the fixed size when the
+# volume cannot be measured)
+floor_setting() { # $1 = flag name, $2 = value, $3 = fixed size, $4 = percent
+    local fixed volume share
+    [[ "$2" == auto ]] || { size_setting "$1" "$2"; return; }
+    fixed=$(parse_size "$3")
+    volume=$(volume_kib)
+    share=$((volume * 1024 * $4 / 100))
+    if [[ "$volume" -gt 0 && "$share" -lt "$fixed" ]]; then
+        echo "$share"
+    else
+        echo "$fixed"
+    fi
+}
+
+MIN_FREE_BYTES=$(floor_setting min-free "$MIN_FREE_SPEC" 80GiB 25) || exit $?
 MIN_FREE_KIB=$((MIN_FREE_BYTES / 1024))
-HARD_FLOOR_BYTES=$(size_setting hard-floor "$HARD_FLOOR_SPEC") || exit $?
+HARD_FLOOR_BYTES=$(floor_setting hard-floor "$HARD_FLOOR_SPEC" 30GiB 15) || exit $?
 HARD_FLOOR_KIB=$((HARD_FLOOR_BYTES / 1024))
 
 # A scan root that is missing, unreadable, or not a directory finds no target

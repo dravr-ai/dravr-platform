@@ -199,6 +199,29 @@ rc=0; hook_input "cargo build" | TMPDIR=/nonexistent "$UNDER_TEST" guard --hard-
 [[ $rc -eq 2 ]] && pass "guard still answers with no writable temp dir (a full disk)" \
   || fail "guard still answers with no writable temp dir (a full disk) (exit $rc)"
 
+# The default floors scale with the volume. A fixed 30 GiB floor refused every
+# build on a ~40 GiB cloud container, whose free space never reaches it; a real
+# 2 GiB volume stands in for one (auto hard floor: 15% of it, about 300 MiB).
+small_img="$(mktemp -d "${TMPDIR:-/tmp}/cargo-sweep-vol.XXXXXX")"
+small_mnt="$small_img/mnt"
+mkdir -p "$small_mnt"
+hdiutil create -quiet -size 2g -fs APFS -volname sweeptest -type SPARSE "$small_img/vol" \
+  && hdiutil attach -quiet -nobrowse -mountpoint "$small_mnt" "$small_img/vol.sparseimage"
+rc=0; hook_input "cargo build" | CARGO_SWEEP_SCAN_ROOT="$small_mnt" "$UNDER_TEST" guard >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard's default floor scales down on a small volume" \
+  || fail "guard's default floor scales down on a small volume (exit $rc)"
+rc=0; hook_input "cargo build" | CARGO_SWEEP_SCAN_ROOT="$small_mnt" "$UNDER_TEST" guard --hard-floor 30GiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && pass "an explicit hard floor still applies on a small volume" \
+  || fail "an explicit hard floor still applies on a small volume (exit $rc)"
+status_out=$(CARGO_SWEEP_SCAN_ROOT="$small_mnt" "$UNDER_TEST" status 2>&1 || true)
+if grep -q "builds refused under 307" <<< "$status_out"; then
+  pass "status reports the scaled hard floor (15% of 2 GiB)"
+else
+  fail "status reports the scaled hard floor (15% of 2 GiB): $(grep 'FREE ON DISK' <<< "$status_out")"
+fi
+hdiutil detach -quiet "$small_mnt" || hdiutil detach -quiet -force "$small_mnt"
+rm -rf "$small_img"
+
 # Build shapes the guard must recognise: a miss lets a build fill the disk.
 for cmd in "cargo --locked build" "cargo build;" "(cd x; cargo test)" "/usr/bin/cargo build" \
            "bash -c 'cargo test'" "cargo build|tee log" "echo x &&cargo check" "cargo +1.98.1 clippy" \
