@@ -398,4 +398,7 @@ jobs:
         with:
           name: pierre-server-logs
           path: ${{ runner.temp }}/pierre-logs/
-          retention-days: 1
+          # A week, so a red nightly can still be read after a weekend: the
+          # 2026-10-10 failure (carnet#876) had lost its log before anyone
+          # looked, and the job log carries only the test's side. ~90 KB a run.
+          retention-days: 7
