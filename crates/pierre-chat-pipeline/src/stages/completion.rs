@@ -440,7 +440,7 @@ pub async fn render_fortnight(
 /// Render the pillars walk's closing message.
 ///
 /// The platform states where the athlete's profile stands, since the agent has
-/// no view of what the extractor wrote: how many of the topics this walk's
+/// no view of what the extractor wrote: how many of the pillars this walk's
 /// audience may hear are covered ([`CoverageMap::audible_progress`]), read
 /// from the `dossier` the turn composed. A re-run over a profile that was
 /// already complete therefore reports it complete rather than a count of

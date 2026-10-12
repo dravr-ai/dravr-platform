@@ -301,12 +301,13 @@ pub fn window_scope_note(activities_req: &ActivityDataRequirements, now: DateTim
 /// What a prefetch read hands the model, and whether it is the athlete's data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrefetchedWindow {
-    /// The read's content as the tool rendered it, for injection.
+    /// The read's content as the tool rendered it, for injection. Empty when
+    /// the read carried no payload, as the no-provider refusal does.
     pub content: String,
-    /// Whether the platform served the read. A refused one — no provider
-    /// connected, a grant that lapsed — still reaches the model, which then
-    /// knows why it has no activities, but it grounds nothing: it never counts
-    /// as a fetch of the athlete's data.
+    /// Whether the platform served the read: it succeeded and carried a
+    /// payload. A refused one — no provider connected, a grant that lapsed —
+    /// still reaches the model, but it grounds nothing: it is never recorded
+    /// as a [`PREFETCH_TOOL`] run of the athlete's data.
     pub served: bool,
 }
 
@@ -359,10 +360,11 @@ pub async fn prefetch_activity_context(
 /// Without `data_requirements`, the startup query is injected as-is for
 /// the LLM to interpret (tool-calling fallback).
 ///
-/// Returns `true` when a non-empty activity window reached the prompt — the
-/// caller records that as a [`PREFETCH_TOOL`] run so provenance checks can see
-/// the platform's own fetch. A startup query alone grounds nothing and returns
-/// `false`, as does an empty window.
+/// Returns `true` when a served, non-empty activity window reached the prompt
+/// — the caller records that as a [`PREFETCH_TOOL`] run so provenance checks
+/// can see the platform's own fetch. A startup query alone grounds nothing and
+/// returns `false`, as does an empty window or a refused read (which is still
+/// injected).
 pub async fn inject_startup_context(
     executor: &Arc<UniversalExecutor>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -535,11 +537,11 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
 /// What a prefetch response hands the model, and whether it was served.
 ///
 /// A read the platform refused — no provider connected, a grant that lapsed —
-/// answers `success: false` rather than an error. It is still injected, as it
-/// always was: the model needs to know the read came back with nothing, and
-/// the turn's capability recovery reads the injected block as the platform
-/// having fetched already. It is never `served`, so it never counts as the
-/// athlete's data in front of the model.
+/// answers `success: false` rather than an error. It is still injected: the
+/// model needs to know the read came back with nothing, and the turn's
+/// capability recovery reads the injected block as the platform having
+/// fetched already. It is never `served`, so it is never recorded as a
+/// [`PREFETCH_TOOL`] run of the athlete's data.
 fn prefetched_window(response: &UniversalResponse) -> PrefetchedWindow {
     let content = extract_prefetch_content(response);
     let served = response.success && !content.trim().is_empty();
@@ -631,9 +633,9 @@ pub fn inject_activity_refresh(
 /// block is then safe from summarization, and the insertion cannot desync the
 /// `source_ids`/`llm_messages` parallel vectors that compaction consumes.
 ///
-/// Returns `true` when a refreshed window reached the prompt, which the caller
-/// records as a [`PREFETCH_TOOL`] run — same provenance contract as
-/// [`inject_startup_context`].
+/// Returns `true` when a served refreshed window reached the prompt, which the
+/// caller records as a [`PREFETCH_TOOL`] run — same provenance contract as
+/// [`inject_startup_context`]. A refused read is injected but returns `false`.
 pub async fn maybe_refresh_activity_context(
     inputs: ActivityRefreshInputs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -664,7 +666,8 @@ pub async fn maybe_refresh_activity_context(
     };
 
     // Propagate rather than assume: an empty window injects nothing, so it
-    // grounds nothing and must not be reported as a fetch that happened.
+    // grounds nothing and must not be reported as a fetch that happened; a
+    // refused read is injected, but it was no fetch of the athlete's data.
     let scope_note = data_reqs
         .activities
         .as_ref()

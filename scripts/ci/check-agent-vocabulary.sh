@@ -28,7 +28,10 @@
 #
 # --catalogue-only runs A alone and exits with its status. contremaitre-bump.yml
 # calls it on the string copy it has just synced: that copy is the one input A
-# reads, and the lane has no push of its own for B to diff.
+# reads, and the lane has no push of its own for B to diff. dravr-contremaitre's
+# pre-push gate (scripts/check-platform-coupling.sh) also calls it, on an export
+# of this script beside that repo's strings laid out where the copy lands, and
+# fails closed when the flag is missing: the flag is a contract with that repo.
 
 set -euo pipefail
 
@@ -110,6 +113,12 @@ for locale, pattern in NOUN.items():
             stripped = re.sub(shape, ' ', stripped, flags=re.IGNORECASE)
         if noun.search(stripped):
             bad.append((locale, key, value.strip()[:90]))
+
+# A scan that read nothing has checked nothing: five empty catalogues are a
+# broken copy, not a clean one.
+if scanned == 0:
+    print('❌ Catalogue: no string values found across the 5 locales.')
+    sys.exit(1)
 
 if bad:
     print('❌ Catalogue values that call the AI persona a coach:\n')

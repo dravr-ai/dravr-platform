@@ -699,8 +699,8 @@ pub const KEY_SLASH_ANSWERED_PRIVATELY: &str = "commands.answered_privately";
 /// Key: `/pillars` failure when the walk could not be activated on the
 /// conversation.
 pub const KEY_PILLARS_START_FAILED: &str = "commands.pillars.start_failed";
-/// Key: the pillars walk's wrap-up — how many of the topics it asked an answer
-/// landed for. Format placeholders: `{0}` answered, `{1}` asked.
+/// Key: the pillars walk's wrap-up — how many of the pillars its audience may
+/// hear are covered. Format placeholders: `{0}` covered, `{1}` pillars.
 pub const KEY_PILLARS_COMPLETED: &str = "commands.pillars.completed";
 /// Key: `/reset` note appended when the reset ended an in-progress profile walk.
 pub const KEY_RESET_WALK_INTERRUPTED: &str = "commands.reset.walk_interrupted";

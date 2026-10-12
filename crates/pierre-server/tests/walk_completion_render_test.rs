@@ -12,10 +12,10 @@
 //! `ChatPipelineContext`, and compare it line by line with the strings the
 //! same registry renders for the expected counts.
 //!
-//! The pillars walk ends through the guided resolver rather than a renderer:
-//! it reports `onboarding.completed` from the same window and leaves the turn
-//! to the agent. Each ending also picks its next steps from the transition
-//! table (carnet#830), filtered by what the athlete's state allows — the
+//! The pillars walk ends through the guided resolver: it reports
+//! `onboarding.completed` from the same window, and its wrap-up states how
+//! many of the pillars its audience may hear are covered. Each ending also
+//! picks its next steps from the transition table (carnet#830), filtered by what the athlete's state allows — the
 //! season after the pillars, the fortnight once a season is set, the
 //! calendar and today's session once the fortnight landed — and a platform
 //! reply delivers them the way a command's controls are: on the live
@@ -39,7 +39,7 @@ use pierre_chat_pipeline::stages::completion;
 use pierre_chat_pipeline::stages::deterministic_reply::{
     deliver, DeterministicReplyInputs, PlatformReply, DETERMINISTIC_FINISH_REASON,
 };
-use pierre_chat_pipeline::stages::onboarding::{self, GuidedResolution};
+use pierre_chat_pipeline::stages::onboarding::{self, GuidedResolution, GuidedTarget};
 use pierre_chat_pipeline::{
     ActionKind, ChatPipelineContext, InputSource, QuotaState, ReplyBlock, SurfaceId,
     SurfaceProfile, SurfaceRequest, TurnAction, TurnEnvelope, TurnInput, TurnOrigin,
@@ -484,16 +484,24 @@ async fn the_pillars_walk_states_its_count_and_answers_its_last_turn() {
     };
     assert_eq!(
         reply.text,
-        a.render(KEY_PILLARS_COMPLETED, &["2", &PILLARS_TOPICS.to_string()]),
-        "the count is the platform's, read from the facts that landed"
+        a.render(
+            KEY_PILLARS_COMPLETED,
+            &["1", &Pillar::ALL.len().to_string()]
+        ),
+        "the count is the platform's, read from the facts that landed, and counts \
+         pillars: the North Star landed too but is not one"
     );
     assert!(
         reply.next_steps.is_empty(),
         "five pillars untold: no season to plan yet, and no plan to calibrate"
     );
-    assert!(
-        answered.is_some(),
-        "the turn answers the walk's last question, which still has to be extracted"
+    assert_eq!(
+        answered,
+        Pillar::ALL
+            .last()
+            .map(|pillar| GuidedTarget::Coverage(CoverageTarget::Pillar(*pillar))),
+        "the turn answers the walk's last question — the last pillar its ledger \
+         asked — which still has to be extracted"
     );
     let completed = only(&events, "onboarding.completed");
     assert_eq!(completed.field("flow"), "pillars");
@@ -762,15 +770,15 @@ async fn a_room_walk_offers_no_step_even_when_its_subject_could_take_one() {
         reply.next_steps.is_empty(),
         "steps are picked from one athlete's state, and the room would read them"
     );
-    let room_topics = (1 + Pillar::ALL
+    let room_pillars = Pillar::ALL
         .into_iter()
         .filter(|pillar| pillar.visibility() == TopicVisibility::RoomSafe)
-        .count())
-    .to_string();
+        .count()
+        .to_string();
     assert_eq!(
         reply.text,
-        a.render(KEY_PILLARS_COMPLETED, &[&room_topics, &room_topics]),
-        "a room is told only about the topics it may hear, never the DM-only pillars"
+        a.render(KEY_PILLARS_COMPLETED, &[&room_pillars, &room_pillars]),
+        "a room is told only about the pillars it may hear, never the DM-only ones"
     );
 }
 
@@ -790,7 +798,7 @@ async fn a_rerun_over_a_complete_profile_reports_it_complete() {
     else {
         panic!("every topic was covered before the walk began");
     };
-    let total = PILLARS_TOPICS.to_string();
+    let total = Pillar::ALL.len().to_string();
     assert_eq!(
         reply.text,
         a.render(KEY_PILLARS_COMPLETED, &[&total, &total])

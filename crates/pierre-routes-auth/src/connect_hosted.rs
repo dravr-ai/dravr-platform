@@ -121,7 +121,8 @@ struct ConnectProviderCard {
     /// hosted page either way.
     kind: &'static str,
     /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
-    /// `intervals_icu` for the API-key card; empty for OAuth cards.
+    /// `intervals_icu` for the Intervals.icu card whichever its kind; empty
+    /// for the other OAuth cards.
     target: String,
     /// The page must show the provider's notice, with a required checkbox,
     /// before the credentials form (TrainingPeaks and COROS) or before the

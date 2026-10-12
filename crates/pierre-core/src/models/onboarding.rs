@@ -6,7 +6,6 @@
 
 use crate::transport::TransportPolicy;
 use std::collections::BTreeMap;
-use std::iter;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -498,21 +497,22 @@ impl CoverageMap {
         }
     }
 
-    /// How many of the topics `audience` may hear are covered, out of how
-    /// many it may hear — the progress a pillars walk's wrap-up states.
+    /// How many of the pillars `audience` may hear are covered, out of how
+    /// many it may hear — the count a pillars walk's wrap-up states.
     ///
-    /// A room is told only about the topics it may hear, so the count never
-    /// reveals whether the athlete answered a DM-only pillar in private.
+    /// The North Star is a topic of the walk but not a pillar, so it is not
+    /// counted: the wrap-up reads "5 of 6 pillars", never "of 7". A room is told
+    /// only about the pillars it may hear, so the count never reveals whether
+    /// the athlete answered a DM-only pillar in private.
     #[must_use]
     pub fn audible_progress(&self, audience: WalkAudience) -> (usize, usize) {
-        let audible = iter::once(CoverageTarget::NorthStar)
-            .chain(Pillar::ALL.into_iter().map(CoverageTarget::Pillar))
-            .filter(|t| Self::audible(*t, audience))
-            .count();
-        (
-            audible.saturating_sub(self.uncovered(audience).len()),
-            audible,
-        )
+        Pillar::ALL
+            .into_iter()
+            .filter(|pillar| Self::audible(CoverageTarget::Pillar(*pillar), audience))
+            .fold((0, 0), |(covered, audible), pillar| {
+                let told = self.pillars.get(&pillar).copied().unwrap_or(false);
+                (covered + usize::from(told), audible + 1)
+            })
     }
 
     /// How many delivered probes `probed` records for `target`.
@@ -555,5 +555,49 @@ impl CoverageMap {
     #[must_use]
     pub fn covered_count(&self) -> usize {
         usize::from(self.north_star_covered) + self.pillars.values().filter(|c| **c).count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Coverage with exactly `told` pillars covered, and the North Star as given.
+    fn coverage(north_star_covered: bool, told: &[Pillar]) -> CoverageMap {
+        CoverageMap {
+            north_star_covered,
+            pillars: Pillar::ALL
+                .into_iter()
+                .map(|pillar| (pillar, told.contains(&pillar)))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_north_star_is_not_counted_as_a_pillar() {
+        assert_eq!(
+            coverage(true, &[]).audible_progress(WalkAudience::Private),
+            (0, Pillar::ALL.len())
+        );
+    }
+
+    #[test]
+    fn a_room_count_never_reflects_a_pillar_told_in_private() {
+        let dm_only: Vec<Pillar> = Pillar::ALL
+            .into_iter()
+            .filter(|pillar| pillar.visibility() == TopicVisibility::DmOnly)
+            .collect();
+        assert!(!dm_only.is_empty(), "the walk has DM-only pillars to hide");
+        let told_in_private = coverage(false, &dm_only);
+
+        assert_eq!(
+            told_in_private.audible_progress(WalkAudience::Room),
+            (0, Pillar::ALL.len() - dm_only.len()),
+            "a room hears neither the DM-only pillars nor whether they were told"
+        );
+        assert_eq!(
+            told_in_private.audible_progress(WalkAudience::Private),
+            (dm_only.len(), Pillar::ALL.len())
+        );
     }
 }

@@ -141,7 +141,7 @@ pub const KEY_HOSTED_INTERVALS_UNAVAILABLE: &str = "hosted.intervals.unavailable
 pub const KEY_HOSTED_INTERVALS_SAVE_FAILED: &str = "hosted.intervals.saveFailed";
 /// Key: "You sign in on Intervals.icu and approve Dravr there — Dravr never sees your password." No format placeholders.
 pub const KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE: &str = "hosted.intervals.authorizeNote";
-/// Key: "Coaches link with their API key, so Dravr can read the athletes they coach." No format placeholders.
+/// Key: "Human coaches link with their API key, so Dravr can read the athletes they train." No format placeholders.
 pub const KEY_HOSTED_INTERVALS_COACH_NOTE: &str = "hosted.intervals.coachNote";
 
 // ── Success page ──

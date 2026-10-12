@@ -4,7 +4,7 @@
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
 // ABOUTME: Also holds each scrape-mirror target's login facts, each provider's notice to accept first, and how Intervals.icu links
 
-import type { SciotteTarget } from '@pierre/shared-types';
+import type { ExtendedProviderStatus, SciotteTarget } from '@pierre/shared-types';
 
 /**
  * Every capability slug `GET /api/oauth/providers` can put on a provider card,
@@ -226,12 +226,10 @@ export function aiConsentCards<T extends AiConsentCard>(cards: readonly T[]): T[
 }
 
 /** The fields of a provider card the Intervals.icu connect path reads. */
-export interface IntervalsConnectCard {
-  requires_oauth: boolean;
-  own_app_required: boolean;
-  connected: boolean;
-  connection_type?: string;
-}
+export type IntervalsConnectCard = Pick<
+  ExtendedProviderStatus,
+  'requires_oauth' | 'own_app_required' | 'connected' | 'connection_type'
+>;
 
 /**
  * How an Intervals.icu card connects, or reconnects:

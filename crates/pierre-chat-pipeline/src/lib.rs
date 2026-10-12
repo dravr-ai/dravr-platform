@@ -651,16 +651,14 @@ async fn run_turn(
     // calibration interview or mid season walk, resolve the topic being probed
     // (and clear the flag once complete). Drives the prompt directive (below)
     // and the fact-stamping at Stage 21.
-    // A finished fixed-list walk answers deterministically and skips the LLM
-    // entirely (see `resolve_guided_or_answer`).
+    // A finished walk answers deterministically and skips the LLM entirely
+    // (see `resolve_guided_or_answer`).
     // A platform-composed prompt is not the athlete answering the probe, so it
     // never drives the guided flow. Left in, a finished walk would
     // answer this turn with its wrap-up (`GuidedOutcome::Answered` returns
     // outright) and the athlete would get an interview summary where their
     // history was supposed to arrive — the same impersonation as the `user`
     // row above, one table over.
-    // A pillars walk that just ended leaves its next steps for the agent's
-    // closing reply to carry.
     let onboarding_turn = if input.origin.persists_user_row() {
         match resolve_guided_or_answer(GuidedStageInputs {
             ctx,
