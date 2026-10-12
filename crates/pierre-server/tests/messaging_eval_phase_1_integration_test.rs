@@ -264,7 +264,7 @@ mod phase_1_integration {
     #[tokio::test]
     #[serial]
     async fn phase_1_asserters_against_real_endpoint_response() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = Arc::new(MockLlmProvider::new("Phase 1 mock reply."));
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();

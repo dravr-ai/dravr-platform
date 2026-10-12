@@ -83,7 +83,7 @@ pub struct LlmHealthSnapshot {
     /// Probe status — defaults to [`LlmHealthStatus::Unknown`] until the
     /// boot probe has reported.
     pub status: LlmHealthStatus,
-    /// Provider name from `PIERRE_LLM_PROVIDER` at boot, or `None` when
+    /// The chain head's provider name (`PIERRE_LLM_CHAIN`), or `None` when
     /// the probe has not yet run.
     pub provider: Option<String>,
     /// The tier that answered the probe's round-trip, as that runner names

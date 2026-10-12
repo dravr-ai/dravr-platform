@@ -13,7 +13,6 @@ use axum::{
 };
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -25,7 +24,7 @@ use pierre_auth::tenant::llm_manager::{
 use pierre_core::errors::AppError;
 use pierre_core::models::LlmCredentialSummary;
 use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::{LlmChain, LlmProviderType};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{tenant::require, MiddlewareCtx, TenantMode};
 use pierre_services::chat_provider_factory::chat_provider_from_credentials;
@@ -75,7 +74,7 @@ pub struct LlmSettingsResponse {
     pub user_credentials: Vec<LlmCredentialSummary>,
     /// Tenant-level credentials (visible to admins)
     pub tenant_credentials: Vec<LlmCredentialSummary>,
-    /// System-level LLM provider configured via `PIERRE_LLM_PROVIDER` (admin-visible)
+    /// System-level LLM provider: the head of `PIERRE_LLM_CHAIN` (admin-visible)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_provider: Option<SystemProviderInfo>,
 }
@@ -280,29 +279,31 @@ async fn get_llm_settings<C: MiddlewareCtx>(
         .find(|p| p.has_credentials)
         .map(|p| p.name.clone());
 
-    // Include system-level LLM provider info from env config
-    let system_provider = env::var(LlmProviderType::ENV_VAR).ok().map(|name| {
-        let provider_type = LlmProviderType::from_str_or_default(&name);
-        let display_name = match provider_type {
-            LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)",
-            LlmProviderType::CopilotSdk => "Copilot SDK (Embacle)",
-            LlmProviderType::ClaudeCode => "Claude Code",
-            LlmProviderType::Copilot => "GitHub Copilot",
-            LlmProviderType::CursorAgent => "Cursor Agent",
-            LlmProviderType::Gemini => "Google Gemini",
-            LlmProviderType::GeminiCli => "Gemini CLI",
-            LlmProviderType::Groq => "Groq",
-            LlmProviderType::Local => "Local LLM",
-            LlmProviderType::OpenRouter => "OpenRouter",
-            LlmProviderType::Cohere => "Cohere (Command)",
-            LlmProviderType::OpenAiApi => "OpenAI API",
-            _ => &name,
+    // Include the system-level LLM provider from env config: the head of
+    // PIERRE_LLM_CHAIN, the provider every turn is asked of first, and the
+    // model it runs.
+    let system_provider = LlmChain::is_configured().then(|| {
+        let head = LlmChain::from_env().head().clone();
+        let display_name = match head.provider {
+            LlmProviderType::Anthropic => "Anthropic API".to_owned(),
+            LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)".to_owned(),
+            LlmProviderType::CopilotSdk => "Copilot SDK (Embacle)".to_owned(),
+            LlmProviderType::ClaudeCode => "Claude Code".to_owned(),
+            LlmProviderType::Copilot => "GitHub Copilot".to_owned(),
+            LlmProviderType::CursorAgent => "Cursor Agent".to_owned(),
+            LlmProviderType::Gemini => "Google Gemini".to_owned(),
+            LlmProviderType::GeminiCli => "Gemini CLI".to_owned(),
+            LlmProviderType::Groq => "Groq".to_owned(),
+            LlmProviderType::Local => "Local LLM".to_owned(),
+            LlmProviderType::OpenRouter => "OpenRouter".to_owned(),
+            LlmProviderType::Cohere => "Cohere (Command)".to_owned(),
+            LlmProviderType::OpenAiApi => "OpenAI API".to_owned(),
+            other => other.to_string(),
         };
-        let model = env::var("PIERRE_LLM_MODEL").ok();
         SystemProviderInfo {
-            name: provider_type.to_string(),
-            display_name: display_name.to_owned(),
-            model,
+            name: head.provider.to_string(),
+            display_name,
+            model: head.effective_model(),
         }
     });
 

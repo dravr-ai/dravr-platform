@@ -170,8 +170,8 @@ pub struct CreateConversationRequest {
     /// title, else a dated stamp in the caller's language.
     #[serde(default)]
     pub title: Option<String>,
-    /// Model recorded on the conversation (optional, defaults to
-    /// `PIERRE_LLM_MODEL`). A turn runs on the configured model and falls
+    /// Model recorded on the conversation (optional, defaults to the model
+    /// the `PIERRE_LLM_CHAIN` head runs). A turn runs on the configured model and falls
     /// back to this one only when none is configured (carnet#824).
     #[serde(default)]
     pub model: Option<String>,

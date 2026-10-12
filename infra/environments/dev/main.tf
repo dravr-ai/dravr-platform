@@ -321,62 +321,86 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain (JF, 2026-10-01): copilot_sdk leads, then
-      # claude_code and its second account (claude-code#2, from
-      # CLAUDE_CODE_OAUTH_TOKEN_2 below — a spent account moves the turn to
-      # the next account before the chain leaves Claude, carnet#480 and
-      # carnet#688), then Gemini; Cohere is out.
+      # LLM provider chain (JF, 2026-10-01): one ordered list, PIERRE_LLM_CHAIN,
+      # each entry `provider=model` (crates/pierre-llm/src/config.rs, LlmChain).
+      # The first entry serves every turn; a provider fault or an empty answer
+      # moves the turn to the next one, each tier on its own model. A pooled
+      # provider's further accounts sit right behind it wherever it is: here
+      # claude_code is followed by claude-code#2, from CLAUDE_CODE_OAUTH_TOKEN_2
+      # below — a spent account moves the turn to the next account before the
+      # chain leaves Claude (carnet#480, carnet#688). Cohere is out.
       #
-      # Primary = GitHub's Rust Copilot runtime over stdio, on the jfarcand
-      # Copilot account, serving claude-sonnet-5.5. Its monthly credits reset
-      # on the 1st and have no overage: on 2026-09-21 every turn answered
-      # quota_exceeded and the athlete saw "temporairement indisponible"
-      # (carnet#478). Since embacle 0.28.1 a tier's RateLimit falls through
-      # to the next tier, so a spent Copilot is skipped rather than ending
-      # the turn — any quota answer fires dravr-llm-tier-rate-limited and
-      # more than three skips in five minutes fire
-      # dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
+      # 1. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
+      #    jfarcand Copilot account, serving claude-sonnet-5.5 (JF,
+      #    2026-10-01). Its monthly credits reset on the 1st and have no
+      #    overage: on 2026-09-21 every turn answered quota_exceeded and the
+      #    athlete saw "temporairement indisponible" (carnet#478). A tier's
+      #    RateLimit falls through to the next tier, so a spent Copilot is
+      #    skipped rather than ending the turn — any quota answer fires
+      #    dravr-llm-tier-rate-limited and more than three skips in five
+      #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
+      #    A whole turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a
+      #    turn that ends on "copilot-sdk: turn exceeded 300s" is the signal
+      #    that the model is too slow for that cap.
+      # 2. claude_code = the direct Anthropic subscription — the one switched
+      #    off on 2026-05-13 for burning Opus credits during Copilot blips with
+      #    no spend cap — so it runs Sonnet, then its pooled second account.
+      # 3. gemini = the Google free tier via GEMINI_API_KEY.
       #
-      # Runtime chain = claude_code, its pooled account, then Gemini (Google
-      # free tier via GEMINI_API_KEY), gated on
-      # PIERRE_LLM_RUNTIME_FALLBACK=true and built by embacle's
-      # FallbackProvider (crates/pierre-llm/src/embacle_provider.rs). The
-      # Claude tier is the direct Anthropic subscription — the one switched
-      # off on 2026-05-13 for burning Opus credits during Copilot blips with
-      # no spend cap — so it runs Sonnet. Cohere is out of the chain: it
-      # answered "nothing deliverable" on the day it was needed and JF's
-      # verdict is that it never worked.
-      PIERRE_LLM_PROVIDER = "copilot_sdk"
-      # Coaching model on the primary: claude-sonnet-5.5 (JF, 2026-10-01).
-      # PIERRE_LLM_MODEL is the model of every tier built without its own
-      # override, which here is the primary alone: each later tier takes its
-      # *_PROVIDER_MODEL. A whole turn is capped by
-      # EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn that ends on
-      # "copilot-sdk: turn exceeded 300s" is the signal that the model is
-      # too slow for that cap. (COPILOT_HEADLESS_MODEL only drives the
-      # sciotte vision-login fallback, not chat.)
+      # The head's model is also the model every turn asks for and the one a
+      # new conversation records (carnet#824).
+      #
+      # Rollout order (carnet#875). The binary before PIERRE_LLM_CHAIN reads
+      # only the retired PIERRE_LLM_PROVIDER / PIERRE_LLM_MODEL /
+      # PIERRE_LLM_FALLBACK_* / PIERRE_LLM_TERTIARY_* variables; the binary
+      # after it reads only PIERRE_LLM_CHAIN. Terraform ignores the image
+      # (modules/cloud_run), so the two reach Cloud Run separately. This block
+      # therefore sets both — the chain below and the retired variables after
+      # it, describing the same chain — so whichever lands first, the revision
+      # it produces runs dev's chain:
+      # 1. apply this, then ship the image. The image's boot logs one WARN
+      #    naming the retired variables it ignores; confirm its boot line
+      #    "Initializing LLM provider chain" names the chain below.
+      # 2. once that image serves, remove the retired block and apply again.
+      #
+      # Planned (Phase B, carnet#875): an `anthropic=claude-haiku-5-5` head —
+      # the Anthropic Messages API on a pool of organizations
+      # (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2, secrets module), each with
+      # its own prepaid credit; a spent credit (HTTP 402) falls through like a
+      # quota, to anthropic#2 and then to copilot_sdk. It is gated on: the org
+      # keys; a Console spend limit on every organization, set BEFORE the
+      # apply (without one a spent credit bills the card instead of answering
+      # 402); a live tool-loop test of the head falling through; and the
+      # chat/messaging eval on Haiku, whose coaching has only been benched on
+      # Sonnet. The two ANTHROPIC_API_KEY secrets are deliberately NOT bound
+      # to this service until then: embacle's claude_code runner lets
+      # ANTHROPIC_API_KEY through to the `claude` CLI (its CREDENTIAL_ENV_KEYS),
+      # and Claude Code's documented auth precedence puts an API key ahead of
+      # CLAUDE_CODE_OAUTH_TOKEN — so binding it, placeholder or real, would
+      # move the claude_code tiers off their subscription (verify against the
+      # pinned CLI before Phase B). The runner change that keeps the API key
+      # away from the CLI belongs in embacle and lands with that binding.
       #
       # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
       # reads it is the Gemini provider built with no model of its own — a
-      # Gemini primary, or a BYO-Gemini tenant that stored no model
-      # (crates/pierre-llm/src/http_env.rs).
+      # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
+      # model (crates/pierre-llm/src/http_env.rs).
+      PIERRE_LLM_CHAIN         = "copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
+
+      # Retired: the same chain in the variables the binary before carnet#875
+      # reads. This binary reads PIERRE_LLM_CHAIN above and none of these; they
+      # stay so that neither order of deploy and apply leaves a revision with no
+      # chain. Rollout step 2 removes this block once the binary that reads
+      # PIERRE_LLM_CHAIN serves (JF, 2026-10-12: two-step rollout).
+      PIERRE_LLM_PROVIDER                = "copilot_sdk"
       PIERRE_LLM_MODEL                   = "claude-sonnet-5.5"
-      PIERRE_LLM_DEFAULT_MODEL           = "gemini-flash-lite-latest"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
       PIERRE_LLM_FALLBACK_PROVIDER       = "claude_code"
       PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-sonnet-5"
       PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
-
-      # The same chain as the variables above, in the one variable the next
-      # binary reads (carnet#875): entries in order, `provider=model`, the
-      # first is the primary; claude-code#2 still follows claude_code through
-      # CLAUDE_CODE_OAUTH_TOKEN_2. The running binary does not read it. It is
-      # applied before the binary that reads it deploys, so neither order of
-      # deploy and apply leaves a revision with no chain; the block above is
-      # removed once that binary serves (JF, 2026-10-12: two-step rollout).
-      PIERRE_LLM_CHAIN = "copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
 
       # The synthetic LLM probe runs once per instance start and never again:
       # its "ping" is a real turn on the primary's account — a Copilot credit
@@ -556,12 +580,11 @@ module "backend" {
       # scraper service (module "sciotte" below, ADR-021), and the
       # COPILOT_HEADLESS_MODEL set there is the vision model. This process
       # holds no Chrome and builds no vision analyzer: here the variable is
-      # only the Copilot headless runner's default, which PIERRE_LLM_MODEL
-      # overrides on every path that builds one
-      # (crates/pierre-llm/src/embacle_provider.rs, unified_model). It is kept
+      # only the Copilot headless runner's default, which a chain entry's
+      # model overrides on every path that builds one
+      # (crates/pierre-llm/src/embacle_provider.rs, entry_model). It is kept
       # equal to the scraper's value so the two blocks cannot disagree; the
-      # chat chain's models are set by PIERRE_LLM_MODEL and the
-      # *_PROVIDER_MODEL variables above.
+      # chat chain's models are set per entry by PIERRE_LLM_CHAIN above.
       DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
       COPILOT_HEADLESS_MODEL   = "claude-sonnet-5.5"
 

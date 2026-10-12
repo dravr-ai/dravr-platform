@@ -344,7 +344,7 @@ mod pipeline_tool_loop {
     #[tokio::test]
     #[serial]
     async fn pipeline_invocation_populates_tools_called_on_summary_row() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(MockLlmProviderWithToolCalls::new());
         let stub_tool: Arc<dyn RuntimeTool> = Arc::new(StubTool);

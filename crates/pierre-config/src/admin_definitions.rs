@@ -398,23 +398,19 @@ pub fn register_llm_provider_config<S: BuildHasher>(
     // LLM Provider Configuration
     add_definition(defs,
         ParameterDefinition {
-            key: "llm.provider".to_owned(),
-            display_name: "LLM Provider".to_owned(),
+            key: "llm.chain".to_owned(),
+            display_name: "LLM Provider Chain".to_owned(),
             description:
-                "AI model provider for chat and recipe generation. Groq for fast cloud inference, Gemini for full features, Local for privacy-first self-hosted models"
+                "Ordered LLM providers for chat and recipe generation, comma-separated, each 'provider' or 'provider=model' (e.g. 'copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest'). The first entry serves every turn; a provider fault or an empty answer falls through to the next. A pooled provider's further accounts (CLAUDE_CODE_OAUTH_TOKEN_2, ANTHROPIC_API_KEY_2, ...) follow it. Unset is Gemini on PIERRE_LLM_DEFAULT_MODEL"
                     .to_owned(),
             category: "llm_provider".to_owned(),
-            data_type: ConfigDataType::Enum,
-            default_value: serde_json::json!("groq"),
+            data_type: ConfigDataType::String,
+            default_value: serde_json::json!("gemini"),
             valid_range: None,
-            enum_options: Some(vec![
-                "groq".to_owned(),
-                "gemini".to_owned(),
-                "local".to_owned(),
-            ]),
+            enum_options: None,
             units: None,
             scientific_basis: None,
-            env: boot_env("PIERRE_LLM_PROVIDER"),
+            env: boot_env("PIERRE_LLM_CHAIN"),
             is_runtime_configurable: false,
             requires_restart: true,
         },

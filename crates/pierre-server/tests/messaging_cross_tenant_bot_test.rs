@@ -41,9 +41,9 @@ mod cross_tenant_bot_tests {
     const UNBOUND_CHAT_ID: i64 = -1_001_234;
 
     async fn start() -> Arc<CommandE2e> {
-        // chat_conversations creation reads PIERRE_LLM_MODEL; the value is stored
+        // chat_conversations creation reads the PIERRE_LLM_CHAIN head's model; the value is stored
         // on the row, never dispatched (the mock answers the actual call).
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await

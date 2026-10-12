@@ -24,7 +24,7 @@ use embacle::types::{
     RunnerError,
 };
 use pierre_llm::health::TierProbe;
-use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider, QuotaCooldowns};
 
 /// What a scripted tier does when asked.
 enum Behaviour {
@@ -111,7 +111,11 @@ async fn a_dead_tier_behind_a_live_one_is_reported() {
         Scripted::tier("secondary", Behaviour::Fails("Not logged in"));
     let (tertiary, tertiary_calls) = Scripted::tier("tertiary", Behaviour::Answers("pong"));
     let chain = ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![primary, secondary, tertiary]).expect("three tiers"),
+        EmbacleProvider::chain(
+            vec![primary, secondary, tertiary],
+            QuotaCooldowns::default(),
+        )
+        .expect("three tiers"),
     );
 
     // Through the chain the dead tier is invisible: the primary answers, the
@@ -171,8 +175,10 @@ async fn a_dead_tier_behind_a_live_one_is_reported() {
 async fn a_tier_that_answers_with_nothing_is_not_healthy() {
     let (primary, _) = Scripted::tier("primary", Behaviour::Answers("pong"));
     let (secondary, _) = Scripted::tier("secondary", Behaviour::Answers("   "));
-    let chain =
-        ChatProvider::Embacle(EmbacleProvider::chain(vec![primary, secondary]).expect("two tiers"));
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(vec![primary, secondary], QuotaCooldowns::default())
+            .expect("two tiers"),
+    );
 
     let probes = chain.probe_chain_tiers(&ping()).await;
 

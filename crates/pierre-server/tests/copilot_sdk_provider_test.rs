@@ -8,7 +8,7 @@
 
 //! The headless tool loop used to downcast to `CopilotHeadlessRunner`. It now
 //! asks the CLI provider for a `HeadlessTurnProvider`, which either Copilot
-//! transport answers — so `PIERRE_LLM_PROVIDER=copilot_sdk` takes the same
+//! transport answers — so a `copilot_sdk` head of `PIERRE_LLM_CHAIN` takes the same
 //! native tool loop the ACP provider does, and what that loop records comes
 //! off the runtime's own events: the SDK transport names the tool that ran,
 //! where ACP only ever sent a display title.
@@ -26,8 +26,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotSdkConfig, CopilotSdkRunner,
-    EmbacleProvider, HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall,
-    StreamChunk, Tool,
+    HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -78,12 +77,12 @@ impl Drop for EnvGuard {
 #[serial]
 fn copilot_sdk_is_a_provider_type_with_its_own_name() {
     assert_eq!(
-        LlmProviderType::from_str_or_default("copilot_sdk"),
-        LlmProviderType::CopilotSdk
+        LlmProviderType::parse("copilot_sdk"),
+        Some(LlmProviderType::CopilotSdk)
     );
     assert_eq!(
-        LlmProviderType::from_str_or_default("copilot-sdk"),
-        LlmProviderType::CopilotSdk
+        LlmProviderType::parse("copilot-sdk"),
+        Some(LlmProviderType::CopilotSdk)
     );
     assert_eq!(LlmProviderType::CopilotSdk.to_string(), "copilot_sdk");
     assert_ne!(
@@ -99,25 +98,28 @@ fn copilot_sdk_builds_from_env_and_offers_the_turn_provider() {
     // A runtime of its own: the env must be set before `from_env` reads it
     // and restored after, and both sides of that sit outside any executor.
     let env = EnvGuard::set(&[
-        ("PIERRE_LLM_PROVIDER", "copilot_sdk"),
-        ("PIERRE_LLM_MODEL", SERVED_MODEL),
+        ("PIERRE_LLM_CHAIN", "copilot_sdk=claude-haiku-4.5"),
         ("COPILOT_SDK_MCP_TOOL_CALLING", "true"),
     ]);
-    let provider = Runtime::new()
+    let chat = Runtime::new()
         .expect("a runtime for the async builder")
-        .block_on(EmbacleProvider::from_provider_type(
-            LlmProviderType::from_env(),
-            None,
-        ))
+        .block_on(ChatProvider::from_env())
         .expect("the SDK provider builds without touching the runtime; the client starts lazily");
     drop(env);
+    let provider = chat
+        .as_embacle_provider()
+        .expect("a chain head is an embacle provider");
+    assert!(
+        chat.fallback_tail().is_none(),
+        "one entry is one provider, with no fallback chain behind it"
+    );
 
     assert_eq!(provider.name(), "copilot_sdk");
     assert_eq!(provider.display_name(), "GitHub Copilot (SDK)");
     assert_eq!(
         provider.default_model(),
         SERVED_MODEL,
-        "PIERRE_LLM_MODEL is the unified override"
+        "the chain entry's model is the one the tier runs"
     );
     let capabilities = provider.capabilities();
     assert!(

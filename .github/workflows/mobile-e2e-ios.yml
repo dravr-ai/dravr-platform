@@ -277,7 +277,9 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          PIERRE_LLM_MODEL: "ci-test-model"
+          # No chain configured: the default Gemini head records this model on a
+          # new conversation, and nothing behind it is required at boot.
+          PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # onboarding/02's coaches connect Strava through a scripted stand-in
           # for the sciotte scraper on this port (the control process below).
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"

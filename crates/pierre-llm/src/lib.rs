@@ -75,11 +75,11 @@ pub use embacle::{
     HeadlessEventStream, HeadlessStreamEvent, HeadlessToolResponse, HeadlessTurnProvider,
     ObservedToolCall,
 };
-pub use embacle::{FallbackProvider, MetricsProvider};
+pub use embacle::{FallbackProvider, MetricsProvider, QuotaCooldowns};
 pub use embacle::{FunctionCall, FunctionDeclaration, FunctionResponse};
 pub use embacle_provider::{cli_credential_env_keys, cli_runner_config, EmbacleProvider};
 pub use prompts::{
     get_agent_generation_prompt, get_messaging_context_prompt, get_pierre_system_prompt,
 };
-pub use provider::{ChainTiers, ChatProvider};
+pub use provider::{ChainTier, ChatProvider};
 pub use tool_types::{ChatResponseWithTools, Tool};

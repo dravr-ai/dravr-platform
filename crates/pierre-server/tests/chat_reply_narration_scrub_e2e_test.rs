@@ -464,7 +464,7 @@ mod reply_narration_scrub {
     #[tokio::test]
     #[serial]
     async fn persisted_reply_drops_narration_and_keeps_coaching() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(NarratingMockProvider::new());
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -554,7 +554,7 @@ mod reply_narration_scrub {
     #[tokio::test]
     #[serial]
     async fn canary_echo_reply_is_withheld_and_not_persisted() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(CanaryEchoMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -634,7 +634,7 @@ mod reply_narration_scrub {
     #[tokio::test]
     #[serial]
     async fn identity_flip_reply_is_withheld_and_not_persisted() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(IdentityFlipMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -718,7 +718,7 @@ mod reply_narration_scrub {
     #[tokio::test]
     #[serial]
     async fn a_correct_denial_is_delivered_not_withheld() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(CorrectDenialMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -1001,7 +1001,7 @@ mod reply_narration_scrub {
         sender: &str,
         as_chat_provider: bool,
     ) -> Option<(String, Option<String>)> {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let resources = if as_chat_provider {
             create_test_server_resources_with_chat_provider(provider)
                 .await

@@ -231,10 +231,11 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # The pin below tracks the published latest; `copilot-cli-version-check.yml`
 # compares the two and says when they diverge.
 #
-# - copilot_headless LLM provider (primary): GitHub Copilot CLI in ACP mode
-# - claude_code LLM provider (runtime fallback): Anthropic Claude Code CLI
-#   authenticated via CLAUDE_CODE_OAUTH_TOKEN (one-year subscription token from
-#   `claude setup-token`, see PIERRE_LLM_FALLBACK_PROVIDER in dev/main.tf).
+# - copilot_headless / copilot_sdk LLM providers: GitHub Copilot CLI in ACP
+#   mode, or the runtime it extracts
+# - claude_code LLM provider: Anthropic Claude Code CLI authenticated via
+#   CLAUDE_CODE_OAUTH_TOKEN (one-year subscription token from
+#   `claude setup-token`; its entry in PIERRE_LLM_CHAIN, dev/main.tf).
 #
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.

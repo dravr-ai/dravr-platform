@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
 use embacle::pricing::{
-    calculate_cost_for, cost_from_pricing, lookup_pricing, zero_cost_for_unpriced, ModelPricing,
-    TokenCounts,
+    calculate_cost_for, cost_from_pricing, lookup_pricing, pool_family, zero_cost_for_unpriced,
+    ModelPricing, TokenCounts,
 };
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageRecord};
 
@@ -85,12 +85,17 @@ impl PricingRegistry {
 
     /// Resolve pricing for `(provider, model)` under an optional tenant
     /// scope, applying longest-prefix matching at each layer.
+    ///
+    /// A pooled account prices as its provider (`anthropic#2` as `anthropic`)
+    /// at every layer, so an operator override for the provider covers each
+    /// of its accounts as the compile-time table already does.
     fn resolve(
         &self,
         tenant_id: Option<&str>,
         provider: &str,
         model: &str,
     ) -> Option<ModelPricing> {
+        let provider = pool_family(provider);
         if let Some(tenant) = tenant_id {
             if let Ok(guard) = self.per_tenant.read() {
                 if let Some(tenant_map) = guard.get(tenant) {
@@ -169,4 +174,83 @@ pub fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
             .with_cache(row.cached_tokens, row.cached_write_tokens)
             .with_reasoning(row.reasoning_tokens),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use embacle::pricing::{ModelPricing, TokenCounts};
+
+    use super::PricingRegistry;
+
+    fn close(actual: f64, expected: f64) -> bool {
+        (actual - expected).abs() < 1e-9
+    }
+
+    #[test]
+    fn haiku_5_5_prices_on_the_base_card_up_to_100k_prompt_tokens() {
+        let registry = PricingRegistry::new();
+        let cost = registry.calculate_cost(
+            None,
+            "anthropic",
+            "claude-haiku-5-5",
+            &TokenCounts::new(1_000_000, 1_000_000),
+        );
+        // A 1M-token prompt is above the threshold: $0.50 + $2.50.
+        assert!(close(cost, 3.0), "{cost}");
+        let short = registry.calculate_cost(
+            None,
+            "anthropic",
+            "claude-haiku-5-5",
+            &TokenCounts::new(100_000, 1_000_000),
+        );
+        // 100K in at $0.10/M, 1M out at $0.50/M.
+        assert!(close(short, 0.01 + 0.50), "{short}");
+    }
+
+    #[test]
+    fn a_pooled_anthropic_account_prices_as_anthropic() {
+        let registry = PricingRegistry::new();
+        let counts = TokenCounts::new(10_000, 2_000).with_cache(4_000, 1_000);
+        let first = registry.calculate_cost(None, "anthropic", "claude-sonnet-5-5", &counts);
+        let second = registry.calculate_cost(None, "anthropic#2", "claude-sonnet-5-5", &counts);
+        assert!(first > 0.0, "Sonnet 5.5 is per-token metered");
+        assert!(close(first, second), "{first} vs {second}");
+        // 5K fresh at $2/M, 4K read at 0.10x, 1K written at 1.25x, 2K out at $10/M.
+        let fresh = 5_000.0 * 2.0;
+        let read = 4_000.0 * 0.2;
+        let written = 1_000.0 * 2.5;
+        let output = 2_000.0 * 10.0;
+        let expected = (fresh + read + written + output) / 1e6;
+        assert!(close(first, expected), "{first} vs {expected}");
+    }
+
+    #[test]
+    fn opus_5_5_is_priced() {
+        let registry = PricingRegistry::new();
+        let cost = registry.calculate_cost(
+            None,
+            "anthropic#3",
+            "claude-opus-5-5",
+            &TokenCounts::new(1_000_000, 1_000_000),
+        );
+        assert!(close(cost, 24.0), "{cost}");
+    }
+
+    #[test]
+    fn an_operator_override_for_the_provider_covers_its_pooled_accounts() {
+        let registry = PricingRegistry::new();
+        registry.replace_global(HashMap::from([(
+            ("anthropic".to_owned(), "claude-haiku-5-5".to_owned()),
+            ModelPricing::new(1.0, 1.0),
+        )]));
+        let cost = registry.calculate_cost(
+            None,
+            "anthropic#2",
+            "claude-haiku-5-5",
+            &TokenCounts::new(1_000_000, 0),
+        );
+        assert!(close(cost, 1.0), "{cost}");
+    }
 }

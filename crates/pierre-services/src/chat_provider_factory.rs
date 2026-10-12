@@ -21,7 +21,7 @@ use embacle::types::RunnerError;
 use pierre_auth::tenant::llm_manager::{LlmCredentials, LlmProvider as TenantLlmProvider};
 use pierre_core::errors::AppError;
 use pierre_llm::chain_guard::{copilot_headroom_checker, RateLimitTransition, CHAIN_GUARD};
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::LlmChain;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus, TierProbe};
 use pierre_llm::{http_env, ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use tokio::time::interval;
@@ -138,7 +138,7 @@ pub fn spawn_llm_health_probe(
     health_state: Arc<LlmHealthState>,
     chat_provider: Option<Arc<ChatProvider>>,
 ) {
-    let provider_name = LlmProviderType::from_env().to_string();
+    let provider_name = LlmChain::from_env().head().provider.to_string();
     let interval_secs = env::var(LLM_PROBE_INTERVAL_ENV_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -610,6 +610,24 @@ fn log_recovery_transition(
     }
 }
 
+/// Whether [`chat_provider_from_credentials`] builds a provider for a stored
+/// credential of `provider`.
+///
+/// The BYO resolver asks this before it reads a tenant's stored key: a
+/// credential no provider is built for would otherwise be decrypted and then
+/// dropped on every turn. `OpenAi` and `Anthropic` keys are accepted by the
+/// LLM settings, but pierre-llm builds neither from a tenant's key — the
+/// platform's own Anthropic tier runs on its pooled organizations.
+pub(crate) const fn builds_from_credentials(provider: TenantLlmProvider) -> bool {
+    match provider {
+        TenantLlmProvider::Gemini
+        | TenantLlmProvider::Groq
+        | TenantLlmProvider::Cohere
+        | TenantLlmProvider::Local => true,
+        TenantLlmProvider::OpenAi | TenantLlmProvider::Anthropic => false,
+    }
+}
+
 /// Construct a [`ChatProvider`] from already-resolved tenant LLM credentials.
 ///
 /// Used by the LLM-settings test endpoint after the caller has loaded
@@ -621,8 +639,8 @@ fn log_recovery_transition(
 /// # Errors
 ///
 /// Returns [`AppError::config`] when the credential references a provider
-/// (currently `OpenAi`, `Anthropic`) that pierre-llm does not build a
-/// `ChatProvider` for.
+/// that pierre-llm does not build a `ChatProvider` for — every one for which
+/// `builds_from_credentials` answers `false` (`OpenAi`, `Anthropic`).
 pub fn chat_provider_from_credentials(
     credentials: LlmCredentials,
 ) -> Result<ChatProvider, AppError> {
@@ -660,5 +678,45 @@ pub fn chat_provider_from_credentials(
             "{} provider is not yet supported. Use Gemini, Groq, Cohere, or Local.",
             credentials.provider
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_auth::tenant::llm_manager::{
+        CredentialSource, LlmCredentials, LlmProvider as TenantLlmProvider,
+    };
+    use pierre_core::models::TenantId;
+    use uuid::Uuid;
+
+    use super::{builds_from_credentials, chat_provider_from_credentials};
+
+    /// The predicate the BYO resolver asks is the factory's own answer, for
+    /// every provider a tenant can store a key for.
+    #[test]
+    fn builds_from_credentials_agrees_with_the_factory() {
+        for provider in [
+            TenantLlmProvider::Gemini,
+            TenantLlmProvider::Groq,
+            TenantLlmProvider::OpenAi,
+            TenantLlmProvider::Anthropic,
+            TenantLlmProvider::Cohere,
+            TenantLlmProvider::Local,
+        ] {
+            let built = chat_provider_from_credentials(LlmCredentials {
+                tenant_id: TenantId::from_uuid(Uuid::new_v4()),
+                user_id: None,
+                provider,
+                api_key: "test-key".to_owned(),
+                base_url: None,
+                default_model: Some("test-model".to_owned()),
+                source: CredentialSource::TenantDefault,
+            });
+            assert_eq!(
+                builds_from_credentials(provider),
+                built.is_ok(),
+                "{provider}: the predicate and the factory disagree"
+            );
+        }
     }
 }

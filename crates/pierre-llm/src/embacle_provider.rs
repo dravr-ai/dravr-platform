@@ -21,7 +21,8 @@ use embacle::{
     ContinueCliRunner, CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner,
     CopilotSdkConfig, CopilotSdkRunner, CursorAgentRunner, FallbackProvider, GeminiCliRunner,
     GooseCliRunner, HeadlessTurnProvider, KiloCliRunner, KiroCliRunner, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider, OpenCodeRunner, ResponsePolicy, RunnerConfig, WarpCliRunner,
+    OpenAiCompatibleProvider, OpenCodeRunner, QuotaCooldowns, ResponsePolicy, RunnerConfig,
+    WarpCliRunner,
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
@@ -30,7 +31,7 @@ use tracing::{info, info_span, warn, Instrument, Span};
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
 use crate::chain_guard::copilot_headroom_checker;
 use crate::chain_observer::ChainObserver;
-use crate::config::{LlmProviderType, ProviderConstruction};
+use crate::config::{HttpProvider, LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::http_env;
 use crate::provider::ChatProvider;
@@ -70,8 +71,8 @@ pub struct EmbacleProvider {
     router: Option<Arc<RouterProvider>>,
     /// Cached display name (embacle returns `&str`, the platform trait needs `&'static str`)
     cached_display_name: &'static str,
-    /// The chain minus its head, for the headless tool loop's re-run (see
-    /// `run_headless_fallback` in pierre-tool-runtime). `None` when solo.
+    /// The chain minus its head, for the tool loops' re-run (see
+    /// `run_tail_fallback` in pierre-tool-runtime). `None` when solo.
     fallback_tail: Option<Box<ChatProvider>>,
     /// The provider kind the head was built as, when it was built from one
     /// ([`Self::from_provider_type`], or a scripted runner tagged with
@@ -82,16 +83,21 @@ pub struct EmbacleProvider {
     /// head provider ([`ChatProvider::from_env`]); empty for any other
     /// provider, a tenant's own key included.
     stage_models: StageModels,
+    /// The quota cooldown book every [`FallbackProvider`] of this chain —
+    /// the full chain and each tail — reads and writes, so a tier refused on
+    /// quota is passed over by all of them. The tool loops, which call the
+    /// head outside any chain, read and write it too. `None` when built
+    /// outside [`Self::chain`].
+    cooldowns: Option<QuotaCooldowns>,
 }
 
 impl EmbacleProvider {
     /// Build the provider `kind` names from the process environment.
     ///
-    /// `model_override` wins over `PIERRE_LLM_MODEL` for this runner; the
-    /// runtime fallback chain passes `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` /
-    /// `PIERRE_LLM_TERTIARY_PROVIDER_MODEL` through it so a secondary gets a
-    /// model in its own namespace (Copilot's `claude-opus-4.8` is not a model
-    /// Gemini or Cohere can resolve).
+    /// `model_override` is the model the tier's `PIERRE_LLM_CHAIN` entry names
+    /// (`provider=model`), in that provider's own namespace (Copilot's
+    /// `claude-sonnet-5.5` is not a model Gemini or the Anthropic API can
+    /// resolve). `None` leaves the provider's own env-derived default.
     ///
     /// # Errors
     ///
@@ -109,7 +115,7 @@ impl EmbacleProvider {
             }
             ProviderConstruction::CopilotHeadless => Ok(Self::build_headless(model_override)),
             ProviderConstruction::CopilotSdk => Ok(Self::build_sdk(model_override)),
-            ProviderConstruction::Router => Self::build_router(),
+            ProviderConstruction::Router => Self::build_router(model_override),
             ProviderConstruction::OpenAiApi => Ok(Self::build_openai_api(model_override).await),
         };
         built.map(|provider| provider.of_kind(kind))
@@ -179,6 +185,7 @@ impl EmbacleProvider {
             fallback_tail: None,
             kind: None,
             stage_models: StageModels::inherit_all(),
+            cooldowns: None,
         }
     }
 
@@ -194,24 +201,37 @@ impl EmbacleProvider {
     /// breaker.
     ///
     /// One tier is that tier, unchained. The tail (every tier but the first)
-    /// is kept as its own unguarded chain for the headless tool loop's re-run.
+    /// is kept as its own unguarded chain for the tool loops' re-run.
+    ///
+    /// `cooldowns` is the one quota cooldown book of this chain: the full
+    /// chain, every tail chain and the tool loops' head-only calls all read
+    /// and write it, so a tier refused on quota by any of them is passed over
+    /// by every one for the book's window. It is keyed by tier name, which is
+    /// one account per tier here (a pooled account is `name#N`); two entries
+    /// of the same provider in one chain would share a window.
     ///
     /// # Errors
     ///
     /// Returns a config error for an empty `tiers`.
-    pub fn chain(tiers: Vec<Self>) -> Result<Self, AppError> {
+    pub fn chain(tiers: Vec<Self>, cooldowns: QuotaCooldowns) -> Result<Self, AppError> {
         let copilot_tiers = tiers
             .iter()
             .map(Self::spends_copilot_github_token)
             .collect();
-        Self::chain_observed(tiers, ChainObserver::guarded(copilot_tiers))
+        Self::chain_observed(tiers, ChainObserver::guarded(copilot_tiers), cooldowns)
     }
 
-    fn chain_observed(mut tiers: Vec<Self>, observer: ChainObserver) -> Result<Self, AppError> {
+    fn chain_observed(
+        mut tiers: Vec<Self>,
+        observer: ChainObserver,
+        cooldowns: QuotaCooldowns,
+    ) -> Result<Self, AppError> {
         if tiers.len() <= 1 {
-            return tiers.pop().ok_or_else(|| {
+            let mut last = tiers.pop().ok_or_else(|| {
                 AppError::config("A runtime fallback chain needs at least one provider")
-            });
+            })?;
+            last.cooldowns = Some(cooldowns);
+            return Ok(last);
         }
 
         let runners = tiers
@@ -220,10 +240,11 @@ impl EmbacleProvider {
             .collect();
         let chain = FallbackProvider::new(runners)?
             .with_fallthrough(ResponsePolicy::strict())
+            .with_cooldowns(cooldowns.clone())
             .with_observer(Arc::new(observer));
 
         let head = tiers.remove(0);
-        let tail = Self::chain_observed(tiers, ChainObserver::unguarded())?;
+        let tail = Self::chain_observed(tiers, ChainObserver::unguarded(), cooldowns.clone())?;
 
         Ok(Self {
             runner: Arc::new(chain),
@@ -234,14 +255,27 @@ impl EmbacleProvider {
             fallback_tail: Some(Box::new(ChatProvider::Embacle(tail))),
             kind: head.kind,
             stage_models: head.stage_models,
+            cooldowns: Some(cooldowns),
         })
+    }
+
+    /// The quota cooldown book this provider's chain shares, when it was
+    /// built by [`Self::chain`].
+    ///
+    /// The tool loops converse with the head outside the chain, so embacle
+    /// never sees those calls: they check the head's name here before asking
+    /// it, and start its window here when it refuses on quota.
+    #[must_use]
+    pub const fn quota_cooldowns(&self) -> Option<&QuotaCooldowns> {
+        self.cooldowns.as_ref()
     }
 
     /// The chain minus its head, when this provider is a chain.
     ///
-    /// The headless tool loop calls the head's turn provider directly, outside
-    /// the chain, so the chain's own fallback never fires for it; on a provider
-    /// fault it re-runs the whole loop against this tail instead.
+    /// The tool loops call the head directly — the headless loop through its
+    /// turn provider, the API loop through [`Self::head_alone`] — outside the
+    /// chain, so the chain's own fallback never fires for them; on a provider
+    /// fault they re-run the whole loop against this tail instead.
     #[must_use]
     pub fn fallback_tail(&self) -> Option<&ChatProvider> {
         self.fallback_tail.as_deref()
@@ -265,11 +299,35 @@ impl EmbacleProvider {
             fallback_tail: None,
             kind: self.kind,
             stage_models: self.stage_models.clone(),
+            cooldowns: self.cooldowns.clone(),
         }
     }
 
-    /// The further accounts of a CLI tier, each an ordinary tier behind
-    /// it wherever it sits in the chain: account N is the runner's config
+    /// The further accounts of the tier `kind` names, each an ordinary tier
+    /// right behind it wherever it sits in the chain, on `model_override` like
+    /// the tier itself. A pooled CLI runner reads them from
+    /// `<CREDENTIAL>_2`, `_3`, … (`pooled_cli_accounts`); the
+    /// Anthropic API from `ANTHROPIC_API_KEY_2`, `_3`, …
+    /// (`http_env::anthropic_pooled_accounts`). Empty for every other
+    /// provider, and for a pooled one with a single credential.
+    #[must_use]
+    pub fn pooled_accounts(kind: LlmProviderType, model_override: Option<&str>) -> Vec<Self> {
+        match kind.construction() {
+            ProviderConstruction::Cli(runner_type) => {
+                Self::pooled_cli_accounts(runner_type, model_override)
+            }
+            ProviderConstruction::HttpApi(HttpProvider::Anthropic) => {
+                http_env::anthropic_pooled_accounts(model_override)
+            }
+            ProviderConstruction::HttpApi(_)
+            | ProviderConstruction::CopilotHeadless
+            | ProviderConstruction::CopilotSdk
+            | ProviderConstruction::OpenAiApi
+            | ProviderConstruction::Router => Vec::new(),
+        }
+    }
+
+    /// The further accounts of a CLI tier: account N is the runner's config
     /// with the token found under `<CREDENTIAL>_N`
     /// (`CLAUDE_CODE_OAUTH_TOKEN_2`, `_3`, …, read until the first unset
     /// one) set on the child explicitly, named `<runner>#N` by
@@ -279,9 +337,7 @@ impl EmbacleProvider {
     /// An account whose runner fails to build is skipped with a warning:
     /// the binary is the tier's own, so what breaks one breaks all, and that
     /// tier's own failure is the one the chain assembly reports.
-    ///
-    #[must_use]
-    pub fn pooled_accounts(runner_type: CliRunnerType, model_override: Option<&str>) -> Vec<Self> {
+    fn pooled_cli_accounts(runner_type: CliRunnerType, model_override: Option<&str>) -> Vec<Self> {
         let Some(key) = credential_env_key(runner_type) else {
             return Vec::new();
         };
@@ -363,7 +419,7 @@ impl EmbacleProvider {
 
     /// Build a Copilot Headless (ACP) runner (NDJSON JSON-RPC via `copilot --acp`)
     ///
-    /// `model_override` wins over `PIERRE_LLM_MODEL`, which wins over the
+    /// `model_override` (the chain entry's model) wins over the
     /// headless-specific `COPILOT_HEADLESS_MODEL`.
     ///
     /// A background stage asks for its own model per request (see
@@ -374,7 +430,7 @@ impl EmbacleProvider {
     /// LIMITATION(registre#104): `build_headless` serves a whole turn's tool loop as one ACP session on one `CopilotHeadlessConfig::model` — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn.
     fn build_headless(model_override: Option<&str>) -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
-        if let Some(model) = unified_model(model_override) {
+        if let Some(model) = entry_model(model_override) {
             config.model = model;
         }
 
@@ -391,8 +447,8 @@ impl EmbacleProvider {
     /// prompt travels in the runtime's own slot, the served model and cache
     /// counts come off `assistant.usage`, tool executions carry name, arguments
     /// and result, and an unknown model id fails instead of being remapped.
-    /// `model_override` wins over `PIERRE_LLM_MODEL`, which wins over the
-    /// SDK-specific `COPILOT_SDK_MODEL`.
+    /// `model_override` (the chain entry's model) wins over the SDK-specific
+    /// `COPILOT_SDK_MODEL`.
     ///
     /// The background stages run on [`crate::stage::COPILOT_SDK_BACKGROUND_MODEL`]
     /// here unless configured otherwise, once the runner publishes that id:
@@ -402,7 +458,7 @@ impl EmbacleProvider {
     /// LIMITATION(registre#104): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
     fn build_sdk(model_override: Option<&str>) -> Self {
         let mut config = CopilotSdkConfig::from_env();
-        if let Some(model) = unified_model(model_override) {
+        if let Some(model) = entry_model(model_override) {
             config.model = model;
         }
 
@@ -419,7 +475,7 @@ impl EmbacleProvider {
     /// A Copilot turn provider, kept both as the runner and as the typed
     /// handle the headless tool loop converses through.
     ///
-    /// LIMITATION(registre#102): `from_turn_provider` cannot mark the system-prompt + tool-surface prefix cacheable — `cache_control` is settable only on a request the platform builds, and no first-party Anthropic route exists in this crate.
+    /// LIMITATION(registre#102): `from_turn_provider` cannot mark the system-prompt + tool-surface prefix cacheable — `cache_control` is settable only on a request the platform builds, and on a Copilot turn the runtime builds it.
     ///
     /// On both Copilot transports the runtime builds the upstream request, so
     /// there is no field to set: the ACP schema defines the two cache counts on
@@ -446,7 +502,14 @@ impl EmbacleProvider {
     ///   since 2026-09-21, and the ACP result above is not evidence for it. Port
     ///   the probe to `CopilotSdkRunner` before reasoning about cross-turn
     ///   caching on this transport either way.
-    fn from_turn_provider(
+    ///
+    /// Public beside [`Self::from_runner`] for the same reason: the tool-loop
+    /// tests chain a scripted turn provider as a tier, which is the only way
+    /// to drive the headless path without a Copilot runtime. Those tests run
+    /// pierre-tool-runtime's loop over server resources, which this crate
+    /// cannot depend on, so they cannot live in a test module here.
+    #[must_use]
+    pub fn from_turn_provider(
         turn_provider: Arc<dyn HeadlessTurnProvider>,
         display_name: &'static str,
     ) -> Self {
@@ -460,6 +523,7 @@ impl EmbacleProvider {
             fallback_tail: None,
             kind: None,
             stage_models: StageModels::inherit_all(),
+            cooldowns: None,
         }
     }
 
@@ -476,16 +540,18 @@ impl EmbacleProvider {
     /// for the latter exists. It is deliberately second: a proxy is enough to
     /// notice a collapsing budget, not enough to lead on.
     ///
+    /// `model_override` (the chain entry's model) is set on both backends.
+    ///
     /// # Errors
     ///
     /// Returns `AppError` when the Claude Code binary cannot be resolved or the
     /// router rejects the backend set.
-    fn build_router() -> Result<Self, AppError> {
-        let claude_config = cli_runner_config(CliRunnerType::ClaudeCode, None)?;
+    fn build_router(model_override: Option<&str>) -> Result<Self, AppError> {
+        let claude_config = cli_runner_config(CliRunnerType::ClaudeCode, model_override)?;
         let claude: Box<dyn EmbacleLlmProvider> = Box::new(ClaudeCodeRunner::new(claude_config));
 
         let mut headless_config = CopilotHeadlessConfig::from_env();
-        if let Some(model) = unified_model(None) {
+        if let Some(model) = entry_model(model_override) {
             headless_config.model = model;
         }
         let headless: Arc<dyn HeadlessTurnProvider> =
@@ -536,6 +602,7 @@ impl EmbacleProvider {
             fallback_tail: None,
             kind: None,
             stage_models: StageModels::inherit_all(),
+            cooldowns: None,
         })
     }
 
@@ -543,12 +610,12 @@ impl EmbacleProvider {
     /// configured for the `OpenAI` API)
     ///
     /// Reads configuration from `OPENAI_API_*` env vars. `model_override`
-    /// wins over `PIERRE_LLM_MODEL`, which wins over `OPENAI_API_MODEL`. The
+    /// (the chain entry's model) wins over `OPENAI_API_MODEL`. The
     /// published model list is the endpoint's own `/models`, kept at the
     /// configured model when the endpoint does not answer.
     async fn build_openai_api(model_override: Option<&str>) -> Self {
         let mut config = OpenAiCompatibleConfig::openai_api_from_env();
-        if let Some(model) = unified_model(model_override) {
+        if let Some(model) = entry_model(model_override) {
             config.default_model = model;
         }
 
@@ -603,6 +670,7 @@ impl fmt::Debug for EmbacleProvider {
             .field("fallback_tail", &self.fallback_tail)
             .field("kind", &self.kind)
             .field("stage_models", &self.stage_models)
+            .field("cooldowns", &self.cooldowns)
             .finish()
     }
 }
@@ -715,14 +783,11 @@ fn attach_capability_warnings(
     }
 }
 
-/// The model a Copilot or `OpenAI` API runner is built with: the explicit
-/// override first, then `PIERRE_LLM_MODEL`, the unified override for every
-/// provider. `None` leaves the runner's own env-derived default in place.
-fn unified_model(model_override: Option<&str>) -> Option<String> {
-    model_override
-        .filter(|m| !m.is_empty())
-        .map(str::to_owned)
-        .or_else(|| env::var("PIERRE_LLM_MODEL").ok().filter(|m| !m.is_empty()))
+/// The model a Copilot or `OpenAI` API runner is built with: the chain
+/// entry's, when it names one. `None` leaves the runner's own env-derived
+/// default in place.
+fn entry_model(model_override: Option<&str>) -> Option<String> {
+    model_override.filter(|m| !m.is_empty()).map(str::to_owned)
 }
 
 /// Check a CLI runner's readiness off the constructing task and warn when it
@@ -780,7 +845,7 @@ pub const fn cli_credential_env_keys(runner_type: CliRunnerType) -> &'static [&'
 }
 
 /// Build a `RunnerConfig` for a runner type from environment variables,
-/// with `model_override` winning over `PIERRE_LLM_MODEL` / `CLI_LLM_MODEL`.
+/// with `model_override` (the chain entry's model) winning over `CLI_LLM_MODEL`.
 ///
 /// Resolves the binary path via `CLI_LLM_BINARY` env var override or `which`
 /// discovery, lets the runner's credential variables through the sandbox
@@ -813,20 +878,11 @@ pub fn cli_runner_config(
 /// Apply environment variable overrides to a `RunnerConfig`
 ///
 /// Model resolution order (highest priority first):
-///   1. `model_override` argument (used by the runtime fallback chain to
-///      give the secondary a different model than the primary)
-///   2. `PIERRE_LLM_MODEL`
-///   3. `CLI_LLM_MODEL`
+///   1. `model_override` argument (the tier's `PIERRE_LLM_CHAIN` entry model)
+///   2. `CLI_LLM_MODEL`
 fn apply_env_overrides(mut config: RunnerConfig, model_override: Option<&str>) -> RunnerConfig {
-    let model = model_override
-        .filter(|m| !m.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            env::var("PIERRE_LLM_MODEL")
-                .or_else(|_| env::var("CLI_LLM_MODEL"))
-                .ok()
-                .filter(|m| !m.is_empty())
-        });
+    let model = entry_model(model_override)
+        .or_else(|| env::var("CLI_LLM_MODEL").ok().filter(|m| !m.is_empty()));
     if let Some(model) = model {
         config = config.with_model(model);
     }

@@ -21,11 +21,11 @@ use serial_test::serial;
 #[tokio::test]
 #[serial]
 async fn byo_key_resolves_provider_and_absence_falls_back() {
-    // Simulate a deployment whose active provider is Gemini (an API provider),
+    // Simulate a deployment whose chain is led by Gemini (an API provider),
     // so a stored Gemini key is eligible and the provider can be constructed.
     // The dev env default is a CLI runner with no Gemini model config.
     let saved: Vec<(&str, Option<String>)> = [
-        ("PIERRE_LLM_PROVIDER", "gemini"),
+        ("PIERRE_LLM_CHAIN", "gemini"),
         ("PIERRE_LLM_DEFAULT_MODEL", "gemini-flash-latest"),
     ]
     .iter()

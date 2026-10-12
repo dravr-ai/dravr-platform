@@ -27,7 +27,7 @@
 //! Cohere failure as a primary failure.
 
 use embacle::types::RunnerError;
-use embacle::{Attempt, FallbackObserver, FallthroughReason, Tier};
+use embacle::{Attempt, FallbackObserver, FallthroughReason, Tier, QUOTA_COOLDOWN_SKIP};
 use tracing::{info, warn};
 
 use crate::chain_guard::{ChainGuard, CircuitTransition, CHAIN_GUARD};
@@ -89,8 +89,23 @@ impl ChainObserver {
         self.guard.filter(|_| tier.position == PRIMARY)
     }
 
-    /// The guard vetoed `from`; the request goes straight to `to`.
+    /// The chain passed over `from`; the request goes straight to `to`.
+    ///
+    /// A skip for the head's quota cooldown is not the guard's: nothing
+    /// failed (the tier was not asked) and the refusal that started the
+    /// window was already reported, so it logs one info line and emits no
+    /// `embacle.fallback_triggered` — the shared book would otherwise page
+    /// the fallthrough alert on every chain call for the whole window. It
+    /// matches what the tool loops log for the same skip.
     fn note_skipped(&self, from: Tier<'_>, to: Tier<'_>, reason: &'static str) {
+        if reason == QUOTA_COOLDOWN_SKIP {
+            info!(
+                tier = from.provider.name(),
+                next = to.provider.name(),
+                "chain head is in a quota cooldown; the request goes to the next tier"
+            );
+            return;
+        }
         warn!(
             from = from.provider.name(),
             to = to.provider.name(),

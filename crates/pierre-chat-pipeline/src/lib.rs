@@ -97,7 +97,7 @@ use chrono::{DateTime, Utc};
 use dravr_canot::commands::CommandRegistry;
 use pierre_agui::AgUiEvent;
 use pierre_commands::CommandHandlerRegistry;
-use pierre_config::environment::{LlmProviderType, ServerConfig};
+use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -112,6 +112,7 @@ use pierre_core::models::{
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
 use pierre_providers::ai_scope;
@@ -634,7 +635,7 @@ async fn run_turn(
 
     // Stage 3: Resolve the model this turn runs on.
     let active_model = resolve_active_model(
-        LlmProviderType::model_from_env(),
+        LlmChain::head_model_from_env(),
         &input.conversation_id,
         &conv.model,
     );
@@ -1145,8 +1146,8 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
     }
 }
 
-/// The model a turn runs on: the configured `PIERRE_LLM_MODEL` on every
-/// surface, so a configuration change reaches existing conversations too,
+/// The model a turn runs on: the model the `PIERRE_LLM_CHAIN` head runs, on
+/// every surface, so a configuration change reaches existing conversations too,
 /// not only the ones created after it (carnet#824). The conversation's
 /// stored model is the answer only when nothing is configured.
 fn resolve_active_model(

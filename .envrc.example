@@ -284,25 +284,39 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # ============================================================================
 # LLM PROVIDER CONFIGURATION
 # ============================================================================
-# Provider selection (pick ONE):
-#   API providers:  gemini, groq, local
+# The chain: providers in order, comma-separated, each `provider` or
+# `provider=model`. The first serves every turn; a provider fault or an empty
+# answer falls through to the next, each on its own model. One entry is one
+# provider with no fallback. A pooled provider's further accounts
+# (CLAUDE_CODE_OAUTH_TOKEN_2, ANTHROPIC_API_KEY_2, …) follow it automatically.
+#   API providers:  anthropic, gemini, groq, cohere, openrouter, local, openai_api
 #   CLI providers:  claude_code, copilot, copilot_headless, copilot_sdk, cursor_agent, opencode
-export PIERRE_LLM_PROVIDER=gemini
+# Unset is `gemini` on PIERRE_LLM_DEFAULT_MODEL.
+# e.g. export PIERRE_LLM_CHAIN="copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
+export PIERRE_LLM_CHAIN=gemini
 
-# Cross-provider settings
+# The model a `gemini` entry without `=model` runs (and a BYO-Gemini tenant
+# that stored none)
 export PIERRE_LLM_DEFAULT_MODEL=gemini-3-flash-preview
-# export PIERRE_LLM_MODEL=gemini-2.5-flash          # Runtime model override (all providers)
-# export PIERRE_LLM_FALLBACK_ENABLED="true"          # Enable fallback provider
-# export PIERRE_LLM_PROVIDER_FALLBACK=groq           # Fallback provider name
 
-# --- Gemini (PIERRE_LLM_PROVIDER=gemini) ---
+# --- Anthropic API (PIERRE_LLM_CHAIN=anthropic=claude-haiku-5-5) ---
+# One key per Anthropic organization, each with its own prepaid credit; set a
+# Console spend limit on each, or a spent credit bills the card instead of
+# falling through. _2, _3, … become tiers anthropic#2, anthropic#3, … right
+# behind the first.
+# export ANTHROPIC_API_KEY="sk-ant-..."
+# export ANTHROPIC_API_KEY_2="sk-ant-..."
+# export ANTHROPIC_EFFORT=low                          # low, medium, high, xhigh, max
+# Models: claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5
+
+# --- Gemini (PIERRE_LLM_CHAIN=gemini) ---
 export GEMINI_API_KEY="your-gemini-api-key"
 # export GEMINI_MAX_RETRIES="3"                       # Default: 3
 # export GEMINI_INITIAL_RETRY_DELAY_MS="500"          # Default: 500
 # export GEMINI_MAX_RETRY_DELAY_MS="5000"             # Default: 5000
 # Models: gemini-3-flash-preview, gemini-2.5-flash, gemini-2.5-pro
 
-# --- Groq (PIERRE_LLM_PROVIDER=groq) ---
+# --- Groq (PIERRE_LLM_CHAIN=groq) ---
 export GROQ_API_KEY="your-groq-api-key"
 # export GROQ_DEFAULT_MODEL=llama-3.3-70b-versatile
 # export GROQ_MAX_RETRIES="3"                         # Default: 3
@@ -310,39 +324,39 @@ export GROQ_API_KEY="your-groq-api-key"
 # export GROQ_MAX_RETRY_DELAY_MS="5000"               # Default: 5000
 # Models: llama-3.3-70b-versatile, mixtral-8x7b-32768
 
-# --- Local LLM (PIERRE_LLM_PROVIDER=local) ---
+# --- Local LLM (PIERRE_LLM_CHAIN=local) ---
 # export LOCAL_LLM_BASE_URL="http://localhost:11434/v1"
 # export LOCAL_LLM_MODEL="qwen2.5:14b-instruct"
 # export LOCAL_LLM_API_KEY=""                          # Optional (empty for local servers)
 # Backends: Ollama, vLLM, LocalAI (any OpenAI-compatible API)
 
-# --- Claude Code CLI (PIERRE_LLM_PROVIDER=claude_code) ---
+# --- Claude Code CLI (PIERRE_LLM_CHAIN=claude_code) ---
 # Requires `claude` binary on PATH or CLI_LLM_BINARY override
-# export PIERRE_LLM_MODEL=opus                        # Models: opus, sonnet, haiku
+# Model as the entry: PIERRE_LLM_CHAIN=claude_code=opus  # Models: opus, sonnet, haiku
 # export CLI_LLM_TIMEOUT_SECS="120"                   # Default: 120
 # export CLI_LLM_BINARY="/path/to/claude"             # Binary path override
 # export CLI_LLM_EXTRA_ARGS="--no-color"              # Comma-separated extra args
 # export CLI_LLM_WORKING_DIR="/path/to/workdir"       # Working directory for the CLI
 
-# --- GitHub Copilot CLI (PIERRE_LLM_PROVIDER=copilot) ---
+# --- GitHub Copilot CLI (PIERRE_LLM_CHAIN=copilot) ---
 # Requires `copilot` binary + `gh auth` session
-# export PIERRE_LLM_MODEL=claude-opus-4.6             # Models discovered via `gh copilot models`
+# Model as the entry: PIERRE_LLM_CHAIN=copilot=claude-opus-4.6  # Models via `gh copilot models`
 # export CLI_LLM_TIMEOUT_SECS="120"
 # export CLI_LLM_BINARY="/path/to/copilot"
 
-# --- Cursor Agent CLI (PIERRE_LLM_PROVIDER=cursor_agent) ---
+# --- Cursor Agent CLI (PIERRE_LLM_CHAIN=cursor_agent) ---
 # Requires `cursor-agent` binary
-# export PIERRE_LLM_MODEL=sonnet-4                    # Models: sonnet-4, gpt-5, gemini-2.5-pro
+# Model as the entry: PIERRE_LLM_CHAIN=cursor_agent=sonnet-4  # Models: sonnet-4, gpt-5, gemini-2.5-pro
 # export CLI_LLM_TIMEOUT_SECS="120"
 # export CLI_LLM_BINARY="/path/to/cursor-agent"
 
-# --- OpenCode CLI (PIERRE_LLM_PROVIDER=opencode) ---
+# --- OpenCode CLI (PIERRE_LLM_CHAIN=opencode) ---
 # Requires `opencode` binary; no streaming support
-# export PIERRE_LLM_MODEL=anthropic/claude-sonnet-4   # Models: anthropic/claude-sonnet-4, openai/gpt-5
+# Model as the entry: PIERRE_LLM_CHAIN=opencode=anthropic/claude-sonnet-4  # or openai/gpt-5
 # export CLI_LLM_TIMEOUT_SECS="120"
 # export CLI_LLM_BINARY="/path/to/opencode"
 
-# --- Copilot SDK (PIERRE_LLM_PROVIDER=copilot_sdk) ---
+# --- Copilot SDK (PIERRE_LLM_CHAIN=copilot_sdk) ---
 # GitHub's Rust Copilot runtime through its SDK: the provider spawns the
 # `copilot-runtime` wrapper (`--server --stdio`) next to its runtime.node — the
 # pair the Copilot CLI extracts into its package cache on first run
@@ -354,16 +368,16 @@ export GROQ_API_KEY="your-groq-api-key"
 # export COPILOT_GITHUB_TOKEN=""                       # Or GH_TOKEN / GITHUB_TOKEN — required for copilot_sdk
 # export COPILOT_SDK_MCP_TOOL_CALLING=true             # Native tool calling over the loopback MCP host
 # export COPILOT_SDK_PERMISSION_POLICY=deny_all        # The runtime's own tools stay off
-# export PIERRE_LLM_MODEL=claude-sonnet-5
+# Model as the entry: PIERRE_LLM_CHAIN=copilot_sdk=claude-sonnet-5
 # The background stages — language classification, memory extraction,
 # compaction summary, claim judge, advice capture, outcome eval — run on
 # claude-haiku-5.5 on this head. PIERRE_LLM_MODEL_<STAGE> moves one stage
 # (LANGUAGE_CLASSIFICATION, MEMORY_EXTRACTION, COMPACTION_SUMMARY, CLAIM_JUDGE,
-# ADVICE_CAPTURE, OUTCOME_EVAL); `inherit` keeps it on PIERRE_LLM_MODEL. A
+# ADVICE_CAPTURE, OUTCOME_EVAL); `inherit` keeps it on the head's model. A
 # stage model the runner's published list leaves out is dropped at boot with a
-# warning naming its variable, and that stage stays on PIERRE_LLM_MODEL until
-# the runner publishes the id (registre#104 tracks claude-haiku-5.5's absence
-# from embacle's static Copilot catalogue).
+# warning naming its variable, and that stage stays on the head's model until
+# the runner publishes the id (embacle's Copilot catalogue lists
+# claude-haiku-5.5 since 0.35.0).
 # export PIERRE_LLM_MODEL_MEMORY_EXTRACTION=inherit
 # github-copilot-sdk's build script downloads and embeds the Copilot CLI
 # (~163 MB) unless told not to; the runtime is the file above, never a payload.

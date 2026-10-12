@@ -18,7 +18,7 @@ use embacle::types::{
 use futures_util::stream;
 use pierre_llm::chain_guard::{CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD};
 use pierre_llm::config::LlmProviderType;
-use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider, QuotaCooldowns};
 use serial_test::serial;
 
 /// Mock runner with a configurable response and a per-call counter.
@@ -166,7 +166,9 @@ fn unreadable_budget() -> Result<GithubRateLimit, RunnerError> {
 }
 
 fn make_chain(tiers: Vec<EmbacleProvider>) -> ChatProvider {
-    ChatProvider::Embacle(EmbacleProvider::chain(tiers).expect("at least one tier"))
+    ChatProvider::Embacle(
+        EmbacleProvider::chain(tiers, QuotaCooldowns::default()).expect("at least one tier"),
+    )
 }
 
 /// Sentinel recorded by [`ModelCapturingProvider`] before it is invoked.

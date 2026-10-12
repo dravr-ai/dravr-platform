@@ -1,21 +1,23 @@
-// ABOUTME: Pins which AppErrors reroute a headless (Copilot) turn to the chain's tail, and that a chain exposes that tail
-// ABOUTME: The headless loop bypasses the chain, so this is the one place the fall-through classification exists on AppError
+// ABOUTME: Pins which AppErrors reroute a tool loop's turn from the chain's head to its tail, and the tail handle
+// ABOUTME: The API and headless loops bypass the chain, so this is the one place the fall-through classification exists on AppError
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The headless (Copilot) tool loop converses with the chain's head directly,
-//! so the chain's own fallback never fires for SDK-tool-calling turns.
-//! `pierre-tool-runtime` re-creates that fallback by classifying the head's
-//! error with `reroutes_headless_turn` and, when it reroutes, re-running the
-//! turn against `ChatProvider::fallback_tail`.
+//! The headless (Copilot) and API (native function calling) tool loops
+//! converse with the chain's head directly, so the chain's own fallback never
+//! fires for them. `pierre-tool-runtime` re-creates that fallback by
+//! classifying the head's error with `reroutes_to_tail` and, when it
+//! reroutes, re-running the turn against `ChatProvider::fallback_tail`.
 //!
-//! These tests pin the two pieces that gate that behavior:
-//! 1. `reroutes_headless_turn` is the `AppError` image of
+//! These tests pin the pieces that gate that behavior:
+//! 1. `reroutes_to_tail` is the `AppError` image of
 //!    `ErrorKind::is_provider_fault`: an ACP prompt timeout (`Timeout` →
-//!    `ResourceUnavailable`) reroutes, a rejected request (`InvalidRequest` →
-//!    `InvalidInput`) and a quota refusal (`RateLimit`) do not.
-//! 2. A chain exposes its tail; a solo provider does not.
+//!    `ResourceUnavailable`) and a tier's spent quota or credit (`RateLimit`
+//!    → `ExternalRateLimited`, an HTTP 402 included) reroute; a rejected
+//!    request (`InvalidRequest` → `InvalidInput`) and the athlete's own budget
+//!    do not.
+//! 2. A chain exposes its tail; a solo provider has none.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -26,8 +28,8 @@ use embacle::types::{
     LlmProvider as EmbacleLlmProvider, RunnerError,
 };
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_llm::{ChatProvider, EmbacleProvider, LlmProvider};
-use pierre_tool_runtime::tool_loop_io::reroutes_headless_turn;
+use pierre_llm::{ChatProvider, EmbacleProvider, LlmProvider, QuotaCooldowns};
+use pierre_tool_runtime::tool_loop_io::reroutes_to_tail;
 
 #[test]
 fn an_acp_timeout_reroutes() {
@@ -36,7 +38,7 @@ fn an_acp_timeout_reroutes() {
     let timeout: AppError = RunnerError::timeout("copilot-acp: prompt timed out after 150s").into();
     assert_eq!(timeout.code, ErrorCode::ResourceUnavailable);
     assert!(
-        reroutes_headless_turn(&timeout),
+        reroutes_to_tail(&timeout),
         "an ACP prompt timeout must re-run the turn against the tail"
     );
 }
@@ -62,7 +64,7 @@ fn every_provider_fault_kind_reroutes_and_no_other_does() {
         };
         let app_error: AppError = runner_error.into();
         assert_eq!(
-            reroutes_headless_turn(&app_error),
+            reroutes_to_tail(&app_error),
             kind.is_provider_fault(),
             "{kind:?} -> {:?} must reroute exactly when embacle calls it a provider fault",
             app_error.code
@@ -82,23 +84,23 @@ fn the_platform_auth_codes_reroute_and_invalid_input_does_not() {
         ErrorCode::InternalError,
     ] {
         assert!(
-            reroutes_headless_turn(&AppError::new(code, "transient")),
+            reroutes_to_tail(&AppError::new(code, "transient")),
             "{code:?} should reroute to the tail"
         );
     }
     // Deterministic failures must NOT burn a second provider call.
     assert!(
-        !reroutes_headless_turn(&AppError::invalid_input("malformed request")),
+        !reroutes_to_tail(&AppError::invalid_input("malformed request")),
         "InvalidInput is deterministic and must not reroute"
     );
     assert!(
-        !reroutes_headless_turn(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
+        !reroutes_to_tail(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
         "the athlete's own budget is the ingress gate's refusal, never a reason to spend another tier"
     );
     // A provider's rate limit or spent quota is that tier's account failing to
     // serve; the next tier holds its own account, so the turn moves on.
     assert!(
-        reroutes_headless_turn(&AppError::new(
+        reroutes_to_tail(&AppError::new(
             ErrorCode::ExternalRateLimited,
             "copilot-sdk: You have exceeded your monthly quota"
         )),
@@ -148,10 +150,13 @@ impl EmbacleLlmProvider for Named {
 #[test]
 fn a_chain_exposes_its_tail_and_a_solo_provider_does_not() {
     let chain = ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(Box::new(Named("copilot_headless")), "primary"),
-            EmbacleProvider::from_runner(Box::new(Named("cohere")), "secondary"),
-        ])
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(Box::new(Named("copilot_headless")), "primary"),
+                EmbacleProvider::from_runner(Box::new(Named("cohere")), "secondary"),
+            ],
+            QuotaCooldowns::default(),
+        )
         .unwrap(),
     );
     assert_eq!(
@@ -167,5 +172,23 @@ fn a_chain_exposes_its_tail_and_a_solo_provider_does_not() {
     assert!(
         solo.fallback_tail().is_none(),
         "a solo provider has no tail; the original error is returned unchanged"
+    );
+}
+
+#[test]
+fn a_spent_credit_reroutes() {
+    // embacle maps an HTTP 402 (credit balance exhausted) to RateLimit, whose
+    // AppError image is ExternalRateLimited: the next tier holds its own credit.
+    let spent: AppError = RunnerError::rate_limit(
+        "anthropic#2",
+        "credit balance exhausted: Your credit balance is too low",
+    )
+    .into();
+    assert_eq!(spent.code, ErrorCode::ExternalRateLimited);
+    assert!(reroutes_to_tail(&spent));
+    assert!(
+        spent.message.contains("anthropic#2:"),
+        "the tier-quota alert labels the line from the tier named in the message: {}",
+        spent.message
     );
 }

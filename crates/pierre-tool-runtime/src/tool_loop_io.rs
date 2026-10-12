@@ -27,6 +27,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 
 use crate::protocol::UniversalExecutor;
+use crate::tool_loop_telemetry::accumulate_optional;
 
 /// One round of tool dispatch as the in-memory loop sees it.
 ///
@@ -324,7 +325,7 @@ impl ToolLoopTally {
         ToolLoopResult {
             content: String::new(),
             usage,
-            finish_reason: Some("max_iterations".to_owned()),
+            finish_reason: Some(MAX_ITERATIONS_FINISH_REASON.to_owned()),
             activity_list: self.activity_list,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
@@ -336,9 +337,63 @@ impl ToolLoopTally {
             provider_warnings: self.provider_warnings,
         }
     }
+
+    /// What the loop had done when its LLM call failed: the rounds that
+    /// completed before it, with no answer of its own. The re-run on the
+    /// chain's tail continues from those rounds and folds this in with
+    /// [`ToolLoopResult::after_prior`], so the tools that already ran stay
+    /// recorded for the turn.
+    pub(crate) fn interrupted(self, usage: Option<TokenUsage>) -> ToolLoopResult {
+        self.answered(String::new(), usage, None)
+    }
 }
 
+/// The finish reason of a loop that spent its iteration budget.
+pub(crate) const MAX_ITERATIONS_FINISH_REASON: &str = "max_iterations";
+
 impl ToolLoopResult {
+    /// `true` when the loop stopped because its iteration budget ran out.
+    ///
+    /// Such a turn is empty but not lost to a provider: the model kept calling
+    /// tools. Re-running it on another tier would spend a second budget on the
+    /// same loop, so the tail fallback leaves it to the chat pipeline.
+    #[must_use]
+    pub(crate) fn ran_out_of_iterations(&self) -> bool {
+        self.finish_reason.as_deref() == Some(MAX_ITERATIONS_FINISH_REASON)
+    }
+
+    /// This result, continuing a turn whose earlier rounds `prior` ran on a
+    /// tier that then failed.
+    ///
+    /// The answer and every exit signal are this result's; the tools that ran,
+    /// their count, the tokens spent and the warnings seen are both results'
+    /// together, earlier rounds first. The activity list and the
+    /// served-without-a-provider offer are this result's when it has its own,
+    /// else the earlier rounds': the tail may answer from the tool results it
+    /// was handed without calling the tool again.
+    #[must_use]
+    pub(crate) fn after_prior(self, prior: Self) -> Self {
+        let mut tools_called = prior.tools_called;
+        tools_called.extend(self.tools_called);
+        let mut provider_warnings = prior.provider_warnings;
+        for warning in self.provider_warnings {
+            if !provider_warnings.contains(&warning) {
+                provider_warnings.push(warning);
+            }
+        }
+        Self {
+            usage: sum_usage(prior.usage, self.usage),
+            activity_list: self.activity_list.or(prior.activity_list),
+            tool_calls_count: prior.tool_calls_count.saturating_add(self.tool_calls_count),
+            tools_called,
+            served_without_provider: self
+                .served_without_provider
+                .or(prior.served_without_provider),
+            provider_warnings,
+            ..self
+        }
+    }
+
     /// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
     ///
     /// Covers both the over-step-cap and the failed-static-verification cases.
@@ -404,25 +459,28 @@ impl ToolLoopResult {
     }
 }
 
-/// Whether a headless (Copilot) turn's error re-runs the turn against the
-/// chain's tail.
+/// Whether a tool loop's error from the chain's head re-runs the turn against
+/// the chain's tail.
 ///
-/// The headless loop converses with the chain's head directly, so embacle's
-/// fall-through policy never sees its errors; this is that policy's `AppError`
-/// image — the codes `ErrorKind::is_provider_fault` maps to
+/// The tool loops converse with the chain's head directly — the headless loop
+/// through its turn provider, the API loop through
+/// `ChatProvider::complete_with_tools_on_head` — so embacle's fall-through
+/// policy never sees their errors; this is that policy's `AppError` image —
+/// the codes `ErrorKind::is_provider_fault` maps to
 /// (`ResourceUnavailable` for a timeout or an unavailable model,
 /// `ExternalServiceError` for a vendor fault, `AuthInvalid` for an auth
 /// failure, `InternalError` for a runner bug or a missing binary) plus the
 /// platform's own auth and availability codes (`ExternalAuthFailed`,
 /// `AuthExpired`, `ExternalServiceUnavailable`), and a provider's rate limit
-/// or spent quota (`ExternalRateLimited`) — the next tier holds its own
-/// account. Deterministic failures — a rejected request (`InvalidInput`), a
-/// config error — do not reroute: a second tier would answer them the same
+/// or spent quota (`ExternalRateLimited`, which an HTTP 402 credit exhaustion
+/// maps to as well) — the next tier holds its own account. Deterministic
+/// failures — a rejected request (`InvalidInput`), a config error — do not
+/// reroute: a second tier would answer them the same
 /// way, and the athlete would see its rejection instead of the real one. The
 /// athlete's own budget (`RateLimitExceeded`, `QuotaExceeded`) is refused by
 /// the ingress gate before dispatch and never reaches this predicate.
 #[must_use]
-pub fn reroutes_headless_turn(error: &AppError) -> bool {
+pub fn reroutes_to_tail(error: &AppError) -> bool {
     matches!(
         error.code,
         ErrorCode::ExternalAuthFailed
@@ -442,7 +500,7 @@ pub fn reroutes_headless_turn(error: &AppError) -> bool {
 /// embacle's fallback walk, so neither of the chain's fall-throughs fires for
 /// it — not the empty-completion one, not the provider-fault one. This is
 /// where both are re-created, from [`ToolLoopResult::is_lost_turn`] and
-/// [`reroutes_headless_turn`]; the loop only acts on the route it is handed.
+/// [`reroutes_to_tail`]; the loop only acts on the route it is handed.
 pub(crate) enum HeadlessRoute {
     /// The head answered, or left a deliberate empty reply the chat pipeline
     /// is about to replace: serve it. Boxed so a route is the size of an
@@ -462,7 +520,7 @@ impl HeadlessRoute {
         match outcome {
             Ok(result) if result.is_lost_turn() => Self::Reroute(result.lost_turn_error(provider)),
             Ok(result) => Self::Serve(Box::new(result)),
-            Err(err) if reroutes_headless_turn(&err) => Self::Reroute(err),
+            Err(err) if reroutes_to_tail(&err) => Self::Reroute(err),
             Err(err) => Self::Fail(err),
         }
     }
@@ -493,19 +551,51 @@ pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String 
 /// name.
 pub const PLATFORM_MCP_SERVER_NAME: &str = "dravr";
 
+/// Two optional usages summed, counting the optional counts too.
+fn sum_usage(first: Option<TokenUsage>, second: Option<TokenUsage>) -> Option<TokenUsage> {
+    match (first, second) {
+        (None, None) => None,
+        (Some(only), None) | (None, Some(only)) => Some(only),
+        (Some(a), Some(b)) => {
+            let mut sum = TokenUsage::new(
+                a.prompt_tokens.saturating_add(b.prompt_tokens),
+                a.completion_tokens.saturating_add(b.completion_tokens),
+                a.total_tokens.saturating_add(b.total_tokens),
+            );
+            sum.cached_read_tokens =
+                accumulate_optional(a.cached_read_tokens, b.cached_read_tokens);
+            sum.cached_write_tokens =
+                accumulate_optional(a.cached_write_tokens, b.cached_write_tokens);
+            sum.reasoning_tokens = accumulate_optional(a.reasoning_tokens, b.reasoning_tokens);
+            Some(sum)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    //! The headless turn's routing, as the loop acts on it.
+    //! The tool loop's results, and the headless turn's routing as the loop acts on it.
     //!
-    //! `is_lost_turn` and `reroutes_headless_turn` are pinned on their own in
+    //! `is_lost_turn` and `reroutes_to_tail` are pinned on their own in
     //! `tests/`; these pin that [`HeadlessRoute`] actually sends what they
     //! flag to the chain's tail. Without the lost-turn arm a head that
     //! answers nothing is served as-is, and the athlete gets the empty-turn
     //! apology while a configured fallback tier sits unused (carnet#108).
 
     use pierre_core::errors::{AppError, ErrorCode};
+    use pierre_llm::TokenUsage;
 
-    use super::{HeadlessRoute, ToolLoopResult};
+    use super::{HeadlessRoute, ToolLoopResult, ToolLoopTally};
+
+    fn tally(tools: &[&str], activity_list: Option<&str>, warning: &str) -> ToolLoopTally {
+        ToolLoopTally {
+            activity_list: activity_list.map(str::to_owned),
+            tool_calls_count: u32::try_from(tools.len()).unwrap_or(u32::MAX),
+            tools_called: tools.iter().map(|t| (*t).to_owned()).collect(),
+            served_without_provider: None,
+            provider_warnings: vec![warning.to_owned()],
+        }
+    }
 
     const PROVIDER: &str = "copilot_sdk";
 
@@ -590,5 +680,57 @@ mod tests {
             ),
             "a rejected request fails as-is: the tail would reject it the same way"
         );
+    }
+
+    #[test]
+    fn a_tail_result_keeps_what_the_head_already_did() {
+        let mut head_usage = TokenUsage::new(100, 10, 110);
+        head_usage.cached_read_tokens = Some(40);
+        let prior = tally(&["get_activities"], Some("list"), "temperature ignored")
+            .interrupted(Some(head_usage));
+        let tail = tally(&["get_connection_status"], None, "temperature ignored").answered(
+            "answer".to_owned(),
+            Some(TokenUsage::new(50, 5, 55)),
+            Some("stop".to_owned()),
+        );
+
+        let merged = tail.after_prior(prior);
+
+        assert_eq!(merged.content, "answer");
+        assert_eq!(merged.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(
+            merged.tools_called,
+            ["get_activities", "get_connection_status"],
+            "the head's tools first"
+        );
+        assert_eq!(merged.tool_calls_count, 2);
+        assert_eq!(
+            merged.activity_list.as_deref(),
+            Some("list"),
+            "the tail answered from the list the head fetched"
+        );
+        assert_eq!(merged.provider_warnings, ["temperature ignored"]);
+        let usage = merged.usage.expect("both legs spent tokens");
+        assert_eq!(usage.prompt_tokens, 150);
+        assert_eq!(usage.total_tokens, 165);
+        assert_eq!(usage.cached_read_tokens, Some(40));
+    }
+
+    #[test]
+    fn an_exhausted_budget_is_not_a_lost_turn_to_reroute() {
+        let exhausted = ToolLoopTally::default().max_iterations(None);
+        assert!(exhausted.is_lost_turn());
+        assert!(exhausted.ran_out_of_iterations());
+        let empty = ToolLoopTally::default().answered(String::new(), None, None);
+        assert!(empty.is_lost_turn());
+        assert!(!empty.ran_out_of_iterations());
+    }
+
+    #[test]
+    fn an_interrupted_head_carries_no_answer() {
+        let interrupted: ToolLoopResult = tally(&["get_activities"], None, "w").interrupted(None);
+        assert!(interrupted.content.is_empty());
+        assert!(interrupted.finish_reason.is_none());
+        assert_eq!(interrupted.tools_called, ["get_activities"]);
     }
 }

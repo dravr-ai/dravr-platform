@@ -419,7 +419,7 @@ fn stripping_removes_only_the_resolved_token_and_closes_the_gap() {
 #[tokio::test]
 #[serial]
 async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
-    env::set_var("PIERRE_LLM_MODEL", "mock-model");
+    env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
     let mock = CapturingLlm::new();
     let log = mock.log();
     let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -554,7 +554,7 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
 #[tokio::test]
 #[serial]
 async fn a_mention_of_an_agent_that_is_not_installed_does_not_route() {
-    env::set_var("PIERRE_LLM_MODEL", "mock-model");
+    env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
     let mock = CapturingLlm::new();
     let log = mock.log();
     let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -700,7 +700,7 @@ mod messaging {
     #[tokio::test]
     #[serial]
     async fn a_mention_from_telegram_routes_exactly_like_web() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let mock = CapturingLlm::new();
         let log = mock.log();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))

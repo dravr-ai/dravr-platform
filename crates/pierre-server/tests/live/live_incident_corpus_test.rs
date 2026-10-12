@@ -21,9 +21,9 @@
 //! and grades what came out.
 //!
 //! Which model answers is the environment's choice. The nightly lane runs
-//! dev's chain: `copilot_sdk` serving the deployed coaching model, with
-//! `PIERRE_LLM_RUNTIME_FALLBACK=true` putting `claude_code` (both of dev's
-//! accounts) and then `gemini` behind it, so a turn the Copilot account
+//! dev's chain: `PIERRE_LLM_CHAIN` with `copilot_sdk` serving the deployed
+//! coaching model at its head and `claude_code` (both of dev's accounts) and
+//! then `gemini` behind it, so a turn the Copilot account
 //! cannot serve — a spent quota, a timeout — is answered further down the
 //! chain exactly as it would be for an athlete. A
 //! finding is therefore a statement about what the athlete would have
@@ -76,11 +76,9 @@
 //! dev tokens a local run spends the accounts athletes are served from.
 //!
 //! ```bash
-//! PIERRE_LLM_PROVIDER=copilot_sdk COPILOT_SDK_MCP_TOOL_CALLING=true \
-//!   COPILOT_SDK_PERMISSION_POLICY=deny_all PIERRE_LLM_MODEL=… \
-//!   PIERRE_LLM_RUNTIME_FALLBACK=true PIERRE_LLM_FALLBACK_PROVIDER=claude_code \
-//!   PIERRE_LLM_FALLBACK_PROVIDER_MODEL=… PIERRE_LLM_TERTIARY_PROVIDER=gemini \
-//!   PIERRE_LLM_TERTIARY_PROVIDER_MODEL=… LIVE_INCIDENT_EVAL_ATTEMPTS=1 \
+//! PIERRE_LLM_CHAIN=copilot_sdk=…,claude_code=…,gemini=… \
+//!   COPILOT_SDK_MCP_TOOL_CALLING=true COPILOT_SDK_PERMISSION_POLICY=deny_all \
+//!   LIVE_INCIDENT_EVAL_ATTEMPTS=1 \
 //!   cargo test --features live-e2e --test live_incident_corpus_test -- --nocapture
 //! ```
 //!
@@ -131,6 +129,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use hmac::{Hmac, Mac};
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_llm::config::LlmChain;
 use pierre_llm::judge::{ask_for_json, judge_request};
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -742,19 +741,18 @@ async fn live_incident_corpus_holds() {
     // Refuse the harness placeholder, the same way this lane refuses a
     // `Custom` provider below and for the same reason: both leave it
     // grading something other than what it claims to.
-    // `PIERRE_LLM_MODEL` is the highest-priority model override for every
-    // provider — `EmbacleProvider::build_headless` assigns it straight to
-    // `config.model` — so left unset, `common`'s default reaches the ACP
-    // runner as a model id no backend serves. The turn still answers, from
+    // The chain head's model is the one every turn asks for — left unset,
+    // `common`'s default chain (`gemini=<placeholder>`) hands the provider a
+    // model id no backend serves. The turn still answers, from
     // whatever the CLI resolved instead; every call prices at 0.0 because
     // there is no pricing row for the placeholder, and the lane reports a
     // verdict about a model it did not choose. A hard stop, not a warning:
     // a warning in a nightly log is a warning nobody reads.
-    let model = env::var("PIERRE_LLM_MODEL").unwrap_or_default();
+    let model = LlmChain::head_model_from_env().unwrap_or_default();
     assert!(
         !model.is_empty() && model != PLACEHOLDER_LLM_MODEL,
-        "PIERRE_LLM_MODEL is {model:?} — name the model this lane is meant to grade before \
-         spending live turns on it"
+        "the PIERRE_LLM_CHAIN head runs {model:?} — name the model this lane is meant to \
+         grade (provider=model) before spending live turns on it"
     );
     println!("live lane model: {model}");
 
@@ -775,7 +773,7 @@ async fn live_incident_corpus_holds() {
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-eval");
 
     // The production construction path, not a hand-rolled one: whatever
-    // `PIERRE_LLM_PROVIDER` / `PIERRE_LLM_RUNTIME_FALLBACK` say here is
+    // `PIERRE_LLM_CHAIN` says here is
     // exactly what the server would build from the same environment.
     //
     // Kept as a concrete `ChatProvider` rather than erased to `dyn
@@ -788,7 +786,7 @@ async fn live_incident_corpus_holds() {
     let provider = Arc::new(
         ChatProvider::from_env()
             .await
-            .expect("live lane needs a real provider; check PIERRE_LLM_PROVIDER and its creds"),
+            .expect("live lane needs a real provider; check PIERRE_LLM_CHAIN and its creds"),
     );
     println!("live lane provider: {}", provider.name());
     assert!(

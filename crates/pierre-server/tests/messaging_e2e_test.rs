@@ -244,7 +244,7 @@ mod messaging_e2e_tests {
         assert!(link.is_some(), "Channel link should exist after auth");
 
         // Step 7: Send webhook from now-linked user → webhook accepted
-        // Note: Session creation may fail in test env (requires PIERRE_LLM_MODEL for
+        // Note: Session creation may fail in test env (requires a PIERRE_LLM_CHAIN head model for
         // create_conversation). We verify the webhook accepts the message and the
         // channel link resolves correctly — full LLM pipeline is tested separately.
         let router = MessagingRoutes::routes(Arc::clone(&resources));

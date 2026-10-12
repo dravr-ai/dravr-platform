@@ -317,10 +317,10 @@ resource "google_secret_manager_secret_version" "gemini_api_key_placeholder" {
   }
 }
 
-# Cohere Command A / Command R family. Second-tier (first fallback) in the
-# Copilot -> Cohere -> Gemini chain (PIERRE_LLM_FALLBACK_PROVIDER=cohere)
-# wired in infra/environments/dev/main.tf. Real value lives in Secret
-# Manager; this Terraform only manages the container. The placeholder
+# Cohere Command A / Command R family. Out of the dev chain since
+# 2026-10-01 (PIERRE_LLM_CHAIN in infra/environments/dev/main.tf); kept for a
+# `cohere` entry. Real value lives in Secret Manager; this Terraform only
+# manages the container. The placeholder
 # is ignored by lifecycle so re-apply doesn't overwrite the gcloud-set
 # value (same pattern as gemini_api_key and the OAuth credentials above).
 resource "google_secret_manager_secret" "cohere_api_key" {
@@ -405,9 +405,8 @@ resource "google_secret_manager_secret_version" "copilot_github_token_placeholde
 
 # Long-lived OAuth token for Claude Code CLI, generated via `claude setup-token`
 # against a Pro/Max/Team/Enterprise subscription. One-year expiry; rotate
-# annually. Consumed by embacle's claude_code runner when
-# PIERRE_LLM_FALLBACK_PROVIDER=claude_code activates the runtime fallback
-# chain on retryable Copilot failures.
+# annually. Consumed by embacle's claude_code runner, the `claude_code` entry
+# of PIERRE_LLM_CHAIN in infra/environments/dev/main.tf.
 resource "google_secret_manager_secret" "claude_code_oauth_token" {
   project   = var.project_id
   secret_id = "${var.service_name}-claude-code-oauth-token"
@@ -438,6 +437,52 @@ resource "google_secret_manager_secret_version" "claude_code_oauth_token_placeho
 resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
   project   = var.project_id
   secret_id = "${var.service_name}-claude-code-oauth-token-2"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+# Anthropic Messages API key of the first organization in the key pool, for
+# the `anthropic` entry of PIERRE_LLM_CHAIN (carnet#875). Each key belongs to
+# its own Anthropic organization with its own prepaid credit and a Console
+# spend limit, which is what turns the credit into a ceiling: with a payment
+# method on file and no limit, a spent credit bills the card instead of
+# answering 402. Filled by hand; the placeholder is ignored by lifecycle, as
+# for the other API keys. Not bound to the service yet — see the
+# PIERRE_LLM_CHAIN comment in infra/environments/dev/main.tf.
+resource "google_secret_manager_secret" "anthropic_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-anthropic-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "anthropic_api_key_placeholder" {
+  secret      = google_secret_manager_secret.anthropic_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+# The second Anthropic organization's API key. The platform pools it as its
+# own chain tier right behind the first (anthropic#2): a spent credit moves
+# the turn to the next organization before the chain leaves Anthropic.
+# Further organizations are _3, _4, … — read in order until the first unset
+# one. Filled by hand and deliberately WITHOUT a placeholder version, like
+# claude_code_oauth_token_2: the service will bind `latest`, so a placeholder
+# added after the real key would replace it.
+resource "google_secret_manager_secret" "anthropic_api_key_2" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-anthropic-api-key-2"
 
   labels = var.labels
 

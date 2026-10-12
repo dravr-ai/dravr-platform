@@ -145,7 +145,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_confirmation_speaks_the_athletes_locale() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -197,7 +197,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_walk_interrupted_note_speaks_the_athletes_locale() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -249,7 +249,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_moves_the_session_onto_a_fresh_conversation_and_keeps_the_old_one() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -384,7 +384,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_at_the_cap_archives_the_old_thread_and_opens_a_fresh_one() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -459,7 +459,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_over_the_cap_is_refused_and_leaves_the_old_thread_active() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -584,7 +584,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn a_dm_into_an_archived_thread_under_the_cap_reactivates_it() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -626,7 +626,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn a_dm_into_an_archived_thread_at_the_cap_is_refused_and_writes_nothing() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -693,7 +693,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn commands_into_an_archived_thread_at_the_cap_decide_per_command() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -900,7 +900,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_whose_repoint_fails_removes_the_fresh_thread_and_restores_the_old_one() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -954,7 +954,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_whose_repoint_and_cleanup_both_fail_still_restores_the_old_thread() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -1054,7 +1054,7 @@ mod reset_locale {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_of_an_agent_thread_sends_the_agent_welcome_after_the_confirmation() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await

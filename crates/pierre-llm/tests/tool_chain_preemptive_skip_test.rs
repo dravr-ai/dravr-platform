@@ -30,7 +30,7 @@ use embacle::types::{
 };
 use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD, GITHUB_BUDGET_THRESHOLD};
 use pierre_llm::config::LlmProviderType;
-use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider, QuotaCooldowns};
 
 /// Answers with a fixed line and counts how many times it was asked.
 struct Counted {
@@ -117,11 +117,14 @@ async fn a_low_github_budget_skips_a_copilot_primary_on_the_tool_calling_path() 
     let (primary, primary_calls) = Counted::new("primary", "should not be reached");
     let (secondary, secondary_calls) = Counted::new("secondary", "Tu as couru 42 km ce mois-ci.");
     let chain = ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(Box::new(primary), "primary")
-                .of_kind(LlmProviderType::CopilotSdk),
-            EmbacleProvider::from_runner(Box::new(secondary), "secondary"),
-        ])
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(Box::new(primary), "primary")
+                    .of_kind(LlmProviderType::CopilotSdk),
+                EmbacleProvider::from_runner(Box::new(secondary), "secondary"),
+            ],
+            QuotaCooldowns::default(),
+        )
         .expect("two tiers"),
     );
 

@@ -49,7 +49,7 @@ mod delete_account {
              + (SELECT COUNT(*) FROM messaging_sessions WHERE CAST(user_id AS TEXT) = $1)";
 
     async fn e2e() -> Arc<CommandE2e> {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -60,7 +60,7 @@ mod delete_account {
     /// A server whose Identity Toolkit is a stub answering every delete with
     /// `answer`.
     async fn e2e_with_firebase(answer: Answer) -> (Arc<CommandE2e>, Arc<IdentityToolkitStub>) {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let firebase = IdentityToolkitStub::answering(answer);
         let mut config = test_server_config();

@@ -256,7 +256,9 @@ jobs:
           PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
           PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-          PIERRE_LLM_MODEL: "ci-test-model"
+          # No chain configured: the default Gemini head records this model on a
+          # new conversation, and nothing behind it is required at boot.
+          PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
           # home-sync/01 connects the Maestro athlete's Strava through a
           # scripted stand-in for the sciotte scraper on this port.
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
@@ -485,7 +487,7 @@ jobs:
           # settings assertion exists that does not depend on English copy.
           # chat/04-send-message-response is absent for a different reason: it sends a
           # message and waits for `messages-list`, which MessageList only mounts once a
-          # message exists or a send is in flight. CI sets PIERRE_LLM_MODEL=ci-test-model
+          # message exists or a send is in flight. CI sets PIERRE_LLM_DEFAULT_MODEL=ci-test-model
           # with no provider behind it, so a turn the server cannot complete leaves the
           # empty state. It passed locally only because that stack has a live LLM. The
           # server log is now uploaded on failure so the next look can confirm this

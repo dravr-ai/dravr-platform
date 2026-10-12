@@ -8,7 +8,8 @@
 //!
 //! Implements [`ScenarioDriver`] against a real `OpenAI`-compatible LLM
 //! endpoint — a local Ollama server (the chat-eval workflow provisions it
-//! and pins the model via `PIERRE_LLM_MODEL`; no API key, no rate limit).
+//! and pins the model as `PIERRE_LLM_CHAIN=local=<model>`; no API key, no
+//! rate limit).
 //! The driver owns:
 //!
 //! - a system prompt layered the way production layers it: the
@@ -41,6 +42,7 @@ use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_llm::config::{LlmChain, LlmProviderType};
 use pierre_llm::prompts::{PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT};
 use pierre_llm::{
     http_env, ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
@@ -173,8 +175,10 @@ pub struct LiveScenarioDriver {
 }
 
 impl LiveScenarioDriver {
-    /// Build a driver from process env. `PIERRE_LLM_MODEL` must be set —
-    /// there is no compiled-in default because the model is
+    /// Build a driver from process env. `PIERRE_LLM_CHAIN` must lead with
+    /// `local=<model>` — the production chain grammar, naming the local
+    /// provider and the model it serves. There is no compiled-in default
+    /// because the model is
     /// environment-specific (the chat-eval workflow pins it; developers
     /// running locally use whichever Ollama model they've pulled). A silent
     /// fallback drifts the moment one of those sources rotates, which is
@@ -189,14 +193,24 @@ impl LiveScenarioDriver {
     ///
     /// # Errors
     ///
-    /// Returns a human-readable string when `PIERRE_LLM_MODEL` is unset or
-    /// empty, or when the underlying provider fails to initialize.
+    /// Returns a human-readable string when the chain's head is not a `local`
+    /// entry naming its model, or when the underlying provider fails to
+    /// initialize.
     pub fn from_env() -> Result<Self, String> {
-        let model = env::var("PIERRE_LLM_MODEL")
-            .map_err(|_| "PIERRE_LLM_MODEL must be set for LiveScenarioDriver".to_owned())?;
-        if model.trim().is_empty() {
-            return Err("PIERRE_LLM_MODEL is set but empty".to_owned());
+        let chain = LlmChain::from_env();
+        let head = chain.head();
+        if head.provider != LlmProviderType::Local {
+            return Err(format!(
+                "{} must lead with local=<model> for LiveScenarioDriver, got {chain:?}",
+                LlmChain::ENV_VAR
+            ));
         }
+        let model = head.model.clone().ok_or_else(|| {
+            format!(
+                "{}'s local entry must name the model a running Ollama serves (local=<model>)",
+                LlmChain::ENV_VAR
+            )
+        })?;
 
         let mut config = OpenAiCompatibleConfig::ollama(&model);
         // Point at a non-default Ollama / OpenAI-compatible endpoint (remote
@@ -1073,17 +1087,23 @@ mod tests {
     }
 
     #[test]
-    fn from_env_errors_when_model_unset() {
+    fn from_env_errors_unless_the_chain_leads_with_a_local_model() {
         // SAFETY: integration test, env is set + cleared synchronously.
-        let prior = env::var("PIERRE_LLM_MODEL").ok();
-        env::remove_var("PIERRE_LLM_MODEL");
-        let result = LiveScenarioDriver::from_env();
-        if let Some(value) = prior {
-            env::set_var("PIERRE_LLM_MODEL", value);
+        let prior = env::var(LlmChain::ENV_VAR).ok();
+        let mut refusals = Vec::new();
+        for chain in ["gemini=gemini-flash-lite-latest", "local"] {
+            env::set_var(LlmChain::ENV_VAR, chain);
+            refusals.push((chain, LiveScenarioDriver::from_env().is_err()));
         }
-        assert!(
-            result.is_err(),
-            "expected from_env to refuse when PIERRE_LLM_MODEL is unset"
-        );
+        match prior {
+            Some(value) => env::set_var(LlmChain::ENV_VAR, value),
+            None => env::remove_var(LlmChain::ENV_VAR),
+        }
+        for (chain, refused) in refusals {
+            assert!(
+                refused,
+                "expected from_env to refuse PIERRE_LLM_CHAIN={chain}"
+            );
+        }
     }
 }

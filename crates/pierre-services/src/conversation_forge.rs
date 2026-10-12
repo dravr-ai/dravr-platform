@@ -28,7 +28,6 @@ use photograveur::Locale;
 use pierre_config::constants::usage_quotas::{
     DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
 };
-use pierre_config::environment::LlmProviderType;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_RESET_QUOTA,
 };
@@ -37,6 +36,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use serde_json::Value;
@@ -83,7 +83,8 @@ pub struct ForgeParams<'a> {
     /// named after — the dated stamp in the surface's language. See
     /// [`counterpart_title`] for the rule that runs first.
     pub title_fallback: &'a str,
-    /// Model recorded on the thread. `None` falls back to `PIERRE_LLM_MODEL`.
+    /// Model recorded on the thread. `None` falls back to the model the
+    /// `PIERRE_LLM_CHAIN` head runs.
     /// A turn runs on the configured model and reads this one only when none
     /// is configured (carnet#824).
     pub model: Option<&'a str>,
@@ -315,20 +316,24 @@ async fn resolved_cap(
     (cap != UNLIMITED_CONVERSATIONS).then_some(cap)
 }
 
-/// The model recorded on a new conversation: the one asked for, else
-/// `PIERRE_LLM_MODEL`. Turns run on the configured model; this record is
-/// their fallback when none is configured (carnet#824).
+/// The model recorded on a new conversation.
+///
+/// The one asked for, else the model the chain's head runs (its
+/// `PIERRE_LLM_CHAIN` entry's, else that provider's default). Turns run on
+/// the configured model; this record is their fallback when none is
+/// configured (carnet#824).
 ///
 /// # Errors
 ///
-/// Returns [`AppError::config`] when no model is given and `PIERRE_LLM_MODEL`
-/// is unset.
+/// Returns [`AppError::config`] when no model is given and the chain's head
+/// resolves none.
 pub fn resolve_conversation_model(requested: Option<&str>) -> AppResult<String> {
     requested.map_or_else(
         || {
-            LlmProviderType::model_from_env().ok_or_else(|| {
+            LlmChain::head_model_from_env().ok_or_else(|| {
                 AppError::config(
-                    "No model specified and PIERRE_LLM_MODEL environment variable not set",
+                    "No model specified and the PIERRE_LLM_CHAIN head names no model \
+                     (write it as provider=model)",
                 )
             })
         },
@@ -344,8 +349,8 @@ pub fn resolve_conversation_model(requested: Option<&str>) -> AppResult<String> 
 ///
 /// # Errors
 ///
-/// Returns [`AppError::config`] when no model is given and `PIERRE_LLM_MODEL`
-/// is unset, the [`create_conversation_slot`] refusal when a
+/// Returns [`AppError::config`] when no model is given and the chain's head
+/// resolves none, the [`create_conversation_slot`] refusal when a
 /// [`SlotQuota::Capped`] forge finds the athlete at their cap, and the
 /// database error when the row cannot be created.
 pub async fn forge_conversation(

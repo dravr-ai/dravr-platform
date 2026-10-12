@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::pricing::{PricingOverrideMap, GLOBAL_PRICING_REGISTRY};
-use embacle::pricing::ModelPricing;
+use embacle::pricing::{lookup_pricing, LongPromptRates, ModelPricing};
 use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_database::repositories::LlmCredentialRepository;
 use serde::Deserialize;
@@ -31,17 +31,38 @@ struct PricingOverridePayload {
     /// Fraction of the input rate at which a cache *write* bills. On
     /// Anthropic this is a premium (1.25), not a discount.
     cache_write_multiplier: Option<f64>,
+    /// The second rate card above a prompt-length threshold
+    /// (`{"above_prompt_tokens", "input_per_million", "output_per_million"}`).
+    /// Omitted, the compile-time table's card for the same row carries over:
+    /// an operator repricing Haiku 5.5's base rates must not silently bill
+    /// its prompts over 100K tokens at the base card.
+    long_prompt: Option<LongPromptRates>,
 }
 
-impl From<PricingOverridePayload> for ModelPricing {
-    fn from(p: PricingOverridePayload) -> Self {
-        let base = Self::new(p.input_per_million, p.output_per_million);
-        base.with_cache_rates(
-            p.cache_read_multiplier
+impl PricingOverridePayload {
+    /// The pricing this override sets for `(provider, model_prefix)`.
+    ///
+    /// Every rate the payload names wins. A cache multiplier it omits is the
+    /// compile-time default; a long-prompt card it omits is the one the
+    /// compile-time table holds for that row, when it holds one.
+    fn into_pricing(self, provider: &str, model_prefix: &str) -> ModelPricing {
+        let base = ModelPricing::new(self.input_per_million, self.output_per_million);
+        let pricing = base.with_cache_rates(
+            self.cache_read_multiplier
                 .unwrap_or(base.cache_read_multiplier),
-            p.cache_write_multiplier
+            self.cache_write_multiplier
                 .unwrap_or(base.cache_write_multiplier),
-        )
+        );
+        let long_prompt = self
+            .long_prompt
+            .or_else(|| lookup_pricing(provider, model_prefix).and_then(|table| table.long_prompt));
+        long_prompt.map_or(pricing, |long| {
+            pricing.with_long_prompt_rates(
+                long.above_prompt_tokens,
+                long.input_per_million,
+                long.output_per_million,
+            )
+        })
     }
 }
 
@@ -141,6 +162,58 @@ fn parse_override_row(
             return None;
         }
     };
+    let pricing = payload.into_pricing(provider, model_prefix);
     let key = (provider.to_owned(), model_prefix.to_owned());
-    Some((key, payload.into(), row.tenant_id.clone()))
+    Some((key, pricing, row.tenant_id.clone()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PricingOverridePayload;
+
+    fn payload(json: &str) -> PricingOverridePayload {
+        serde_json::from_str(json).expect("a valid override payload")
+    }
+
+    #[test]
+    fn an_override_without_a_long_prompt_card_keeps_the_tables() {
+        let pricing = payload(r#"{"input_per_million": 0.12, "output_per_million": 0.60}"#)
+            .into_pricing("anthropic", "claude-haiku-5-5");
+        assert!((pricing.input_per_million - 0.12).abs() < f64::EPSILON);
+        let long = pricing
+            .long_prompt
+            .expect("Haiku 5.5's 100K card must survive a base-rate override");
+        assert_eq!(long.above_prompt_tokens, 100_000);
+        assert!((long.input_per_million - 0.50).abs() < f64::EPSILON);
+        assert!((long.output_per_million - 2.50).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn an_override_naming_a_long_prompt_card_wins() {
+        let pricing = payload(
+            r#"{"input_per_million": 0.10, "output_per_million": 0.50,
+                "long_prompt": {"above_prompt_tokens": 200000, "input_per_million": 0.40, "output_per_million": 2.0}}"#,
+        )
+        .into_pricing("anthropic", "claude-haiku-5-5");
+        let long = pricing.long_prompt.expect("the payload's card");
+        assert_eq!(long.above_prompt_tokens, 200_000);
+        assert!((long.input_per_million - 0.40).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_row_with_no_long_prompt_card_gets_none() {
+        let pricing = payload(r#"{"input_per_million": 2.0, "output_per_million": 10.0}"#)
+            .into_pricing("anthropic", "claude-sonnet-5-5");
+        assert!(pricing.long_prompt.is_none());
+        let unknown = payload(r#"{"input_per_million": 1.0, "output_per_million": 1.0}"#)
+            .into_pricing("nobody", "no-model");
+        assert!(unknown.long_prompt.is_none());
+    }
+
+    #[test]
+    fn an_older_payload_without_multipliers_still_parses() {
+        let pricing = payload(r#"{"input_per_million": 0.999, "output_per_million": 9.99}"#)
+            .into_pricing("gemini", "gemini-2.0-flash");
+        assert!((pricing.output_per_million - 9.99).abs() < f64::EPSILON);
+    }
 }

@@ -594,7 +594,7 @@ mod group_transcript_tests {
     #[tokio::test]
     #[serial]
     async fn messaging_turn_is_readable_by_web_member_and_consent_withholds_content() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
@@ -697,7 +697,7 @@ mod group_transcript_tests {
     #[tokio::test]
     #[serial]
     async fn web_turn_reaches_the_room_and_a_messaging_member_prompt() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
@@ -776,7 +776,7 @@ mod group_transcript_tests {
     #[tokio::test]
     #[serial]
     async fn a_room_reaches_a_member_whose_own_tenant_is_not_the_rooms() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
@@ -879,7 +879,7 @@ mod group_transcript_tests {
     #[tokio::test]
     #[serial]
     async fn a_linked_members_room_holds_another_members_turn_chatter_and_a_withheld_placeholder() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();

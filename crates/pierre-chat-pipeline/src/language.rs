@@ -275,7 +275,7 @@ mod tests {
     use pierre_llm::config::LlmProviderType;
     use pierre_llm::prompts::LANGUAGE_CLASSIFICATION_PROMPT;
     use pierre_llm::stage::{StageModels, COPILOT_SDK_BACKGROUND_MODEL};
-    use pierre_llm::{ChatProvider, EmbacleProvider};
+    use pierre_llm::{ChatProvider, EmbacleProvider, QuotaCooldowns};
 
     use super::{
         classify_locale_with_llm, parse_locale_answer, render_classification_prompt,
@@ -608,33 +608,36 @@ mod tests {
         let head_requested = Arc::new(Mutex::new(Vec::new()));
         let tail_requested = Arc::new(Mutex::new(Vec::new()));
         let provider = ChatProvider::Embacle(
-            EmbacleProvider::chain(vec![
-                EmbacleProvider::from_runner(
-                    Box::new(SdkClassifier {
-                        name: "copilot_sdk",
-                        answers: false,
-                        requested: Arc::clone(&head_requested),
-                        models: vec![
-                            "claude-sonnet-5.5".to_owned(),
-                            COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
-                        ],
-                    }),
-                    "Copilot SDK classifier (scripted)",
-                )
-                .with_stage_models(StageModels::resolve(
-                    Some(LlmProviderType::CopilotSdk),
-                    |_| None,
-                )),
-                EmbacleProvider::from_runner(
-                    Box::new(SdkClassifier {
-                        name: "claude_code",
-                        answers: true,
-                        requested: Arc::clone(&tail_requested),
-                        models: vec!["claude-sonnet-5".to_owned()],
-                    }),
-                    "Claude Code classifier (scripted)",
-                ),
-            ])
+            EmbacleProvider::chain(
+                vec![
+                    EmbacleProvider::from_runner(
+                        Box::new(SdkClassifier {
+                            name: "copilot_sdk",
+                            answers: false,
+                            requested: Arc::clone(&head_requested),
+                            models: vec![
+                                "claude-sonnet-5.5".to_owned(),
+                                COPILOT_SDK_BACKGROUND_MODEL.to_owned(),
+                            ],
+                        }),
+                        "Copilot SDK classifier (scripted)",
+                    )
+                    .with_stage_models(StageModels::resolve(
+                        Some(LlmProviderType::CopilotSdk),
+                        |_| None,
+                    )),
+                    EmbacleProvider::from_runner(
+                        Box::new(SdkClassifier {
+                            name: "claude_code",
+                            answers: true,
+                            requested: Arc::clone(&tail_requested),
+                            models: vec!["claude-sonnet-5".to_owned()],
+                        }),
+                        "Claude Code classifier (scripted)",
+                    ),
+                ],
+                QuotaCooldowns::default(),
+            )
             .unwrap(),
         );
         let captured = Arc::new(Captured::default());

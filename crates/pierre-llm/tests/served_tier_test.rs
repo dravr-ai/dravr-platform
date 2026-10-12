@@ -22,7 +22,7 @@ use embacle::types::{
     RunnerError,
 };
 use pierre_llm::served_tier::{observe_served_tier, ServedTier};
-use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider, QuotaCooldowns};
 
 /// Answers with a fixed line under its own model name. An empty line is an
 /// empty completion, which the chain's strict policy passes over.
@@ -100,16 +100,19 @@ impl EmbacleLlmProvider for Scripted {
 
 fn chain(primary_answer: &'static str) -> ChatProvider {
     ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(
-                Box::new(Scripted::new("primary", primary_answer)),
-                "primary",
-            ),
-            EmbacleProvider::from_runner(
-                Box::new(Scripted::new("secondary", "Tu as couru 42 km ce mois-ci.")),
-                "secondary",
-            ),
-        ])
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(
+                    Box::new(Scripted::new("primary", primary_answer)),
+                    "primary",
+                ),
+                EmbacleProvider::from_runner(
+                    Box::new(Scripted::new("secondary", "Tu as couru 42 km ce mois-ci.")),
+                    "secondary",
+                ),
+            ],
+            QuotaCooldowns::default(),
+        )
         .expect("two tiers"),
     )
 }
@@ -200,20 +203,23 @@ async fn a_tier_reported_outside_an_observed_call_does_not_panic() {
 /// Two tiers where only the primary honors `temperature`.
 fn temperature_chain(primary_answer: &'static str) -> ChatProvider {
     ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(
-                Box::new(Scripted::with_capabilities(
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(
+                    Box::new(Scripted::with_capabilities(
+                        "primary",
+                        primary_answer,
+                        BASE_CAPABILITIES | LlmCapabilities::TEMPERATURE,
+                    )),
                     "primary",
-                    primary_answer,
-                    BASE_CAPABILITIES | LlmCapabilities::TEMPERATURE,
-                )),
-                "primary",
-            ),
-            EmbacleProvider::from_runner(
-                Box::new(Scripted::new("secondary", "Tu as couru 42 km ce mois-ci.")),
-                "secondary",
-            ),
-        ])
+                ),
+                EmbacleProvider::from_runner(
+                    Box::new(Scripted::new("secondary", "Tu as couru 42 km ce mois-ci.")),
+                    "secondary",
+                ),
+            ],
+            QuotaCooldowns::default(),
+        )
         .expect("two tiers"),
     )
 }

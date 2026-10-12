@@ -93,7 +93,6 @@ async fn openai_api_reads_its_environment_and_speaks_the_openai_wire() {
     // The only test in this binary, so no other test reads these.
     env::set_var("OPENAI_API_BASE_URL", &base_url);
     env::set_var("OPENAI_API_KEY", "sk-test-key");
-    env::remove_var("PIERRE_LLM_MODEL");
 
     let provider =
         EmbacleProvider::from_provider_type(LlmProviderType::OpenAiApi, Some("gpt-served"))

@@ -26,7 +26,11 @@
 
 # A metric's label block is immutable in Cloud Monitoring and a metric an
 # alert policy references cannot be deleted, so a change to what the label
-# means is a new metric the policy is moved to, never an edit in place.
+# means is a new metric the policy is moved to, never an edit in place. What
+# a label means is its descriptor (key and description); an extractor that
+# read something else than the descriptor declared is a bug, fixed in place:
+# the label block is untouched, so terraform updates the metric instead of
+# replacing it (dravr-llm-chain-fallthrough, below).
 resource "google_logging_metric" "llm_tier_quota" {
   project = var.project_id
   name    = "dravr-llm-tier-quota"
@@ -43,6 +47,17 @@ resource "google_logging_metric" "llm_tier_quota" {
   # writes ("RateLimit: copilot-sdk: You have exceeded ..."), which is where
   # the tier label comes from — never from the span, whose provider is the
   # primary's name on every tier's line.
+  #
+  # The tool loops call the chain's HEAD outside embacle's chain (an
+  # Anthropic or Copilot head serving a tool turn), so a head refusal there
+  # writes no chain line. The platform writes the one line instead
+  # ("fallback: tool loop head failed, re-running the turn on the chain's
+  # tail", crates/pierre-tool-runtime/src/tool_loop_telemetry.rs), whose
+  # error is the platform's text for the same refusal ("LLM provider rate
+  # limited or out of quota: anthropic#2: credit balance exhausted: ...").
+  # The extractor reads the tier from either shape, so a spent Anthropic
+  # credit (HTTP 402, a RateLimit since embacle 0.35) is labelled with the
+  # pool account that refused: anthropic, anthropic#2, ...
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
@@ -63,7 +78,7 @@ resource "google_logging_metric" "llm_tier_quota" {
   }
 
   label_extractors = {
-    "tier" = "REGEXP_EXTRACT(jsonPayload.error, \"^RateLimit: ([^:]+):\")"
+    "tier" = "REGEXP_EXTRACT(jsonPayload.error, \"(?:^RateLimit|out of quota): ([^:]+):\")"
   }
 }
 
@@ -79,9 +94,11 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
       provider, not an athlete's budget.
 
       With a runtime chain configured the next tier is serving the turns;
-      without one, athletes are failing right now — flip PIERRE_LLM_PROVIDER
+      without one, athletes are failing right now — reorder PIERRE_LLM_CHAIN
       (infra/environments/dev/main.tf, then `terraform.yml` dev/apply) or lift
-      the quota on the account.
+      the quota on the account. An `anthropic` or `anthropic#N` tier is an
+      Anthropic organization whose prepaid credit is spent (HTTP 402) or
+      rate-limited: top up that organization's credit.
 
       Read the lines:
 
@@ -215,6 +232,15 @@ resource "google_logging_metric" "llm_chain_fallthrough" {
 
   description = "Counts 'Runtime LLM fallback engaged' lines on the API service: a tier failed and the next one took the turn. Labelled by the tier that was bypassed."
 
+  # The label is read from from_provider, the tier the line says was
+  # bypassed — every 'Runtime LLM fallback engaged' line carries it, the
+  # chain observer's and the tool loops' alike. Never from the span's
+  # provider: that is the chain's head on every line, so a bypassed second
+  # tier (claude-code#2, anthropic#2) would be labelled as the head. The
+  # label's descriptor says "the tier that failed and was bypassed", which is
+  # what this extractor reads, so the label block keeps its original meaning
+  # (see the header on in-place extractor fixes).
+
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
@@ -234,7 +260,7 @@ resource "google_logging_metric" "llm_chain_fallthrough" {
   }
 
   label_extractors = {
-    "provider" = "EXTRACT(jsonPayload.provider)"
+    "provider" = "EXTRACT(jsonPayload.from_provider)"
   }
 }
 

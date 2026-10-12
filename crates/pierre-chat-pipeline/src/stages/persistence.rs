@@ -8,8 +8,8 @@
 //!
 //! Four responsibilities:
 //!
-//! 1. Create conversation — validates the model selection against
-//!    `PIERRE_LLM_MODEL` env fallback, persists the new conversation record.
+//! 1. Create conversation — validates the model selection against the
+//!    `PIERRE_LLM_CHAIN` head's model, persists the new conversation record.
 //! 2. Persist user message — verifies conversation ownership (tenant +
 //!    user), persists the user turn before LLM dispatch (crash-safe: a
 //!    server failure mid-dispatch still leaves the user's question visible

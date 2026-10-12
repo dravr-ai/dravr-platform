@@ -66,7 +66,7 @@ mod egress {
     }
 
     async fn start() -> Arc<CommandE2e> {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await

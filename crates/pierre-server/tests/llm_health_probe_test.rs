@@ -12,7 +12,7 @@ use embacle::types::{
     RunnerError, StreamChunk,
 };
 use futures_util::stream;
-use pierre_llm::{ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatProvider, EmbacleProvider, QuotaCooldowns};
 
 /// Mock whose `health_check()` returns a configured value (or error) and whose
 /// `complete()` is unused but trait-required.
@@ -94,7 +94,9 @@ fn chain(primary: ProbeMock, secondary: ProbeMock) -> ChatProvider {
         EmbacleProvider::from_runner(Box::new(primary), "probe primary"),
         EmbacleProvider::from_runner(Box::new(secondary), "probe secondary"),
     ];
-    ChatProvider::Embacle(EmbacleProvider::chain(tiers).expect("two tiers"))
+    ChatProvider::Embacle(
+        EmbacleProvider::chain(tiers, QuotaCooldowns::default()).expect("two tiers"),
+    )
 }
 
 #[tokio::test]

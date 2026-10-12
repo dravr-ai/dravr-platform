@@ -196,7 +196,7 @@ mod guided_turn {
     /// stand-in scraper, so a verification fetch succeeds and a re-ask runs
     /// whenever the stage decides it should.
     async fn setup(email: &str, reply: &str) -> Fixture {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // Both-or-neither: a URL with no audience disables the remote client.

@@ -1,4 +1,4 @@
-// ABOUTME: Builds embacle's HTTP providers (Gemini, Cohere, Groq, OpenRouter, OpenAI-compatible) for the platform
+// ABOUTME: Builds embacle's HTTP providers (Anthropic, Gemini, Cohere, Groq, OpenRouter, OpenAI-compatible) for the platform
 // ABOUTME: From the platform's env names at boot, or from a tenant's stored credentials for the BYO path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,21 +12,28 @@
 //! through [`EmbacleProvider::from_runner`] like every other tier — a vendor
 //! 429 reaches the platform as `ExternalRateLimited`, the upstream fault every
 //! provider's rate limit or spent quota carries — and the model comes from
-//! the explicit override a chain tier was configured with
-//! (`PIERRE_LLM_FALLBACK_PROVIDER_MODEL`, `PIERRE_LLM_TERTIARY_PROVIDER_MODEL`)
+//! the model the tier's `PIERRE_LLM_CHAIN` entry names (`provider=model`)
 //! before any vendor default.
 //!
-//! Gemini's boot-time model comes from `PIERRE_LLM_DEFAULT_MODEL` — the
-//! platform's unified model variable — so a Gemini primary keeps the
-//! configuration it always had. The other four read their own `*_DEFAULT_MODEL`
-//! through embacle's `from_env()`.
+//! Gemini's boot-time model comes from `PIERRE_LLM_DEFAULT_MODEL` when its
+//! entry names none, so a Gemini primary keeps the configuration it always
+//! had. The others read their own `*_DEFAULT_MODEL` through embacle's
+//! `from_env()`.
+//!
+//! Anthropic is the one HTTP provider that pools: each further key
+//! (`ANTHROPIC_API_KEY_2`, `_3`, …, one per Anthropic organization with its
+//! own prepaid credit) is its own tier right behind the first, named
+//! `anthropic#N` — see `anthropic_pooled_accounts`.
 
+use embacle::pool::PooledTier;
+use embacle::types::LlmProvider as EmbacleLlmProvider;
 use embacle::{
-    CohereConfig, CohereProvider, GeminiConfig, GeminiProvider, GroqConfig, GroqProvider,
-    OpenAiCompatibleConfig, OpenAiCompatibleProvider, OpenRouterConfig, OpenRouterProvider,
+    AnthropicConfig, AnthropicProvider, CohereConfig, CohereProvider, GeminiConfig, GeminiProvider,
+    GroqConfig, GroqProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, OpenRouterConfig,
+    OpenRouterProvider,
 };
 use pierre_core::http_client::llm_inner_client;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::config::{HttpProvider, LlmModelConfig};
 use crate::embacle_provider::EmbacleProvider;
@@ -35,8 +42,8 @@ use crate::LlmCapabilities;
 
 /// Build the HTTP provider `kind` names from the process environment.
 ///
-/// `model_override` wins over every env var; it is how a fallback tier gets a
-/// model in its own namespace instead of the primary's.
+/// `model_override` wins over every env var; it is the model the tier's chain
+/// entry names, in that provider's own namespace.
 ///
 /// # Errors
 ///
@@ -52,7 +59,76 @@ pub(crate) fn build(
         HttpProvider::Cohere => cohere_from_env(model_override),
         HttpProvider::OpenRouter => openrouter_from_env(model_override),
         HttpProvider::Local => Ok(local_from_env(model_override)),
+        HttpProvider::Anthropic => anthropic_from_env(model_override),
     }
+}
+
+/// Anthropic on `ANTHROPIC_API_KEY` and the `ANTHROPIC_*` settings embacle
+/// reads, on `model_override` else `ANTHROPIC_DEFAULT_MODEL` else embacle's
+/// default (`claude-haiku-5-5`).
+fn anthropic_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppError> {
+    let config = anthropic_config(AnthropicConfig::from_env()?, model_override);
+    info!(model = %config.model, "Creating Anthropic provider");
+    Ok(EmbacleProvider::from_runner(
+        anthropic_provider(config),
+        ANTHROPIC_DISPLAY_NAME,
+    ))
+}
+
+/// The further accounts of the Anthropic tier, in order.
+///
+/// One per `ANTHROPIC_API_KEY_N` (`_2`, `_3`, …, read until the first unset
+/// or blank one), every other setting shared with the first, on
+/// `model_override` like the tier itself. Account N is named `anthropic#N` by
+/// [`PooledTier`], so a usage row, an alert label or a health line says which
+/// organization's credit served — and pricing keys it on the `anthropic`
+/// family.
+///
+/// Empty when there is no second key, and when the pool cannot be read at
+/// all: an unset `ANTHROPIC_API_KEY` or an invalid `ANTHROPIC_*` setting fails
+/// the first account the same way, and that tier's own failure is the one the
+/// chain assembly reports.
+#[must_use]
+pub(crate) fn anthropic_pooled_accounts(model_override: Option<&str>) -> Vec<EmbacleProvider> {
+    let configs = match AnthropicConfig::pool_from_env() {
+        Ok(configs) => configs,
+        Err(err) => {
+            debug!(error = %err, "No Anthropic key pool: the first account did not configure");
+            return Vec::new();
+        }
+    };
+    configs
+        .into_iter()
+        .enumerate()
+        .skip(1)
+        .map(|(position, config)| {
+            let tier = PooledTier::new(
+                anthropic_provider(anthropic_config(config, model_override)),
+                position,
+            );
+            info!(
+                account = tier.name(),
+                "Pooled a further Anthropic account as a chain tier"
+            );
+            EmbacleProvider::from_runner(Box::new(tier), ANTHROPIC_DISPLAY_NAME)
+        })
+        .collect()
+}
+
+/// `config` on `model_override`, when the chain entry names one.
+fn anthropic_config(config: AnthropicConfig, model_override: Option<&str>) -> AnthropicConfig {
+    match model_override {
+        Some(model) => config.with_model(model),
+        None => config,
+    }
+}
+
+/// An Anthropic provider over the shared LLM client.
+fn anthropic_provider(config: AnthropicConfig) -> Box<dyn EmbacleLlmProvider> {
+    Box::new(AnthropicProvider::with_client(
+        config,
+        llm_inner_client().clone(),
+    ))
 }
 
 /// Gemini on `GEMINI_API_KEY`, on `model_override` else `PIERRE_LLM_DEFAULT_MODEL`.
@@ -246,6 +322,7 @@ pub fn local_provider(config: OpenAiCompatibleConfig) -> EmbacleProvider {
     )
 }
 
+const ANTHROPIC_DISPLAY_NAME: &str = "Anthropic API";
 const GEMINI_DISPLAY_NAME: &str = "Google Gemini";
 const GROQ_DISPLAY_NAME: &str = "Groq (Llama/Mixtral)";
 const COHERE_DISPLAY_NAME: &str = "Cohere (Command)";

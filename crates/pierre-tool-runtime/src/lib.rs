@@ -127,6 +127,10 @@ pub mod cli_loop;
 pub mod function_dispatch;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
+/// The runtime fallback chain, re-created for the tool loops that converse
+/// with the chain's head alone: quota cooldown, fall-through to the tail
+#[cfg(feature = "client-chat")]
+mod tool_loop_fallback;
 /// Inputs and outputs shared by every tool loop strategy.
 #[cfg(feature = "client-chat")]
 pub mod tool_loop_io;

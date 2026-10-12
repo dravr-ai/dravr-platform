@@ -7,14 +7,24 @@
 //! Tool loop strategies for chat conversations
 //!
 //! Three strategies exist for executing tool calls during LLM conversations:
-//! - [`run_api_tool_loop`]: Native function calling via `complete_with_tools()` (Gemini, Groq)
-//! - [`run_headless_tool_loop`]: ACP-managed tool calling via Copilot Headless `converse()`
+//! - `run_api_tool_loop`: Native function calling via `complete_with_tools_on_head()`
+//!   (Anthropic, Gemini, Cohere, Groq)
+//! - `run_headless_tool_loop`: ACP-managed tool calling via Copilot Headless `converse()`
 //! - [`run_cli_tool_loop`]: Text-based tool calling via `<tool_call>` blocks (CLI providers)
 //!
 //! All strategies share the same MCP executor infrastructure and produce
 //! identical [`ToolLoopResult`] output.
+//!
+//! A turn is routed by the capabilities of the chain's head, so the API and
+//! headless loops converse with the head alone: sending the head's request
+//! through the whole chain would let a fault hand it to a tier that cannot
+//! serve it (a tool-carrying request reaching a Copilot runtime without its
+//! MCP servers answers with no tools at all). On a provider fault or a lost
+//! turn they re-run the turn on the chain's tail instead
+//! (`tool_loop_fallback`), routed again by the tail head's own capabilities. A
+//! head inside a quota cooldown is not asked at all: the turn goes straight to
+//! the tail.
 
-use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
@@ -27,13 +37,14 @@ use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
+use crate::tool_loop_fallback::{run_api_turn, run_headless_turn, ApiLoopError};
 use crate::tool_loop_io::{
-    observed_tool_name, GuardianConfirmRequest, GuardianDenial, HeadlessRoute, ToolLoopParams,
-    ToolLoopResult, ToolLoopTally, ToolRoundRecord,
+    observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
+    ToolLoopTally, ToolRoundRecord,
 };
 use crate::tool_loop_telemetry::{
     accumulate_optional, emit_call_record, log_iteration_response, log_iteration_start,
-    log_wire_shape, millis_elapsed, note_headless_fallback, served_provider_name,
+    log_wire_shape, millis_elapsed, served_provider_name,
 };
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
@@ -50,16 +61,23 @@ use pierre_llm::{
 };
 
 // ============================================================================
-// API Tool Loop (Gemini/Groq native function calling)
+// API Tool Loop (native function calling)
 // ============================================================================
 
-/// Executes the tool loop using native LLM function calling (Gemini, Groq).
+/// Executes the tool loop using native LLM function calling (Anthropic,
+/// Gemini, Cohere, Groq).
 ///
-/// Flow: `complete_with_tools()` → parse `function_calls` → execute via MCP → iterate
+/// Flow: `complete_with_tools_on_head()` → parse `function_calls` → execute via
+/// MCP → iterate. Every call goes to the chain's head alone, outside the
+/// chain's own fallback: a head fault comes back as [`ApiLoopError::Head`] for
+/// [`run_api_turn`] to re-run on the tail, routed by the tail's capabilities,
+/// instead of embacle handing this tool-carrying request to a tier that
+/// cannot honour it.
 ///
 /// # Errors
 ///
-/// Returns error if the LLM call or tool execution fails.
+/// [`ApiLoopError::Head`] when the head's LLM call fails, carrying the rounds
+/// that completed before it; [`ApiLoopError::Other`] when a tool dispatch fails.
 #[tracing::instrument(
     skip_all,
     fields(
@@ -69,10 +87,10 @@ use pierre_llm::{
         model = %params.model,
     )
 )]
-pub async fn run_api_tool_loop(
+pub(crate) async fn run_api_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
-) -> Result<ToolLoopResult, AppError> {
+) -> Result<ToolLoopResult, ApiLoopError> {
     let mut tally = ToolLoopTally::default();
     let mut cumulative_usage = TokenUsage::new(0, 0, 0);
 
@@ -107,14 +125,14 @@ pub async fn run_api_tool_loop(
         let (response_result, served) = observe_served_tier(
             params
                 .provider
-                .complete_with_tools(&llm_request, Some(vec![params.tools.clone()])),
+                .complete_with_tools_on_head(&llm_request, Some(vec![params.tools.clone()])),
         )
         .await;
         let latency_ms = millis_elapsed(call_start);
-        // After a fallback the chain's own name is still its head, so the call
-        // is attributed to the tier that answered: those tokens are that
-        // provider's bill, and the log line keeps the configured tier beside it
-        // so a fallback reads as a difference between the two.
+        // The call went to the head alone, so no chain observer reports a tier
+        // and the call is attributed to the head itself. Kept on the served
+        // tier for a provider that reports one: those tokens are that
+        // provider's bill, and the log line keeps the configured tier beside it.
         let served_provider = served_provider_name(served, params.provider.name());
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
@@ -178,7 +196,11 @@ pub async fn run_api_tool_loop(
                     ok = false,
                     "LLM call failed"
                 );
-                return Err(e);
+                let usage_so_far = (cumulative_usage.total_tokens > 0).then_some(cumulative_usage);
+                return Err(ApiLoopError::Head {
+                    error: e,
+                    prior: Box::new(tally.interrupted(usage_so_far)),
+                });
             }
         };
 
@@ -819,8 +841,8 @@ pub fn add_function_responses_to_messages(
 /// Select and run the appropriate tool loop strategy based on provider capabilities.
 ///
 /// Three-way dispatch:
-/// - Providers with `FUNCTION_CALLING` capability use [`run_api_tool_loop`]
-/// - Providers with `SDK_TOOL_CALLING` capability use [`run_headless_tool_loop`]
+/// - Providers with `FUNCTION_CALLING` capability use `run_api_tool_loop`
+/// - Providers with `SDK_TOOL_CALLING` capability use `run_headless_tool_loop`
 /// - Providers with neither use [`run_cli_tool_loop`] (text-based tool calling)
 ///
 /// # Errors
@@ -859,19 +881,9 @@ async fn run_react_tool_loop(
     let capabilities = params.provider.capabilities();
 
     if capabilities.supports_function_calling() {
-        run_api_tool_loop(params, llm_messages).await
+        run_api_turn(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
-        // Converses with the chain's head directly, outside embacle's fallback
-        // walk, so neither of its fallbacks fires here — not the provider-fault
-        // one, not the empty-completion one. Both re-created; see `HeadlessRoute`.
-        let outcome = run_headless_tool_loop(params, llm_messages).await;
-        match HeadlessRoute::of(outcome, params.provider.name()) {
-            HeadlessRoute::Serve(result) => Ok(*result),
-            HeadlessRoute::Reroute(reason) => {
-                run_headless_fallback(params, llm_messages, reason).await
-            }
-            HeadlessRoute::Fail(err) => Err(err),
-        }
+        run_headless_turn(params, llm_messages).await
     } else {
         run_cli_tool_loop(params, llm_messages).await
     }
@@ -1090,47 +1102,6 @@ pub async fn run_planned_tool_loop(
     ))
 }
 
-/// Re-run a failed headless (Copilot) turn against the runtime-fallback
-/// chain's tail.
-///
-/// [`run_headless_tool_loop`] converses with the chain's head directly,
-/// bypassing embacle's fall-through. When that head call fails with a
-/// provider fault or loses the turn ([`HeadlessRoute`]), this re-runs the
-/// whole tool loop against the chain's tail — routed by the tail's own
-/// capabilities (native function calling for Cohere/Gemini), so the turn
-/// still produces a grounded answer. With no tail configured the original
-/// error is returned unchanged, preserving behavior when runtime fallback is
-/// disabled.
-async fn run_headless_fallback(
-    params: &ToolLoopParams<'_>,
-    llm_messages: &mut Vec<ChatMessage>,
-    primary_err: AppError,
-) -> Result<ToolLoopResult, AppError> {
-    let Some(secondary) = params.provider.fallback_tail() else {
-        return Err(primary_err);
-    };
-    note_headless_fallback(params.provider, secondary, &primary_err);
-    let fallback_params = ToolLoopParams {
-        provider: secondary,
-        executor: Arc::clone(&params.executor),
-        tools: params.tools,
-        // The secondary picks its own model: the primary's model (e.g.
-        // Copilot's `claude-opus-4.8`) is meaningless to Cohere/Gemini.
-        // Mirrors `ResponsePolicy::strict().own_model_per_tier` clearing the
-        // model before each hop of the embacle chain.
-        model: secondary.default_model(),
-        user_id: params.user_id,
-        tenant_id: params.tenant_id,
-        max_iterations: params.max_iterations,
-        call_recorder: params.call_recorder.clone(),
-        tool_message_recorder: params.tool_message_recorder.clone(),
-        temperature: params.temperature,
-        stream_sink: params.stream_sink.clone(),
-        mcp_servers: params.mcp_servers.clone(),
-    };
-    Box::pin(run_tool_loop(&fallback_params, llm_messages)).await
-}
-
 // ============================================================================
 // Headless Tool Loop (Copilot ACP autonomous tool calling)
 // ============================================================================
@@ -1144,7 +1115,7 @@ async fn run_headless_fallback(
 /// # Errors
 ///
 /// Returns error if the headless runner cannot be extracted, or the ACP call fails.
-async fn run_headless_tool_loop(
+pub(crate) async fn run_headless_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &[ChatMessage],
 ) -> Result<ToolLoopResult, AppError> {

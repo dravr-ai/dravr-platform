@@ -33,8 +33,8 @@ pub fn validate_model_for_provider(provider: &(impl LlmProvider + ?Sized)) {
             model,
             available = ?available,
             "Model is not in this provider's published list — either that list is \
-             stale, or PIERRE_LLM_MODEL holds the previous provider's id. Dispatch \
-             errors naming this model mean the second"
+             stale, or the PIERRE_LLM_CHAIN entry names another provider's model id. \
+             Dispatch errors naming this model mean the second"
         );
     }
 }

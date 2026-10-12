@@ -154,13 +154,13 @@ jobs:
         shard: ${{ fromJSON(inputs.include_ondemand && '[1, 2, 3, 4, 5]' || '[1, 2, 3]') }}
 
     env:
-      # The live driver (helpers/chat_scenario/live_driver.rs) reads
-      # PIERRE_LLM_MODEL and dispatches to the local Ollama server
+      # The live driver (helpers/chat_scenario/live_driver.rs) reads the model
+      # from the chain's local head and dispatches to the local Ollama server
       # (OpenAI-compatible at :11434) — no API key, no rate limit, no cost.
       # `dravr-chateval` is a derived tag created below from
       # qwen2.5:7b-instruct with num_ctx 32768 so Pierre's full system
       # prompt + tool schemas fit without truncation.
-      PIERRE_LLM_MODEL: "dravr-chateval"
+      PIERRE_LLM_CHAIN: "local=dravr-chateval"
       # Fan the selected scenarios across the matrix round-robin so each
       # shard stays inside the wall-clock cap (multi-turn CPU inference is
       # minutes per turn). Format is "<index>/<total>", consumed by
@@ -316,7 +316,7 @@ jobs:
         # The live target compiles only under live-e2e and never skips
         # (carnet#805). --exact runs just the scenario driver: the helper
         # unit tests compiled into this binary already run in the structural
-        # job, and one of them unsets PIERRE_LLM_MODEL mid-run. --nocapture
+        # job, and one of them rewrites PIERRE_LLM_CHAIN mid-run. --nocapture
         # streams the live driver's per-dispatch diagnostics (attempt
         # failures, timeouts, backoffs) to the job log in real time, so a
         # degraded run is visible even if the job hits its hard wall-clock

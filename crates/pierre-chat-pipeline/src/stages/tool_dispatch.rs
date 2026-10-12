@@ -295,14 +295,15 @@ pub(crate) async fn dispatch_llm_with_tools(
     // bridge, so a single provider config controls both.
     // Held for the whole turn: dropping it revokes the agent's credential, so
     // the binding must outlive the tool loop and die with it.
-    // Opened for every provider that will NOT receive tools as structured
-    // declarations, which is both the ACP path and the CLI runners. Gating on
-    // `supports_sdk_tool_calling()` alone left `copilot` — which now executes
-    // MCP tools itself — with nothing to execute.
-    let tool_session = if provider.capabilities().supports_function_calling() {
-        // Structured declarations reach this provider on the request itself.
-        None
-    } else {
+    // Opened whenever some tier that may serve the turn will NOT receive tools
+    // as structured declarations, which is both the ACP path and the CLI
+    // runners. Gating on `supports_sdk_tool_calling()` alone would leave
+    // `copilot` — which executes MCP tools itself — with nothing to execute.
+    // Gating on the head alone would leave a Copilot tier behind an Anthropic
+    // head with nothing either: the tool loop re-runs a faulted turn on the
+    // tail with these same servers, so they are opened for the whole chain,
+    // not just its head.
+    let tool_session = if provider.needs_mcp_servers() {
         match ctx.mcp_bridge.as_ref() {
             Some(bridge) => {
                 bridge
@@ -322,6 +323,9 @@ pub(crate) async fn dispatch_llm_with_tools(
             }
             None => None,
         }
+    } else {
+        // Structured declarations reach every tier on the request itself.
+        None
     };
     let mcp_servers = tool_session
         .as_ref()
@@ -392,11 +396,14 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // The loopback seam is otherwise invisible: ACP reports tool-call titles,
     // but only the platform's own MCP host knows how many calls it actually
-    // served. `None` = the turn ran without a loopback session (native
-    // function calling); `Some(0)` on an ACP turn = the subprocess never
-    // reached our tools — the discriminating signal the 2026-08-22 silent-ACP
-    // triage lacked. Read before the error return so a timed-out turn still
-    // reports whether a tool round completed before the stall.
+    // served. `None` = the turn ran without a loopback session (every tier
+    // takes native function calling); `Some(0)` on an ACP turn = the
+    // subprocess never reached our tools — the discriminating signal the
+    // 2026-08-22 silent-ACP triage lacked. A chain led by a function-calling
+    // head also opens one for its tail, so there `Some(0)` is the normal
+    // reading of a turn the head served itself. Read before the error return
+    // so a timed-out turn still reports whether a tool round completed before
+    // the stall.
     let loopback_calls_served = tool_session.as_ref().map(ToolSession::calls_served);
     let mut result = match loop_result {
         Ok(result) => result,

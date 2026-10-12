@@ -272,7 +272,7 @@ mod agent_rebind_tests {
     #[tokio::test]
     #[serial]
     async fn a_dm_with_no_selection_takes_the_system_agent_and_its_name() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = MockLlm::new();
         let calls = mock.counter();
@@ -445,7 +445,7 @@ mod agent_rebind_tests {
     #[tokio::test]
     #[serial]
     async fn activating_an_agent_rebinds_the_live_messaging_conversation() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         let mock = MockLlm::new();
         let calls = mock.counter();

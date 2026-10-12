@@ -170,7 +170,7 @@ name = "group_fitness_weekly_metrics_test"
 required-features = ["tools-groups"]
 
 [[test]]
-name = "headless_fallback_classification_test"
+name = "tool_loop_fallback_classification_test"
 required-features = ["client-chat"]
 
 [[test]]

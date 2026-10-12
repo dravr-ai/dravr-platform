@@ -48,7 +48,7 @@
 # and every deploy after they were dropped failed the gate.
 #
 # Exposure, stated plainly: on the server image the CLI is the PRIMARY chat
-# provider (PIERRE_LLM_PROVIDER=copilot_headless, infra/environments/dev/main.tf),
+# provider (the copilot_sdk head of PIERRE_LLM_CHAIN, infra/environments/dev/main.tf),
 # so it spawns on every coaching turn. On the sciotte image it spawns for the
 # vision-login LLM only.
 #

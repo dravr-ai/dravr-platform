@@ -603,7 +603,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn the_intake_opens_behind_the_answer_not_in_front_of_it() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let think = Duration::from_secs(4);
         let mock = MockLlm::slow(think);
         let calls = mock.counter();
@@ -652,7 +652,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn the_intake_walks_to_completion_without_the_model() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let seen = mock.transcript();
@@ -757,7 +757,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn a_clean_chat_answer_retires_the_flag_an_earlier_yes_raised() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -808,7 +808,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn choosing_coach_sets_the_persona() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -897,7 +897,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn choosing_both_records_the_role_and_keeps_the_screen() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -948,7 +948,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn the_re_ask_rides_behind_the_answer_not_in_front_of_it() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let think = Duration::from_secs(4);
         let mock = MockLlm::slow(think);
         let calls = mock.counter();
@@ -1011,7 +1011,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn a_parsed_answer_still_replaces_the_turn() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let seen = mock.transcript();
@@ -1045,7 +1045,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn two_unparsed_answers_stand_aside_for_the_agent() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let seen = mock.transcript();
@@ -1114,7 +1114,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn a_recorded_screen_is_not_repeated_in_chat() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))
@@ -1158,7 +1158,7 @@ mod intake_tests {
     #[tokio::test]
     #[serial]
     async fn a_group_conversation_is_never_screened() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
         let resources = create_test_server_resources_with_llm(Arc::new(mock))

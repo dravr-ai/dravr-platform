@@ -78,13 +78,13 @@ impl Drop for EnvGuard {
 
 /// Force the chat pipeline to fail at the dispatch stage.
 ///
-/// Selects the Gemini provider with no API key, so the turn still walks
+/// Selects a Gemini-only chain with no API key, so the turn still walks
 /// prompt assembly and enters dispatch — emitting the real progress sequence —
 /// before the dispatch error propagates. A complete production-flow proof that
 /// does not require a live LLM endpoint.
 fn force_dispatch_failure_via_env() -> EnvGuard {
     EnvGuard::apply(&[
-        ("PIERRE_LLM_PROVIDER", Some("gemini")),
+        ("PIERRE_LLM_CHAIN", Some("gemini=mock-model")),
         ("GEMINI_API_KEY", None),
     ])
 }

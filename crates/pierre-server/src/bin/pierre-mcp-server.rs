@@ -30,6 +30,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
 use pierre_mcp_server::services::turn_lifecycle::{
@@ -265,13 +266,18 @@ fn validate_required_environment() -> Result<()> {
         },
     ];
 
-    // Append LLM provider-specific validations.
-    // Only enforce as required when PIERRE_LLM_PROVIDER is explicitly set —
-    // CI environments don't set it and don't need LLM to start the server.
-    let explicitly_configured = env::var(LlmProviderType::ENV_VAR).is_ok();
-    let llm_provider = LlmProviderType::from_env();
+    // Append the chain head's provider-specific validations: the head serves
+    // every turn first, so its credential is the one a boot must not miss.
+    // Tiers behind it that fail to build are logged and skipped by the chain
+    // assembly instead. Only enforce as required when PIERRE_LLM_CHAIN is
+    // explicitly set — CI environments don't set it and don't need LLM to
+    // start the server.
+    let explicitly_configured = LlmChain::is_configured();
+    let chain = LlmChain::from_env();
+    let llm_provider = chain.head().provider;
     validations.extend(llm_provider_validations(
         llm_provider,
+        chain.head().model.is_some(),
         explicitly_configured,
     ));
 
@@ -347,9 +353,15 @@ fn validate_required_environment() -> Result<()> {
 
 /// Return provider-specific environment variable validations for the configured LLM provider
 ///
-/// When `required` is true (`PIERRE_LLM_PROVIDER` explicitly set), missing keys are fatal.
+/// When `required` is true (`PIERRE_LLM_CHAIN` explicitly set), missing keys are fatal.
 /// When false (env var not set, e.g. CI), missing keys produce warnings only.
-fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<EnvValidation> {
+/// `entry_names_model` is whether the head's chain entry carries its own model,
+/// which a Gemini head then runs instead of `PIERRE_LLM_DEFAULT_MODEL`.
+fn llm_provider_validations(
+    provider: LlmProviderType,
+    entry_names_model: bool,
+    required: bool,
+) -> Vec<EnvValidation> {
     match provider {
         LlmProviderType::Groq => vec![EnvValidation {
             name: "GROQ_API_KEY",
@@ -368,8 +380,9 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             EnvValidation {
                 name: "PIERRE_LLM_DEFAULT_MODEL",
                 value: env::var("PIERRE_LLM_DEFAULT_MODEL").ok(),
-                required,
-                description: "Default Gemini model name (e.g., gemini-2.0-flash)",
+                required: required && !entry_names_model,
+                description: "Default Gemini model name (e.g., gemini-2.0-flash), run when \
+                              the chain's gemini entry names no model",
             },
         ],
         LlmProviderType::Local => vec![EnvValidation {
@@ -383,6 +396,13 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             value: env::var("OPENROUTER_API_KEY").ok(),
             required,
             description: "OpenRouter API key (get one at https://openrouter.ai/keys)",
+        }],
+        LlmProviderType::Anthropic => vec![EnvValidation {
+            name: "ANTHROPIC_API_KEY",
+            value: env::var("ANTHROPIC_API_KEY").ok(),
+            required,
+            description: "Anthropic API key of the first organization in the key pool \
+                          (ANTHROPIC_API_KEY_2, _3, … add one tier each)",
         }],
         LlmProviderType::Cohere => vec![EnvValidation {
             name: "COHERE_API_KEY",
@@ -462,7 +482,7 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
 /// bad rotation surfaces as "container did not start" instead of a 5xx
 /// on every user message. Only enforced when:
 ///
-///   * `PIERRE_LLM_PROVIDER` is explicitly set to a Copilot variant
+///   * `PIERRE_LLM_CHAIN` is explicitly set with a Copilot variant at its head
 ///     (`required == true` path in [`validate_environment`]).
 ///   * `COPILOT_GITHUB_TOKEN` is present (callers may rely on
 ///     `~/.config/github-copilot/` credentials instead — in that case
@@ -486,7 +506,7 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
             // no stored login to fall back to: without a token every turn fails
             // at the first model call, so the boot refuses instead.
             return Err(AppError::config(
-                "PIERRE_LLM_PROVIDER=copilot_sdk requires COPILOT_GITHUB_TOKEN (or GH_TOKEN / \
+                "A copilot_sdk head of PIERRE_LLM_CHAIN requires COPILOT_GITHUB_TOKEN (or GH_TOKEN / \
                  GITHUB_TOKEN): the Copilot runtime it spawns keeps no stored login. A \
                  fine-grained PAT needs the Copilot Requests permission; a gh OAuth token \
                  (gho_) works.",

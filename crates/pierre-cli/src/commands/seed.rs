@@ -14,7 +14,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::LlmChain;
 use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
@@ -81,14 +81,14 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
         // The group threads get the model every new conversation gets from
         // the configured LLM provider, unless one is named.
         SeedCommand::TrainingpeaksDelegation(mut args) => {
-            args.model = args.model.or_else(LlmProviderType::model_from_env);
+            args.model = args.model.or_else(LlmChain::head_model_from_env);
             let repos = keyed_repositories(database_url, "trainingpeaks-delegation").await?;
             run_trainingpeaks_delegation(args, &repos).await
         }
         // The conversation is created with the model every new conversation
         // gets from the configured LLM provider, unless one is named.
         SeedCommand::VerdictConversation(mut args) => {
-            args.model = args.model.or_else(LlmProviderType::model_from_env);
+            args.model = args.model.or_else(LlmChain::head_model_from_env);
             dispatch_with_database(SeedCommand::VerdictConversation(args), database_url).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,

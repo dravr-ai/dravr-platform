@@ -21,8 +21,8 @@
 //!    model when it says `inherit`.
 //! 2. Otherwise the stage's default for the head's provider:
 //!    [`COPILOT_SDK_BACKGROUND_MODEL`] for every stage on `copilot_sdk`.
-//! 3. Otherwise nothing: the call runs on the head's model (`PIERRE_LLM_MODEL`),
-//!    exactly as it did before stages existed.
+//! 3. Otherwise nothing: the call runs on the head's model (its
+//!    `PIERRE_LLM_CHAIN` entry), exactly as it did before stages existed.
 //!
 //! Then [`StageModels::checked_against`] holds each one to the head: a model
 //! the head's published list leaves out keeps its stage on the head's own
@@ -65,12 +65,11 @@ use crate::LlmProvider;
 /// premium request per turn against 1.0 for Sonnet (measured 2026-09-18) — and
 /// every stage is a machine-read call, so the reply the athlete reads stays on
 /// the main model. Copilot ids spell the version with a dot, as the head's own
-/// `claude-sonnet-5.5` does. A head whose published list leaves the id out
-/// keeps every stage on its own model ([`StageModels::checked_against`]). Set
+/// `claude-sonnet-5.5` does. Embacle's Copilot catalogue publishes this id
+/// since 0.35.0; a head whose published list leaves it out keeps every stage
+/// on its own model ([`StageModels::checked_against`]). Set
 /// `PIERRE_LLM_MODEL_<STAGE>` to move one stage, or to `inherit` to keep it on
 /// the main model.
-///
-/// LIMITATION(registre#104): `COPILOT_SDK_BACKGROUND_MODEL` is missing from the list a `copilot_sdk` head publishes (embacle's static Copilot catalogue), so `StageModels::checked_against` keeps every background stage on the head's own model until an embacle release lists `claude-haiku-5.5`.
 pub const COPILOT_SDK_BACKGROUND_MODEL: &str = "claude-haiku-5.5";
 
 /// A stage's environment value that keeps the stage on the head's own model.

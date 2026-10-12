@@ -305,7 +305,7 @@ mod group_coach_seat_tests {
     }
 
     async fn harness() -> (Arc<ServerContext>, Arc<Mutex<Vec<String>>>) {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let mock = Arc::new(CapturingLlm::new());
         let requests = Arc::clone(&mock.seen_requests);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();

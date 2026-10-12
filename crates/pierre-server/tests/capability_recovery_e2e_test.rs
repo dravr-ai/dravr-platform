@@ -436,7 +436,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn fabricated_claim_with_working_provider_is_reasked_away() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // The remote client is both-or-neither: a URL with no audience disables
@@ -482,7 +482,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn fabricated_claim_with_dead_provider_becomes_a_reconnect_challenge() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(ClaimThenCleanMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -623,7 +623,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn an_ungrounded_data_answer_is_regrounded_without_any_refusal_wording() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // The remote client is both-or-neither: a URL with no audience disables
@@ -753,7 +753,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_degenerate_fragment_after_tool_calls_is_reasked_into_an_answer() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // The remote client is both-or-neither: a URL with no audience disables
@@ -812,7 +812,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_reask_reply_is_stripped_before_it_is_delivered() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // The remote client is both-or-neither: a URL with no audience disables
@@ -935,7 +935,7 @@ mod capability_recovery {
     #[tokio::test]
     #[serial]
     async fn a_denial_reinstated_by_the_identity_reask_is_stamped() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         let scraper_url = spawn_mock_scraper().await;
         env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
         // The remote client is both-or-neither: a URL with no audience disables
@@ -1248,7 +1248,7 @@ mod capability_recovery {
             jd_consents: bool,
             asker_session_alive: bool,
         ) -> GroupScenario {
-            env::set_var("PIERRE_LLM_MODEL", "mock-model");
+            env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
             let scraper_url = spawn_mock_scraper().await;
             env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
             env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");

@@ -273,10 +273,10 @@ mod conversation_turn_e2e_tests {
     #[serial]
     async fn slack_webhook_to_conversation_turn_endpoint_round_trip() {
         // The messaging ingress creates a conversation up front via
-        // `chat_conversations`, which reads `PIERRE_LLM_MODEL` even though
+        // `chat_conversations`, which reads the `PIERRE_LLM_CHAIN` head's model even though
         // the downstream LLM call goes to our mock. Set it to any model
         // name — the value is stored on the conversation, never dispatched.
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
 
         // Mock LLM so the pipeline runs without touching Gemini/Groq.
         let mock = Arc::new(MockLlmProvider::new("Mock reply from the test provider."));

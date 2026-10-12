@@ -308,14 +308,10 @@ jobs:
           RUST_LOG: "info,pierre_mcp_server::services::slack_socket=debug,pierre_llm=debug,embacle=debug"
           SLACK_ALLOWED_BOT_IDS: ${{ steps.driver-identity.outputs.bot_id }}
           # LLM config — production's primary transport and knobs
-          # (infra/environments/dev/main.tf), with Haiku as the model and no
-          # chain behind it: a Copilot failure is an infra error, never
-          # another model's answer graded as Haiku's.
-          PIERRE_LLM_PROVIDER: copilot_sdk
-          PIERRE_LLM_MODEL: claude-haiku-4.5
-          PIERRE_LLM_FALLBACK_MODEL: claude-haiku-4.5
-          PIERRE_LLM_FALLBACK_ENABLED: "false"
-          PIERRE_LLM_RUNTIME_FALLBACK: "false"
+          # (infra/environments/dev/main.tf), with Haiku as the model and a
+          # single-entry chain, so nothing behind it: a Copilot failure is an
+          # infra error, never another model's answer graded as Haiku's.
+          PIERRE_LLM_CHAIN: copilot_sdk=claude-haiku-4.5
           PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS: "0"
           COPILOT_SDK_MCP_TOOL_CALLING: "true"
           COPILOT_SDK_PERMISSION_POLICY: deny_all

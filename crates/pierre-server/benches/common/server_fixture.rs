@@ -66,8 +66,9 @@ pub fn init_bench_env() {
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "bench_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "bench_garmin_client_secret");
 
-        if env::var("PIERRE_LLM_MODEL").is_err() {
-            env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        // A conversation records the chain head's model; the bench calls no model.
+        if env::var("PIERRE_LLM_CHAIN").is_err() {
+            env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
         }
 
         utils::http_client::initialize_http_clients(HttpClientConfig::default());

@@ -32,7 +32,7 @@ use embacle::types::{
 };
 use futures_util::stream;
 use pierre_llm::errors::ErrorCode;
-use pierre_llm::{ChatMessage, EmbacleProvider, LlmProvider};
+use pierre_llm::{ChatMessage, EmbacleProvider, LlmProvider, QuotaCooldowns};
 
 /// What a scripted runner answers every call with.
 #[derive(Clone)]
@@ -168,10 +168,13 @@ async fn a_runners_spent_quota_is_an_upstream_rate_limit_too() {
 async fn a_spent_quota_on_the_primary_falls_through_to_the_secondary() {
     let (copilot, copilot_calls) = Scripted::new("copilot-sdk", Script::RateLimit(QUOTA_MESSAGE));
     let (gemini, gemini_calls) = Scripted::new("gemini", Script::Answer("Tu as couru 42 km."));
-    let chain = EmbacleProvider::chain(vec![
-        EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
-        EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
-    ])
+    let chain = EmbacleProvider::chain(
+        vec![
+            EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
+            EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
+        ],
+        QuotaCooldowns::default(),
+    )
     .expect("two tiers");
 
     let response = chain
@@ -190,10 +193,13 @@ async fn a_spent_quota_on_the_primary_falls_through_to_the_secondary() {
 async fn a_vendor_429_on_the_primary_falls_through_to_the_secondary() {
     let (gemini, gemini_calls) = Scripted::new("gemini", Script::RateLimit(VENDOR_MESSAGE));
     let (copilot, copilot_calls) = Scripted::new("copilot-sdk", Script::Answer("served"));
-    let chain = EmbacleProvider::chain(vec![
-        EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
-        EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
-    ])
+    let chain = EmbacleProvider::chain(
+        vec![
+            EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
+            EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
+        ],
+        QuotaCooldowns::default(),
+    )
     .expect("two tiers");
 
     let response = chain
@@ -212,10 +218,13 @@ async fn a_vendor_429_on_the_primary_falls_through_to_the_secondary() {
 async fn an_exhausted_chain_reports_the_last_tiers_rate_limit_as_upstream() {
     let (copilot, copilot_calls) = Scripted::new("copilot-sdk", Script::RateLimit(QUOTA_MESSAGE));
     let (gemini, gemini_calls) = Scripted::new("gemini", Script::RateLimit(VENDOR_MESSAGE));
-    let chain = EmbacleProvider::chain(vec![
-        EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
-        EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
-    ])
+    let chain = EmbacleProvider::chain(
+        vec![
+            EmbacleProvider::from_runner(Box::new(copilot), "GitHub Copilot (SDK)"),
+            EmbacleProvider::from_runner(Box::new(gemini), "Google Gemini"),
+        ],
+        QuotaCooldowns::default(),
+    )
     .expect("two tiers");
 
     let err = chain

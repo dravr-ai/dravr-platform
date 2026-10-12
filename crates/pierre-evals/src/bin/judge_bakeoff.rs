@@ -67,7 +67,7 @@ enum Kind {
     Gemini(&'static str),
     /// Cohere API model id.
     Cohere(&'static str),
-    /// The current production judge — embacle CLI runner from `PIERRE_LLM_PROVIDER` (Claude via Copilot).
+    /// The current production judge — the provider chain `PIERRE_LLM_CHAIN` configures (Claude via Copilot at its head).
     Cli,
 }
 

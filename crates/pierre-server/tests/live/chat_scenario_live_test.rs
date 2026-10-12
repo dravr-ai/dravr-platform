@@ -1,5 +1,5 @@
 // ABOUTME: Live half of the chat conversation eval — drives every YAML scenario against a real LLM
-// ABOUTME: Built only with the live-e2e feature; needs a running Ollama serving PIERRE_LLM_MODEL
+// ABOUTME: Built only with the live-e2e feature; needs a running Ollama serving PIERRE_LLM_CHAIN=local=<model>
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,12 +17,12 @@
 //! ## Running
 //!
 //! A live test: it is built only with the `live-e2e` feature, so a plain
-//! `cargo test` never compiles it. Built, it never skips (carnet#805): an
-//! unset `PIERRE_LLM_MODEL`, an unreachable Ollama, or a selection that
-//! executes zero scenarios fails the test.
+//! `cargo test` never compiles it. Built, it never skips (carnet#805): a
+//! `PIERRE_LLM_CHAIN` that does not lead with `local=<model>`, an unreachable
+//! Ollama, or a selection that executes zero scenarios fails the test.
 //!
 //! ```sh
-//! PIERRE_LLM_MODEL=dravr-chateval \
+//! PIERRE_LLM_CHAIN=local=dravr-chateval \
 //!   cargo test --features live-e2e --test chat_scenario_live_test -- --nocapture
 //! ```
 //!
@@ -38,6 +38,7 @@ mod common;
 #[path = "../helpers/mod.rs"]
 mod helpers;
 
+use pierre_llm::config::{LlmChain, LlmProviderType};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -172,7 +173,8 @@ fn shard_selected<T>(selected: Vec<T>) -> Vec<T> {
 
 /// Drive every YAML scenario through the live LLM-backed driver.
 ///
-/// Needs a local Ollama server serving `PIERRE_LLM_MODEL`; the chat-eval
+/// Needs a local Ollama server serving the model `PIERRE_LLM_CHAIN=local=<model>`
+/// names; the chat-eval
 /// workflow's nightly and on-demand `live-llm` job provisions both.
 /// `CHAT_SCENARIO_SHARD` (`"<index>/<total>"`) optionally restricts this run
 /// to one shard's slice of the selected scenarios so CI can fan the suite
@@ -182,10 +184,11 @@ fn live_driver_executes_every_scenario() {
     // Fail before any scenario is loaded: a missing model name is a
     // provisioning error, and naming it up front beats a panic deep in the
     // first scenario's driver construction.
-    let model = env::var("PIERRE_LLM_MODEL").unwrap_or_default();
+    let head = LlmChain::from_env().head().clone();
     assert!(
-        !model.trim().is_empty(),
-        "PIERRE_LLM_MODEL must name the model a running Ollama serves (e.g. dravr-chateval)"
+        head.provider == LlmProviderType::Local && head.model.is_some(),
+        "PIERRE_LLM_CHAIN must lead with local=<model>, naming the model a running Ollama \
+         serves (e.g. local=dravr-chateval)"
     );
 
     let files = enumerate_scenario_files();

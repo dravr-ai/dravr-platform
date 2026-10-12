@@ -58,7 +58,7 @@ mod room_walk_e2e {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn guided_answer_lands_under_home_tenant_never_bot_tenant() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -136,7 +136,7 @@ mod room_walk_e2e {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn walker_answer_advances_the_probe_ledger_through_the_real_turn() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -188,7 +188,7 @@ mod room_walk_e2e {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn mentions_mode_exempts_only_the_walker_from_ambient_capture() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await
@@ -241,7 +241,7 @@ mod room_walk_e2e {
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn fresh_group_conversation_never_autostarts_a_walk_but_a_dm_does() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await

@@ -6,7 +6,7 @@
 # Ollama is not a tier of the deployed fallback chain and will not become one
 # (JF, 2026-09-22, carnet#480; dev runs claude_code -> copilot_sdk -> gemini).
 # It is still a provider the platform ships: a user's own Local LLM credential
-# (`/api/user/llm-settings`, provider `local`) and `PIERRE_LLM_PROVIDER=local`
+# (`/api/user/llm-settings`, provider `local`) and a `local` entry of `PIERRE_LLM_CHAIN`
 # both build their provider through `http_env::local_provider` and the
 # `EmbacleProvider` facade. `llm_local_integration_test` drives exactly that
 # path against a real model: completion, streaming, tool calling with schemas

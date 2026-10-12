@@ -30,7 +30,7 @@ mod respond_mode_tests {
     /// A server on the production LLM wiring, a bot tenant, and a room in
     /// `mode` owned by a linked, provider-connected member.
     async fn room_in(mode: GroupRespondMode) -> (Arc<CommandE2e>, RoomE2e, Member) {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
             .await

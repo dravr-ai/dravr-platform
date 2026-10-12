@@ -27,7 +27,7 @@ use embacle::types::{
 use pierre_llm::call_record::{complete_recorded, LlmCallRecord, LlmCallRecorder};
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::stage::{LlmStage, StageModels, COPILOT_SDK_BACKGROUND_MODEL};
-use pierre_llm::{ChatProvider, EmbacleProvider};
+use pierre_llm::{ChatProvider, EmbacleProvider, QuotaCooldowns};
 
 /// The model each request a scripted runner received asked for, in order.
 type ModelLog = Arc<Mutex<Vec<Option<String>>>>;
@@ -243,10 +243,13 @@ async fn a_stage_model_the_head_does_not_publish_is_served_by_the_head_on_its_ow
     let tail = Recording::answering("claude-code", "en");
     let tail_log = tail.log();
     let chain = ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(Box::new(head), "Copilot SDK (scripted)"),
-            EmbacleProvider::from_runner(Box::new(tail), "Claude Code (scripted)"),
-        ])
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(Box::new(head), "Copilot SDK (scripted)"),
+                EmbacleProvider::from_runner(Box::new(tail), "Claude Code (scripted)"),
+            ],
+            QuotaCooldowns::default(),
+        )
         .unwrap()
         .with_stage_models(sdk_defaults()),
     );
@@ -296,11 +299,14 @@ async fn a_stage_call_that_falls_back_runs_on_the_next_tier_own_model() {
     let tail = Recording::answering("claude-code", "en");
     let tail_log = tail.log();
     let chain = ChatProvider::Embacle(
-        EmbacleProvider::chain(vec![
-            EmbacleProvider::from_runner(Box::new(head), "Copilot SDK (scripted)")
-                .with_stage_models(sdk_defaults()),
-            EmbacleProvider::from_runner(Box::new(tail), "Claude Code (scripted)"),
-        ])
+        EmbacleProvider::chain(
+            vec![
+                EmbacleProvider::from_runner(Box::new(head), "Copilot SDK (scripted)")
+                    .with_stage_models(sdk_defaults()),
+                EmbacleProvider::from_runner(Box::new(tail), "Claude Code (scripted)"),
+            ],
+            QuotaCooldowns::default(),
+        )
         .unwrap(),
     );
     let captured = Arc::new(Captured::default());

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use embacle::CliRunnerType;
-use embacle::{CopilotHeadlessConfig, CopilotSdkConfig};
+use embacle::{AnthropicConfig, CopilotHeadlessConfig, CopilotSdkConfig};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -25,6 +25,9 @@ pub enum LlmProviderType {
     OpenRouter,
     /// Cohere provider - Command A and Command R family via Cohere v2 chat API
     Cohere,
+    /// Anthropic Messages API provider - Claude Haiku / Sonnet / Opus on
+    /// `ANTHROPIC_API_KEY`, pooled over `ANTHROPIC_API_KEY_2`, `_3`, …
+    Anthropic,
     /// Claude Code CLI provider - subprocess-based Anthropic Claude
     ClaudeCode,
     /// Cursor Agent CLI provider - subprocess-based Cursor AI
@@ -61,17 +64,19 @@ pub enum LlmProviderType {
 }
 
 impl LlmProviderType {
-    /// Environment variable name for LLM provider selection
-    pub const ENV_VAR: &'static str = "PIERRE_LLM_PROVIDER";
-
-    /// Parse from string with fallback to default
+    /// Parse a provider name, case-insensitively, accepting each provider's
+    /// documented aliases. `None` for a name no provider answers to: a
+    /// [`LlmChain`] entry naming one is skipped with a warning rather than
+    /// silently built as some other provider.
     #[must_use]
-    pub fn from_str_or_default(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+    pub fn parse(s: &str) -> Option<Self> {
+        let provider = match s.trim().to_lowercase().as_str() {
+            "gemini" | "google" => Self::Gemini,
             "groq" => Self::Groq,
             "local" | "ollama" | "vllm" | "localai" => Self::Local,
             "openrouter" | "open_router" | "open-router" => Self::OpenRouter,
             "cohere" | "command" | "command-a" => Self::Cohere,
+            "anthropic" | "anthropic_api" | "anthropic-api" => Self::Anthropic,
             "claude_code" | "claude-code" => Self::ClaudeCode,
             "cursor_agent" | "cursor-agent" => Self::CursorAgent,
             "opencode" | "open_code" => Self::OpenCode,
@@ -88,16 +93,9 @@ impl LlmProviderType {
             "kilo_cli" | "kilo-cli" | "kilo" => Self::KiloCli,
             "openai_api" | "openai-api" | "openai" => Self::OpenAiApi,
             "router" | "quota_router" | "quota-router" => Self::Router,
-            _ => Self::Gemini, // Default fallback (including "gemini", "google")
-        }
-    }
-
-    /// Load from environment variable
-    #[must_use]
-    pub fn from_env() -> Self {
-        env::var(Self::ENV_VAR)
-            .map(|s| Self::from_str_or_default(&s))
-            .unwrap_or_default()
+            _ => return None,
+        };
+        Some(provider)
     }
 }
 
@@ -114,6 +112,8 @@ pub(crate) enum HttpProvider {
     OpenRouter,
     /// A local `OpenAI`-compatible endpoint on `LOCAL_LLM_*`.
     Local,
+    /// The Anthropic Messages API on `ANTHROPIC_API_KEY`.
+    Anthropic,
 }
 
 /// The construction path an [`LlmProviderType`] takes, see
@@ -135,59 +135,6 @@ pub(crate) enum ProviderConstruction {
 }
 
 impl LlmProviderType {
-    /// Environment variable for model/version selection
-    pub const MODEL_ENV_VAR: &'static str = "PIERRE_LLM_MODEL";
-
-    /// Environment variable for enabling fallback
-    pub const FALLBACK_ENABLED_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_ENABLED";
-
-    /// Environment variable for fallback provider selection
-    pub const FALLBACK_PROVIDER_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_PROVIDER";
-
-    /// Environment variable for the fallback PROVIDER's model — applied only
-    /// to the runtime fallback chain's secondary provider.
-    ///
-    /// Needed because providers can use different naming conventions for the
-    /// same upstream model: GitHub Copilot exposes Anthropic models as
-    /// `claude-opus-4.7` (dot), while the direct Anthropic Claude Code CLI
-    /// expects `claude-opus-4-7` (dash) or the short alias `opus`. Without
-    /// this override the secondary inherits `PIERRE_LLM_MODEL` from the
-    /// primary and Anthropic returns 404 on every fallback call.
-    pub const FALLBACK_PROVIDER_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_PROVIDER_MODEL";
-
-    /// Environment variable for the tertiary provider in the runtime chain.
-    ///
-    /// When set alongside [`Self::RUNTIME_FALLBACK_ENV_VAR`]=true, the chain
-    /// becomes three-tier: primary -> secondary -> tertiary, walked flat by
-    /// embacle's `FallbackProvider`, so a provider fault in the secondary
-    /// cascades to the tertiary under the same fall-through policy.
-    ///
-    /// Without this env var set, the chain stays two-tier and behavior is
-    /// unchanged.
-    pub const TERTIARY_PROVIDER_ENV_VAR: &'static str = "PIERRE_LLM_TERTIARY_PROVIDER";
-
-    /// Environment variable for the tertiary provider's model. Same role as
-    /// [`Self::FALLBACK_PROVIDER_MODEL_ENV_VAR`], applied to the tertiary
-    /// when its API uses a different model namespace than the primary or
-    /// secondary (e.g. Cohere's `command-a-03-2025` vs Gemini's
-    /// `gemini-flash-lite-latest`).
-    pub const TERTIARY_PROVIDER_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_TERTIARY_PROVIDER_MODEL";
-
-    /// Environment variable for fallback wait time in seconds
-    pub const FALLBACK_WAIT_SECS_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_WAIT_SECS";
-
-    /// Environment variable for opting into per-request runtime fallback.
-    ///
-    /// Distinct from [`Self::FALLBACK_ENABLED_ENV_VAR`], which only governs
-    /// boot-time selection: with `RUNTIME_FALLBACK_ENV_VAR=true`, the
-    /// `ChatProvider` keeps both primary and fallback initialized and
-    /// retries individual requests against the fallback on retryable
-    /// upstream errors (auth, 5xx, transient network).
-    pub const RUNTIME_FALLBACK_ENV_VAR: &'static str = "PIERRE_LLM_RUNTIME_FALLBACK";
-
-    /// Default wait time before attempting fallback (10 seconds, matches Gemini retry)
-    pub const DEFAULT_FALLBACK_WAIT_SECS: u64 = 10;
-
     /// Default model label for the Claude Code CLI runner (short alias)
     const DEFAULT_CLAUDE_CODE_MODEL: &'static str = "opus";
 
@@ -212,33 +159,9 @@ impl LlmProviderType {
     /// Default model label for the `OpenAI` API provider when unset
     const DEFAULT_OPENAI_API_MODEL: &'static str = "gpt-5.4";
 
-    /// Get model from environment, respecting the active provider
-    ///
-    /// For API-based providers (Gemini, Groq, Local, `OpenRouter`), reads `PIERRE_LLM_MODEL`.
-    /// For embacle-based providers, reads the runner-specific env var
-    /// (e.g. `COPILOT_SDK_MODEL`) or uses the runner's built-in default.
-    /// Returns None only if no model can be determined.
-    #[must_use]
-    pub fn model_from_env() -> Option<String> {
-        let provider = Self::from_env();
-
-        // Embacle-based providers have their own model configuration
-        if let Some(model) = provider.embacle_model_from_env() {
-            return Some(model);
-        }
-
-        // API-based providers use PIERRE_LLM_MODEL
-        match env::var(Self::MODEL_ENV_VAR) {
-            Ok(model) if !model.is_empty() => Some(model),
-            _ => {
-                tracing::error!(
-                    "{} environment variable not set. Configure it in .envrc to specify the LLM model.",
-                    Self::MODEL_ENV_VAR
-                );
-                None
-            }
-        }
-    }
+    /// Environment variable overriding the Anthropic provider's default model
+    /// (embacle's own name for it)
+    const ANTHROPIC_DEFAULT_MODEL_ENV_VAR: &'static str = "ANTHROPIC_DEFAULT_MODEL";
 
     /// Whether this provider spends `COPILOT_GITHUB_TOKEN`, the token whose
     /// GitHub core budget [`crate::chain_guard::copilot_headroom_checker`]
@@ -268,9 +191,8 @@ impl LlmProviderType {
     /// The CLI subprocess runners share one construction path keyed on their
     /// embacle [`CliRunnerType`]; the HTTP APIs, the two Copilot turn
     /// providers, the `OpenAI` API runner and the quota router each have a
-    /// bespoke one. The runtime fallback chain dispatches on this instead of
-    /// re-reading `PIERRE_LLM_PROVIDER`, so a secondary is built as the
-    /// FALLBACK provider and not as the primary a second time.
+    /// bespoke one. The chain assembly dispatches on this per entry, so every
+    /// tier is built as the provider its [`LlmChain`] entry names.
     pub(crate) const fn construction(self) -> ProviderConstruction {
         match self {
             Self::ClaudeCode => ProviderConstruction::Cli(CliRunnerType::ClaudeCode),
@@ -290,6 +212,7 @@ impl LlmProviderType {
             Self::Cohere => ProviderConstruction::HttpApi(HttpProvider::Cohere),
             Self::OpenRouter => ProviderConstruction::HttpApi(HttpProvider::OpenRouter),
             Self::Local => ProviderConstruction::HttpApi(HttpProvider::Local),
+            Self::Anthropic => ProviderConstruction::HttpApi(HttpProvider::Anthropic),
             Self::CopilotHeadless => ProviderConstruction::CopilotHeadless,
             Self::CopilotSdk => ProviderConstruction::CopilotSdk,
             Self::OpenAiApi => ProviderConstruction::OpenAiApi,
@@ -300,30 +223,26 @@ impl LlmProviderType {
         }
     }
 
-    /// Get model name for embacle-based providers
+    /// The model this provider runs when its chain entry names none, as far
+    /// as the environment says without building the provider.
     ///
-    /// `PIERRE_LLM_MODEL` is the unified override for ALL providers (API and embacle).
-    /// When set, it takes priority over provider-specific env vars (e.g. `COPILOT_SDK_MODEL`,
-    /// `CLI_LLM_MODEL`). When not set, falls back to each runner's own default.
-    /// Returns None for non-embacle providers.
+    /// Gemini runs `PIERRE_LLM_DEFAULT_MODEL`; Anthropic runs
+    /// `ANTHROPIC_DEFAULT_MODEL`, else embacle's default (`claude-haiku-5-5`);
+    /// the Copilot runtimes their `COPILOT_*_MODEL`; the CLI runners the label
+    /// of their built-in default. `None` for Groq, Cohere, `OpenRouter` and a
+    /// local endpoint, whose default is read by embacle's `from_env()` only
+    /// once the provider is built with its key.
     #[must_use]
-    fn embacle_model_from_env(self) -> Option<String> {
+    pub(crate) fn default_model_from_env(self) -> Option<String> {
         match self {
-            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => {
-                return None
-            }
-            _ => {}
-        }
-
-        // PIERRE_LLM_MODEL is the unified model override for all providers
-        if let Ok(model) = env::var(Self::MODEL_ENV_VAR) {
-            if !model.is_empty() {
-                return Some(model);
-            }
-        }
-
-        // Provider-specific defaults when PIERRE_LLM_MODEL is not set
-        match self {
+            Self::Gemini => non_empty_env(LlmModelConfig::DEFAULT_MODEL_ENV_VAR),
+            // The config's own default, read off a keyless instance so the
+            // literal lives in embacle alone.
+            Self::Anthropic => Some(
+                non_empty_env(Self::ANTHROPIC_DEFAULT_MODEL_ENV_VAR)
+                    .unwrap_or_else(|| AnthropicConfig::new(String::new()).model),
+            ),
+            Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => None,
             // Both Copilot variants derive the default from COPILOT_HEADLESS_MODEL
             // (env-injected, e.g. by terraform) rather than a hardcoded version
             // literal that drifts from deployed config.
@@ -348,93 +267,223 @@ impl LlmProviderType {
             // through `name()` and `default_model()` once it is the live one.
             | Self::Router => Some(Self::DEFAULT_CLAUDE_SONNET_CLI_MODEL.to_owned()),
             Self::OpenAiApi => Some(
-                env::var(Self::OPENAI_API_MODEL_ENV_VAR)
-                    .ok()
-                    .filter(|m| !m.is_empty())
+                non_empty_env(Self::OPENAI_API_MODEL_ENV_VAR)
                     .unwrap_or_else(|| Self::DEFAULT_OPENAI_API_MODEL.to_owned()),
             ),
-            Self::Gemini | Self::Groq | Self::Local | Self::OpenRouter | Self::Cohere => {
-                unreachable!()
+        }
+    }
+}
+
+/// The value of `name`, when it is set and not blank.
+fn non_empty_env(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// The variables `PIERRE_LLM_CHAIN` replaced (carnet#875).
+///
+/// Nothing reads their values. They are named only so a process still
+/// carrying them says so at boot: with the chain unset, a deployment or a
+/// developer `.envrc` that sets only these would otherwise run the platform
+/// default — Gemini alone, no tier behind it — without a word.
+const RETIRED_CHAIN_ENV_VARS: [&str; 10] = [
+    "PIERRE_LLM_PROVIDER",
+    "PIERRE_LLM_MODEL",
+    "PIERRE_LLM_RUNTIME_FALLBACK",
+    "PIERRE_LLM_FALLBACK_ENABLED",
+    "PIERRE_LLM_FALLBACK_MODEL",
+    "PIERRE_LLM_FALLBACK_PROVIDER",
+    "PIERRE_LLM_FALLBACK_PROVIDER_MODEL",
+    "PIERRE_LLM_FALLBACK_WAIT_SECS",
+    "PIERRE_LLM_TERTIARY_PROVIDER",
+    "PIERRE_LLM_TERTIARY_PROVIDER_MODEL",
+];
+
+/// One tier of the LLM chain as configured: a provider and, optionally, the
+/// model it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainEntry {
+    /// The provider this tier is built as.
+    pub provider: LlmProviderType,
+    /// The model the entry names (`provider=model`); `None` leaves the
+    /// provider's own default, as the environment sets it.
+    pub model: Option<String>,
+}
+
+impl ChainEntry {
+    /// The model this tier runs: the entry's own, else the provider's default.
+    #[must_use]
+    pub fn effective_model(&self) -> Option<String> {
+        self.model
+            .clone()
+            .or_else(|| self.provider.default_model_from_env())
+    }
+}
+
+impl Display for ChainEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match &self.model {
+            Some(model) => write!(f, "{}={model}", self.provider),
+            None => write!(f, "{}", self.provider),
+        }
+    }
+}
+
+/// The ordered LLM chain the platform serves turns on, from `PIERRE_LLM_CHAIN`.
+///
+/// The variable is a comma-separated list of entries, each `provider` or
+/// `provider=model`; the first entry is the primary, every later one the
+/// tier a provider fault or an empty answer falls through to, in order:
+///
+/// ```text
+/// PIERRE_LLM_CHAIN=anthropic=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest
+/// ```
+///
+/// One entry is a single provider with no fallback to another one; a pooled
+/// provider's further accounts (`CLAUDE_CODE_OAUTH_TOKEN_2`,
+/// `ANTHROPIC_API_KEY_2`, …) still follow it, whatever its position. Unset or
+/// blank is the platform default: one Gemini entry with no model of its own,
+/// which runs `PIERRE_LLM_DEFAULT_MODEL`.
+///
+/// The grammar is forgiving where a mistake is harmless and loud where it is
+/// not, and every repair is recorded in [`Self::issues`] for the boot log:
+/// - whitespace around entries, names and models is trimmed; provider names
+///   are case-insensitive, models are kept as written;
+/// - an empty entry (`a,,b`, a trailing comma) is skipped;
+/// - `provider=` (an empty model) is the provider's default model;
+/// - an unknown provider name is skipped, never reinterpreted as another
+///   provider — a typo must not boot a tier nobody configured;
+/// - a provider named twice keeps its first entry: the later one would be
+///   the same account behind itself;
+/// - a value with no valid entry at all is the platform default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmChain {
+    entries: Vec<ChainEntry>,
+    issues: Vec<String>,
+}
+
+impl LlmChain {
+    /// The environment variable the chain is read from.
+    pub const ENV_VAR: &'static str = "PIERRE_LLM_CHAIN";
+
+    /// The chain the environment configures; see the type docs for the grammar.
+    #[must_use]
+    pub fn from_env() -> Self {
+        non_empty_env(Self::ENV_VAR).map_or_else(Self::platform_default, |raw| Self::parse(&raw))
+    }
+
+    /// Whether `PIERRE_LLM_CHAIN` is set to a non-blank value — the operator
+    /// chose the chain, rather than the platform default applying.
+    #[must_use]
+    pub fn is_configured() -> bool {
+        non_empty_env(Self::ENV_VAR).is_some()
+    }
+
+    /// The variables `PIERRE_LLM_CHAIN` replaced that are still set, by
+    /// name. Their values are never read: they are named only so a boot that
+    /// still carries them says so.
+    #[must_use]
+    pub(crate) fn retired_variables_set() -> Vec<&'static str> {
+        RETIRED_CHAIN_ENV_VARS
+            .into_iter()
+            .filter(|name| non_empty_env(name).is_some())
+            .collect()
+    }
+
+    /// The model the chain's head runs, which is the model a turn asks for
+    /// and the one a new conversation records.
+    #[must_use]
+    pub fn head_model_from_env() -> Option<String> {
+        Self::from_env().head().effective_model()
+    }
+
+    /// Parse a chain value; see the type docs for the grammar.
+    #[must_use]
+    pub fn parse(raw: &str) -> Self {
+        let mut entries: Vec<ChainEntry> = Vec::new();
+        let mut issues = Vec::new();
+        for (position, item) in raw.split(',').enumerate() {
+            let item = item.trim();
+            if item.is_empty() {
+                issues.push(format!("entry {} is empty; skipped", position + 1));
+                continue;
             }
+            let (name, model) = match item.split_once('=') {
+                Some((name, model)) => (name.trim(), Some(model.trim())),
+                None => (item, None),
+            };
+            let Some(provider) = LlmProviderType::parse(name) else {
+                issues.push(format!(
+                    "entry {} names no known provider ({name:?}); skipped",
+                    position + 1
+                ));
+                continue;
+            };
+            if entries.iter().any(|entry| entry.provider == provider) {
+                issues.push(format!(
+                    "entry {} repeats {provider}; the first {provider} entry is kept",
+                    position + 1
+                ));
+                continue;
+            }
+            entries.push(ChainEntry {
+                provider,
+                model: model.filter(|m| !m.is_empty()).map(str::to_owned),
+            });
+        }
+        if entries.is_empty() {
+            issues.push(format!(
+                "{} has no valid entry; using the platform default ({})",
+                Self::ENV_VAR,
+                LlmProviderType::default()
+            ));
+            return Self {
+                issues,
+                ..Self::platform_default()
+            };
+        }
+        Self { entries, issues }
+    }
+
+    /// One Gemini entry on its default model: what an unset chain runs.
+    fn platform_default() -> Self {
+        Self {
+            entries: vec![ChainEntry {
+                provider: LlmProviderType::default(),
+                model: None,
+            }],
+            issues: Vec::new(),
         }
     }
 
-    /// Check if fallback is enabled from environment
-    ///
-    /// Reads `PIERRE_LLM_FALLBACK_ENABLED` - returns true only if set to "true" or "1".
-    /// Disabled by default.
+    /// The entries in chain order, head first. Never empty.
     #[must_use]
-    pub fn is_fallback_enabled() -> bool {
-        env::var(Self::FALLBACK_ENABLED_ENV_VAR)
-            .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
+    pub fn entries(&self) -> &[ChainEntry] {
+        &self.entries
     }
 
-    /// Get fallback provider from environment
-    ///
-    /// Reads `PIERRE_LLM_FALLBACK_PROVIDER` - returns None if not set.
-    /// Must be explicitly configured.
+    /// The primary: the entry every turn is asked of first.
     #[must_use]
-    pub fn fallback_provider_from_env() -> Option<Self> {
-        env::var(Self::FALLBACK_PROVIDER_ENV_VAR)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| Self::from_str_or_default(&s))
+    pub fn head(&self) -> &ChainEntry {
+        // Every constructor leaves at least one entry.
+        &self.entries[0]
     }
 
-    /// Get the fallback provider's model from environment.
-    ///
-    /// Reads `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` — returns None if not set.
-    /// When set, the runtime fallback chain passes this model to the
-    /// secondary instead of the primary's `PIERRE_LLM_MODEL`.
+    /// What parsing repaired or dropped, for the boot log.
     #[must_use]
-    pub fn fallback_provider_model_from_env() -> Option<String> {
-        env::var(Self::FALLBACK_PROVIDER_MODEL_ENV_VAR)
-            .ok()
-            .filter(|s| !s.is_empty())
+    pub fn issues(&self) -> &[String] {
+        &self.issues
     }
+}
 
-    /// Get the tertiary provider from environment, parsed as an
-    /// [`LlmProviderType`]. Returns None when the env var is unset or
-    /// empty, leaving the chain at the existing two-tier
-    /// primary/secondary shape.
-    #[must_use]
-    pub fn tertiary_provider_from_env() -> Option<Self> {
-        env::var(Self::TERTIARY_PROVIDER_ENV_VAR)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(|s| Self::from_str_or_default(&s))
-    }
-
-    /// Get the tertiary provider's model from environment, mirroring
-    /// [`Self::fallback_provider_model_from_env`] for the third tier.
-    #[must_use]
-    pub fn tertiary_provider_model_from_env() -> Option<String> {
-        env::var(Self::TERTIARY_PROVIDER_MODEL_ENV_VAR)
-            .ok()
-            .filter(|s| !s.is_empty())
-    }
-
-    /// Get fallback wait time in seconds from environment
-    ///
-    /// Reads `PIERRE_LLM_FALLBACK_WAIT_SECS` - defaults to 10 seconds.
-    #[must_use]
-    pub fn fallback_wait_secs() -> u64 {
-        env::var(Self::FALLBACK_WAIT_SECS_ENV_VAR)
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Self::DEFAULT_FALLBACK_WAIT_SECS)
-    }
-
-    /// Check if per-request runtime fallback is enabled.
-    ///
-    /// Reads [`Self::RUNTIME_FALLBACK_ENV_VAR`]. When `true`, [`ChatProvider::from_env`]
-    /// builds both the primary and the fallback provider eagerly and keeps them
-    /// available so individual chat requests can retry against the fallback on
-    /// auth/transient errors.
-    #[must_use]
-    pub fn is_runtime_fallback_enabled() -> bool {
-        env::var(Self::RUNTIME_FALLBACK_ENV_VAR)
-            .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1")
+impl Display for LlmChain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        for (position, entry) in self.entries.iter().enumerate() {
+            if position > 0 {
+                write!(f, ",")?;
+            }
+            write!(f, "{entry}")?;
+        }
+        Ok(())
     }
 }
 
@@ -446,6 +495,7 @@ impl Display for LlmProviderType {
             Self::Local => write!(f, "local"),
             Self::OpenRouter => write!(f, "openrouter"),
             Self::Cohere => write!(f, "cohere"),
+            Self::Anthropic => write!(f, "anthropic"),
             Self::ClaudeCode => write!(f, "claude_code"),
             Self::CursorAgent => write!(f, "cursor_agent"),
             Self::OpenCode => write!(f, "opencode"),
@@ -500,5 +550,186 @@ impl LlmModelConfig {
     #[must_use]
     pub fn default_model(&self) -> &str {
         &self.default_model
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChainEntry, LlmChain, LlmModelConfig, LlmProviderType, RETIRED_CHAIN_ENV_VARS};
+
+    #[test]
+    fn no_variable_still_read_is_reported_as_retired() {
+        for live in [LlmChain::ENV_VAR, LlmModelConfig::DEFAULT_MODEL_ENV_VAR] {
+            assert!(
+                !RETIRED_CHAIN_ENV_VARS.contains(&live),
+                "{live} is still read; reporting it as retired would tell an operator to remove it"
+            );
+        }
+    }
+
+    fn entry(provider: LlmProviderType, model: Option<&str>) -> ChainEntry {
+        ChainEntry {
+            provider,
+            model: model.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_deployed_order_parses_with_a_model_per_entry() {
+        let chain = LlmChain::parse(
+            "anthropic=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest",
+        );
+        assert_eq!(
+            chain.entries(),
+            [
+                entry(LlmProviderType::Anthropic, Some("claude-haiku-5-5")),
+                entry(LlmProviderType::CopilotSdk, Some("claude-sonnet-5.5")),
+                entry(LlmProviderType::ClaudeCode, Some("claude-sonnet-5")),
+                entry(LlmProviderType::Gemini, Some("gemini-flash-lite-latest")),
+            ]
+        );
+        assert_eq!(chain.head().provider, LlmProviderType::Anthropic);
+        assert!(chain.issues().is_empty(), "{:?}", chain.issues());
+    }
+
+    #[test]
+    fn a_bare_provider_has_no_model_of_its_own() {
+        let chain = LlmChain::parse("copilot_sdk");
+        assert_eq!(chain.entries(), [entry(LlmProviderType::CopilotSdk, None)]);
+    }
+
+    #[test]
+    fn whitespace_and_name_case_are_forgiven_but_a_model_is_kept_as_written() {
+        let chain = LlmChain::parse("  Copilot_SDK = Claude-Sonnet-5.5 ,  GEMINI ");
+        assert_eq!(
+            chain.entries(),
+            [
+                entry(LlmProviderType::CopilotSdk, Some("Claude-Sonnet-5.5")),
+                entry(LlmProviderType::Gemini, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_model_is_the_provider_default() {
+        let chain = LlmChain::parse("gemini=");
+        assert_eq!(chain.entries(), [entry(LlmProviderType::Gemini, None)]);
+    }
+
+    #[test]
+    fn empty_entries_are_skipped_and_reported() {
+        let chain = LlmChain::parse("copilot_sdk,,gemini,");
+        assert_eq!(
+            chain.entries(),
+            [
+                entry(LlmProviderType::CopilotSdk, None),
+                entry(LlmProviderType::Gemini, None),
+            ]
+        );
+        assert_eq!(chain.issues().len(), 2, "{:?}", chain.issues());
+    }
+
+    #[test]
+    fn an_unknown_provider_is_skipped_never_reinterpreted() {
+        let chain = LlmChain::parse("anthropc=claude-haiku-5-5,copilot_sdk");
+        assert_eq!(
+            chain.entries(),
+            [entry(LlmProviderType::CopilotSdk, None)],
+            "a typo must not become a Gemini tier"
+        );
+        assert!(
+            chain.issues()[0].contains("anthropc"),
+            "{:?}",
+            chain.issues()
+        );
+    }
+
+    #[test]
+    fn a_repeated_provider_keeps_its_first_entry() {
+        let chain = LlmChain::parse("claude_code=claude-sonnet-5,gemini,claude-code=opus");
+        assert_eq!(
+            chain.entries(),
+            [
+                entry(LlmProviderType::ClaudeCode, Some("claude-sonnet-5")),
+                entry(LlmProviderType::Gemini, None),
+            ]
+        );
+        assert!(chain.issues()[0].contains("repeats claude_code"));
+    }
+
+    #[test]
+    fn a_pool_tier_name_is_not_an_entry() {
+        // `anthropic#2` comes from ANTHROPIC_API_KEY_2, never from the list.
+        let chain = LlmChain::parse("anthropic,anthropic#2");
+        assert_eq!(chain.entries(), [entry(LlmProviderType::Anthropic, None)]);
+    }
+
+    #[test]
+    fn no_valid_entry_is_the_platform_default_and_says_so() {
+        let chain = LlmChain::parse("nope, ,");
+        assert_eq!(chain.entries(), [entry(LlmProviderType::Gemini, None)]);
+        assert!(chain
+            .issues()
+            .last()
+            .is_some_and(|issue| issue.contains("platform default")));
+    }
+
+    #[test]
+    fn the_chain_renders_in_its_own_grammar() {
+        let raw = "anthropic=claude-haiku-5-5,copilot_sdk,gemini=gemini-flash-lite-latest";
+        assert_eq!(LlmChain::parse(raw).to_string(), raw);
+    }
+
+    #[test]
+    fn every_provider_name_round_trips_through_the_parser() {
+        for provider in [
+            LlmProviderType::Groq,
+            LlmProviderType::Gemini,
+            LlmProviderType::Local,
+            LlmProviderType::OpenRouter,
+            LlmProviderType::Cohere,
+            LlmProviderType::Anthropic,
+            LlmProviderType::ClaudeCode,
+            LlmProviderType::CursorAgent,
+            LlmProviderType::OpenCode,
+            LlmProviderType::Copilot,
+            LlmProviderType::CopilotHeadless,
+            LlmProviderType::CopilotSdk,
+            LlmProviderType::WarpCli,
+            LlmProviderType::GeminiCli,
+            LlmProviderType::CodexCli,
+            LlmProviderType::GooseCli,
+            LlmProviderType::ClineCli,
+            LlmProviderType::ContinueCli,
+            LlmProviderType::KiroCli,
+            LlmProviderType::KiloCli,
+            LlmProviderType::Router,
+            LlmProviderType::OpenAiApi,
+        ] {
+            assert_eq!(
+                LlmProviderType::parse(&provider.to_string()),
+                Some(provider),
+                "{provider} must be selectable by the name it logs under"
+            );
+        }
+    }
+
+    #[test]
+    fn the_anthropic_api_does_not_spend_the_copilot_token() {
+        // The chain guard passes a tier over for a low GitHub budget only when
+        // it spends that budget; an Anthropic head must never be skipped for it.
+        assert!(!LlmProviderType::Anthropic.spends_copilot_github_token());
+        assert!(LlmProviderType::CopilotSdk.spends_copilot_github_token());
+    }
+
+    #[test]
+    fn an_entry_model_wins_over_the_provider_default() {
+        let named = entry(LlmProviderType::Anthropic, Some("claude-sonnet-5-5"));
+        assert_eq!(
+            named.effective_model().as_deref(),
+            Some("claude-sonnet-5-5")
+        );
+        let cli = entry(LlmProviderType::ClaudeCode, None);
+        assert_eq!(cli.effective_model().as_deref(), Some("opus"));
     }
 }

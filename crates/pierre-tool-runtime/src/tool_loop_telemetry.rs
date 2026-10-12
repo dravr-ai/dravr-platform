@@ -136,17 +136,36 @@ pub fn log_iteration_response(iteration: usize, latency_ms: i64, response: &Chat
     );
 }
 
-/// Record a headless turn leaving the chain's head for its tail.
+/// Record a tool loop leaving the chain's head for its tail.
 ///
-/// The notify event is the one the chain's observer writes when embacle walks
-/// past a tier: this hop happens outside that walk, and without it a head that
-/// fails every tool turn is invisible to the chain-fallthrough alert.
-pub fn note_headless_fallback(from: &ChatProvider, to: &ChatProvider, error: &AppError) {
+/// The tool loops converse with the head alone (the headless loop through its
+/// turn provider, the API loop through
+/// [`ChatProvider::complete_with_tools_on_head`]), so this hop happens outside
+/// embacle's chain walk and the lines embacle and the chain's observer write
+/// for one are never written. Both are reproduced here:
+///
+/// - the `warn!` starts with `fallback: ` and carries the error's message, as
+///   embacle's own chain line does, so a quota answer from the head is counted
+///   by the tier-quota alert and labelled with the tier named in it
+///   (`LLM provider rate limited or out of quota: anthropic#2: …`);
+/// - the notify event is the one the chain's observer writes, so a head that
+///   fails every tool turn is visible to the chain-fallthrough alert.
+///
+/// `tool_loop` names the loop that failed (`api`, `headless`).
+pub fn note_tool_loop_fallback(
+    from: &ChatProvider,
+    to: &ChatProvider,
+    error: &AppError,
+    tool_loop: &'static str,
+) {
     warn!(
+        tool_loop,
+        tier = from.name(),
         primary = from.name(),
         secondary = to.name(),
-        error = %error,
-        "Headless tool loop failed with a provider fault; falling back to the chain's tail"
+        code = ?error.code,
+        error = %error.message,
+        "fallback: tool loop head failed, re-running the turn on the chain's tail"
     );
     info!(
         target: "notify",
@@ -154,6 +173,32 @@ pub fn note_headless_fallback(from: &ChatProvider, to: &ChatProvider, error: &Ap
         from_provider = from.name(),
         to_provider = to.name(),
         reason = ?error.code,
-        "Runtime LLM fallback engaged on a headless turn fault"
+        tool_loop,
+        "Runtime LLM fallback engaged on a tool loop head fault"
+    );
+}
+
+/// Record a tool loop passing over a chain head inside its quota cooldown.
+///
+/// Mirrors what embacle's chain does for the same skip: no `fallback: ` line
+/// (that line is a refusal, and the tier-quota alert counts it — this one was
+/// counted when the window started), and no "Runtime LLM fallback engaged"
+/// event (nothing failed: the head was not asked). The turn's provider
+/// attribution already names the tier that served it.
+pub fn note_tool_loop_cooldown_skip(
+    from: &ChatProvider,
+    to: &ChatProvider,
+    tool_loop: &'static str,
+) {
+    let remaining_secs = from
+        .quota_cooldowns()
+        .and_then(|book| book.remaining(from.name()))
+        .map_or(0, |left| left.as_secs());
+    info!(
+        tool_loop,
+        tier = from.name(),
+        next = to.name(),
+        remaining_secs,
+        "tool loop: chain head is in a quota cooldown; the turn goes to the chain's tail"
     );
 }

@@ -61,8 +61,8 @@ static INIT_LOGGER: Once = Once::new();
 static INIT_HTTP_CLIENTS: Once = Once::new();
 static INIT_SERVER_CONFIG: Once = Once::new();
 
-/// The `PIERRE_LLM_MODEL` value [`init_server_config`] installs when the
-/// environment names none.
+/// The model [`init_server_config`] gives the `PIERRE_LLM_CHAIN` head
+/// (`gemini=mock-model`) when the environment configures no chain.
 ///
 /// Exported so a suite that DOES reach a provider can refuse to run on it
 /// rather than discovering the placeholder in a pricing warning: no backend
@@ -113,19 +113,22 @@ pub fn init_server_config() {
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "test_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "test_garmin_client_secret");
 
-        // The messaging session resolver reads PIERRE_LLM_MODEL when
-        // creating chat_conversations rows. Local dev sources this from
-        // .envrc; CI workflows set it per-job; the Code Coverage workflow
-        // does neither, so without this default the resolver fails hard
-        // and tests like messaging_commands_test::test_non_command_passes_through
-        // panic. The placeholder is safe ONLY for a suite that calls no model:
-        // PIERRE_LLM_MODEL is the highest-priority model override for every
-        // provider (`EmbacleProvider::build_headless` assigns it straight to
-        // `config.model`), so a suite that does reach one is handed a model id
-        // no backend serves. A lane driving real providers must set the value
-        // itself and refuse the placeholder — `live_incident_corpus_test` does.
-        if env::var("PIERRE_LLM_MODEL").is_err() {
-            env::set_var("PIERRE_LLM_MODEL", PLACEHOLDER_LLM_MODEL);
+        // The messaging session resolver records the PIERRE_LLM_CHAIN head's
+        // model when creating chat_conversations rows. Local dev sources the
+        // chain from .envrc; CI workflows set it per-job; the Code Coverage
+        // workflow does neither, and an unset chain's Gemini head runs
+        // PIERRE_LLM_DEFAULT_MODEL, which nothing sets there either — so
+        // without this default the resolver fails hard and tests like
+        // messaging_commands_test::test_non_command_passes_through panic. The
+        // placeholder is safe ONLY for a suite that calls no model: a turn
+        // asks the head for this model id, which no backend serves. A lane
+        // driving real providers must set the chain itself and refuse the
+        // placeholder — `live_incident_corpus_test` does.
+        if env::var("PIERRE_LLM_CHAIN").is_err() {
+            env::set_var(
+                "PIERRE_LLM_CHAIN",
+                format!("gemini={PLACEHOLDER_LLM_MODEL}"),
+            );
         }
 
         let _ = constants::init_server_config();

@@ -342,7 +342,7 @@ mod reply_scaffolding_strip {
     #[tokio::test]
     #[serial]
     async fn persisted_assistant_reply_is_grounded_and_free_of_scaffolding() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let mock = Arc::new(ParrotingMockProvider::new());
         let stub_calls = Arc::new(AtomicUsize::new(0));

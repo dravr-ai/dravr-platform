@@ -265,7 +265,7 @@ mod turn_service_quota_tests {
     #[tokio::test]
     #[serial]
     async fn telegram_turn_increments_one_message_on_the_athletes_tenant() {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let resources =
             create_test_server_resources_with_llm(Arc::new(CountingMockProvider::plain()))
@@ -368,7 +368,7 @@ mod turn_service_quota_tests {
         provider: CountingMockProvider,
         email: &str,
     ) -> (Arc<ServerContext>, Uuid, TenantId) {
-        env::set_var("PIERRE_LLM_MODEL", "mock-model");
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=mock-model");
 
         let resources = create_test_server_resources_with_llm(Arc::new(provider))
             .await

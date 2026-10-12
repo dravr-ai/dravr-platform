@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_config::environment::LlmProviderType;
+use pierre_llm::config::LlmChain;
 use pierre_llm::{ChatMessage, ChatRequest, LlmCapabilities, LlmProviderRegistry, MessageRole};
 
 // ============================================================================
@@ -102,23 +103,21 @@ fn test_llm_provider_type_default() {
 
 #[test]
 fn test_llm_provider_type_from_str() {
+    assert_eq!(LlmProviderType::parse("groq"), Some(LlmProviderType::Groq));
     assert_eq!(
-        LlmProviderType::from_str_or_default("groq"),
-        LlmProviderType::Groq
+        LlmProviderType::parse("gemini"),
+        Some(LlmProviderType::Gemini)
     );
     assert_eq!(
-        LlmProviderType::from_str_or_default("gemini"),
-        LlmProviderType::Gemini
+        LlmProviderType::parse("google"),
+        Some(LlmProviderType::Gemini)
     );
     assert_eq!(
-        LlmProviderType::from_str_or_default("google"),
-        LlmProviderType::Gemini
+        LlmProviderType::parse("anthropic"),
+        Some(LlmProviderType::Anthropic)
     );
-    // Unknown values default to Gemini
-    assert_eq!(
-        LlmProviderType::from_str_or_default("unknown"),
-        LlmProviderType::Gemini
-    );
+    // An unknown value is no provider, never a silent Gemini
+    assert_eq!(LlmProviderType::parse("unknown"), None);
 }
 
 #[test]
@@ -127,20 +126,46 @@ fn test_llm_provider_type_display() {
     assert_eq!(format!("{}", LlmProviderType::Gemini), "gemini");
 }
 
-/// The variable the server reads is the one the deployment sets.
+/// The variable the server reads is the one the deployment sets, and the
+/// value it sets parses as a chain with no entry dropped.
 ///
 /// A text check on purpose: the two sides are this binary and Cloud Run's
 /// environment, which Terraform writes, and nothing in a test process joins
 /// them. A rename on either side alone leaves production on the default
-/// provider without an error anywhere.
+/// provider without an error anywhere; a typo in one entry drops that tier
+/// with only a boot warning.
 #[test]
-fn test_llm_provider_type_env_var_name() {
+fn test_llm_chain_env_var_is_the_one_the_deployment_sets() {
     let deployment = include_str!("../../../infra/environments/dev/main.tf");
+    // Terraform aligns the `=` of neighbouring assignments, so the gap
+    // between the name and the value is any run of spaces.
+    let value = deployment
+        .lines()
+        .find_map(|line| {
+            line.trim_start()
+                .strip_prefix(LlmChain::ENV_VAR)?
+                .trim_start()
+                .strip_prefix('=')?
+                .trim_start()
+                .strip_prefix('"')
+        })
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_else(|| {
+            panic!(
+                "infra/environments/dev/main.tf no longer sets {}, the variable the \
+                 server builds its LLM chain from",
+                LlmChain::ENV_VAR
+            )
+        });
+    let chain = LlmChain::parse(value);
     assert!(
-        deployment.contains(&format!("{} = \"", LlmProviderType::ENV_VAR)),
-        "infra/environments/dev/main.tf no longer sets {}, the variable the \
-         server selects its LLM provider from",
-        LlmProviderType::ENV_VAR
+        chain.issues().is_empty(),
+        "the deployed chain {value:?} drops or repairs an entry: {:?}",
+        chain.issues()
+    );
+    assert!(
+        chain.entries().iter().all(|entry| entry.model.is_some()),
+        "every deployed tier names its model: {value:?}"
     );
 }
 
@@ -148,8 +173,8 @@ fn test_llm_provider_type_env_var_name() {
 fn test_llm_provider_type_local_aliases() {
     for alias in ["local", "ollama", "vllm", "localai"] {
         assert_eq!(
-            LlmProviderType::from_str_or_default(alias),
-            LlmProviderType::Local,
+            LlmProviderType::parse(alias),
+            Some(LlmProviderType::Local),
             "{alias} selects the local OpenAI-compatible provider"
         );
     }
@@ -160,8 +185,8 @@ fn test_llm_provider_type_local_aliases() {
 fn test_llm_provider_type_case_insensitive() {
     for alias in ["LOCAL", "Ollama", "VLLM", "LocalAI"] {
         assert_eq!(
-            LlmProviderType::from_str_or_default(alias),
-            LlmProviderType::Local,
+            LlmProviderType::parse(alias),
+            Some(LlmProviderType::Local),
             "{alias} parses regardless of case"
         );
     }

@@ -11,8 +11,11 @@
 //!
 //! ## Configuration
 //!
-//! Set `PIERRE_LLM_PROVIDER` environment variable:
+//! `PIERRE_LLM_CHAIN` lists the providers in order, each `provider` or
+//! `provider=model` (see [`LlmChain`] for the grammar); the first is the
+//! primary. The provider names:
 //! - `gemini` (default): Google Gemini for full-featured capabilities
+//! - `anthropic`: the Anthropic Messages API (Claude Haiku / Sonnet / Opus)
 //! - `groq`: Groq for cost-effective open-source models
 //! - `cohere`: Cohere Command A / Command R
 //! - `openrouter`: `OpenRouter` as a unified gateway to 200+ models
@@ -23,27 +26,51 @@
 //! - `router`: the quota router (Claude Code in front, Copilot Headless behind)
 //!
 //! Every one of them is an embacle runner, constructed by
-//! [`EmbacleProvider::from_provider_type`]. With
-//! `PIERRE_LLM_RUNTIME_FALLBACK=true` the primary is chained in front of
-//! `PIERRE_LLM_FALLBACK_PROVIDER` and, when set, `PIERRE_LLM_TERTIARY_PROVIDER`
-//! by [`EmbacleProvider::chain`].
+//! [`EmbacleProvider::from_provider_type`], and the tiers that built are
+//! chained in order by [`EmbacleProvider::chain`].
 
+use embacle::QuotaCooldowns;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{error, info, warn};
 
 use super::{
     ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, EmbacleProvider, LlmCapabilities,
     LlmProvider, Tool,
 };
-use crate::config::{LlmProviderType, ProviderConstruction};
+use crate::config::{LlmChain, LlmProviderType};
 use crate::errors::AppError;
 use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
 use crate::stage::{LlmStage, StageModels};
 use crate::tool_bridge::{with_tool_defs, with_tools_response};
+
+/// Name every retired chain variable the environment still sets.
+///
+/// With `PIERRE_LLM_CHAIN` unset they are an operator's chain the process is
+/// ignoring — a binary deployed before its environment moved to the chain, or
+/// a stale `.envrc` — and the platform default (Gemini alone) serves every
+/// turn, so it is an error. With the chain set they are only inert.
+fn report_retired_variables(chain_configured: bool, retired: &[&'static str]) {
+    if retired.is_empty() {
+        return;
+    }
+    if chain_configured {
+        warn!(
+            retired = ?retired,
+            "Retired LLM chain variables are set and ignored; {} decides the chain. Remove them.",
+            LlmChain::ENV_VAR
+        );
+    } else {
+        error!(
+            retired = ?retired,
+            "Retired LLM chain variables are set but {} is not: they are ignored, and the \
+             platform default (Gemini alone, no tier behind it) serves every turn. Set {}.",
+            LlmChain::ENV_VAR,
+            LlmChain::ENV_VAR
+        );
+    }
+}
 
 /// Unified chat provider.
 ///
@@ -60,40 +87,30 @@ pub enum ChatProvider {
     Custom(Arc<dyn LlmProvider>),
 }
 
-/// The tiers a runtime chain is assembled from, each as it came out of
-/// construction: `Ok` is a tier, `Err` is the reason a configured tier is
-/// missing (logged, never fatal while another tier built).
-pub struct ChainTiers {
-    /// `PIERRE_LLM_PROVIDER`'s provider.
-    pub primary: Result<EmbacleProvider, AppError>,
-    /// The primary's further accounts, in order (`CLAUDE_CODE_OAUTH_TOKEN_2`,
-    /// `_3`, …), each its own tier right behind it — a spent account moves
-    /// the turn to the next account before the chain leaves the runner.
-    /// Empty when the primary is not a pooled CLI runner or has one account.
+/// One configured tier of the chain as it came out of construction: `built`
+/// is `Ok` with the provider, or `Err` with the reason it is missing (logged,
+/// never fatal while another tier built).
+pub struct ChainTier {
+    /// The provider the chain entry names.
+    pub kind: LlmProviderType,
+    /// The provider, or why it did not build.
+    pub built: Result<EmbacleProvider, AppError>,
+    /// The provider's further accounts, in order (`CLAUDE_CODE_OAUTH_TOKEN_2`,
+    /// `ANTHROPIC_API_KEY_2`, …), each its own tier right behind it — a spent
+    /// account moves the turn to the next account before the chain leaves
+    /// the provider, wherever the provider sits. They go where the tier goes:
+    /// a tier that did not build takes its accounts with it, the binary or
+    /// the shared settings being the same ones.
     pub accounts: Vec<EmbacleProvider>,
-    /// `PIERRE_LLM_FALLBACK_PROVIDER`'s provider.
-    pub secondary: Result<EmbacleProvider, AppError>,
-    /// The secondary's further accounts, right behind it as the primary's
-    /// are behind the primary: the pool follows its runner wherever the
-    /// runner sits in the chain. They go where the secondary goes — a
-    /// secondary that did not build takes its accounts with it, the binary
-    /// being the same one.
-    pub secondary_accounts: Vec<EmbacleProvider>,
-    /// `PIERRE_LLM_TERTIARY_PROVIDER`'s provider, when one is configured that
-    /// differs from both other tiers.
-    pub tertiary: Option<Result<EmbacleProvider, AppError>>,
-    /// The tertiary's further accounts, right behind it.
-    pub tertiary_accounts: Vec<EmbacleProvider>,
 }
 
 impl ChatProvider {
-    /// Create a provider from environment configuration
+    /// Create the provider `PIERRE_LLM_CHAIN` configures.
     ///
-    /// Reads `PIERRE_LLM_PROVIDER` to determine which provider to use (see
-    /// the module docs for the values).
-    ///
-    /// When `PIERRE_LLM_FALLBACK_ENABLED=true`, if the primary provider fails,
-    /// attempts to use the fallback provider specified by `PIERRE_LLM_FALLBACK_PROVIDER`.
+    /// Every entry is built in order, with the model it names and its pooled
+    /// accounts right behind it, and the tiers that built are chained
+    /// ([`Self::assemble_runtime_chain`]). Unset, the chain is one Gemini
+    /// entry on `PIERRE_LLM_DEFAULT_MODEL`.
     ///
     /// The provider it returns is the platform's head, so it is also the one
     /// that carries the background stages' models ([`crate::stage`]), resolved
@@ -101,26 +118,36 @@ impl ChatProvider {
     ///
     /// # Errors
     ///
-    /// Returns an error if the required API key environment variable is missing
-    /// (for cloud providers) or if the local server cannot be reached, and
-    /// fallback is disabled or also fails.
+    /// Returns an error when no tier initialized: the one tier's own error
+    /// for a single-entry chain, a config error naming every tier otherwise.
     pub async fn from_env() -> Result<Self, AppError> {
-        let provider_type = LlmProviderType::from_env();
-
+        let chain = LlmChain::from_env();
+        for issue in chain.issues() {
+            warn!(
+                variable = LlmChain::ENV_VAR,
+                "LLM chain configuration: {issue}"
+            );
+        }
+        report_retired_variables(
+            LlmChain::is_configured(),
+            &LlmChain::retired_variables_set(),
+        );
         info!(
-            "Initializing LLM provider: {} (set {} to change)",
-            provider_type,
-            LlmProviderType::ENV_VAR
+            chain = %chain,
+            "Initializing LLM provider chain (set {} to change)",
+            LlmChain::ENV_VAR
         );
 
-        let primary_result = EmbacleProvider::from_provider_type(provider_type, None).await;
-
-        let provider = if LlmProviderType::is_runtime_fallback_enabled() {
-            Self::build_runtime_chain(primary_result, provider_type).await?
-        } else {
-            Self::finalize_or_fallback(primary_result, provider_type).await?
-        };
-        Ok(provider.with_stage_models_from_env())
+        let mut tiers = Vec::with_capacity(chain.entries().len());
+        for entry in chain.entries() {
+            let model = entry.model.as_deref();
+            tiers.push(ChainTier {
+                kind: entry.provider,
+                built: EmbacleProvider::from_provider_type(entry.provider, model).await,
+                accounts: EmbacleProvider::pooled_accounts(entry.provider, model),
+            });
+        }
+        Ok(Self::assemble_runtime_chain(tiers)?.with_stage_models_from_env())
     }
 
     /// This provider with its background stages routed per [`StageModels::from_env`],
@@ -159,353 +186,77 @@ impl ChatProvider {
         request
     }
 
-    /// Build the runtime chain when `PIERRE_LLM_RUNTIME_FALLBACK=true`.
+    /// Chain whichever tiers built, in order, each followed by its accounts,
+    /// and log every tier that did not.
     ///
-    /// Requires `PIERRE_LLM_FALLBACK_PROVIDER` to be set. If the primary
-    /// fails to initialize, the chain collapses to a fallback-only provider
-    /// (same effective result as the init-time fallback path). If the
-    /// fallback is missing or fails to initialize, the chain collapses to
-    /// primary-only so callers always get a usable provider when at least
-    /// one side worked.
-    async fn build_runtime_chain(
-        primary_result: Result<EmbacleProvider, AppError>,
-        primary_type: LlmProviderType,
-    ) -> Result<Self, AppError> {
-        let fallback_type = LlmProviderType::fallback_provider_from_env();
-
-        let Some(fallback_type) = fallback_type else {
-            warn!(
-                "{} is true but {} is unset — runtime fallback disabled",
-                LlmProviderType::RUNTIME_FALLBACK_ENV_VAR,
-                LlmProviderType::FALLBACK_PROVIDER_ENV_VAR,
-            );
-            return Self::finalize_or_fallback(primary_result, primary_type).await;
-        };
-
-        if fallback_type == primary_type {
-            warn!(
-                "{} matches {} ({primary_type}) — runtime fallback disabled",
-                LlmProviderType::FALLBACK_PROVIDER_ENV_VAR,
-                LlmProviderType::ENV_VAR,
-            );
-            return Self::finalize_or_fallback(primary_result, primary_type).await;
-        }
-
-        // The secondary and tertiary take their own model overrides so each
-        // tier can target a different model namespace (Copilot's
-        // `claude-opus-4.8`, Cohere's `command-a-03-2025`, Gemini's
-        // `gemini-flash-lite-latest`); the primary's `PIERRE_LLM_MODEL` would
-        // 404 on the other vendors' APIs.
-        let secondary_model = LlmProviderType::fallback_provider_model_from_env();
-        let secondary_result =
-            EmbacleProvider::from_provider_type(fallback_type, secondary_model.as_deref()).await;
-
-        let tertiary_type = Self::tertiary_type(primary_type, fallback_type);
-        let tertiary_model = LlmProviderType::tertiary_provider_model_from_env();
-        let tertiary = match tertiary_type {
-            Some(tertiary_type) => Some(
-                EmbacleProvider::from_provider_type(tertiary_type, tertiary_model.as_deref()).await,
-            ),
-            None => None,
-        };
-
-        // A CLI tier pools wherever it sits: its further accounts are right
-        // behind it, on the model that tier runs, so a spent account moves
-        // the turn to the next account before the chain leaves the runner
-        // (carnet#480) — as the primary, or behind another primary.
-        Self::assemble_runtime_chain(
-            ChainTiers {
-                primary: primary_result,
-                accounts: Self::further_accounts(primary_type, None),
-                secondary: secondary_result,
-                secondary_accounts: Self::further_accounts(
-                    fallback_type,
-                    secondary_model.as_deref(),
-                ),
-                tertiary,
-                tertiary_accounts: tertiary_type
-                    .map(|kind| Self::further_accounts(kind, tertiary_model.as_deref()))
-                    .unwrap_or_default(),
-            },
-            primary_type,
-            fallback_type,
-        )
-    }
-
-    /// The further accounts of the tier `kind` names, on `model_override`:
-    /// those of a pooled CLI runner, none for any other construction.
-    fn further_accounts(
-        kind: LlmProviderType,
-        model_override: Option<&str>,
-    ) -> Vec<EmbacleProvider> {
-        match kind.construction() {
-            ProviderConstruction::Cli(runner_type) => {
-                EmbacleProvider::pooled_accounts(runner_type, model_override)
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    /// The tertiary provider type, when [`LlmProviderType::TERTIARY_PROVIDER_ENV_VAR`]
-    /// is set and resolves to a different type than both primary and
-    /// secondary (so the chain does not degenerate). `None` otherwise — the
-    /// chain stays two-tier.
-    fn tertiary_type(
-        primary_type: LlmProviderType,
-        fallback_type: LlmProviderType,
-    ) -> Option<LlmProviderType> {
-        let tertiary_type = LlmProviderType::tertiary_provider_from_env()?;
-
-        if tertiary_type == primary_type || tertiary_type == fallback_type {
-            warn!(
-                "{} ({tertiary_type}) matches an existing tier — tertiary fallback disabled",
-                LlmProviderType::TERTIARY_PROVIDER_ENV_VAR,
-            );
-            return None;
-        }
-
-        Some(tertiary_type)
-    }
-
-    /// Chain whichever tiers built, in order, and log every tier that did not.
-    ///
-    /// A missing tier is never fatal while another built: the secondary
-    /// failing promotes the tertiary, the tertiary failing leaves the two-tier
-    /// chain, the primary failing runs fallback-only. Only every tier failing
-    /// is an error. The warnings are the operator's only signal that a
-    /// configured tier is absent.
+    /// A missing tier is never fatal while another built: the tiers behind it
+    /// move up. Only every tier failing is an error. The warnings are the
+    /// operator's only signal that a configured tier is absent.
     ///
     /// Public so the assembly can be driven with scripted tiers; production
     /// reaches it through [`Self::from_env`].
     ///
     /// # Errors
     ///
-    /// Returns a config error when no tier initialized.
-    pub fn assemble_runtime_chain(
-        tiers: ChainTiers,
-        primary_type: LlmProviderType,
-        fallback_type: LlmProviderType,
-    ) -> Result<Self, AppError> {
-        let ChainTiers {
-            primary,
+    /// Returns an error when no tier initialized: a single tier's own error
+    /// unchanged, else a config error carrying every tier's reason.
+    pub fn assemble_runtime_chain(tiers: Vec<ChainTier>) -> Result<Self, AppError> {
+        let configured = tiers.len();
+        let mut built = Vec::new();
+        let mut failures = Vec::new();
+        for ChainTier {
+            kind,
+            built: result,
             accounts,
-            secondary,
-            secondary_accounts,
-            tertiary,
-            tertiary_accounts,
-        } = tiers;
+        } in tiers
+        {
+            match result {
+                Ok(tier) => {
+                    built.push(tier);
+                    built.extend(accounts);
+                }
+                Err(err) => {
+                    warn!(
+                        provider = %kind,
+                        error = %err,
+                        "LLM chain tier failed to initialize; the tiers behind it move up"
+                    );
+                    failures.push((kind, err));
+                }
+            }
+        }
 
-        let secondary = secondary.map(|tier| Self::followed_by(tier, secondary_accounts));
-        let tertiary =
-            tertiary.map(|built| built.map(|tier| Self::followed_by(tier, tertiary_accounts)));
-        let tail = Self::with_accounts(
-            accounts,
-            Self::tail_tiers(secondary, tertiary, fallback_type),
-            fallback_type,
-        );
-        let tiers = match (primary, tail) {
-            (Ok(primary), Ok(tail)) => {
-                info!(
-                    primary = %primary_type,
-                    secondary = %fallback_type,
-                    tiers = tail.len() + 1,
-                    "Runtime LLM fallback chain initialized"
-                );
-                let mut tiers = Vec::with_capacity(tail.len() + 1);
-                tiers.push(primary);
-                tiers.extend(tail);
-                tiers
+        if built.is_empty() {
+            if failures.len() == 1 {
+                if let Some((_, only)) = failures.pop() {
+                    return Err(only);
+                }
             }
-            (Ok(primary), Err(secondary_err)) => {
-                warn!(
-                    primary = %primary_type,
-                    secondary = %fallback_type,
-                    error = %secondary_err,
-                    "Fallback provider failed to initialize; running primary-only"
-                );
-                vec![primary]
-            }
-            (Err(primary_err), Ok(tail)) => {
-                warn!(
-                    primary = %primary_type,
-                    secondary = %fallback_type,
-                    error = %primary_err,
-                    "Primary provider failed to initialize; running fallback-only"
-                );
-                tail
-            }
-            (Err(primary_err), Err(secondary_err)) => {
-                return Err(AppError::config(format!(
-                    "Both runtime-chain providers failed. Primary ({primary_type}): {primary_err}. \
-                     Secondary ({fallback_type}): {secondary_err}"
-                )))
-            }
-        };
+            let reasons = failures
+                .iter()
+                .map(|(kind, err)| format!("{kind}: {err}"))
+                .collect::<Vec<_>>()
+                .join(". ");
+            return Err(AppError::config(format!(
+                "Every LLM chain tier failed to initialize. {reasons}"
+            )));
+        }
 
-        for tier in &tiers {
+        for tier in &built {
             validate_model_for_provider(tier);
         }
-        Ok(Self::Embacle(EmbacleProvider::chain(tiers)?))
-    }
-
-    /// A tier with its further accounts right behind it, in order.
-    fn followed_by(tier: EmbacleProvider, accounts: Vec<EmbacleProvider>) -> Vec<EmbacleProvider> {
-        let mut tiers = Vec::with_capacity(accounts.len() + 1);
-        tiers.push(tier);
-        tiers.extend(accounts);
-        tiers
-    }
-
-    /// The primary's further accounts lead the tail: a spent account moves the
-    /// turn to the next account before the chain leaves the runner. With no
-    /// fallback tier built, the accounts alone are the tail.
-    fn with_accounts(
-        accounts: Vec<EmbacleProvider>,
-        rest: Result<Vec<EmbacleProvider>, AppError>,
-        fallback_type: LlmProviderType,
-    ) -> Result<Vec<EmbacleProvider>, AppError> {
-        match rest {
-            Ok(rest) => Ok(accounts.into_iter().chain(rest).collect()),
-            Err(err) if accounts.is_empty() => Err(err),
-            Err(err) => {
-                warn!(
-                    secondary = %fallback_type,
-                    error = %err,
-                    "No fallback tier built; the primary's accounts are the whole tail"
-                );
-                Ok(accounts)
-            }
+        if built.len() > 1 {
+            info!(
+                tiers = ?built.iter().map(LlmProvider::name).collect::<Vec<_>>(),
+                configured,
+                missing = failures.len(),
+                "Runtime LLM fallback chain initialized"
+            );
         }
-    }
-
-    /// The tiers behind the primary: the secondary, then the tertiary when it
-    /// built, each with its own further accounts. `Err` when neither built
-    /// (the secondary's error, as the one the operator configured first).
-    fn tail_tiers(
-        secondary: Result<Vec<EmbacleProvider>, AppError>,
-        tertiary: Option<Result<Vec<EmbacleProvider>, AppError>>,
-        fallback_type: LlmProviderType,
-    ) -> Result<Vec<EmbacleProvider>, AppError> {
-        match tertiary {
-            None => secondary,
-            Some(Ok(tertiary)) => Ok(Self::tail_with_tertiary(secondary, tertiary, fallback_type)),
-            Some(Err(tertiary_err)) => {
-                Self::tail_without_tertiary(secondary, &tertiary_err, fallback_type)
-            }
-        }
-    }
-
-    /// The tertiary built: behind the secondary when that built too, in its
-    /// place otherwise.
-    fn tail_with_tertiary(
-        secondary: Result<Vec<EmbacleProvider>, AppError>,
-        tertiary: Vec<EmbacleProvider>,
-        fallback_type: LlmProviderType,
-    ) -> Vec<EmbacleProvider> {
-        match secondary {
-            Ok(mut secondary) => {
-                info!(
-                    secondary = %fallback_type,
-                    "Tertiary LLM fallback initialized; chain is primary -> secondary -> tertiary"
-                );
-                secondary.extend(tertiary);
-                secondary
-            }
-            Err(secondary_err) => {
-                warn!(
-                    secondary = %fallback_type,
-                    error = %secondary_err,
-                    "Secondary provider failed to initialize; promoting tertiary"
-                );
-                tertiary
-            }
-        }
-    }
-
-    /// The tertiary did not build: the secondary alone, or nothing.
-    fn tail_without_tertiary(
-        secondary: Result<Vec<EmbacleProvider>, AppError>,
-        tertiary_err: &AppError,
-        fallback_type: LlmProviderType,
-    ) -> Result<Vec<EmbacleProvider>, AppError> {
-        match secondary {
-            Ok(secondary) => {
-                warn!(
-                    secondary = %fallback_type,
-                    error = %tertiary_err,
-                    "Tertiary provider failed to initialize; running two-tier chain"
-                );
-                Ok(secondary)
-            }
-            Err(secondary_err) => {
-                warn!(
-                    secondary = %fallback_type,
-                    secondary_error = %secondary_err,
-                    tertiary_error = %tertiary_err,
-                    "Both secondary and tertiary failed; falling back to primary-only"
-                );
-                Err(secondary_err)
-            }
-        }
-    }
-
-    /// Finalize provider initialization or attempt fallback on failure
-    async fn finalize_or_fallback(
-        result: Result<EmbacleProvider, AppError>,
-        provider_type: LlmProviderType,
-    ) -> Result<Self, AppError> {
-        match result {
-            Ok(provider) => {
-                debug!(
-                    "Provider {} initialized with model: {}",
-                    provider.display_name(),
-                    provider.default_model()
-                );
-                validate_model_for_provider(&provider);
-                Ok(Self::Embacle(provider))
-            }
-            Err(primary_error) => Self::try_fallback(provider_type, primary_error).await,
-        }
-    }
-
-    /// Attempt to initialize a fallback provider after primary fails
-    async fn try_fallback(
-        primary_type: LlmProviderType,
-        primary_error: AppError,
-    ) -> Result<Self, AppError> {
-        let fallback_enabled = LlmProviderType::is_fallback_enabled();
-        let fallback_provider = LlmProviderType::fallback_provider_from_env();
-
-        let Some(fallback) = fallback_provider else {
-            return Err(primary_error);
-        };
-
-        if !fallback_enabled || fallback == primary_type {
-            return Err(primary_error);
-        }
-
-        let wait_secs = LlmProviderType::fallback_wait_secs();
-        info!(
-            "Primary provider {} failed, waiting {}s before fallback to {}",
-            primary_type, wait_secs, fallback
-        );
-
-        sleep(Duration::from_secs(wait_secs)).await;
-
-        match EmbacleProvider::from_provider_type(fallback, None).await {
-            Ok(provider) => {
-                info!(
-                    "Fallback provider {} initialized with model: {}",
-                    provider.display_name(),
-                    provider.default_model()
-                );
-                Ok(Self::Embacle(provider))
-            }
-            Err(fallback_error) => Err(AppError::config(format!(
-                "Both primary ({primary_type}) and fallback ({fallback}) providers failed. \
-                Primary: {primary_error}. Fallback: {fallback_error}"
-            ))),
-        }
+        Ok(Self::Embacle(EmbacleProvider::chain(
+            built,
+            QuotaCooldowns::default(),
+        )?))
     }
 
     /// The inner [`EmbacleProvider`], when this is one.
@@ -522,15 +273,43 @@ impl ChatProvider {
 
     /// The runtime-fallback chain minus its head, when this is a chain.
     ///
-    /// The headless tool loop bypasses the chain to converse with the head's
-    /// turn provider, so the chain's own fallback never fires for SDK
-    /// tool-calling turns. Exposing the tail lets the tool loop re-run the
-    /// turn against it when the head fails with a provider fault.
+    /// The tool loops bypass the chain to converse with its head (see
+    /// [`Self::complete_with_tools_on_head`]), so the chain's own fallback
+    /// never fires for tool-calling turns. Exposing the tail lets a tool loop
+    /// re-run the turn against it when the head fails with a provider fault.
     #[must_use]
     pub fn fallback_tail(&self) -> Option<&Self> {
         match self {
             Self::Embacle(p) => p.fallback_tail(),
             Self::Custom(_) => None,
+        }
+    }
+
+    /// The quota cooldown book the runtime-fallback chain shares, when this
+    /// is one (see [`EmbacleProvider::chain`]).
+    #[must_use]
+    pub const fn quota_cooldowns(&self) -> Option<&QuotaCooldowns> {
+        match self {
+            Self::Embacle(p) => p.quota_cooldowns(),
+            Self::Custom(_) => None,
+        }
+    }
+
+    /// The chain's head on its own, when this is a chain; `None` when it is
+    /// not, the provider being its own head already.
+    ///
+    /// A turn is routed by the head's capabilities, so the tool loop it takes
+    /// is the head's. Sending that loop's request through the whole chain
+    /// would let a fault hand it to a tier that cannot honour it — a
+    /// tool-carrying request reaching a Copilot runtime with no MCP servers
+    /// comes back as an ungrounded reply. The tool loops converse with the
+    /// head alone and, on a provider fault, re-run the turn against
+    /// [`Self::fallback_tail`], dispatched on the tail's own capabilities.
+    #[must_use]
+    fn chain_head(&self) -> Option<Self> {
+        match self {
+            Self::Embacle(p) if p.fallback_tail().is_some() => Some(Self::Embacle(p.head_alone())),
+            Self::Embacle(_) | Self::Custom(_) => None,
         }
     }
 
@@ -549,6 +328,27 @@ impl ChatProvider {
             current = chain.fallback_tail();
         }
         tiers
+    }
+
+    /// Whether some tier that may serve a tool turn takes its tools over MCP
+    /// rather than as structured declarations on the request.
+    ///
+    /// A turn is routed by the head's capabilities, but when the head faults
+    /// the tool loops re-run it on [`Self::fallback_tail`], each tier routed
+    /// by its own: a Copilot runtime then calls the turn's tools only through
+    /// the MCP servers the turn opened, and a CLI runner prefers them to its
+    /// text catalogue. Asked of the head alone, an Anthropic head in front of
+    /// a Copilot tier would answer no, the turn would open no servers, and the
+    /// Copilot tier would answer with no tools at all.
+    #[must_use]
+    pub fn needs_mcp_servers(&self) -> bool {
+        let tiers = self.chain_tiers();
+        if tiers.is_empty() {
+            return !self.capabilities().supports_function_calling();
+        }
+        tiers
+            .iter()
+            .any(|tier| !tier.capabilities().supports_function_calling())
     }
 
     /// Ask every tier of the chain, alone and in order, for one completion.
@@ -598,6 +398,30 @@ impl ChatProvider {
         let forwarded = with_tool_defs(request, tools);
         let response = self.inner().complete(&forwarded).await?;
         Ok(with_tools_response(response))
+    }
+
+    /// [`Self::complete_with_tools`] against the chain's head alone, outside
+    /// the chain's fallback: the head's own error comes back instead of
+    /// another tier's answer to a request it could not serve. A turn is
+    /// routed by the head's capabilities, and a tool-carrying request a fault
+    /// handed to a Copilot runtime with no MCP servers would come back as an
+    /// ungrounded reply; the tool loops re-run a faulted turn against
+    /// [`Self::fallback_tail`] instead, dispatched on the tail's own
+    /// capabilities. The same call as [`Self::complete_with_tools`] when this
+    /// is not a chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns the head's error when its call fails.
+    pub async fn complete_with_tools_on_head(
+        &self,
+        request: &ChatRequest,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ChatResponseWithTools, AppError> {
+        match self.chain_head() {
+            Some(head) => head.complete_with_tools(request, tools).await,
+            None => self.complete_with_tools(request, tools).await,
+        }
     }
 
     /// The provider behind either variant.
@@ -719,5 +543,122 @@ impl LlmProvider for ChatProvider {
 
     async fn health_check(&self) -> Result<bool, AppError> {
         self.inner().health_check().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use embacle::types::{
+        ChatRequest as RunnerRequest, ChatResponse as RunnerResponse, ChatStream as RunnerStream,
+        LlmCapabilities as RunnerCapabilities, LlmProvider as RunnerProvider, RunnerError,
+    };
+
+    use super::{ChatProvider, EmbacleProvider, QuotaCooldowns};
+
+    /// A tier that is only ever asked what it can do.
+    struct Tier {
+        name: &'static str,
+        capabilities: RunnerCapabilities,
+    }
+
+    #[async_trait]
+    impl RunnerProvider for Tier {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn display_name(&self) -> &str {
+            self.name
+        }
+
+        fn capabilities(&self) -> RunnerCapabilities {
+            self.capabilities
+        }
+
+        fn default_model(&self) -> &str {
+            self.name
+        }
+
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, _request: &RunnerRequest) -> Result<RunnerResponse, RunnerError> {
+            Err(RunnerError::internal("not asked in this test"))
+        }
+
+        async fn complete_stream(
+            &self,
+            _request: &RunnerRequest,
+        ) -> Result<RunnerStream, RunnerError> {
+            Err(RunnerError::internal("not asked in this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, RunnerError> {
+            Ok(true)
+        }
+    }
+
+    /// An API tier: tools travel as structured declarations on the request.
+    fn api(name: &'static str) -> EmbacleProvider {
+        let capabilities =
+            RunnerCapabilities::SYSTEM_MESSAGES | RunnerCapabilities::FUNCTION_CALLING;
+        EmbacleProvider::from_runner(Box::new(Tier { name, capabilities }), name)
+    }
+
+    /// A Copilot-runtime tier: tools reach it only over the turn's MCP servers.
+    fn copilot(name: &'static str) -> EmbacleProvider {
+        let capabilities =
+            RunnerCapabilities::SYSTEM_MESSAGES | RunnerCapabilities::SDK_TOOL_CALLING;
+        EmbacleProvider::from_runner(Box::new(Tier { name, capabilities }), name)
+    }
+
+    fn chain(tiers: Vec<EmbacleProvider>) -> ChatProvider {
+        ChatProvider::Embacle(EmbacleProvider::chain(tiers, QuotaCooldowns::default()).unwrap())
+    }
+
+    #[test]
+    fn a_copilot_tier_behind_an_api_head_needs_the_mcp_servers() {
+        let provider = chain(vec![
+            api("anthropic"),
+            api("anthropic#2"),
+            copilot("copilot_sdk"),
+        ]);
+        assert!(
+            provider.capabilities().supports_function_calling(),
+            "the turn is routed by the head, which takes structured tools"
+        );
+        assert!(
+            provider.needs_mcp_servers(),
+            "the tail's Copilot tier serves a faulted turn only through the turn's MCP servers"
+        );
+    }
+
+    #[test]
+    fn an_all_api_chain_needs_no_mcp_servers() {
+        let provider = chain(vec![api("anthropic"), api("gemini")]);
+        assert!(!provider.needs_mcp_servers());
+    }
+
+    #[test]
+    fn a_chain_offers_its_head_alone_and_a_solo_provider_is_its_own_head() {
+        let provider = chain(vec![api("anthropic"), copilot("copilot_sdk")]);
+        let head = provider
+            .chain_head()
+            .expect("a chain has a head to call alone");
+        assert_eq!(head.name(), "anthropic");
+        assert!(
+            head.fallback_tail().is_none(),
+            "the head alone has nothing behind it, so a fault comes back as the head's own"
+        );
+
+        assert!(ChatProvider::Embacle(api("gemini")).chain_head().is_none());
+    }
+
+    #[test]
+    fn a_solo_provider_needs_them_only_without_function_calling() {
+        assert!(!ChatProvider::Embacle(api("gemini")).needs_mcp_servers());
+        assert!(ChatProvider::Embacle(copilot("copilot_sdk")).needs_mcp_servers());
     }
 }

@@ -6,13 +6,15 @@
 
 //! A chain reports its head tier — `name()` keys `llm_usage.provider` and the
 //! price table, `capabilities()` picks the tool loop — and exposes the rest
-//! as its tail for the headless loop's re-run. `assemble_runtime_chain` turns
-//! whatever tiers built at boot into that chain, promoting a tertiary over a
-//! secondary that failed and collapsing to a solo provider when only one side
-//! built.
+//! as its tail for the tool loops' re-run. `assemble_runtime_chain` turns
+//! whatever `PIERRE_LLM_CHAIN` tiers built at boot into that chain, in order,
+//! each followed by its pooled accounts, moving later tiers up over one that
+//! failed and collapsing to a solo provider when only one built.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
+
+use std::time::Duration;
 
 use async_trait::async_trait;
 use embacle::types::{
@@ -21,7 +23,7 @@ use embacle::types::{
 };
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::errors::{AppError, ErrorCode};
-use pierre_llm::{ChainTiers, ChatProvider, EmbacleProvider, LlmProvider};
+use pierre_llm::{ChainTier, ChatProvider, EmbacleProvider, LlmProvider, QuotaCooldowns};
 
 /// A scripted embacle runner with a name and a capability set of its own.
 struct Scripted {
@@ -114,13 +116,14 @@ fn gemini_like() -> EmbacleProvider {
 
 #[test]
 fn zero_tiers_is_a_config_error() {
-    let err = EmbacleProvider::chain(vec![]).expect_err("no tiers, no chain");
+    let err =
+        EmbacleProvider::chain(vec![], QuotaCooldowns::default()).expect_err("no tiers, no chain");
     assert_eq!(err.code, ErrorCode::ConfigError);
 }
 
 #[test]
 fn one_tier_is_that_tier_unchained() {
-    let solo = EmbacleProvider::chain(vec![cohere_like()]).unwrap();
+    let solo = EmbacleProvider::chain(vec![cohere_like()], QuotaCooldowns::default()).unwrap();
     assert_eq!(solo.name(), "cohere");
     assert_eq!(solo.display_name(), "Cohere (scripted)");
     assert!(
@@ -131,7 +134,11 @@ fn one_tier_is_that_tier_unchained() {
 
 #[test]
 fn a_chain_reports_its_head_tier_not_the_union() {
-    let chain = EmbacleProvider::chain(vec![copilot_like(), cohere_like()]).unwrap();
+    let chain = EmbacleProvider::chain(
+        vec![copilot_like(), cohere_like()],
+        QuotaCooldowns::default(),
+    )
+    .unwrap();
 
     assert_eq!(
         chain.name(),
@@ -159,7 +166,11 @@ fn a_chain_reports_its_head_tier_not_the_union() {
 
 #[test]
 fn the_tail_of_a_three_tier_chain_is_two_deep() {
-    let chain = EmbacleProvider::chain(vec![copilot_like(), cohere_like(), gemini_like()]).unwrap();
+    let chain = EmbacleProvider::chain(
+        vec![copilot_like(), cohere_like(), gemini_like()],
+        QuotaCooldowns::default(),
+    )
+    .unwrap();
 
     let tail = chain.fallback_tail().expect("a chain has a tail");
     assert_eq!(
@@ -184,209 +195,57 @@ fn the_tail_of_a_three_tier_chain_is_two_deep() {
 
 #[test]
 fn a_two_tier_chain_has_a_solo_tail() {
-    let chain = EmbacleProvider::chain(vec![copilot_like(), cohere_like()]).unwrap();
+    let chain = EmbacleProvider::chain(
+        vec![copilot_like(), cohere_like()],
+        QuotaCooldowns::default(),
+    )
+    .unwrap();
     let tail = chain.fallback_tail().expect("a chain has a tail");
     assert_eq!(tail.name(), "cohere");
     assert!(tail.fallback_tail().is_none());
 }
 
-#[test]
-fn every_tier_built_assembles_three_deep() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Ok(cohere_like()),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Ok(gemini_like())),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
-    )
-    .unwrap();
-
-    assert_eq!(chain.name(), "copilot_headless");
-    let tail = chain.fallback_tail().unwrap();
-    assert_eq!(tail.name(), "cohere");
-    assert_eq!(tail.fallback_tail().unwrap().name(), "gemini");
+/// A built tier with no further accounts.
+fn ok(kind: LlmProviderType, tier: EmbacleProvider) -> ChainTier {
+    ChainTier {
+        kind,
+        built: Ok(tier),
+        accounts: Vec::new(),
+    }
 }
 
-#[test]
-fn a_failed_secondary_promotes_the_tertiary() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Err(AppError::config("COHERE_API_KEY unset")),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Ok(gemini_like())),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
-    )
-    .unwrap();
-
-    assert_eq!(chain.name(), "copilot_headless");
-    let tail = chain
-        .fallback_tail()
-        .expect("the tertiary takes the secondary's place");
-    assert_eq!(tail.name(), "gemini");
-    assert!(tail.fallback_tail().is_none(), "two tiers, not three");
+/// A built tier followed by its further accounts.
+fn pooled(
+    kind: LlmProviderType,
+    tier: EmbacleProvider,
+    accounts: Vec<EmbacleProvider>,
+) -> ChainTier {
+    ChainTier {
+        kind,
+        built: Ok(tier),
+        accounts,
+    }
 }
 
-#[test]
-fn a_failed_tertiary_leaves_the_two_tier_chain() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Ok(cohere_like()),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
-    )
-    .unwrap();
-
-    let tail = chain.fallback_tail().unwrap();
-    assert_eq!(tail.name(), "cohere");
-    assert!(tail.fallback_tail().is_none());
+/// A configured tier that did not build.
+fn failed(kind: LlmProviderType, reason: &str) -> ChainTier {
+    ChainTier {
+        kind,
+        built: Err(AppError::config(reason)),
+        accounts: Vec::new(),
+    }
 }
 
-#[test]
-fn a_failed_tail_runs_the_primary_alone() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Err(AppError::config("COHERE_API_KEY unset")),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
+/// An Anthropic-API-shaped tier or account, by name: native function calling.
+fn anthropic_like(name: &'static str) -> EmbacleProvider {
+    EmbacleProvider::from_runner(
+        Box::new(Scripted::new(
+            name,
+            LlmCapabilities::STREAMING | LlmCapabilities::FUNCTION_CALLING,
+        )),
+        "Anthropic API (scripted)",
     )
-    .unwrap();
-
-    assert_eq!(chain.name(), "copilot_headless");
-    assert!(
-        chain.fallback_tail().is_none(),
-        "with no tail tier the primary is solo, not a chain of one"
-    );
 }
-
-#[test]
-fn a_failed_primary_runs_the_tail_alone() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Err(AppError::config("copilot binary missing")),
-            accounts: Vec::new(),
-            secondary: Ok(cohere_like()),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Ok(gemini_like())),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
-    )
-    .unwrap();
-
-    assert_eq!(
-        chain.name(),
-        "cohere",
-        "the secondary leads when the primary is absent"
-    );
-    assert_eq!(chain.fallback_tail().unwrap().name(), "gemini");
-}
-
-#[test]
-fn every_tier_failing_is_a_config_error() {
-    let err = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Err(AppError::config("copilot binary missing")),
-            accounts: Vec::new(),
-            secondary: Err(AppError::config("COHERE_API_KEY unset")),
-            secondary_accounts: Vec::new(),
-            tertiary: None,
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Cohere,
-    )
-    .expect_err("nothing built, nothing to serve");
-
-    assert_eq!(err.code, ErrorCode::ConfigError);
-    assert!(
-        err.message.contains("copilot binary missing") && err.message.contains("COHERE_API_KEY"),
-        "both reasons reach the operator: {}",
-        err.message
-    );
-}
-
-// ---------------------------------------------------------------------------
-// A pooled primary: its further accounts sit right behind it
-// ---------------------------------------------------------------------------
-
-#[test]
-fn further_accounts_sit_between_the_primary_and_the_fallback() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: vec![cohere_like()],
-            secondary: Ok(gemini_like()),
-            secondary_accounts: Vec::new(),
-            tertiary: None,
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Gemini,
-    )
-    .unwrap();
-
-    assert_eq!(chain.name(), "copilot_headless");
-    let second = chain.fallback_tail().expect("the next account");
-    assert_eq!(
-        second.name(),
-        "cohere",
-        "account 2 is asked before the fallback"
-    );
-    assert_eq!(
-        second.fallback_tail().expect("then the fallback").name(),
-        "gemini"
-    );
-}
-
-#[test]
-fn accounts_alone_are_a_tail_when_no_fallback_built() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: vec![cohere_like()],
-            secondary: Err(AppError::config("GEMINI_API_KEY unset")),
-            secondary_accounts: Vec::new(),
-            tertiary: None,
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotHeadless,
-        LlmProviderType::Gemini,
-    )
-    .unwrap();
-
-    let tail = chain
-        .fallback_tail()
-        .expect("the second account is still a tier");
-    assert_eq!(tail.name(), "cohere");
-    assert!(tail.fallback_tail().is_none());
-}
-
-// ---------------------------------------------------------------------------
-// A pooled tier behind another primary: the pool follows its runner
-// ---------------------------------------------------------------------------
 
 /// A Claude-Code-shaped tier or account, by name.
 fn claude_like(name: &'static str) -> EmbacleProvider {
@@ -408,19 +267,168 @@ fn tier_names(chain: &ChatProvider) -> Vec<&'static str> {
 }
 
 #[test]
+fn every_tier_built_assembles_in_order() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotHeadless, copilot_like()),
+        ok(LlmProviderType::Cohere, cohere_like()),
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
+    .unwrap();
+
+    assert_eq!(tier_names(&chain), ["copilot_headless", "cohere", "gemini"]);
+}
+
+#[test]
+fn four_tiers_assemble_four_deep() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::Anthropic, anthropic_like("anthropic")),
+        ok(LlmProviderType::CopilotHeadless, copilot_like()),
+        ok(LlmProviderType::ClaudeCode, claude_like("claude-code")),
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        ["anthropic", "copilot_headless", "claude-code", "gemini"],
+        "the ordered list has no slot limit"
+    );
+    assert!(
+        chain.capabilities().supports_function_calling(),
+        "an Anthropic head routes the turn to the API loop"
+    );
+}
+
+#[test]
+fn a_failed_middle_tier_lets_the_next_one_move_up() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotHeadless, copilot_like()),
+        failed(LlmProviderType::Cohere, "COHERE_API_KEY unset"),
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
+    .unwrap();
+
+    assert_eq!(tier_names(&chain), ["copilot_headless", "gemini"]);
+}
+
+#[test]
+fn a_failed_tail_runs_the_primary_alone() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotHeadless, copilot_like()),
+        failed(LlmProviderType::Cohere, "COHERE_API_KEY unset"),
+        failed(LlmProviderType::Gemini, "GEMINI_API_KEY unset"),
+    ])
+    .unwrap();
+
+    assert_eq!(chain.name(), "copilot_headless");
+    assert!(
+        chain.fallback_tail().is_none(),
+        "with no tail tier the primary is solo, not a chain of one"
+    );
+}
+
+#[test]
+fn a_failed_primary_runs_the_tail_alone() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        failed(LlmProviderType::CopilotHeadless, "copilot binary missing"),
+        ok(LlmProviderType::Cohere, cohere_like()),
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        ["cohere", "gemini"],
+        "the second tier leads when the primary is absent"
+    );
+}
+
+#[test]
+fn every_tier_failing_is_a_config_error_naming_each() {
+    let err = ChatProvider::assemble_runtime_chain(vec![
+        failed(LlmProviderType::CopilotHeadless, "copilot binary missing"),
+        failed(LlmProviderType::Cohere, "COHERE_API_KEY unset"),
+    ])
+    .expect_err("nothing built, nothing to serve");
+
+    assert_eq!(err.code, ErrorCode::ConfigError);
+    assert!(
+        err.message.contains("copilot binary missing") && err.message.contains("COHERE_API_KEY"),
+        "both reasons reach the operator: {}",
+        err.message
+    );
+}
+
+#[test]
+fn a_single_failing_tier_returns_its_own_error() {
+    let err = ChatProvider::assemble_runtime_chain(vec![ChainTier {
+        kind: LlmProviderType::Gemini,
+        built: Err(AppError::auth_invalid("GEMINI_API_KEY rejected")),
+        accounts: Vec::new(),
+    }])
+    .expect_err("the only tier failed");
+    assert_eq!(
+        err.code,
+        ErrorCode::AuthInvalid,
+        "an unset chain must fail exactly as a lone provider always did"
+    );
+}
+
+#[test]
+fn a_single_entry_is_that_provider_unchained() {
+    let chain =
+        ChatProvider::assemble_runtime_chain(vec![ok(LlmProviderType::Cohere, cohere_like())])
+            .unwrap();
+    assert_eq!(chain.name(), "cohere");
+    assert!(chain.fallback_tail().is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Pooled tiers: the accounts follow their provider wherever it sits
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_pooled_primarys_accounts_sit_between_it_and_the_fallback() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        pooled(
+            LlmProviderType::Anthropic,
+            anthropic_like("anthropic"),
+            vec![anthropic_like("anthropic#2")],
+        ),
+        ok(LlmProviderType::CopilotHeadless, copilot_like()),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        tier_names(&chain),
+        ["anthropic", "anthropic#2", "copilot_headless"],
+        "account 2 is asked before the chain leaves Anthropic"
+    );
+}
+
+#[test]
+fn a_pooled_primary_alone_still_pools() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![pooled(
+        LlmProviderType::Anthropic,
+        anthropic_like("anthropic"),
+        vec![anthropic_like("anthropic#2")],
+    )])
+    .unwrap();
+
+    assert_eq!(tier_names(&chain), ["anthropic", "anthropic#2"]);
+}
+
+#[test]
 fn a_fallback_tiers_accounts_sit_right_behind_it() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Ok(claude_like("claude-code")),
-            secondary_accounts: vec![claude_like("claude-code#2"), claude_like("claude-code#3")],
-            tertiary: Some(Ok(gemini_like())),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotSdk,
-        LlmProviderType::ClaudeCode,
-    )
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotSdk, copilot_like()),
+        pooled(
+            LlmProviderType::ClaudeCode,
+            claude_like("claude-code"),
+            vec![claude_like("claude-code#2"), claude_like("claude-code#3")],
+        ),
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
     .unwrap();
 
     assert_eq!(
@@ -437,19 +445,16 @@ fn a_fallback_tiers_accounts_sit_right_behind_it() {
 }
 
 #[test]
-fn a_tertiary_tiers_accounts_end_the_chain() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Ok(gemini_like()),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Ok(claude_like("claude-code"))),
-            tertiary_accounts: vec![claude_like("claude-code#2")],
-        },
-        LlmProviderType::CopilotSdk,
-        LlmProviderType::Gemini,
-    )
+fn the_last_tiers_accounts_end_the_chain() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotSdk, copilot_like()),
+        ok(LlmProviderType::Gemini, gemini_like()),
+        pooled(
+            LlmProviderType::ClaudeCode,
+            claude_like("claude-code"),
+            vec![claude_like("claude-code#2")],
+        ),
+    ])
     .unwrap();
 
     assert_eq!(
@@ -459,42 +464,110 @@ fn a_tertiary_tiers_accounts_end_the_chain() {
 }
 
 #[test]
-fn a_promoted_tertiary_keeps_its_accounts() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Err(AppError::config("GEMINI_API_KEY unset")),
-            secondary_accounts: Vec::new(),
-            tertiary: Some(Ok(claude_like("claude-code"))),
-            tertiary_accounts: vec![claude_like("claude-code#2")],
+fn a_tier_that_did_not_build_takes_its_accounts_with_it() {
+    let chain = ChatProvider::assemble_runtime_chain(vec![
+        ok(LlmProviderType::CopilotSdk, copilot_like()),
+        ChainTier {
+            kind: LlmProviderType::ClaudeCode,
+            built: Err(AppError::config("claude binary missing")),
+            accounts: vec![claude_like("claude-code#2")],
         },
-        LlmProviderType::CopilotSdk,
-        LlmProviderType::Gemini,
-    )
-    .unwrap();
-
-    assert_eq!(
-        tier_names(&chain),
-        ["copilot_headless", "claude-code", "claude-code#2"]
-    );
-}
-
-#[test]
-fn a_fallback_that_did_not_build_takes_its_accounts_with_it() {
-    let chain = ChatProvider::assemble_runtime_chain(
-        ChainTiers {
-            primary: Ok(copilot_like()),
-            accounts: Vec::new(),
-            secondary: Err(AppError::config("claude binary missing")),
-            secondary_accounts: vec![claude_like("claude-code#2")],
-            tertiary: Some(Ok(gemini_like())),
-            tertiary_accounts: Vec::new(),
-        },
-        LlmProviderType::CopilotSdk,
-        LlmProviderType::ClaudeCode,
-    )
+        ok(LlmProviderType::Gemini, gemini_like()),
+    ])
     .unwrap();
 
     assert_eq!(tier_names(&chain), ["copilot_headless", "gemini"]);
+}
+
+/// A tier whose account is out of quota: every call is refused.
+struct OutOfQuota {
+    name: &'static str,
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl EmbacleLlmProvider for OutOfQuota {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn display_name(&self) -> &str {
+        self.name
+    }
+
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::STREAMING | LlmCapabilities::FUNCTION_CALLING
+    }
+
+    fn default_model(&self) -> &str {
+        &self.models[0]
+    }
+
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+        Err(RunnerError::rate_limit(
+            self.name,
+            "credit balance exhausted: Your credit balance is too low",
+        ))
+    }
+
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, RunnerError> {
+        Err(RunnerError::internal("scripted runners do not stream"))
+    }
+
+    async fn health_check(&self) -> Result<bool, RunnerError> {
+        Ok(true)
+    }
+}
+
+fn out_of_quota(name: &'static str) -> EmbacleProvider {
+    EmbacleProvider::from_runner(
+        Box::new(OutOfQuota {
+            name,
+            models: vec![format!("{name}-model")],
+        }),
+        "Out of quota (scripted)",
+    )
+}
+
+fn ping() -> ChatRequest {
+    ChatRequest::new(vec![pierre_llm::ChatMessage::user("ping")])
+}
+
+/// The full chain, every tail chain and the tool loops' head-only calls keep
+/// their quota cooldowns in the one book the chain was built with: a refusal
+/// recorded by any of them is honoured by all of them.
+#[tokio::test]
+async fn every_chain_over_the_tiers_shares_the_one_cooldown_book() {
+    let book = QuotaCooldowns::new(Duration::from_secs(60));
+    let chain = EmbacleProvider::chain(
+        vec![cohere_like(), out_of_quota("anthropic"), gemini_like()],
+        book.clone(),
+    )
+    .unwrap();
+    let tail = chain.fallback_tail().expect("a chain has a tail");
+    assert!(
+        tail.quota_cooldowns().is_some(),
+        "the tail carries the chain's book for the tool loops to read"
+    );
+
+    // The tail chain's own walk records the refusal in the shared book…
+    let served = tail.complete(&ping()).await.unwrap();
+    assert_eq!(served.content, "from gemini");
+    assert!(
+        book.is_cooling("anthropic"),
+        "a refusal inside the tail chain lands in the book the chain was built with"
+    );
+
+    // …and a window started outside any chain is honoured by the full chain,
+    // which then passes over both cooling tiers.
+    book.start("cohere");
+    let served = chain.complete(&ping()).await.unwrap();
+    assert_eq!(
+        served.content, "from gemini",
+        "the full chain skips the head cooled from outside and the tier the tail cooled"
+    );
 }

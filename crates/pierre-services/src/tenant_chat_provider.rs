@@ -24,10 +24,10 @@ use uuid::Uuid;
 use pierre_auth::tenant::llm_manager::{CredentialSource, LlmProvider, TenantLlmManager};
 use pierre_core::models::TenantId;
 use pierre_database::database::repositories::{LlmCredentialRepository, SecurityRepository};
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
 
-use crate::chat_provider_factory::chat_provider_from_credentials;
+use crate::chat_provider_factory::{builds_from_credentials, chat_provider_from_credentials};
 
 /// How long a resolved (tenant, user) provider entry stays valid before the
 /// next turn re-resolves it. Bounds the staleness of a credential change.
@@ -114,9 +114,14 @@ async fn resolve_uncached(
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> Option<Arc<ChatProvider>> {
-    // BYO targets the system's active provider type. CLI/subprocess runners
-    // (no API key) don't map to a tenant LlmProvider and so have no BYO.
-    let provider = LlmProvider::parse_str(&LlmProviderType::from_env().to_string())?;
+    // BYO targets the provider type at the head of the system's chain
+    // (PIERRE_LLM_CHAIN). CLI/subprocess runners and the Copilot runtimes don't
+    // map to a tenant LlmProvider and so have no BYO. An `anthropic` head does
+    // map, but no provider is built from a tenant's Anthropic key — that head
+    // runs on the platform's own pooled organizations — so a stored one is
+    // never looked up.
+    let provider = LlmProvider::parse_str(&LlmChain::from_env().head().provider.to_string())
+        .filter(|provider| builds_from_credentials(*provider))?;
 
     let creds =
         TenantLlmManager::get_credentials(Some(user_id), tenant_id, provider, llm_creds, security)
