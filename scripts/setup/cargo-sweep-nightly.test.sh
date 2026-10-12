@@ -15,6 +15,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNDER_TEST="$SCRIPT_DIR/cargo-sweep-nightly.sh"
+# The hooks stand down in a web session; the cases below that need that set it.
+unset CLAUDE_CODE_REMOTE CLAUDE_CODE_REMOTE_SESSION_ID
 
 failures=0
 pass() { echo "  ✅ $1"; }
@@ -243,6 +245,21 @@ out="$("$UNDER_TEST" check --root "$root" --min-free 1KiB 2>&1 || true)"
 out="$("$UNDER_TEST" check --root "$root" --min-free 999TiB 2>&1 || true)"
 printf '%s' "$out" | grep -q "DISK: .* under the .* floor" && pass "check warns under the floor" \
   || fail "check warns under the floor (got: ${out:-<none>})"
+
+# A web session's disk is its own and is discarded with it: a refusal there only
+# sent the session hunting for space it could not free, so both hooks stand down.
+rc=0; hook_input "./scripts/ci/pre-push-validate.sh" \
+  | CLAUDE_CODE_REMOTE_SESSION_ID=session_test "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard lets a build through in a web session (session id)" \
+  || fail "guard lets a build through in a web session (session id) (exit $rc)"
+rc=0; hook_input "cargo build" | CLAUDE_CODE_REMOTE=true "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 0 ]] && pass "guard lets a build through in a web session (remote flag)" \
+  || fail "guard lets a build through in a web session (remote flag) (exit $rc)"
+rc=0; hook_input "cargo build" | CLAUDE_CODE_REMOTE=false "$UNDER_TEST" guard --hard-floor 999TiB >/dev/null 2>&1 || rc=$?
+[[ $rc -eq 2 ]] && pass "guard still refuses when the remote flag is false" \
+  || fail "guard still refuses when the remote flag is false (exit $rc)"
+out="$(CLAUDE_CODE_REMOTE_SESSION_ID=session_test "$UNDER_TEST" check --root "$root" --min-free 999TiB 2>&1 || true)"
+[[ -z "$out" ]] && pass "check is silent in a web session" || fail "check is silent in a web session (got: $out)"
 rm -rf "$root"
 
 # Under the floor, whole trees go least-recently-built first, and a run stops

@@ -1040,6 +1040,15 @@ enforce_floor() {
 
 # --- hooks -----------------------------------------------------------------
 
+# A Claude Code on the web session: one session on a disk that is discarded with
+# it. The floors defend a long-lived disk that many sessions share; there, the
+# only tree a refusal could send the session after is its own, so every web
+# session that hit the floor spent its turns hunting for space that did not
+# exist instead of pushing. Same signal as scripts/setup/check-gh-cli.sh.
+is_cloud_session() {
+    [[ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" || "${CLAUDE_CODE_REMOTE:-}" == true ]]
+}
+
 # The largest Claude Code scratchpads, which nothing reclaims: a session's
 # scratch output lives under the system temp dir until the machine reboots.
 # Named, never deleted — whether a session still needs one is not ours to judge.
@@ -1053,6 +1062,7 @@ largest_scratchpads() {
 
 # SessionStart: silent above the floor, one warning (plus scratchpads) below it.
 cmd_check() {
+    is_cloud_session && return 0
     [[ "$MIN_FREE_KIB" -gt 0 ]] || return 0
     local free k path
     free=$(free_kib)
@@ -1085,6 +1095,7 @@ is_build_command() {
 # the call through. Free space is read first: above the floor, which is nearly
 # every call, the tool input is never parsed at all.
 cmd_guard() {
+    is_cloud_session && return 0
     [[ "$HARD_FLOOR_KIB" -gt 0 ]] || return 0
     local input command free
     input=$(cat 2>/dev/null || true)
