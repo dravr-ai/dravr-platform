@@ -17,6 +17,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::database::ConversationRecord;
+use pierre_llm::stage::LlmStage;
 use pierre_providers::ai_scope;
 use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
@@ -24,6 +25,7 @@ use pierre_services::advice_capture::{
 use pierre_services::memory_extraction::WITHHELD_REPLY_TRANSCRIPT_MARKER;
 use tracing::info;
 
+use crate::recorders::turn_call_recorder;
 #[cfg(feature = "tools-verification")]
 use crate::stages::verification::persist_pending_verdicts;
 use crate::{stages, ChatPipelineContext, TurnInput};
@@ -61,6 +63,11 @@ fn spawn_turn_advice_capture(
             source_msg_id: Some(assistant_message_id.to_owned()),
             transport_policy: ai_scope::derived_policy(),
         },
+        Some(turn_call_recorder(
+            ctx,
+            input,
+            LlmStage::AdviceCapture.call_type(),
+        )),
     );
 }
 

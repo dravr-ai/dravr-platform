@@ -16,6 +16,12 @@ pub struct MemoryExtractionJobRow {
     pub id: String,
     /// Tenant the facts are stamped under.
     pub tenant_id: TenantId,
+    /// Tenant the extraction's `llm_usage` row is billed under: the
+    /// conversation's, like every other row of the turn. It differs from
+    /// [`Self::tenant_id`] on a guided answer in a shared room, whose facts go
+    /// to the athlete's own tenant. `None` on a row recorded before the column
+    /// existed, which bills under [`Self::tenant_id`].
+    pub usage_tenant_id: Option<TenantId>,
     /// The extraction request, serialised by `pierre-services`.
     pub payload: String,
     /// Unix milliseconds when the turn recorded it.
@@ -71,8 +77,8 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
 }
 
 pub(crate) const RECORD_EXTRACTION_JOB_SQL: &str = "INSERT INTO memory_extraction_jobs \
-     (id, tenant_id, payload, created_at_ms, leased_until_ms, attempts) \
-     VALUES ($1, $2, $3, $4, $5, $6)";
+     (id, tenant_id, usage_tenant_id, payload, created_at_ms, leased_until_ms, attempts) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7)";
 
 /// The claim: one statement, so the lease and the attempt bump land
 /// together and the subquery picks the rows under the same lock. The
@@ -92,7 +98,8 @@ macro_rules! claim_extraction_jobs_sql {
                  LIMIT $5 ",
             $lock,
             ") \
-             RETURNING id, tenant_id, payload, created_at_ms, leased_until_ms, attempts"
+             RETURNING id, tenant_id, usage_tenant_id, payload, created_at_ms, leased_until_ms, \
+             attempts"
         )
     };
 }
@@ -120,6 +127,9 @@ where
         tenant_id: row
             .try_get("tenant_id")
             .map_err(|e| column("tenant_id", e))?,
+        usage_tenant_id: row
+            .try_get("usage_tenant_id")
+            .map_err(|e| column("usage_tenant_id", e))?,
         payload: row.try_get("payload").map_err(|e| column("payload", e))?,
         created_at_ms: row
             .try_get("created_at_ms")
@@ -146,6 +156,7 @@ macro_rules! impl_memory_extraction_job_repository {
                 sqlx::query(RECORD_EXTRACTION_JOB_SQL)
                     .bind(&row.id)
                     .bind(row.tenant_id)
+                    .bind(row.usage_tenant_id)
                     .bind(&row.payload)
                     .bind(row.created_at_ms)
                     .bind(row.leased_until_ms)

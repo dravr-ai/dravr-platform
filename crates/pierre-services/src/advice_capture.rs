@@ -28,7 +28,9 @@ use chrono::{DateTime, Utc};
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::PlaybookRepository;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider};
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
+use pierre_llm::stage::LlmStage;
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use pierre_memory::playbooks::{
     sanitize_sport_slug, AdviceStatus, Band, Intervention, InterventionKind, MetricBaseline,
     OutcomeMetric, PendingAdvice, TriggerKind, TriggerPattern,
@@ -130,8 +132,13 @@ pub struct CapturedTurn {
 pub trait AdviceCaptureStrategy: Send + Sync {
     /// Extract any checkable recommendations from `turn`. Best-effort: returns
     /// an empty vec (never errors) when there is nothing to capture or the
-    /// extraction fails.
-    async fn capture(&self, turn: &CapturedTurn, provider: &ChatProvider) -> Vec<PendingAdvice>;
+    /// extraction fails. Every LLM call it makes is handed to `recorder`.
+    async fn capture(
+        &self,
+        turn: &CapturedTurn,
+        provider: &ChatProvider,
+        recorder: Option<&Arc<dyn LlmCallRecorder>>,
+    ) -> Vec<PendingAdvice>;
 }
 
 /// v1 strategy: a cheap heuristic gate, then a bounded LLM extraction.
@@ -286,19 +293,25 @@ fn metric_from_raw(kind: &str, window_days: u8, sport: Option<String>) -> Outcom
 
 #[async_trait]
 impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
-    async fn capture(&self, turn: &CapturedTurn, provider: &ChatProvider) -> Vec<PendingAdvice> {
+    async fn capture(
+        &self,
+        turn: &CapturedTurn,
+        provider: &ChatProvider,
+        recorder: Option<&Arc<dyn LlmCallRecorder>>,
+    ) -> Vec<PendingAdvice> {
         if !looks_like_recommendation(&turn.assistant_reply) {
             debug!("advice capture: reply not recommendation-like; gate skipped LLM");
             return Vec::new();
         }
         let extraction_prompt = self.prompt_registry.advice_extraction_prompt();
-        let raw = match run_advice_extraction(provider, extraction_prompt.trim(), turn).await {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(error = %e, "advice extraction LLM call failed; capturing nothing");
-                return Vec::new();
-            }
-        };
+        let raw =
+            match run_advice_extraction(provider, extraction_prompt.trim(), turn, recorder).await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(error = %e, "advice extraction LLM call failed; capturing nothing");
+                    return Vec::new();
+                }
+            };
         let now = Utc::now();
         raw.into_iter()
             .filter_map(|r| raw_to_pending(&RawAdvicePublic::from(r), turn, now))
@@ -307,21 +320,28 @@ impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
 }
 
 /// Call the extraction LLM and parse its response into raw advice records.
+///
+/// The call runs on the [`LlmStage::AdviceCapture`] model when `provider` is
+/// the platform's head, and its usage goes to `recorder`.
 async fn run_advice_extraction(
     provider: &ChatProvider,
     extraction_prompt: &str,
     turn: &CapturedTurn,
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
 ) -> Result<Vec<RawAdvice>, AppError> {
     let user_payload = format!(
         "User turn:\n{}\n\nCoach reply:\n{}\n\nReturn the JSON array only.",
         turn.user_message, turn.assistant_reply
     );
-    let request = ChatRequest::new(vec![
-        ChatMessage::system(extraction_prompt),
-        ChatMessage::user(&user_payload),
-    ])
-    .with_temperature(0.1);
-    let response = LlmProvider::complete(provider, &request)
+    let request = provider.routed(
+        LlmStage::AdviceCapture,
+        ChatRequest::new(vec![
+            ChatMessage::system(extraction_prompt),
+            ChatMessage::user(&user_payload),
+        ])
+        .with_temperature(0.1),
+    );
+    let response = complete_recorded(provider, &request, recorder)
         .await
         .map_err(|e| AppError::external_service("advice-extractor", format!("LLM: {e}")))?;
     Ok(parse_raw_advice(&response.content))
@@ -361,12 +381,13 @@ fn parse_raw_advice(response: &str) -> Vec<RawAdvice> {
 /// Gates + extracts on a bounded background task, then persists each
 /// [`PendingAdvice`]. Mirrors `spawn_extract_for_turn` — needs the shared
 /// [`ChatProvider`] singleton (skips cleanly when absent), and logs and
-/// swallows every error.
+/// swallows every error. The extraction call's usage goes to `recorder`.
 pub fn spawn_capture_advice(
     playbook_repo: Arc<dyn PlaybookRepository>,
     chat_provider: Option<Arc<ChatProvider>>,
     strategy: Arc<dyn AdviceCaptureStrategy>,
     turn: CapturedTurn,
+    recorder: Option<Arc<dyn LlmCallRecorder>>,
 ) {
     let permits = Arc::clone(&CAPTURE_PERMITS);
     tokio::spawn(async move {
@@ -378,7 +399,9 @@ pub fn spawn_capture_advice(
             debug!("advice capture skipped: no chat_provider singleton wired");
             return;
         };
-        let advice = strategy.capture(&turn, provider.as_ref()).await;
+        let advice = strategy
+            .capture(&turn, provider.as_ref(), recorder.as_ref())
+            .await;
         let mut persisted = 0_usize;
         for a in &advice {
             match playbook_repo.insert_pending_advice(a).await {

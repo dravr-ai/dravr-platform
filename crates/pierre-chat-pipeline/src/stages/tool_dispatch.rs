@@ -13,19 +13,19 @@ use pierre_core::models::GuidedFlow;
 use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
+use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::coach_seat::{is_withheld_on_coach_seat, TurnSeat};
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
-use pierre_tool_runtime::llm_call_record::LlmCallRecorder;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution::{self as chat_tool_loop, build_mcp_tools};
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
 
 use crate::mcp_bridge::ToolSessionTurn;
-use crate::recorders::{ChatRepoToolMessageRecorder, UsageRepoCallRecorder};
+use crate::recorders::{turn_call_recorder, ChatRepoToolMessageRecorder};
 use crate::surface_profile::{ProviderStreaming, SurfaceProfile};
 use crate::turn::TurnInput;
 use crate::{call_type_for_profile, ChatPipelineContext};
@@ -194,15 +194,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     let provider_name = provider.name().to_owned();
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
-    apply_tier1_compaction(
-        ctx,
-        provider,
-        input.conversation_tenant_id,
-        &input.conversation_id,
-        source_ids,
-        llm_messages,
-    )
-    .await;
+    apply_tier1_compaction(ctx, provider, input, source_ids, llm_messages).await;
 
     // Stage 12b: Later-turn activity grounding. On any turn past the first,
     // a plan/analysis/recommendation ask must be answered from the athlete's
@@ -274,15 +266,11 @@ pub(crate) async fn dispatch_llm_with_tools(
     // The chat route's terminal `record_llm_usage` call afterwards
     // writes a zero-token summary row that owns `tools_called` and the
     // end-to-end execution time.
-    let call_recorder: Option<Arc<dyn LlmCallRecorder>> =
-        Some(Arc::new(UsageRepoCallRecorder::new(
-            Arc::clone(&ctx.repos.llm_usage),
-            input.conversation_tenant_id.to_string(),
-            input.user_id.clone(),
-            Some(input.conversation_id.clone()),
-            input.turn_id,
-            call_type_for_profile(profile),
-        )));
+    let call_recorder: Option<Arc<dyn LlmCallRecorder>> = Some(turn_call_recorder(
+        ctx,
+        input,
+        call_type_for_profile(profile),
+    ));
     // Persist each tool round into chat_messages so follow-up turns can
     // see the same grounded evidence the model just consumed.
     let tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>> =

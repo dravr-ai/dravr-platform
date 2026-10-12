@@ -55,6 +55,7 @@ use crate::turn::TurnInput;
 use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_llm::call_record::complete_recorded;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::UniversalExecutor;
@@ -484,7 +485,7 @@ async fn complete_subject_reask(
 ) -> Option<String> {
     let messages = repair_messages(deps.llm_messages, draft, prompt);
     let request = ChatRequest::new(messages).with_model(deps.active_model);
-    match provider.complete(&request).await {
+    match complete_recorded(provider, &request, Some(deps.reask_recorder)).await {
         Ok(reply) => Some(reply.content),
         Err(e) => {
             warn!(
@@ -608,8 +609,8 @@ async fn recheck_replacement(
         evidence.evidence_text()
     );
     let unsupported = verify_peer_claims(
+        deps,
         provider,
-        deps.active_model,
         &turn_evidence,
         &result.content,
         &peer.display_name,

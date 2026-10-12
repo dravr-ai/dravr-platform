@@ -147,10 +147,6 @@ name = "cli_loop_request_mcp_servers_test"
 required-features = ["client-chat"]
 
 [[test]]
-name = "failed_leg_token_accounting_test"
-required-features = ["client-chat"]
-
-[[test]]
 name = "fitness_score_window_test"
 required-features = ["tools-analytics"]
 

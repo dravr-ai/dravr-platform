@@ -31,11 +31,15 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
     let repos = db.repositories();
     let ledger = &repos.memory_extraction_jobs;
     let tenant = TenantId::generate();
+    // The conversation's tenant, which the stale row's usage is billed under
+    // — a guided answer in a shared room.
+    let channel = TenantId::generate();
     let now = now_ms();
 
     let fresh = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant,
+        usage_tenant_id: Some(tenant),
         payload: r#"{"user_message":"fresh"}"#.to_owned(),
         created_at_ms: now,
         leased_until_ms: 0,
@@ -44,6 +48,7 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
     let stale = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant,
+        usage_tenant_id: Some(channel),
         payload: r#"{"user_message":"stale"}"#.to_owned(),
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: 0,
@@ -52,6 +57,7 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
     let exhausted = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant,
+        usage_tenant_id: None,
         payload: r#"{"user_message":"exhausted"}"#.to_owned(),
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: 0,
@@ -83,6 +89,11 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
     );
     assert_eq!(taken[0].payload, stale.payload, "the payload round-trips");
     assert_eq!(taken[0].tenant_id, tenant);
+    assert_eq!(
+        taken[0].usage_tenant_id,
+        Some(channel),
+        "the usage tenant round-trips apart from the facts' tenant"
+    );
 
     // Leased: a second sweep in the same instant takes nothing.
     let again = ledger.claim_stale_extraction_jobs(claim).await.unwrap();

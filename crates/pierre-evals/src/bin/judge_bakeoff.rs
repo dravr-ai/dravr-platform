@@ -365,9 +365,13 @@ async fn run_candidate(
         let started = Instant::now();
         // The bake-off grades models under the instructions production ships:
         // the catalogue's `claim_judge` prompt as compiled into this build.
+        // Each candidate is a provider built on its own model, and a bake-off
+        // bills no turn, so the judge asks for no model and records nothing.
         let judge = ClaimJudge {
             provider,
             system_prompt: CLAIM_JUDGE_PROMPT.trim(),
+            model: None,
+            recorder: None,
         };
         let outcome = judge_claim(judge, &row.claim, &row.evidence_context).await;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);

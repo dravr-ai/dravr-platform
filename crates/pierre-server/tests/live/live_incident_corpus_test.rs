@@ -116,7 +116,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use hmac::{Hmac, Mac};
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_llm::judge::ask_for_json;
+use pierre_llm::judge::{ask_for_json, judge_request};
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -736,7 +736,7 @@ async fn judge(
         "QUESTION: {question}\n\nGROUND TRUTH (what the athlete's data actually \
          holds):\n{evidence}\n\nATHLETE ASKED: {user}\n\nCOACH REPLIED:\n{reply}"
     );
-    ask_for_json::<Verdict>(provider, system, &prompt, 0.0)
+    ask_for_json::<Verdict>(provider, &judge_request(system, &prompt, 0.0), None)
         .await
         .map_err(|e| e.to_string())
 }

@@ -20,12 +20,10 @@
 //! prompt is estimated, and the row is marked estimated so billing can see the
 //! count did not come from the provider.
 
-// `llm_call_record` is gated behind client-chat; without it there is nothing to test.
-#![cfg(feature = "client-chat")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use pierre_core::llm::TokenUsage;
-use pierre_tool_runtime::llm_call_record::{recorded_token_counts, LlmCallRecord};
+use pierre_llm::call_record::{recorded_token_counts, LlmCallRecord};
 
 /// A realistic assembled prefix: system prompt + tool surface + history.
 /// `48_000` chars is the middle of the 40-55K-token band the ACP path re-sends

@@ -30,6 +30,7 @@
 
 use core::iter::once;
 use pierre_providers::ai_scope;
+use std::sync::Arc;
 
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::{AppError, AppResult};
@@ -37,7 +38,9 @@ use pierre_core::models::TenantId;
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_core::tokens::estimate_context_tokens;
 use pierre_database::repositories::{HarnessMemoryRepository, InsertCompactionBlockParams};
-use pierre_llm::{ChatMessage, ChatRequest, LlmProvider, MessageRole};
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
+use pierre_llm::stage::LlmStage;
+use pierre_llm::{ChatMessage, ChatRequest, MessageRole};
 use pierre_memory::CompactionBlock;
 use tracing::{info, warn};
 
@@ -288,8 +291,7 @@ impl ConversationCompactor {
             });
         };
 
-        let summary = match summarize_turns(ctx.provider, ctx.summary_prompt, &plan.combined).await
-        {
+        let summary = match summarize_turns(ctx, &plan.combined).await {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "Summarization failed; falling back to sliding window");
@@ -590,12 +592,15 @@ pub fn sliding_window_to_fit(
 pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     /// Repository for persisting compaction blocks.
     pub repo: &'a R,
-    /// LLM provider used to generate the summary text.
+    /// LLM provider used to generate the summary text, which routes it to the
+    /// [`LlmStage::CompactionSummary`] model when it is the platform's head.
     pub provider: &'a ChatProvider,
     /// Instructions for the summary call — the `conversation_summary` system
     /// prompt, resolved from the prompt registry so a catalogue edit reaches
     /// the next compaction without a deploy.
     pub summary_prompt: &'a str,
+    /// Receives the summary call's usage record; `None` records nothing.
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
     /// Tenant that owns the conversation.
     pub tenant_id: TenantId,
     /// Conversation being compacted.
@@ -673,19 +678,21 @@ fn history_range_for<'a>(
     })
 }
 
-async fn summarize_turns(
-    provider: &ChatProvider,
-    summary_prompt: &str,
+async fn summarize_turns<R: HarnessMemoryRepository + ?Sized>(
+    ctx: &CompactionContext<'_, R>,
     turns_text: &str,
 ) -> AppResult<String> {
     let messages = vec![
-        ChatMessage::system(summary_prompt),
+        ChatMessage::system(ctx.summary_prompt),
         ChatMessage::user(turns_text),
     ];
     // Low temperature for consistent condensation
-    let request = ChatRequest::new(messages).with_temperature(0.2);
+    let request = ctx.provider.routed(
+        LlmStage::CompactionSummary,
+        ChatRequest::new(messages).with_temperature(0.2),
+    );
 
-    let response = LlmProvider::complete(provider, &request)
+    let response = complete_recorded(ctx.provider, &request, ctx.recorder)
         .await
         .map_err(|e| {
             AppError::external_service("compactor", format!("summarization failed: {e}"))

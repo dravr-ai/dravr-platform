@@ -162,6 +162,7 @@ async fn run_repair(repair: Repair<'_>) -> String {
         provider: Some(&provider),
         prompts: &PromptRegistry::new(),
         model: "claude-sonnet-5",
+        recorder: None,
     };
     let out = enforce_conformance(
         editor,

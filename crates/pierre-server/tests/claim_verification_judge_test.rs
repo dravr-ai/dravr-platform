@@ -102,6 +102,8 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
         Some(ClaimJudge {
             provider: &judge,
             system_prompt: CLAIM_JUDGE_PROMPT,
+            model: None,
+            recorder: None,
         }),
         None,
         None,

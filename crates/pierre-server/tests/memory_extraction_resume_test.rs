@@ -220,6 +220,8 @@ fn payload_for(user: &str, user_message: &str) -> ExtractionJobPayload {
         force_kind: None,
         plan_was_saved: false,
         transport_policy: TransportPolicy::AnyTransport,
+        conversation_id: None,
+        turn_id: None,
     }
 }
 
@@ -229,6 +231,7 @@ fn stale_row(tenant_id: TenantId, payload: String, now: i64) -> MemoryExtraction
     MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id,
+        usage_tenant_id: Some(tenant_id),
         payload,
         created_at_ms: now - 10 * MINUTE_MS,
         leased_until_ms: now - MINUTE_MS,
@@ -294,11 +297,13 @@ async fn a_turn_without_a_provider_records_its_job_then_finishes_it() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&ledger) as Arc<dyn MemoryExtractionJobRepository>,
+        Arc::clone(&fx.repos.llm_usage),
         None,
         CONFIG,
         "SYSTEM".to_owned(),
         SpawnedExtractionRequest {
             tenant_id: fx.tenant_id,
+            usage_tenant_id: fx.tenant_id,
             payload: payload.clone(),
         },
     )
@@ -309,6 +314,7 @@ async fn a_turn_without_a_provider_records_its_job_then_finishes_it() {
     assert_eq!(recorded.len(), 1, "one job row per turn: {recorded:?}");
     let row = &recorded[0];
     assert_eq!(row.tenant_id, fx.tenant_id);
+    assert_eq!(row.usage_tenant_id, Some(fx.tenant_id));
     assert_eq!(row.attempts, 1, "the turn's own spawn is the first attempt");
     assert!(
         row.created_at_ms >= before,
@@ -348,11 +354,13 @@ async fn a_turn_whose_run_fails_leaves_its_row_for_the_sweep() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&fx.repos.memory_extraction_jobs),
+        Arc::clone(&fx.repos.llm_usage),
         Some(Arc::new(extractor.provider())),
         CONFIG,
         "SYSTEM".to_owned(),
         SpawnedExtractionRequest {
             tenant_id: fx.tenant_id,
+            usage_tenant_id: fx.tenant_id,
             payload: payload_for(&fx.user, "je vise un ultra"),
         },
     )
@@ -536,6 +544,7 @@ async fn a_fresh_row_is_left_to_its_own_spawn() {
     let fresh = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: fx.tenant_id,
+        usage_tenant_id: Some(fx.tenant_id),
         payload: serde_json::to_string(&payload_for(&fx.user, "je vise un ultra")).unwrap(),
         created_at_ms: now,
         leased_until_ms: now + 5 * MINUTE_MS,

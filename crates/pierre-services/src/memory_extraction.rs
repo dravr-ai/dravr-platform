@@ -34,12 +34,14 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Pillar, TenantId};
+use pierre_core::models::{ConversationTurnId, Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, MemoryExtractionJobRepository, MemoryExtractionJobRow,
-    MergeUserFactParams, UpsertUserFactParams,
+    HarnessMemoryRepository, LlmUsageRepository, MemoryExtractionJobRepository,
+    MemoryExtractionJobRow, MergeUserFactParams, UpsertUserFactParams,
 };
-use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
+use pierre_llm::stage::LlmStage;
+use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
@@ -47,6 +49,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::llm_usage_recorder::UsageRepoCallRecorder;
 use crate::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
 };
@@ -226,6 +229,9 @@ pub struct ExtractionRequest<'a> {
     /// The stamp of the reply the facts are extracted from (carnet#769):
     /// every fact this pass writes or restates carries it.
     pub transport_policy: TransportPolicy,
+    /// Receives the extraction call's usage record, typed
+    /// [`LlmStage::MemoryExtraction`]; `None` records nothing.
+    pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
 /// Outcome of a single extraction run.
@@ -274,14 +280,7 @@ where
             Vec::new()
         });
 
-    let raw = run_llm_extraction(
-        provider,
-        system_prompt,
-        req.user_message,
-        req.assistant_reply,
-        &existing,
-    )
-    .await?;
+    let raw = run_llm_extraction(provider, system_prompt, req, &existing).await?;
 
     if raw.is_empty() {
         debug!("memory extractor returned no facts");
@@ -670,15 +669,19 @@ fn existing_facts_block(existing: &[UserFact]) -> String {
 }
 
 /// Call the extraction LLM and parse the response into [`RawFact`] records.
+///
+/// The call runs on the [`LlmStage::MemoryExtraction`] model when `provider`
+/// is the platform's head, and its usage goes to `req.recorder`.
 async fn run_llm_extraction(
     provider: &ChatProvider,
     system_prompt: &str,
-    user_message: &str,
-    assistant_reply: &str,
+    req: &ExtractionRequest<'_>,
     existing: &[UserFact],
 ) -> AppResult<Vec<RawFact>> {
     let user_payload = format!(
-        "User turn:\n{user_message}\n\nCoach reply:\n{assistant_reply}{}\n\nReturn the JSON array only.",
+        "User turn:\n{}\n\nCoach reply:\n{}{}\n\nReturn the JSON array only.",
+        req.user_message,
+        req.assistant_reply,
         existing_facts_block(existing)
     );
     let system_prompt = format!(
@@ -694,8 +697,11 @@ async fn run_llm_extraction(
         ChatMessage::system(&system_prompt),
         ChatMessage::user(&user_payload),
     ];
-    let request = ChatRequest::new(request_messages).with_temperature(0.1);
-    let response = LlmProvider::complete(provider, &request)
+    let request = provider.routed(
+        LlmStage::MemoryExtraction,
+        ChatRequest::new(request_messages).with_temperature(0.1),
+    );
+    let response = complete_recorded(provider, &request, req.recorder)
         .await
         .map_err(|e| {
             AppError::external_service("memory-extractor", format!("LLM call failed: {e}"))
@@ -747,10 +753,12 @@ fn parse_raw_facts(response: &str) -> Vec<RawFact> {
 
 /// Everything one extraction needs except who it is for.
 ///
-/// This is what a job row carries as JSON. The tenant is a column of that
-/// row rather than a field here, so the ledger is readable without parsing
-/// the payload; everything else round-trips so a sweep on another instance
-/// runs the turn's extraction exactly as the turn would have.
+/// This is what a job row carries as JSON. The tenants — the one the facts
+/// are stamped under and the one the usage row is billed under — are columns
+/// of that row rather than fields here, so the ledger is readable without
+/// parsing the payload and no tenant is ever deserialised from it; everything
+/// else round-trips so a sweep on another instance runs the turn's extraction
+/// exactly as the turn would have.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractionJobPayload {
     /// User the facts are about.
@@ -779,11 +787,43 @@ pub struct ExtractionJobPayload {
     /// unstamped.
     #[serde(default)]
     pub transport_policy: TransportPolicy,
+    /// The conversation of the turn the facts are extracted from, which its
+    /// `llm_usage` row names. Absent from a row queued before it was carried.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    /// The turn the extraction is owed by, so its `llm_usage` row is summed
+    /// with the turn that caused it. Absent from a row queued before it was
+    /// carried, which bills to the nil turn the usage table reserves for rows
+    /// that predate turn threading.
+    #[serde(default)]
+    pub turn_id: Option<ConversationTurnId>,
 }
 
 impl ExtractionJobPayload {
-    /// The borrowed request [`extract_and_persist`] takes, stamped for `tenant_id`.
-    fn as_request(&self, tenant_id: TenantId) -> ExtractionRequest<'_> {
+    /// The `llm_usage` recorder for this job's extraction call, billed under
+    /// `usage_tenant_id`.
+    fn recorder(
+        &self,
+        llm_usage: &Arc<dyn LlmUsageRepository>,
+        usage_tenant_id: TenantId,
+    ) -> Arc<dyn LlmCallRecorder> {
+        Arc::new(UsageRepoCallRecorder::new(
+            Arc::clone(llm_usage),
+            usage_tenant_id.to_string(),
+            self.user_id.clone(),
+            self.conversation_id.clone(),
+            self.turn_id.unwrap_or_else(ConversationTurnId::nil),
+            LlmStage::MemoryExtraction.call_type(),
+        ))
+    }
+
+    /// The borrowed request [`extract_and_persist`] takes, stamped for
+    /// `tenant_id` and recorded on `recorder`.
+    fn as_request<'a>(
+        &'a self,
+        tenant_id: TenantId,
+        recorder: &'a Arc<dyn LlmCallRecorder>,
+    ) -> ExtractionRequest<'a> {
         ExtractionRequest {
             tenant_id,
             user_id: &self.user_id,
@@ -799,17 +839,23 @@ impl ExtractionJobPayload {
             force_kind: self.force_kind,
             plan_was_saved: self.plan_was_saved,
             transport_policy: self.transport_policy,
+            recorder: Some(recorder),
         }
     }
 }
 
 /// Owned variant of [`ExtractionRequest`] suitable for moving into a
-/// background `tokio::spawn` task: the tenant the job row is stamped under,
-/// and the payload the row carries.
+/// background `tokio::spawn` task, and what a job row reads back as: the two
+/// tenants the row records, and the payload it carries.
 #[derive(Debug, Clone)]
 pub struct SpawnedExtractionRequest {
-    /// Tenant owning the conversation.
+    /// Tenant the facts are stamped under.
     pub tenant_id: TenantId,
+    /// Tenant the extraction's `llm_usage` row is billed under: the
+    /// conversation's, so the turn's cost is the sum of rows under one tenant.
+    /// It differs from [`Self::tenant_id`] on a guided answer in a shared
+    /// room, whose facts go to the athlete's own tenant.
+    pub usage_tenant_id: TenantId,
     /// The extraction itself, as the job row records it.
     pub payload: ExtractionJobPayload,
 }
@@ -826,24 +872,29 @@ pub struct SpawnedExtractionRequest {
 /// A provider that could not be called, a persistence failure, or a closed
 /// semaphore (shutdown). Every one leaves the job runnable, so the caller
 /// must keep the row for the sweep rather than finish it.
+///
+/// The extraction call writes its own `llm_usage` row through `llm_usage`,
+/// typed [`LlmStage::MemoryExtraction`], keyed on the payload's turn and
+/// billed under the job's usage tenant.
 pub async fn run_extraction_job(
     memory_repo: &dyn HarnessMemoryRepository,
+    llm_usage: &Arc<dyn LlmUsageRepository>,
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
     system_prompt: &str,
-    tenant_id: TenantId,
-    payload: &ExtractionJobPayload,
+    job: &SpawnedExtractionRequest,
 ) -> AppResult<()> {
     let permit = EXTRACTION_PERMITS.acquire().await.map_err(|_| {
         AppError::resource_unavailable(
             "memory extraction permits are closed; the process is shutting down",
         )
     })?;
+    let recorder = job.payload.recorder(llm_usage, job.usage_tenant_id);
     let outcome = extract_and_persist(
         memory_repo,
         chat_provider,
         system_prompt,
-        &payload.as_request(tenant_id),
+        &job.payload.as_request(job.tenant_id, &recorder),
         dedup,
     )
     .await?;
@@ -877,6 +928,7 @@ async fn record_extraction_job(
     let row = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: req.tenant_id,
+        usage_tenant_id: Some(req.usage_tenant_id),
         payload,
         created_at_ms: now,
         leased_until_ms: now.saturating_add(lease_ms),
@@ -929,6 +981,7 @@ async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, job_id:
 pub async fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
     jobs: Arc<dyn MemoryExtractionJobRepository>,
+    llm_usage: Arc<dyn LlmUsageRepository>,
     chat_provider: Option<Arc<ChatProvider>>,
     dedup: DedupConfig,
     system_prompt: String,
@@ -948,11 +1001,11 @@ pub async fn spawn_extract_for_turn(
         };
         match run_extraction_job(
             memory_repo.as_ref(),
+            &llm_usage,
             provider,
             dedup,
             &system_prompt,
-            req.tenant_id,
-            &req.payload,
+            &req,
         )
         .await
         {

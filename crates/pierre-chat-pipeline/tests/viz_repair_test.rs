@@ -16,6 +16,7 @@ use pierre_chat_pipeline::stages::viz_route::RouteTracks;
 use pierre_chat_pipeline::stages::viz_schema::SchemaTexts;
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::errors::AppError;
+use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
 };
@@ -176,6 +177,7 @@ async fn a_repair_recovers_the_chart_the_schema_refused() {
         &reply_with_refused_block(),
         &first.refusals,
         "claude-sonnet-5",
+        None,
     )
     .await
     .expect("a scripted repairer returns a reply");
@@ -232,6 +234,7 @@ async fn the_repair_pins_the_turns_model() {
         &reply_with_refused_block(),
         &faults,
         "gpt-5-mini",
+        None,
     )
     .await
     .expect("a scripted repairer returns a reply");
@@ -255,6 +258,7 @@ async fn nothing_refused_makes_no_provider_call() {
         "just prose",
         &[],
         "claude-sonnet-5",
+        None,
     )
     .await;
 
@@ -280,6 +284,7 @@ async fn a_failing_provider_fails_open() {
         &reply_with_refused_block(),
         &faults,
         "claude-sonnet-5",
+        None,
     )
     .await;
 
@@ -299,8 +304,55 @@ async fn an_empty_completion_fails_open() {
         &reply_with_refused_block(),
         &faults,
         "claude-sonnet-5",
+        None,
     )
     .await;
 
     assert!(out.is_none(), "an empty completion must be rejected");
+}
+
+/// Every record it is handed.
+#[derive(Default)]
+struct Captured(Mutex<Vec<LlmCallRecord>>);
+
+impl LlmCallRecorder for Captured {
+    fn record(&self, record: LlmCallRecord) {
+        self.0.lock().expect("mutex is not poisoned").push(record);
+    }
+}
+
+/// The repair is an LLM call the turn pays for: it is handed to the recorder
+/// as one call, on the turn's own model rather than any background stage's.
+#[tokio::test]
+async fn the_repair_is_recorded_as_one_call_on_the_turns_model() {
+    let (provider, seen) = ScriptedRepairer::wired(&corrected_reply());
+    let faults = vec!["series/0/points: has less than 2 items".to_owned()];
+    let captured = Arc::new(Captured::default());
+    let recorder: Arc<dyn LlmCallRecorder> = captured.clone();
+
+    repair_refused_blocks(
+        &provider,
+        &PromptRegistry::new(),
+        &reply_with_refused_block(),
+        &faults,
+        "claude-sonnet-5.5",
+        Some(&recorder),
+    )
+    .await
+    .expect("a scripted repairer returns a reply");
+
+    assert_eq!(
+        seen.lock().expect("mutex is not poisoned")[0]
+            .model
+            .as_deref(),
+        Some("claude-sonnet-5.5")
+    );
+    let records = captured.0.lock().expect("mutex is not poisoned");
+    assert_eq!(records.len(), 1, "one re-ask, one record: {records:?}");
+    assert!(records[0].success);
+    assert_eq!(records[0].provider, "scripted-repairer");
+    assert!(
+        records[0].token_counts_estimated && records[0].prompt_tokens > 0,
+        "a provider that reports no usage is estimated, never recorded as free"
+    );
 }

@@ -179,6 +179,7 @@ async fn run(
             // not the schedule facts that filter guards.
             plan_was_saved: false,
             transport_policy: TransportPolicy::AnyTransport,
+            recorder: None,
         },
         CONFIG,
     )
@@ -360,6 +361,7 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
             // The plan tool ran on this turn: the weeks are the record.
             plan_was_saved: true,
             transport_policy: TransportPolicy::AnyTransport,
+            recorder: None,
         },
         CONFIG,
     )
@@ -433,6 +435,7 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
             force_kind: None,
             plan_was_saved: false,
             transport_policy: TransportPolicy::AnyTransport,
+            recorder: None,
         },
         CONFIG,
     )
