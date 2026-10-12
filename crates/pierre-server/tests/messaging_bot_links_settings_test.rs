@@ -20,7 +20,11 @@ mod helpers;
 mod bot_links_settings {
     use crate::common::{create_test_server_resources, create_test_tenant, generate_test_token};
     use crate::helpers::axum_test::AxumTestRequest;
-    use axum::http::StatusCode;
+    use axum::extract::Path;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::get;
+    use axum::{Json, Router};
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
     use pierre_core::models::{TenantId, UserStatus};
@@ -37,12 +41,20 @@ mod bot_links_settings {
     use sha2::{Digest, Sha256};
     use std::env;
     use std::sync::Arc;
+    use tokio::net::TcpListener;
     use uuid::Uuid;
 
     const ADMIN_EMAIL: &str = "bot-admin-439@example.com";
     const TELEGRAM_SECRET: &str = "tg_platform_secret_439";
     const WHATSAPP_SECRET: &str = "wa_platform_secret_439";
-    const WHATSAPP_PHONE_ID: &str = "15550439000";
+    /// Meta's phone-number id, deliberately not shaped like a phone number:
+    /// the link must dial the business number the Graph API states for it,
+    /// never the id (carnet#871).
+    const WHATSAPP_PHONE_ID: &str = "1323997520799051";
+    /// What the Graph API states for that id, and the digits `wa.me` dials.
+    const WHATSAPP_DISPLAY_NUMBER: &str = "+1 555-043-9000";
+    const WHATSAPP_DIALED: &str = "15550439000";
+    const WHATSAPP_ACCESS_TOKEN: &str = "wa_platform_access_439";
 
     /// Resources with an email service present, so an unlinked sender is
     /// routed into the in-chat OTP flow rather than handed a link URL. The key
@@ -191,6 +203,31 @@ mod bot_links_settings {
             .collect()
     }
 
+    /// A Graph API stand-in that states `WHATSAPP_DISPLAY_NUMBER` for
+    /// `WHATSAPP_PHONE_ID` when asked with the seeded access token. Returns its
+    /// origin.
+    async fn graph_api_stand_in() -> String {
+        let app = Router::new().route(
+            "/{id}",
+            get(|Path(id): Path<String>, headers: HeaderMap| async move {
+                let authorized = headers.get("authorization").and_then(|v| v.to_str().ok())
+                    == Some(format!("Bearer {WHATSAPP_ACCESS_TOKEN}").as_str());
+                if id == WHATSAPP_PHONE_ID && authorized {
+                    Json(json!({ "display_phone_number": WHATSAPP_DISPLAY_NUMBER, "id": id }))
+                        .into_response()
+                } else {
+                    StatusCode::NOT_FOUND.into_response()
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
     /// The whole path an athlete takes: the deployment bot is seeded from the
     /// environment under the admin's tenant, the athlete registers into a
     /// personal tenant, links Telegram through the bot's in-chat OTP, and then
@@ -212,7 +249,7 @@ mod bot_links_settings {
             ("TELEGRAM_BOT_TOKEN", "439:platform-bot-token"),
             ("TELEGRAM_WEBHOOK_SECRET", TELEGRAM_SECRET),
             ("META_WHATSAPP_APP_SECRET", WHATSAPP_SECRET),
-            ("META_WHATSAPP_ACCESS_TOKEN", "wa_platform_access_439"),
+            ("META_WHATSAPP_ACCESS_TOKEN", WHATSAPP_ACCESS_TOKEN),
             ("META_WHATSAPP_PHONE_NUMBER_ID", WHATSAPP_PHONE_ID),
         ];
         for (key, value) in vars {
@@ -289,17 +326,20 @@ mod bot_links_settings {
         );
 
         // Connect WhatsApp from Settings: the code is stored under the bot's
-        // tenant, so the bot redeems it when the athlete sends it.
+        // tenant, so the bot redeems it when the athlete sends it. The number
+        // the link dials is asked of a Graph API stand-in.
+        env::set_var("META_GRAPH_API_BASE", graph_api_stand_in().await);
         let resp = AxumTestRequest::post("/api/messaging/link/init/whatsapp")
             .header("authorization", &athlete_token)
             .send(MessagingRoutes::routes(Arc::clone(&resources)))
             .await;
+        env::remove_var("META_GRAPH_API_BASE");
         assert_eq!(resp.status_code(), StatusCode::OK);
         let init: Value = resp.json();
         let code = init["code"].as_str().expect("deep-link code").to_owned();
         assert_eq!(
             init["linking_url"],
-            format!("https://wa.me/{WHATSAPP_PHONE_ID}?text=LINK%20{code}")
+            format!("https://wa.me/{WHATSAPP_DIALED}?text=LINK%20{code}")
         );
         let pending = db.get_link_state(&code).await.unwrap().unwrap();
         assert_eq!(pending["tenant_id"], bot_tenant.to_string());

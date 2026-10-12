@@ -111,13 +111,15 @@ describe('SciotteLoginModal — the TrainingPeaks notice', () => {
   it('never shows the notice for Garmin, whatever the flag says', async () => {
     renderModal('garmin', true);
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Email')).toHaveAttribute('type', 'email');
+    // A Garmin Connect account from before email sign-in has a username with
+    // no @, which an email-typed field refused (carnet#873).
+    expect(screen.getByLabelText('Email or username')).toHaveAttribute('type', 'text');
 
-    const user = await fillCredentials('Email', 'athlete@example.test');
+    const user = await fillCredentials('Email or username', 'jpbsavard');
     await user.click(screen.getByRole('button', { name: 'Log In' }));
 
     expect(sciotteLogin).toHaveBeenCalledWith({
-      email: 'athlete@example.test',
+      email: 'jpbsavard',
       password: 'not-a-real-password',
       method: 'email',
       target: 'garmin',

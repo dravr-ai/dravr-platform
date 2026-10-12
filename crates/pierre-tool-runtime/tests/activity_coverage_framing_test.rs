@@ -1,5 +1,5 @@
 // ABOUTME: Unit coverage for the get_activities window-coverage framing helpers
-// ABOUTME: activity_coverage_note (truncation sidecar) + activity_date_span (window bounds)
+// ABOUTME: coverage note, window bounds and totals, and how much of a bounded window is fetched
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,9 +12,10 @@
 
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_tool_runtime::activity_fetch::activity_date_span;
+use pierre_tool_runtime::activity_fetch::{activity_date_span, activity_window_totals};
 use pierre_tool_runtime::implementations::data_helpers::{
-    activity_coverage_note, HISTORICAL_WINDOW_READ_LIMIT,
+    activity_coverage_note, historical_backfill_fetch_limit, pagination_has_more,
+    window_fetch_limit, HISTORICAL_WINDOW_READ_LIMIT,
 };
 
 fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
@@ -145,4 +146,96 @@ fn date_span_spans_oldest_to_newest_regardless_of_order() {
 #[test]
 fn date_span_is_none_for_empty_slice() {
     assert!(activity_date_span(&[], None).is_none());
+}
+
+// carnet#874: "compare my 2011 cycling with this year" read 2011 as its last
+// three December rides. The provider was asked for the display limit (20) of
+// every sport, newest first; the ride filter left three, and `has_more` said
+// there was nothing else.
+
+/// 2011-01-01T00:00:00Z and 2012-01-01T00:00:00Z.
+const YEAR_2011: (i64, i64) = (1_293_840_000, 1_325_376_000);
+
+#[test]
+fn a_window_bounded_on_both_ends_is_fetched_whole() {
+    let (after, before) = YEAR_2011;
+    let fetched = window_fetch_limit(20, Some(after), Some(before), None);
+    assert_eq!(fetched, historical_backfill_fetch_limit());
+    assert!(fetched > 20, "the whole year, not the display limit");
+    assert_eq!(
+        window_fetch_limit(20, Some(after), Some(before), Some(0)),
+        fetched
+    );
+}
+
+#[test]
+fn an_open_or_paged_window_keeps_the_display_limit() {
+    let (after, before) = YEAR_2011;
+    assert_eq!(window_fetch_limit(20, None, None, None), 20);
+    assert_eq!(window_fetch_limit(20, Some(after), None, None), 20);
+    assert_eq!(window_fetch_limit(20, None, Some(before), None), 20);
+    assert_eq!(
+        window_fetch_limit(20, Some(after), Some(before), Some(40)),
+        20
+    );
+}
+
+#[test]
+fn more_is_reported_when_the_window_holds_more_than_is_shown() {
+    // 63 rides in the window, 20 shown.
+    assert!(pagination_has_more(20, 63, false));
+    // Three rides left of a full 20-activity page: the page may continue.
+    assert!(pagination_has_more(3, 3, true));
+    // The whole window shown, and the provider stopped short of its page.
+    assert!(!pagination_has_more(3, 3, false));
+}
+
+#[test]
+fn window_totals_sum_the_whole_window() {
+    // Twelve rides with distance and climb, plus one that reports neither:
+    // it counts and adds its hour, and adds no distance or climb.
+    let mut window: Vec<Activity> = (1..=12)
+        .map(|month| {
+            ActivityBuilder::new(
+                format!("ride-{month}"),
+                format!("ride-{month}"),
+                SportType::Ride,
+                Utc.with_ymd_and_hms(2011, month, 15, 12, 0, 0)
+                    .single()
+                    .unwrap(),
+                3600,
+                "strava".to_owned(),
+            )
+            .distance_meters(10_000.0)
+            .elevation_gain(125.0)
+            .build()
+        })
+        .collect();
+    window.push(
+        ActivityBuilder::new(
+            "trainer".to_owned(),
+            "trainer".to_owned(),
+            SportType::Ride,
+            Utc.with_ymd_and_hms(2011, 12, 20, 12, 0, 0)
+                .single()
+                .unwrap(),
+            3600,
+            "strava".to_owned(),
+        )
+        .build(),
+    );
+    let totals = activity_window_totals(&window);
+    assert_eq!(totals.count, 13);
+    assert!((totals.distance_km - 120.0).abs() < f64::EPSILON);
+    assert!((totals.duration_hours - 13.0).abs() < f64::EPSILON);
+    assert!((totals.elevation_gain_m - 1500.0).abs() < f64::EPSILON);
+    assert_eq!(
+        totals.to_json(),
+        serde_json::json!({
+            "count": 13,
+            "distance_km": 120.0,
+            "duration_hours": 13.0,
+            "elevation_gain_m": 1500.0,
+        })
+    );
 }

@@ -20,10 +20,11 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
+use crate::activity_fetch::{activity_date_span, activity_window_totals, WindowTotals};
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::data_helpers::activity_coverage_note;
+use crate::implementations::data_helpers::{activity_coverage_note, pagination_has_more};
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
 use dravr_cageux::physiological_constants::api_limits::{
@@ -423,6 +424,9 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub mode: &'a str,
     pub output_format: OutputFormat,
     pub limit: usize,
+    /// What the provider was asked for when the window was stored (see
+    /// `window_fetch_limit`): a stored window that filled it may continue.
+    pub fetch_limit: usize,
     pub offset: usize,
     /// Analysis type for sufficiency calculation
     pub analysis_type: AnalysisType,
@@ -454,12 +458,22 @@ pub(crate) async fn try_get_cached_activities(
         let mut sorted_activities = ai_scope::filter_activities(params.policies, cached_activities);
         sorted_activities.sort_by_key(|a| Reverse(a.start_date()));
 
-        // Create pagination info from cached results
+        // The whole window was stored, before the display limit: frame its
+        // count, span and totals as the live read did, then show `limit` of it.
+        let window_total = sorted_activities.len();
+        let window_span = activity_date_span(&sorted_activities, params.user_timezone.as_deref());
+        let window_totals = activity_window_totals(&sorted_activities);
+        sorted_activities.truncate(params.limit);
+
         let pagination = PaginationInfo {
             offset: params.offset,
             limit: params.limit,
             returned_count: sorted_activities.len(),
-            has_more: sorted_activities.len() == params.limit,
+            has_more: pagination_has_more(
+                sorted_activities.len(),
+                window_total,
+                window_total >= params.fetch_limit,
+            ),
         };
 
         // Backfill missing ambient temperatures from weather provider
@@ -483,10 +497,9 @@ pub(crate) async fn try_get_cached_activities(
             backfill_temps: &backfill_temps,
             user_timezone: params.user_timezone,
             locale: params.locale,
-            // The cached snapshot path serves its stored slice with no distinct
-            // pre-truncation window total, so it emits no coverage sidecar.
-            window_total: None,
-            window_span: None,
+            window_total: Some(window_total),
+            window_span,
+            window_totals: Some(window_totals),
             // The slice was merged before it was cached; the grouping that
             // produced it is not stored with it, so no merge note is emitted.
             merge_report: None,
@@ -751,6 +764,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// window, paired with `window_total`. `None` leaves the `coverage` note
     /// count-only.
     pub window_span: Option<(String, String)>,
+    /// Count, distance, duration and climb summed over that full window. Ride
+    /// on the `coverage` sidecar, so totals and comparisons read the whole
+    /// window rather than the shown slice. `None` adds nothing.
+    pub window_totals: Option<WindowTotals>,
     /// What the session merge collapsed to produce `activities`: every group of
     /// recordings folded into one session and the fields each session took from
     /// another recording. `None` when no merge report travels with the slice.
@@ -779,6 +796,7 @@ pub(crate) fn build_activities_success_response(
         locale,
         window_total,
         window_span,
+        window_totals,
         merge_report,
     } = params;
 
@@ -866,6 +884,17 @@ pub(crate) fn build_activities_success_response(
     // instead of anchoring on the oldest shown activity. LLM-facing (tool
     // result, not the input schema) → no SDK/contremaitre/locale drift.
     payload.coverage = activity_coverage_note(window_total, activities_len, window_span.as_ref());
+    if let (Some(Value::Object(coverage)), Some(totals)) =
+        (payload.coverage.as_mut(), window_totals)
+    {
+        coverage.insert("window_totals".to_owned(), totals.to_json());
+        if let Some(Value::String(note)) = coverage.get_mut("note") {
+            note.push_str(
+                " For totals or a comparison between periods, use window_totals, which covers \
+                 the whole window.",
+            );
+        }
+    }
 
     let metadata = build_activities_metadata(
         activities.len(),

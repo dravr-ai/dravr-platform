@@ -20,6 +20,7 @@ import {
   SCIOTTE_CODE_REJECTED,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  loginIdentifierField,
   providerGlyphInk,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
@@ -96,6 +97,7 @@ export default function SciotteLoginModal({
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const preset = SCIOTTE_LOGIN_PRESETS[target];
+  const accountField = loginIdentifierField(preset.identifier);
   const glyphInk = providerGlyphInk(preset.backend, scheme);
   // The notice is shown only while the account has not accepted it, and only
   // for a target that has one.
@@ -486,19 +488,19 @@ export default function SciotteLoginModal({
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div>
                   <label htmlFor="sciotte-email" className="block text-sm text-on-surface/60 mb-1.5">
-                    {t(preset.identifier === 'username' ? 'common.username' : 'common.email')}
+                    {t(accountField.labelKey)}
                   </label>
                   <input
                     id="sciotte-email"
-                    type={preset.identifier === 'username' ? 'text' : 'email'}
+                    type={accountField.inputType}
                     placeholder={t(labels.emailPlaceholderKey)}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="input-glass w-full"
                     required
-                    autoComplete={preset.identifier === 'username' ? 'username' : 'email'}
+                    autoComplete={accountField.autoComplete}
                     autoFocus
-                    name={preset.identifier === 'username' ? 'username' : 'email'}
+                    name={accountField.autoComplete}
                   />
                 </div>
                 <div>

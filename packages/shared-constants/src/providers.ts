@@ -88,12 +88,45 @@ export interface SciotteLoginPreset {
   /** Title and placeholder of the provider's own credential form. */
   titleKey: string;
   placeholderKey: string;
-  /** What the provider signs in with — TrainingPeaks takes a username. */
-  identifier: 'email' | 'username';
+  /**
+   * What the provider signs in with. TrainingPeaks takes a username; a Garmin
+   * Connect account takes either, since accounts from before Garmin moved to
+   * email sign-in still have a username.
+   */
+  identifier: LoginIdentifier;
   /** No Google/Apple choice to make: straight to the provider's form. */
   directCredentials: boolean;
   /** The exposure notice shown while the account has not accepted it. */
   notice?: ProviderNoticeKeys;
+}
+
+/** What a provider's own login form accepts as the account. */
+export type LoginIdentifier = 'email' | 'username' | 'email_or_username';
+
+/** How a credential form's account field presents one kind of identifier. */
+export interface LoginIdentifierField {
+  /** Corpus key of the field's label. */
+  labelKey: string;
+  /** The input type: `email` only when nothing but an email is accepted. */
+  inputType: 'email' | 'text';
+  /** The autocomplete hint, and the field's form name. */
+  autoComplete: 'email' | 'username';
+}
+
+/**
+ * The account field for an identifier kind, read by both clients' login
+ * modals. An email-typed field refuses anything without an `@`, so only a
+ * provider that accepts nothing else gets one.
+ */
+export function loginIdentifierField(identifier: LoginIdentifier): LoginIdentifierField {
+  switch (identifier) {
+    case 'email':
+      return { labelKey: 'common.email', inputType: 'email', autoComplete: 'email' };
+    case 'username':
+      return { labelKey: 'common.username', inputType: 'text', autoComplete: 'username' };
+    case 'email_or_username':
+      return { labelKey: 'common.emailOrUsername', inputType: 'text', autoComplete: 'username' };
+  }
 }
 
 /**
@@ -116,7 +149,7 @@ export const SCIOTTE_LOGIN_PRESETS: Record<SciotteTarget, SciotteLoginPreset> = 
     labelKey: 'shell.sciotteProviderGarmin',
     titleKey: 'shell.sciotteGarminAccount',
     placeholderKey: 'shell.garminEmail',
-    identifier: 'email',
+    identifier: 'email_or_username',
     directCredentials: true,
   },
   trainingpeaks: {

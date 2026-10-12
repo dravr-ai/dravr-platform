@@ -19,7 +19,8 @@
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_CONNECTING_TO,
     KEY_HOSTED_COMMON_CREDENTIALS_NOTE, KEY_HOSTED_COMMON_EMAIL_LABEL,
-    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
+    KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL, KEY_HOSTED_COMMON_LINKED_FROM,
+    KEY_HOSTED_COMMON_LOADING, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
     KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
     KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE_NAMED,
     KEY_HOSTED_COMMON_USERNAME_LABEL, KEY_HOSTED_COMMON_VERIFYING_CODE,
@@ -31,7 +32,7 @@ use pierre_contremaitre::hosted_strings::{
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
-use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_providers::sciotte_provider::{LoginIdentifier, SciotteTarget};
 use serde::Serialize;
 use serde_json::json;
 use tracing::error;
@@ -123,14 +124,14 @@ pub fn render_login_page(
     let target_label = backend_resolver::brand_name(&global_registry(), target).unwrap_or("Strava");
     let channel_label = strings.channel(channel);
 
-    // The identifier the provider's own login asks for — a username for
-    // TrainingPeaks, an email otherwise.
-    let (id_label, id_type, id_autocomplete) =
-        if SciotteTarget::from_target_param(target).signs_in_with_username() {
-            (KEY_HOSTED_COMMON_USERNAME_LABEL, "text", "username")
-        } else {
-            (KEY_HOSTED_COMMON_EMAIL_LABEL, "email", "email")
-        };
+    // The identifier the provider's own login asks for: a username for
+    // TrainingPeaks, either for Garmin, an email otherwise.
+    let identifier = SciotteTarget::from_target_param(target).login_identifier();
+    let id_label = match identifier {
+        LoginIdentifier::Email => KEY_HOSTED_COMMON_EMAIL_LABEL,
+        LoginIdentifier::Username => KEY_HOSTED_COMMON_USERNAME_LABEL,
+        LoginIdentifier::EmailOrUsername => KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL,
+    };
 
     // What the page's script writes: status lines, and every failure of the
     // sign-in — the script prints none of the server's or the provider's own
@@ -158,8 +159,8 @@ pub fn render_login_page(
         if consent_required { "true" } else { "false" },
     )
     .replace("{{ID_LABEL}}", &strings.html(id_label, &[]))
-    .replace("{{ID_TYPE}}", id_type)
-    .replace("{{ID_AUTOCOMPLETE}}", id_autocomplete)
+    .replace("{{ID_TYPE}}", identifier.input_type())
+    .replace("{{ID_AUTOCOMPLETE}}", identifier.autocomplete())
     .replace(
         "{{SUBTITLE}}",
         &strings.html(KEY_HOSTED_COMMON_SUBTITLE_NAMED, &[target_label]),

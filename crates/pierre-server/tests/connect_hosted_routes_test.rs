@@ -570,10 +570,12 @@ async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_i
 
     let garmin = hosted_login_page(&resources, user_id, tenant_id, "garmin").await;
     assert!(garmin.contains("consentRequired: false"));
+    // A Garmin Connect account from before email sign-in has a username, so
+    // the field takes either and is not typed `email` (carnet#873).
     assert!(
-        garmin.contains("<label for=\"email\">Email</label>")
-            && garmin.contains("type=\"email\" id=\"email\""),
-        "Garmin keeps its email login"
+        garmin.contains("<label for=\"email\">Email or username</label>")
+            && garmin.contains("type=\"text\" id=\"email\""),
+        "Garmin's login takes an email or a username"
     );
     assert!(garmin.contains("id=\"consent-block\" hidden>"));
 }
@@ -685,7 +687,9 @@ async fn picker_asks_each_provider_for_its_own_notice() {
     let garmin = picker_card(&cards, "garmin");
     assert_eq!(garmin["consent_required"], false);
     assert!(garmin.get("notice").is_none(), "Garmin has no notice");
-    assert_eq!(garmin["login_identifier"], "email");
+    // A Garmin Connect account from before Garmin moved to email sign-in
+    // still has a username (carnet#873), so the card takes either.
+    assert_eq!(garmin["login_identifier"], "email_or_username");
     assert!(
         cards.iter().all(|c| c["provider"] != "coros"),
         "COROS' raw OAuth card, which Pierre cannot complete, is never offered"
@@ -693,6 +697,10 @@ async fn picker_asks_each_provider_for_its_own_notice() {
     assert!(
         body.contains(r#""tagUsernamePassword":"Username / password""#),
         "the picker names the username a TrainingPeaks card asks for"
+    );
+    assert!(
+        body.contains(r#""tagEmailOrUsernamePassword":"Email or username / password""#),
+        "the picker names the email or username a Garmin card takes"
     );
 
     // Accepting one provider's notice answers that provider alone.

@@ -49,6 +49,53 @@ use crate::spi::{
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 use crate::trainingpeaks_self_report::{feel_from_trainingpeaks, rpe_from_trainingpeaks};
 
+/// What a provider's own login form accepts as the account.
+///
+/// It decides how a credential form presents the field: only [`Self::Email`]
+/// may be typed `email`, since an email-typed field refuses anything without
+/// an `@`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoginIdentifier {
+    /// An email address only.
+    Email,
+    /// A username only (TrainingPeaks).
+    Username,
+    /// Either an email address or a username (Garmin Connect).
+    EmailOrUsername,
+}
+
+impl LoginIdentifier {
+    /// The name the hosted connect picker and the clients read
+    /// (`"email"`, `"username"`, `"email_or_username"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Username => "username",
+            Self::EmailOrUsername => "email_or_username",
+        }
+    }
+
+    /// The account field's HTML `type`: `email` only when nothing else is
+    /// accepted.
+    #[must_use]
+    pub const fn input_type(self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Username | Self::EmailOrUsername => "text",
+        }
+    }
+
+    /// The account field's `autocomplete` hint.
+    #[must_use]
+    pub const fn autocomplete(self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Username | Self::EmailOrUsername => "username",
+        }
+    }
+}
+
 /// Target fitness platform for the sciotte scraper
 #[derive(Debug, Clone, Copy)]
 pub enum SciotteTarget {
@@ -115,12 +162,18 @@ impl SciotteTarget {
         }
     }
 
-    /// Whether the provider's own login form asks for a username rather than
-    /// an email — TrainingPeaks' does, so a login form typed as `email`
-    /// rejects the account before the scraper ever sees it.
+    /// What the provider's own login form accepts as the account.
+    /// TrainingPeaks' asks for a username; Garmin Connect's takes either,
+    /// since accounts from before Garmin moved to email sign-in still have a
+    /// username. A login form typed as `email` would reject either before the
+    /// scraper ever sees it.
     #[must_use]
-    pub const fn signs_in_with_username(self) -> bool {
-        matches!(self, Self::TrainingPeaks)
+    pub const fn login_identifier(self) -> LoginIdentifier {
+        match self {
+            Self::TrainingPeaks => LoginIdentifier::Username,
+            Self::Garmin => LoginIdentifier::EmailOrUsername,
+            Self::Strava | Self::Coros => LoginIdentifier::Email,
+        }
     }
 
     /// The brand the athlete knows this target by ("Strava", "Garmin",
@@ -979,6 +1032,29 @@ impl ProviderFactory for SciotteCorosProviderFactory {
 mod tests {
     use super::*;
     use crate::errors::ErrorCode;
+
+    #[test]
+    fn only_an_email_only_login_types_its_field_email() {
+        // A Garmin Connect username such as "jpbsavard" has no `@`: an
+        // email-typed field refused it before it was sent (carnet#873).
+        let garmin = SciotteTarget::Garmin.login_identifier();
+        assert_eq!(garmin, LoginIdentifier::EmailOrUsername);
+        assert_eq!(garmin.as_str(), "email_or_username");
+        assert_eq!(garmin.input_type(), "text");
+        assert_eq!(garmin.autocomplete(), "username");
+
+        let trainingpeaks = SciotteTarget::TrainingPeaks.login_identifier();
+        assert_eq!(trainingpeaks, LoginIdentifier::Username);
+        assert_eq!(trainingpeaks.input_type(), "text");
+
+        for target in [SciotteTarget::Strava, SciotteTarget::Coros] {
+            let identifier = target.login_identifier();
+            assert_eq!(identifier, LoginIdentifier::Email);
+            assert_eq!(identifier.as_str(), "email");
+            assert_eq!(identifier.input_type(), "email");
+            assert_eq!(identifier.autocomplete(), "email");
+        }
+    }
 
     #[test]
     fn a_scraped_activity_names_the_service_it_was_read_from() {

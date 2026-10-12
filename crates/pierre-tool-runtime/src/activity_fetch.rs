@@ -37,7 +37,7 @@ use crate::protocol::types::{auth_required_provider, UniversalResponse};
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// The session a cache write lands, and the `per_session` persona digest it sends
 #[cfg(feature = "client-notifications")]
@@ -1123,4 +1123,54 @@ pub fn activity_date_span(
         oldest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
         newest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
     ))
+}
+
+/// Totals across a served window, taken before the display limit truncates it.
+///
+/// A year-against-year question is answered from these, not from the shown
+/// slice: with a display limit of 20, a 63-ride 2011 read as its last three
+/// December rides (carnet#874).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowTotals {
+    /// Activities in the window.
+    pub count: usize,
+    /// Summed distance in kilometres, over the activities that report one.
+    pub distance_km: f64,
+    /// Summed duration in hours.
+    pub duration_hours: f64,
+    /// Summed elevation gain in metres, over the activities that report one.
+    pub elevation_gain_m: f64,
+}
+
+impl WindowTotals {
+    /// The totals as the `window_totals` object of the `coverage` sidecar,
+    /// rounded to one decimal.
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        let round = |v: f64| (v * 10.0).round() / 10.0;
+        json!({
+            "count": self.count,
+            "distance_km": round(self.distance_km),
+            "duration_hours": round(self.duration_hours),
+            "elevation_gain_m": round(self.elevation_gain_m),
+        })
+    }
+}
+
+/// Sum a window's count, distance, duration and elevation gain.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // seconds summed over a window stay far below f64's exact range
+pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
+    let distance_m: f64 = activities
+        .iter()
+        .filter_map(Activity::distance_meters)
+        .sum();
+    let seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
+    let elevation_m: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
+    WindowTotals {
+        count: activities.len(),
+        distance_km: distance_m / 1000.0,
+        duration_hours: seconds as f64 / 3600.0,
+        elevation_gain_m: elevation_m,
+    }
 }

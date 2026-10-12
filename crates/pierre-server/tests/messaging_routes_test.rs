@@ -283,7 +283,7 @@ mod messaging_routes_tests {
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "phone_number": "15551234567" }
+                "credentials": { "phone_number": "1323997520799051", "api_key": "wa-key" }
             }))
             .send(router.clone())
             .await;
@@ -325,7 +325,7 @@ mod messaging_routes_tests {
             ),
             (
                 ChannelType::WhatsApp,
-                json!({ "phone_number": "15551234567" }),
+                json!({ "phone_number": "1323997520799051", "api_key": "wa-key" }),
             ),
             (ChannelType::Messenger, json!({ "account_id": "page-1" })),
             (
@@ -371,25 +371,25 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_link_init_deep_link_returns_qr_svg() {
-        // Exercised through WhatsApp rather than Telegram. Both are deep-link
-        // channels and share this code path, but Telegram's bot handle is now
-        // resolved by calling getMe with the stored token — so a Telegram
-        // assertion here would either need a live Telegram credential or a
-        // network stub, and would be testing the resolver rather than the QR
-        // rendering this test is about. WhatsApp's destination is the
-        // configured number, which needs neither.
+        // Exercised through Messenger. Every deep-link channel shares this
+        // code path, but Telegram's bot handle is resolved by calling getMe
+        // with the stored token and WhatsApp's number by asking the Graph API
+        // for the stored phone-number id — so either would need a live
+        // credential or a network stub, and would be testing the resolver
+        // rather than the QR rendering this test is about. Messenger's
+        // destination is the configured page, which needs neither.
         let (router, token) = setup_messaging_router().await;
 
-        AxumTestRequest::put("/api/messaging/channels/whatsapp")
+        AxumTestRequest::put("/api/messaging/channels/messenger")
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "api_key": "wa-key", "phone_number": "15551234567" }
+                "credentials": { "api_key": "page-token", "account_id": "page-1" }
             }))
             .send(router.clone())
             .await;
 
-        let response = AxumTestRequest::post("/api/messaging/link/init/whatsapp")
+        let response = AxumTestRequest::post("/api/messaging/link/init/messenger")
             .header("authorization", &token)
             .send(router)
             .await;

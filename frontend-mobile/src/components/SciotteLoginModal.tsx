@@ -33,6 +33,7 @@ import {
   SCIOTTE_CODE_REJECTED,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  loginIdentifierField,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
@@ -454,7 +455,7 @@ export function SciotteLoginModal({
         bgColor: brand.brandColor.primary,
       }
     : METHOD_CONFIGS[method];
-  const usesUsername = preset.identifier === 'username';
+  const accountField = loginIdentifierField(preset.identifier);
   const canSubmit = Boolean(email && password) && (!notice || consentAccepted);
 
   const canGoBack = phase === 'credentials' && !preset.directCredentials;
@@ -582,7 +583,7 @@ export function SciotteLoginModal({
 
           <View className="mb-3">
             <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">
-              {t(usesUsername ? 'common.username' : 'common.email')}
+              {t(accountField.labelKey)}
             </Text>
             <TextInput
               className="bg-background-secondary rounded-xl px-4 py-3.5 text-base text-text-primary border border-border"
@@ -591,8 +592,8 @@ export function SciotteLoginModal({
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
-              keyboardType={usesUsername ? 'default' : 'email-address'}
-              autoComplete={usesUsername ? 'username' : 'email'}
+              keyboardType={accountField.inputType === 'email' ? 'email-address' : 'default'}
+              autoComplete={accountField.autoComplete}
               testID="sciotte-email"
             />
           </View>

@@ -140,8 +140,9 @@ struct ConnectProviderCard {
     /// picker page runs itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     form_url: Option<String>,
-    /// What the provider's own login asks for: `"username"` (TrainingPeaks)
-    /// or `"email"`. Read by the page for Sciotte cards only.
+    /// What the provider's own login asks for: `"username"` (TrainingPeaks),
+    /// `"email_or_username"` (Garmin) or `"email"`. Read by the page for
+    /// Sciotte cards only.
     login_identifier: &'static str,
 }
 
@@ -213,13 +214,9 @@ async fn build_connect_providers(
                         consent_required: p.consent_required,
                         notice: exposure_notice(strings, target),
                         form_url: None,
-                        login_identifier: if SciotteTarget::from_target_param(target)
-                            .signs_in_with_username()
-                        {
-                            "username"
-                        } else {
-                            "email"
-                        },
+                        login_identifier: SciotteTarget::from_target_param(target)
+                            .login_identifier()
+                            .as_str(),
                     });
                 }
             }

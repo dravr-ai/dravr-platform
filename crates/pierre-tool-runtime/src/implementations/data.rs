@@ -40,9 +40,9 @@ use crate::activity_backfill::{
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
 use crate::activity_fetch::{
-    activity_date_span, historical_depth_covered, maybe_merge_other_connections,
-    read_cached_window, read_live_window, serve_historical_window, serve_stale_activities,
-    serve_without_primary, sort_activities, touch_connection_used,
+    activity_date_span, activity_window_totals, historical_depth_covered,
+    maybe_merge_other_connections, read_cached_window, read_live_window, serve_historical_window,
+    serve_stale_activities, serve_without_primary, sort_activities, touch_connection_used,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -55,7 +55,8 @@ use crate::implementations::activity_detail_promotion::promote_to_detail;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
     backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
-    read_only_annotations, response_cache_eligible, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    pagination_has_more, read_only_annotations, response_cache_eligible, window_fetch_limit,
+    PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -351,8 +352,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .and_then(Value::as_str)
                 .map_or_else(|| "date_desc".to_owned(), str::to_owned);
 
+            // A window bounded on both ends is read whole; `limit` only bounds
+            // what is shown (see `window_fetch_limit`).
+            let fetch_limit = window_fetch_limit(limit, after, before, offset);
             let query_params = ActivityQueryParams {
-                limit: Some(limit),
+                limit: Some(fetch_limit),
                 offset,
                 before,
                 after,
@@ -419,12 +423,19 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 },
             );
 
-            let create_pagination = |returned_count: usize| PaginationInfo {
-                offset: offset.unwrap_or(0),
-                limit,
-                returned_count,
-                has_more: returned_count == limit,
-            };
+            let create_pagination =
+                |returned_count: usize, window_total: usize, provider_filled_page: bool| {
+                    PaginationInfo {
+                        offset: offset.unwrap_or(0),
+                        limit,
+                        returned_count,
+                        has_more: pagination_has_more(
+                            returned_count,
+                            window_total,
+                            provider_filled_page,
+                        ),
+                    }
+                };
 
             // Auto-promote small-limit queries (e.g. "my last activity") to
             // detailed mode — the provider list endpoint only returns a shallow
@@ -545,6 +556,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     mode,
                     output_format,
                     limit,
+                    fetch_limit,
                     offset: offset.unwrap_or(0),
                     analysis_type,
                     weather_provider: weather_provider.clone(),
@@ -986,6 +998,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .await
             };
 
+            let provider_filled_page = activities.len() >= fetch_limit;
             // Apply sport_type filter server-side before any further work.
             let mut filtered_activities =
                 filter_activities_by_sport_type(activities, sport_type_filter.as_deref());
@@ -1000,8 +1013,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // serves the COMPLETE window; truncating before this filter let other
             // -sport activities consume the limit budget and push older matching
             // activities out (e.g. a year of runs collapsing to the recent 46).
-            // The live-fetch path already returns a provider-limited set, so this
-            // is a no-op there. Logged so the served size is observable.
+            // The live-fetch path returns at most `fetch_limit`, which exceeds
+            // `limit` only for a window bounded on both ends. Logged so the
+            // served size is observable.
             info!(
                 provider = %provider_name,
                 filtered_len = filtered_activities.len(),
@@ -1012,9 +1026,30 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // display-limit truncation, so the response can frame coverage
             // honestly ("552 in this window, showing the most recent 200")
             // rather than letting the LLM anchor on the oldest activity in the
-            // truncated slice. No-op on the live-fetch path (already <= limit).
+            // truncated slice.
             let window_total = filtered_activities.len();
             let window_span = activity_date_span(&filtered_activities, user_timezone.as_deref());
+            let window_totals = activity_window_totals(&filtered_activities);
+
+            // Write-through under the SAME eligibility as the read above: skip the
+            // auto-promoted detail payload (the key omits mode) and the historical
+            // window (its serve never reads this cache, so a write here is dead —
+            // it would only accrete never-read historical entries). A window a
+            // sibling served for a missing primary is skipped too: the key is the
+            // missing provider's, and a later hit would replay the answer without
+            // the caveat that makes it honest. The WHOLE window is stored, before
+            // the display limit, so a hit frames the same count, span and totals
+            // a live read does (carnet#874).
+            if stood_in.is_none()
+                && !served_externally
+                && response_cache_eligible(
+                    auto_promote_to_detail,
+                    is_historical,
+                    sort_by != "date_desc",
+                )
+            {
+                cache_activities_result(cache, &cache_key, &filtered_activities, per_page).await;
+            }
             filtered_activities.truncate(limit);
 
             // Auto-promote small-limit queries to detailed by issuing
@@ -1044,25 +1079,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 mode
             };
 
-            // Write-through under the SAME eligibility as the read above: skip the
-            // auto-promoted detail payload (the key omits mode) and the historical
-            // window (its serve never reads this cache, so a write here is dead —
-            // it would only accrete never-read historical entries). A window a
-            // sibling served for a missing primary is skipped too: the key is the
-            // missing provider's, and a later hit would replay the answer without
-            // the caveat that makes it honest.
-            if stood_in.is_none()
-                && !served_externally
-                && response_cache_eligible(
-                    auto_promote_to_detail,
-                    is_historical,
-                    sort_by != "date_desc",
-                )
-            {
-                cache_activities_result(cache, &cache_key, &filtered_activities, per_page).await;
-            }
-
-            let pagination = create_pagination(filtered_activities.len());
+            let pagination =
+                create_pagination(filtered_activities.len(), window_total, provider_filled_page);
 
             // Weather backfill — first call per (lat, lng, hour) bucket hits the
             // vendor API, all subsequent calls hit weather_cache.
@@ -1100,6 +1118,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 locale: user_locale,
                 window_total: Some(window_total),
                 window_span,
+                window_totals: Some(window_totals),
                 merge_report: Some(&merge_report),
             });
 

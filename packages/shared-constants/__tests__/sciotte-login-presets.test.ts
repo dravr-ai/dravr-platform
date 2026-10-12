@@ -10,7 +10,12 @@ import fr from '../../i18n/src/locales/fr/translation.json';
 import es from '../../i18n/src/locales/es/translation.json';
 import de from '../../i18n/src/locales/de/translation.json';
 import pt from '../../i18n/src/locales/pt/translation.json';
-import { PROVIDER_NOTICES, SCIOTTE_LOGIN_PRESETS, sciotteTargetForBackend } from '../src/providers';
+import {
+  PROVIDER_NOTICES,
+  SCIOTTE_LOGIN_PRESETS,
+  loginIdentifierField,
+  sciotteTargetForBackend,
+} from '../src/providers';
 
 function lookup(catalogue: unknown, key: string): unknown {
   return key.split('.').reduce<unknown>(
@@ -33,10 +38,26 @@ describe('SCIOTTE_LOGIN_PRESETS', () => {
     expect(lookup(en, SCIOTTE_LOGIN_PRESETS.garmin.labelKey)).toBe('Garmin');
   });
 
-  it('signs TrainingPeaks in with a username and every other target with an email', () => {
+  it('signs TrainingPeaks in with a username, Garmin with either, the rest with an email', () => {
     expect(SCIOTTE_LOGIN_PRESETS.trainingpeaks.identifier).toBe('username');
-    for (const target of ['strava', 'garmin', 'coros'] as const) {
+    expect(SCIOTTE_LOGIN_PRESETS.garmin.identifier).toBe('email_or_username');
+    for (const target of ['strava', 'coros'] as const) {
       expect(SCIOTTE_LOGIN_PRESETS[target].identifier).toBe('email');
+    }
+  });
+
+  it('types the account field email only where nothing but an email is accepted', () => {
+    expect(loginIdentifierField('email').inputType).toBe('email');
+    // A Garmin username such as "jpbsavard" has no @: an email-typed field
+    // would refuse it before it is sent.
+    expect(loginIdentifierField('email_or_username')).toEqual({
+      labelKey: 'common.emailOrUsername',
+      inputType: 'text',
+      autoComplete: 'username',
+    });
+    expect(loginIdentifierField('username').inputType).toBe('text');
+    for (const kind of ['email', 'username', 'email_or_username'] as const) {
+      expect(lookup(en, loginIdentifierField(kind).labelKey), kind).toBeTruthy();
     }
   });
 

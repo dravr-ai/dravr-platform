@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::env;
 use std::sync::{LazyLock, RwLock};
 
 use dravr_canot::http_client::describe_request_error;
@@ -125,6 +126,149 @@ fn username_in_get_me(body: &serde_json::Value) -> Result<String, AppError> {
         })
 }
 
+/// Meta's Graph API, at the version dravr-canot's `WhatsApp` transport sends
+/// through. `META_GRAPH_API_BASE` overrides it, the way `STRAVA_API_BASE`
+/// overrides Strava's: a server setting, never something a request supplies.
+const DEFAULT_GRAPH_API_BASE: &str = "https://graph.facebook.com/v22.0";
+
+fn graph_api_base() -> String {
+    env::var("META_GRAPH_API_BASE")
+        .ok()
+        .filter(|base| !base.is_empty())
+        .unwrap_or_else(|| DEFAULT_GRAPH_API_BASE.to_owned())
+}
+
+/// Cache of `WhatsApp` phone-number id -> the digits `wa.me` dials. A business
+/// number changes only when an operator moves the `WhatsApp` account, so the
+/// process lifetime is the bound, as for the Telegram username above.
+static WHATSAPP_DISPLAY_NUMBERS: LazyLock<RwLock<HashMap<String, String>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// The number a `WhatsApp` link code must be sent to, as `wa.me` dials it.
+///
+/// The channel config's `phone_number` is Meta's phone-number **id**, the Graph
+/// object dravr-canot sends from and webhooks are matched on, not a number
+/// anyone can dial. `wa.me/1323997520799051` is what every athlete was sent,
+/// and `WhatsApp` answered "not a valid phone number" (carnet#871). So the number
+/// is asked of Meta, for the id we already store, with the access token we
+/// already store: correct by construction, nothing for an operator to type,
+/// the same reasoning as [`telegram_bot_username`].
+///
+/// A missing id or token, an unreachable Graph API, and an answer with no
+/// dialable number are all errors. Guessing is never correct.
+async fn whatsapp_display_number(
+    config: &serde_json::Value,
+    graph_api: &str,
+) -> Result<String, AppError> {
+    let phone_number_id = config
+        .get("phone_number")
+        .and_then(|v| v.as_str())
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| {
+            AppError::internal(
+                "WhatsApp channel has no phone_number, so there is no recipient \
+                 for the link code. Refusing to build a URL that would open a \
+                 contact picker with the athlete's binding code pre-filled.",
+            )
+        })?;
+    let token = config
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            AppError::internal(
+                "WhatsApp channel has no access token, so the business number cannot \
+                 be resolved and no linking URL can be built.",
+            )
+        })?;
+
+    if let Some(cached) = WHATSAPP_DISPLAY_NUMBERS
+        .read()
+        .ok()
+        .and_then(|m| m.get(phone_number_id).cloned())
+    {
+        return Ok(cached);
+    }
+
+    // The token travels in a header, never the URL. A middleware error can
+    // still carry it, so it is masked there as in the Telegram lookup.
+    let url = format!(
+        "{graph_api}/{}?fields=display_phone_number",
+        urlencoding::encode(phone_number_id)
+    );
+    let response = shared_client()
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| {
+            let detail = match e {
+                SharedHttpError::Reqwest(e) => describe_request_error(e),
+                SharedHttpError::Middleware(e) => format!("{e:#}").replace(token, "***"),
+            };
+            AppError::internal(format!("WhatsApp phone-number lookup failed: {detail}"))
+        })?;
+
+    let body: serde_json::Value = response.json().await.map_err(|e| {
+        AppError::internal(format!(
+            "WhatsApp phone-number lookup returned no JSON: {}",
+            describe_request_error(e)
+        ))
+    })?;
+
+    let number = dialable_number_in_answer(&body)?;
+
+    if let Ok(mut cache) = WHATSAPP_DISPLAY_NUMBERS.write() {
+        cache.insert(phone_number_id.to_owned(), number.clone());
+    }
+    info!(
+        phone_number_id,
+        "resolved the WhatsApp business number via the Graph API"
+    );
+    Ok(number)
+}
+
+/// The digits `wa.me` dials, from the Graph API's `display_phone_number`
+/// ("+1 555-123-4567" -> "15551234567").
+///
+/// An answer without one, or with something that is not an international
+/// number (E.164 caps it at 15 digits), is an error: a rejected token and a
+/// deleted number land here, and either means the platform does not know
+/// where a linking code would go.
+fn dialable_number_in_answer(body: &serde_json::Value) -> Result<String, AppError> {
+    let digits: String = body
+        .get("display_phone_number")
+        .and_then(|n| n.as_str())
+        .unwrap_or_default()
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    if (8..=15).contains(&digits.len()) {
+        Ok(digits)
+    } else {
+        // Deliberately does not log the body: an error answer can describe
+        // the token it rejected.
+        Err(AppError::internal(
+            "The Graph API returned no dialable display_phone_number for the WhatsApp \
+             phone-number id — the access token is rejected or the number was removed. \
+             Refusing to build a linking URL without knowing which number it points at.",
+        ))
+    }
+}
+
+/// The `wa.me` link that sends `LINK <code>` to the business number the stored
+/// phone-number id belongs to, asked of the Graph API at `graph_api`.
+async fn whatsapp_linking_url(
+    code: &str,
+    config: &serde_json::Value,
+    graph_api: &str,
+) -> Result<String, AppError> {
+    let number = whatsapp_display_number(config, graph_api).await?;
+    let message_text = format!("LINK {code}");
+    let encoded_message = urlencoding::encode(&message_text);
+    Ok(format!("https://wa.me/{number}?text={encoded_message}"))
+}
+
 /// The config keys `build_linking_url` needs before it can build a URL for this
 /// channel at all.
 ///
@@ -139,8 +283,9 @@ const fn required_credential_keys(channel_type: ChannelType) -> &'static [&'stat
     match channel_type {
         // The bot the code is sent to; resolved to a username via `getMe`.
         ChannelType::Telegram => &["bot_token"],
-        // The number the pre-filled message is addressed to.
-        ChannelType::WhatsApp => &["phone_number"],
+        // The phone-number id and the token its business number is asked
+        // of the Graph API with.
+        ChannelType::WhatsApp => &["phone_number", "api_key"],
         // The page the `m.me` link opens.
         ChannelType::Messenger => &["account_id"],
         // The authorize URL needs the client id, and the callback that follows
@@ -203,28 +348,12 @@ pub(super) async fn build_linking_url(
 ) -> Result<String, AppError> {
     match channel_type {
         ChannelType::Telegram => telegram_linking_url(code, config, TELEGRAM_API).await,
-        ChannelType::WhatsApp => {
-            // Same rule as Telegram above, for the same reason. An empty number
-            // yields `https://wa.me/?text=LINK+CODE`, which is not a dead link:
-            // WhatsApp opens the contact picker with the athlete's one-time
-            // binding code already typed, and whoever they pick receives it.
-            // Milder than aiming at a stranger's bot only because it takes a
-            // tap — the failure is identical in kind, so it fails identically.
-            let phone = config
-                .get("phone_number")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.is_empty())
-                .ok_or_else(|| {
-                    AppError::internal(
-                        "WhatsApp channel has no phone_number, so there is no recipient \
-                         for the link code. Refusing to build a URL that would open a \
-                         contact picker with the athlete's binding code pre-filled.",
-                    )
-                })?;
-            let message_text = format!("LINK {code}");
-            let encoded_message = urlencoding::encode(&message_text);
-            Ok(format!("https://wa.me/{phone}?text={encoded_message}"))
-        }
+        // Same rule as Telegram, for the same reason. An empty number yields
+        // `https://wa.me/?text=LINK+CODE`, which is not a dead link: WhatsApp
+        // opens the contact picker with the athlete's one-time binding code
+        // already typed, and whoever they pick receives it. The number is
+        // asked of the Graph API; see `whatsapp_display_number`.
+        ChannelType::WhatsApp => whatsapp_linking_url(code, config, &graph_api_base()).await,
         ChannelType::Messenger => {
             // Same rule as Telegram and WhatsApp above: no guessed target. The
             // page id identifies which Messenger page the link opens, and an
@@ -324,7 +453,7 @@ mod tests {
     use std::env;
 
     use axum::extract::Path;
-    use axum::http::StatusCode;
+    use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
@@ -333,8 +462,8 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::{
-        build_linking_url, telegram_linking_url, username_in_get_me, ChannelType,
-        TELEGRAM_BOT_USERNAMES,
+        build_linking_url, dialable_number_in_answer, telegram_linking_url, username_in_get_me,
+        whatsapp_linking_url, ChannelType, TELEGRAM_BOT_USERNAMES,
     };
 
     const CODE: &str = "Code123";
@@ -422,6 +551,89 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         format!("http://{addr}")
+    }
+
+    /// A Graph API stand-in answering the phone-number lookup for `id`, when
+    /// asked with `token`, with `answer`. Returns its origin.
+    async fn graph_answering(
+        phone_number_id: &'static str,
+        token: &'static str,
+        answer: Value,
+    ) -> String {
+        let app = Router::new().route(
+            "/{id}",
+            get(
+                move |Path(asked): Path<String>, headers: HeaderMap| async move {
+                    let bearer = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or_default()
+                        .to_owned();
+                    if asked == phone_number_id && bearer == format!("Bearer {token}") {
+                        Json(answer).into_response()
+                    } else {
+                        StatusCode::NOT_FOUND.into_response()
+                    }
+                },
+            ),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    /// carnet#871: the stored `phone_number` is Meta's phone-number id, and
+    /// `wa.me/<id>` is "not a valid phone number" to `WhatsApp`. The link dials
+    /// the business number the Graph API states for that id.
+    #[tokio::test]
+    async fn a_whatsapp_link_dials_the_number_the_graph_api_states_for_the_id() {
+        let graph = graph_answering(
+            "1323997520799051",
+            "wa-access-token",
+            json!({ "display_phone_number": "+1 819-555-0142", "id": "1323997520799051" }),
+        )
+        .await;
+        let config = json!({ "phone_number": "1323997520799051", "api_key": "wa-access-token" });
+
+        let url = whatsapp_linking_url(CODE, &config, &graph).await.unwrap();
+
+        assert_eq!(url, "https://wa.me/18195550142?text=LINK%20Code123");
+        assert!(
+            !url.contains("1323997520799051"),
+            "never the phone-number id"
+        );
+    }
+
+    #[test]
+    fn a_graph_answer_without_a_dialable_number_is_an_error_not_a_default() {
+        for body in [
+            json!({ "id": "1" }),
+            json!({ "display_phone_number": "" }),
+            json!({ "display_phone_number": "+1 555" }),
+            json!({ "error": { "message": "Invalid OAuth access token", "code": 190 } }),
+        ] {
+            assert!(dialable_number_in_answer(&body).is_err(), "{body}");
+        }
+        assert_eq!(
+            dialable_number_in_answer(&json!({ "display_phone_number": "+33 6 86 54 42 92" }))
+                .unwrap(),
+            "33686544292"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_whatsapp_lookup_with_no_token_or_no_answer_refuses() {
+        let unreachable = telegram_unreachable().await;
+        for config in [
+            json!({ "phone_number": "222000111" }),
+            json!({ "phone_number": "222000111", "api_key": "token" }),
+        ] {
+            let result = whatsapp_linking_url(CODE, &config, &unreachable).await;
+            assert!(result.is_err(), "{config}: {result:?}");
+        }
     }
 
     /// An origin nothing listens on: the port was bound, read, and released.
@@ -556,11 +768,6 @@ mod tests {
     #[tokio::test]
     async fn each_channel_points_at_the_destination_its_config_names() {
         for (channel, config, expected) in [
-            (
-                ChannelType::WhatsApp,
-                json!({ "phone_number": "15551234567" }),
-                "https://wa.me/15551234567?text=LINK%20Code123".to_owned(),
-            ),
             (
                 ChannelType::Messenger,
                 json!({ "account_id": "page-1" }),

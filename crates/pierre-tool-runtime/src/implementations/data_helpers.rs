@@ -58,6 +58,43 @@ pub fn historical_backfill_fetch_limit() -> usize {
         .unwrap_or(DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT)
 }
 
+/// How many activities to ask the provider for.
+///
+/// A window bounded on both ends ("my 2011 rides") is read whole: `limit` only
+/// bounds what is shown, and the provider is asked for up to
+/// [`historical_backfill_fetch_limit`]. Asking for `limit` instead returned the
+/// newest `limit` activities of every sport, so a sport filter left a 63-ride
+/// year as its last three December rides (carnet#874). A paged read (an
+/// `offset`) and an open-ended window keep `limit`.
+#[must_use]
+pub fn window_fetch_limit(
+    limit: usize,
+    after: Option<i64>,
+    before: Option<i64>,
+    offset: Option<usize>,
+) -> usize {
+    if after.is_some() && before.is_some() && offset.unwrap_or(0) == 0 {
+        historical_backfill_fetch_limit().max(limit)
+    } else {
+        limit
+    }
+}
+
+/// Whether more activities exist than the response shows.
+///
+/// True when the window held more than is shown, or when the provider filled
+/// the page it was asked for, so the window may extend past it. Judged on the
+/// shown count alone, a sport filter that left three of twenty rows read as
+/// "nothing more" (carnet#874).
+#[must_use]
+pub const fn pagination_has_more(
+    returned_count: usize,
+    window_total: usize,
+    provider_filled_page: bool,
+) -> bool {
+    window_total > returned_count || provider_filled_page
+}
+
 /// Whether `provider`'s connection is in an unusable state (`NeedsReauth` /
 /// `Revoked`) and so needs an interactive reconnect.
 ///

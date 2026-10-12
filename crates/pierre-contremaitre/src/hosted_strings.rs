@@ -34,6 +34,8 @@ pub const KEY_HOSTED_COMMON_BACK: &str = "hosted.common.back";
 pub const KEY_HOSTED_COMMON_ACCOUNT_TITLE: &str = "hosted.common.accountTitle";
 /// Key: "Email" No format placeholders.
 pub const KEY_HOSTED_COMMON_EMAIL_LABEL: &str = "hosted.common.emailLabel";
+/// Key: "Email or username" No format placeholders.
+pub const KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL: &str = "hosted.common.emailOrUsernameLabel";
 /// Key: "Username" No format placeholders.
 pub const KEY_HOSTED_COMMON_USERNAME_LABEL: &str = "hosted.common.usernameLabel";
 /// Key: "Password" No format placeholders.
@@ -111,6 +113,9 @@ pub const KEY_HOSTED_PICKER_TAG_API_KEY: &str = "hosted.picker.tagApiKey";
 pub const KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD: &str = "hosted.picker.tagUsernamePassword";
 /// Key: "Email / password" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD: &str = "hosted.picker.tagEmailPassword";
+/// Key: "Email or username / password" No format placeholders.
+pub const KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD: &str =
+    "hosted.picker.tagEmailOrUsernamePassword";
 /// Key: "Strava sign-in didn't complete — you can connect with your Strava email and password instead." No format placeholders.
 pub const KEY_HOSTED_PICKER_STRAVA_FALLBACK: &str = "hosted.picker.stravaFallback";
 /// Key: "That sign-in didn't complete. Please go back and try again." No format placeholders.

@@ -149,18 +149,11 @@ async fn a_channel_with_no_resolvable_destination_refuses_to_link() {
 async fn a_channel_links_to_the_destination_its_config_names() {
     let (resources, router, token) = messaging_router().await;
 
-    for (channel, credentials, prefix) in [
-        (
-            "whatsapp",
-            json!({ "phone_number": "15551234567" }),
-            "https://wa.me/15551234567?text=LINK%20",
-        ),
-        (
-            "messenger",
-            json!({ "account_id": "page-1" }),
-            "https://m.me/page-1?ref=",
-        ),
-    ] {
+    for (channel, credentials, prefix) in [(
+        "messenger",
+        json!({ "account_id": "page-1" }),
+        "https://m.me/page-1?ref=",
+    )] {
         let (status, body) = init_link(&router, &token, channel, credentials).await;
         assert_eq!(status, 200, "{channel}: {body}");
         let init: Value = serde_json::from_str(&body).unwrap();

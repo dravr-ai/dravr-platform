@@ -153,7 +153,7 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier }]
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -203,14 +203,22 @@
             }
 
             // The identifier the chosen provider's own login asks for:
-            // TrainingPeaks takes a username, and an email-typed field would
-            // refuse it before it is sent.
+            // TrainingPeaks takes a username, Garmin either, and an
+            // email-typed field would refuse a username before it is sent.
             function setIdentifier(kind) {
-                const username = kind === 'username';
-                document.getElementById('email-label').textContent = username ? S.username : S.email;
+                const emailOnly = kind !== 'username' && kind !== 'email_or_username';
+                document.getElementById('email-label').textContent =
+                    kind === 'username' ? S.username : kind === 'email_or_username' ? S.emailOrUsername : S.email;
                 const field = document.getElementById('email');
-                field.type = username ? 'text' : 'email';
-                field.autocomplete = username ? 'username' : 'email';
+                field.type = emailOnly ? 'email' : 'text';
+                field.autocomplete = emailOnly ? 'email' : 'username';
+            }
+
+            // The card tag naming what the provider's login takes.
+            function identifierTag(kind) {
+                if (kind === 'username') return S.tagUsernamePassword;
+                if (kind === 'email_or_username') return S.tagEmailOrUsernamePassword;
+                return S.tagEmailPassword;
             }
 
             const phases = ['picker', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
@@ -267,7 +275,7 @@
                             ? S.tagAuthorize
                             : (p.kind === 'api_key'
                                 ? S.tagApiKey
-                                : (p.login_identifier === 'username' ? S.tagUsernamePassword : S.tagEmailPassword)));
+                                : identifierTag(p.login_identifier)));
                     btn.appendChild(tag);
                     if (p.connected) {
                         btn.disabled = true;

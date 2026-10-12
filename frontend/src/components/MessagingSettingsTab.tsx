@@ -46,7 +46,9 @@ const CHANNEL_INFO: Record<string, ChannelInfo> = {
       { key: 'api_key', labelKey: 'msgChan.accessToken', type: 'password', placeholderKey: 'msgChan.whatsappAccessTokenHint' },
       { key: 'webhook_secret', labelKey: 'msgChan.appSecretHmac', type: 'password', placeholderKey: 'msgChan.metaAppSecretHint' },
       { key: 'verify_token', labelKey: 'msgChan.verifyToken', type: 'text', placeholderKey: 'msgChan.verifyTokenHint' },
-      { key: 'phone_number', labelKey: 'msgChan.phoneNumber', type: 'text', placeholderSample: '+1 555 123 4567' },
+      // Meta's phone-number id, which canot sends from and webhooks match on —
+      // not a dialable number. The number a link dials is asked of the Graph API.
+      { key: 'phone_number', labelKey: 'msgChan.phoneNumber', type: 'text', placeholderSample: '123456789012345' },
     ],
   },
   telegram: {
