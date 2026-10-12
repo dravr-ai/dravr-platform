@@ -29,7 +29,7 @@ dravr-tronc = "4.2.0"
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.29.2" }
 
 # Messaging types and channel adapters.
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.7.1" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.7.2" }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.3.4" }
