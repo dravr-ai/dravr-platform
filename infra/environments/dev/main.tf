@@ -369,6 +369,15 @@ module "backend" {
       PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
+      # The same chain as the variables above, in the one variable the next
+      # binary reads (carnet#875): entries in order, `provider=model`, the
+      # first is the primary; claude-code#2 still follows claude_code through
+      # CLAUDE_CODE_OAUTH_TOKEN_2. The running binary does not read it. It is
+      # applied before the binary that reads it deploys, so neither order of
+      # deploy and apply leaves a revision with no chain; the block above is
+      # removed once that binary serves (JF, 2026-10-12: two-step rollout).
+      PIERRE_LLM_CHAIN = "copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
+
       # The synthetic LLM probe runs once per instance start and never again:
       # its "ping" is a real turn on the primary's account — a Copilot credit
       # each time, from a monthly allowance with no overage. Athlete turns
