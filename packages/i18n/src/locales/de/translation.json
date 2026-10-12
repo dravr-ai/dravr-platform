@@ -2164,7 +2164,7 @@
       "pageTitle": "Intervals.icu verbinden - Dravr",
       "storageNote": "Dravr prüft beides bei Intervals.icu, bevor es gespeichert wird, und legt den Schlüssel verschlüsselt ab.",
       "authorizeNote": "Du meldest dich bei Intervals.icu an und gibst Dravr dort frei — Dravr sieht dein Passwort nie.",
-      "coachNote": "Coaches verknüpfen sich mit ihrem API-Schlüssel, damit Dravr die Athleten lesen kann, die sie betreuen.",
+      "coachNote": "Menschliche Coaches verknüpfen sich mit ihrem API-Schlüssel, damit Dravr die Athleten lesen kann, die sie betreuen.",
       "athleteIdRequired": "Gib deine Athleten-ID ein.",
       "apiKeyRequired": "Gib deinen API-Schlüssel ein.",
       "rejected": "Intervals.icu hat diese Zugangsdaten abgelehnt. Prüfe deine Athleten-ID und deinen API-Schlüssel und versuche es erneut.",
