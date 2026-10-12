@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One activity's own view, opened from Home — its map, then a chat about it, then its figures, splits and laps, each table scrolling inside itself
+// ABOUTME: One activity's own view, opened from Home — its map, then a chat about it, then its shoes, figures, splits and laps, each table scrolling inside itself
 // ABOUTME: The chat is the chat surface itself, embedded; its suggested questions name the activity so the agent reads the right one
 
 import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Send } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
+import { sportTakesShoes } from '@pierre/shared-constants';
 import {
   ACTIVITY_PROMPTS,
   activityFigures,
@@ -28,6 +29,7 @@ import { useActivityConversation } from '../../hooks/useActivityConversation';
 import { useActivityDetail } from '../../hooks/useActivityDetail';
 import type { ActivityRef } from './activityRoute';
 import { DeleteUploadedActivity } from './DeleteUploadedActivity';
+import { ActivityGearPicker } from './ActivityGearPicker';
 
 interface ActivityViewProps {
   /** The activity the Home row or the deep link named. */
@@ -295,7 +297,7 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
                 <span className="font-mono">{formatInstant(data.activity.start_date, language, ROW_DATE)}</span>
                 {' · '}
                 {sport}
-                {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
+                {/* The recording device, with the attribution Garmin-sourced data owes, as served (carnet#521, carnet#711). */}
                 {data.activity.attribution && (
                   <span data-testid="activity-attribution">
                     {' · '}
@@ -310,6 +312,9 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
               data-testid="activity-details"
               className="space-y-8 border-0 ghost-border lg:absolute lg:inset-y-0 lg:right-0 lg:!mt-0 lg:flex lg:w-[420px] lg:flex-col lg:gap-8 lg:space-y-0 lg:overflow-y-auto lg:border-l lg:px-6 lg:py-6"
             >
+              {sportTakesShoes(data.activity.sport_type) && (
+                <ActivityGearPicker activity={activity} onNavigate={onNavigate} />
+              )}
               <Figures detail={data} />
               {splits && <Segments title={t('home.activity.splits')} table={splits} testId="activity-splits" />}
               {laps && <Segments title={t('home.activity.laps')} table={laps} testId="activity-laps" />}

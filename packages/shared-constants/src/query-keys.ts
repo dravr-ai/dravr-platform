@@ -87,6 +87,15 @@ export const QUERY_KEYS = {
     calendars: ['home', 'calendar'] as const,
   },
 
+  // ==================== GEAR LEDGER ====================
+  gear: {
+    all: ['gear'] as const,
+    /** Every pair the athlete declared, retired ones included, with its distance. */
+    list: () => ['gear', 'list'] as const,
+    /** The pair one activity was run in. Keyed by provider as well as id, like the activity's view. */
+    activity: (provider: string, activityId: string) => ['gear', 'activity', provider, activityId] as const,
+  },
+
   // ==================== CHAT ====================
   chat: {
     all: ['chat'] as const,

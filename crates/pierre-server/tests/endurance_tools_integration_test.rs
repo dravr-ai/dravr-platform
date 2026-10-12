@@ -239,7 +239,7 @@ async fn test_export_dossier_happy_path_empty() -> Result<()> {
         ))
         .await?;
     assert!(resp.success, "dossier should succeed: {:?}", resp.error);
-    // Dossier shape: physiology / zones / goals / nutrition / equipment — fresh
+    // Dossier shape: physiology / zones / goals / nutrition — fresh
     // user has all-null slots but the keys are still present.
     let result = resp.result.unwrap();
     assert!(result.is_object(), "dossier payload must be a JSON object");

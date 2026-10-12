@@ -190,6 +190,7 @@ export type SettingsSectionId =
 export type SettingsPaneId =
   | 'profile'
   | 'connections'
+  | 'gear'
   | 'tokens'
   | 'api-keys'
   | 'coaching'
@@ -267,6 +268,16 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.connectionsHint',
     web: 'connections',
     mobile: '/(app)/(tabs)/(settings)/connections',
+    flag: null,
+  },
+  {
+    // The shoes the athlete declares and the distance each has (carnet#711).
+    // Athlete-only: no coach or other member reads the ledger.
+    id: 'gear',
+    nameKey: 'settingsTabs.gear',
+    hintKey: 'settingsTabs.gearHint',
+    web: 'gear',
+    mobile: '/(app)/(tabs)/(settings)/gear',
     flag: null,
   },
   {
@@ -357,11 +368,13 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
 ];
 
 /**
- * Panes an operator does not get: provider connections, messaging and About
- * are athlete-account surfaces. Gated on `role`, as the Dashboard gates.
+ * Panes an operator does not get: provider connections, the gear ledger,
+ * messaging and About are athlete-account surfaces. Gated on `role`, as the
+ * Dashboard gates.
  */
 export const ADMIN_HIDDEN_PANES: ReadonlySet<SettingsPaneId> = new Set([
   'connections',
+  'gear',
   'about',
   'messaging',
 ]);

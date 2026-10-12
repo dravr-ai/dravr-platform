@@ -182,8 +182,9 @@ export interface UseDeleteUploadedActivityResult {
  * A deleted activity leaves every Home read it was in — the recent list, the
  * calendar, the weekly volume and the training status — so those are
  * refreshed, and its own view's answer is dropped rather than kept for a
- * return visit. `onDeleted` is where the surface leaves the deleted
- * activity's view.
+ * return visit. It leaves the pair of shoes it counted on too, so its own
+ * shoe answer is dropped and the shoe ledger refreshed. `onDeleted` is where
+ * the surface leaves the deleted activity's view.
  */
 export function createDeleteUploadedActivityHook(athleteApi: Pick<AthleteApi, 'deleteUploadedActivity'>) {
   return function useDeleteUploadedActivity(onDeleted: () => void): UseDeleteUploadedActivityResult {
@@ -192,7 +193,9 @@ export function createDeleteUploadedActivityHook(athleteApi: Pick<AthleteApi, 'd
       mutationFn: (activityId: string) => athleteApi.deleteUploadedActivity(activityId),
       onSuccess: (_, activityId) => {
         queryClient.removeQueries({ queryKey: QUERY_KEYS.home.activityDetail(UPLOAD_PROVIDER, activityId) });
+        queryClient.removeQueries({ queryKey: QUERY_KEYS.gear.activity(UPLOAD_PROVIDER, activityId) });
         refreshHomeReads(queryClient);
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gear.all });
         onDeleted();
       },
     });

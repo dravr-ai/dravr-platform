@@ -55,7 +55,7 @@ pub trait UserPhysiologicalProfileRepository: Send + Sync {
 /// Per the locked architectural decision the dossier is **not** persisted as
 /// its own row — the implementation pulls from the existing tables
 /// (`user_physiological_profiles` for physiology + zones, `user_profiles`
-/// JSON column for goals / nutrition / equipment) and assembles the
+/// JSON column for goals / nutrition) and assembles the
 /// aggregate per request. Cache invalidation is therefore unnecessary on
 /// the dossier itself; only the underlying tables need cache hooks.
 #[async_trait]
@@ -538,9 +538,6 @@ macro_rules! impl_user_physiological_profile_repository {
                 let nutrition = raw_profile
                     .as_ref()
                     .and_then(|v| v.get("nutrition").cloned());
-                let equipment = raw_profile
-                    .as_ref()
-                    .and_then(|v| v.get("equipment").cloned());
 
                 // Per-user pillar context, grouped into pillar / north-star / medical
                 // buckets. Best-effort — facts are an enhancement, not a hard
@@ -619,7 +616,6 @@ macro_rules! impl_user_physiological_profile_repository {
                     power_zones,
                     goals,
                     nutrition,
-                    equipment,
                     pillars: buckets.pillars,
                     north_star: buckets.north_star,
                     medical: buckets.medical,

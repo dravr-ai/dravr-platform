@@ -457,7 +457,8 @@ async fn a_garmin_sourced_row_carries_the_garmin_attribution() {
 /// Garmin's brand guidelines name the device: a row whose device names a
 /// Garmin model shows it, and a Garmin recording another service relayed is
 /// attributed by its device although its `source` names the relay
-/// (carnet#521).
+/// (carnet#521). Another maker's device is named as the provider reports it,
+/// never as Garmin's (carnet#711).
 #[tokio::test]
 async fn a_garmin_device_row_names_its_model_whichever_service_relayed_it() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -510,7 +511,77 @@ async fn a_garmin_device_row_names_its_model_whichever_service_relayed_it() {
         "Garmin Forerunner 965"
     );
     assert_eq!(body["activities"][1]["attribution"], "Garmin Edge 840");
-    assert!(body["activities"][2]["attribution"].is_null(), "{body}");
+    assert_eq!(body["activities"][2]["attribution"], "Wahoo ELEMNT BOLT");
+}
+
+/// One run a COROS watch and a Garmin both recorded, reaching the cache as a
+/// Strava copy naming the COROS and a Garmin-sourced intervals.icu copy: the
+/// merger keeps the longer Strava copy, and its figures may come from the
+/// Garmin copy, so the row carries the Garmin attribution rather than the
+/// COROS name (carnet#521). Without the Garmin copy, the COROS is named
+/// (carnet#711).
+#[tokio::test]
+async fn a_merged_workout_with_a_garmin_sourced_copy_carries_the_garmin_attribution() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-merged-attribution").await;
+    let started = days_ago(1);
+    let coros = ActivityBuilder::new(
+        "coros-run",
+        "Morning Run",
+        SportType::Run,
+        started + Duration::seconds(20),
+        3_660,
+        oauth_providers::STRAVA,
+    )
+    .distance_meters(10_050.0)
+    .device_name("COROS PACE 3")
+    .build();
+    let garmin_sourced = ActivityBuilder::new(
+        "i-run",
+        "Morning Run",
+        SportType::Run,
+        started,
+        3_600,
+        oauth_providers::INTERVALS_ICU,
+    )
+    .distance_meters(10_000.0)
+    .average_heart_rate(148)
+    .source("garmin")
+    .build();
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        slice::from_ref(&coros),
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(ids(&body), ["coros-run"]);
+    assert_eq!(body["activities"][0]["attribution"], "COROS PACE 3");
+
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::INTERVALS_ICU,
+        &[garmin_sourced],
+    )
+    .await;
+    let body = recent(&resources, &athlete.token, "").await;
+    let rows = body["activities"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "the two copies are one workout: {body}");
+    assert_eq!(
+        rows[0]["id"], "i-run",
+        "the row draws the copy a device sensed: {body}"
+    );
+    assert_eq!(
+        rows[0]["duration_seconds"], 3_660,
+        "the merged numbers are the Strava copy's: {body}"
+    );
+    assert_eq!(
+        rows[0]["attribution"], "Garmin",
+        "a Garmin-sourced copy outranks the merged copy's device: {body}"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -42,8 +42,8 @@ pub struct WalkSpec<'a> {
 /// A read that *fails* is not an athlete without a profile, and the two must
 /// not collapse: `upsert_profile` replaces the whole document, so starting
 /// from `None` after a failed read writes a bare window over the athlete's
-/// nutrition and equipment blocks — the ones `compose_dossier` reads out of
-/// this same blob — and supersedes nothing. The command reports the failure
+/// nutrition block — the one `compose_dossier` reads out of this same blob —
+/// and supersedes nothing. The command reports the failure
 /// instead, which leaves the stored profile exactly as it was.
 ///
 /// # Errors

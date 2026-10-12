@@ -324,6 +324,25 @@ export const ENDPOINTS = {
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },
+  // ==================== GEAR LEDGER ====================
+  /** The shoes the athlete declares, and the pair each activity was run in (carnet#711) */
+  GEAR: {
+    /** Every pair, retired ones included (`GET`); declare one (`POST`) */
+    LIST: '/api/me/gear',
+    /** One pair: change what was declared (`PATCH`), or delete it while nothing is attributed (`DELETE`) */
+    ITEM: (gearId: string) => `/api/me/gear/${encodeURIComponent(gearId)}`,
+    /** Retire a pair: it keeps its distance and history and is offered for no activity (`POST`) */
+    RETIRE: (gearId: string) => `/api/me/gear/${encodeURIComponent(gearId)}/retire`,
+    /** Put a retired pair back in use (`POST`) */
+    RESTORE: (gearId: string) => `/api/me/gear/${encodeURIComponent(gearId)}/restore`,
+    /**
+     * The pair one activity was run in (`GET`), or the athlete's choice of
+     * one or of none (`PUT`, body `{ gear_id }`). Addressed like the
+     * activity's view.
+     */
+    ACTIVITY: (provider: string, activityId: string) =>
+      `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/gear`,
+  },
   // ==================== PERSONAS ====================
   PERSONAS: {
     /** The « Style de coaching » cards, rendered from the live contract registry */

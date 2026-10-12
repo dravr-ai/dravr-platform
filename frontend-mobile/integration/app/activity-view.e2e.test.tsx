@@ -52,6 +52,30 @@ import { ActivityScreen } from '../../src/screens/activity/ActivityScreen';
 
 const DETAIL_URL = 'GET /api/me/activities/strava/9000';
 const THREAD = 'conv-activity-9000';
+const GEAR_URL = 'GET /api/me/gear';
+const ACTIVITY_GEAR = '/api/me/activities/strava/9000/gear';
+const ROAD = '11111111-1111-4111-8111-111111111111';
+const TRAIL = '22222222-2222-4222-8222-222222222222';
+
+/** One pair as the gear endpoints answer with it. */
+function shoe(id: string, name: string, sport: string, distanceMeters: number) {
+  return {
+    id,
+    kind: 'shoe',
+    name,
+    sport,
+    initial_distance_meters: 0,
+    warn_distance_meters: 500_000,
+    distance_meters: distanceMeters,
+    activity_count: 12,
+    warn_reached: false,
+    pinned: false,
+    is_default: sport === 'run',
+    added_at: '2026-09-01T07:00:00Z',
+    retired_at: null,
+    last_used_at: '2026-09-17T06:30:00Z',
+  };
+}
 
 function server(overrides: StubRoutes = {}): StubRoutes {
   return {
@@ -72,6 +96,9 @@ function server(overrides: StubRoutes = {}): StubRoutes {
     [`POST /api/chat/conversations/${THREAD}/messages`]: { data: assistantTurn() },
     [`GET /api/chat/conversations/${THREAD}/verdicts`]: { data: { verdicts: [] } },
     'PUT /api/me/activities/strava/9000/conversation': { data: { conversation_id: THREAD } },
+    // The run's shoes: no pair declared yet.
+    [GEAR_URL]: { data: { gear: [] } },
+    [`GET ${ACTIVITY_GEAR}`]: { data: { gear_id: null, source: null } },
     ...overrides,
   };
 }
@@ -159,6 +186,40 @@ describe("an activity's own screen over the wire", () => {
     expect(screen.queryByTestId('activity-figures')).toBeNull();
     expect(screen.queryByTestId('activity-prompts')).toBeNull();
   }, 10_000);
+
+  it('counts the run on the pair the athlete chooses, over the wire', async () => {
+    let attributed: { gear_id: string | null; source: string | null } = { gear_id: ROAD, source: 'default' };
+    stub = installHttpStub(
+      server({
+        [GEAR_URL]: {
+          data: { gear: [shoe(ROAD, 'Pegasus 41', 'run', 512_300), shoe(TRAIL, 'Speedgoat 6', 'trail_running', 212_400)] },
+        },
+        [`GET ${ACTIVITY_GEAR}`]: () => ({ data: attributed }),
+        [`PUT ${ACTIVITY_GEAR}`]: (request) => {
+          attributed = { gear_id: (request.body as { gear_id: string | null }).gear_id, source: 'declared' };
+          return { data: attributed };
+        },
+      }),
+    );
+    mockParams = { provider: 'strava', activityId: '9000' };
+    const screen = withClient(<ActivityScreen />);
+
+    const shown = () => screen.getByTestId('activity-gear-value').props.children as string;
+    await waitFor(() => expect(shown()).toBe('Pegasus 41'));
+    expect(screen.getByTestId('activity-gear-default')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('activity-gear-select'));
+    fireEvent.press(screen.getByTestId(`activity-gear-option-${TRAIL}`));
+
+    await waitFor(() => expect(shown()).toBe('Speedgoat 6'));
+    expect(stub.requestsFor('PUT').map((request) => [request.url, request.body])).toEqual([
+      [ACTIVITY_GEAR, { gear_id: TRAIL }],
+    ]);
+    // The ledger is read again for the distance the choice moved.
+    await waitFor(() =>
+      expect(stub.requestsFor('GET').filter((request) => request.url === '/api/me/gear')).toHaveLength(2),
+    );
+  });
 
   it("says a 404 is not among the athlete's activities", async () => {
     stub = installHttpStub(server({ [DETAIL_URL]: { status: 404, data: { message: 'not found' } } }));

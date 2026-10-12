@@ -211,6 +211,28 @@ export {
 export type { ActivityUploadResponse, HeldActivity } from './activity-upload.js';
 export { ACTIVITY_UPLOAD_MAX_BYTES, UPLOAD_PROVIDER, parseActivityUploadResponse } from './activity-upload.js';
 
+// The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
+export type {
+  ActivityGearResponse,
+  CreateGearRequest,
+  GearAttributionSource,
+  GearItem,
+  GearKind,
+  GearListResponse,
+  GearSport,
+  UpdateGearRequest,
+} from './gear.js';
+export {
+  GEAR_DEFAULT_WARN_DISTANCE_METERS,
+  GEAR_MAX_DISTANCE_METERS,
+  GEAR_NAME_MAX_CHARS,
+  GEAR_SPORTS,
+  isGearSport,
+  parseActivityGearResponse,
+  parseGearItem,
+  parseGearListResponse,
+} from './gear.js';
+
 // The athlete Home page's weekly volume: distance, time and climbing per sport, week by week
 export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
 export { parseTrainingVolumeResponse } from './training-volume.js';

@@ -274,26 +274,55 @@ fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool {
     source_attribution(source).is_some() || garmin_device(device_name)
 }
 
-/// The attribution an activity must be shown with, beside its title.
+/// The line an activity is shown with beside its title: the device that
+/// recorded it, and the attribution Garmin-sourced data owes.
 ///
 /// Garmin's brand guidelines name the device: `Garmin Forerunner 965` when
 /// `device_name` names a Garmin device and its model; plain
-/// [`GARMIN_ATTRIBUTION`] for Garmin-sourced data whose device is unknown;
-/// `None` for anything else.
+/// [`GARMIN_ATTRIBUTION`] for Garmin-sourced data whose device is unknown or
+/// another maker's (carnet#521). Any other recording names its device as the
+/// provider reports it, `COROS PACE 3` or `Apple Watch Ultra 2` (carnet#711);
+/// `None` when no device is named.
 #[must_use]
 pub fn activity_attribution(source: Option<&str>, device_name: Option<&str>) -> Option<String> {
-    if !garmin_recorded(source, device_name) {
-        return None;
-    }
+    workout_attribution(&[(source, device_name)])
+}
+
+/// The line a workout merged from several recordings is shown with, given
+/// each copy's `(source, device_name)`, the merged copy first.
+///
+/// The merged figures may come from any copy, so a Garmin-recorded copy
+/// anywhere carries the attribution (carnet#521), ahead of any device another
+/// copy names: the first such copy's line, as [`activity_attribution`]
+/// spells it. Without one, the first device a copy names (carnet#711);
+/// `None` when no copy names one.
+#[must_use]
+pub fn workout_attribution(copies: &[(Option<&str>, Option<&str>)]) -> Option<String> {
+    copies
+        .iter()
+        .find(|&&(source, device_name)| garmin_recorded(source, device_name))
+        .map(|&(_, device_name)| garmin_attribution(device_name))
+        .or_else(|| {
+            copies.iter().find_map(|&(_, device_name)| {
+                device_name
+                    .map(device_label)
+                    .filter(|label| !label.is_empty())
+            })
+        })
+}
+
+/// The attribution Garmin-sourced data is shown with: the brand and the
+/// model when `device_name` names a Garmin device, the brand alone otherwise.
+fn garmin_attribution(device_name: Option<&str>) -> String {
     let model = device_name
         .filter(|name| garmin_device(Some(name)))
         .map(garmin_device_model)
         .unwrap_or_default();
-    Some(if model.is_empty() {
+    if model.is_empty() {
         GARMIN_ATTRIBUTION.to_owned()
     } else {
         format!("{GARMIN_ATTRIBUTION} {model}")
-    })
+    }
 }
 
 /// The model a Garmin device name carries: the name without the brand, the
@@ -310,7 +339,14 @@ fn garmin_device_model(device_name: &str) -> String {
         cursor += found + GARMIN.len();
     }
     rest.push_str(&device_name[cursor..]);
-    let words: Vec<&str> = rest
+    device_label(&rest)
+}
+
+/// A device name as an attribution shows it: its words without the
+/// punctuation left around them, control characters or redundant spacing, at
+/// most [`DEVICE_MODEL_MAX_CHARS`] characters. Empty when it names no word.
+fn device_label(device_name: &str) -> String {
+    let words: Vec<&str> = device_name
         .split(|c: char| c.is_whitespace() || c.is_control() || c == '_')
         .filter(|word| word.chars().any(char::is_alphanumeric))
         .collect();
@@ -482,7 +518,7 @@ pub const COROS_DEFAULT_SCOPES: &str = "read:workouts read:sleep read:daily";
 
 #[cfg(test)]
 mod tests {
-    use super::{activity_attribution, garmin_recorded};
+    use super::{activity_attribution, garmin_recorded, workout_attribution};
 
     #[test]
     fn a_garmin_device_is_named_by_its_model() {
@@ -528,10 +564,80 @@ mod tests {
     }
 
     #[test]
-    fn anything_else_carries_no_attribution() {
+    fn another_makers_device_is_named_as_the_provider_reports_it() {
+        assert!(!garmin_recorded(Some("strava"), Some("COROS PACE 3")));
+        for (device, expected) in [
+            ("COROS PACE 3", "COROS PACE 3"),
+            ("Apple Watch Ultra 2", "Apple Watch Ultra 2"),
+            ("  Wahoo_ELEMNT\tBOLT ", "Wahoo ELEMNT BOLT"),
+            ("Polar Vantage V3", "Polar Vantage V3"),
+        ] {
+            assert_eq!(
+                activity_attribution(Some("strava"), Some(device)).as_deref(),
+                Some(expected),
+                "{device}"
+            );
+            assert_eq!(
+                activity_attribution(None, Some(device)).as_deref(),
+                Some(expected),
+                "{device}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_named_device_and_no_garmin_data_carries_nothing() {
         assert!(!garmin_recorded(None, None));
         assert_eq!(activity_attribution(Some("strava"), None), None);
-        assert_eq!(activity_attribution(None, Some("COROS PACE 4")), None);
+        assert_eq!(activity_attribution(None, None), None);
+        assert_eq!(activity_attribution(Some("strava"), Some(" _ - ")), None);
+    }
+
+    #[test]
+    fn a_garmin_recorded_copy_of_a_merged_workout_outranks_another_copys_device() {
+        // A COROS watch and a Garmin-sourced intervals.icu copy of one run:
+        // the merged copy is the COROS one, its figures may be the other's.
+        assert_eq!(
+            workout_attribution(&[(None, Some("COROS PACE 3")), (Some("garmin"), None)]).as_deref(),
+            Some("Garmin")
+        );
+        assert_eq!(
+            workout_attribution(&[
+                (Some("strava"), Some("COROS PACE 3")),
+                (Some("strava"), Some("Garmin Edge 840")),
+            ])
+            .as_deref(),
+            Some("Garmin Edge 840")
+        );
+        assert_eq!(
+            workout_attribution(&[(Some("garmin"), None), (None, Some("Garmin Edge 840"))])
+                .as_deref(),
+            Some("Garmin"),
+            "the first Garmin-recorded copy, the merged one, speaks"
+        );
+    }
+
+    #[test]
+    fn without_garmin_data_the_first_named_device_of_a_merged_workout_shows() {
+        assert_eq!(
+            workout_attribution(&[
+                (None, Some("COROS PACE 3")),
+                (None, Some("Polar Vantage V3"))
+            ])
+            .as_deref(),
+            Some("COROS PACE 3")
+        );
+        assert_eq!(
+            workout_attribution(&[(Some("strava"), None), (None, Some("Polar Vantage V3"))])
+                .as_deref(),
+            Some("Polar Vantage V3"),
+            "a merged copy naming no device leaves the line to the other copy"
+        );
+        assert_eq!(
+            workout_attribution(&[(None, None), (Some("strava"), None)]),
+            None
+        );
+        assert_eq!(workout_attribution(&[]), None);
     }
 
     #[test]
@@ -539,5 +645,10 @@ mod tests {
         let long = format!("Garmin {}", "X".repeat(200));
         let attribution = activity_attribution(None, Some(&long)).unwrap_or_default();
         assert_eq!(attribution.chars().count(), "Garmin ".len() + 40);
+
+        let other = format!("COROS {}", "Y".repeat(200));
+        let attribution = activity_attribution(None, Some(&other)).unwrap_or_default();
+        assert_eq!(attribution.chars().count(), 40);
+        assert!(attribution.starts_with("COROS YYY"), "{attribution}");
     }
 }

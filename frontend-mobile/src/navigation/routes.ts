@@ -136,3 +136,9 @@ export const CONNECTED_APPS_ROUTE = settingsSectionScreen('connected-mcp-apps');
  * current notice, the three things only that pane fixes.
  */
 export const CONNECTIONS_ROUTE = paneRouteOf('connections');
+
+/**
+ * The shoes pane — the pairs the athlete declares and the distance each has.
+ * An activity's screen sends an athlete with no pair here to add one.
+ */
+export const GEAR_ROUTE = paneRouteOf('gear');

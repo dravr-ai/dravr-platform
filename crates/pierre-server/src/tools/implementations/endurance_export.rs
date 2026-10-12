@@ -220,7 +220,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
 }
 
 /// `export_dossier` — composed athlete dossier (physiology, zones, goals,
-/// nutrition, equipment slots) for the authenticated user.
+/// nutrition slots) for the authenticated user.
 pub struct ExportDossierTool;
 
 #[async_trait]
@@ -237,7 +237,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             "Export the Endurance 'dossier.json' aggregate for the authenticated \
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
              level, critical power, W′, critical speed, D′), HR + power zones, \
-             goals, nutrition, and equipment slots — composed at read time from \
+             goals and nutrition slots — composed at read time from \
              the underlying tables. Critical power, W′, critical speed and D′ each \
              carry `kind` (measured or estimated) and `origin`: quote an estimated \
              value as an estimate attributed to its origin ('Vekta estimates your \

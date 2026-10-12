@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use pierre_core::constant_time::{configured_secret, matches_configured_secret};
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
+use pierre_database::RepositoryRegistry;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
@@ -39,6 +40,7 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
 #[cfg(feature = "provider-wahoo")]
 use crate::routes::wahoo_webhook::wahoo_event;
+use crate::services::gear_ledger::release_activity_gear;
 use crate::services::personal_best_seed::strava_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
@@ -525,6 +527,13 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
 /// every later refresh of its window that Strava answers empty — the athlete
 /// deleted their only ride of the month — would be judged an empty answer
 /// over cached rides and reported as a failed sync.
+///
+/// The pair of shoes the run was attributed to lets it go first, or hands it
+/// to another provider's copy of the same workout; a run older than the
+/// cache's retention, whose row is already gone, still leaves its pair
+/// ([`release_activity_gear`]). The row is evicted even when that release
+/// fails: a row kept past its deletion costs every refresh of its window,
+/// where a kept attribution costs only the pair's total.
 async fn evict_deleted_strava_activity(resources: &ServerContext, event: &StravaWebhookEvent) {
     let owner_id = event.owner_id.to_string();
     let Some(WebhookOwner {
@@ -538,9 +547,9 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
         return;
     };
     let activity_id = event.object_id.to_string();
-    match resources
-        .common
-        .repos
+    let repos = &resources.common.repos;
+    release_deleted_strava_activity_gear(repos, user_id, &tenant, &activity_id).await;
+    match repos
         .activity_cache
         .delete_cached_activity(user_id, &tenant, "strava", &activity_id)
         .await
@@ -557,6 +566,25 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
             error = %e,
             "Strava webhook: deleted activity could not be evicted from the cache"
         ),
+    }
+}
+
+/// Take a run the athlete deleted on Strava off the pair of shoes it was
+/// attributed to ([`release_activity_gear`]), logging a release that failed:
+/// the caller evicts the row either way.
+async fn release_deleted_strava_activity_gear(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: &TenantId,
+    activity_id: &str,
+) {
+    if let Err(e) = release_activity_gear(repos, user_id, tenant, "strava", activity_id).await {
+        warn!(
+            user_id = %user_id,
+            activity_id = %activity_id,
+            error = %e,
+            "Strava webhook: the deleted activity's shoe attribution could not be released"
+        );
     }
 }
 

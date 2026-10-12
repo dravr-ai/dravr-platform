@@ -29,6 +29,7 @@ import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
 import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
+import GearSettings from './settings/GearSettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
@@ -1144,6 +1145,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           </Section>
           </>
         )}
+
+        {activeTab === 'gear' && <GearSettings />}
 
         {activeTab === 'api-keys' && <ApiKeysSettings />}
 

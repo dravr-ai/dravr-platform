@@ -32,6 +32,8 @@ pub mod analytics;
 pub mod api_key;
 /// iOS App Attest keys of the app installs Apple attested (Postgres)
 pub mod app_attest_keys;
+/// The athlete's gear ledger (`Postgres`) backing `AthleteGearRepository`.
+pub mod athlete_gear;
 /// Chat repository implementation
 pub mod chat;
 /// The check-in cadence each athlete chose (`PostgreSQL`)

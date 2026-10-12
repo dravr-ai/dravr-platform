@@ -476,3 +476,20 @@ const ON_FOOT_SPORTS: ReadonlySet<string> = new Set(['run', 'trail_running', 'wa
 export function sportIsOnFoot(sport: string): boolean {
   return ON_FOOT_SPORTS.has(canonicalActivitySport(sport));
 }
+
+/**
+ * The sports an activity is run in shoes for: the on-foot sports, and a
+ * treadmill run, which the server counts on a `run` pair (`sport_matches_family`
+ * in pierre-core). The athlete is offered a pair of their shoes for these
+ * activities only.
+ */
+const SHOE_SPORTS: ReadonlySet<string> = new Set([...ON_FOOT_SPORTS, 'virtual_run']);
+
+/**
+ * Whether an activity of this sport is one the gear ledger counts a pair of
+ * shoes for. A sport the vocabulary does not know is answered no, like
+ * {@link sportIsOnFoot}.
+ */
+export function sportTakesShoes(sport: string): boolean {
+  return SHOE_SPORTS.has(canonicalActivitySport(sport));
+}

@@ -133,7 +133,7 @@ pub struct AgentRepos {
     /// Coaching group CRUD, membership, and invites
     pub groups: Arc<dyn CoachingGroupRepository>,
     /// Endurance dossier composer (read-time aggregate from physiology /
-    /// goals / zones / nutrition / equipment)
+    /// goals / zones / nutrition)
     pub dossier: Arc<dyn DossierRepository>,
     /// Endurance prescribed-workout audit trail
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,

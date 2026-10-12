@@ -39,8 +39,11 @@ pub mod check_in;
 /// `delegated_connections` row and its lifecycle vocabulary.
 pub mod delegated_connection;
 /// Endurance athlete dossier composed at read time from physiology, goals,
-/// zones, nutrition, and equipment slots.
+/// zones and nutrition slots.
 pub mod dossier;
+/// The athlete's gear ledger: declared shoes, per-activity attribution and
+/// the default pair a new activity accrues to.
+pub mod gear;
 /// The profile-recorded window of an athlete's most recent fixed-list walk.
 pub mod guided_window;
 mod health;
@@ -163,6 +166,11 @@ pub use user::{
 // Endurance zones + dossier + training-history + workout-template domain
 pub use calibration::{CalibrationConditions, CalibrationTopic};
 pub use dossier::{Dossier, DossierFact};
+pub use gear::{
+    default_pair, parse_shoe_sport, shoe_sport_slug, ActivityGearKey, AthleteGear,
+    AttributionSource, GearAttribution, GearDeclaration, GearKind,
+    DEFAULT_SHOE_WARN_DISTANCE_METERS, MAX_GEAR_PER_ATHLETE,
+};
 pub use guided_window::GuidedWindow;
 pub use onboarding::{
     CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,

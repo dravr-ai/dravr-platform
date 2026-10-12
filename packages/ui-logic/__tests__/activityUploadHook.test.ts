@@ -145,7 +145,7 @@ describe('describeActivityUpload', () => {
 describe('createDeleteUploadedActivityHook', () => {
   const UPLOAD_ID = `${'b'.repeat(64)}-0`;
 
-  it('deletes the upload, drops its view, refreshes every Home read it left and calls back', async () => {
+  it('deletes the upload, drops its view, refreshes every Home read and the shoe ledger it left and calls back', async () => {
     const deleteUploadedActivity = vi.fn((_id: string) => Promise.resolve());
     const useDelete = createDeleteUploadedActivityHook({ deleteUploadedActivity });
     const onDeleted = vi.fn();
@@ -157,12 +157,14 @@ describe('createDeleteUploadedActivityHook', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
     expect(deleteUploadedActivity).toHaveBeenCalledWith(UPLOAD_ID);
     expect(remove).toHaveBeenCalledWith({ queryKey: ['home', 'activity-detail', 'upload', UPLOAD_ID] });
+    expect(remove).toHaveBeenCalledWith({ queryKey: ['gear', 'activity', 'upload', UPLOAD_ID] });
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(
       expect.arrayContaining([
         ['home', 'recent-activities'],
         ['home', 'calendar'],
         ['home', 'training-volume'],
         ['home', 'training-status'],
+        ['gear'],
       ]),
     );
     expect(result.current.failed).toBe(false);

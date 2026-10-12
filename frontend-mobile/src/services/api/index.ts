@@ -51,6 +51,8 @@ export const groupsApi = api.groups;
 export const featureFlagsApi = api.featureFlags;
 // The Home tab's reads: recent activities, one activity's route, the plan for today.
 export const athleteApi = api.athlete;
+// The athlete's shoes, their distance, and the pair each activity was run in.
+export const gearApi = api.gear;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const personasApi = api.personas;
 export const i18nApi = api.i18n;

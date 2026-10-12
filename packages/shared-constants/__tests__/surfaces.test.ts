@@ -20,6 +20,7 @@ import { destinationRoutes } from '../src/surfaces';
 const PANE_ROUTES: ReadonlyArray<[SettingsPaneId, string | null, string]> = [
   ['profile', 'settings/profile', '/(app)/(tabs)/(settings)/profile'],
   ['connections', 'settings/connections', '/(app)/(tabs)/(settings)/connections'],
+  ['gear', 'settings/gear', '/(app)/(tabs)/(settings)/gear'],
   ['tokens', 'settings/tokens', '/(app)/(tabs)/(settings)/tokens'],
   ['api-keys', 'settings/api-keys', '/(app)/(tabs)/(settings)/api-keys'],
   ['coaching', 'settings/coaching', '/(app)/(tabs)/(settings)/coaching-style'],

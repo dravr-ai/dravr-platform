@@ -35,9 +35,11 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::models::{
-    ActivityBuilder, DelegatedConnection, RosterAthlete, SportType, TenantId, UserOAuthToken,
+    ActivityBuilder, ActivityGearKey, AttributionSource, DelegatedConnection, GearAttribution,
+    GearDeclaration, GearKind, RosterAthlete, SportType, TenantId, UserOAuthToken,
+    DEFAULT_SHOE_WARN_DISTANCE_METERS,
 };
-use pierre_database::repositories::{PersonalBest, PersonalBestSeed};
+use pierre_database::repositories::{GearDeletion, PersonalBest, PersonalBestSeed};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::strava_webhook_gate::{
     FetchTiming, OwnerFetchGate, SUBSCRIPTION_ID_VAR,
@@ -668,6 +670,160 @@ async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
         "the other rides stay"
     );
     assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 1);
+}
+
+/// A run deleted on Strava takes its distance off the pair of shoes it was
+/// attributed to, and a pair nothing else is attributed to can be deleted.
+/// Kept, the attribution would count a run that is gone, could not be
+/// reassigned, and would hold the pair against deletion for good.
+#[tokio::test]
+#[serial]
+async fn delete_aspect_lets_the_deleted_runs_pair_go() {
+    let (api_base, _mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+    let start = Utc::now() - chrono::Duration::hours(5);
+    let repos = &resources.common.repos;
+    let pair = repos
+        .athlete_gear
+        .create_gear(
+            user_id,
+            &GearDeclaration {
+                kind: GearKind::Shoe,
+                name: "Daily".to_owned(),
+                sport: SportType::Run,
+                initial_distance_meters: 0.0,
+                warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
+                pinned: false,
+            },
+            start - chrono::Duration::days(10),
+        )
+        .await
+        .unwrap();
+    repos
+        .activity_cache
+        .upsert_activities(
+            user_id,
+            &tenant_id,
+            "strava",
+            &[ActivityBuilder::new(
+                "9001",
+                "Morning run",
+                SportType::Run,
+                start,
+                2_400,
+                "strava",
+            )
+            .distance_meters(8_000.0)
+            .build()],
+        )
+        .await
+        .unwrap();
+    repos
+        .athlete_gear
+        .record_default_attributions(
+            user_id,
+            &[GearAttribution {
+                key: ActivityGearKey {
+                    provider: "strava".to_owned(),
+                    activity_id: "9001".to_owned(),
+                },
+                gear_id: Some(pair),
+                source: AttributionSource::Default,
+                start_date: start,
+                distance_meters: 8_000.0,
+            }],
+        )
+        .await
+        .unwrap();
+
+    let status = post_event(
+        &resources,
+        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    let freed = repos
+        .athlete_gear
+        .get_gear(user_id, pair)
+        .await
+        .unwrap()
+        .expect("the pair stays declared");
+    assert_eq!(freed.activity_count, 0, "{freed:?}");
+    assert!(freed.attributed_distance_meters.abs() < 1e-6, "{freed:?}");
+    assert_eq!(
+        repos.athlete_gear.delete_gear(user_id, pair).await.unwrap(),
+        GearDeletion::Deleted
+    );
+}
+
+/// A run older than the cache's retention has no cached row left, yet its
+/// pair keeps counting it; deleting it on Strava still takes it off the pair,
+/// and leaves the athlete's other runs where they are.
+#[tokio::test]
+#[serial]
+async fn delete_aspect_takes_a_run_past_the_caches_retention_off_its_pair() {
+    let (api_base, _mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, _) = seed_linked_athlete(&resources).await;
+    let long_ago = Utc::now() - chrono::Duration::days(400);
+    let repos = &resources.common.repos;
+    let pair = repos
+        .athlete_gear
+        .create_gear(
+            user_id,
+            &GearDeclaration {
+                kind: GearKind::Shoe,
+                name: "Old faithful".to_owned(),
+                sport: SportType::Run,
+                initial_distance_meters: 0.0,
+                warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
+                pinned: false,
+            },
+            long_ago - chrono::Duration::days(10),
+        )
+        .await
+        .unwrap();
+    let attribution = |activity_id: &str, meters: f64| GearAttribution {
+        key: ActivityGearKey {
+            provider: "strava".to_owned(),
+            activity_id: activity_id.to_owned(),
+        },
+        gear_id: Some(pair),
+        source: AttributionSource::Declared,
+        start_date: long_ago,
+        distance_meters: meters,
+    };
+    repos
+        .athlete_gear
+        .record_default_attributions(
+            user_id,
+            &[attribution("9001", 21_100.0), attribution("8000", 10_000.0)],
+        )
+        .await
+        .unwrap();
+
+    let status = post_event(
+        &resources,
+        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+
+    let kept = repos
+        .athlete_gear
+        .get_gear(user_id, pair)
+        .await
+        .unwrap()
+        .expect("the pair stays declared");
+    assert_eq!(kept.activity_count, 1, "{kept:?}");
+    assert!(
+        (kept.attributed_distance_meters - 10_000.0).abs() < 1e-6,
+        "{kept:?}"
+    );
 }
 
 /// The athlete event Strava sends when the athlete revokes the app on its

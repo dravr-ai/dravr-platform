@@ -5,6 +5,7 @@
 // ABOUTME: The order, names and hints come from @pierre/shared-constants so mobile lists the same panes
 
 import type { ReactNode } from 'react';
+import { Footprints } from 'lucide-react';
 import { SETTINGS_PANES, type SettingsPaneId } from '@pierre/shared-constants';
 
 /** One settings section the athlete can open. */
@@ -40,6 +41,7 @@ const PANE_ICONS: Record<SettingsPaneId, ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
     </svg>
   ),
+  gear: <Footprints className="w-5 h-5" aria-hidden="true" />,
   tokens: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />

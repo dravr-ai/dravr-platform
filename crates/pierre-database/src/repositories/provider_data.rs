@@ -24,6 +24,8 @@
 //!   `personal_best_efforts`, the record of which runs were measured for one
 //!   in `best_effort_scans`, and how far the walk of the provider's history
 //!   for them got in `personal_best_seeds`, so a reconnect walks it again;
+//!   and the shoe each one was attributed to in `activity_gear` (the pairs
+//!   themselves are the athlete's declaration and stay);
 //! - the sync state that describes those rows: `sync_state` cursors,
 //!   `activity_fetch_freshness` marks, `activity_fetch_failures` records,
 //!   `activity_backfill_coverage` depth and
@@ -35,7 +37,7 @@
 //! the health rows go before `data_sources` for the same reason.
 //!
 //! Every id column compared here is `TEXT` on both engines except in
-//! `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
+//! `activity_gear`, `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
 //! `activity_fetch_freshness`, `activity_fetch_failures` and
 //! `activity_backfill_coverage` (both ids) and
 //! `activity_backfill_jobs` (`tenant_id`), which are `uuid` on Postgres. Those
@@ -81,6 +83,16 @@ macro_rules! user_rows_cast {
     };
 }
 
+/// One user's rows for one provider on a table the person owns whichever
+/// tenant they are signed in to, whose `user_id` is `uuid` on Postgres: `$1`
+/// user id and `$3` provider. `$2` is bound with every other statement's and
+/// read by none here: the gear ledger has no tenant to narrow it to.
+macro_rules! person_rows_cast {
+    () => {
+        "CAST(user_id AS TEXT) = $1 AND provider = $3"
+    };
+}
+
 /// The data sources a user's purge reaches, for the time-series tables that
 /// reference them.
 macro_rules! user_sources {
@@ -110,7 +122,7 @@ macro_rules! provider_sources {
 /// The rows a user's purge deletes, in order: `(table, statement)`, each
 /// statement binding `$1` user id, `$2` tenant id and `$3` provider. The sync
 /// state describing them, [`USER_SYNC_STATE_SQL`], goes after.
-pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 12] = [
+pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 13] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -164,6 +176,10 @@ pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 12] = [
     (
         "personal_best_seeds",
         concat!("DELETE FROM personal_best_seeds WHERE ", user_rows_cast!()),
+    ),
+    (
+        "activity_gear",
+        concat!("DELETE FROM activity_gear WHERE ", person_rows_cast!()),
     ),
 ];
 
@@ -313,7 +329,7 @@ pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, 
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 18] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -367,6 +383,10 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 17] = [
     (
         "personal_best_seeds",
         concat!("DELETE FROM personal_best_seeds WHERE ", provider_rows!()),
+    ),
+    (
+        "activity_gear",
+        concat!("DELETE FROM activity_gear WHERE ", provider_rows!()),
     ),
     (
         "sync_state",

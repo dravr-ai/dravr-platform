@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One activity's own screen, opened from Home — its map on top, its figures, splits and laps, then the chat about it
+// ABOUTME: One activity's own screen, opened from Home — its map on top, its shoes, figures, splits and laps, then the chat about it
 // ABOUTME: The chat screen's own thread and composer under the activity, one conversation per activity, reopened on a return visit
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,6 +11,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { sportTakesShoes } from '@pierre/shared-constants';
 import type { ActivityDetailResponse, TurnSendOptions } from '@pierre/shared-types';
 import {
   ACTIVITY_DELETE_KEYS,
@@ -36,6 +37,7 @@ import { useProviderStatus } from '../chat/useProviderStatus';
 import { useUsageStatus } from '../chat/useUsageStatus';
 import { ActivityMap } from '../home/ActivityMap';
 import { activityNaming, instantShortDate, sportLabel } from '../home/homeFormat';
+import { ActivityGearPicker } from './ActivityGearPicker';
 
 /** The figures, label over value, two to a row. */
 function Figures({ detail }: { detail: ActivityDetailResponse }) {
@@ -129,13 +131,17 @@ function Prompts({
   );
 }
 
-/** Everything above the thread: when, the map, the figures, splits and laps, the questions. */
+/** Everything above the thread: when, the map, the shoes, the figures, splits and laps, the questions. */
 function ActivityHeader({
+  provider,
+  activityId,
   detail,
   sending,
   error,
   onSend,
 }: {
+  provider: string;
+  activityId: string;
   detail: ActivityDetailResponse;
   sending: boolean;
   error: string | null;
@@ -155,13 +161,16 @@ function ActivityHeader({
           <Text className="font-mono tabular-nums">{instantShortDate(detail.activity.start_date, language)}</Text>
           {' · '}
           {sport}
-          {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
+          {/* The recording device, with the attribution Garmin-sourced data owes, as served (carnet#521, carnet#711). */}
           {detail.activity.attribution && (
             <Text testID="activity-attribution">{` · ${detail.activity.attribution}`}</Text>
           )}
         </Text>
         <ActivityMap activity={detail.activity} testIDPrefix="activity" />
       </View>
+      {sportTakesShoes(detail.activity.sport_type) && (
+        <ActivityGearPicker provider={provider} activityId={activityId} />
+      )}
       <Figures detail={detail} />
       {splits && <Segments title={t('home.activity.splits')} table={splits} testID="activity-splits" />}
       {laps && <Segments title={t('home.activity.laps')} table={laps} testID="activity-laps" />}
@@ -307,6 +316,8 @@ function ActivityThread({
         onScrollToBottom={followThread}
         header={
           <ActivityHeader
+            provider={provider}
+            activityId={activityId}
             detail={detail}
             sending={messagesHook.isSending}
             error={createError}

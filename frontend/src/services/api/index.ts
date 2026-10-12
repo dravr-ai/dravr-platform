@@ -37,6 +37,9 @@ export const billingApi = pierreApi.billing;
 // activity's route, and the plan for today.
 export const athleteApi = pierreApi.athlete;
 
+// The athlete's shoes, their distance, and the pair each activity was run in.
+export const gearApi = pierreApi.gear;
+
 // Providers API delegates to shared oauth module
 export const providersApi = {
   getProvidersStatus: pierreApi.oauth.getProvidersStatus.bind(pierreApi.oauth),

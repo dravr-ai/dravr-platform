@@ -118,7 +118,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
-use pierre_core::constants::oauth_providers::activity_attribution;
+use pierre_core::constants::oauth_providers::workout_attribution;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
@@ -247,7 +247,8 @@ pub struct HomeActivity {
     /// The attribution the activity must be shown with, beside its title:
     /// `"Garmin Forerunner 965"` when a Garmin device recorded it and its
     /// model is known, `"Garmin"` when only its Garmin origin is
-    /// (intervals.icu's API terms, carnet#521), `null` otherwise.
+    /// (intervals.icu's API terms, carnet#521); otherwise the device that
+    /// recorded it, `"COROS PACE 3"` (carnet#711); `null` when none is named.
     pub attribution: Option<String>,
 }
 
@@ -275,9 +276,10 @@ impl HomeActivity {
             summary_polyline: overview.and_then(trimmed_overview_polyline),
             // The merged session's figures may come from either copy, so a
             // Garmin-sourced copy on either side carries the attribution.
-            attribution: activity_attribution(activity.source(), activity.device_name()).or_else(
-                || activity_attribution(row.activity.source(), row.activity.device_name()),
-            ),
+            attribution: workout_attribution(&[
+                (activity.source(), activity.device_name()),
+                (row.activity.source(), row.activity.device_name()),
+            ]),
         }
     }
 }

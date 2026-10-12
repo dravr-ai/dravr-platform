@@ -28,6 +28,8 @@ pub mod analytics;
 pub mod api_keys;
 /// iOS App Attest keys of the app installs Apple attested (`SQLite`)
 pub mod app_attest_keys;
+/// The athlete's gear ledger (`SQLite`) backing `AthleteGearRepository`.
+pub mod athlete_gear;
 /// Chat conversation and message storage
 pub mod chat;
 /// The check-in cadence each athlete chose (`SQLite`)

@@ -36,6 +36,7 @@ import {
   type TrainingVolumeResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
+import { requireShape } from '../core/shape';
 
 // Re-export types for consumers
 export type {
@@ -84,18 +85,6 @@ export interface ActivityRouteReadOptions extends HomeReadOptions {
    */
   burst?: boolean;
   signal?: AbortSignal;
-}
-
-/**
- * The parsed body, or an error naming the endpoint whose answer broke the
- * contract — the query then shows its error state instead of a card built
- * from a shape nobody agreed to.
- */
-function requireShape<T>(parsed: T | null, endpoint: string): T {
-  if (parsed === null) {
-    throw new Error(`${endpoint} answered with a body that does not match its contract`);
-  }
-  return parsed;
 }
 
 /**

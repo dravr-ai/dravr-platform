@@ -19,6 +19,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="coaching-style" options={{ title: t(settingsPane('coaching').nameKey) }} />
       <Stack.Screen name="connected-apps" options={{ title: t('app.connectedAppsLower') }} />
       <Stack.Screen name="connections" options={{ title: t(settingsPane('connections').nameKey) }} />
+      <Stack.Screen name="gear" options={{ title: t(settingsPane('gear').nameKey) }} />
       <Stack.Screen name="messaging" options={{ title: t(settingsPane('messaging').nameKey) }} />
       <Stack.Screen name="notification-preferences" options={{ title: t('notifPrefs.title') }} />
       <Stack.Screen name="privacy" options={{ title: t(settingsPane('privacy').nameKey) }} />

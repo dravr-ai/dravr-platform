@@ -46,6 +46,9 @@ const mockGetConversationMessages = jest.fn();
 const mockSendTurn = jest.fn();
 const mockLinkActivityConversation = jest.fn<Promise<void>, [string, string, string | null]>();
 const mockDeleteUploadedActivity = jest.fn<Promise<void>, [string]>();
+// The shoe picker has its own suite; here the athlete has declared no pair.
+const mockListGear = jest.fn(async () => ({ gear: [] }));
+const mockGetActivityGear = jest.fn(async (_provider: string, _id: string) => ({ gear_id: null, source: null }));
 jest.mock('../src/services/api', () => ({
   athleteApi: {
     getActivityDetail: (provider: string, id: string) => mockGetActivityDetail(provider, id),
@@ -53,6 +56,11 @@ jest.mock('../src/services/api', () => ({
     linkActivityConversation: (provider: string, id: string, conversationId: string | null) =>
       mockLinkActivityConversation(provider, id, conversationId),
     deleteUploadedActivity: (id: string) => mockDeleteUploadedActivity(id),
+  },
+  gearApi: {
+    listGear: () => mockListGear(),
+    getActivityGear: (provider: string, id: string) => mockGetActivityGear(provider, id),
+    setActivityGear: jest.fn(),
   },
   chatApi: {
     createConversation: (...args: unknown[]) => mockCreateConversation(...args),
@@ -198,6 +206,38 @@ describe('ActivityScreen', () => {
     const screen = renderScreen();
     expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('· Garmin Forerunner 965');
     expect(screen.getByTestId('activity-when')).toHaveTextContent(/· Run · Garmin Forerunner 965$/);
+  });
+
+  it('shows the recording device of another maker as the provider names it', async () => {
+    mockGetActivityDetail.mockResolvedValue({
+      ...TEMPO_DETAIL_RESPONSE,
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, attribution: 'COROS PACE 3' },
+    });
+    const screen = renderScreen();
+    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('· COROS PACE 3');
+  });
+
+  it('offers the shoes picker on a run, between the map and the figures, and not on a ride', async () => {
+    const screen = renderScreen();
+    const scroll = await screen.findByTestId('activity-scroll');
+    await within(scroll).findByTestId('activity-gear-add');
+    expect(
+      within(scroll)
+        .getAllByTestId(/^activity-(map|gear|figures)$/)
+        .map((node) => node.props.testID),
+    ).toEqual(['activity-map', 'activity-gear', 'activity-figures']);
+    expect(mockGetActivityGear).toHaveBeenCalledWith('strava', '9000');
+    screen.unmount();
+
+    mockGetActivityGear.mockClear();
+    mockGetActivityDetail.mockResolvedValue({
+      ...TEMPO_DETAIL_RESPONSE,
+      activity: { ...TEMPO_DETAIL_RESPONSE.activity, sport_type: 'ride' },
+    });
+    const ride = renderScreen();
+    await ride.findByTestId('activity-figures');
+    expect(ride.queryByTestId('activity-gear')).toBeNull();
+    expect(mockGetActivityGear).not.toHaveBeenCalled();
   });
 
   it('shows no attribution when the activity carries none', async () => {

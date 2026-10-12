@@ -161,6 +161,18 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ route: null, reason: 'no_gps' }),
     });
   });
+  // The gear ledger (carnet#711): an athlete who declared no pair, so an
+  // activity view's shoe picker and Settings › Shoes show their empty states.
+  await page.route('**/api/me/gear', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ gear: [] }) });
+  });
+  await page.route('**/api/me/activities/*/*/gear', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ gear_id: null, source: null }),
+    });
+  });
 
   // Default onboarding status for spec-local login helpers that skip
   // `setupDashboardMocks`. Specs exercising the forced-onboarding flow

@@ -34,6 +34,8 @@ pub mod analytics;
 pub mod api_keys;
 /// Repository trait and shared body for iOS App Attest keys.
 pub mod app_attest_keys;
+/// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
+pub mod athlete_gear;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
@@ -219,6 +221,7 @@ pub use agent_artefacts::*;
 pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
+pub use athlete_gear::{AthleteGearRepository, GearDeletion};
 pub use chat::*;
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;

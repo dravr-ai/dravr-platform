@@ -1,4 +1,4 @@
-// ABOUTME: Endurance athlete Dossier aggregate composed at read time from physiology, goals, zones, nutrition, equipment
+// ABOUTME: Endurance athlete Dossier aggregate composed at read time from physiology, goals, zones, nutrition
 // ABOUTME: Backs the export_dossier tool — never persisted as a single row, always assembled per-request
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -53,8 +53,9 @@ pub struct DossierFact {
 ///   `power_zones_json` → typed [`HrZoneSet`] / [`PowerZoneSet`]
 /// - `user_profiles` JSON column → optional nutrition snapshot
 ///   (free-form JSON)
-/// - `user_profiles` JSON column → optional equipment snapshot
-///   (free-form JSON, same shape as the nutrition snapshot)
+///
+/// The athlete's shoes are not a dossier slot: the gear ledger
+/// ([`super::gear`]) is read on the athlete's own screens only.
 ///
 /// Per Endurance's Open Decision #1 the dossier is **not** persisted as
 /// its own row. Composition lives in
@@ -96,11 +97,6 @@ pub struct Dossier {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nutrition: Option<Value>,
 
-    /// Equipment snapshot (shoes, bikes, sensors). Free-form JSON; `None`
-    /// when the user has not configured equipment.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub equipment: Option<Value>,
-
     /// Per-user pillar context: durable facts grouped by health pillar. Empty
     /// until the user has answered onboarding or accumulated conversation facts.
     /// `BTreeMap` keeps JSON/markdown rendering order deterministic.
@@ -134,7 +130,6 @@ impl Dossier {
             power_zones: None,
             goals: Vec::new(),
             nutrition: None,
-            equipment: None,
             pillars: BTreeMap::new(),
             north_star: Vec::new(),
             medical: Vec::new(),

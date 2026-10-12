@@ -248,9 +248,10 @@ pub fn format_activities_as_list<S: BuildHasher>(
             let _ = write!(extras, " - {}", localized_feel(feel, locale));
         }
 
-        // The attribution a Garmin-recorded row must carry beside its title,
-        // here as on the athlete's screens: this list is shown to them as a
-        // reply block, and the agent quotes it (carnet#521).
+        // The device that recorded the row, and the attribution a
+        // Garmin-recorded row must carry, beside its title, here as on the
+        // athlete's screens: this list is shown to them as a reply block, and
+        // the agent quotes it (carnet#521, carnet#711).
         let attribution = activity_attribution(activity.source(), activity.device_name())
             .map_or_else(String::new, |label| format!(" ({label})"));
         lines.push(format!(
@@ -367,5 +368,37 @@ mod tests {
             "{rendered}"
         );
         assert_eq!(rendered.matches("(Garmin").count(), 1, "{rendered}");
+    }
+
+    #[test]
+    fn another_makers_device_row_names_its_device() {
+        let coros = ActivityBuilder::new(
+            "c",
+            "Ride c",
+            SportType::Ride,
+            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            3_600,
+            "intervals_icu",
+        )
+        .source("strava")
+        .device_name("COROS DURA")
+        .build();
+        let rendered = format_activities_as_list(
+            &[coros, ride("n", None)],
+            &HashMap::new(),
+            None,
+            "en",
+            Some("America/Toronto"),
+            Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+        );
+        assert!(
+            rendered.contains("] Ride c (COROS DURA) - 2026-09-20"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("] Ride n - 2026-09-20"),
+            "a row naming no device carries nothing: {rendered}"
+        );
+        assert_eq!(rendered.matches("Garmin").count(), 0, "{rendered}");
     }
 }

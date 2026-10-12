@@ -24,7 +24,8 @@
 //! copies, which every reader merges into one session.
 //!
 //! The athlete can delete an uploaded activity, as Strava and intervals.icu
-//! let them ([`delete_uploaded_activity`]): its cached row goes, and the file
+//! let them ([`delete_uploaded_activity`]): its cached row goes, its shoe
+//! attribution goes or moves to another copy of the workout, and the file
 //! goes with the last of its sessions. An upload or a deletion is a moment the
 //! stored activities change, so either one drops the agent's cached lists and
 //! recomputes the training-load rollup the way a provider capture does.
@@ -46,6 +47,8 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+use crate::services::gear_ledger::release_activity_gear;
 
 /// The largest file accepted: an eight-hour ride recorded every second is a
 /// few megabytes, so anything past this is not one workout's file.
@@ -152,6 +155,9 @@ pub async fn upload_activity_file(
 /// Delete one of the athlete's uploaded activities, and the file it came from
 /// once none of that file's activities is left.
 ///
+/// The pair of shoes it was attributed to lets it go first, or hands it to
+/// another copy of the same workout ([`release_activity_gear`]).
+///
 /// Scoped to the athlete and the tenant: an id they did not upload here —
 /// another athlete's, or a provider's activity — is not found.
 ///
@@ -169,6 +175,7 @@ pub async fn delete_uploaded_activity(
     let not_found = || AppError::not_found(format!("uploaded activity {activity_id}"));
     let (sha, _) = parse_upload_activity_id(activity_id).ok_or_else(not_found)?;
     let repos = runtime.repos();
+    release_activity_gear(repos, user_id, &tenant_id, UPLOAD, activity_id).await?;
     let removed = repos
         .activity_cache
         .delete_cached_activity(user_id, &tenant_id, UPLOAD, activity_id)

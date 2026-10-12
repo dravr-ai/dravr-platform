@@ -118,6 +118,9 @@ pub mod contremaitre_webhook;
 /// activity's route, `GET /api/me/training-plan`).
 pub mod athlete_home;
 
+/// The athlete's gear ledger (`/api/me/gear`).
+pub mod athlete_gear;
+
 /// User profile self-service routes (`/api/users/me/*`).
 ///
 /// Currently houses the `timezone` setter that web + mobile clients

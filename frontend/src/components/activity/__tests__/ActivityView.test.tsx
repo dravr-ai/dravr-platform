@@ -21,12 +21,20 @@ const api = vi.hoisted(() => ({
   linkActivityConversation: vi.fn<(provider: string, id: string, conversationId: string | null) => Promise<void>>(),
 }));
 
+// The shoe picker has its own suite; here the athlete has declared no pair.
+const gear = vi.hoisted(() => ({
+  listGear: vi.fn(async () => ({ gear: [] })),
+  getActivityGear: vi.fn(async () => ({ gear_id: null, source: null })),
+  setActivityGear: vi.fn(),
+}));
+
 vi.mock('../../../services/api', () => ({
   athleteApi: {
     getActivityDetail: api.getActivityDetail,
     getActivityRoute: api.getActivityRoute,
     linkActivityConversation: api.linkActivityConversation,
   },
+  gearApi: gear,
   // The route-marker beta is off: these suites pin the map without its markers.
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
@@ -167,6 +175,34 @@ describe('ActivityView', () => {
     expect(rows[1]).toHaveTextContent('11.00 km4:284:28 /km148 bpm+12 m');
     expect(rows[2]).toHaveTextContent('21.00 km4:414:41 /km155 bpm-5 m');
     expect(screen.queryByTestId('activity-laps')).toBeNull();
+  });
+
+  it('shows the recording device of another maker as the provider names it', async () => {
+    api.getActivityDetail.mockResolvedValue(
+      detail({ activity: { ...detail().activity, attribution: 'COROS PACE 3' } }),
+    );
+    renderView();
+    expect(await screen.findByTestId('activity-attribution')).toHaveTextContent('COROS PACE 3');
+  });
+
+  it('offers the shoes picker on a run, in the panel before the figures, and not on a ride', async () => {
+    api.getActivityDetail.mockResolvedValue(detail());
+    const { unmount } = renderView();
+    const panel = await screen.findByTestId('activity-details');
+    const picker = await within(panel).findByTestId('activity-gear');
+    expect(picker).toHaveTextContent("Add your shoes to count this activity's distance on a pair.");
+    expect(
+      picker.compareDocumentPosition(within(panel).getByTestId('activity-figures')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(gear.getActivityGear).toHaveBeenCalledWith('strava', 'morning-trail-run');
+    unmount();
+
+    gear.getActivityGear.mockClear();
+    api.getActivityDetail.mockResolvedValue(detail({ activity: { ...detail().activity, sport_type: 'ride' } }));
+    renderView();
+    await screen.findByTestId('activity-figures');
+    expect(screen.queryByTestId('activity-gear')).toBeNull();
+    expect(gear.getActivityGear).not.toHaveBeenCalled();
   });
 
   it('shows the Garmin attribution, with its device model, a Garmin-recorded activity carries, and none otherwise', async () => {

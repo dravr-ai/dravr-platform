@@ -166,3 +166,22 @@ export {
   recentActivitiesSync,
   useRequestsInFlight,
 } from './recentActivitiesSync';
+
+// The gear ledger: the athlete's shoes, their distance, and the pair each activity was run in.
+export {
+  type ActivityGearState,
+  type GearChanges,
+  type GearDraft,
+  type GearDraftCheck,
+  type GearDraftErrors,
+  type GearHooks,
+  checkGearDraft,
+  createGearHooks,
+  emptyGearDraft,
+  formatGearDistance,
+  gearChanges,
+  gearChoices,
+  gearDistanceLimit,
+  gearDraftOf,
+  splitGear,
+} from './gearLedger';

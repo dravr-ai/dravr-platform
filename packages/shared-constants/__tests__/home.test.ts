@@ -11,6 +11,7 @@ import {
   surfaceById,
   sportHasRoutes,
   sportIsOnFoot,
+  sportTakesShoes,
   surfacesFor,
   webNavLabels,
 } from '../src';
@@ -118,5 +119,19 @@ describe('sportIsOnFoot', () => {
     expect(sportIsOnFoot('alpine_skiing')).toBe(false);
     expect(sportIsOnFoot('virtual_run')).toBe(false);
     expect(sportIsOnFoot('underwater hockey')).toBe(false);
+  });
+});
+
+describe('sportTakesShoes', () => {
+  it('says yes for every on-foot sport and a treadmill run, however the wire spells them', () => {
+    for (const sport of ['run', 'Trail Run', 'trail_running', 'walk', 'hike', 'virtual_run']) {
+      expect(sportTakesShoes(sport)).toBe(true);
+    }
+  });
+
+  it('says no on a bike, in the water, on skis, and for a sport it does not know', () => {
+    for (const sport of ['ride', 'virtual_ride', 'swim', 'nordic_ski', 'underwater hockey']) {
+      expect(sportTakesShoes(sport)).toBe(false);
+    }
   });
 });

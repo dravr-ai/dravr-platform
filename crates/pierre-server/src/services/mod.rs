@@ -45,6 +45,9 @@ pub mod training_status;
 /// The athlete's weekly training volume for Home: distance, time and climbing per sport, week by week
 pub mod training_volume;
 
+/// The athlete's gear ledger over their cached workouts: lazy default pairs, choices once per workout
+pub mod gear_ledger;
+
 /// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;

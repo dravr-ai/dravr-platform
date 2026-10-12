@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 1 dossier export — multi-tenant isolation + composes with missing slots
-// ABOUTME: Validates DossierRepository scoping and the read-time aggregation across physiology / goals / zones / nutrition / equipment
+// ABOUTME: Validates DossierRepository scoping and the read-time aggregation across physiology / goals / zones / nutrition
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -73,7 +73,6 @@ async fn dossier_with_no_underlying_data_returns_empty_shell() {
     assert!(dossier.power_zones.is_none());
     assert!(dossier.goals.is_empty());
     assert!(dossier.nutrition.is_none());
-    assert!(dossier.equipment.is_none());
 }
 
 #[tokio::test]
@@ -148,7 +147,7 @@ async fn dossier_is_tenant_scoped() {
 
 #[tokio::test]
 async fn dossier_compose_tolerates_missing_goals_and_nutrition() {
-    // The Endurance dossier slots for goals / nutrition / equipment are
+    // The Endurance dossier slots for goals / nutrition are
     // optional. When the user has no rows in `user_profiles` and no goals
     // recorded, the composer must still return a 200 with empty / None
     // slots rather than failing — this guards endpoint UX for fresh accounts.
@@ -176,10 +175,6 @@ async fn dossier_compose_tolerates_missing_goals_and_nutrition() {
     assert!(
         dossier.nutrition.is_none(),
         "no profile json → nutrition slot must be None"
-    );
-    assert!(
-        dossier.equipment.is_none(),
-        "no profile json → equipment slot must be None"
     );
 }
 

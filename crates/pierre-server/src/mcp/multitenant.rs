@@ -35,7 +35,7 @@ use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
-use crate::routes::{athlete_home, user_profile::routes as user_profile_routes};
+use crate::routes::{athlete_gear, athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{
     check_in::CheckInRoutes, coach_access::CoachAccessRoutes, onboarding::OnboardingRoutes,
     viz::VizRoutes,
@@ -570,6 +570,7 @@ impl ProviderToolRouter {
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
             .merge(athlete_home::athlete_home_routes().with_state(Arc::clone(resources)))
+            .merge(athlete_gear::athlete_gear_routes().with_state(Arc::clone(resources)))
             .merge(user_profile_routes().with_state(Arc::clone(resources)));
 
         // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)
