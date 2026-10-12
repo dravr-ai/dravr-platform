@@ -73,7 +73,7 @@ maskable icon needs a full bleed.
 |-------|------|--------------|
 | In-app mark, forest, 96 / 192 / 512 | `public/brand/mark-ink-*.png` | `scripts/generate-brand-assets.py` |
 | In-app mark, mint, 96 / 192 / 512 | `public/brand/mark-mint-*.png` | same |
-| PWA icons and Apple touch icon | `public/pwa-*.png`, `public/apple-touch-icon.png` | same — the mobile fill recipe (82 %, maskable 66 %) |
+| PWA icons and Apple touch icon | `public/pwa-*.png`, `public/apple-touch-icon.png` | same — 82 % fill as on the mobile icon; maskable 66 %, inside the W3C 40 %-radius safe zone |
 | Favicon — the reduced mark | `public/favicon.svg` | hand-drawn |
 
 The master is `frontend-mobile/assets/sources/boreal-ripple-mark.png`, a 1024px

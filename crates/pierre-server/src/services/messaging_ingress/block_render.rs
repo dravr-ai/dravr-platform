@@ -138,8 +138,10 @@ pub fn render_reply(
     let mut attachments = Vec::new();
 
     // Blocks lay out as Text/RichText, Media and Card. No reply block carries a
-    // place, so canot's location variant has no producer on any surface.
-    // LIMITATION(registre#3): `MessageContent::Location` is never constructed in production.
+    // place, so no reply is ever a `MessageContent::Location`: that variant is
+    // inbound only. canot parses a pin the athlete shares into it, and the
+    // ingress stores it as a `location` row with no body and starts no turn
+    // (`PersistOutcome::StoredNoDispatch`).
     for block in &assistant.blocks {
         match block {
             ReplyBlock::Prose { text } => {

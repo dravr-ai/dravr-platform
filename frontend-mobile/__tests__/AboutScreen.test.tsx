@@ -1,5 +1,5 @@
 // ABOUTME: Pins the About pane's four rows — version, the model that answers, help and legal
-// ABOUTME: The help and legal rows opened dravr.ai/help and /privacy, both of which answered 404
+// ABOUTME: Help opens the docs hub and legal the privacy policy, which links the terms, both from the shared constants
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -108,9 +108,10 @@ describe('AboutScreen', () => {
       expect(openSpy).toHaveBeenCalledWith(LEGAL_URL);
     });
 
-    // dravr.ai/help is a 404, so help goes to the docs hub; /privacy went live
-    // on 2026-09-18 and is the legal row's page. Asserting the constants rather
-    // than the calls alone keeps a repoint from silently going back.
+    // Help is the docs hub; legal is the privacy policy, which links the terms,
+    // so one row reaches both documents. Both are wire values: pages the
+    // dravr-website repo serves, outside this codebase. Asserting the constants
+    // rather than the calls alone keeps a repoint from silently going back.
     expect(HELP_URL).toBe('https://dravr.ai/docs');
     expect(LEGAL_URL).toBe('https://dravr.ai/privacy');
     openSpy.mockRestore();

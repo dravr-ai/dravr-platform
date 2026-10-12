@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins that no client links a 404 legal or help page, and that the privacy SETTING reads unlike the DOCUMENT
-// ABOUTME: dravr.ai/help still answers 404; /privacy and /terms went live 2026-09-18 and the legal row points at them
+// ABOUTME: Help is the docs hub and legal is /privacy, which links /terms; dravr.ai/help answers 404 and stays on the dead list
 
 import fs from 'fs';
 import path from 'path';

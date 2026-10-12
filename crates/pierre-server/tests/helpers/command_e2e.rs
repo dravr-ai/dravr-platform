@@ -462,6 +462,25 @@ impl CommandE2e {
         .await
     }
 
+    /// A signed Telegram DM from `m` sharing a map pin instead of text — the
+    /// `location` object Telegram sends when the athlete taps "Location".
+    pub async fn send_dm_location(
+        &self,
+        m: &Member,
+        latitude: f64,
+        longitude: f64,
+    ) -> WebhookOutcome {
+        let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
+        let sender: i64 = m.channel_user_id.parse().unwrap();
+        self.post_update(json!({
+            "message_id": message_id,
+            "from": { "id": sender, "first_name": "Member" },
+            "chat": { "id": sender, "type": "private" },
+            "location": { "latitude": latitude, "longitude": longitude }
+        }))
+        .await
+    }
+
     /// The member's messaging session id under `tenant` for `chat_id`
     /// (DM: chat id == sender, tenant == their own).
     pub async fn session_id(&self, m: &Member, tenant: TenantId, chat_id: &str) -> Option<String> {
@@ -722,6 +741,29 @@ impl CommandE2e {
                 .await
                 .unwrap(),
         }
+    }
+
+    /// `(content_type, content_body)` of every inbound ledger row of
+    /// `session_id` under `tenant`, oldest first — what the ingress recorded
+    /// the athlete sending, read back through the repository that serves it.
+    pub async fn inbound_rows_for_session(
+        &self,
+        tenant: TenantId,
+        session_id: &str,
+    ) -> Vec<(String, Option<String>)> {
+        let db: &dyn MessagingRepository = &*self.resources.common.repos.messaging;
+        db.get_session_messages(session_id, tenant, 100, 0)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|row| row["direction"].as_str() == Some("inbound"))
+            .map(|row| {
+                (
+                    row["content_type"].as_str().unwrap().to_owned(),
+                    row["content_body"].as_str().map(ToOwned::to_owned),
+                )
+            })
+            .collect()
     }
 
     /// Poll (≤10s) until the coaching-turn call count reaches `at_least`.

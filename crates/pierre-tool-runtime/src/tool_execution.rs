@@ -28,8 +28,8 @@ use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, 
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
-    observed_tool_name, reroutes_headless_turn, GuardianConfirmRequest, GuardianDenial,
-    ToolLoopParams, ToolLoopResult, ToolLoopTally, ToolRoundRecord,
+    observed_tool_name, GuardianConfirmRequest, GuardianDenial, HeadlessRoute, ToolLoopParams,
+    ToolLoopResult, ToolLoopTally, ToolRoundRecord,
 };
 use crate::tool_loop_telemetry::{
     accumulate_optional, emit_call_record, log_iteration_response, log_iteration_start,
@@ -863,21 +863,14 @@ async fn run_react_tool_loop(
     } else if capabilities.supports_sdk_tool_calling() {
         // Converses with the chain's head directly, outside embacle's fallback
         // walk, so neither of its fallbacks fires here — not the provider-fault
-        // one, not the empty-completion one. Both re-created; see `is_lost_turn`.
-        match run_headless_tool_loop(params, llm_messages).await {
-            Ok(r) if r.is_lost_turn() => {
-                run_headless_fallback(
-                    params,
-                    llm_messages,
-                    r.lost_turn_error(params.provider.name()),
-                )
-                .await
+        // one, not the empty-completion one. Both re-created; see `HeadlessRoute`.
+        let outcome = run_headless_tool_loop(params, llm_messages).await;
+        match HeadlessRoute::of(outcome, params.provider.name()) {
+            HeadlessRoute::Serve(result) => Ok(*result),
+            HeadlessRoute::Reroute(reason) => {
+                run_headless_fallback(params, llm_messages, reason).await
             }
-            Ok(result) => Ok(result),
-            Err(err) if reroutes_headless_turn(&err) => {
-                run_headless_fallback(params, llm_messages, err).await
-            }
-            Err(err) => Err(err),
+            HeadlessRoute::Fail(err) => Err(err),
         }
     } else {
         run_cli_tool_loop(params, llm_messages).await
@@ -1102,11 +1095,12 @@ pub async fn run_planned_tool_loop(
 ///
 /// [`run_headless_tool_loop`] converses with the chain's head directly,
 /// bypassing embacle's fall-through. When that head call fails with a
-/// provider fault this re-runs the whole tool loop against the chain's tail —
-/// routed by the tail's own capabilities (native function calling for
-/// Cohere/Gemini), so the turn still produces a grounded answer. With no tail
-/// configured the original error is returned unchanged, preserving behavior
-/// when runtime fallback is disabled.
+/// provider fault or loses the turn ([`HeadlessRoute`]), this re-runs the
+/// whole tool loop against the chain's tail — routed by the tail's own
+/// capabilities (native function calling for Cohere/Gemini), so the turn
+/// still produces a grounded answer. With no tail configured the original
+/// error is returned unchanged, preserving behavior when runtime fallback is
+/// disabled.
 async fn run_headless_fallback(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,

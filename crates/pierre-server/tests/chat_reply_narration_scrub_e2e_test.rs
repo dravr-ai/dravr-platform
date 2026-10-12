@@ -51,7 +51,7 @@ mod reply_narration_scrub {
         TokenUsage,
     };
     use pierre_core::models::ConnectionType;
-    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus, WITHHELD_REPLY_FINISH_REASON};
     use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{
@@ -408,16 +408,17 @@ mod reply_narration_scrub {
         (user_id, tenant_id)
     }
 
-    /// The newest assistant row's content for `tenant`, on whichever backend
-    /// the test database is. `chat_messages` has no tenant column; the tenant
-    /// lives on the parent `chat_conversations` row.
-    async fn latest_assistant_content(db: &Database, tenant: &str) -> Option<String> {
-        const SQL: &str = "SELECT m.content \
+    /// The newest assistant row for `tenant` — its content and its
+    /// `finish_reason` stamp — on whichever backend the test database is.
+    /// `chat_messages` has no tenant column; the tenant lives on the parent
+    /// `chat_conversations` row.
+    async fn latest_assistant_row(db: &Database, tenant: &str) -> Option<(String, Option<String>)> {
+        const SQL: &str = "SELECT m.content, m.finish_reason \
              FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1";
-        let row: Option<(String,)> = match db.backend() {
+        match db.backend() {
             DatabaseBackend::SQLite(sqlite) => sqlx::query_as(SQL)
                 .bind(tenant)
                 .fetch_optional(sqlite.pool())
@@ -429,27 +430,35 @@ mod reply_narration_scrub {
                 .fetch_optional(pg.pool())
                 .await
                 .unwrap(),
-        };
-        row.map(|(content,)| content)
+        }
     }
 
     /// Poll `chat_messages` until the pipeline persists an `assistant` row for
-    /// the tenant, then return its (already post-processed) content.
-    async fn wait_for_persisted_assistant_reply(
+    /// the tenant, then return its (already post-processed) content and its
+    /// `finish_reason` stamp.
+    async fn wait_for_persisted_assistant_row(
         resources: &Arc<ServerContext>,
         tenant_id: TenantId,
-    ) -> Option<String> {
+    ) -> Option<(String, Option<String>)> {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            if let Some(content) =
-                latest_assistant_content(&resources.agent.database, &tenant_str).await
-            {
-                return Some(content);
+            if let Some(row) = latest_assistant_row(&resources.agent.database, &tenant_str).await {
+                return Some(row);
             }
             sleep(Duration::from_millis(200)).await;
         }
         None
+    }
+
+    /// [`wait_for_persisted_assistant_row`]'s content alone.
+    async fn wait_for_persisted_assistant_reply(
+        resources: &Arc<ServerContext>,
+        tenant_id: TenantId,
+    ) -> Option<String> {
+        wait_for_persisted_assistant_row(resources, tenant_id)
+            .await
+            .map(|(content, _)| content)
     }
 
     #[tokio::test]
@@ -830,13 +839,16 @@ mod reply_narration_scrub {
         }
     }
 
-    /// Leaks on the first completion, answers normally on the second.
+    /// Leaks on the first completion, answers with `reask` on the second.
     ///
     /// This is the production shape: the break is per-completion, not
     /// per-conversation — in the conversation behind the 2026-08-05 Telegram
     /// incident the turns either side of the leak answered correctly.
     struct LeakThenRecoverMockProvider {
         calls: Arc<AtomicUsize>,
+        /// What the re-ask completes with: [`REASK_COACHING`] for a re-ask
+        /// that recovers, empty for the provider's empty-completion class.
+        reask: &'static str,
     }
 
     #[async_trait]
@@ -875,7 +887,7 @@ mod reply_narration_scrub {
                  access to fitness tools."
                     .to_owned()
             } else {
-                REASK_COACHING.to_owned()
+                self.reask.to_owned()
             };
             Ok(ChatResponse {
                 content,
@@ -964,7 +976,9 @@ mod reply_narration_scrub {
         email: &str,
         sender: &str,
     ) -> Option<String> {
-        drive_slack_turn(provider, email, sender, false).await
+        drive_slack_turn(provider, email, sender, false)
+            .await
+            .map(|(content, _)| content)
     }
 
     /// Same turn, but the provider arrives the way production supplies it.
@@ -973,15 +987,20 @@ mod reply_narration_scrub {
         email: &str,
         sender: &str,
     ) -> Option<String> {
-        drive_slack_turn(provider, email, sender, true).await
+        drive_slack_turn(provider, email, sender, true)
+            .await
+            .map(|(content, _)| content)
     }
 
+    /// One Slack turn's persisted reply: its content and its `finish_reason`
+    /// stamp, which says what the platform did with the reply where the
+    /// content is localized copy.
     async fn drive_slack_turn(
         provider: Arc<dyn LlmProvider>,
         email: &str,
         sender: &str,
         as_chat_provider: bool,
-    ) -> Option<String> {
+    ) -> Option<(String, Option<String>)> {
         env::set_var("PIERRE_LLM_MODEL", "mock-model");
         let resources = if as_chat_provider {
             create_test_server_resources_with_chat_provider(provider)
@@ -1047,7 +1066,7 @@ mod reply_narration_scrub {
             .await;
         assert_eq!(resp.status_code(), StatusCode::OK);
 
-        wait_for_persisted_assistant_reply(&resources, tenant_id).await
+        wait_for_persisted_assistant_row(&resources, tenant_id).await
     }
 
     /// A leaked completion must be re-asked, and the clean answer delivered.
@@ -1062,6 +1081,7 @@ mod reply_narration_scrub {
         let calls = Arc::new(AtomicUsize::new(0));
         let mock = Arc::new(LeakThenRecoverMockProvider {
             calls: Arc::clone(&calls),
+            reask: REASK_COACHING,
         });
 
         let reply = run_one_slack_turn(mock, "reask-recover@example.com", "U_REASK_OK")
@@ -1108,6 +1128,7 @@ mod reply_narration_scrub {
         let calls = Arc::new(AtomicUsize::new(0));
         let mock = Arc::new(LeakThenRecoverMockProvider {
             calls: Arc::clone(&calls),
+            reask: REASK_COACHING,
         });
 
         let reply = run_one_slack_turn_via_chat_provider(
@@ -1162,6 +1183,48 @@ mod reply_narration_scrub {
             2,
             "the re-ask is bounded to ONE retry — a third completion means the \
              bound was lost"
+        );
+    }
+
+    /// An empty re-ask must leave the withhold in place, not blank the turn.
+    ///
+    /// An empty completion is identity-clean, so a re-ask that took anything
+    /// identity-clean swapped the withheld reply for nothing: the athlete read
+    /// « je n'ai pas réussi à formuler une réponse » instead of the withhold,
+    /// and the turn's leak went unrecorded (carnet#108). Driven through
+    /// production wiring, because that is where the re-ask runs.
+    #[tokio::test]
+    #[serial]
+    async fn an_empty_reask_keeps_the_withhold_instead_of_blanking_the_turn() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mock = Arc::new(LeakThenRecoverMockProvider {
+            calls: Arc::clone(&calls),
+            reask: "",
+        });
+
+        let (reply, finish_reason) =
+            drive_slack_turn(mock, "reask-empty@example.com", "U_REASK_EMPTY", true)
+                .await
+                .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert_eq!(
+            finish_reason.as_deref(),
+            Some(WITHHELD_REPLY_FINISH_REASON),
+            "an empty re-ask must leave the leak for the boundary to withhold; any \
+             other stamp means the empty completion replaced it — got {reply:?}"
+        );
+        assert!(
+            !reply.trim().is_empty(),
+            "the athlete must read the withhold copy, never an empty turn"
+        );
+        assert!(
+            !reply.to_lowercase().contains("copilot"),
+            "the leaked first completion must never be delivered, got: {reply:?}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "the turn's own completion plus exactly one re-ask"
         );
     }
 }

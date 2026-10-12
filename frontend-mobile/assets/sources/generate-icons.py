@@ -1,6 +1,7 @@
 # ABOUTME: Regenerates the mobile icon family from boreal-ripple-mark.png.
 # ABOUTME: Dev-only asset tool — not wired into the build or CI. Needs Pillow.
 
+import math
 import sys
 from pathlib import Path
 
@@ -23,14 +24,24 @@ CANVAS = 1024
 # below this darkness is treated as background.
 SPECKLE_FLOOR = 14
 
+# Android draws an adaptive icon's 108dp canvas through a launcher mask that shows
+# 72dp of it, and recommends keeping key elements inside a centred 66dp circle so a
+# tighter OEM mask or a launcher's parallax/zoom does not clip them.
+ADAPTIVE_CANVAS_DP = 108
+ADAPTIVE_SAFE_DP = 66
+SAFE_RADIUS = CANVAS * ADAPTIVE_SAFE_DP / ADAPTIVE_CANVAS_DP / 2  # px, 312.9 at 1024
+
+# Alpha at or below this (8/255, about 3% opacity) is invisible, so it is not ink.
+INK_ALPHA_FLOOR = 8
+
 # Share of the canvas the mark spans. The master itself only fills ~47%, which
 # reads as a small mark once the OS mask is applied.
 FILL = {
     "icon": 840,  # 82% — iOS masks the corners, so the mark can run wide
-    # LIMITATION(registre#42): FILL["adaptive-icon"] spans 676px, putting 16.7% of
-    # the mark's ink outside the 66dp circle Android recommends for key elements,
-    # and leaving 1.7px against the 72dp reference mask.
-    "adaptive-icon": 676,
+    # 61% — the largest whole-pixel fill whose ink stays inside SAFE_RADIUS.
+    # require_inside_safe_circle() refuses to write the file when a fill or a
+    # replacement master breaks that.
+    "adaptive-icon": 620,
     "splash-icon": 600,  # smaller presence behind the launch screen
 }
 
@@ -65,19 +76,54 @@ def place(mark_rgb, mark_mask, fill_px, transparent):
     return canvas
 
 
+def ink_radius(canvas):
+    """Distance from the canvas centre to the far corner of the outermost inked pixel."""
+    alpha = canvas.getchannel("A")
+    width, height = alpha.size
+    centre_x, centre_y = width / 2, height / 2
+    data = alpha.tobytes()
+    farthest = 0.0
+    for y in range(height):
+        row = data[y * width : (y + 1) * width]
+        inked = [x for x, value in enumerate(row) if value > INK_ALPHA_FLOOR]
+        if not inked:
+            continue
+        # Distance only grows with |dx| on a row, so the row's extremes decide it.
+        dx = max(abs(inked[0] + 0.5 - centre_x), abs(inked[-1] + 0.5 - centre_x)) + 0.5
+        dy = abs(y + 0.5 - centre_y) + 0.5
+        farthest = max(farthest, math.hypot(dx, dy))
+    return farthest
+
+
+def require_inside_safe_circle(canvas):
+    """Exit when any ink of the adaptive foreground falls outside the 66dp circle."""
+    radius = ink_radius(canvas)
+    if radius > SAFE_RADIUS:
+        sys.exit(
+            f"adaptive-icon: ink reaches {radius:.1f}px from the centre, outside the "
+            f"{ADAPTIVE_SAFE_DP}dp safe circle ({SAFE_RADIUS:.1f}px); "
+            "lower FILL['adaptive-icon'] or fix the master"
+        )
+
+
 def main():
     master = Image.open(MASTER).convert("RGB")
     mask = ink_mask(master)
     bbox = mask.getbbox()
     mark_rgb, mark_mask = master.crop(bbox), mask.crop(bbox)
 
+    # Checked before anything is written, so a failing run leaves the family untouched.
+    adaptive = place(mark_rgb, mark_mask, FILL["adaptive-icon"], transparent=True)
+    require_inside_safe_circle(adaptive)
+
     # App Store and home screen. Apple rejects an icon carrying an alpha
     # channel, so this one is the only opaque member of the family.
     icon = place(mark_rgb, mark_mask, FILL["icon"], transparent=False)
     icon.save(ASSETS / "icon.png")
 
-    for name in ("adaptive-icon", "splash-icon"):
-        place(mark_rgb, mark_mask, FILL[name], transparent=True).save(ASSETS / f"{name}.png")
+    adaptive.save(ASSETS / "adaptive-icon.png")
+    splash = place(mark_rgb, mark_mask, FILL["splash-icon"], transparent=True)
+    splash.save(ASSETS / "splash-icon.png")
 
     icon.resize((48, 48), Image.LANCZOS).save(ASSETS / "favicon.png")
     print(f"regenerated icon family from {MASTER.name} (mark bbox {bbox})")

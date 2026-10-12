@@ -18,10 +18,11 @@
 //! seeded fixture makes the judge confidently wrong, a corpus reordered so the
 //! introduction episode no longer opens the DM reds a correct pipeline, a
 //! fixture whose primary provider holds no token turns every episode into the
-//! reconnect sentence, and the rule deciding which findings red the lane is the
-//! one part of it that decides whether anyone trusts it. The corpus, fixture
-//! and classifier these guard live in `tests/helpers/live_incident_corpus.rs`,
-//! shared with the live target.
+//! reconnect sentence, a per-turn wait shorter than the server's turn ceiling
+//! grades a late reply as the next turn's answer, and the rule deciding which
+//! findings red the lane is the one part of it that decides whether anyone
+//! trusts it. The corpus, fixture, wait and classifier these guard live in
+//! `tests/helpers/live_incident_corpus.rs`, shared with the live target.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -37,12 +38,14 @@ mod live_incident_eval {
     use crate::common::create_test_server_resources;
     use crate::live_incident_corpus::{
         athlete_run_metres, classify_findings, ground_truth, km_range, peer_run_metres,
-        seed_fixture, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS, PEER_RUN_METRES,
-        PEER_RUN_PACE, PEER_RUN_SECONDS,
+        seed_fixture, turn_timeout, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS,
+        PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
+    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
     use pierre_providers::registry::global_registry;
     use serial_test::serial;
+    use std::env;
 
     /// The ground truth's stated pace must be what the seeded run arithmetically
     /// is.
@@ -170,6 +173,48 @@ mod live_incident_eval {
              the reconnect sentence instead of the coach",
             primary.provider
         );
+    }
+
+    /// The lane must wait out the server's turn watchdog before it moves on,
+    /// wherever an operator sets it.
+    ///
+    /// A turn still running when the lane gives up delivers its reply after
+    /// the next inbound, and the lane reads it as that turn's answer: a
+    /// finding filed against the wrong question, or a regression hidden
+    /// behind the previous turn's good reply. With the runtime fallback armed
+    /// one turn can outlast every per-tier cap — a `copilot_sdk` turn that
+    /// times out re-runs on `claude_code` — so the wait is pinned to the one
+    /// bound every tier runs under. The 1500 s case is above the watchdog's
+    /// default, so a wait pinned to a constant instead of the live ceiling
+    /// fails it.
+    #[test]
+    #[serial]
+    fn the_lane_outwaits_the_servers_turn_watchdog() {
+        const WATCHDOG_VAR: &str = "MESSAGING_TURN_WATCHDOG_SECS";
+        let saved = env::var(WATCHDOG_VAR).ok();
+        let observed: Vec<(Option<&str>, u64, u64)> = [None, Some("1500"), Some("60")]
+            .into_iter()
+            .map(|setting| {
+                match setting {
+                    Some(secs) => env::set_var(WATCHDOG_VAR, secs),
+                    None => env::remove_var(WATCHDOG_VAR),
+                }
+                (setting, turn_watchdog().as_secs(), turn_timeout().as_secs())
+            })
+            .collect();
+        match saved {
+            Some(secs) => env::set_var(WATCHDOG_VAR, secs),
+            None => env::remove_var(WATCHDOG_VAR),
+        }
+
+        for (setting, watchdog, wait) in observed {
+            assert!(
+                wait > watchdog,
+                "with {WATCHDOG_VAR}={setting:?} the server closes a turn after {watchdog}s \
+                 but the lane stops waiting after {wait}s — a turn that runs that long lands \
+                 its reply on the next turn and is graded against the wrong question"
+            );
+        }
     }
 
     /// Build a finding for the classifier tests.

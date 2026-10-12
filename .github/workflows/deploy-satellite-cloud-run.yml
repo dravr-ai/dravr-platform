@@ -11,8 +11,10 @@
 #              revision now serving is the digest the image job built and scanned,
 #              optionally probe it over HTTP, and roll back to the digest that was
 #              serving before if any of that fails
-#   tag        mark the deployed digest `deployed-dev` so registry retention keeps
-#              the image dev is running, and with it the next rollback target
+#   tag        mark the deployed digest `deployed-dev` and the digest it replaced
+#              `deployed-dev-previous`, so registry retention keeps the image dev
+#              is running (the next deploy's rollback target) and the one before
+#              it (the N-1 target of a later rollback by hand)
 #   platform   dispatch publish-images.yml, because the satellite's crate is also
 #              compiled into the platform binary and a merged pin ships nothing
 #              until that binary is rebuilt
@@ -298,6 +300,13 @@ jobs:
     if: ${{ !cancelled() && needs.deploy.result == 'success' }}
 
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (tag script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       # image-publisher (artifactregistry.writer), not the dev deployer: the tag
       # is written in the dravr-artifacts project, where the dev deployer has no
       # write access. Same split as publish-images.yml's tag-deployed-dev.
@@ -313,22 +322,21 @@ jobs:
       - name: Tag the deployed ${{ inputs.service }} digest
         # The deploy above captures the serving digest as its rollback target, but
         # nothing on a digest-deployed image tells the cleanup policy to spare it:
-        # once two newer builds push it out of the recent-versions floor, the age
-        # rule deletes the image dev is running, and a rollback to a deleted digest
-        # fails outright. That is how the 2026-08-31 sciotte rollback failed with
-        # "Image not found" against a digest that had been serving since 08-24
-        # (carnet#166). `deployed-` is matched by the registry's keep-tags rule
-        # (infra/artifacts release_tag_prefixes), which wins over every delete
-        # rule, and the tfvars comment names this tag as what "carries the
-        # guarantee" that keep_count cannot. server and frontend have had it since
-        # publish-images.yml's tag-deployed-dev.
+        # once one newer build pushes it out of the recent-versions floor (two
+        # versions, less than one build), the age rule deletes the image dev is
+        # running, and a rollback to a deleted digest fails outright. That is how
+        # the 2026-08-31 sciotte rollback failed with "Image not found" against a
+        # digest that had been serving since 08-24 (carnet#166). `deployed-` is
+        # matched by the registry's keep-tags rule (infra/artifacts
+        # release_tag_prefixes), which wins over every delete rule, and the tfvars
+        # comment names this tag as what "carries the guarantee" that keep_count
+        # cannot. tag-deployed-digest.sh, the move publish-images.yml's
+        # tag-deployed-dev runs for server and frontend, puts deployed-dev on this
+        # digest and keeps the outgoing one as deployed-dev-previous, so the N-1
+        # rollback target outlives the deploy that replaced it (carnet#137).
         env:
           IMAGE: ${{ inputs.image }}
-        run: |
-          set -euo pipefail
-          PACKAGE="${IMAGE%@*}"
-          echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
-          gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+        run: ./scripts/ci/tag-deployed-digest.sh --image "${IMAGE}" --env dev
 
   # ---------------------------------------------------------------------------
   # Ship the platform binary, which compiles the satellite's crate in

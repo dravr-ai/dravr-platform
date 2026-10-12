@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for bin/ios-simulator.sh — the dev scripts' simulator helpers on Xcode 26 and Xcode 27
-# ABOUTME: Pins device choice, the Simulator.app / Device Hub split, and the Expo Go install that must match the SDK
+# ABOUTME: Pins device choice, the Simulator.app / Device Hub split, the Expo Go install matching the SDK, and the open retry
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -73,7 +73,18 @@ case "$1 ${2:-} ${3:-}" in
     install*)
         mkdir -p "$FIX/installed"
         cp "$3/Info.plist" "$FIX/installed/Info.plist" ;;
-    launch* | openurl*) exit 0 ;;
+    launch*)
+        rc="${STUB_LAUNCH_RC:-0}"
+        [ "$rc" -eq 0 ] || echo "The request to open \"$3\" failed. (stub exit $rc)" >&2
+        exit "$rc" ;;
+    openurl*)
+        # STUB_OPENURL_RCS is the exit status of each openurl in turn ("60 0":
+        # a timeout, then an open); the last one repeats once the list runs out.
+        n=$(($(cat "$FIX/openurl.count" 2>/dev/null || echo 0) + 1))
+        echo "$n" >"$FIX/openurl.count"
+        rc=$(awk -v n="$n" '{ print (n <= NF) ? $n : $NF }' <<<"${STUB_OPENURL_RCS:-0}")
+        [ "$rc" -eq 0 ] || echo "Simulator device failed to open $3. (stub exit $rc)" >&2
+        exit "$rc" ;;
     *) exit 64 ;;
 esac
 EOF
@@ -185,7 +196,7 @@ mkdir -p "$XCODE26/Applications/Simulator.app" "$XCODE27" "$WORK/Xcode-27.app/Co
 # shellcheck source=../../bin/ios-simulator.sh
 . "$UNDER_TEST"
 
-reset_calls() { : >"$CALLS"; }
+reset_calls() { : >"$CALLS"; rm -f "$FIX/openurl.count"; }
 
 # --- 1-3: which simulator app the selected Xcode ships ------------------------
 if STUB_DEVELOPER_DIR="$XCODE26" ios_sim_has_simulator_app; then
@@ -299,6 +310,59 @@ ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095"
 expect "Expo Go is launched before the URL is opened" \
     "$(grep -E 'simctl (launch|openurl)' "$CALLS" | tr '\n' '|')" \
     "xcrun simctl launch $UDID_IPHONE_27 host.exp.Exponent|xcrun simctl openurl $UDID_IPHONE_27 exp://127.0.0.1:8095|"
+
+# --- 27-38: an open that timed out while Expo Go was still starting ------------------
+# The sequence of launch, openurl, terminate and pause calls one open made.
+open_sequence() {
+    grep -E 'simctl (launch|openurl|terminate)|^sleep' "$CALLS" |
+        sed -E "s/xcrun simctl ([a-z]+) $UDID_IPHONE_27.*/\1/" | tr '\n' '|'
+}
+openurl_count() { cat "$FIX/openurl.count" 2>/dev/null || echo 0; }
+
+reset_calls
+rc=0
+STUB_OPENURL_RCS="60 0" ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>"$WORK/open.err" || rc=$?
+expect "an open that timed out once succeeds on the next attempt" "$rc" "0"
+expect "the retry waits, relaunches and opens again, never terminating Expo Go" "$(open_sequence)" \
+    "launch|sleep 3|openurl|sleep 10|launch|sleep 3|openurl|"
+expect_contains "the timeout is reported with its attempt" "$(cat "$WORK/open.err")" \
+    "timed out (attempt 1 of 3); retrying in 10s"
+
+reset_calls
+rc=0
+STUB_OPENURL_RCS="60" ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>"$WORK/open.err" || rc=$?
+expect "a timeout on every attempt fails with the timeout's own status" "$rc" "60"
+expect "the open is attempted IOS_SIM_OPEN_ATTEMPTS times, no more" "$(openurl_count)" "3"
+expect_contains "the failure names simctl's error and the last attempt" "$(cat "$WORK/open.err")" \
+    "failed with exit 60 (attempt 3 of 3)"
+
+reset_calls
+rc=0
+STUB_OPENURL_RCS="1 0" ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>"$WORK/open.err" || rc=$?
+expect "any failure other than a timeout is returned at once, not retried" "$rc/$(openurl_count)" "1/1"
+
+reset_calls
+rc=0
+IOS_SIM_OPEN_ATTEMPTS=1 STUB_OPENURL_RCS="60 0" \
+    ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>/dev/null || rc=$?
+expect "IOS_SIM_OPEN_ATTEMPTS=1 opens once and returns the timeout" "$rc/$(openurl_count)" "60/1"
+
+reset_calls
+rc=0
+STUB_LAUNCH_RC=4 STUB_OPENURL_RCS="0" \
+    ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>"$WORK/open.err" || rc=$?
+expect "a failed launch is not the verdict: the open that follows it decides" "$rc/$(openurl_count)" "0/1"
+expect_contains "the failed launch's own error is shown" "$(cat "$WORK/open.err")" \
+    "The request to open \"host.exp.Exponent\" failed. (stub exit 4)"
+
+reset_calls
+rc=0
+IOS_SIM_OPEN_ATTEMPTS=three \
+    ios_sim_open_in_expo_go "$UDID_IPHONE_27" "exp://127.0.0.1:8095" 2>"$WORK/open.err" || rc=$?
+expect "an IOS_SIM_OPEN_ATTEMPTS that is not a count is refused before any simctl call" \
+    "$rc/$(wc -l <"$CALLS" | tr -d ' ')" "1/0"
+expect_contains "the refusal names the variable and its value" "$(cat "$WORK/open.err")" \
+    "IOS_SIM_OPEN_ATTEMPTS must be a whole number of 1 or more, not 'three'"
 
 echo ""
 if [ "$failures" -ne 0 ]; then

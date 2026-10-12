@@ -458,10 +458,11 @@ export function settingsPaneSections(id: SettingsPaneId): readonly SettingsSecti
 /**
  * Where the About pane's help and legal rows go.
  *
- * One address each for both clients. The marketing site has no help page, so
- * help goes to the docs hub; legal goes to the privacy policy, which links the
- * terms. A per-client copy of a destination is how the same dead link ships
- * twice, so both clients read these.
+ * One address each for both clients. Help is the docs hub, where the athlete
+ * guides live and whose members part opens to any active Dravr account; legal
+ * is the privacy policy, which links the terms, so the one legal row reaches
+ * both documents. A per-client copy of a destination is how the same dead
+ * link ships twice, so both clients read these.
  */
 export const HELP_URL = 'https://dravr.ai/docs';
 export const LEGAL_URL = 'https://dravr.ai/privacy';

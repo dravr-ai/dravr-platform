@@ -125,6 +125,10 @@ by what the selected Xcode ships:
   Xcode, replacing an older one.
 - `IOS_SIM_UDID=<udid>` pins the device for all three scripts, for when another
   checkout's simulator is booted too.
+- Opening the URL retries an `openurl` that timed out (exit 60) while Expo Go
+  was still starting, `IOS_SIM_OPEN_ATTEMPTS` opens in all (default 3), each
+  `IOS_SIM_OPEN_RETRY_SECS` apart (default 10); any other failure is returned
+  at once. `mobile-e2e-ios.yml` opens the app through the same helper.
 
 ## See Also
 

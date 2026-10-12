@@ -445,7 +445,7 @@ jobs:
           # It lives in its own server-cache package, never in server: the
           # retention policy's keep-recent-versions floor counts versions per
           # package, so cache manifests sharing the image package would consume
-          # the rollback window that is meant to hold images.
+          # the recent-versions floor that is meant to hold images.
           #
           # mode=min: with BINARY_SOURCE=prebuilt the only stage besides the
           # runtime is the scratch stage holding this build's binaries, which
@@ -790,6 +790,13 @@ jobs:
     if: ${{ !cancelled() && needs.deploy-dev.result == 'success' }}
 
     steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (tag script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
       # image-publisher (artifactregistry.writer), not the dev deployer: the tag
       # is written in the dravr-artifacts project, where the dev deployer has no
       # write access.
@@ -804,27 +811,32 @@ jobs:
 
       - name: Tag deployed digests
         # Dev deploys by digest, so nothing on a serving image tells the registry
-        # cleanup policy to spare it: once enough newer builds push it out of the
-        # recent-versions floor, the age rule is free to delete the image dev is
-        # running. The deployed-dev tag is matched by the keep-release-tags rule
-        # (infra/artifacts, release_tag_prefixes), which wins over every delete
-        # rule. The tag moves on the next deploy — the superseded digest keeps
-        # its SHA tag and resumes normal ageing.
+        # cleanup policy to spare it: once one newer build pushes it out of the
+        # recent-versions floor (two versions, less than one build), the age rule
+        # is free to delete the image dev is running. tag-deployed-digest.sh moves
+        # deployed-dev onto the digest just shipped and keeps the outgoing one as
+        # deployed-dev-previous, the N-1 rollback target (carnet#137). Both are
+        # matched by the keep-referenced-tags rule (infra/artifacts,
+        # release_tag_prefixes), which wins over every delete rule. The digest
+        # deployed-dev-previous leaves on the next deploy keeps only its SHA tag
+        # and resumes normal ageing.
         #
         # `latest` moves here too, not at build time: `latest` (named by
         # terraform.tfvars) must name a digest that passed its Trivy gate and
         # rolled out, which only a deployed one has.
+        env:
+          SERVER_IMAGE: ${{ needs.publish-server.outputs.image }}
+          FRONTEND_IMAGE: ${{ needs.publish-frontend.outputs.image }}
         run: |
-          for IMAGE in \
-            "${{ needs.publish-server.outputs.image }}" \
-            "${{ needs.publish-frontend.outputs.image }}"; do
-            # Empty when publish-frontend was skipped: nothing new to tag.
+          set -euo pipefail
+          for IMAGE in "${SERVER_IMAGE}" "${FRONTEND_IMAGE}"; do
+            # Empty when publish-frontend was skipped: nothing new to tag, and
+            # both of the frontend's deployed- tags stay where they are.
             [ -n "${IMAGE}" ] || continue
+            ./scripts/ci/tag-deployed-digest.sh --image "${IMAGE}" --env dev
             PACKAGE="${IMAGE%@*}"
-            for TAG in deployed-dev latest; do
-              echo "Tagging ${IMAGE} as ${PACKAGE}:${TAG}"
-              gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:${TAG}" --quiet
-            done
+            echo "Tagging ${IMAGE} as ${PACKAGE}:latest"
+            gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:latest" --quiet
           done
 
   # ---------------------------------------------------------------------------

@@ -20,6 +20,9 @@ IOS_SIM_SIMULATOR_APP_ID="com.apple.iphonesimulator"
 IOS_SIM_DEVICE_HUB_APP_ID="com.apple.dt.Devices"
 IOS_SIM_EXPO_GO_ID="host.exp.Exponent"
 IOS_SIM_VERSIONS_URL="${IOS_SIM_VERSIONS_URL:-https://api.expo.dev/v2/versions/latest}"
+# simctl exits with the POSIX code of the error it reports; ETIMEDOUT is what
+# openurl reports when the app did not take the URL in time.
+IOS_SIM_OPENURL_TIMED_OUT=60
 
 # True when the selected Xcode still ships Simulator.app (Xcode 26 and older
 # keep it under the developer dir; Xcode 27 does not have one).
@@ -217,8 +220,42 @@ ios_sim_wait_for_metro() { # port [timeout_secs]
 # that). iOS 27 shows "Open in "Expo Go"?" on every openurl regardless, and
 # Expo Go 57 reads no launch-argument URL that would get around it, so on
 # iOS 27 the URL waits behind that sheet for one tap on Open.
+#
+# An Expo Go that is still starting does not take the URL in time: openurl
+# gives up after ~10 s with "Operation timed out" (NSPOSIXErrorDomain 60) and
+# exits 60. CI run 37946857280 died on exactly that, on an open sent three
+# seconds after the launch by a runner still loaded from the cold Metro build.
+# That one status is retried, IOS_SIM_OPEN_ATTEMPTS opens in all, each after
+# IOS_SIM_OPEN_RETRY_SECS more for Expo Go to finish starting. Expo Go is not
+# terminated in between: a fresh launch would start the same slow start-up
+# over. The launch is repeated instead, which brings back an Expo Go that died
+# and leaves a running one where it is. Any other failure is returned at once,
+# a timeout on the last attempt is returned as the timeout, and simctl's own
+# error is printed on every failure. openurl's status is the verdict, not the
+# launch's, but a launch that failed prints its error too, so a timeout that
+# follows one names its cause. IOS_SIM_OPEN_ATTEMPTS bounds the loop, so a
+# value that is not a whole number of 1 or more is refused before any launch.
 ios_sim_open_in_expo_go() { # udid url
-    xcrun simctl launch "$1" "$IOS_SIM_EXPO_GO_ID" >/dev/null 2>&1 || true
-    sleep "${IOS_SIM_LAUNCH_SETTLE_SECS:-3}"
-    xcrun simctl openurl "$1" "$2"
+    local attempts="${IOS_SIM_OPEN_ATTEMPTS:-3}" retry_secs="${IOS_SIM_OPEN_RETRY_SECS:-10}" attempt=1 rc
+    case "$attempts" in
+        '' | *[!0-9]* | 0)
+            echo "IOS_SIM_OPEN_ATTEMPTS must be a whole number of 1 or more, not '$attempts'" >&2
+            return 1 ;;
+    esac
+    while :; do
+        xcrun simctl launch "$1" "$IOS_SIM_EXPO_GO_ID" >/dev/null || true
+        sleep "${IOS_SIM_LAUNCH_SETTLE_SECS:-3}"
+        rc=0
+        xcrun simctl openurl "$1" "$2" || rc=$?
+        if [ "$rc" -eq 0 ]; then
+            return 0
+        fi
+        if [ "$rc" -ne "$IOS_SIM_OPENURL_TIMED_OUT" ] || [ "$attempt" -ge "$attempts" ]; then
+            echo "simctl openurl $2 failed with exit $rc (attempt $attempt of $attempts)" >&2
+            return "$rc"
+        fi
+        echo "simctl openurl $2 timed out (attempt $attempt of $attempts); retrying in ${retry_secs}s" >&2
+        sleep "$retry_secs"
+        attempt=$((attempt + 1))
+    done
 }

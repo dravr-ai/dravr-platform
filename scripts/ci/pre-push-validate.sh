@@ -212,7 +212,7 @@ fi
 # closed when shellcheck is absent rather than reading as clean, because a
 # scan that ran nothing is not a pass. The pattern set below mirrors the
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
-SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
 SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do if [[ -f "$PROJECT_ROOT/$f" ]]; then echo "$f"; fi; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then

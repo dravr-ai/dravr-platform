@@ -1,27 +1,59 @@
-# ABOUTME: Nightly Terraform drift detection for infra/environments/dev — fails when live infra diverges from code
-# ABOUTME: Runs `terraform plan -detailed-exitcode`; a non-empty plan (exit 2) reds this Monitor workflow as the drift alert
+# ABOUTME: Nightly Terraform drift detection for every root a workflow applies — infra/environments/dev and infra/artifacts
+# ABOUTME: Runs `terraform plan -detailed-exitcode` per root; a non-empty plan (exit 2) reds this Monitor workflow as the drift alert
 
-name: "Monitor: Terraform Drift (dev)"
+name: "Monitor: Terraform Drift (dev + artifacts)"
 
-# Why this exists: terraform.yml auto-plans ONLY when infra/** files change on
-# push, so an out-of-band edit (gcloud/console, or a manual `terraform apply`
-# from a laptop against the shared GCS state) drifts silently until the next
-# infra commit. This job re-plans dev on a schedule and fails on any diff, so
-# drift surfaces as a red Monitor run (same "red on main = investigate"
-# convention as Monitor: Daily Health Check) rather than lurking.
+# Why this exists: nothing re-plans a root after an out-of-band edit.
+# terraform.yml auto-plans dev ONLY when infra/** files change on push, and
+# terraform-artifacts.yml is dispatch-only, so an edit made with gcloud or the
+# console (or a manual `terraform apply` from a laptop against the shared GCS
+# state) drifts silently until someone next plans. This workflow re-plans every
+# root on a schedule and fails on any diff, so drift surfaces as a red Monitor
+# run (same "red on main = investigate" convention as Monitor: Daily Health
+# Check) rather than lurking.
 #
-# Dev only: infra/environments/prod is an unprovisioned stub (project_id is a
-# TODO placeholder), so a prod plan would error rather than report drift.
+# infra/artifacts is a leg because it already drifted unseen. The dravr-images
+# cleanup policy was replaced with gcloud on 2026-08-18 (other rule ids, 6h/1h
+# windows, latest+buildcache keep prefixes) and nothing compared it with the
+# code until carnet#137 found it by hand twelve days later — by which point the
+# next artifacts apply would have dropped `latest` from the keep list. That
+# registry holds every image dev serves.
 #
-# Alerting: a red Monitor run AND a Slack post to #dev-dravr-errors. This
-# workflow already authenticates to GCP as the terraform-runner SA (which holds
-# roles/secretmanager.admin — see infra/modules/service_accounts), so the Notify
-# Slack step reads the app's existing Slack bot token straight from Secret
-# Manager (dravr-mcp-server-slack-bot-token) and posts via chat.postMessage. No
-# new GitHub secret and no new Slack app/incoming-webhook — it reuses the same
-# bot the running server uses for ops alerts. Dispatch this workflow manually
-# with test_alert=true to verify the Slack wiring on demand (posts a test message
-# without needing real drift).
+# Coverage rule: one leg per Terraform root that some workflow job can apply.
+# scripts/ci/terraform-drift.test.sh reads every workflow and fails when an
+# applyable root has no leg here. Prod has none because nothing can apply it:
+# infra/environments/prod is an unprovisioned stub (project_id is a TODO
+# placeholder) and terraform.yml's apply-prod is `if: false`, so a prod plan
+# would error rather than report drift. The test asks the same question, so
+# arming apply-prod fails it until prod has a leg.
+#
+# Identity: each leg plans as the identity its root's own plan job uses, which
+# the same test checks. dev plans as terraform-runner@dravr-dev, like
+# terraform.yml's plan-dev. artifacts plans as the read-only
+# terraform-planner@dravr-artifacts, like terraform-artifacts.yml's plan job —
+# never terraform-runner@dravr-artifacts, which can grant itself roles/owner and
+# is minted only behind the 'artifacts' Environment reviewer. The planner reads
+# state with objectViewer and cannot create the GCS lock object, so that leg
+# plans with -lock=false; a plan writes no state, so there is nothing for the
+# lock to serialize.
+#
+# Output: dravr-platform is public, and so are its run logs and job summaries.
+# Each leg publishes the condensed form terraform.yml uses — resource action
+# lines plus the Plan:/No changes line, or the error tail when the plan fails —
+# never raw plan text, which carries every attribute Terraform does not mark
+# sensitive.
+#
+# Alerting: a red Monitor run AND a Slack post to #dev-dravr-errors from the
+# notify job, once every leg has finished. It authenticates as
+# terraform-runner@dravr-dev (which holds roles/secretmanager.admin — see
+# infra/modules/service_accounts) and reads the app's existing Slack bot token
+# straight from Secret Manager (dravr-mcp-server-slack-bot-token), then posts via
+# chat.postMessage. No new GitHub secret and no new Slack app/incoming-webhook —
+# it reuses the same bot the running server uses for ops alerts. The post is its
+# own job rather than a step in each leg because the artifacts planner cannot
+# read dravr-dev secrets. Dispatch this workflow manually with test_alert=true to
+# verify the Slack wiring on demand (posts a test message without needing real
+# drift).
 on:
   schedule:
     # Daily at 12:00 UTC (offset from the 06:00 Daily Health Check).
@@ -34,7 +66,7 @@ on:
         default: false
 
 concurrency:
-  group: terraform-drift-dev
+  group: terraform-drift
   cancel-in-progress: true
 
 permissions:
@@ -42,28 +74,44 @@ permissions:
   id-token: write
 
 jobs:
-  drift-dev:
-    name: Drift Dev
+  drift:
+    name: Drift (${{ matrix.label }})
     runs-on: ubuntu-latest
+
+    strategy:
+      # Each leg is its own verdict: drift in one root must not cancel the
+      # other root's plan.
+      fail-fast: false
+      matrix:
+        include:
+          - label: dev
+            root: infra/environments/dev
+            # Secret NAMES, read through secrets[...] in the auth step: a
+            # matrix cannot hold secret values.
+            wif_provider_secret: GCP_DEV_WIF_PROVIDER
+            service_account_secret: GCP_DEV_TF_SA
+            lock: 'true'
+            reconcile: "gh workflow run terraform.yml --ref main -f environment=dev -f action=apply"
+          - label: artifacts
+            root: infra/artifacts
+            wif_provider_secret: GCP_ARTIFACTS_WIF_PROVIDER
+            service_account_secret: GCP_ARTIFACTS_TF_PLAN_SA
+            lock: 'false'
+            reconcile: "gh workflow run terraform-artifacts.yml --ref main -f action=plan, then -f action=apply -f plan_run_id=<that run>"
 
     defaults:
       run:
-        working-directory: infra/environments/dev
+        working-directory: ${{ matrix.root }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Authenticate to GCP (dev terraform runner)
+      - name: Authenticate to GCP (the root's plan identity)
         uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_DEV_TF_SA }}
-
-      # gcloud CLI, wired to the credentials from the auth step above, so the
-      # Notify Slack step can read the bot token from Secret Manager.
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v3
+          workload_identity_provider: ${{ secrets[matrix.wif_provider_secret] }}
+          service_account: ${{ secrets[matrix.service_account_secret] }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -76,7 +124,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform Init
-        run: terraform init -backend-config="prefix=dravr-dev"
+        run: terraform init -input=false
 
       # -detailed-exitcode: 0 = no changes, 1 = error, 2 = changes present (drift).
       # Redirect to a file (NO pipe) so `$?` is terraform's own exit — a piped
@@ -87,12 +135,14 @@ jobs:
       # and a plan-text cross-check, so no single quirk can false-green us again.
       - name: Terraform Plan (drift check)
         id: plan
+        env:
+          TF_LOCK: ${{ matrix.lock }}
+          LEG: ${{ matrix.label }}
         run: |
           set +e
-          terraform plan -detailed-exitcode -no-color -var-file="terraform.tfvars" > plan-output.txt 2>&1
+          terraform plan -detailed-exitcode -no-color -input=false -lock="${TF_LOCK}" -var-file="terraform.tfvars" > plan-output.txt 2>&1
           code=$?
           set -e
-          cat plan-output.txt
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # Terraform prints this exact sentence iff the plan is empty.
           if grep -q "No changes. Your infrastructure matches the configuration." plan-output.txt; then
@@ -100,30 +150,41 @@ jobs:
           else
             echo "text=changes" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Write plan to job summary
-        if: always()
-        run: |
+          # Condensed, never raw (public repo): a completed plan publishes its
+          # resource action lines and the Plan:/No changes line; anything else
+          # publishes the error tail. Written to the log as well as the job
+          # summary, so `gh run view --log-failed` shows which resources drifted.
           {
-            echo '## Terraform Drift — dev'
+            echo "## Terraform Drift — ${LEG}"
             echo ''
             echo '```'
-            cat plan-output.txt
+            case "$code" in
+              0|2) grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)' ;;
+              *) echo "PLAN FAILED (exit $code) — last 40 lines:"; tail -n 40 plan-output.txt ;;
+            esac
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } > plan-summary.md
+          cat plan-summary.md
+          cat plan-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Classify drift result
+        env:
+          CODE: ${{ steps.plan.outputs.code }}
+          TEXT: ${{ steps.plan.outputs.text }}
+          ROOT: ${{ matrix.root }}
+          RECONCILE: ${{ matrix.reconcile }}
         run: |
-          code="${{ steps.plan.outputs.code }}"
-          text="${{ steps.plan.outputs.text }}"
-          if [ "$code" = "1" ]; then
-            echo "::error title=Terraform plan failed::terraform plan errored (exit 1). See the plan output in the job summary."
-            exit 1
-          fi
+          case "$CODE" in
+            0|2) ;;
+            *)
+              echo "::error title=Terraform plan failed (${ROOT})::terraform plan exited ${CODE:-without a status}. See the error tail in the job summary."
+              exit 1
+              ;;
+          esac
           # Clean ONLY when the supported exit code AND the plan text both agree.
           # Any mismatch (a real diff, or an exit-code quirk) trips the alert.
-          if [ "$code" = "0" ] && [ "$text" = "clean" ]; then
-            echo "✅ No drift — live dev infra matches infra/environments/dev."
+          if [ "$CODE" = "0" ] && [ "$TEXT" = "clean" ]; then
+            echo "No drift — live infra matches ${ROOT}."
             exit 0
           fi
           # Name the drifting resources in the alert itself; the pattern leaves
@@ -135,21 +196,36 @@ jobs:
           changed=$(grep -E '^  # .* (will be (created|updated in-place|destroyed)|must be replaced|has been (changed|deleted))' plan-output.txt \
             | sed -E 's/^  # //' | head -20 | paste -sd ';' - || true)
           if [ -n "$changed" ]; then
-            echo "::error title=Drifting resources::${changed}"
+            echo "::error title=Drifting resources (${ROOT})::${changed}"
           fi
-          echo "::error title=Terraform drift detected::live dev infra differs from infra/environments/dev (exit=${code}, plan-text=${text}). Review the plan in the job summary, then reconcile via 'gh workflow run terraform.yml --ref main -f environment=dev -f action=apply' (or correct the code to match reality)."
+          echo "::error title=Terraform drift detected (${ROOT})::live infra differs from ${ROOT} (exit=${CODE}, plan-text=${TEXT}). Review the action lines in the job summary, then reconcile via '${RECONCILE}' (or correct the code to match reality)."
           exit 1
 
-      # Post to Slack when the monitor goes red (drift detected, or the plan /
-      # monitor itself failed), and on a manual test_alert dispatch to verify the
-      # wiring. The terraform-runner SA already holds roles/secretmanager.admin,
-      # so this reads the app's existing Slack bot token from Secret Manager — no
-      # new secret, no new Slack app/webhook. Best-effort: a failed post never
-      # overrides the job result (the red run stays the base alert).
-      - name: Notify Slack
-        if: ${{ failure() || github.event.inputs.test_alert == 'true' }}
+  # Post to Slack when the monitor goes red (drift detected in any leg, or a
+  # plan / leg itself failed), and on a manual test_alert dispatch to verify the
+  # wiring. Best-effort: a failed post never overrides the run result (the red
+  # run stays the base alert).
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: drift
+    if: ${{ !cancelled() && (needs.drift.result == 'failure' || github.event.inputs.test_alert == 'true') }}
+
+    steps:
+      - name: Authenticate to GCP (dev terraform runner)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      # gcloud CLI, wired to the credentials from the auth step above, so the
+      # post below can read the bot token from Secret Manager.
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Post to Slack
         env:
-          JOB_STATUS: ${{ job.status }}
+          DRIFT_RESULT: ${{ needs.drift.result }}
           IS_TEST: ${{ github.event.inputs.test_alert }}
           SLACK_SECRET: dravr-mcp-server-slack-bot-token
           GCP_PROJECT: dravr-dev
@@ -162,10 +238,10 @@ jobs:
             echo "::warning::Notify Slack: could not read $SLACK_SECRET from Secret Manager; the red run is still the alert."
             exit 0
           fi
-          if [ "$JOB_STATUS" != "failure" ] && [ "$IS_TEST" = "true" ]; then
+          if [ "$DRIFT_RESULT" != "failure" ] && [ "$IS_TEST" = "true" ]; then
             text=":white_check_mark: Terraform Drift monitor — test alert. Slack wiring OK. <$RUN_URL|View run>"
           else
-            text=":rotating_light: Terraform drift detected (dev). Live infra differs from infra/environments/dev, or the monitor failed. <$RUN_URL|View the plan> then reconcile via terraform.yml apply-dev."
+            text=":rotating_light: Terraform drift detected. Live infra differs from infra/environments/dev or infra/artifacts, or the monitor failed; the red leg of the run names the root. <$RUN_URL|View the plan> then reconcile through that root's apply workflow (terraform.yml for dev, terraform-artifacts.yml for artifacts)."
           fi
           payload=$(jq -n --arg ch "$SLACK_CHANNEL" --arg tx "$text" '{channel:$ch,text:$tx}')
           resp=$(curl -sS -X POST https://slack.com/api/chat.postMessage \

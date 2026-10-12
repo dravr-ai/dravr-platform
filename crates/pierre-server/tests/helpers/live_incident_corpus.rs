@@ -31,13 +31,43 @@ use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 /// Slack signing secret for the synthetic workspace this lane drives.
 pub const SIGNING_SECRET: &str = "live_incident_eval_secret";
+
+/// How far past the server's turn watchdog the lane keeps waiting: room for
+/// the turn to start behind the webhook's acknowledgement and for the
+/// watchdog's closing notice to land. The real-Slack lane waits the same two
+/// minutes past it (`REPLY_WAIT_SECS` in `messaging_eval_real_slack_test.rs`).
+const TURN_WAIT_MARGIN: Duration = Duration::from_secs(120);
+
+/// How long the lane waits for one turn's delivered reply before recording
+/// the turn as an infra error.
+///
+/// Above the server's own ceiling on a messaging turn ([`turn_watchdog`],
+/// `MESSAGING_TURN_WATCHDOG_SECS`), read live so an operator who moves the
+/// ceiling moves this with it. Every turn has therefore ended — with its
+/// reply, or with the watchdog's notice — before the lane posts the next one.
+/// A wait below it lets a slow turn keep running past the point the lane
+/// gave up on it, and its reply then lands after the next inbound, where the
+/// lane reads it as that turn's answer and grades it against the wrong
+/// question: an infra delay reported as a coach failure, or a coach failure
+/// hidden behind the previous turn's good answer.
+///
+/// No single tier's cap is the right bound once the runtime fallback is
+/// armed: a `copilot_sdk` turn that times out at
+/// `EMBACLE_SDK_PROMPT_TIMEOUT_SECS` re-runs on the `claude_code` tier, so
+/// one healthy turn can run past every per-tier cap. The watchdog is the one
+/// bound every tier and every transport runs under.
+pub fn turn_timeout() -> Duration {
+    turn_watchdog().saturating_add(TURN_WAIT_MARGIN)
+}
 
 /// The seeded Sunday ride, in km. One constant so the fixture and the
 /// judge's ground truth cannot drift apart — a ground truth that disagrees

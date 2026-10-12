@@ -122,36 +122,62 @@ fn resolve_reask_provider(ctx: &ChatPipelineContext) -> Option<Arc<ChatProvider>
 
 /// Take the re-ask's reply if it is clean; otherwise leave the withhold alone.
 ///
+/// A completed re-ask is judged by [`apply_identity_reask_reply`]; a failed
+/// dispatch leaves the leaked reply for Stage 15.4 to withhold.
+///
 /// Split out purely to keep [`reask_after_identity_leak`] inside the
 /// cognitive-complexity budget; it adds no public API surface.
 fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut ToolLoopResult) {
     match outcome {
-        Ok(response) if narration::identity_leak_match(&response.content).is_none() => {
-            // Deliberately NOT `target: "notify"`. A notify event has to be
-            // declared in dravr-contremaitre's catalogue, and the test that
-            // polices that runs full-suite-only — so an undeclared event greens
-            // the branch and reds main after the squash. This is an operational
-            // signal, queryable in Cloud Logging like every other measurement
-            // behind this change, and it does not need a notification tier.
-            info!(
-                reply_len = response.content.len(),
-                "identity_leak_reask_recovered: re-ask after a model-identity leak \
-                 produced a usable reply; the athlete keeps their turn"
-            );
-            result.content = response.content;
-        }
-        Ok(response) => {
-            warn!(
-                reply_len = response.content.len(),
-                "re-ask after a model-identity leak leaked again; withholding as before"
-            );
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                "re-ask after a model-identity leak failed to dispatch; withholding as before"
-            );
-        }
+        Ok(response) => apply_identity_reask_reply(response, result),
+        Err(e) => warn!(
+            error = %e,
+            "re-ask after a model-identity leak failed to dispatch; withholding as before"
+        ),
+    }
+}
+
+/// The completed re-ask: taken only when it is an identity-clean answer.
+///
+/// Clean means an answer as well as identity-clean. The provider
+/// intermittently ends a completion empty or as a dangling fragment, and an
+/// empty completion carries no identity break by construction. Taking one
+/// swaps the withheld reply for nothing: the athlete reads the empty-turn
+/// apology (« je n'ai pas réussi à formuler une réponse ») instead of the
+/// withhold, and the leak never reaches the boundary that records it
+/// (carnet#108). So a degenerate reply is held to the rule every other
+/// re-ask acceptance in the pipeline applies — a fragment is a lost turn,
+/// not an answer. Rejecting one costs at most what the re-ask exists to save:
+/// the leaked reply goes on to Stage 15.4 and is withheld, exactly as it is
+/// with no re-ask at all.
+///
+/// Split from [`apply_reask_outcome`] for the same cognitive-complexity
+/// budget, the way capability recovery splits its own re-ask.
+fn apply_identity_reask_reply(response: ChatResponse, result: &mut ToolLoopResult) {
+    if narration::is_degenerate_reply(&response.content) {
+        warn!(
+            reply_len = response.content.len(),
+            "identity_leak_reask_degenerate: re-ask after a model-identity leak \
+             carried no answer; withholding as before"
+        );
+    } else if narration::identity_leak_match(&response.content).is_none() {
+        // Deliberately NOT `target: "notify"`. A notify event has to be
+        // declared in dravr-contremaitre's catalogue, and the test that
+        // polices that runs full-suite-only — so an undeclared event greens
+        // the branch and reds main after the squash. This is an operational
+        // signal, queryable in Cloud Logging like every other measurement
+        // behind this change, and it does not need a notification tier.
+        info!(
+            reply_len = response.content.len(),
+            "identity_leak_reask_recovered: re-ask after a model-identity leak \
+             produced a usable reply; the athlete keeps their turn"
+        );
+        result.content = response.content;
+    } else {
+        warn!(
+            reply_len = response.content.len(),
+            "re-ask after a model-identity leak leaked again; withholding as before"
+        );
     }
 }
 
@@ -305,8 +331,8 @@ pub async fn run_recovery_and_post_process(
     // carry an identity break and must never be re-asked. Deliberately above
     // post-processing so that chain runs exactly once, on whichever reply
     // survived — and post-processing still owns the withhold, so if the re-ask
-    // leaks again, errors, or finds no provider handle, Stage 15.4 withholds
-    // exactly as it did before.
+    // leaks again, carries no answer, errors, or finds no provider handle,
+    // Stage 15.4 withholds exactly as it did before.
     //
     // Cloned for the same one comparison as `content_before_recovery` above.
     let content_before_identity_reask = result.content.clone();
@@ -397,4 +423,86 @@ fn stamp_reinstated_denial(
          stamping the row so it never replays"
     );
     result.capability_claim_unverified = true;
+}
+
+#[cfg(test)]
+mod tests {
+    //! What the identity re-ask takes in place of a withheld reply.
+    //!
+    //! The re-ask accepts only an identity-clean ANSWER. A completion that is
+    //! identity-clean but empty or a fragment must leave the leaked reply in
+    //! place for Stage 15.4 to withhold; replacing it blanks the turn and
+    //! hands the athlete the empty-turn apology (carnet#108).
+
+    use pierre_llm::ChatResponse;
+    use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
+
+    use super::apply_reask_outcome;
+
+    /// Verbatim shape of the 2026-08-05 production identity break.
+    const LEAKED: &str = "I'm GitHub Copilot CLI, a terminal-based coding assistant — \
+                          I don't have access to fitness tools.";
+
+    /// A turn whose reply broke persona, as the tool loop hands it over.
+    fn leaked_turn() -> ToolLoopResult {
+        ToolLoopResult {
+            content: LEAKED.to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            activity_list: None,
+            tool_calls_count: 1,
+            tools_called: vec!["get_activities".to_owned()],
+            pending_provider_auth_required: None,
+            served_without_provider: None,
+            guardian_denied: None,
+            guardian_confirm: None,
+            capability_claim_unverified: false,
+            provider_warnings: Vec::new(),
+        }
+    }
+
+    /// The re-ask's completion, as the provider returns it.
+    fn reask(content: &str) -> ChatResponse {
+        ChatResponse {
+            content: content.to_owned(),
+            model: "claude-sonnet-5".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        }
+    }
+
+    /// The live class: the provider ends the completion with nothing and
+    /// `finish_reason` still "stop", which the chain hands back as `Ok` once
+    /// no tier is left to ask.
+    #[test]
+    fn an_empty_reask_leaves_the_leak_for_the_withhold() {
+        let mut result = leaked_turn();
+        apply_reask_outcome(Ok(reask("")), &mut result);
+        assert_eq!(
+            result.content, LEAKED,
+            "an empty re-ask must not replace the withheld reply — the athlete \
+             would get the empty-turn apology instead of the withhold"
+        );
+    }
+
+    /// «by Dravr.» is the fragment a live Telegram group received on
+    /// 2026-08-22: identity-clean, and no answer.
+    #[test]
+    fn a_fragment_reask_leaves_the_leak_for_the_withhold() {
+        let mut result = leaked_turn();
+        apply_reask_outcome(Ok(reask("by Dravr.")), &mut result);
+        assert_eq!(result.content, LEAKED);
+    }
+
+    /// The guard must not swallow the re-ask's purpose: a real answer still
+    /// replaces the leak.
+    #[test]
+    fn an_answering_reask_replaces_the_leak() {
+        let answer = "Pour tes descentes, vise 900 m de dénivelé négatif par semaine.";
+        let mut result = leaked_turn();
+        apply_reask_outcome(Ok(reask(answer)), &mut result);
+        assert_eq!(result.content, answer);
+    }
 }

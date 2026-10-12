@@ -16,14 +16,21 @@
 //!
 //! A mock cannot regress the way a model does. This lane is the tier that can:
 //! it drives a **real** model through production's transport — the pinned
-//! Copilot CLI over embacle ACP — and the **real** chat pipeline, over the
-//! **real** prompt corpus, and grades what came out.
+//! Copilot runtime over embacle's `copilot_sdk` provider, with native MCP tool
+//! calling — and the **real** chat pipeline, over the **real** prompt corpus,
+//! and grades what came out.
 //!
-//! Which model answers is the environment's choice. The nightly lane points the
-//! Copilot CLI at a model served on the runner (`COPILOT_PROVIDER_BASE_URL`),
-//! because a corpus this size on a hosted account spends the quota athletes are
-//! served from; its findings are therefore about the pipeline and transport
-//! under an unscripted model, not about how the deployed model coaches.
+//! Which model answers is the environment's choice. The nightly lane runs
+//! dev's chain: `copilot_sdk` serving the deployed coaching model, with
+//! `PIERRE_LLM_RUNTIME_FALLBACK=true` putting `claude_code` (both of dev's
+//! accounts) and then `gemini` behind it, so a turn the Copilot account
+//! cannot serve — a spent quota, a timeout — is answered further down the
+//! chain exactly as it would be for an athlete. A
+//! finding is therefore a statement about what the athlete would have
+//! received, whichever tier wrote it; the server log marks a turn the chain
+//! moved with `falling back to the chain's tail`. A turn no tier answered
+//! reaches the athlete as canned copy with no assistant row behind it, and
+//! is reported as an infra error, never as a finding.
 //!
 //! ## Three things it does differently
 //!
@@ -54,24 +61,32 @@
 //! compiles it and never counts it as passed. Built, it never skips
 //! (carnet#805): with no provider env, no model id, or a model that never
 //! answers, it fails. The guards that need no model — the fixture's ground
-//! truth, the corpus order, the reproduce rule — run in the default suite as
-//! `live_incident_eval_test`. The `Eval: Live Incident Corpus` workflow
-//! provisions the model; a local run needs the pinned Copilot CLI on `PATH`
-//! (`COPILOT_CLI_VERSION` in `docker/images/server/Dockerfile`), an Ollama
-//! serving the model with `OLLAMA_CONTEXT_LENGTH=32768` (its 4096 default
-//! truncates the prompt without an error), and the provider selection env the
-//! server itself reads.
+//! truth, the corpus order, the per-turn wait, the reproduce rule — run in the
+//! default suite as `live_incident_eval_test`. The `Eval: Live Incident Corpus` workflow
+//! provisions the chain. A local run needs what it provisions: the pinned
+//! Copilot runtime (`COPILOT_CLI_VERSION` in `docker/images/server/Dockerfile`;
+//! `copilot --version` extracts it, and `COPILOT_RUNTIME_PATH` names its
+//! `copilot-runtime`) with `COPILOT_GITHUB_TOKEN`, the pinned `claude` CLI
+//! (`CLAUDE_CODE_CLI_VERSION`, same file) on `PATH` with
+//! `CLAUDE_CODE_OAUTH_TOKEN` (and `CLAUDE_CODE_OAUTH_TOKEN_2`) for the
+//! fallback tier, `GEMINI_API_KEY` for the tertiary, and the provider
+//! selection env the server itself reads. The three models are dev's, from
+//! `infra/environments/dev/main.tf`, and the lane refuses the harness's
+//! placeholder model, so each `…` below is dev's value for that key. On the
+//! dev tokens a local run spends the accounts athletes are served from.
 //!
 //! ```bash
-//! PIERRE_LLM_PROVIDER=copilot_headless \
-//!   PIERRE_LLM_MODEL=qwen2.5:7b-instruct-q4_K_M PIERRE_LLM_RUNTIME_FALLBACK=false \
-//!   COPILOT_OFFLINE=true COPILOT_PROVIDER_BASE_URL=http://localhost:11434/v1 \
-//!   EMBACLE_ACP_PROMPT_TIMEOUT_SECS=1200 EMBACLE_ACP_MESSAGE_TIMEOUT_SECS=900 \
+//! PIERRE_LLM_PROVIDER=copilot_sdk COPILOT_SDK_MCP_TOOL_CALLING=true \
+//!   COPILOT_SDK_PERMISSION_POLICY=deny_all PIERRE_LLM_MODEL=… \
+//!   PIERRE_LLM_RUNTIME_FALLBACK=true PIERRE_LLM_FALLBACK_PROVIDER=claude_code \
+//!   PIERRE_LLM_FALLBACK_PROVIDER_MODEL=… PIERRE_LLM_TERTIARY_PROVIDER=gemini \
+//!   PIERRE_LLM_TERTIARY_PROVIDER_MODEL=… LIVE_INCIDENT_EVAL_ATTEMPTS=1 \
 //!   cargo test --features live-e2e --test live_incident_corpus_test -- --nocapture
 //! ```
 //!
-//! The ACP runner pins its model in `$HOME/.copilot/settings.json`; give a
-//! local run its own `HOME` if that file is one you use.
+//! Pointed at `copilot_headless` instead, the ACP runner pins its model in
+//! `$HOME/.copilot/settings.json`; give such a run its own `HOME` if that file
+//! is one you use.
 //!
 //! ## Reading a failure
 //!
@@ -106,8 +121,8 @@ use crate::common::{create_test_server_resources_with_real_chat_provider, PLACEH
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::live_incident_corpus::{
     athlete_run_metres, classify_findings, days_since_sunday, ground_truth, seed_fixture,
-    Classified, Expect, Finding, Fixture, ATHLETE_RUN_DAYS, CORPUS, FIXTURE_WEEKS, SIGNING_SECRET,
-    SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
+    turn_timeout, Classified, Expect, Finding, Fixture, ATHLETE_RUN_DAYS, CORPUS, FIXTURE_WEEKS,
+    SIGNING_SECRET, SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -130,26 +145,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
-
-/// How long one turn may take before it is recorded as an infra error.
-///
-/// A Copilot Autopilot turn runs the whole tool loop and synthesis inside
-/// one ACP prompt, which the runner caps at `EMBACLE_ACP_PROMPT_TIMEOUT_SECS`
-/// (300s unset, which is what production runs). One margin past that so a
-/// turn the server itself would have abandoned is attributed to the provider
-/// rather than to this lane's patience — and read from the same variable, so
-/// a lane that gives a CPU-served model a longer prompt cap does not then
-/// cut the turn off at the hosted model's.
-fn turn_timeout() -> Duration {
-    const PRODUCTION_PROMPT_CAP_SECS: u64 = 300;
-    const MARGIN_SECS: u64 = 30;
-    let cap = env::var("EMBACLE_ACP_PROMPT_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|secs| *secs > 0)
-        .unwrap_or(PRODUCTION_PROMPT_CAP_SECS);
-    Duration::from_secs(cap.saturating_add(MARGIN_SECS))
-}
 
 /// Poll interval while waiting for the delivered message to land.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -784,9 +779,10 @@ async fn live_incident_corpus_holds() {
     // exactly what the server would build from the same environment.
     //
     // Kept as a concrete `ChatProvider` rather than erased to `dyn
-    // LlmProvider`: the headless tool loop finds the Copilot ACP runner by
-    // matching on the enum's variant, so erasing it re-wraps the provider as
-    // `Custom` and the ACP path is never taken. The lane would still run —
+    // LlmProvider`: the headless tool loop finds the Copilot turn provider by
+    // matching on the enum's variant (`as_embacle_provider`), so erasing it
+    // re-wraps the provider as `Custom` and the headless path is never taken
+    // — nor the re-run on the chain's tail behind it. The lane would still run —
     // just against a code path production does not use, which is the exact
     // class of blind spot it exists to close.
     let provider = Arc::new(

@@ -435,7 +435,8 @@ describe('UserSettings Component', () => {
     });
 
     it('sends help and legal to a page that answers', async () => {
-      // dravr.ai/help, /privacy and /terms are each a 404; /docs answers.
+      // Help is the docs hub; legal is the privacy policy, which links the
+      // terms, so one row reaches both documents.
       const user = userEvent.setup();
 
       await act(async () => {

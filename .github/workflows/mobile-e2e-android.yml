@@ -117,6 +117,10 @@ jobs:
     needs: build-server
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      # The "Run Maestro tests on Android" step's timeout-minutes, read there and by
+      # the e2e script, whose lane deadline it is the budget of.
+      E2E_STEP_TIMEOUT_MINUTES: "90"
 
     steps:
       - name: Checkout code
@@ -334,7 +338,76 @@ jobs:
           #!/bin/bash
           # No set -e: errors are handled explicitly throughout the script.
           # set -e caused silent failures in grep/test loops and Maestro commands.
-          cd frontend-mobile
+          cd frontend-mobile || exit 1
+
+          # The emulator's ANRs and crashes: its crash buffer whole, plus the
+          # am_anr/am_crash records of its events buffer, uploaded as
+          # /tmp/android-crash.txt. The signal lines also go to the step summary,
+          # so an ANR behind a stalled launch shows on the run page (carnet#356).
+          capture_emulator_crashes() {
+            {
+              echo "=== crash buffer ==="
+              adb logcat -d -b crash 2>&1
+              echo "=== ANR and crash events ==="
+              adb logcat -d -b events 2>&1 | grep -E 'am_anr|am_crash'
+            } > /tmp/android-crash.txt
+            {
+              echo ""
+              echo "### Emulator ANRs and crashes"
+              if grep -qE 'am_anr|am_crash|FATAL' /tmp/android-crash.txt; then
+                echo '```'
+                grep -E 'am_anr|am_crash|FATAL' /tmp/android-crash.txt | head -n 50
+                echo '```'
+              else
+                echo "None in the emulator's crash and events buffers."
+              fi
+            } >> /tmp/android-summary.txt
+          }
+
+          # Every exit goes through here: the crash lines first, while the
+          # emulator still answers, then Metro and every child it started, then
+          # the emulator itself so emulator-runner's cleanup does not hang on a
+          # graceful shutdown.
+          teardown() {
+            capture_emulator_crashes
+            echo "Killing Metro (PID $METRO_PID) and child processes..."
+            kill "$METRO_PID" 2>/dev/null || true
+            pkill -f "expo start" 2>/dev/null || true
+            pkill -f "node.*metro" 2>/dev/null || true
+            wait "$METRO_PID" 2>/dev/null || true
+            adb emu kill 2>/dev/null || true
+            sleep 2
+            exit "$1"
+          }
+
+          # The flows' time. This step is capped at E2E_STEP_TIMEOUT_MINUTES (its
+          # timeout-minutes, emulator boot included, which is why the clock starts in
+          # the step before it). A step that reaches its cap is killed mid-flow and
+          # leaves no summary (run 37779337862), so every batch below gets a deadline
+          # 5 minutes short of it: no attempt runs past it and the teardown still
+          # writes the report.
+          if [ -z "${E2E_STEP_STARTED_AT:-}" ]; then
+            echo "E2E_STEP_STARTED_AT is not set: the step clock did not run."
+            teardown 1
+          fi
+          if [ -z "${E2E_STEP_TIMEOUT_MINUTES:-}" ]; then
+            echo "E2E_STEP_TIMEOUT_MINUTES is not set: the lane deadline has no budget."
+            teardown 1
+          fi
+          TEARDOWN_MINUTES=5
+          LANE_DEADLINE=$((E2E_STEP_STARTED_AT + (E2E_STEP_TIMEOUT_MINUTES - TEARDOWN_MINUTES) * 60))
+          # Each attempt's cap (carnet#842). Passing flows took 40 s to 4 min on the
+          # runs it was sized on, the slowest 6m08s (chat/11, run 37930699791); a
+          # stalled launch sat 21m34s to 25m01s in "Waiting for flows to complete..."
+          # before Expo Go asked Metro for the bundle (runs 37779337862, 37930699791,
+          # 37865399439). 10 minutes clears every pass by 1.6x and stops a stall in
+          # under half its time; the runner then resets the app and retries.
+          ATTEMPT_TIMEOUT=600
+
+          # The crash and events buffers are fixed-size rings that a run this long
+          # can wrap before the teardown reads them.
+          adb logcat -b crash -b events -G 16M || echo "Could not enlarge the emulator's crash/events log buffers."
+
           npx expo start --go --android --port 8082 2>&1 | tee /tmp/metro-android.log &
           METRO_PID=$!
           echo "Waiting for Metro bundler to be ready..."
@@ -345,8 +418,7 @@ jobs:
             fi
             if [ "$i" -eq 90 ]; then
               echo "Metro failed to start within timeout!"
-              kill $METRO_PID 2>/dev/null || true
-              exit 1
+              teardown 1
             fi
             echo "Attempt $i: Metro not ready yet..."
             sleep 2
@@ -371,19 +443,25 @@ jobs:
           echo "=== Maestro version ==="
           $MAESTRO --version || true
 
-          # Run smoke test first to verify connectivity
+          # Run smoke test first to verify connectivity. It goes through the shared
+          # runner like the iOS smoke, under the same cap and deadline: run
+          # 37779337862's smoke was a direct maestro call and stalled 23m26s, which
+          # no cap on the flows below could have stopped. Two attempts, because a
+          # capped stall without a retry would fail the lane where today it passes.
           echo ""
           echo "=== Smoke test: login screen ==="
-          if ! $MAESTRO test .maestro/login/01-show-login-screen.yaml \
-            --format junit --output maestro-smoke-android.xml; then
-            echo "SMOKE TEST FAILED - Maestro cannot interact with the app on Android."
+          SMOKE_RC=0
+          ../scripts/ci/mobile-e2e-batch.sh run --platform android --maestro "$MAESTRO" \
+            --label "smoke" --attempts 2 \
+            --attempt-timeout "$ATTEMPT_TIMEOUT" --deadline "$LANE_DEADLINE" \
+            --output maestro-smoke-android.xml --summary /tmp/maestro-smoke-android.env \
+            -- .maestro/login/01-show-login-screen.yaml || SMOKE_RC=$?
+          if [ "$SMOKE_RC" -ne 0 ]; then
+            echo "SMOKE TEST FAILED (runner rc=$SMOKE_RC) - Maestro cannot interact with the app on Android."
+            echo "## Android E2E: the smoke test failed (runner rc=$SMOKE_RC), no flow was run" >> /tmp/android-summary.txt
             echo "=== Metro log (last 30 lines) ==="
             tail -30 /tmp/metro-android.log 2>/dev/null || true
-            # Kill Metro before exiting
-            kill $METRO_PID 2>/dev/null || true
-            pkill -f "expo start" 2>/dev/null || true
-            adb emu kill 2>/dev/null || true
-            exit 1
+            teardown 1
           fi
           echo "Smoke test PASSED."
 
@@ -435,9 +513,7 @@ jobs:
           # zero flows, exactly the smoke behaviour this lane just deleted.
           if [ -z "$CRITICAL_TESTS" ]; then
             echo "CRITICAL_TESTS is empty — refusing to report a run of zero flows."
-            kill $METRO_PID 2>/dev/null || true
-            adb emu kill 2>/dev/null || true
-            exit 1
+            teardown 1
           fi
 
           if [ -n "$CRITICAL_TESTS" ]; then
@@ -447,11 +523,14 @@ jobs:
             # answers /status and relaunches through the deep link, and it stops
             # the lane (exit 2) when Metro is gone instead of burning two more
             # 120 s login waits against a dead bundler. The iOS lane shares it;
-            # the retry-without-reset it replaces is carnet#443.
+            # the retry-without-reset it replaces is carnet#443. Each attempt is
+            # capped at ATTEMPT_TIMEOUT and the batch at LANE_DEADLINE; a batch
+            # the deadline stopped exits 3 and the flows after it are not run.
             TOTAL_FAILURES=0
             TOTAL_PASSED=0
             TEST_NUM=0
             METRO_DEAD=false
+            OUT_OF_TIME=false
             echo '<?xml version="1.0" encoding="UTF-8"?><testsuites>' > maestro-results-android.xml
             MAX_ATTEMPTS=3
             for TEST in $CRITICAL_TESTS; do
@@ -462,14 +541,15 @@ jobs:
               TEST_RC=0
               ../scripts/ci/mobile-e2e-batch.sh run --platform android --maestro "$MAESTRO" \
                 --label "$TEST" --attempts "$MAX_ATTEMPTS" \
+                --attempt-timeout "$ATTEMPT_TIMEOUT" --deadline "$LANE_DEADLINE" \
                 --output "$RESULT_FILE" --summary "/tmp/maestro-android-test${TEST_NUM}.env" \
                 -- ".maestro/$TEST" || TEST_RC=$?
               if [ "$TEST_RC" -eq 0 ]; then
                 TOTAL_PASSED=$((TOTAL_PASSED + 1))
               else
-                echo "FAILED after $MAX_ATTEMPTS attempts: $TEST"
+                echo "FAILED (runner rc=$TEST_RC): $TEST"
                 TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
-                echo "::warning::Android E2E FAILED after $MAX_ATTEMPTS attempts: $TEST"
+                echo "::warning::Android E2E FAILED (runner rc=$TEST_RC): $TEST"
                 echo "=== Failure XML ==="
                 cat "$RESULT_FILE" 2>/dev/null || echo "No result file"
               fi
@@ -477,6 +557,11 @@ jobs:
               if [ "$TEST_RC" -eq 2 ]; then
                 echo "FAIL-FAST: Metro died during $TEST — the remaining flows cannot run."
                 METRO_DEAD=true
+                break
+              fi
+              if [ "$TEST_RC" -eq 3 ]; then
+                echo "OUT OF TIME: the lane deadline passed during $TEST — the remaining flows are not run."
+                OUT_OF_TIME=true
                 break
               fi
             done
@@ -490,8 +575,16 @@ jobs:
             echo "- Total: $TEST_NUM" >> /tmp/android-summary.txt
             echo "- Passed: $TOTAL_PASSED" >> /tmp/android-summary.txt
             echo "- Failed: $TOTAL_FAILURES" >> /tmp/android-summary.txt
+            # A stall the cap cut short is otherwise invisible once its retry
+            # passed; counting them shows how often launches still stall.
+            CAPPED_ATTEMPTS=$(grep -l 'was stopped before recording a result' maestro-attempts/*.xml 2>/dev/null | wc -l | tr -d ' ')
+            echo "- Attempts stopped by the ${ATTEMPT_TIMEOUT}s cap or the deadline: $CAPPED_ATTEMPTS" >> /tmp/android-summary.txt
             if [ "$METRO_DEAD" = "true" ]; then
               echo "- Metro died mid-run: the flows after test $TEST_NUM were not run" >> /tmp/android-summary.txt
+            fi
+            if [ "$OUT_OF_TIME" = "true" ]; then
+              FLOW_COUNT=$(wc -w <<< "$CRITICAL_TESTS" | tr -d ' ')
+              echo "- The lane deadline passed during test $TEST_NUM of $FLOW_COUNT: the $((FLOW_COUNT - TEST_NUM)) flows after it were not run" >> /tmp/android-summary.txt
             fi
             if [ "$TOTAL_FAILURES" -gt 0 ]; then
               echo "### Failed Tests" >> /tmp/android-summary.txt
@@ -513,16 +606,7 @@ jobs:
             fi
           fi
 
-          # Kill Metro and all child processes to prevent emulator-runner cleanup from hanging
-          echo "Killing Metro (PID $METRO_PID) and child processes..."
-          kill $METRO_PID 2>/dev/null || true
-          pkill -f "expo start" 2>/dev/null || true
-          pkill -f "node.*metro" 2>/dev/null || true
-          wait $METRO_PID 2>/dev/null || true
-          # Kill the emulator so emulator-runner doesn't hang on graceful shutdown
-          adb emu kill 2>/dev/null || true
-          sleep 2
-          exit $MAESTRO_EXIT
+          teardown "$MAESTRO_EXIT"
           SCRIPT_EOF
           chmod +x /tmp/run-android-e2e.sh
 
@@ -557,11 +641,25 @@ jobs:
           echo "::warning::pre-fetch did not succeed after 3 attempts — the emulator-runner will attempt its own install"
           exit 0
 
+      # The e2e script's deadline is measured from here, so the emulator boot
+      # inside the next step is spent from the same E2E_STEP_TIMEOUT_MINUTES as
+      # the flows.
+      - name: Start the Maestro step clock
+        run: echo "E2E_STEP_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Run Maestro tests on Android
         # 45 was sized for the one-flow smoke. A critical run is 12 flows, each with up
         # to 3 attempts, after an emulator boot and a cold Metro bundle; the job cap is
         # 120, so this leaves headroom for the diagnostics and upload steps after it.
-        timeout-minutes: 90
+        # No fixed per-attempt cap fits 12 x 3 attempts in here: the 10-minute cap,
+        # which clears the slowest pass (6 min), makes that worst case 6 hours. A
+        # clean run takes ~35 min (run 37946857392: 34); a capped stall adds ~11 (the
+        # 10-minute cap and a reset before its retry) where an uncapped one added
+        # 20+, so four fit inside the deadline where two fitted before. Past that,
+        # the script's deadline, budgeted from this same E2E_STEP_TIMEOUT_MINUTES,
+        # ends the lane with its summary written instead of this cap killing it
+        # mid-flow.
+        timeout-minutes: ${{ fromJSON(env.E2E_STEP_TIMEOUT_MINUTES) }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34

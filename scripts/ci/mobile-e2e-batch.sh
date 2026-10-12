@@ -22,13 +22,30 @@
 #     flow), then the app is relaunched through the same deep link the flow
 #     helper uses and the runner waits for its process before re-running;
 #   - the batch is judged on its BEST attempt (most flows passed), that attempt's
-#     junit becomes <output>, and the summary names which attempt it was.
+#     junit becomes <output>, and the summary names which attempt it was;
+#   - --attempt-timeout SECS caps each attempt; 0, the default, leaves it
+#     unbounded, which is how the iOS lane calls it. An attempt still running at
+#     the cap is stopped (TERM to maestro and every process under it, KILL to
+#     whatever outlives --kill-grace SECS), recorded as rc 124 with a junit naming
+#     the timeout, and the reset above runs before the next attempt. carnet#842
+#     (run 37779337862): three launches each sat ~23 min in "Waiting for flows to
+#     complete…" before passing, and the 90-minute step ran out with the retry
+#     never having fired;
+#   - --deadline EPOCH bounds the whole batch: no attempt runs past it and none
+#     starts after it, so a lane that hands every batch its own step deadline
+#     ends inside that step with its report written.
 # Exit: 0 every flow of the best attempt passed; 1 some flow failed on every
-# attempt; 2 the environment is gone (Metro dead) — the caller stops the lane.
+# attempt; 2 the environment is gone (Metro dead) — the caller stops the lane;
+# 3 the deadline passed before the batch passed — the caller stops the lane.
 #
 # The summary file is KEY=VALUE lines for the caller to `source`: TESTS, PASSED,
 # FAILS, RC, BEST_ATTEMPT, ATTEMPTS_RUN, plus ATTEMPT_<n>="tests/passed/fails/rc".
 set -uo pipefail
+
+# Seconds a stopped attempt's processes get to exit on TERM before KILL, unless
+# --kill-grace says otherwise. Maestro is a JVM: TERM runs its shutdown hooks,
+# which release the device session.
+DEFAULT_KILL_GRACE_SECS=10
 
 usage() {
     cat >&2 <<'EOF'
@@ -36,6 +53,7 @@ usage:
   mobile-e2e-batch.sh run --platform ios|android --label <name> --output <junit>
       --summary <file> [--device <udid>] [--attempts N] [--metro-url URL]
       [--deep-link URL] [--app-id ID] [--maestro PATH] [--settle SECS]
+      [--attempt-timeout SECS] [--deadline EPOCH] [--kill-grace SECS]
       -- <flow.yaml>...
   mobile-e2e-batch.sh judge --label <name> --output <junit> --summary <file>
       -- <rc>:<attempt-junit>...
@@ -55,17 +73,18 @@ count_tag() {
     printf '%s' "$n"
 }
 
-# Writes a junit with one failed testcase so a driver that died before writing
-# any result still shows up in the merged report and the step summary, instead of
-# reading as a batch in which nothing went wrong.
-write_synthetic_junit() {
-    local file="$1" label="$2" rc="$3"
+# write_failure_junit <file> <label> <testcase-name> <message> — one failed
+# testcase, so a driver that died or was stopped before writing any result still
+# shows up in the merged report and the step summary, instead of reading as a
+# batch in which nothing went wrong.
+write_failure_junit() {
+    local file="$1" label="$2" name="$3" message="$4"
     cat > "$file" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <testsuites>
 <testsuite name="$label" tests="1" failures="1">
-<testcase name="$label: maestro exited $rc without recording a result" classname="$label">
-<failure message="maestro exited $rc and wrote no testcase — the driver died before any flow ran"/>
+<testcase name="$name" classname="$label">
+<failure message="$message"/>
 </testcase>
 </testsuite>
 </testsuites>
@@ -115,7 +134,8 @@ judge_attempts() {
     fi
     if [ "$best_tests" -eq 0 ]; then
         best_tests=1
-        write_synthetic_junit "$output" "$label" "$best_rc"
+        write_failure_junit "$output" "$label" "$label: maestro exited $best_rc without recording a result" \
+            "maestro exited $best_rc and wrote no testcase — the driver died before any flow ran"
     elif [ "$best_file" != "$output" ]; then
         cp "$best_file" "$output"
     fi
@@ -200,11 +220,81 @@ reset_app() {
     return 0
 }
 
+# ---------------------------------------------------------------- watchdog
+#
+# Pure bash 3.2, the macOS default this script supports (see device_args below):
+# no `wait -n`, and macOS ships no GNU `timeout`.
+
+# descendants <pid> — every live process under pid, each before its own children.
+descendants() {
+    local child
+    for child in $(pgrep -P "$1" 2>/dev/null); do
+        printf '%s\n' "$child"
+        descendants "$child"
+    done
+}
+
+# stop_tree <pid> <grace-secs> — TERM the process and everything under it, then
+# KILL what is still alive grace-secs later. The tree is listed before the first
+# signal: a child whose parent dies is re-parented and `pgrep -P` no longer finds it.
+stop_tree() {
+    local grace="$2" pids p alive waited=0
+    pids="$1 $(descendants "$1" | tr '\n' ' ')"
+    for p in $pids; do
+        kill -TERM "$p" 2>/dev/null
+    done
+    while [ "$waited" -lt "$grace" ]; do
+        alive=""
+        for p in $pids; do
+            if kill -0 "$p" 2>/dev/null; then
+                alive="$alive $p"
+            fi
+        done
+        [ -n "$alive" ] || return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+    log "watchdog: still running ${grace}s after TERM, sending KILL to:$alive"
+    for p in $alive; do
+        kill -KILL "$p" 2>/dev/null
+    done
+    return 0
+}
+
+# run_capped <cap-secs> <grace-secs> <command>... — runs the command in the
+# background and polls it once a second. Still running at the cap, it is stopped
+# with stop_tree and the status is 124, GNU timeout's; otherwise the command's own
+# status. An exit 0 that races the cap is kept: the attempt finished.
+run_capped() {
+    local cap="$1" grace="$2" pid started rc
+    shift 2
+    "$@" &
+    pid=$!
+    started=$(date +%s)
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ $(($(date +%s) - started)) -ge "$cap" ]; then
+            stop_tree "$pid" "$grace"
+            rc=0
+            wait "$pid" 2>/dev/null || rc=$?
+            [ "$rc" -eq 0 ] && return 0
+            return 124
+        fi
+        sleep 1
+    done
+    wait "$pid"
+}
+
+# past <epoch> — true once the clock has reached it.
+past() {
+    [ "$(date +%s)" -ge "$1" ]
+}
+
 # ---------------------------------------------------------------- run
 
 run_batch() {
     local platform="" device="" label="" output="" summary="" attempts=2
     local metro_url="" deep_link="" app_id="" maestro="${MAESTRO:-$HOME/.maestro/bin/maestro}" settle=15
+    local attempt_timeout=0 deadline=0 kill_grace="$DEFAULT_KILL_GRACE_SECS"
     while [ $# -gt 0 ]; do
         case "$1" in
             --platform) platform="$2"; shift 2 ;;
@@ -218,12 +308,21 @@ run_batch() {
             --app-id) app_id="$2"; shift 2 ;;
             --maestro) maestro="$2"; shift 2 ;;
             --settle) settle="$2"; shift 2 ;;
+            --attempt-timeout) attempt_timeout="$2"; shift 2 ;;
+            --deadline) deadline="$2"; shift 2 ;;
+            --kill-grace) kill_grace="$2"; shift 2 ;;
             --) shift; break ;;
             *) usage ;;
         esac
     done
     [ -n "$platform" ] && [ -n "$label" ] && [ -n "$output" ] && [ -n "$summary" ] || usage
     [ $# -gt 0 ] || usage
+    local secs
+    for secs in "$attempt_timeout" "$deadline" "$kill_grace"; do
+        case "$secs" in
+            '' | *[!0-9]*) usage ;;
+        esac
+    done
     case "$platform" in
         ios)
             [ -n "$device" ] || usage
@@ -250,21 +349,60 @@ run_batch() {
     local device_args=()
     [ -n "$device" ] && device_args=(--device "$device")
 
-    local n=1 rc attempt_file env_gone=0
+    local n=1 ran=0 rc attempt_file env_gone=0 out_of_time=0 cap cap_by remaining
     local specs=()
     while [ "$n" -le "$attempts" ]; do
+        # The cap this attempt runs under: the per-attempt one, cut short by the
+        # deadline when less time than that is left; 0 when neither is set.
+        cap="$attempt_timeout"
+        cap_by="the ${attempt_timeout}s attempt cap"
+        if [ "$deadline" -gt 0 ]; then
+            remaining=$((deadline - $(date +%s)))
+            if [ "$remaining" -le 0 ]; then
+                log "$label: the lane deadline has passed — attempt $n of $attempts is not started."
+                out_of_time=1
+                break
+            fi
+            if [ "$cap" -eq 0 ] || [ "$remaining" -lt "$cap" ]; then
+                cap="$remaining"
+                cap_by="the lane deadline"
+            fi
+        fi
         attempt_file="$attempt_dir/$base-attempt$n.xml"
         rm -f "$attempt_file"
         log ""
         log "=== $label attempt $n of $attempts ==="
         rc=0
-        "$maestro" test ${device_args[@]+"${device_args[@]}"} "$@" --format junit --output "$attempt_file" || rc=$?
+        if [ "$cap" -gt 0 ]; then
+            run_capped "$cap" "$kill_grace" "$maestro" test ${device_args[@]+"${device_args[@]}"} "$@" \
+                --format junit --output "$attempt_file" || rc=$?
+        else
+            "$maestro" test ${device_args[@]+"${device_args[@]}"} "$@" --format junit --output "$attempt_file" || rc=$?
+        fi
+        ran=$((ran + 1))
+        if [ "$cap" -gt 0 ] && [ "$rc" -eq 124 ]; then
+            log "$label attempt $n timed out after ${cap}s ($cap_by) — maestro was stopped."
+            # A stopped maestro writes no junit; the one written here names the
+            # timeout so the report says why the attempt has no flow result.
+            if [ "$(count_tag '<testcase' "$attempt_file")" -eq 0 ]; then
+                write_failure_junit "$attempt_file" "$label" "$label: attempt $n timed out after ${cap}s" \
+                    "maestro was still running at $cap_by (${cap}s) and was stopped before recording a result"
+            fi
+        fi
         specs+=("$rc:$attempt_file")
         if [ "$rc" -eq 0 ]; then
             log "$label attempt $n passed."
             break
         fi
         log "$label attempt $n failed (maestro rc=$rc)."
+        if [ "$deadline" -gt 0 ] && past "$deadline"; then
+            # No reset either: it would only spend time the lane no longer has.
+            if [ "$n" -lt "$attempts" ]; then
+                log "$label: the lane deadline has passed — the remaining attempts are not run."
+            fi
+            out_of_time=1
+            break
+        fi
         if [ "$n" -lt "$attempts" ]; then
             if ! reset_app "$platform" "$device" "$app_id" "$metro_url" "$deep_link" "$settle"; then
                 env_gone=1
@@ -274,6 +412,15 @@ run_batch() {
         n=$((n + 1))
     done
 
+    if [ "$ran" -eq 0 ]; then
+        # Only the deadline gets here. The judge needs an attempt, so the report
+        # and the summary are written directly.
+        write_failure_junit "$output" "$label" "$label: not run — the lane deadline had passed" \
+            "the lane deadline passed before attempt 1 could start"
+        printf 'TESTS=1\nPASSED=0\nFAILS=1\nRC=124\nBEST_ATTEMPT=0\nATTEMPTS_RUN=0\n' > "$summary"
+        return 3
+    fi
+
     log ""
     log "=== $label: attempts ==="
     local judged=0
@@ -281,6 +428,10 @@ run_batch() {
     if [ "$env_gone" -eq 1 ]; then
         log "$label: stopped after attempt $n — Metro is dead, the remaining attempts were not run."
         return 2
+    fi
+    if [ "$out_of_time" -eq 1 ]; then
+        log "$label: stopped after attempt $ran — the lane deadline has passed."
+        return 3
     fi
     return "$judged"
 }

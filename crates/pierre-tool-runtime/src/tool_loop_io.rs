@@ -436,6 +436,38 @@ pub fn reroutes_headless_turn(error: &AppError) -> bool {
     )
 }
 
+/// Where a headless (Copilot) turn's outcome goes next.
+///
+/// The headless loop converses with the chain's head directly, outside
+/// embacle's fallback walk, so neither of the chain's fall-throughs fires for
+/// it — not the empty-completion one, not the provider-fault one. This is
+/// where both are re-created, from [`ToolLoopResult::is_lost_turn`] and
+/// [`reroutes_headless_turn`]; the loop only acts on the route it is handed.
+pub(crate) enum HeadlessRoute {
+    /// The head answered, or left a deliberate empty reply the chat pipeline
+    /// is about to replace: serve it. Boxed so a route is the size of an
+    /// error, not of a whole result.
+    Serve(Box<ToolLoopResult>),
+    /// The head lost the turn or failed with a provider fault: re-run the turn
+    /// against the chain's tail, logging this as the reason it moved.
+    Reroute(AppError),
+    /// A deterministic failure every tier would answer the same way: return it.
+    Fail(AppError),
+}
+
+impl HeadlessRoute {
+    /// Route the head's outcome; `provider` names the head in a lost turn's
+    /// error, which is what the fallback logs.
+    pub(crate) fn of(outcome: Result<ToolLoopResult, AppError>, provider: &str) -> Self {
+        match outcome {
+            Ok(result) if result.is_lost_turn() => Self::Reroute(result.lost_turn_error(provider)),
+            Ok(result) => Self::Serve(Box::new(result)),
+            Err(err) if reroutes_headless_turn(&err) => Self::Reroute(err),
+            Err(err) => Self::Fail(err),
+        }
+    }
+}
+
 /// The identifier a tool call is recorded under.
 ///
 /// The SDK transport reports the name the Copilot runtime calls the tool by,
@@ -460,3 +492,103 @@ pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String 
 /// runtime reports each one back as this name, a hyphen, and the tool's own
 /// name.
 pub const PLATFORM_MCP_SERVER_NAME: &str = "dravr";
+
+#[cfg(test)]
+mod tests {
+    //! The headless turn's routing, as the loop acts on it.
+    //!
+    //! `is_lost_turn` and `reroutes_headless_turn` are pinned on their own in
+    //! `tests/`; these pin that [`HeadlessRoute`] actually sends what they
+    //! flag to the chain's tail. Without the lost-turn arm a head that
+    //! answers nothing is served as-is, and the athlete gets the empty-turn
+    //! apology while a configured fallback tier sits unused (carnet#108).
+
+    use pierre_core::errors::{AppError, ErrorCode};
+
+    use super::{HeadlessRoute, ToolLoopResult};
+
+    const PROVIDER: &str = "copilot_sdk";
+
+    /// A turn the head answered after one tool call.
+    fn answered() -> ToolLoopResult {
+        ToolLoopResult {
+            content: "Tu as couru 42 km ce mois-ci.".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            activity_list: None,
+            tool_calls_count: 1,
+            tools_called: vec!["get_activities".to_owned()],
+            pending_provider_auth_required: None,
+            served_without_provider: None,
+            guardian_denied: None,
+            guardian_confirm: None,
+            capability_claim_unverified: false,
+            provider_warnings: Vec::new(),
+        }
+    }
+
+    /// The live shape: the head ran its tool and returned no prose, with
+    /// `finish_reason` still "stop".
+    fn lost() -> ToolLoopResult {
+        ToolLoopResult {
+            content: String::new(),
+            ..answered()
+        }
+    }
+
+    #[test]
+    fn a_lost_turn_is_rerouted_to_the_tail() {
+        match HeadlessRoute::of(Ok(lost()), PROVIDER) {
+            HeadlessRoute::Reroute(reason) => {
+                let logged = reason.to_string();
+                assert!(
+                    logged.contains(PROVIDER) && logged.contains("1 tool call"),
+                    "the fallback's reason must name the head and its tool calls: {logged}"
+                );
+            }
+            HeadlessRoute::Serve(_) => panic!(
+                "a lost turn was served as-is: the athlete gets the empty-turn apology \
+                 instead of the tail's answer"
+            ),
+            HeadlessRoute::Fail(err) => {
+                panic!("a lost turn failed the turn instead of moving to the tail: {err}")
+            }
+        }
+    }
+
+    #[test]
+    fn an_answered_turn_is_served_as_is() {
+        match HeadlessRoute::of(Ok(answered()), PROVIDER) {
+            HeadlessRoute::Serve(result) => assert_eq!(result.content, answered().content),
+            HeadlessRoute::Reroute(reason) => panic!(
+                "an answered turn was re-run on the tail, paying for an answer already in \
+                 hand: {reason}"
+            ),
+            HeadlessRoute::Fail(err) => panic!("an answered turn failed: {err}"),
+        }
+    }
+
+    #[test]
+    fn a_provider_fault_moves_to_the_tail_and_a_rejected_request_does_not() {
+        let timeout = AppError::new(
+            ErrorCode::ResourceUnavailable,
+            "copilot-acp: prompt timed out after 150s",
+        );
+        assert!(
+            matches!(
+                HeadlessRoute::of(Err(timeout), PROVIDER),
+                HeadlessRoute::Reroute(err) if err.code == ErrorCode::ResourceUnavailable
+            ),
+            "a provider fault must re-run the turn on the tail, carrying its own error"
+        );
+
+        let rejected = AppError::invalid_input("the request names no model");
+        assert!(
+            matches!(
+                HeadlessRoute::of(Err(rejected), PROVIDER),
+                HeadlessRoute::Fail(err) if err.code == ErrorCode::InvalidInput
+            ),
+            "a rejected request fails as-is: the tail would reject it the same way"
+        );
+    }
+}

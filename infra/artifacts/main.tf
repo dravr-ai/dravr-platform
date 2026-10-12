@@ -47,11 +47,13 @@ resource "google_artifact_registry_repository" "images" {
   # Release-tagged and recent images below are therefore safe from the age rule.
 
   # Protect deploy / rollback anchors indefinitely: semver release tags, and the
-  # moving deployed-<env> tag that publish-images.yml applies to each digest it
-  # ships to Cloud Run. Dev deploys by digest and never carries a semver tag, so
-  # that deploy tag is what makes the serving image immune to the age rule —
-  # recency alone does not, since the newest-versions floor is a count of builds,
-  # not a statement about what any environment is running.
+  # moving deployed-<env> / deployed-<env>-previous pair every dev deploy tail
+  # applies through scripts/ci/tag-deployed-digest.sh, to the digest it ships to
+  # Cloud Run and to the one it replaces. Dev deploys by digest and never carries
+  # a semver tag, so those deploy tags are what make the serving image and its
+  # N-1 rollback target immune to the age rule — recency alone does not, since
+  # the newest-versions floor is a count of versions, not a statement about what
+  # any environment is running.
   # Policy ids mirror the live repository exactly. They are part of the resource
   # identity, so renaming one is a replace, not an edit: a plan against the live
   # repo would delete the policy under its old id and create it under the new.
@@ -65,7 +67,11 @@ resource "google_artifact_registry_repository" "images" {
     }
   }
 
-  # Rollback window: protect the newest versions per package regardless of age.
+  # Recency floor: protect the newest versions per package regardless of age, so
+  # a quiet package is never emptied. A count of versions, not builds — each push
+  # writes three (index, linux/amd64 manifest, attestation) — so at the tfvars
+  # value it is not a rollback window; the deployed-<env> tags above are what
+  # keep the serving image and the one before it.
   cleanup_policies {
     id     = "keep-recent-versions"
     action = "KEEP"

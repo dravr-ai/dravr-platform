@@ -15,7 +15,8 @@ use dravr_canot::channels::telegram::TelegramDescriptor;
 use dravr_canot::channels::whatsapp::WhatsAppDescriptor;
 use dravr_canot::descriptor::ChannelDescriptor;
 use pierre_chat_pipeline::{
-    ProgressiveSupport, ProseFormat, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+    ProgressiveSupport, ProseFormat, ReplyBlockKind, SurfaceId, SurfaceProfile, SurfaceRequest,
+    TurnBudget,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_mcp_server::services::messaging_ingress::surface::{
@@ -194,6 +195,36 @@ fn every_transport_capability_is_canots_declared_capability() {
         );
         let request = messaging_surface_request(channel_type, "en".to_owned(), None);
         assert_eq!(request.transport, Some(caps), "{channel_type:?} request");
+    }
+}
+
+#[test]
+fn every_channel_ships_charts_and_controls_exactly_where_canot_says_they_render() {
+    // `transport_caps` reads `supports_media` and `supports_cards`, and that
+    // read decides what a reply carries: the envelope asks `renders` before
+    // it pushes a chart image or a row of controls, and the egress lays those
+    // blocks out as canot's Media and Card. This pins the whole hop on every
+    // real channel: a chart ships as an image, and controls as a card,
+    // exactly where canot declares the channel renders them (carnet#3). That
+    // the read exists at all is the Phantom Capability Surface gate's job.
+    for channel_type in every_channel_type() {
+        let declared =
+            capabilities_for(channel_type).expect("client-messaging compiles every channel");
+        let render = messaging(channel_type).render;
+        assert_eq!(
+            render.renders(ReplyBlockKind::SceneImage),
+            declared.supports_media,
+            "{channel_type:?}: a chart arrives as an image exactly where canot declares media"
+        );
+        assert_eq!(
+            render.renders(ReplyBlockKind::Actions),
+            declared.supports_cards,
+            "{channel_type:?}: controls arrive as a card exactly where canot declares cards"
+        );
+        assert_eq!(
+            render.interactive, declared.supports_cards,
+            "{channel_type:?}: a tapped control reaches the platform only where cards render"
+        );
     }
 }
 

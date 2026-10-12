@@ -22,6 +22,8 @@ on:
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
       - 'scripts/ci/mobile-e2e-batch.sh'
+      # The e2e job opens the app through this helper's ios_sim_open_in_expo_go.
+      - 'bin/ios-simulator.sh'
       # The control process the onboarding group flow asks for coaches, the
       # scraper double it connects them through, and the seeder behind the
       # verdict-sheet flow.
@@ -548,12 +550,21 @@ jobs:
           # Launch Expo Go first (opens to its home screen), THEN open the URL.
           # When Expo Go is already running, openurl forwards the URL directly
           # to the app without showing the iOS "Open in Expo Go?" dialog.
-          echo "Launching Expo Go on simulator $SIMULATOR_UDID..."
-          xcrun simctl launch "$SIMULATOR_UDID" host.exp.Exponent
-          sleep 3
-
-          echo "Opening deep link with 127.0.0.1..."
-          xcrun simctl openurl "$SIMULATOR_UDID" "exp://127.0.0.1:8082"
+          # bin/ios-simulator.sh does both, as the dev scripts do, and retries
+          # an openurl that timed out (exit 60) while Expo Go was still
+          # starting: run 37946857280 ended here on that timeout, on an open
+          # sent three seconds after the launch, with every flow still to run.
+          # Any other failure, or a timeout on every attempt, ends this step
+          # with simctl's own error above the annotation.
+          # shellcheck source=../bin/ios-simulator.sh
+          . ../bin/ios-simulator.sh
+          echo "Opening exp://127.0.0.1:8082 in Expo Go on simulator $SIMULATOR_UDID..."
+          OPEN_RC=0
+          ios_sim_open_in_expo_go "$SIMULATOR_UDID" "exp://127.0.0.1:8082" || OPEN_RC=$?
+          if [ "$OPEN_RC" -ne 0 ]; then
+            echo "::error::Expo Go never took exp://127.0.0.1:8082: simctl openurl exited $OPEN_RC (its error is printed above)"
+            exit "$OPEN_RC"
+          fi
 
           # The warm-up above already put "Bundled" in the log, so this passes
           # on its first check; it stays as the guard for a Metro that died
@@ -640,7 +651,7 @@ jobs:
           tail -30 /tmp/metro.log 2>/dev/null || echo "No metro log"
           echo ""
           echo "=== Expo install log (last 20 lines) ==="
-          tail -20 /tmp/expo-install.log 2>/dev/null || echo "No expo install log"
+          tail -20 /tmp/metro-install.log 2>/dev/null || echo "No expo install log"
           echo ""
           echo "=== Booted simulators ==="
           xcrun simctl list devices booted 2>/dev/null || echo "Failed to list booted devices"
@@ -945,7 +956,7 @@ jobs:
             # the flat copy above keeps one file per step name across all flows
             /Users/runner/.maestro/tests/
             /tmp/metro.log
-            /tmp/expo-install.log
+            /tmp/metro-install.log
             /tmp/pierre-server.log
             /tmp/home-sync-control.log
           retention-days: 1

@@ -61,7 +61,7 @@ variable "cleanup_policy_dry_run" {
 }
 
 variable "recent_versions_keep_count" {
-  description = "Number of most-recent versions to protect from deletion per package (rollback window)."
+  description = "Number of most-recent versions to protect from deletion per package. Versions, not builds: each image push writes three (index, linux/amd64 manifest, attestation)."
   type        = number
   default     = 20
 
@@ -98,7 +98,7 @@ variable "untagged_retention_hours" {
 }
 
 variable "release_tag_prefixes" {
-  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> tag each Cloud Run deploy applies to the digest it ships, plus latest and buildcache which the delete rules would otherwise reap)."
+  description = "Tag prefixes for images kept indefinitely (deploy / rollback anchors: semver releases, plus the moving deployed-<env> and deployed-<env>-previous tags each dev deploy applies to the digest it ships and to the one it replaces, plus latest and buildcache which the delete rules would otherwise reap)."
   type        = list(string)
   # `latest` and `buildcache` are here because the live repository has them and
   # dropping them is not free: the server buildcache holds the runtime layers

@@ -99,11 +99,13 @@ run "release_tags_are_kept" {
   }
 }
 
-# The digest each environment is serving is tagged deployed-<env> by the deploy
-# workflow (publish-images.yml, job tag-deployed-dev). That prefix must stay in
-# the keep guard: dev deploys by digest and never carries a semver tag, so
-# dropping it would leave the serving image protected by nothing but its position
-# in the recent-versions window — which a handful of merges erases.
+# The digest each environment is serving is tagged deployed-<env>, and the digest
+# it replaced deployed-<env>-previous, by every dev deploy tail
+# (scripts/ci/tag-deployed-digest.sh, run by publish-images.yml's tag-deployed-dev
+# and by deploy-satellite-cloud-run.yml). That prefix must stay in the keep guard:
+# dev deploys by digest and never carries a semver tag, so dropping it would leave
+# the serving image and its N-1 rollback target protected by nothing but their
+# position in the recent-versions floor, which one newer build erases.
 run "deployed_digest_tags_are_kept" {
   command = plan
 
@@ -113,7 +115,7 @@ run "deployed_digest_tags_are_kept" {
       p.action == "KEEP" && contains(p.condition[0].tag_prefixes, "deployed-")
       if p.id == "keep-referenced-tags"
     ])
-    error_message = "keep-referenced-tags must KEEP the deployed-<env> tag the deploy workflow applies to the serving digest"
+    error_message = "keep-referenced-tags must KEEP the deployed- prefix: deployed-<env> on the serving digest and deployed-<env>-previous on its N-1 rollback target"
   }
 }
 
@@ -146,12 +148,16 @@ run "buildcache_and_latest_tags_are_kept" {
   }
 }
 
-# The recent-versions floor keeps the two newest versions of each package through
+# The recent-versions floor keeps the two newest VERSIONS of each package through
 # a quiet week with no merges, when the age rule would otherwise reap the whole
-# package. It is a build-count window, not a statement about what any environment
-# is running — deployed_digest_tags_are_kept above covers that. tfvars pins it to
-# 2 for cost — guard against a revert to a large window that would let the
-# registry grow again.
+# package. Two versions are less than one build: every push writes three (the
+# OCI index carrying the tags, its linux/amd64 manifest and an attestation), so
+# this floor holds no complete previous build and is not a rollback window. What
+# a deploy runs, and the digest it replaced, are protected by the deployed-<env>
+# and deployed-<env>-previous tags instead — deployed_digest_tags_are_kept
+# above. The value is the deliberate cost floor (carnet#166) and mirrors the live
+# repository, so a change here is a retention decision, never a cleanup: guard
+# against a revert to a large window that would let the registry grow again.
 run "recent_versions_keep_count_is_two" {
   command = plan
 
@@ -161,7 +167,7 @@ run "recent_versions_keep_count_is_two" {
       p.most_recent_versions[0].keep_count == 2
       if p.id == "keep-recent-versions"
     ])
-    error_message = "recent_versions_keep_count must be 2 (live image + one rollback floor)"
+    error_message = "recent_versions_keep_count must be 2, the carnet#166 cost floor the live repository runs. It holds two versions, less than one build (index + amd64 manifest + attestation), so it is not a rollback window; deployed-<env> and deployed-<env>-previous protect the serving digest and its N-1 rollback target"
   }
 }
 

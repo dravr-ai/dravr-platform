@@ -36,12 +36,13 @@ MARK_SIZES = (96, 192, 512)
 # flat 255, so a bare inversion carries speckle into the alpha. Same floor as mobile.
 SPECKLE_FLOOR = 14
 
-# Share of the canvas the mark spans in each opaque icon — the mobile recipe.
+# Share of the canvas the mark spans in each opaque icon: the mobile icon's 82%, and
+# the maskable icon sized to its own safe zone.
 FILL = {
     "pwa-192.png": (192, 0.82),
     "pwa-512.png": (512, 0.82),
-    # Android's maskable safe zone is a 66dp circle inside a 72dp reference mask
-    # (registre#42 on the mobile side); the same fill keeps the treeline inside it.
+    # A maskable icon's safe zone is a circle of 40% of the canvas width in radius
+    # (W3C Manifest): the 0.66 fill puts the farthest ink about 33% out, inside it.
     "pwa-maskable-512.png": (512, 0.66),
     "apple-touch-icon.png": (180, 0.82),
 }
