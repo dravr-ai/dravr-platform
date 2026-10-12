@@ -1808,12 +1808,13 @@ async fn a_rate_limited_primary_is_named_in_the_prefetched_window() {
         &agentless_activity_window(),
     )
     .await
-    .expect("the window is served from WHOOP");
+    .expect("the read reaches the prompt");
+    assert!(window.served, "the window is served from WHOOP");
     let mut messages = vec![
         ChatMessage::system("system prompt"),
         ChatMessage::user("comment s'est passée ma semaine?"),
     ];
-    assert!(inject_activity_refresh(&mut messages, &window, ""));
+    assert!(inject_activity_refresh(&mut messages, &window.content, ""));
 
     let injected = &messages[1].content;
     assert!(injected.contains("Sortie du matin"), "{injected}");

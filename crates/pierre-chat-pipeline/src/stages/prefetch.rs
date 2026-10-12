@@ -298,19 +298,30 @@ pub fn window_scope_note(activities_req: &ActivityDataRequirements, now: DateTim
     )
 }
 
+/// What a prefetch read hands the model, and whether it is the athlete's data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrefetchedWindow {
+    /// The read's content as the tool rendered it, for injection.
+    pub content: String,
+    /// Whether the platform served the read. A refused one — no provider
+    /// connected, a grant that lapsed — still reaches the model, which then
+    /// knows why it has no activities, but it grounds nothing: it never counts
+    /// as a fetch of the athlete's data.
+    pub served: bool,
+}
+
 /// Pre-fetch activity data based on structured `DataRequirements`.
 ///
 /// Calls `get_activities` deterministically with exact parameters from the
-/// agent definition, bypassing LLM interpretation. Returns the activity
-/// data as a formatted string for injection into the conversation context,
-/// or `None` when the agent has no activity requirements or the tool call
-/// fails.
+/// agent definition, bypassing LLM interpretation. Returns what the read
+/// produced for injection into the conversation context, or `None` when the
+/// agent has no activity requirements or the tool call fails.
 pub async fn prefetch_activity_context(
     executor: &Arc<UniversalExecutor>,
     user_id: &str,
     tenant_id: TenantId,
     data_reqs: &DataRequirements,
-) -> Option<String> {
+) -> Option<PrefetchedWindow> {
     use pierre_tool_runtime::protocol::UniversalRequest;
 
     let activities_req = data_reqs.activities.as_ref()?;
@@ -329,7 +340,7 @@ pub async fn prefetch_activity_context(
     };
 
     match executor.execute_tool(request).await {
-        Ok(response) => prefetched_window(&response),
+        Ok(response) => Some(prefetched_window(&response)),
         Err(e) => {
             warn!("Failed to pre-fetch activity context: {e}");
             None
@@ -367,8 +378,8 @@ pub async fn inject_startup_context(
         return false;
     };
 
-    // Set only when a non-empty activity window actually reached the prompt.
-    // An empty window injects nothing, so it grounds nothing.
+    // Set only when a served, non-empty window reached the prompt. An empty
+    // window injects nothing, and a refused read is shown but grounds nothing.
     let mut prefetched = false;
 
     if let Some(data_reqs) = &data_reqs {
@@ -376,10 +387,10 @@ pub async fn inject_startup_context(
         // An empty window is not injected — the "pre-loaded for your analysis"
         // banner over zero activities would tell the model it has data it does
         // not (the startup query below still lets it fetch on its own).
-        if let Some(activity_context) =
+        if let Some(window) =
             prefetch_activity_context(executor, user_id, tenant_id, data_reqs).await
         {
-            if prefetch_window_is_empty(&activity_context) {
+            if prefetch_window_is_empty(&window.content) {
                 info!("startup grounding: activity window empty, skipping pre-load injection");
             } else {
                 let scope_note = data_reqs
@@ -389,7 +400,7 @@ pub async fn inject_startup_context(
                     .unwrap_or_default();
                 let context_msg = format!(
                     "{STARTUP_GROUNDING_LEAD} {scope_note}\n\n{}",
-                    injectable_activity_text(&activity_context)
+                    injectable_activity_text(&window.content)
                 );
                 log_inject("activity context", &context_msg);
                 // `User`, not `System`. The live provider (copilot_headless)
@@ -400,7 +411,7 @@ pub async fn inject_startup_context(
                 // injection exists to remove. Index 1 keeps it directly after
                 // the system prompt and before the athlete's turn.
                 llm_messages.insert(1, ChatMessage::user(&context_msg));
-                prefetched = true;
+                prefetched = window.served;
             }
         }
 
@@ -521,27 +532,26 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
         .unwrap_or(Cow::Borrowed(raw))
 }
 
-/// The activity window a prefetch response carries, or `None` when it
-/// carries none.
+/// What a prefetch response hands the model, and whether it was served.
 ///
 /// A read the platform refused — no provider connected, a grant that lapsed —
-/// answers `success: false` with no payload rather than an error. Taking one
-/// as a window would put an empty "pre-loaded" block in front of the model and
-/// count the turn as grounded in data it never had.
-fn prefetched_window(response: &UniversalResponse) -> Option<String> {
-    if !response.success {
-        info!("Pre-fetch read refused; no activity window for the coach");
-        return None;
-    }
+/// answers `success: false` rather than an error. It is still injected, as it
+/// always was: the model needs to know the read came back with nothing, and
+/// the turn's capability recovery reads the injected block as the platform
+/// having fetched already. It is never `served`, so it never counts as the
+/// athlete's data in front of the model.
+fn prefetched_window(response: &UniversalResponse) -> PrefetchedWindow {
     let content = extract_prefetch_content(response);
-    if content.trim().is_empty() {
-        return None;
+    let served = response.success && !content.trim().is_empty();
+    if served {
+        info!(
+            content_len = content.len(),
+            "Pre-fetched activity context for coach"
+        );
+    } else {
+        info!("Pre-fetch read refused or empty; it grounds nothing");
     }
-    info!(
-        content_len = content.len(),
-        "Pre-fetched activity context for coach"
-    );
-    Some(content)
+    PrefetchedWindow { content, served }
 }
 
 fn prefetch_window_is_empty(content: &str) -> bool {
@@ -648,8 +658,7 @@ pub async fn maybe_refresh_activity_context(
         .and_then(parse_data_requirements)
         .unwrap_or_else(agentless_activity_window);
 
-    let Some(activity_context) =
-        prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await
+    let Some(window) = prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await
     else {
         return false;
     };
@@ -661,7 +670,7 @@ pub async fn maybe_refresh_activity_context(
         .as_ref()
         .map(|req| window_scope_note(req, Utc::now()))
         .unwrap_or_default();
-    inject_activity_refresh(llm_messages, &activity_context, &scope_note)
+    inject_activity_refresh(llm_messages, &window.content, &scope_note) && window.served
 }
 
 /// Read-only inputs for [`maybe_refresh_activity_context`], bundled so the
@@ -709,17 +718,21 @@ mod tests {
         }
     }
 
-    /// A refused read is no window: nothing is injected, and the turn does
-    /// not count as grounded in data the model never had.
+    /// A refused read reaches the model, but it is never the athlete's data:
+    /// the turn does not count as grounded in a window the model never had.
     #[test]
-    fn a_refused_read_is_no_window() {
-        assert_eq!(prefetched_window(&response(false, None)), None);
-        assert_eq!(
-            prefetched_window(&response(false, Some(serde_json::json!({ "count": 3 })))),
-            None,
+    fn a_refused_read_is_shown_but_never_served() {
+        assert!(!prefetched_window(&response(false, None)).served);
+        let refused = prefetched_window(&response(false, Some(serde_json::json!({ "count": 3 }))));
+        assert!(
+            !refused.served,
             "a refusal's payload is not the athlete's data"
         );
-        assert_eq!(prefetched_window(&response(true, None)), None);
+        assert_eq!(refused.content, r#"{"count":3}"#);
+        assert!(
+            !prefetched_window(&response(true, None)).served,
+            "a read that carried nothing grounds nothing"
+        );
     }
 
     /// A served read is the window, as the tool rendered it.
@@ -728,12 +741,15 @@ mod tests {
         let window = prefetched_window(&response(
             true,
             Some(serde_json::json!({ "count": 2, "activities": [] })),
-        ))
-        .expect("a served window");
-        assert!(!prefetch_window_is_empty(&window));
+        ));
+        assert!(window.served);
+        assert!(!prefetch_window_is_empty(&window.content));
         assert_eq!(
             prefetched_window(&response(true, Some(serde_json::json!("Ride, 42 km")))),
-            Some("Ride, 42 km".to_owned())
+            PrefetchedWindow {
+                content: "Ride, 42 km".to_owned(),
+                served: true,
+            }
         );
     }
 }

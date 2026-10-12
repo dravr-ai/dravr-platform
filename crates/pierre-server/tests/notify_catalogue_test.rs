@@ -264,17 +264,23 @@ fn extract_event_literal(body: &str) -> Option<String> {
     Some(after[..end].to_owned())
 }
 
-/// Collect every `key = ...` fragment we can see in the macro body.
+/// Collect every `key = ...` fragment, and every shorthand `key,`, we can see
+/// in the macro body.
 /// Strict matching is unnecessary — false positives don't cause
 /// failures (they just over-satisfy the required-field check).
 fn extract_inline_field_keys(body: &str) -> HashSet<String> {
     let mut out = HashSet::new();
     for line in body.lines() {
         let trimmed = line.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
-        let Some(eq) = trimmed.find('=') else {
-            continue;
-        };
-        let key = trimmed[..eq].trim();
+        // A field with no `=` is tracing's shorthand (`grounded,`, `%id,`),
+        // which records the variable under its own name.
+        let key = trimmed
+            .find('=')
+            .map_or_else(
+                || trimmed.trim_end().trim_end_matches(','),
+                |eq| &trimmed[..eq],
+            )
+            .trim();
         let key = key.trim_start_matches('%').trim_start_matches('?').trim();
         if key == "target" || key == "event" {
             continue;

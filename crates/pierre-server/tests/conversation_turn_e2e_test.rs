@@ -381,29 +381,30 @@ mod conversation_turn_e2e_tests {
         // TokenUsage through the tool loop into llm_usage, and the per-turn
         // endpoint reports it. Every link was previously broken -- embacle dropped
         // the field, the loop hardcoded 0, and the endpoint had no such column.
-        let cached: u64 = calls
-            .iter()
-            .map(|c| c["cached_tokens"].as_u64().unwrap_or_default())
-            .sum();
-        assert_eq!(
-            cached, 17,
-            "the provider's cache-read count must reach the per-turn endpoint; \
-             got {cached} from {calls:?}"
-        );
-
+        //
+        // Read per call, never summed: the turn's background side calls (fact
+        // extraction) bill their own rows under the same turn id, and whether
+        // one has landed when the endpoint is read is a race. The mock reports
+        // the same usage on every call, so every row must carry it.
+        //
         // Reasoning tokens are billed as output and excluded from
         // `completion_tokens` by every provider that reports them apart, so the
         // recorded total counts them: 42 prompt + 11 completion + 7 reasoning.
-        // A sum that dropped them would read 53 -- which is also the provider's
+        // A total that dropped them would read 53 -- which is also the provider's
         // own `totalTokens`, so the two numbers are deliberately different here
         // and a regression cannot hide behind the wire value.
-        let total: u64 = calls
-            .iter()
-            .map(|c| c["total_tokens"].as_u64().unwrap_or_default())
-            .sum();
-        assert_eq!(
-            total, 60,
-            "total_tokens must include the reasoning tokens; got {total} from {calls:?}"
-        );
+        for call in calls {
+            assert_eq!(
+                call["cached_tokens"].as_u64(),
+                Some(17),
+                "the provider's cache-read count must reach the per-turn endpoint; \
+                 got {call:?}"
+            );
+            assert_eq!(
+                call["total_tokens"].as_u64(),
+                Some(60),
+                "total_tokens must include the reasoning tokens; got {call:?}"
+            );
+        }
     }
 }

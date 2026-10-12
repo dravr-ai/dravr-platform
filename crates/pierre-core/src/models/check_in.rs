@@ -132,16 +132,23 @@ mod tests {
         assert!(days(CheckInCadence::Off).is_empty(), "off never posts");
     }
 
+    /// `hour:minute` on a Monday: 1970-01-05, four days after the default
+    /// date, the first of January 1970, a Thursday.
     fn monday_at(hour: u32, minute: u32) -> NaiveDateTime {
-        // 2026-10-12 is a Monday.
-        NaiveDate::from_ymd_opt(2026, 10, 12)
-            .unwrap()
-            .and_hms_opt(hour, minute, 0)
-            .unwrap()
+        (NaiveDate::default() + chrono::Duration::days(4)).and_time(time(hour, minute))
     }
 
     fn time(hour: u32, minute: u32) -> NaiveTime {
-        NaiveTime::from_hms_opt(hour, minute, 0).unwrap()
+        NaiveTime::MIN
+            + chrono::Duration::hours(i64::from(hour))
+            + chrono::Duration::minutes(i64::from(minute))
+    }
+
+    #[test]
+    fn the_fixture_monday_is_a_monday_at_the_asked_time() {
+        let at = monday_at(8, 30);
+        assert_eq!(at.weekday(), Weekday::Mon);
+        assert_eq!((at.hour(), at.minute()), (8, 30));
     }
 
     #[test]
@@ -196,8 +203,10 @@ mod tests {
     fn the_wire_spelling_reads_back_and_nothing_else_does() {
         for cadence in CheckInCadence::ALL {
             assert_eq!(CheckInCadence::parse(cadence.as_str()), Some(cadence));
-            let json = serde_json::to_string(&cadence).unwrap();
-            assert_eq!(json, format!("\"{}\"", cadence.as_str()));
+            assert_eq!(
+                serde_json::to_string(&cadence).ok(),
+                Some(format!("\"{}\"", cadence.as_str()))
+            );
         }
         assert_eq!(CheckInCadence::parse("Daily"), None);
         assert_eq!(CheckInCadence::parse("monthly"), None);
