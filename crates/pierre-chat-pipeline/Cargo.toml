@@ -40,8 +40,8 @@ language-detection = ["dep:lingua"]
 
 [dependencies]
 # TokenCounts for the per-call cost the recorder prices through the registry.
-embacle = { version = "0.34.0" }
-embacle-tool-host = "0.34.0"
+embacle = { version = "0.35.0" }
+embacle-tool-host = "0.35.0"
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-commands = { version = "0.3.0", path = "../pierre-commands" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }

@@ -1706,9 +1706,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.34.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19e015cd235f93392efe9774bcbd72152cf8471ec41fac14e95c792c39d5eba4"
+checksum = "a6a566be5df116d9c6ff7d2d1279c6cc60865a8e8b621a2302c70c863252afd8"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1728,9 +1728,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.34.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "796a61c512b8783acbf9767d48faf44c6602fc15945719a4d4b93e41eea72540"
+checksum = "384f1cae43bcebd5c9e7916fd85c2b657f71d5bd9f229f50e42f51de05df7263"
 dependencies = [
  "async-trait",
  "axum",
@@ -4963,7 +4963,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn",
