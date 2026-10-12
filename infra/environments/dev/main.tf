@@ -350,36 +350,17 @@ module "backend" {
       # The head's model is also the model every turn asks for and the one a
       # new conversation records (carnet#824).
       #
-      # Rollout order (carnet#875). The binary before PIERRE_LLM_CHAIN reads
-      # only the retired PIERRE_LLM_PROVIDER / PIERRE_LLM_MODEL /
-      # PIERRE_LLM_FALLBACK_* / PIERRE_LLM_TERTIARY_* variables; the binary
-      # after it reads only PIERRE_LLM_CHAIN. Terraform ignores the image
-      # (modules/cloud_run), so the two reach Cloud Run separately. This block
-      # therefore sets both — the chain below and the retired variables after
-      # it, describing the same chain — so whichever lands first, the revision
-      # it produces runs dev's chain:
-      # 1. apply this, then ship the image. The image's boot logs one WARN
-      #    naming the retired variables it ignores; confirm its boot line
-      #    "Initializing LLM provider chain" names the chain below.
-      # 2. once that image serves, remove the retired block and apply again.
-      #
-      # Planned (Phase B, carnet#875): an `anthropic=claude-haiku-5-5` head —
-      # the Anthropic Messages API on a pool of organizations
-      # (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2, secrets module), each with
-      # its own prepaid credit; a spent credit (HTTP 402) falls through like a
-      # quota, to anthropic#2 and then to copilot_sdk. It is gated on: the org
-      # keys; a Console spend limit on every organization, set BEFORE the
-      # apply (without one a spent credit bills the card instead of answering
-      # 402); a live tool-loop test of the head falling through; and the
-      # chat/messaging eval on Haiku, whose coaching has only been benched on
-      # Sonnet. The two ANTHROPIC_API_KEY secrets are deliberately NOT bound
-      # to this service until then: embacle's claude_code runner lets
-      # ANTHROPIC_API_KEY through to the `claude` CLI (its CREDENTIAL_ENV_KEYS),
-      # and Claude Code's documented auth precedence puts an API key ahead of
-      # CLAUDE_CODE_OAUTH_TOKEN — so binding it, placeholder or real, would
-      # move the claude_code tiers off their subscription (verify against the
-      # pinned CLI before Phase B). The runner change that keeps the API key
-      # away from the CLI belongs in embacle and lands with that binding.
+      # Planned (carnet#875): an `anthropic=claude-haiku-5-5` head — the
+      # Anthropic Messages API on a pool of organizations (ANTHROPIC_API_KEY,
+      # ANTHROPIC_API_KEY_2, secrets module), each with its own prepaid credit
+      # under a $199/month Console spend limit; a spent credit (HTTP 402) falls
+      # through like a quota, to anthropic#2 and then to copilot_sdk. It waits
+      # on the two keys in Secret Manager, their binding to this service, and
+      # the chat/messaging eval on Haiku, whose coaching has only been benched
+      # on Sonnet. Binding ANTHROPIC_API_KEY does not move the claude_code
+      # tiers off their subscription: since embacle 0.35.0 the claude_code
+      # runner withholds the API key from every `claude` child that holds an
+      # OAuth token (claude_code.rs, withholds_api_key).
       #
       # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
       # reads it is the Gemini provider built with no model of its own — a
@@ -387,20 +368,6 @@ module "backend" {
       # model (crates/pierre-llm/src/http_env.rs).
       PIERRE_LLM_CHAIN         = "copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
-
-      # Retired: the same chain in the variables the binary before carnet#875
-      # reads. This binary reads PIERRE_LLM_CHAIN above and none of these; they
-      # stay so that neither order of deploy and apply leaves a revision with no
-      # chain. Rollout step 2 removes this block once the binary that reads
-      # PIERRE_LLM_CHAIN serves (JF, 2026-10-12: two-step rollout).
-      PIERRE_LLM_PROVIDER                = "copilot_sdk"
-      PIERRE_LLM_MODEL                   = "claude-sonnet-5.5"
-      PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
-      PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "claude_code"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-sonnet-5"
-      PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
-      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # The synthetic LLM probe runs once per instance start and never again:
       # its "ping" is a real turn on the primary's account — a Copilot credit
