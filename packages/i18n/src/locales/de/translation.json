@@ -2280,7 +2280,8 @@
         "supervised_only": "Hat dir jemand ärztlich gesagt, du solltest dich nur unter medizinischer Aufsicht körperlich betätigen?"
       },
       "retry": "Entschuldige — ich brauche nur die Zahl, damit ich es korrekt festhalte.\n\n{0}",
-      "yesno_hint": "Antworte **1** für ja, **2** für nein."
+      "yesno_hint": "Antworte **1** für ja, **2** für nein.",
+      "check_in": "Letzte Frage: Wie oft soll ich mich bei dir melden, morgens mit einer kurzen Notiz zu deinem Training?\n\n**1** — Jeden Morgen\n**2** — Montag, Mittwoch und Freitag\n**3** — Jeden Montag\n**4** — Nie, ich beginne das Gespräch"
     },
     "link": {
       "cancelled": "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.",
@@ -2464,10 +2465,6 @@
       "reply": "Antworten"
     },
     "channel_body": "🔔 {0}\n\n{1}",
-    "data_synced": {
-      "body": "{0} neue Einträge von {1} synchronisiert",
-      "title": "Daten synchronisiert"
-    },
     "daysAgo": "vor {{count}} T.",
     "digest": {
       "athlete": {
@@ -2598,6 +2595,8 @@
     "channelScanQr": "Scanne einen QR-Code oder tippe, um die App zu öffnen",
     "channelSettingUp": "Wird eingerichtet…",
     "connectAnytimeHint": "Du kannst jederzeit einen Anbieter verbinden — dein Agent braucht ihn, um deine Aktivität zu lesen.",
+    "connectAnotherOrContinue": "Du kannst jetzt einen weiteren Dienst verbinden oder weitermachen.",
+    "continueAfterConnect": "Weiter",
     "connectCoachPlatformIntro": "Du coachst auf TrainingPeaks oder Intervals.icu? Verbinde es jetzt, oder überspringe diesen Schritt — Dravr liest dein eigenes Training nicht.",
     "connectCoachPlatformLaterHint": "Als Nächstes kommt deine Gruppe. Du kannst eine Coaching-Plattform später in den Einstellungen verbinden.",
     "connectPreviewSample": "Deine Belastung liegt 24 % über der Vorwoche und du hast zweimal weniger als sechs Stunden geschlafen — schwere Beine sind das erwartete Ergebnis, kein Warnsignal. Behalte den Samstag, nimm ihn im lockeren Tempo und streiche die letzten 5 km. Das schützt die Long-Run-Gewohnheit, ohne eine Woche weiter zu belasten, die ohnehin die größte deines Blocks ist.",
@@ -2664,7 +2663,10 @@
     "stepOfLabel": "Schritt {{current}} von {{total}}: {{label}}",
     "tellMeAboutTraining": "Erzähl mir von deinem Training",
     "welcomeNamed": "Willkommen, {{name}}",
-    "welcomeToDravr": "Willkommen bei Dravr"
+    "welcomeToDravr": "Willkommen bei Dravr",
+    "stepCheckIn": "Check-ins",
+    "checkInHeading": "Wie oft soll sich dein Agent melden?",
+    "checkInIntro": "Dein Agent kann sich zuerst melden: morgens eine kurze Notiz zu deinem letzten Training, in deinem eigenen Verlauf. Wähl, wie oft — du kannst es jederzeit in den Einstellungen ändern."
   },
   "password": {
     "change": "Passwort ändern",
@@ -2780,6 +2782,11 @@
   "platform_post": {
     "first_sync": {
       "prompt": "Meine {0}-Daten wurden gerade zum ersten Mal synchronisiert. Lies meine letzten Aktivitäten und schreib mir eine kurze Nachricht dazu: zwei oder drei konkrete Beobachtungen zu meinem Training (Umfang, Regelmäßigkeit, Art der Einheiten), nur mit Zahlen, die du wirklich abgerufen hast. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Sag mir in einem Satz, was du siehst (was meine verbundenen Dienste teilen und was ich dir erzähle) und was nicht. Frag mich zum Schluss, woran ich arbeiten möchte. Keine Überschriften, unter 120 Wörtern."
+    },
+    "check_in": {
+      "daily_prompt": "Morgen-Check-in. Lies, was meine verbundenen Dienste seit gestern Morgen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: eine oder zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und was sie für heute bedeuten. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn nichts Neues dazugekommen ist, sag das in einem Satz und frag mich, wie es mir geht. Keine Überschriften, unter 90 Wörtern.",
+      "three_per_week_prompt": "Check-in. Lies, was meine verbundenen Dienste in den letzten drei Tagen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, die ich in den nächsten Tagen im Blick behalten sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn nichts Neues dazugekommen ist, sag das in einem Satz und frag mich, wie das Training läuft. Keine Überschriften, unter 100 Wörtern.",
+      "weekly_prompt": "Wochen-Check-in. Lies meine letzten sieben Tage aus meinen verbundenen Diensten (Einheiten, Schlaf, Erholung) und schreib mir einen kurzen Rückblick: wie die Woche im Vergleich zu meiner üblichen Woche war (Umfang, Regelmäßigkeit, Art der Einheiten), nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, auf die ich mich diese Woche konzentrieren sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Keine Überschriften, unter 120 Wörtern."
     }
   },
   "profile": {
@@ -2933,7 +2940,15 @@
     "unitsMetric": "Metrisch (km, m)",
     "unitsSaveFailed": "Deine Einheiten konnten nicht gespeichert werden. Versuch es erneut.",
     "unitsSystemImperial": "imperial",
-    "unitsSystemMetric": "metrisch"
+    "unitsSystemMetric": "metrisch",
+    "checkIn": "Check-ins",
+    "checkInDescription": "Wie oft sich dein Agent zuerst meldet, morgens, mit einer kurzen Notiz zu deinem letzten Training.",
+    "checkInDaily": "Jeden Morgen",
+    "checkInThreePerWeek": "Montag, Mittwoch und Freitag",
+    "checkInWeekly": "Jeden Montag",
+    "checkInOff": "Nie — ich beginne das Gespräch",
+    "checkInSaveFailed": "Deine Auswahl konnte nicht gespeichert werden. Versuch es erneut.",
+    "selectCheckIn": "Wählen, wie oft sich dein Agent meldet"
   },
   "settingsErr": {
     "connectFailed": "Keine Verbindung zu",

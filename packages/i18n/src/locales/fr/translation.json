@@ -2280,7 +2280,8 @@
         "supervised_only": "Un médecin t'a-t-il dit que tu ne devais faire de l'activité physique que sous supervision médicale ?"
       },
       "retry": "Désolé — j'ai besoin du chiffre seul, pour bien l'enregistrer.\n\n{0}",
-      "yesno_hint": "Réponds **1** pour oui, **2** pour non."
+      "yesno_hint": "Réponds **1** pour oui, **2** pour non.",
+      "check_in": "Dernière question : à quel rythme je prends de tes nouvelles, avec un court mot le matin sur ton entraînement ?\n\n**1** — Tous les matins\n**2** — Lundi, mercredi et vendredi\n**3** — Chaque lundi\n**4** — Jamais, c'est moi qui lance la conversation"
     },
     "link": {
       "cancelled": "Liaison annulée. Envoie un message à tout moment pour recommencer.",
@@ -2464,10 +2465,6 @@
       "reply": "Répondre"
     },
     "channel_body": "🔔 {0}\n\n{1}",
-    "data_synced": {
-      "body": "{0} nouveaux enregistrements synchronisés depuis {1}",
-      "title": "Données synchronisées"
-    },
     "daysAgo": "il y a {{count}} j",
     "digest": {
       "athlete": {
@@ -2598,6 +2595,8 @@
     "channelScanQr": "Scanne un QR ou appuie pour ouvrir l’app",
     "channelSettingUp": "Configuration en cours…",
     "connectAnytimeHint": "Tu peux connecter un fournisseur à tout moment — ton agent en a besoin pour lire ton activité.",
+    "connectAnotherOrContinue": "Tu peux connecter un autre service maintenant, ou continuer.",
+    "continueAfterConnect": "Continuer",
     "connectCoachPlatformIntro": "Tu coaches sur TrainingPeaks ou Intervals.icu ? Connecte-le maintenant, ou passe cette étape — Dravr ne lit pas ton propre entraînement.",
     "connectCoachPlatformLaterHint": "Ton groupe vient ensuite. Tu pourras connecter une plateforme de coaching plus tard dans les Réglages.",
     "connectPreviewSample": "Ta charge est en hausse de 24 % par rapport à la semaine dernière et tu as dormi moins de six heures à deux reprises — des jambes lourdes sont le résultat attendu, pas un signal d'alarme. Garde ta sortie de samedi, passe-la en allure facile et retire les 5 derniers kilomètres. Ça protège l'habitude de la sortie longue sans alourdir une semaine déjà la plus grosse de ton bloc.",
@@ -2664,7 +2663,10 @@
     "stepOfLabel": "Étape {{current}} sur {{total}} : {{label}}",
     "tellMeAboutTraining": "Parle-moi de ton entraînement",
     "welcomeNamed": "Bienvenue, {{name}}",
-    "welcomeToDravr": "Bienvenue sur Dravr"
+    "welcomeToDravr": "Bienvenue sur Dravr",
+    "stepCheckIn": "Points réguliers",
+    "checkInHeading": "Ton agent prend des nouvelles à quel rythme ?",
+    "checkInIntro": "Ton agent peut t'écrire en premier : un court mot le matin sur ton entraînement récent, dans ton propre fil. Choisis le rythme — tu peux le changer à tout moment dans les réglages."
   },
   "password": {
     "change": "Changer le mot de passe",
@@ -2780,6 +2782,11 @@
   "platform_post": {
     "first_sync": {
       "prompt": "Mes données {0} viennent de se synchroniser pour la première fois. Lis mes activités récentes et écris-moi un court message à leur sujet : deux ou trois observations concrètes sur mon entraînement (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Dis-moi en une phrase ce que tu vois (ce que partagent mes services connectés et ce que je te dis) et ce que tu ne vois pas. Termine en me demandant sur quoi j'aimerais travailler. Pas de titres, moins de 120 mots."
+    },
+    "check_in": {
+      "daily_prompt": "Point du matin. Lis ce que mes services connectés ont enregistré depuis hier matin (séances, sommeil, récupération) et écris-moi un court mot : une ou deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et ce qu'elles veulent dire pour aujourd'hui. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si rien de nouveau n'est arrivé, dis-le en une phrase et demande-moi comment je me sens. Pas de titres, moins de 90 mots.",
+      "three_per_week_prompt": "Point régulier. Lis ce que mes services connectés ont enregistré ces trois derniers jours (séances, sommeil, récupération) et écris-moi un court mot : deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et une chose à garder en tête pour les prochains jours. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si rien de nouveau n'est arrivé, dis-le en une phrase et demande-moi comment se passe l'entraînement. Pas de titres, moins de 100 mots.",
+      "weekly_prompt": "Point de la semaine. Lis mes sept derniers jours dans mes services connectés (séances, sommeil, récupération) et écris-moi un court bilan : comment la semaine se compare à ma semaine habituelle (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés, et une chose sur laquelle me concentrer cette semaine. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Pas de titres, moins de 120 mots."
     }
   },
   "profile": {
@@ -2933,7 +2940,15 @@
     "unitsMetric": "Métrique (km, m)",
     "unitsSaveFailed": "Tes unités n’ont pas pu être enregistrées. Réessaie.",
     "unitsSystemImperial": "impérial",
-    "unitsSystemMetric": "métrique"
+    "unitsSystemMetric": "métrique",
+    "checkIn": "Points réguliers",
+    "checkInDescription": "À quel rythme ton agent t'écrit en premier, le matin, avec un court mot sur ton entraînement récent.",
+    "checkInDaily": "Tous les matins",
+    "checkInThreePerWeek": "Lundi, mercredi et vendredi",
+    "checkInWeekly": "Chaque lundi",
+    "checkInOff": "Jamais — c'est moi qui lance la conversation",
+    "checkInSaveFailed": "Ton choix n'a pas pu être enregistré. Réessaie.",
+    "selectCheckIn": "Choisir le rythme des points de ton agent"
   },
   "settingsErr": {
     "connectFailed": "Impossible de se connecter à",

@@ -2280,7 +2280,8 @@
         "supervised_only": "Has a doctor said you should only do medically supervised physical activity?"
       },
       "retry": "Sorry — I need just the number, so I record this exactly right.\n\n{0}",
-      "yesno_hint": "Reply **1** for yes, **2** for no."
+      "yesno_hint": "Reply **1** for yes, **2** for no.",
+      "check_in": "Last one: how often should I check in with you, with a short morning note on your training?\n\n**1** — Every morning\n**2** — Monday, Wednesday and Friday\n**3** — Every Monday\n**4** — Never, I'll start the conversation"
     },
     "link": {
       "cancelled": "Linking cancelled. Send a message anytime to start again.",
@@ -2464,10 +2465,6 @@
       "reply": "Reply"
     },
     "channel_body": "🔔 {0}\n\n{1}",
-    "data_synced": {
-      "body": "Synced {0} new records from {1}",
-      "title": "Data synced"
-    },
     "daysAgo": "{{count}}d ago",
     "digest": {
       "athlete": {
@@ -2598,6 +2595,8 @@
     "channelScanQr": "Scan a QR or tap to open the app",
     "channelSettingUp": "Setting things up…",
     "connectAnytimeHint": "You can connect anytime — your agent needs a provider to read your activity.",
+    "connectAnotherOrContinue": "You can connect another service now, or continue.",
+    "continueAfterConnect": "Continue",
     "connectCoachPlatformIntro": "Coaching on TrainingPeaks or Intervals.icu? Connect it now, or skip this step — Dravr does not read your own training.",
     "connectCoachPlatformLaterHint": "Your group comes next. You can connect a coaching platform later in Settings.",
     "connectPreviewSample": "Your load is up 24% on last week and you slept under six hours twice — heavy legs are the expected result, not a warning sign. Keep Saturday, drop it to easy pace and cut the last 5k. That protects the long-run habit without adding to a week that is already the biggest of your block.",
@@ -2664,7 +2663,10 @@
     "stepOfLabel": "Step {{current}} of {{total}}: {{label}}",
     "tellMeAboutTraining": "Tell me about your training",
     "welcomeNamed": "Welcome, {{name}}",
-    "welcomeToDravr": "Welcome to Dravr"
+    "welcomeToDravr": "Welcome to Dravr",
+    "stepCheckIn": "Check-ins",
+    "checkInHeading": "How often should your agent check in?",
+    "checkInIntro": "Your agent can write first: a short morning note on your recent training, in your own thread. Pick how often — you can change it anytime in Settings."
   },
   "password": {
     "change": "Change Password",
@@ -2780,6 +2782,11 @@
   "platform_post": {
     "first_sync": {
       "prompt": "My {0} data has just synced for the first time. Read my recent activities and write me a short message about them: two or three concrete observations on my training (volume, consistency, the kinds of sessions I do), quoting only figures you actually fetched. Describe load against my usual level, never as a risk. Say in one sentence what you can see (what my connected services share and what I tell you) and what you can't. End by asking me what I'd like to work on. No headings, under 120 words."
+    },
+    "check_in": {
+      "daily_prompt": "Morning check-in. Read what my connected services recorded since yesterday morning (workouts, sleep, recovery) and write me a short note: one or two concrete observations, quoting only figures you actually fetched, and what they mean for today. Describe load against my usual level, never as a risk. If nothing new came in, say so in one sentence and ask how I'm feeling. No headings, under 90 words.",
+      "three_per_week_prompt": "Check-in. Read what my connected services recorded over the last three days (workouts, sleep, recovery) and write me a short note: two concrete observations, quoting only figures you actually fetched, and one thing to keep in mind for the next few days. Describe load against my usual level, never as a risk. If nothing new came in, say so in one sentence and ask how training is going. No headings, under 100 words.",
+      "weekly_prompt": "Weekly check-in. Read my last seven days from my connected services (workouts, sleep, recovery) and write me a short review: how the week compared with my usual week (volume, consistency, the kinds of sessions), quoting only figures you actually fetched, and one thing to focus on this week. Describe load against my usual level, never as a risk. No headings, under 120 words."
     }
   },
   "profile": {
@@ -2933,7 +2940,15 @@
     "unitsMetric": "Metric (km, m)",
     "unitsSaveFailed": "Your units could not be saved. Try again.",
     "unitsSystemImperial": "imperial",
-    "unitsSystemMetric": "metric"
+    "unitsSystemMetric": "metric",
+    "checkIn": "Check-ins",
+    "checkInDescription": "How often your agent writes first, in the morning, with a short note on your recent training.",
+    "checkInDaily": "Every morning",
+    "checkInThreePerWeek": "Monday, Wednesday and Friday",
+    "checkInWeekly": "Every Monday",
+    "checkInOff": "Never — I'll start the conversation",
+    "checkInSaveFailed": "Your check-in choice could not be saved. Try again.",
+    "selectCheckIn": "Choose how often your agent checks in"
   },
   "settingsErr": {
     "connectFailed": "Failed to connect",

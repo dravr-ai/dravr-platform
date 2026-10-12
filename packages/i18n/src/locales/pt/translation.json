@@ -2280,7 +2280,8 @@
         "supervised_only": "Um médico disse-te que só deverias fazer atividade física sob supervisão médica?"
       },
       "retry": "Desculpa — preciso só do número, para registar corretamente.\n\n{0}",
-      "yesno_hint": "Responde **1** para sim, **2** para não."
+      "yesno_hint": "Responde **1** para sim, **2** para não.",
+      "check_in": "Última pergunta: com que frequência te escrevo, com uma nota curta de manhã sobre o teu treino?\n\n**1** — Todas as manhãs\n**2** — Segunda, quarta e sexta\n**3** — Todas as segundas\n**4** — Nunca, sou eu que começo a conversa"
     },
     "link": {
       "cancelled": "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.",
@@ -2464,10 +2465,6 @@
       "reply": "Responder"
     },
     "channel_body": "🔔 {0}\n\n{1}",
-    "data_synced": {
-      "body": "{0} registos novos sincronizados de {1}",
-      "title": "Dados sincronizados"
-    },
     "daysAgo": "há {{count}} d",
     "digest": {
       "athlete": {
@@ -2598,6 +2595,8 @@
     "channelScanQr": "Digitaliza um QR ou toca para abrir a app",
     "channelSettingUp": "A configurar…",
     "connectAnytimeHint": "Podes ligar um fornecedor quando quiseres — o teu agente precisa dele para ler a tua atividade.",
+    "connectAnotherOrContinue": "Podes ligar outro serviço agora ou continuar.",
+    "continueAfterConnect": "Continuar",
     "connectCoachPlatformIntro": "Treinas os teus atletas no TrainingPeaks ou no Intervals.icu? Liga-o agora, ou salta este passo — o Dravr não lê o teu próprio treino.",
     "connectCoachPlatformLaterHint": "O teu grupo vem a seguir. Podes ligar uma plataforma de coaching mais tarde nas Definições.",
     "connectPreviewSample": "A tua carga subiu 24 % face à semana passada e dormiste menos de seis horas em duas noites — pernas pesadas são o resultado esperado, não um sinal de alarme. Mantém o sábado, passa-o para ritmo fácil e corta os últimos 5 km. Assim proteges o hábito do treino longo sem sobrecarregar uma semana que já é a maior do teu bloco.",
@@ -2664,7 +2663,10 @@
     "stepOfLabel": "Passo {{current}} de {{total}}: {{label}}",
     "tellMeAboutTraining": "Fala-me do teu treino",
     "welcomeNamed": "Bem-vindo, {{name}}",
-    "welcomeToDravr": "Boas-vindas ao Dravr"
+    "welcomeToDravr": "Boas-vindas ao Dravr",
+    "stepCheckIn": "Acompanhamento",
+    "checkInHeading": "Com que frequência o teu agente dá notícias?",
+    "checkInIntro": "O teu agente pode escrever primeiro: uma nota curta de manhã sobre o teu treino recente, no teu próprio fio. Escolhe a frequência — podes mudar quando quiseres nas Definições."
   },
   "password": {
     "change": "Alterar palavra-passe",
@@ -2780,6 +2782,11 @@
   "platform_post": {
     "first_sync": {
       "prompt": "Os meus dados do {0} acabaram de sincronizar pela primeira vez. Lê as minhas atividades recentes e escreve-me uma mensagem curta sobre elas: duas ou três observações concretas sobre o meu treino (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto. Descreve a carga face ao meu nível habitual, nunca como um risco. Diz-me numa frase o que vês (o que os meus serviços ligados partilham e o que te conto) e o que não vês. Termina a perguntar-me em que gostaria de trabalhar. Sem títulos, menos de 120 palavras."
+    },
+    "check_in": {
+      "daily_prompt": "Acompanhamento da manhã. Lê o que os meus serviços ligados registaram desde ontem de manhã (treinos, sono, recuperação) e escreve-me uma nota curta: uma ou duas observações concretas, citando só números que obtiveste de facto, e o que significam para hoje. Descreve a carga face ao meu nível habitual, nunca como um risco. Se não chegou nada de novo, di-lo numa frase e pergunta-me como me sinto. Sem títulos, menos de 90 palavras.",
+      "three_per_week_prompt": "Acompanhamento. Lê o que os meus serviços ligados registaram nos últimos três dias (treinos, sono, recuperação) e escreve-me uma nota curta: duas observações concretas, citando só números que obtiveste de facto, e uma coisa a ter em conta nos próximos dias. Descreve a carga face ao meu nível habitual, nunca como um risco. Se não chegou nada de novo, di-lo numa frase e pergunta-me como está a correr o treino. Sem títulos, menos de 100 palavras.",
+      "weekly_prompt": "Acompanhamento semanal. Lê os meus últimos sete dias nos meus serviços ligados (treinos, sono, recuperação) e escreve-me um balanço curto: como correu a semana face à minha semana habitual (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto, e uma coisa em que me concentrar esta semana. Descreve a carga face ao meu nível habitual, nunca como um risco. Sem títulos, menos de 120 palavras."
     }
   },
   "profile": {
@@ -2933,7 +2940,15 @@
     "unitsMetric": "Métrico (km, m)",
     "unitsSaveFailed": "Não foi possível guardar as tuas unidades. Tenta de novo.",
     "unitsSystemImperial": "imperial",
-    "unitsSystemMetric": "métrico"
+    "unitsSystemMetric": "métrico",
+    "checkIn": "Acompanhamento",
+    "checkInDescription": "Com que frequência o teu agente escreve primeiro, de manhã, com uma nota curta sobre o teu treino recente.",
+    "checkInDaily": "Todas as manhãs",
+    "checkInThreePerWeek": "Segunda, quarta e sexta",
+    "checkInWeekly": "Todas as segundas",
+    "checkInOff": "Nunca — sou eu que começo a conversa",
+    "checkInSaveFailed": "Não foi possível guardar a tua escolha. Tenta de novo.",
+    "selectCheckIn": "Escolher com que frequência o teu agente dá notícias"
   },
   "settingsErr": {
     "connectFailed": "Não foi possível ligar a",
