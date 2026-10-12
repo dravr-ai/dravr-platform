@@ -80,6 +80,9 @@ function renderStep(
         <OnboardingConnectProvider
           userDisplayName={userDisplayName}
           onContinueWithoutProvider={state.skipProvider}
+          onContinue={
+            state.ctx.needsProviderConnection === false ? state.completeConnectProvider : undefined
+          }
           coachOnly={state.ctx.athleteStepsWaived}
         />
       );

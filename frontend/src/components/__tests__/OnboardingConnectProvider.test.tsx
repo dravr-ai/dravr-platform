@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the web first-run connect gate's post-connect spinner
-// ABOUTME: The sentence names the provider that connected; a coach who does not train sees only the coaching platforms
+// ABOUTME: Unit tests for the web first-run connect gate: it stays on the list after a first connection, with Continue
+// ABOUTME: A coach who does not train sees only the coaching platforms
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import OnboardingConnectProvider from '../OnboardingConnectProvider';
@@ -20,7 +20,7 @@ vi.mock('../../services/api', () => ({
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ logout: vi.fn() }) }));
 
-function renderGate(props: { coachOnly?: boolean } = {}) {
+function renderGate(props: { coachOnly?: boolean; onContinue?: () => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -35,12 +35,12 @@ function renderGate(props: { coachOnly?: boolean } = {}) {
   );
 }
 
-describe('OnboardingConnectProvider — the post-connect spinner', () => {
+describe('OnboardingConnectProvider — after a first connection', () => {
   afterEach(async () => {
     await i18n.changeLanguage('en');
   });
 
-  it('names Strava as connected while the dashboard prepares, in French', async () => {
+  it('keeps the list up to connect another service, and Continue moves on, in French', async () => {
     getProvidersStatus.mockResolvedValue({
       providers: [
         {
@@ -51,15 +51,23 @@ describe('OnboardingConnectProvider — the post-connect spinner', () => {
           needs_reauth: false,
           capabilities: ['activities'],
         },
+        card('sciotte_garmin', 'Garmin'),
       ],
     });
     await i18n.changeLanguage('fr');
+    const onContinue = vi.fn();
 
-    renderGate();
+    renderGate({ onContinue });
 
+    expect(await screen.findByText('Garmin')).toBeInTheDocument();
     expect(
-      await screen.findByText('Strava connecté — préparation de ton tableau de bord…'),
+      screen.getByText('Tu peux connecter un autre service maintenant, ou continuer.'),
     ).toBeInTheDocument();
+    // Connected, so the "continue without connecting" escape is gone.
+    expect(screen.queryByText(i18n.t('onboarding.continueWithoutProvider'))).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }));
+    expect(onContinue).toHaveBeenCalledTimes(1);
   });
 });
 

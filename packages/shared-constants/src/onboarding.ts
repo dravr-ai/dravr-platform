@@ -45,6 +45,12 @@ export interface OnboardingContext {
    * sync is not something we control, three answered questions are.
    */
   aboutYouDone: boolean;
+  /**
+   * The user pressed Continue on the connect step after connecting a first
+   * provider this session. Until then the step stays on screen, so a second
+   * service is one tap away rather than a trip to Settings.
+   */
+  connectProviderDone: boolean;
   /** The PAR-Q medical screen has been answered or skipped. */
   parqDone: boolean;
   /**
@@ -183,16 +189,18 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // coaching platforms (`COACH_PLATFORM_PROVIDERS`) and only until their
     // group exists: nothing reads their own training, so it is no gate for
     // them, and once the group is made it is not asked again at every login.
+    //
+    // The first connection does not close it: a user who has just connected one
+    // service (`justOnboarded`) stays on the list to connect another, and moves
+    // on with Continue. A returning, already-connected user never sees it.
     id: 'connect_provider',
     labelKey: 'onboarding.stepConnect',
     isApplicable: (c) =>
-      c.needsProviderConnection === true &&
+      (c.needsProviderConnection === true || (c.justOnboarded && !c.connectProviderDone)) &&
       !c.skippedProvider &&
       !(c.athleteStepsWaived && c.coachGroupDone),
-    // "Complete" once a provider is connected. Only ever evaluated for the
-    // progress indicator: while the step is applicable `needs === true`, so this
-    // reads false; once a provider connects, `isApplicable` drops the step.
-    isComplete: (c) => c.needsProviderConnection === false,
+    isComplete: (c) =>
+      c.needsProviderConnection === false && (c.connectProviderDone || !c.justOnboarded),
   },
   {
     // An agent for the athlete's own training, ranked on their own activities.

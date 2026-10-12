@@ -31,13 +31,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
+import { useConnectProviderDone } from '../../hooks/useConnectProviderDone';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useOnboardingContext } from '../../hooks/useOnboardingContext';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
-  SCIOTTE_LOGIN_PRESETS,
   noticeRequired,
   sciotteTargetForBackend,
 } from '@pierre/shared-constants';
@@ -71,6 +71,7 @@ export function OnboardingConnectScreen() {
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
   const { skip } = useProviderSkipped(user?.id);
+  const { complete: continuePastConnect } = useConnectProviderDone(user?.id);
   const progress = useOnboardingProgress('connect_provider');
   const coachOnly = useOnboardingContext().context.athleteStepsWaived;
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
@@ -99,11 +100,6 @@ export function OnboardingConnectScreen() {
   // provider's card shows. Shows an "awaiting consent" overlay with a Cancel
   // button so the user is never stranded if they background the app mid-flow.
   const [awaitingOAuthFor, setAwaitingOAuthFor] = useState<string | null>(null);
-  // Bridges the gap between a successful connect and the RootLayoutNav route
-  // flip: renders the "Strava connected — preparing your dashboard…" spinner,
-  // naming the provider held here, instead of the static cards while
-  // onboarding-status refetches.
-  const [justConnected, setJustConnected] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -123,29 +119,14 @@ export function OnboardingConnectScreen() {
     }
   }, [isAuthenticated, loadStatus]);
 
-  // Safety net: if RootLayoutNav never flips (onboarding-status refetch races,
-  // OAuth callback never lands, etc.) auto-revert to the cards so the user
-  // isn't pinned on the spinner forever. 30s is plenty for a successful
-  // refetch; anything longer is a hung state we should escape.
-  useEffect(() => {
-    if (!justConnected) return undefined;
-    const timer = setTimeout(() => {
-      setJustConnected(null);
-      setConnectError(t('onboarding.connectionUnconfirmedPullToRefresh'));
-    }, 30_000);
-    return () => clearTimeout(timer);
-  }, [justConnected, t]);
-
-  const finalizeConnection = useCallback(
-    async (providerName: string) => {
-      // Invalidate the onboarding-status query so RootLayoutNav re-evaluates
-      // and routes the user into the chat stack.
-      await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
-      await loadStatus();
-      setJustConnected(providerName);
-    },
-    [queryClient, loadStatus],
-  );
+  // A connection landed. The screen stays up with the row marked connected so
+  // a second service is one tap away; Continue moves on. The onboarding-status
+  // refetch is what lets RootLayoutNav see the first connection.
+  const finalizeConnection = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ['user-onboarding-status'] });
+    await loadStatus();
+  }, [queryClient, loadStatus]);
+  const anyConnected = providers.some((p) => p.connected);
 
   // Standard OAuth flow used by providers with a built-in client_id/secret on
   // the platform (currently only WHOOP once the user has registered a BYO
@@ -173,7 +154,7 @@ export function OnboardingConnectScreen() {
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
-            await finalizeConnection(providerName);
+            await finalizeConnection();
           } else if (error) {
             // Strava OAuth came back with an error (e.g. the shared-app athlete
             // cap was actually exceeded in a seat-count race, or the provider
@@ -186,7 +167,7 @@ export function OnboardingConnectScreen() {
             }
           } else {
             // No explicit success/error — refetch to see if the row landed.
-            await finalizeConnection(providerName);
+            await finalizeConnection();
           }
         }
         // type === 'cancel' / 'dismiss' — user backed out of the auth sheet;
@@ -309,19 +290,6 @@ export function OnboardingConnectScreen() {
     );
   };
 
-  // Post-connect spinner: full-screen so the static t('app.connected') badge doesn't
-  // flash before RootLayoutNav flips. Matches the web onboarding UX.
-  if (justConnected) {
-    return (
-      <SafeAreaView className="flex-1 bg-background-primary items-center justify-center px-8">
-        <ActivityIndicator size="large" color={colors.tokens.primary} />
-        <Text className="mt-4 text-base font-medium text-text-primary text-center">
-          {t('onboarding.providerConnectedPreparing', { provider: justConnected })}
-        </Text>
-      </SafeAreaView>
-    );
-  }
-
   // Awaiting OAuth consent — covers the gap between
   // openAuthSessionAsync starting and the user returning from the in-app
   // browser. Cancel button drops back to the cards so they're never trapped.
@@ -389,16 +357,25 @@ export function OnboardingConnectScreen() {
 
         {!coachOnly && <ConnectPreview />}
 
-        <View className="mt-6 items-center">
-          <TouchableOpacity onPress={skip} accessibilityRole="button">
-            <Text className="text-sm font-medium text-text-secondary underline">
-              {t('app.continueWithoutConnecting')}
+        {anyConnected ? (
+          <View className="mt-6 items-center" testID="onboarding-connect-continue">
+            <Text className="text-sm text-text-secondary text-center mb-3">
+              {t('onboarding.connectAnotherOrContinue')}
             </Text>
-          </TouchableOpacity>
-          <Text className="text-xs text-text-tertiary text-center mt-1">
-            {coachOnly ? t('onboarding.connectCoachPlatformLaterHint') : t('app.connectAnytime')}
-          </Text>
-        </View>
+            <Button title={t('onboarding.continueAfterConnect')} onPress={continuePastConnect} />
+          </View>
+        ) : (
+          <View className="mt-6 items-center">
+            <TouchableOpacity onPress={skip} accessibilityRole="button">
+              <Text className="text-sm font-medium text-text-secondary underline">
+                {t('app.continueWithoutConnecting')}
+              </Text>
+            </TouchableOpacity>
+            <Text className="text-xs text-text-tertiary text-center mt-1">
+              {coachOnly ? t('onboarding.connectCoachPlatformLaterHint') : t('app.connectAnytime')}
+            </Text>
+          </View>
+        )}
 
         <View className="mt-8 items-center">
           <Button
@@ -414,9 +391,8 @@ export function OnboardingConnectScreen() {
         visible={sciotteTarget !== null}
         onClose={() => setSciotteTarget(null)}
         onConnected={() => {
-          const friendly = t(SCIOTTE_LOGIN_PRESETS[sciotteTarget ?? 'strava'].labelKey);
           setSciotteTarget(null);
-          void finalizeConnection(friendly);
+          void finalizeConnection();
         }}
         target={sciotteTarget ?? 'strava'}
         consentRequired={sciotteConsentRequired}
@@ -427,7 +403,7 @@ export function OnboardingConnectScreen() {
         onClose={() => setIntervalsModalVisible(false)}
         onConnected={() => {
           setIntervalsModalVisible(false);
-          void finalizeConnection('Intervals.icu');
+          void finalizeConnection();
         }}
       />
 

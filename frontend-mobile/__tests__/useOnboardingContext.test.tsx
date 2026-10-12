@@ -83,6 +83,7 @@ describe('useOnboardingContext', () => {
       needsProviderConnection: true,
       skippedProvider: false,
       justOnboarded: false,
+      connectProviderDone: false,
       profileTypeChosen: true,
       aboutYouDone: false,
       parqDone: false,
@@ -169,7 +170,7 @@ describe('useOnboardingContext', () => {
     await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider'));
   });
 
-  it('observes the first connect as justOnboarded and makes the coach proposal current', async () => {
+  it('observes the first connect as justOnboarded, holds the connect step until Continue, then the coach proposal', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(true));
     await markDone(
       'dravr.profile_type_chosen.',
@@ -194,7 +195,16 @@ describe('useOnboardingContext', () => {
       expect(result.current.settled).toBe(true);
     });
     expect(result.current.context.needsProviderConnection).toBe(false);
-    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_proposal');
+    // The provider list stays up so a second service is one tap away.
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+
+    // Continue on the connect screen sets the session flag the context reads.
+    act(() => {
+      client.setQueryData(['connect-provider-done', 'u1'], true);
+    });
+    await waitFor(() =>
+      expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_proposal'),
+    );
   });
 
   it('never intercepts a user whose record was already connected when the session began', async () => {

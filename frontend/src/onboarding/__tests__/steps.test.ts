@@ -21,6 +21,9 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     needsProviderConnection: false,
     skippedProvider: false,
     justOnboarded: false,
+    // Continue on the connect step already pressed, so a just-connected test
+    // exercises the steps after it; the connect-another tests opt out.
+    connectProviderDone: true,
     profileTypeChosen: true,
     coachProposalDone: true,
     // The pre-connect questionnaire steps default to done in this baseline, so a
@@ -125,6 +128,33 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
         ctx({ needsProviderConnection: false, justOnboarded: true, coachProposalDone: false }),
       )?.id,
     ).toBe('coach_proposal');
+  });
+
+  it('just connected, Continue not pressed yet → stays on connect_provider to add another', () => {
+    expect(
+      currentOnboardingStep(
+        ctx({
+          needsProviderConnection: false,
+          justOnboarded: true,
+          connectProviderDone: false,
+          coachProposalDone: false,
+        }),
+      )?.id,
+    ).toBe('connect_provider');
+  });
+
+  it('a returning connected user is never shown connect_provider, Continue or not', () => {
+    expect(
+      currentOnboardingStep(ctx({ needsProviderConnection: false, connectProviderDone: false })),
+    ).toBeNull();
+  });
+
+  it('connect_provider reads incomplete while waiting on Continue, complete after', () => {
+    const step = ONBOARDING_STEPS.find((s) => s.id === 'connect_provider');
+    const waiting = ctx({ needsProviderConnection: false, justOnboarded: true, connectProviderDone: false });
+    expect(step?.isComplete(waiting)).toBe(false);
+    expect(step?.isComplete({ ...waiting, connectProviderDone: true })).toBe(true);
+    expect(step?.isComplete(ctx({ needsProviderConnection: true }))).toBe(false);
   });
 
   it('returning already-onboarded user → null (dashboard)', () => {

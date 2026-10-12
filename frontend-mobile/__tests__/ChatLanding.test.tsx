@@ -76,6 +76,9 @@ jest.mock('../src/hooks/useCoachProposalSeen', () => ({ useCoachProposalSeen: ()
 jest.mock('../src/hooks/useProfileTypeChosen', () => ({ useProfileTypeChosen: () => ({ chosen: true }) }));
 jest.mock('../src/hooks/useOnboardingFlag', () => ({ useOnboardingFlag: () => ({ done: true }) }));
 jest.mock('../src/hooks/useProviderSkipped', () => ({ useProviderSkipped: () => ({ skipped: false }) }));
+jest.mock('../src/hooks/useConnectProviderDone', () => ({
+  useConnectProviderDone: () => ({ done: false }),
+}));
 jest.mock('../src/hooks/useMessagingOnboarding', () => ({
   useMessagingOnboarding: () => ({
     loading: false,

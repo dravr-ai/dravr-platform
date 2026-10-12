@@ -54,7 +54,7 @@ export default function ChatComposeMenu({
 
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
+    const onPointerDown = (event: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
         setOpen(false);
       }
@@ -62,10 +62,10 @@ export default function ChatComposeMenu({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
@@ -98,7 +98,10 @@ export default function ChatComposeMenu({
           role="menu"
           aria-label={t('chat.startConversationPrompt')}
           data-testid="chat-compose-menu"
-          className="absolute right-0 z-30 mt-2 w-72 max-w-[90vw] rounded-xl border ghost-border bg-surface p-1.5"
+          // On a phone the "+" can sit at the left edge (Home's empty state) inside a
+          // scrolling column, where a right-anchored dropdown opens off-screen and is
+          // clipped. Below `sm` the menu is pinned to the viewport instead.
+          className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 rounded-xl border ghost-border bg-surface p-1.5 sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:z-30 sm:mt-2 sm:w-72"
         >
           {onNewChat && (
             <button type="button" role="menuitem" onClick={() => choose(onNewChat)} className={itemClass}>

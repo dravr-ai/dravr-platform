@@ -168,13 +168,15 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
   await expect(page.getByRole('heading', { name: /welcome, fresh user/i })).toBeVisible();
 
   // The provider lands: the status flips once its cache is stale and the tab
-  // regains focus, which is what moves the flow to the agent proposal.
+  // regains focus. The connect step stays up to offer a second service, and
+  // its Continue is what moves the flow to the agent proposal.
   mocks.connect();
   await page.waitForTimeout(5_500);
   await page.evaluate(() => {
     window.dispatchEvent(new Event('visibilitychange'));
     window.dispatchEvent(new Event('focus'));
   });
+  await page.getByTestId('onboarding-connect-continue').getByRole('button', { name: 'Continue' }).click({ timeout: 15_000 });
 
   await expect(page.getByRole('heading', { name: AGENT_TITLE })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Start' }).click();

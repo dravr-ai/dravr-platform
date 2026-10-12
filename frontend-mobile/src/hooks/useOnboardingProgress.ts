@@ -26,9 +26,15 @@ import {
  * progress hairline — never to gate navigation, which stays `_layout.tsx`'s
  * job — so it reads the field from `currentStepId` instead: true exactly when
  * the caller IS the coach-proposal screen, which only renders once the gate
- * decided the same thing.
+ * decided the same thing. The same screen is also proof the connect step's
+ * Continue was pressed, so the bar never shows that step as still open there.
  */
 export function useOnboardingProgress(currentStepId: OnboardingStepId): OnboardingProgressItem[] {
   const { context } = useOnboardingContext();
-  return onboardingProgress({ ...context, justOnboarded: currentStepId === 'coach_proposal' });
+  const onProposal = currentStepId === 'coach_proposal';
+  return onboardingProgress({
+    ...context,
+    justOnboarded: onProposal,
+    connectProviderDone: context.connectProviderDone || onProposal,
+  });
 }

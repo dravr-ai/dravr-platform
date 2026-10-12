@@ -4,8 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useEffect, useState } from 'react';
-import { oauthApi } from '../services/api';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { oauthApi, providersApi } from '../services/api';
+import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
@@ -18,6 +20,7 @@ import ConnectPreview from './ConnectPreview';
 import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
 import { COACH_PLATFORM_PROVIDERS } from '../onboarding/steps';
+import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 
 /** How long the awaiting-consent overlay waits for the OAuth popup to land. */
 const AWAITING_OAUTH_TIMEOUT_MS = 90_000;
@@ -26,9 +29,10 @@ const AWAITING_OAUTH_TIMEOUT_MS = 90_000;
  * Hard gate shown right after first login when the user has zero connected
  * providers. The same source of truth — `provider_connections` — drives the
  * backend's `NoProviderConnected` 403 on chat/coach/messaging, so this screen
- * cannot drift from server-side enforcement. Once the user connects any
- * provider, the OAuth callback in `App.tsx` invalidates the onboarding-status
- * query and the redirect flips to the dashboard.
+ * cannot drift from server-side enforcement. Connecting a first provider
+ * does not leave the screen: the list stays up with the new card marked
+ * connected, so a second service is one tap away, and `onContinue` (offered
+ * once a provider is connected) moves on to the next step.
  *
  * Skip is intentionally absent from the provider list — the agent has
  * nothing to reason about without provider data. Sign Out is offered as a
@@ -42,21 +46,18 @@ const AWAITING_OAUTH_TIMEOUT_MS = 90_000;
 export default function OnboardingConnectProvider({
   userDisplayName,
   onContinueWithoutProvider,
+  onContinue,
   coachOnly = false,
 }: {
   userDisplayName?: string | null;
   onContinueWithoutProvider?: () => void;
+  /** Leave the step; defined once at least one provider is connected. */
+  onContinue?: () => void;
   coachOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const { logout } = useAuth();
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  // Bridges the gap between Sciotte success and the App-level route flip:
-  // ProviderConnectionCards fires `onProviderConnected`, this flag flips on,
-  // and the page renders a fullscreen spinner instead of the static
-  // "Connected" badge while the onboarding-status query refetches. Holds the
-  // connected provider's name, which the spinner's sentence names.
-  const [justConnected, setJustConnected] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   // Tracks an in-flight OAuth popup (Strava BYO path), by the name the
   // provider's card shows. We don't know whether the user has authorised yet
@@ -85,8 +86,8 @@ export default function OnboardingConnectProvider({
       return;
     }
     // No per-card spinner: the launch is complete the moment the window opens.
-    // Success is observed at the App level (onboarding-status invalidation
-    // flips to the dashboard), and holding a spinner here stranded the card
+    // Success is observed through provider status (the card turns connected
+    // and Continue appears), and holding a spinner here stranded the card
     // when the user closed the OAuth tab without finishing.
     setConnectingProvider(null);
   };
@@ -98,25 +99,31 @@ export default function OnboardingConnectProvider({
     launchOAuth(provider, tosConsent);
   };
 
-  // Safety net: if the App-level route flip never happens (provider-status
-  // refetch races, OAuth callback never lands, etc.) auto-revert to the cards
-  // so the user isn't pinned on the spinner forever. 30s is plenty for a
-  // successful refetch; anything longer is a hung state we should escape.
+  // The same provider-status query the cards poll (shared cache). The cards
+  // are unmounted under the awaiting-consent overlay, so this one asks while
+  // the overlay is up. A new connection landing — a first or a second one —
+  // closes it, putting the user back on the list with the card marked connected.
+  const { data: providersData } = useQuery({
+    queryKey: QUERY_KEYS.providers.status(),
+    queryFn: () => providersApi.getProvidersStatus(),
+    refetchInterval: awaitingOAuthFor ? PROVIDER_LINK_POLL_INTERVAL_MS : false,
+  });
+  const connectedCount = providersData?.providers?.filter((p) => p.connected).length ?? 0;
+  const lastConnectedCount = useRef(connectedCount);
   useEffect(() => {
-    if (!justConnected) return undefined;
-    const timer = window.setTimeout(() => {
-      setJustConnected(null);
-      setConnectError(t('onboarding.connectionUnconfirmedRefreshPage'));
-    }, 30_000);
-    return () => window.clearTimeout(timer);
-  }, [justConnected, t]);
+    if (connectedCount > lastConnectedCount.current) {
+      setAwaitingOAuthFor(null);
+      setConnectError(null);
+    }
+    lastConnectedCount.current = connectedCount;
+  }, [connectedCount]);
 
   // Awaiting-OAuth timeout: 90s gives the user time to read, log in, MFA,
   // and approve in the popup. Beyond that we assume they bailed or got
   // blocked, surface a retry hint, and free the cards for another attempt.
-  // Note: successful consent normally short-circuits this — the OAuth
-  // callback lands in `App.tsx` and the route flips before the timeout
-  // fires.
+  // Note: successful consent normally short-circuits this — the new
+  // connection shows up in provider status and closes the overlay before the
+  // timeout fires.
   useEffect(() => {
     if (!awaitingOAuthFor) return undefined;
     const provider = awaitingOAuthFor;
@@ -128,19 +135,6 @@ export default function OnboardingConnectProvider({
     }, AWAITING_OAUTH_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [awaitingOAuthFor, t]);
-
-  if (justConnected) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low pad-safe-top">
-        <div className="flex flex-col items-center gap-4">
-          <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface-variant">
-            {t('onboarding.providerConnectedPreparing', { provider: justConnected })}
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   if (awaitingOAuthFor) {
     return (
@@ -182,7 +176,6 @@ export default function OnboardingConnectProvider({
               <ProviderConnectionCards
                 onConnectProvider={handleConnectProvider}
                 connectingProvider={connectingProvider}
-                onProviderConnected={setJustConnected}
                 onOAuthLaunched={(provider) => setAwaitingOAuthFor(provider)}
                 onlyProviders={coachOnly ? COACH_PLATFORM_PROVIDERS : undefined}
               />
@@ -197,13 +190,24 @@ export default function OnboardingConnectProvider({
               </div>
             )}
 
+            {onContinue && (
+              <div className="mt-6 flex flex-col items-center gap-3" data-testid="onboarding-connect-continue">
+                <p className="text-sm text-on-surface-variant text-center">
+                  {t('onboarding.connectAnotherOrContinue')}
+                </p>
+                <Button variant="primary" onClick={onContinue}>
+                  {t('onboarding.continueAfterConnect')}
+                </Button>
+              </div>
+            )}
+
             {!coachOnly && <ConnectPreview />}
 
             <p className="mt-6 text-xs text-on-surface-variant text-center">
               {t('onboarding.credentialsEncryptedHint')}
             </p>
 
-            {onContinueWithoutProvider && (
+            {onContinueWithoutProvider && !onContinue && (
               <div className="mt-6 text-center">
                 <button
                   type="button"

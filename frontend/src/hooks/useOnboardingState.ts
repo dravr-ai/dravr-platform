@@ -37,6 +37,8 @@ export interface OnboardingState {
   completeCoachProposal: () => void;
   /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
   completeCoachGroup: (status: 'complete' | 'skipped') => void;
+  /** Continue past the connect step once a first provider is connected this session. */
+  completeConnectProvider: () => void;
   /** Session-only "continue without connecting" — escapes the flow to the dashboard. */
   skipProvider: () => void;
   /** Messaging channels the tenant has configured (for the picker step). */
@@ -85,6 +87,9 @@ export function useOnboardingState(): OnboardingState {
   // without connecting. Deliberately not persisted — the connect prompts in
   // chat and on the agent screens carry the nudge from here on.
   const [skippedProvider, setSkippedProvider] = useState(false);
+  // Session-only: the user connected a first provider and pressed Continue. The
+  // connect step stays up until then so a second service is one tap away.
+  const [connectProviderDone, setConnectProviderDone] = useState(false);
   // Session "skip messaging" escape (from either messaging step) → dashboard.
   const [skippedMessaging, setSkippedMessaging] = useState(false);
   // The messaging channel picked this session, before it's server-persisted.
@@ -282,6 +287,7 @@ export function useOnboardingState(): OnboardingState {
   );
 
   const skipProvider = useCallback(() => setSkippedProvider(true), []);
+  const completeConnectProvider = useCallback(() => setConnectProviderDone(true), []);
 
   const chooseChannel = useCallback(
     (channel: string) => {
@@ -307,6 +313,7 @@ export function useOnboardingState(): OnboardingState {
     needsProviderConnection: onboardingStatus?.needs_provider_connection,
     skippedProvider,
     justOnboarded,
+    connectProviderDone,
     profileTypeChosen,
     coachProposalDone,
     aboutYouDone,
@@ -329,6 +336,7 @@ export function useOnboardingState(): OnboardingState {
     completeCheckIn,
     completeCoachProposal,
     completeCoachGroup,
+    completeConnectProvider,
     skipProvider,
     availableChannels,
     chosenChannel,

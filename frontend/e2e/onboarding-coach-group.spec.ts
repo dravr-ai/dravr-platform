@@ -180,7 +180,8 @@ test('a coach can put the group step off', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Later' }).click();
   await expect(page.getByTestId('onboarding-flow')).toHaveCount(0, { timeout: 10_000 });
-  expect(calls.steps).toContain('coach_group:skipped');
+  // The step is recorded fire-and-forget, so its request can land after the flow closes.
+  await expect.poll(() => calls.steps).toContain('coach_group:skipped');
   expect(calls.createGroup).toEqual([]);
   // Later lands where it always has: the dashboard's default, Home.
   await expect(page).toHaveURL(/#home$/);

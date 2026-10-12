@@ -89,8 +89,6 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
 };
 
 interface ProviderConnectionCardsProps {
-  /** Fires once a provider is connected, with the name its card shows. */
-  onProviderConnected?: (displayName: string) => void;
   /**
    * Starts the OAuth flow instead of the cards' own launch. `tosConsent` is
    * true when the athlete just accepted the provider's notice (WHOOP's owner
@@ -114,7 +112,6 @@ interface ProviderConnectionCardsProps {
 }
 
 export default function ProviderConnectionCards({
-  onProviderConnected,
   onConnectProvider,
   connectingProvider,
   onSkip,
@@ -179,6 +176,13 @@ export default function ProviderConnectionCards({
       try {
         const result = JSON.parse(stored);
         const fresh = result?.timestamp && Date.now() - result.timestamp < 30_000;
+        // A grant that landed in the OAuth tab: the poll stops once any
+        // provider is connected, so a second connection is picked up here.
+        // The entry is left for the success handlers in ChatTab and UserSettings.
+        if (fresh && result.success === true) {
+          void refetch();
+          return;
+        }
         if (fresh && result.provider === 'strava' && result.success === false) {
           localStorage.removeItem('pierre_oauth_result');
           setSciotteModalTarget('strava');
@@ -199,7 +203,7 @@ export default function ProviderConnectionCards({
       window.removeEventListener('focus', consumeFailedStrava);
       document.removeEventListener('visibilitychange', consumeFailedStrava);
     };
-  }, []);
+  }, [refetch]);
 
   // Launch the OAuth authorization flow for a provider. Prefers the parent's
   // callback (onboarding shows an "awaiting consent" overlay); otherwise opens
@@ -287,14 +291,6 @@ export default function ProviderConnectionCards({
 
     await connectViaOAuth(provider.provider);
   };
-
-  // The first connected provider, if any
-  const firstConnected = providersData?.providers?.find(p => p.connected);
-
-  // Notify parent when a connection is detected
-  if (firstConnected && onProviderConnected) {
-    onProviderConnected(firstConnected.display_name);
-  }
 
   if (isLoading) {
     return (
@@ -437,9 +433,6 @@ export default function ProviderConnectionCards({
           // next poll tick (5s), stranding the user on the connected card.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSciotteModalTarget(null);
-          if (onProviderConnected) {
-            onProviderConnected(t(SCIOTTE_LOGIN_PRESETS[sciotteModalTarget ?? 'strava'].labelKey));
-          }
         }}
         target={sciotteModalTarget ?? 'strava'}
         consentRequired={sciotteConsentRequired}
@@ -480,11 +473,6 @@ export default function ProviderConnectionCards({
           // onboarding-status cache explicitly — same reasoning as Sciotte above.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setIntervalsModalOpen(false);
-          if (onProviderConnected) {
-            onProviderConnected(
-              providersData?.providers?.find((p) => p.provider === 'intervals_icu')?.display_name ?? 'Intervals.icu',
-            );
-          }
         }}
       />
     </div>

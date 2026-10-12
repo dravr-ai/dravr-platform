@@ -21,6 +21,7 @@ import {
   useOnboardingFlag,
 } from './useOnboardingFlag';
 import { useProviderSkipped } from './useProviderSkipped';
+import { useConnectProviderDone } from './useConnectProviderDone';
 import { useMessagingOnboarding } from './useMessagingOnboarding';
 
 export interface OnboardingContextState {
@@ -84,6 +85,7 @@ export function useOnboardingContext(): OnboardingContextState {
   // Session-only escape from the provider gate, matching web. Not persisted:
   // the nudge should come back next launch.
   const { skipped: skippedProvider } = useProviderSkipped(user?.id);
+  const { done: connectProviderDone } = useConnectProviderDone(user?.id);
   const needsProviderConnection = onboardingStatus?.needs_provider_connection;
   // The messaging steps live post-connect; only fetch the channel list there.
   // A coach who does not train is past the gate without connecting, so the
@@ -120,6 +122,7 @@ export function useOnboardingContext(): OnboardingContextState {
       needsProviderConnection,
       skippedProvider,
       justOnboarded,
+      connectProviderDone,
       profileTypeChosen: profileTypeChosen ?? true,
       aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
@@ -138,6 +141,7 @@ export function useOnboardingContext(): OnboardingContextState {
       needsProviderConnection,
       skippedProvider,
       justOnboarded,
+      connectProviderDone,
       profileTypeChosen,
       aboutYouDone,
       parqDone,

@@ -109,6 +109,32 @@ test.describe('Mobile authenticated layout', () => {
     expect(docScrollWidth).toBeLessThanOrEqual(clientWidth + 1);
   });
 
+  test('the "+" menu on the empty Home opens fully on screen', async ({ page }) => {
+    // On Home's empty state the "+" sits at the left edge of a scrolling
+    // column: a dropdown anchored to its right edge opened off the left of an
+    // Android phone's screen and was clipped.
+    await openHome(page);
+    const empty = page.getByTestId('chat-empty-state');
+    await expect(empty).toBeVisible({ timeout: 10000 });
+    await empty.getByRole('button', { name: 'New', exact: true }).click();
+
+    const menu = page.getByTestId('chat-compose-menu');
+    await expect(menu).toBeVisible();
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    expect(box).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    if (box && viewport) {
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    }
+    // Reachable, not merely laid out: the item takes the tap and opens its dialog.
+    await menu.getByRole('menuitem', { name: 'New group chat' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
   test('navigating from drawer dismisses it and switches tab', async ({ page }) => {
     // Home, Chat, Discover and Notifications are the pinned primary tabs; a
     // provider connection is configuration, so it lives under Settings and

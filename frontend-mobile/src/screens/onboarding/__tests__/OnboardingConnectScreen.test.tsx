@@ -86,11 +86,12 @@ const STRAVA_CARD = {
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <OnboardingConnectScreen />
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 describe('OnboardingConnectScreen — TrainingPeaks', () => {
@@ -136,33 +137,30 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
   });
 
-  it('names Strava as connected while the dashboard prepares, then says why it gave up, in French', async () => {
+  it('stays on the list after Strava connects, offering another service and Continue, in French', async () => {
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=true' });
     linkingParse.mockReturnValue({ queryParams: { success: 'true' } });
+    const garmin = { ...STRAVA_CARD, provider: 'sciotte_garmin', display_name: 'Garmin' };
+    getProvidersStatus.mockResolvedValue({ providers: [STRAVA_CARD, garmin] });
     await i18n.changeLanguage('fr');
-    // Fake from the start, so the screen's 30 s give-up timer is one the test
-    // can advance; `advanceTimers` keeps the awaited queries moving meanwhile.
-    jest.useFakeTimers({ advanceTimers: true });
     try {
-      renderScreen();
+      const { queryClient } = renderScreen();
       fireEvent.press(await screen.findByLabelText('Connecter Strava'));
-
-      expect(
-        await screen.findByText('Strava connecté — préparation de ton tableau de bord…'),
-      ).toBeTruthy();
-
-      // The route flip never came: after 30 s the screen gives the spinner up
-      // and says so in the app language, not in a hardcoded English notice.
-      act(() => {
-        jest.advanceTimersByTime(30_000);
+      // The refetch after the OAuth sheet closes sees Strava connected.
+      getProvidersStatus.mockResolvedValue({
+        providers: [{ ...STRAVA_CARD, connected: true }, garmin],
       });
+
       expect(
-        await screen.findByText(
-          'Impossible de confirmer la connexion. Si tu as terminé la connexion, tire vers le bas pour actualiser ; sinon, réessaie.',
-        ),
+        await screen.findByText('Tu peux connecter un autre service maintenant, ou continuer.'),
       ).toBeTruthy();
+      // The other services are still one tap away.
+      expect(screen.getByLabelText('Connecter Garmin')).toBeTruthy();
+      expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+
+      fireEvent.press(screen.getByText('Continuer'));
+      expect(queryClient.getQueryData(['connect-provider-done', 'u1'])).toBe(true);
     } finally {
-      jest.useRealTimers();
       await i18n.changeLanguage('en');
     }
   });
@@ -183,9 +181,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
 
       expect(await screen.findByText('En attente de l’autorisation de Strava…')).toBeTruthy();
       expect(
-        screen.getByText(
-          "Termine l'autorisation dans le navigateur. Nous t'enverrons automatiquement vers ton tableau de bord dès que Strava aura confirmé.",
-        ),
+        screen.getByText(i18n.t('app.finishAuthInBrowser', { provider: 'Strava' })),
       ).toBeTruthy();
     } finally {
       await act(async () => {
