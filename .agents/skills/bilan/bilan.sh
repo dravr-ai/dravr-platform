@@ -786,11 +786,23 @@ my_pids() {
     printf '%s' "$out"
 }
 
+# A foreground Bash call streams to the same tasks/<id>.output, held open by a shell no different
+# in `ps` from a background one. The status line refreshes bilan beside the session, so counting
+# every held stream would score a refresh during any foreground command 7 on "1 background
+# task(s) still running: <that call>" (carnet#878). Only a background task is announced in the
+# transcript: backgroundTaskId for Bash, agentId for an async agent. Without a readable transcript
+# every held stream still counts.
+announced_task() { # <transcript-or-empty> <id>
+    [ -n "$1" ] || return 0
+    grep -qE "\"(backgroundTaskId|agentId)\":\"$2\"" "$1" 2>/dev/null
+}
+
 check_running_tasks() {
-    local dir f pids p mine running=0 names="" id
+    local dir f pids p mine running=0 names="" id tx
     command -v lsof >/dev/null 2>&1 || return 0
     dir=$(task_dir) || return 0
     mine=$(my_pids)
+    tx=$(transcript_path 2>/dev/null) || tx=""
     for f in "$dir"/*.output; do
         [ -f "$f" ] || continue
         grep -q '\[exited with code\|\[killed\]' "$f" 2>/dev/null && continue
@@ -806,6 +818,7 @@ check_running_tasks() {
         done
         [ "$is_mine" = 1 ] && continue
         id=$(basename "$f" .output)
+        announced_task "$tx" "$id" || continue
         running=$((running + 1)); names="$names $id"
     done
     [ "$running" -gt 0 ] || return 0

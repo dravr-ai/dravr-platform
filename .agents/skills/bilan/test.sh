@@ -439,9 +439,21 @@ check "a live background task caps at 7" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==7) | select(.evidence | test("background task"))] | length')"
 check "it names the live one and only it" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("live")) | select(.evidence | test("finished|stopped|orphan") | not)] | length')"
+# carnet#878: a foreground Bash call streams to the same directory, and the status line's refresh
+# runs beside it. The transcript announces only real background work.
+bg_caps() { task_run | jq '[.caps[] | select(.evidence | test("background task"))] | length'; }
+mkdir -p "$CFG/projects/fixture"
+printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"","stderr":"","interrupted":false}}' > "$CFG/projects/fixture/$SID.jsonl"
+check "a held stream the transcript never announced is a foreground call" 0 "$(bg_caps)"
+printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"livelier"}}' > "$CFG/projects/fixture/$SID.jsonl"
+check "another task's announcement does not vouch for this stream" 0 "$(bg_caps)"
+printf '%s\n' '{"type":"user","toolUseResult":{"stdout":"","backgroundTaskId":"live"}}' > "$CFG/projects/fixture/$SID.jsonl"
+check "an announced background Bash task still caps" 1 "$(bg_caps)"
+printf '%s\n' '{"type":"user","toolUseResult":{"isAsync":true,"agentId":"live","status":"async_launched"}}' > "$CFG/projects/fixture/$SID.jsonl"
+check "an announced async agent still caps" 1 "$(bg_caps)"
+rm -rf "$CFG/projects"
 kill "$LIVE" 2>/dev/null; wait "$LIVE" 2>/dev/null
-check "a finished task is not counted" 0 \
-    "$(task_run | jq '[.caps[] | select(.evidence | test("background task"))] | length')"
+check "a finished task is not counted" 0 "$(bg_caps)"
 rm -rf "$CFG/scratch"
 
 # ---- the deliverable, not just the repo. A session doing research or writing a document
