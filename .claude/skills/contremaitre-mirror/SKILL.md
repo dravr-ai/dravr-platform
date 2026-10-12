@@ -38,6 +38,15 @@ A paired change is always these steps in order, never one atomic commit across b
   6. the locale copies are byte-identical to the pinned `strings/`
   8. no branch commit moves the pin
 
+## When a contremaitre string breaks a platform gate
+
+The repair is upstream: the platform copy belongs to the bump lane (Check 8), so no branch can fix it.
+
+1. Fix the string in dravr-contremaitre. The usual cause is the vocabulary fence (`scripts/ci/check-agent-vocabulary.sh` part A), which reads "coach" outside `humanCoach.*` as the AI persona: a string about the persona says agent (ADR-026), and one about a human professional names the human coach explicitly or moves under `humanCoach.*`.
+2. Once that lands, dispatch the bump lane rather than waiting for its poll: `gh workflow run contremaitre-bump.yml -R dravr-ai/dravr-platform --ref main`. Until the copy moves, every session's platform pre-push gate fails on it.
+
+The bump lane and contremaitre's pre-push gate both run the vocabulary fence, so a failing string normally stops there: the lane refuses to push the copy and the pin holds at the last good rev until the fixed string lands upstream.
+
 ## A new `McpTool`, in full
 
 Update `EXPECTED_TOOLS` in `contremaitre_test.rs` (kept sorted) + the count in `configuration_mcp_integration_test`, give operator-only tools `ADMIN_ONLY` so both discovery surfaces withhold them from non-admins, and regen the TS SDK types from a running server (`cd packages/mcp-types && bun run generate` — admin-gated, so it needs `PIERRE_ADMIN_TOKEN`, `ADMIN_EMAIL`+`ADMIN_PASSWORD`, or `logs/admin-token.txt`) — a changed `input_schema`/description alone reds `CI: TypeScript SDK`. If Check 3 reports "Tool scan incomplete", a tool was registered with a computed name: fix the name or extend the check, never ignore it.

@@ -154,6 +154,21 @@ jobs:
         if: steps.bump.outputs.changed == 'true'
         run: scripts/ci/check-contremaitre-sync.sh
 
+      - name: Refuse to push a string copy that fails the vocabulary fence
+        # Part A of check-agent-vocabulary.sh reads the whole catalogue on every
+        # session's pre-push gate. Whatever contremaitre's own gate checks, it
+        # checks on an author's machine against platform main as it stood then,
+        # so a string that calls the persona a coach ("Coaches link with their
+        # API key...") can still reach this copy, and from that commit on every
+        # session's gate fails on a file none of them may touch: Check 8 leaves
+        # the copy to this lane alone. Failing HERE, for the same reason as the
+        # step above, keeps main green until the string is fixed upstream and
+        # the next poll retries. Catalogue only, because the copy is the whole
+        # input and this lane has no push of its own for the diff-scoped half
+        # to read.
+        if: steps.bump.outputs.changed == 'true'
+        run: scripts/ci/check-agent-vocabulary.sh --catalogue-only
+
       - name: Commit and push bump
         if: steps.bump.outputs.changed == 'true'
         run: |

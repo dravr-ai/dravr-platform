@@ -226,6 +226,7 @@ The score is `min()` over caps, each printing its evidence and remedy: a held or
 
 - **NEVER use `--no-verify`.** **NEVER create or suggest a Pull Request** (`gh pr create`) for platform self-merges — merges happen locally via squash merge. (Carve-outs: cross-repo dependency-notification PRs on sibling repos, and the explicit one-off the user authorizes.)
 - **Bug fixes** go directly to `main`: commit and `git push origin main`.
+- **Several commits, or a change that spans crates, land through a branch even when they are fixes.** Push them to a `feature/*` or `claude/*` branch (not `fix/*`, which runs only the PostgreSQL smoke), and squash onto main only once that branch's CI is green: those refs run the full PostgreSQL suite and full-workspace clippy that the targeted pre-push gate skips (lane contract at the top of `.github/workflows/ci-postgres.yml`). It is still a local merge: one branch push, then one push to main.
 - **Features** use a branch → push → local squash merge:
   ```bash
   git checkout main && git fetch origin

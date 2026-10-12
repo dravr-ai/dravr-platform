@@ -25,11 +25,20 @@
 #      sense-A phrases this push ADDS. Classifying prose is a judgement call —
 #      the same judgement that made a blind sed wrong in the first place — so
 #      this half stays narrow and reports the standing stock without blocking.
+#
+# --catalogue-only runs A alone and exits with its status. contremaitre-bump.yml
+# calls it on the string copy it has just synced: that copy is the one input A
+# reads, and the lane has no push of its own for B to diff.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+
+CATALOGUE_ONLY=0
+if [[ "${1:-}" == "--catalogue-only" ]]; then
+    CATALOGUE_ONLY=1
+fi
 
 FAILED=0
 
@@ -117,6 +126,10 @@ if bad:
 
 print(f'✅ Catalogue: {scanned} values across 5 locales, none names the persona a coach.')
 PY
+
+if (( CATALOGUE_ONLY )); then
+    exit $FAILED
+fi
 
 # ---------------------------------------------------------------------------
 # B. Prose this push adds
