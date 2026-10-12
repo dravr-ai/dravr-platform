@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
-// ABOUTME: Also holds each scrape-mirror target's login facts, and each provider's notice to accept first
+// ABOUTME: Also holds each scrape-mirror target's login facts, each provider's notice to accept first, and how Intervals.icu links
 
 import type { SciotteTarget } from '@pierre/shared-types';
 
@@ -223,4 +223,34 @@ export interface AiConsentCard {
  */
 export function aiConsentCards<T extends AiConsentCard>(cards: readonly T[]): T[] {
   return cards.filter((card) => card.connected && typeof card.ai_consent === 'boolean');
+}
+
+/** The fields of a provider card the Intervals.icu connect path reads. */
+export interface IntervalsConnectCard {
+  requires_oauth: boolean;
+  own_app_required: boolean;
+  connected: boolean;
+  connection_type?: string;
+}
+
+/**
+ * How an Intervals.icu card connects, or reconnects:
+ * - `'key'`: the API-key form alone. A card linked by key reconnects through
+ *   it, since a coach's key reads the athletes they coach and an
+ *   authorization cannot replace it; and with no client to authorize under
+ *   (`own_app_required`), the key is the only way in.
+ * - `'authorize'`: straight to the authorization, for a card the athlete
+ *   authorized.
+ * - `'choose'`: a new link while the authorization is offered — the dialog
+ *   leads with it and keeps the coach's key form beside it.
+ */
+export type IntervalsConnectPath = 'authorize' | 'choose' | 'key';
+
+/** The way `card` (the `intervals_icu` card) connects or reconnects. */
+export function intervalsConnectPath(card: IntervalsConnectCard): IntervalsConnectPath {
+  const authorizeOffered = card.requires_oauth && !card.own_app_required;
+  if (!authorizeOffered) return 'key';
+  if (card.connected && card.connection_type === 'manual') return 'key';
+  if (card.connected && card.connection_type === 'oauth') return 'authorize';
+  return 'choose';
 }

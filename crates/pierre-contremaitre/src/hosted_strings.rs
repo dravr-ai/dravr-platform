@@ -7,7 +7,7 @@
 //! Keys of the server-rendered hosted pages.
 //!
 //! The pages `/connect` opens from a chat — the provider picker, the
-//! Intervals.icu API-key form, the hosted provider login, and the success and
+//! Intervals.icu connect form, the hosted provider login, and the success and
 //! link-error pages they end on — are rendered by `pierre-routes-auth` in the
 //! athlete's own locale. Every string they show is a catalogue key declared
 //! here, read through
@@ -123,7 +123,7 @@ pub const KEY_HOSTED_LOGIN_PAGE_TITLE: &str = "hosted.login.pageTitle";
 /// Key: "Your `{0}` data is now available. You can return to `{1}`."
 pub const KEY_HOSTED_LOGIN_DATA_AVAILABLE: &str = "hosted.login.dataAvailable";
 
-// ── Intervals.icu API-key form ──
+// ── Intervals.icu connect form ──
 
 /// Key: "Connect Intervals.icu - Dravr" No format placeholders.
 pub const KEY_HOSTED_INTERVALS_PAGE_TITLE: &str = "hosted.intervals.pageTitle";
@@ -139,6 +139,10 @@ pub const KEY_HOSTED_INTERVALS_REJECTED: &str = "hosted.intervals.rejected";
 pub const KEY_HOSTED_INTERVALS_UNAVAILABLE: &str = "hosted.intervals.unavailable";
 /// Key: "We could not save your Intervals.icu connection. Please try again in a moment." No format placeholders.
 pub const KEY_HOSTED_INTERVALS_SAVE_FAILED: &str = "hosted.intervals.saveFailed";
+/// Key: "You sign in on Intervals.icu and approve Dravr there — Dravr never sees your password." No format placeholders.
+pub const KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE: &str = "hosted.intervals.authorizeNote";
+/// Key: "Coaches link with their API key, so Dravr can read the athletes they coach." No format placeholders.
+pub const KEY_HOSTED_INTERVALS_COACH_NOTE: &str = "hosted.intervals.coachNote";
 
 // ── Success page ──
 
@@ -183,8 +187,8 @@ pub const KEY_HOSTED_ERROR_GENERIC: &str = "hosted.error.generic";
 // ── Intervals.icu strings the app dialog shares ──
 //
 // The web and mobile Intervals.icu dialog reads these same keys, so the
-// hosted form and the app name the two fields and where to find them in one
-// wording.
+// hosted form and the app name the two fields, where to find them, and the
+// two ways in (authorize, or a coach's API key) in one wording.
 
 /// Key: "Athlete ID" No format placeholders.
 pub const KEY_INTERVALS_ATHLETE_ID: &str = "shell.intervalsAthleteId";
@@ -194,6 +198,10 @@ pub const KEY_INTERVALS_API_KEY_LABEL: &str = "shell.intervalsApiKeyLabel";
 pub const KEY_INTERVALS_CONNECT_ACTION: &str = "shell.intervalsConnectAction";
 /// Key: "Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page." No format placeholders.
 pub const KEY_INTERVALS_CREDENTIALS_HELP: &str = "shell.intervalsCredentialsHelp";
+/// Key: "Authorize with Intervals.icu" No format placeholders.
+pub const KEY_INTERVALS_AUTHORIZE_ACTION: &str = "shell.intervalsAuthorizeAction";
+/// Key: "Coaching athletes? Link with your API key" No format placeholders.
+pub const KEY_INTERVALS_COACH_KEY_ACTION: &str = "shell.intervalsCoachKeyAction";
 
 // ── Sciotte code-step strings the app dialog shares ──
 //
@@ -205,7 +213,7 @@ pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
 
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 63] = [
+pub const TEMPLATE_KEYS: [&str; 67] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -251,6 +259,8 @@ pub const TEMPLATE_KEYS: [&str; 63] = [
     KEY_HOSTED_INTERVALS_REJECTED,
     KEY_HOSTED_INTERVALS_UNAVAILABLE,
     KEY_HOSTED_INTERVALS_SAVE_FAILED,
+    KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE,
+    KEY_HOSTED_INTERVALS_COACH_NOTE,
     KEY_HOSTED_SUCCESS_PAGE_TITLE,
     KEY_HOSTED_SUCCESS_HEADING_GENERIC,
     KEY_HOSTED_SUCCESS_DATA_AVAILABLE_GENERIC,
@@ -269,4 +279,6 @@ pub const TEMPLATE_KEYS: [&str; 63] = [
     KEY_INTERVALS_API_KEY_LABEL,
     KEY_INTERVALS_CONNECT_ACTION,
     KEY_INTERVALS_CREDENTIALS_HELP,
+    KEY_INTERVALS_AUTHORIZE_ACTION,
+    KEY_INTERVALS_COACH_KEY_ACTION,
 ];

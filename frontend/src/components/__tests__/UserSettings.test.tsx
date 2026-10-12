@@ -850,6 +850,78 @@ describe('UserSettings Component', () => {
     });
   });
 
+  describe('Data Providers — Intervals.icu, by authorization or by key', () => {
+    const intervalsCard = (overrides: Record<string, unknown> = {}) => ({
+      provider: 'intervals_icu',
+      display_name: 'Intervals.icu',
+      requires_oauth: true,
+      connected: false,
+      needs_reauth: false,
+      capabilities: ['activities', 'health'],
+      consent_required: false,
+      own_app_required: false,
+      oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/intervals_icu',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    });
+
+    async function openConnect() {
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+      await user.click(await screen.findByTestId('provider-connect-intervals_icu'));
+      return user;
+    }
+
+    it('offers the authorization first for a new link, and starts it from the dialog', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [intervalsCard()] });
+      const user = await openConnect();
+
+      expect(await screen.findByTestId('intervals-authorize-choice')).toBeInTheDocument();
+      expect(window.open).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId('intervals-authorize'));
+
+      expect(authorizeUrl).toHaveBeenCalledWith('intervals_icu', { tosConsent: false });
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+    });
+
+    it('reconnects a key-linked card through the key form, never the authorization', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'manual' })],
+      });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-authorize-choice')).not.toBeInTheDocument();
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('reconnects an authorized card straight through the authorization', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'oauth' })],
+      });
+      await openConnect();
+
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('opens the key form alone, never an own-app setup, while no client resolves', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [intervalsCard({ own_app_required: true })] });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('own-app-setup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-authorize')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Data Providers — Strava OAuth-first with Sciotte fallback', () => {
     const stravaCard = (recommended_backend: 'oauth' | 'mirror') => ({
       provider: 'sciotte',

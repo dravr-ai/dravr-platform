@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Intervals.icu link sheet for mobile — collects athlete id + API key (non-OAuth) in the one bottom sheet
-// ABOUTME: Server validates the HTTP Basic ("API_KEY":api_key) pair live before storing
+// ABOUTME: Intervals.icu link sheet for mobile — the authorization when offered, and the athlete id + API key form
+// ABOUTME: The key form is the coach's path (only a key reads coached athletes); the server validates the pair live before storing
 
 import React, { useState, useEffect } from 'react';
 import { View, Text, KeyboardAvoidingView, Platform } from 'react-native';
@@ -19,9 +19,20 @@ interface IntervalsIcuLinkModalProps {
   visible: boolean;
   onClose: () => void;
   onConnected: () => void;
+  /**
+   * Starts the Intervals.icu authorization. Given while the server offers it
+   * (`intervalsConnectPath` answers `'choose'`): the sheet then leads with
+   * the authorization and keeps the API-key form, the coach's path, one tap
+   * away. Absent, the sheet is the key form alone — no client to authorize
+   * under, or a key-linked row reconnecting.
+   */
+  onAuthorize?: () => void;
 }
 
-export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: IntervalsIcuLinkModalProps) {
+/** What the sheet shows: the choice of the two paths, or the key form. */
+type LinkView = 'choose' | 'key';
+
+export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthorize }: IntervalsIcuLinkModalProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const [athleteId, setAthleteId] = useState('');
@@ -32,6 +43,8 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
   // else the id, else nothing but the confirmation word.
   const [linkedAthlete, setLinkedAthlete] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const offersAuthorize = onAuthorize !== undefined;
+  const [view, setView] = useState<LinkView>(offersAuthorize ? 'choose' : 'key');
 
   useEffect(() => {
     if (visible) {
@@ -41,8 +54,9 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
       setError(null);
       setLinkedAthlete(null);
       setSuccess(false);
+      setView(offersAuthorize ? 'choose' : 'key');
     }
-  }, [visible]);
+  }, [visible, offersAuthorize]);
 
   const handleSubmit = async () => {
     setIsLoading(true);
@@ -72,7 +86,9 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
             <Text className="text-lg font-semibold text-text-primary">
               {t('app.connectProvider', { provider: PROVIDER_BRAND.intervalsIcu })}
             </Text>
-            <Text className="text-xs text-text-tertiary">{t('app.apiKeyNoOauth')}</Text>
+            {view === 'key' && (
+              <Text className="text-xs text-text-tertiary">{t('shell.intervalsApiKeyHint')}</Text>
+            )}
           </View>
         </View>
 
@@ -84,8 +100,36 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
               <Text className="mt-1 text-sm text-text-secondary">{linkedAthlete}</Text>
             )}
           </View>
+        ) : view === 'choose' && onAuthorize ? (
+          <View testID="intervals-authorize-choice">
+            <Text className="text-sm text-text-secondary mb-4">{t('shell.intervalsAuthorizeHint')}</Text>
+            <Button
+              title={t('shell.intervalsAuthorizeAction')}
+              onPress={onAuthorize}
+              fullWidth
+              testID="intervals-authorize"
+            />
+            <Text
+              className="mt-4 text-center text-md font-medium text-primary"
+              onPress={() => setView('key')}
+              accessibilityRole="button"
+              testID="intervals-use-api-key"
+            >
+              {t('shell.intervalsCoachKeyAction')}
+            </Text>
+          </View>
         ) : (
           <>
+            {offersAuthorize && (
+              <Text
+                className="mb-3 text-md font-medium text-primary"
+                onPress={() => setView('choose')}
+                accessibilityRole="button"
+                testID="intervals-back-to-authorize"
+              >
+                {t('common.back')}
+              </Text>
+            )}
             <Text className="text-sm text-text-secondary mb-4">
               {t('shell.intervalsCredentialsHelp')}
             </Text>

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// ABOUTME: Unit tests for IntervalsIcuLinkModal — athlete id + API key entry and link submission
-// ABOUTME: Covers closed render, successful link (trimmed payload + onConnected), and error display
+// ABOUTME: Unit tests for IntervalsIcuLinkModal — the authorization when offered, athlete id + API key entry and link submission
+// ABOUTME: Covers closed render, the authorize-first choice and the coach's key path, successful link, and error display
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -92,5 +92,74 @@ describe('IntervalsIcuLinkModal', () => {
     expect(submit).toBeDisabled();
     await user.type(screen.getByLabelText('API Key'), 'secret-key');
     expect(submit).toBeEnabled();
+  });
+});
+
+describe('IntervalsIcuLinkModal — the authorization offered', () => {
+  const onAuthorize = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function renderOffering() {
+    return render(
+      <IntervalsIcuLinkModal
+        isOpen
+        onClose={mockOnClose}
+        onConnected={mockOnConnected}
+        onAuthorize={onAuthorize}
+      />
+    );
+  }
+
+  it('leads with the authorization, and starting it links nothing itself', async () => {
+    const user = userEvent.setup();
+    renderOffering();
+
+    expect(screen.getByTestId('intervals-authorize-choice')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Athlete ID')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('intervals-authorize'));
+
+    expect(onAuthorize).toHaveBeenCalledTimes(1);
+    expect(providersApi.linkIntervalsIcu).not.toHaveBeenCalled();
+  });
+
+  it('keeps the coach\'s API-key form one tap away, and back again', async () => {
+    vi.mocked(providersApi.linkIntervalsIcu).mockResolvedValue({
+      status: 'connected',
+      provider: 'intervals_icu',
+      athlete: { id: 'i777', name: 'Coach' },
+    });
+    const user = userEvent.setup();
+    renderOffering();
+
+    await user.click(screen.getByTestId('intervals-use-api-key'));
+    expect(screen.queryByTestId('intervals-authorize-choice')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Athlete ID'), 'i777');
+    await user.type(screen.getByLabelText('API Key'), 'coach-key');
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(providersApi.linkIntervalsIcu).toHaveBeenCalledWith({ athlete_id: 'i777', api_key: 'coach-key' });
+    expect(onAuthorize).not.toHaveBeenCalled();
+  });
+
+  it('returns from the key form to the authorization', async () => {
+    const user = userEvent.setup();
+    renderOffering();
+
+    await user.click(screen.getByTestId('intervals-use-api-key'));
+    await user.click(screen.getByTestId('intervals-back-to-authorize'));
+
+    expect(screen.getByTestId('intervals-authorize-choice')).toBeInTheDocument();
+  });
+
+  it('offers no way back to an authorization it was not given', () => {
+    renderModal();
+
+    expect(screen.getByLabelText('Athlete ID')).toBeInTheDocument();
+    expect(screen.queryByTestId('intervals-back-to-authorize')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('intervals-authorize')).not.toBeInTheDocument();
   });
 });

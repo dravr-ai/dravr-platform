@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for the mobile IntervalsIcuLinkModal — athlete id + API key link submission
-// ABOUTME: Covers trimmed payload + onConnected on success, and error display on rejection
+// ABOUTME: Unit tests for the mobile IntervalsIcuLinkModal — the authorization when offered, and athlete id + API key link submission
+// ABOUTME: Covers the authorize-first choice and the coach's key path, trimmed payload + onConnected on success, and errors
 
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -77,5 +77,63 @@ describe('IntervalsIcuLinkModal', () => {
       )
     );
     expect(onConnected).not.toHaveBeenCalled();
+  });
+});
+
+describe('IntervalsIcuLinkModal — the authorization offered', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('leads with the authorization, and starting it links nothing itself', () => {
+    const onAuthorize = jest.fn();
+    const { getByTestId, queryByTestId } = render(
+      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
+    );
+
+    expect(getByTestId('intervals-authorize-choice')).toBeTruthy();
+    expect(queryByTestId('intervals-athlete-id')).toBeNull();
+
+    fireEvent.press(getByTestId('intervals-authorize'));
+
+    expect(onAuthorize).toHaveBeenCalledTimes(1);
+    expect(oauthApi.linkIntervalsIcu).not.toHaveBeenCalled();
+  });
+
+  it('keeps the coach\'s API-key form one tap away, and back again', async () => {
+    (oauthApi.linkIntervalsIcu as jest.Mock).mockResolvedValue({
+      status: 'connected',
+      provider: 'intervals_icu',
+      athlete: { id: 'i777', name: 'Coach' },
+    });
+    const onAuthorize = jest.fn();
+    const { getByTestId, queryByTestId } = render(
+      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
+    );
+
+    fireEvent.press(getByTestId('intervals-use-api-key'));
+    expect(queryByTestId('intervals-authorize-choice')).toBeNull();
+    fireEvent.press(getByTestId('intervals-back-to-authorize'));
+    expect(getByTestId('intervals-authorize-choice')).toBeTruthy();
+
+    fireEvent.press(getByTestId('intervals-use-api-key'));
+    fireEvent.changeText(getByTestId('intervals-athlete-id'), 'i777');
+    fireEvent.changeText(getByTestId('intervals-api-key'), 'coach-key');
+    fireEvent.press(getByTestId('intervals-submit'));
+
+    await waitFor(() =>
+      expect(oauthApi.linkIntervalsIcu).toHaveBeenCalledWith({ athlete_id: 'i777', api_key: 'coach-key' })
+    );
+    expect(onAuthorize).not.toHaveBeenCalled();
+  });
+
+  it('offers no way back to an authorization it was not given', () => {
+    const { getByTestId, queryByTestId } = render(
+      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} />
+    );
+
+    expect(getByTestId('intervals-athlete-id')).toBeTruthy();
+    expect(queryByTestId('intervals-back-to-authorize')).toBeNull();
+    expect(queryByTestId('intervals-authorize')).toBeNull();
   });
 });

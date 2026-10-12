@@ -56,6 +56,7 @@ function providerStatus(
     setNeedsCredentialsProvider: jest.fn(),
     handleConnectProvider: jest.fn().mockResolvedValue(undefined),
     getCachedConnectedProvider: () => undefined,
+    refreshAfterLink: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

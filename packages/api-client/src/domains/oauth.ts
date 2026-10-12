@@ -197,9 +197,10 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
-     * Link an Intervals.icu account using the athlete id + personal API key.
-     * Intervals.icu is an API-key (HTTP Basic) provider, not OAuth — the
-     * server validates the pair against the live API before storing it.
+     * Link an Intervals.icu account using the athlete id + personal API key:
+     * the coach's path (only the key reads the athletes they coach), and the
+     * only one while the card offers no authorization. The server validates
+     * the pair against the live API before storing it.
      */
     async linkIntervalsIcu(params: {
       athlete_id: string;

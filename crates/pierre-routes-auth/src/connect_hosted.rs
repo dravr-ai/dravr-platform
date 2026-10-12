@@ -21,8 +21,9 @@
 //! 3. Routes the user's choice to the Sciotte credential state machine
 //!    (`/api/providers/sciotte/*`), the link-token-authed OAuth init
 //!    (`/api/providers/connect/oauth-init/{provider}`), or — for Intervals.icu,
-//!    which takes an athlete id + API key — the hosted API-key form
-//!    (`/providers/connect/intervals_icu`, [`crate::connect_hosted_intervals`]).
+//!    which an athlete authorizes and a coach links with an API key — the
+//!    hosted Intervals.icu page (`/providers/connect/intervals_icu`,
+//!    [`crate::connect_hosted_intervals`]), which offers both.
 //!
 //! Every page is written in the locale of the athlete the link-token names
 //! ([`crate::hosted_page`]), from the dravr-contremaitre catalogue. A page
@@ -115,7 +116,9 @@ struct ConnectProviderCard {
     /// Already connected — the card is shown disabled.
     connected: bool,
     /// "oauth" (full-page redirect to consent), "sciotte" (credential form) or
-    /// "`api_key`" (the hosted Intervals.icu API-key form).
+    /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
+    /// card is "oauth" while its authorization is offered, and opens its
+    /// hosted page either way.
     kind: &'static str,
     /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
     /// `intervals_icu` for the API-key card; empty for OAuth cards.
@@ -130,9 +133,10 @@ struct ConnectProviderCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     notice: Option<ExposureNotice>,
     /// Where picking the card navigates, for a card whose flow is a hosted
-    /// page of its own (the Intervals.icu API-key form): a same-origin path
-    /// carrying the connect link-token. Absent for the OAuth and Sciotte
-    /// cards, whose flows the picker page runs itself.
+    /// page of its own (the Intervals.icu page, with its authorization and
+    /// its API-key form): a same-origin path carrying the connect link-token.
+    /// Absent for the other OAuth cards and the Sciotte cards, whose flows the
+    /// picker page runs itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     form_url: Option<String>,
     /// What the provider's own login asks for: `"username"` (TrainingPeaks)
@@ -218,14 +222,20 @@ async fn build_connect_providers(
                     });
                 }
             }
-            // Intervals.icu: an athlete id + API key, collected by the hosted
-            // API-key form rather than an OAuth consent screen.
+            // Intervals.icu: its hosted page offers the athlete's
+            // authorization while a client resolves for it, and keeps the
+            // API-key form a coach links with. With no client, the key form
+            // is the only way in and the card says so.
             INTERVALS_ICU => cards.push(ConnectProviderCard {
+                kind: if p.requires_oauth && !p.own_app_required {
+                    "oauth"
+                } else {
+                    "api_key"
+                },
                 provider: p.provider,
                 display_name: p.display_name,
                 description: p.description,
                 connected: p.connected,
-                kind: "api_key",
                 target: INTERVALS_ICU.to_owned(),
                 consent_required: false,
                 notice: None,

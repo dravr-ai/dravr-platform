@@ -1,5 +1,5 @@
-// ABOUTME: Integration tests for the hosted Intervals.icu API-key form a chat's connect picker opens
-// ABOUTME: Pins the picker card, connect-token gating on GET and POST, live validation, storage, and key hygiene
+// ABOUTME: Integration tests for the hosted Intervals.icu page a chat's connect picker opens: authorization and API-key form
+// ABOUTME: Pins the picker card, the authorization offered only with a client, token gating, live validation, storage, key hygiene
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,15 +9,21 @@
 #![allow(missing_docs)]
 
 //! The hosted connect picker a chat's `/connect` opens offers Intervals.icu,
-//! and its card leads to an athlete id + API key form authorized by the same
-//! connect link-token. The POST validates the pair against Intervals.icu —
-//! stubbed on loopback, as `intervals_icu_link_route_test` does — through the
-//! same linking path the web Settings form uses, then redirects to the shared
-//! success page.
+//! and its card leads to the hosted Intervals.icu page authorized by the same
+//! connect link-token. While the server's Intervals.icu app resolves, the page
+//! leads with the athlete's authorization and keeps the athlete id + API key
+//! form a coach links with; without one, the form is all it offers. The POST
+//! validates the pair against Intervals.icu — stubbed on loopback, as
+//! `intervals_icu_link_route_test` does — through the same linking path the
+//! web Settings form uses, then redirects to the shared success page.
+//!
+//! The server's app is read from the process environment, so every test whose
+//! answer depends on it is `#[serial]`.
 
 mod common;
 mod helpers;
 
+use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -37,6 +43,7 @@ use pierre_middleware::provider_link_token::{
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
+use serial_test::serial;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -47,6 +54,33 @@ const SECRET_KEY: &str = "sk-intervals-7f3a9c2e41d8";
 
 /// The form page and its POST target.
 const FORM_PATH: &str = "/providers/connect/intervals_icu";
+
+/// The client id the server's Intervals.icu app is configured with, when a
+/// test configures one.
+const SERVER_CLIENT_ID: &str = "icu_hosted_client";
+
+/// What `infra/modules/secrets/main.tf` seeds an unfilled secret with: the
+/// server reads it as no credential at all.
+const PLACEHOLDER: &str = "PLACEHOLDER_FILL_MANUALLY";
+
+/// The server's Intervals.icu app, configured for one test and removed when
+/// the guard drops.
+struct ServerIntervalsApp;
+
+impl ServerIntervalsApp {
+    fn configure(client_id: &str, client_secret: &str) -> Self {
+        env::set_var("INTERVALS_ICU_CLIENT_ID", client_id);
+        env::set_var("INTERVALS_ICU_CLIENT_SECRET", client_secret);
+        Self
+    }
+}
+
+impl Drop for ServerIntervalsApp {
+    fn drop(&mut self) {
+        env::remove_var("INTERVALS_ICU_CLIENT_ID");
+        env::remove_var("INTERVALS_ICU_CLIENT_SECRET");
+    }
+}
 
 /// One-shot loopback stub standing in for Intervals.icu. Answers a single
 /// request with `status_line` + `body` and returns the captured request head.
@@ -184,6 +218,7 @@ async fn intervals_connections(fixture: &Fixture) -> Vec<ConnectionType> {
 // ============================================================================
 
 #[tokio::test]
+#[serial]
 async fn picker_offers_intervals_icu_as_an_api_key_card() {
     let (base_url, stub) = stub_once("HTTP/1.1 200 OK", "{}").await;
     let fixture = setup(&base_url).await;
@@ -225,6 +260,112 @@ async fn picker_offers_intervals_icu_as_an_api_key_card() {
     for other in cards.iter().filter(|c| c["provider"] != INTERVALS_ICU) {
         assert!(other.get("form_url").is_none(), "{other}");
     }
+    stub.abort();
+}
+
+/// With the server's app configured, the card is an authorization, its page
+/// leads with the authorization start, and the coach's key form stays below
+/// it as the page's second action. The start it links to reaches
+/// Intervals.icu's own authorization page under the server's app.
+#[tokio::test]
+#[serial]
+async fn with_a_client_the_page_leads_with_the_authorization_and_keeps_the_key_form() {
+    let (base_url, stub) = stub_once("HTTP/1.1 200 OK", "{}").await;
+    let app = ServerIntervalsApp::configure(SERVER_CLIENT_ID, "icu_hosted_secret");
+    let fixture = setup(&base_url).await;
+    let token = connect_token(&fixture);
+
+    let body = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(fixture.router.clone())
+    .await
+    .text();
+    let cards = picker_cards(&body);
+    let card = cards
+        .iter()
+        .find(|c| c["provider"] == INTERVALS_ICU)
+        .expect("the picker offers Intervals.icu");
+    assert_eq!(card["kind"], "oauth", "the card reads as an authorization");
+    assert_eq!(
+        card["form_url"].as_str(),
+        Some(form_url(&token).as_str()),
+        "the card still opens the hosted page, where a coach finds the key form"
+    );
+
+    let page = AxumTestRequest::get(&form_url(&token))
+        .send(fixture.router.clone())
+        .await;
+    assert_eq!(page.status(), 200);
+    let page = page.text();
+    let start = format!(
+        "/api/providers/connect/oauth-init/{INTERVALS_ICU}?token={}",
+        urlencoding::encode(&token)
+    );
+    assert!(
+        page.contains(r#"<div id="authorize">"#),
+        "the authorization is shown: {page}"
+    );
+    assert!(
+        page.contains(&format!(r#"id="authorize-intervals" href="{start}""#)),
+        "the authorization links to the link-token-authed start: {page}"
+    );
+    assert!(
+        page.contains(r#"name="athlete_id""#) && page.contains(r#"name="api_key""#),
+        "the coach's key form stays"
+    );
+    assert!(
+        page.contains(r#"class="btn btn-secondary btn-block" id="submit-api-key""#),
+        "the authorization is the page's one primary action"
+    );
+    assert!(!page.contains("{{"), "no placeholder survives the render");
+
+    let resp = AxumTestRequest::get(&start)
+        .send(fixture.router.clone())
+        .await;
+    assert_eq!(resp.status(), 302, "{}", resp.text());
+    let location = resp
+        .header("location")
+        .expect("the start redirects")
+        .to_owned();
+    assert!(
+        location.starts_with("https://intervals.icu/oauth/authorize?"),
+        "the start reaches Intervals.icu's authorization page: {location}"
+    );
+    assert!(
+        location.contains(&format!("client_id={SERVER_CLIENT_ID}")),
+        "under the server's app: {location}"
+    );
+    drop(app);
+    stub.abort();
+}
+
+/// With no client to run under, the page is the key form alone and its
+/// submit is the primary action: nothing offers an authorization that would
+/// reach Intervals.icu with no app.
+#[tokio::test]
+#[serial]
+async fn without_a_client_the_page_offers_only_the_key_form() {
+    let (base_url, stub) = stub_once("HTTP/1.1 200 OK", "{}").await;
+    let app = ServerIntervalsApp::configure(PLACEHOLDER, PLACEHOLDER);
+    let fixture = setup(&base_url).await;
+    let token = connect_token(&fixture);
+
+    let page = AxumTestRequest::get(&form_url(&token))
+        .send(fixture.router.clone())
+        .await
+        .text();
+    drop(app);
+
+    assert!(
+        page.contains(r#"<div id="authorize" hidden>"#),
+        "the placeholder app offers no authorization: {page}"
+    );
+    assert!(
+        page.contains(r#"class="btn btn-primary btn-block" id="submit-api-key""#),
+        "the key form is the page's primary action"
+    );
     stub.abort();
 }
 

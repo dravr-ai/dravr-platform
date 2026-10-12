@@ -222,6 +222,16 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
+   * How the connection behind a connected card was made: `"oauth"` for a
+   * provider authorization, `"manual"` for a pasted credential (an
+   * Intervals.icu API key), `"delegated"` for a card read through a group
+   * coach's account. A reconnect goes back the same way — an Intervals.icu
+   * card linked by API key reopens the key form, since a coach's roster
+   * reads need the key (`intervalsConnectPath` in `@pierre/shared-constants`).
+   * Absent while the card is not connected.
+   */
+  connection_type?: 'oauth' | 'synthetic' | 'manual' | 'delegated';
+  /**
    * A connected provider whose session is no longer usable and needs the user
    * to reconnect (a dead sciotte scrape session or a non-recoverable OAuth
    * refresh). Only meaningful when `connected` is true — render "Reconnect
@@ -256,6 +266,10 @@ export interface ExtendedProviderStatus {
    * so an OAuth start would reach the provider with no client it knows. Open
    * the own-app setup (`userApi.registerOAuthApp`) instead of starting the
    * OAuth flow. `false` for a provider without OAuth.
+   *
+   * Intervals.icu has no apps of an athlete's own, and an API key links it
+   * without one: there `true` says only that its authorization is not
+   * offered, and the client opens the key form, never an own-app setup.
    */
   own_app_required: boolean;
   /**

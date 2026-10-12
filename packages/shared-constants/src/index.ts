@@ -170,12 +170,20 @@ export {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   aiConsentCards,
+  intervalsConnectPath,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
 } from './providers';
-export type { AiConsentCard, ProviderNoticeKeys, ProviderScope, SciotteLoginPreset } from './providers';
+export type {
+  AiConsentCard,
+  IntervalsConnectCard,
+  IntervalsConnectPath,
+  ProviderNoticeKeys,
+  ProviderScope,
+  SciotteLoginPreset,
+} from './providers';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

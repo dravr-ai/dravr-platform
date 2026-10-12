@@ -115,9 +115,10 @@ async fn authenticate(
 /// `GET /api/v1/athlete/{id}` round-trip) before persisting, so a bad key is
 /// rejected at link time rather than on the first data fetch.
 ///
-/// LIMITATION(registre#47): `handle_intervals_icu_link` is still how every athlete links: the
-/// OAuth flow is built, but no intervals.icu OAuth app credentials are deployed and no client
-/// offers it yet, so athletes link on the key model intervals.icu reserves for single-user
+/// LIMITATION(registre#47): `handle_intervals_icu_link` is how every athlete links while Dravr's
+/// intervals.icu OAuth app is unregistered and its client id and secret are not deployed: the
+/// clients and the hosted connect page offer the authorization only once the server reports a
+/// client for it, so athletes link on the key model intervals.icu reserves for single-user
 /// scripts (5,000 requests/day).
 ///
 /// # Errors

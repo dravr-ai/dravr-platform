@@ -1,16 +1,19 @@
 <!DOCTYPE html>
-<!-- ABOUTME: Hosted Intervals.icu connect form a chat link opens: athlete id + API key, posted with the connect link-token -->
+<!-- ABOUTME: Hosted Intervals.icu connect page a chat link opens: authorize when offered, or athlete id + API key posted with the link-token -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; a plain form, so it works without script -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
 <!--
-  Hosted Intervals.icu connect form, reached from the connect picker.
-  Intervals.icu authenticates with an athlete id + personal API key, not OAuth,
-  so the page collects both and POSTs them with the signed connect link-token
-  (the hidden `token` field) to the same origin. The server validates the pair
-  against Intervals.icu before storing it, then redirects to the success page.
-  The key is typed here over TLS — never into the chat transcript — and is
-  never written back into the page.
+  Hosted Intervals.icu connect page, reached from the connect picker.
+  An athlete authorizes Dravr on Intervals.icu: while a client resolves for
+  it, the page leads with that authorization, a link to the link-token-authed
+  OAuth init. A coach links with their athlete id + personal API key instead,
+  since only the key reads the athletes they coach: the form below collects
+  both and POSTs them with the signed connect link-token (the hidden `token`
+  field) to the same origin. With no client, the form is the only way in. The
+  server validates the pair against Intervals.icu before storing it, then
+  redirects to the success page. The key is typed here over TLS — never into
+  the chat transcript — and is never written back into the page.
 -->
 <html lang="{{LANG}}">
 <head>
@@ -36,6 +39,11 @@
         <section id="phase-api-key">
             <a class="btn btn-tertiary back-link" href="/providers/connect?token={{LINK_TOKEN_QUERY}}">&larr; {{t:hosted.common.back}}</a>
             <h1>{{ACCOUNT_TITLE}}</h1>
+            <div id="authorize"{{AUTHORIZE_HIDDEN}}>
+                <p class="lead">{{t:hosted.intervals.authorizeNote}}</p>
+                <a class="btn btn-primary btn-block" id="authorize-intervals" href="/api/providers/connect/oauth-init/intervals_icu?token={{LINK_TOKEN_QUERY}}">{{t:shell.intervalsAuthorizeAction}}</a>
+                <p class="fineprint"><strong>{{t:shell.intervalsCoachKeyAction}}</strong><br>{{t:hosted.intervals.coachNote}}</p>
+            </div>
             <form id="api-key-form" method="post" action="/providers/connect/intervals_icu">
                 <input type="hidden" name="token" value="{{LINK_TOKEN}}">
                 <div class="field">
@@ -46,7 +54,7 @@
                     <label for="api_key">{{t:shell.intervalsApiKeyLabel}}</label>
                     <input type="password" id="api_key" name="api_key" required autocomplete="off">
                 </div>
-                <button type="submit" class="btn btn-primary btn-block" id="submit-api-key">{{t:shell.intervalsConnectAction}}</button>
+                <button type="submit" class="btn {{SUBMIT_CLASS}} btn-block" id="submit-api-key">{{t:shell.intervalsConnectAction}}</button>
             </form>
             <p class="fineprint">{{t:shell.intervalsCredentialsHelp}} {{t:hosted.intervals.storageNote}}</p>
         </section>

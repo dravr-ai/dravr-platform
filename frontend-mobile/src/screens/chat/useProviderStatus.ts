@@ -43,6 +43,13 @@ export interface ProviderStatusActions {
     tosConsent?: boolean
   ) => Promise<void>;
   getCachedConnectedProvider: () => ExtendedProviderStatus | undefined;
+  /**
+   * Re-read the statuses once a provider is linked: this hook's list, and
+   * the shared status the reconnect banner and the thread header read. The
+   * OAuth flow runs it on success; a link made outside it (an Intervals.icu
+   * API key) runs it too.
+   */
+  refreshAfterLink: () => Promise<void>;
 }
 
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
@@ -93,6 +100,16 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     return connectedProviders.find(p => p.connected);
   }, [connectedProviders, selectedProvider]);
 
+  const refreshAfterLink = useCallback(async () => {
+    // The shared status the reconnect banner and the thread header read is
+    // asked again too, so a reconnect made from a reply clears both.
+    // Invalidated rather than written from this read: a slower read of this
+    // hook's, started before the reconnect, could land after it and put the
+    // flag back.
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+    await loadProviderStatus();
+  }, [loadProviderStatus, queryClient]);
+
   const handleConnectProvider = useCallback(async (
     provider: string,
     onSuccess?: () => Promise<void>,
@@ -133,13 +150,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
 
         if (success) {
           trackMobile({ name: 'feature_engaged', props: { feature: 'provider_connected' } });
-          // The shared status the reconnect banner and the thread header read
-          // is asked again too, so a reconnect made from a reply clears both.
-          // Invalidated rather than written from this read: a slower read of
-          // this hook's, started before the reconnect, could land after it and
-          // put the flag back.
-          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-          await loadProviderStatus();
+          await refreshAfterLink();
           setSelectedProvider(provider);
           if (onSuccess) {
             await onSuccess();
@@ -150,8 +161,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
           console.error('OAuth error from server:', errorParam);
           Alert.alert(t('app.connectionFailed'), reason);
         } else {
-          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-          await loadProviderStatus();
+          await refreshAfterLink();
           Alert.alert(
             t('providers.connectionComplete'),
             t('providers.connectionFlowCompleted', { provider }),
@@ -168,7 +178,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       console.error('Failed to start OAuth:', err);
       Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
     }
-  }, [connectedProviders, loadProviderStatus, queryClient, t]);
+  }, [connectedProviders, refreshAfterLink, t]);
 
   return {
     connectedProviders,
@@ -183,5 +193,6 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     setNeedsCredentialsProvider,
     handleConnectProvider,
     getCachedConnectedProvider,
+    refreshAfterLink,
   };
 }

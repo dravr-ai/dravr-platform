@@ -36,8 +36,9 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
  * that a provider card's `own_app_required` asks for, by provider id.
  *
  * Only providers whose card can ask: a Strava start always resolves the
- * server's app or a pool app (or refuses on seats), and every client opens
- * Intervals.icu's API-key link before any OAuth start.
+ * server's app or a pool app (or refuses on seats), and an Intervals.icu card
+ * whose authorization no client resolves opens its API-key form instead
+ * (`intervalsConnectPath`).
  */
 const OWN_APP_DEV_PORTALS: Readonly<Record<string, string>> = {
   whoop: 'https://developer.whoop.com/',

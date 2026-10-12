@@ -13,6 +13,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
   SCIOTTE_LOGIN_PRESETS,
+  intervalsConnectPath,
   noticeRequired,
   providerGlyphInk,
   sciotteTargetForBackend,
@@ -124,7 +125,9 @@ export default function ProviderConnectionCards({
   const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
   // Whether the chosen card still needs its exposure notice accepted.
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
-  const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
+  // The Intervals.icu dialog, and whether it leads with the authorization
+  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
+  const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
@@ -270,9 +273,11 @@ export default function ProviderConnectionCards({
       return;
     }
 
-    // Intervals.icu is an API-key provider — open the athlete-id + key modal.
+    // Intervals.icu opens its dialog: the authorization first while the
+    // server offers it, with the coach's API-key form one tap away; the key
+    // form alone when no client resolves.
     if (provider.provider === 'intervals_icu') {
-      setIntervalsModalOpen(true);
+      setIntervalsModal({ offersAuthorize: intervalsConnectPath(provider) === 'choose' });
       return;
     }
 
@@ -463,16 +468,24 @@ export default function ProviderConnectionCards({
         />
       )}
 
-      {/* Intervals.icu API-key link modal */}
+      {/* Intervals.icu: the authorization when offered, and the API-key form */}
       <IntervalsIcuLinkModal
-        isOpen={intervalsModalOpen}
-        onClose={() => setIntervalsModalOpen(false)}
+        isOpen={intervalsModal !== null}
+        onClose={() => setIntervalsModal(null)}
+        onAuthorize={
+          intervalsModal?.offersAuthorize
+            ? () => {
+                setIntervalsModal(null);
+                connectViaOAuth('intervals_icu');
+              }
+            : undefined
+        }
         onConnected={() => {
           refetch();
-          // Intervals.icu connects in-process (no OAuth callback), so bust the
+          // A pasted key connects in-process (no OAuth callback), so bust the
           // onboarding-status cache explicitly — same reasoning as Sciotte above.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
-          setIntervalsModalOpen(false);
+          setIntervalsModal(null);
         }}
       />
     </div>

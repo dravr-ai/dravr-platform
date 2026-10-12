@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
-// ABOUTME: Covers the seat-gated OAuth default, the mirror path, the failed-OAuth fallback and the own-app setup
+// ABOUTME: Covers the seat-gated OAuth default, the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -45,8 +45,19 @@ vi.mock('../SciotteLoginModal', () => ({
       </div>
     ) : null,
 }));
+// The Intervals.icu dialog, reduced to whether it was handed the
+// authorization and the control that starts it.
 vi.mock('../IntervalsIcuLinkModal', () => ({
-  default: () => null,
+  default: ({ isOpen, onAuthorize }: { isOpen: boolean; onAuthorize?: () => void }) =>
+    isOpen ? (
+      <div data-testid="intervals-modal" data-offers-authorize={String(onAuthorize !== undefined)}>
+        {onAuthorize && (
+          <button type="button" onClick={onAuthorize}>
+            intervals-authorize
+          </button>
+        )}
+      </div>
+    ) : null,
 }));
 // The own-app setup, reduced to the callback it shows and the Save that
 // resumes the OAuth start.
@@ -382,5 +393,52 @@ describe('ProviderConnectionCards — an app of the athlete\'s own', () => {
 
     expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop', '_blank');
     expect(screen.queryByTestId('own-app-setup')).toBeNull();
+  });
+});
+
+describe('ProviderConnectionCards — Intervals.icu', () => {
+  const intervalsCard = (own_app_required: boolean) => ({
+    provider: 'intervals_icu',
+    display_name: 'Intervals.icu',
+    requires_oauth: true,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'health'],
+    consent_required: false,
+    own_app_required,
+    oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/intervals_icu',
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+  });
+
+  it('leads with the authorization while the server offers it, and starts it from the dialog', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard(false)] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'true');
+    expect(window.open).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText('intervals-authorize'));
+
+    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+    expect(screen.queryByTestId('intervals-modal')).toBeNull();
+  });
+
+  it('opens the key form alone, never an own-app setup, while no client resolves', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard(true)] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(screen.queryByTestId('own-app-setup')).toBeNull();
+    expect(window.open).not.toHaveBeenCalled();
   });
 });

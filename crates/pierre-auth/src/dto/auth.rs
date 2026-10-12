@@ -389,6 +389,17 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
+    /// How the connection behind a connected card was made, as
+    /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
+    /// `"oauth"` for a provider authorization, `"manual"` for a pasted
+    /// credential (an Intervals.icu API key), `"delegated"` for a card read
+    /// through a group coach's account. A client reconnecting the card goes
+    /// back the same way: an Intervals.icu card linked by API key reconnects
+    /// through the key form, since a coach's roster reads need the key and
+    /// an authorization cannot replace it. Absent while the card is not
+    /// connected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_type: Option<String>,
     /// Whether a connected provider's session is no longer usable and the user
     /// must reconnect (`ConnectionStatus::NeedsReauth`/`Revoked`). Meaningful only
     /// when `connected` is true — a dead scrape session or a non-recoverable OAuth
@@ -418,6 +429,10 @@ pub struct ProviderStatus {
     /// them, so an OAuth start would reach the provider with no client it
     /// knows. The client opens the own-app setup (`POST
     /// /api/users/oauth-apps`) instead. `false` for a provider without OAuth.
+    ///
+    /// Intervals.icu has no apps of an athlete's own, and an API key links
+    /// it without one: there `true` says only that its authorization is not
+    /// offered, and the client opens the key form, never an own-app setup.
     pub own_app_required: bool,
     /// The redirect URL an athlete registers in their own OAuth app for this
     /// provider: this server's callback, the one every authorization

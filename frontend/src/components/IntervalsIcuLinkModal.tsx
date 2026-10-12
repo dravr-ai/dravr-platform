@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Link modal for the Intervals.icu provider — collects athlete id + API key
-// ABOUTME: Intervals.icu is API-key (HTTP Basic) not OAuth; the server validates the pair live before storing
+// ABOUTME: Link modal for the Intervals.icu provider — the authorization when offered, and the athlete id + API key form
+// ABOUTME: The key form is the coach's path (only a key reads coached athletes); the server validates the pair live before storing
 
 import { useEffect, useId, useState } from 'react';
 import { providersApi } from '../services/api';
@@ -16,7 +16,18 @@ interface IntervalsIcuLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConnected: () => void;
+  /**
+   * Starts the Intervals.icu authorization. Given while the server offers it
+   * (`intervalsConnectPath` answers `'choose'`): the modal then leads with
+   * the authorization and keeps the API-key form, the coach's path, one tap
+   * away. Absent, the modal is the key form alone — no client to authorize
+   * under, or a key-linked card reconnecting.
+   */
+  onAuthorize?: () => void;
 }
+
+/** What the modal shows: the choice of the two paths, or the key form. */
+type LinkView = 'choose' | 'key';
 
 // AppError serialises as { code, message, ... }; some in-band errors expose
 // { error }. Prefer message, then error, then the raw error as a last resort.
@@ -24,6 +35,7 @@ export default function IntervalsIcuLinkModal({
   isOpen,
   onClose,
   onConnected,
+  onAuthorize,
 }: IntervalsIcuLinkModalProps) {
   const { t } = useTranslation();
   const online = useOnlineStatus();
@@ -38,6 +50,8 @@ export default function IntervalsIcuLinkModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const offersAuthorize = onAuthorize !== undefined;
+  const [view, setView] = useState<LinkView>(offersAuthorize ? 'choose' : 'key');
 
   // Reset transient state whenever the modal reopens.
   useEffect(() => {
@@ -48,8 +62,9 @@ export default function IntervalsIcuLinkModal({
       setIsLoading(false);
       setError(null);
       setSuccess(null);
+      setView(offersAuthorize ? 'choose' : 'key');
     }
-  }, [isOpen]);
+  }, [isOpen, offersAuthorize]);
 
   if (!isOpen) return null;
 
@@ -97,7 +112,9 @@ export default function IntervalsIcuLinkModal({
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('shell.intervalsConnectTitle')}</h2>
-              <p className="text-xs text-on-surface/50">{t('shell.intervalsApiKeyHint')}</p>
+              {view === 'key' && (
+                <p className="text-xs text-on-surface/50">{t('shell.intervalsApiKeyHint')}</p>
+              )}
             </div>
           </div>
           <button
@@ -122,8 +139,41 @@ export default function IntervalsIcuLinkModal({
               </div>
               <p className="text-on-surface font-medium">{success}</p>
             </div>
+          ) : view === 'choose' && onAuthorize ? (
+            <div className="space-y-4" data-testid="intervals-authorize-choice">
+              <p className="text-sm text-on-surface-variant leading-snug">
+                {t('shell.intervalsAuthorizeHint')}
+              </p>
+              <button
+                type="button"
+                onClick={onAuthorize}
+                disabled={!online}
+                className="w-full py-3 bg-primary rounded-lg text-on-primary font-medium hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                data-testid="intervals-authorize"
+              >
+                {t('shell.intervalsAuthorizeAction')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('key')}
+                className="w-full py-2 text-sm font-medium text-primary hover:text-primary-hover transition-colors"
+                data-testid="intervals-use-api-key"
+              >
+                {t('shell.intervalsCoachKeyAction')}
+              </button>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
+              {offersAuthorize && (
+                <button
+                  type="button"
+                  onClick={() => setView('choose')}
+                  className="text-sm font-medium text-primary hover:text-primary-hover transition-colors"
+                  data-testid="intervals-back-to-authorize"
+                >
+                  {t('common.back')}
+                </button>
+              )}
               <p className="text-sm text-on-surface-variant leading-snug">
                 {t('shell.intervalsCredentialsHelp')}
               </p>

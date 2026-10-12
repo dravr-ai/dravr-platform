@@ -9,7 +9,7 @@ import { Alert, Keyboard, Text, TextInput, TouchableOpacity } from 'react-native
 import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
 import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
-import { noticeRequired } from '@pierre/shared-constants';
+import { intervalsConnectPath, noticeRequired } from '@pierre/shared-constants';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -19,6 +19,7 @@ import type {
 } from '@pierre/shared-types';
 
 import { Sheet } from '../../components/ui';
+import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { openExternal } from '../../utils/openExternal';
@@ -103,6 +104,10 @@ export function ChatThread({
   // The provider whose notice is on screen before a reconnect starts its
   // OAuth flow (WHOOP, until the account accepts its owner authorization).
   const [noticeFor, setNoticeFor] = useState<string | null>(null);
+  // The Intervals.icu sheet a reconnect opened, and whether it leads with the
+  // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
+  // form alone.
+  const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
 
   // Opening the keyboard shortens the visible list. `onContentSizeChange` only
   // fires when the CONTENT changes, so tapping into the composer on an existing
@@ -283,6 +288,20 @@ export function ChatThread({
    */
   const handleConnectProvider = useCallback(async (provider: string) => {
     const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
+    // Intervals.icu reconnects the way its card was linked, and never through
+    // an own-app setup: a key-linked card (a coach's — only the key reads the
+    // athletes they coach) reopens the key form, an authorized card goes back
+    // to the authorization, and with no client to authorize under the key
+    // form is the only way in.
+    if (provider === 'intervals_icu' && status) {
+      const path = intervalsConnectPath(status);
+      if (path !== 'authorize') {
+        setIntervalsSheet({ offersAuthorize: path === 'choose' });
+        return;
+      }
+      await providerStatus.handleConnectProvider(provider);
+      return;
+    }
     // No app of the server's can authorize the provider for this athlete:
     // the credentials sheet asks for their own before any notice.
     if (status?.own_app_required) {
@@ -368,6 +387,23 @@ export function ChatThread({
           const accepted = noticeFor;
           setNoticeFor(null);
           if (accepted) void providerStatus.handleConnectProvider(accepted, undefined, true);
+        }}
+      />
+
+      <IntervalsIcuLinkModal
+        visible={intervalsSheet !== null}
+        onClose={() => setIntervalsSheet(null)}
+        onAuthorize={
+          intervalsSheet?.offersAuthorize
+            ? () => {
+                setIntervalsSheet(null);
+                void providerStatus.handleConnectProvider('intervals_icu');
+              }
+            : undefined
+        }
+        onConnected={() => {
+          setIntervalsSheet(null);
+          void providerStatus.refreshAfterLink();
         }}
       />
 

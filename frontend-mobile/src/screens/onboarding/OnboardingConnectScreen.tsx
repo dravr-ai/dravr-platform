@@ -38,6 +38,7 @@ import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
+  intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
 } from '@pierre/shared-constants';
@@ -82,7 +83,13 @@ export function OnboardingConnectScreen() {
   const [sciotteTarget, setSciotteTarget] = useState<SciotteTarget | null>(null);
   // Whether the chosen row still needs its exposure notice accepted.
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
-  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
+  // The Intervals.icu sheet for the row that opened it, and whether it leads
+  // with the authorization (`intervalsConnectPath` answered `'choose'`) or is
+  // the key form alone.
+  const [intervalsSheet, setIntervalsSheet] = useState<{
+    displayName: string;
+    offersAuthorize: boolean;
+  } | null>(null);
   // A provider no app of the server's can authorize for this athlete
   // (`own_app_required`) asks for an app of their own first: the setup sheet
   // opens in place, so first-touch users never need to leave the onboarding
@@ -224,8 +231,14 @@ export function OnboardingConnectScreen() {
       setSciotteTarget(target);
       return;
     }
+    // Intervals.icu leads with the athlete's authorization while the server
+    // offers it, and keeps the coach's API-key form beside it; with no client
+    // to authorize under, the key form is the only way in.
     if (provider.provider === 'intervals_icu') {
-      setIntervalsModalVisible(true);
+      setIntervalsSheet({
+        displayName: provider.display_name,
+        offersAuthorize: intervalsConnectPath(provider) === 'choose',
+      });
       return;
     }
     const devPortalUrl = ownAppDevPortal(provider.provider);
@@ -399,10 +412,19 @@ export function OnboardingConnectScreen() {
       />
 
       <IntervalsIcuLinkModal
-        visible={intervalsModalVisible}
-        onClose={() => setIntervalsModalVisible(false)}
+        visible={intervalsSheet !== null}
+        onClose={() => setIntervalsSheet(null)}
+        onAuthorize={
+          intervalsSheet?.offersAuthorize
+            ? () => {
+                const { displayName } = intervalsSheet;
+                setIntervalsSheet(null);
+                void launchOAuth('intervals_icu', displayName);
+              }
+            : undefined
+        }
         onConnected={() => {
-          setIntervalsModalVisible(false);
+          setIntervalsSheet(null);
           void finalizeConnection();
         }}
       />

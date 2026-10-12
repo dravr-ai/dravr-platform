@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback, the own-app setup and the coach-only offer
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: the Strava OAuth failure fallback, the own-app setup, Intervals.icu's two paths and the coach-only offer
 // ABOUTME: A failed Strava OAuth falls back to the Sciotte credential login; a coach who does not train sees only the coaching platforms
 
 import React from 'react';
@@ -50,7 +50,22 @@ jest.mock('../../../components/SciotteLoginModal', () => {
         : null,
   };
 });
-jest.mock('../../../components/IntervalsIcuLinkModal', () => ({ IntervalsIcuLinkModal: () => null }));
+// The Intervals.icu sheet, reduced to which path it opened on and the
+// control that starts the authorization when it was handed one.
+jest.mock('../../../components/IntervalsIcuLinkModal', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+  return {
+    IntervalsIcuLinkModal: ({ visible, onAuthorize }: { visible: boolean; onAuthorize?: () => void }) =>
+      visible
+        ? React.createElement(
+            Text,
+            { onPress: onAuthorize, testID: 'intervals-sheet' },
+            onAuthorize ? 'intervals-sheet:authorize' : 'intervals-sheet:key',
+          )
+        : null,
+  };
+});
 // The own-app setup sheet, reduced to the callback it shows and the Save that
 // resumes the OAuth start.
 jest.mock('../../../components/OAuthAppSetupModal', () => {
@@ -269,6 +284,53 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
       expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
     );
     expect(screen.queryByText(/own-app-setup/)).toBeNull();
+  });
+});
+
+describe('OnboardingConnectScreen — Intervals.icu', () => {
+  const intervalsCard = (own_app_required: boolean) => ({
+    provider: 'intervals_icu',
+    display_name: 'Intervals.icu',
+    description: 'Endurance analytics, activities, and wellness',
+    requires_oauth: true,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'health'],
+    consent_required: false,
+    own_app_required,
+    oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/intervals_icu',
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    initMobileOAuth.mockResolvedValue({ authorization_url: 'https://intervals.icu/oauth/authorize' });
+    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+  });
+
+  it('leads with the authorization while the server offers it, and starts it from the sheet', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard(false)] });
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Connect Intervals.icu'));
+    expect(await screen.findByText('intervals-sheet:authorize')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('intervals-sheet'));
+
+    await waitFor(() =>
+      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false }),
+    );
+  });
+
+  it('opens the key form alone, never an own-app setup, while no client resolves', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard(true)] });
+    renderScreen();
+
+    fireEvent.press(await screen.findByLabelText('Connect Intervals.icu'));
+
+    expect(await screen.findByText('intervals-sheet:key')).toBeTruthy();
+    expect(screen.queryByText(/own-app-setup/)).toBeNull();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
   });
 });
 

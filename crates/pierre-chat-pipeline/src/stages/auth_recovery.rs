@@ -55,6 +55,8 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
     KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
+use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
@@ -382,6 +384,19 @@ async fn mint_connect_picker_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
+    mint_hosted_connect_url(deps, "/providers/connect", user_id, input, profile).await
+}
+
+/// The hosted connect page at `page_path` (the picker, or a provider's own
+/// page under it) for this user, authed by a connect link-token and
+/// shortened, or `None` after logging why it could not be minted.
+async fn mint_hosted_connect_url(
+    deps: &AuthRecoveryDeps<'_>,
+    page_path: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
     let tenant_id = input.tool_tenant_id.as_uuid();
     let token = match mint_connect_link_token(
         user_id,
@@ -401,7 +416,7 @@ async fn mint_connect_picker_url(
         }
     };
     let full_url = format!(
-        "{}/providers/connect?token={}",
+        "{}{page_path}?token={}",
         deps.base_url,
         urlencoding::encode(&token)
     );
@@ -420,11 +435,13 @@ async fn mint_connect_picker_url(
 /// Mint the reconnect URL for `provider_slug`.
 ///
 /// Scrape-mirror providers (every slug with a [`backend_resolver::hosted_login_target`]) use the Dravr-hosted login page
-/// (email + password) — the same short-TTL link-token mint the channel bots use. OAuth
-/// providers (WHOOP, Strava, Garmin, …) get their real provider authorization URL
-/// plus a persisted CSRF state row, unless the provider's notice is outstanding for the
-/// account: then the hosted connect picker, which shows it. Returns `None` (fall back to
-/// the LLM path) on failure.
+/// (email + password) — the same short-TTL link-token mint the channel bots use. An
+/// Intervals.icu link made with a pasted API key gets the hosted Intervals.icu page,
+/// whose key form relinks it. OAuth providers (WHOOP, Strava, Garmin, an authorized
+/// Intervals.icu, …) get their real provider authorization URL plus a persisted CSRF
+/// state row, unless the provider's notice is outstanding for the account: then the
+/// hosted connect picker, which shows it. Returns `None` (fall back to the LLM path) on
+/// failure.
 async fn mint_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -474,7 +491,64 @@ async fn mint_reconnect_url(
         );
     }
 
+    if relinks_with_api_key(deps, provider_slug, user_id, input).await {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            "auth_recovery: API-key link, offering the hosted Intervals.icu key form"
+        );
+        return mint_hosted_connect_url(
+            deps,
+            &format!("/providers/connect/{INTERVALS_ICU}"),
+            user_id,
+            input,
+            profile,
+        )
+        .await;
+    }
+
     mint_oauth_reconnect_url(deps, provider_slug, user_id, input, profile).await
+}
+
+/// Whether the athlete's dead `provider_slug` link is relinked with an API
+/// key rather than an authorization: an Intervals.icu connection the athlete
+/// made by pasting their key (`ConnectionType::Manual`).
+///
+/// A coach links Intervals.icu with their key because only the key reads the
+/// athletes they coach; an OAuth grant would silently cost them that roster,
+/// so their reconnect must never be an authorization URL. When the link's
+/// kind cannot be read, the answer is `true` as well: the hosted Intervals.icu
+/// page offers the authorization beside the key form, so it reconnects either
+/// kind.
+async fn relinks_with_api_key(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+) -> bool {
+    if provider_slug != INTERVALS_ICU {
+        return false;
+    }
+    match deps
+        .tool_runtime
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, Some(input.tool_tenant_id))
+        .await
+    {
+        Ok(connections) => connections
+            .iter()
+            .any(|c| c.provider == INTERVALS_ICU && c.connection_type == ConnectionType::Manual),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                error = %e,
+                "auth_recovery: could not read how the link was made, offering the hosted page"
+            );
+            true
+        }
+    }
 }
 
 /// The reconnect URL for an OAuth provider: its authorization URL, or the

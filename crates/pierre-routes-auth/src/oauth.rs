@@ -422,7 +422,7 @@ async fn own_app_fields(
 /// Whether connecting `provider` needs the athlete's own OAuth app.
 ///
 /// It does while an OAuth start would find no client to run under
-/// ([`find_authorizing_client`]): none of theirs, their tenant's or the
+/// ([`authorizing_client_resolves`]): none of theirs, their tenant's or the
 /// server's. A session with no active tenant, or a failed read, reads as `false`: the
 /// connect itself then says what is wrong.
 async fn own_app_required(
@@ -434,17 +434,8 @@ async fn own_app_required(
     let Some(tenant_id) = tenant_id else {
         return false;
     };
-    match find_authorizing_client(
-        user_id,
-        TenantId::from_uuid(tenant_id),
-        provider,
-        &get_oauth_config(provider),
-        resources.repos.tenants.as_ref(),
-        resources.repos.oauth_tokens.as_ref(),
-    )
-    .await
-    {
-        Ok(client) => client.is_none(),
+    match authorizing_client_resolves(resources, user_id, tenant_id, provider).await {
+        Ok(resolves) => !resolves,
         Err(e) => {
             warn!(
                 user_id = %user_id,
@@ -455,6 +446,31 @@ async fn own_app_required(
             false
         }
     }
+}
+
+/// Whether an OAuth start for `provider` would find a client to run under
+/// ([`find_authorizing_client`]): the athlete's own app, their tenant's or
+/// the server's. A placeholder or blank credential is no client.
+///
+/// # Errors
+/// Returns the repository's error when the tenant's or the athlete's app
+/// cannot be read.
+pub async fn authorizing_client_resolves(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+) -> Result<bool, AppError> {
+    find_authorizing_client(
+        user_id,
+        TenantId::from_uuid(tenant_id),
+        provider,
+        &get_oauth_config(provider),
+        resources.repos.tenants.as_ref(),
+        resources.repos.oauth_tokens.as_ref(),
+    )
+    .await
+    .map(|client| client.is_some())
 }
 
 /// Whether `provider` asks for a notice this account has not accepted.
@@ -520,6 +536,20 @@ pub async fn compute_providers_status(
         .provider_connections
         .get_for_user(user_id, None)
         .await?;
+
+    // How the user made their own connection to each backend: a reconnect goes
+    // back the same way. A delegated row is read through the coach's account
+    // and says nothing about the user's own link. Sorted oldest first, so the
+    // map keeps the newest link of a backend.
+    let mut own_links: Vec<_> = connections
+        .iter()
+        .filter(|c| c.connection_type != ConnectionType::Delegated)
+        .collect();
+    own_links.sort_by_key(|c| c.connected_at);
+    let own_connection_types: HashMap<String, &'static str> = own_links
+        .into_iter()
+        .map(|c| (c.provider.clone(), c.connection_type.as_str()))
+        .collect();
 
     // A connection whose lifecycle status is NeedsReauth/Revoked still has a row
     // (so it reads as "connected") but its session no longer works — a dead
@@ -632,6 +662,15 @@ pub async fn compute_providers_status(
             let connected_backend = backend_resolver::serving_backends(provider_name)
                 .into_iter()
                 .find(|backend| connected_providers.contains(backend.as_str()));
+            // How that backend's connection was made. A connected backend with
+            // no link of the user's own is served by a confirmed delegation.
+            let connection_type = connected_backend.as_deref().map(|backend| {
+                own_connection_types
+                    .get(backend)
+                    .copied()
+                    .unwrap_or(ConnectionType::Delegated.as_str())
+                    .to_owned()
+            });
 
             // Always show all providers regardless of connection status.
             // Non-OAuth providers (like synthetic) appear with connected=false
@@ -665,6 +704,7 @@ pub async fn compute_providers_status(
                 requires_oauth,
                 connected,
                 connected_backend,
+                connection_type,
                 needs_reauth,
                 capabilities,
                 recommended_backend,

@@ -37,6 +37,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   coachPlatformName,
   delegationRefusalKey,
+  intervalsConnectPath,
   noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
@@ -177,7 +178,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The provider whose own-app setup is on screen: no app of the server's can
   // authorize it for this athlete (`own_app_required`).
   const [ownAppSetup, setOwnAppSetup] = useState<{ provider: ProviderStatus; devPortalUrl: string } | null>(null);
-  const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
+  // The Intervals.icu dialog, and whether it leads with the authorization
+  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
+  const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
   // Connected OAuth apps (external MCP clients) revoke-confirmation target
@@ -441,6 +444,20 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     handleConnectProvider(provider.provider);
   };
 
+  // Intervals.icu connects, or reconnects, the way its card says: an
+  // authorized card goes straight back to the authorization, a key-linked
+  // card (a coach's: only the key reads the athletes they coach) reopens the
+  // key form, and a new link offers the authorization first with the key
+  // form beside it.
+  const startIntervalsConnect = (provider: ProviderStatus) => {
+    const path = intervalsConnectPath(provider);
+    if (path === 'authorize') {
+      handleConnectProvider(provider.provider);
+      return;
+    }
+    setIntervalsModal({ offersAuthorize: path === 'choose' });
+  };
+
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
     // Open the server's launch route, which 302s to the provider. A real
     // same-origin URL opens synchronously inside Safari's user-gesture stack,
@@ -505,7 +522,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const handleDisconnectProvider = async (providerId: string) => {
     try {
       setProviderMessage(null);
-      // Intervals.icu has its own (non-OAuth) disconnect endpoint.
+      // Intervals.icu has its own disconnect endpoint, which withdraws an
+      // authorization upstream and deletes a pasted key.
       if (providerId === 'intervals_icu') {
         await oauthApi.disconnectIntervalsIcu();
       } else {
@@ -896,7 +914,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setIntervalsModalOpen(true)}
+                                onClick={() => startIntervalsConnect(provider)}
+                                loading={isConnecting}
+                                data-testid={`provider-connect-${provider.provider}`}
                               >
                                 {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
                               </Button>
@@ -1848,13 +1868,21 @@ Authorization: Bearer <your-token-here>`}
         consentRequired={sciotteConsentRequired}
       />
 
-      {/* Intervals.icu API-key link modal */}
+      {/* Intervals.icu: the authorization when offered, and the API-key form */}
       <IntervalsIcuLinkModal
-        isOpen={intervalsModalOpen}
-        onClose={() => setIntervalsModalOpen(false)}
+        isOpen={intervalsModal !== null}
+        onClose={() => setIntervalsModal(null)}
+        onAuthorize={
+          intervalsModal?.offersAuthorize
+            ? () => {
+                setIntervalsModal(null);
+                handleConnectProvider('intervals_icu');
+              }
+            : undefined
+        }
         onConnected={() => {
           refetchProviders();
-          setIntervalsModalOpen(false);
+          setIntervalsModal(null);
         }}
       />
     </div>

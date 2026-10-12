@@ -31,6 +31,7 @@ import {
   AI_CONSENT_KEYS,
   coachPlatformName,
   delegationRefusalKey,
+  intervalsConnectPath,
   noticeRequired,
   sciotteTargetForBackend,
   syncAuthorizationOwed,
@@ -54,7 +55,13 @@ export function ConnectionsScreen() {
   const [sciotteTarget, setSciotteTarget] = useState<SciotteTarget | null>(null);
   // Whether the chosen row still needs its exposure notice accepted.
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
-  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
+  // The Intervals.icu sheet for the row that opened it, and whether it leads
+  // with the authorization (`intervalsConnectPath` answered `'choose'`) or is
+  // the key form alone.
+  const [intervalsSheet, setIntervalsSheet] = useState<{
+    displayName: string;
+    offersAuthorize: boolean;
+  } | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   // A provider no app of the server's can authorize for this athlete
   // (`own_app_required`) asks for an app of their own first: the
@@ -247,6 +254,11 @@ export function ConnectionsScreen() {
    * accepted it. Whoop is BYO: the setup sheet opens first and OAuth fires
    * once the user saves valid client_id/secret, which spares first-touch
    * users a speculative attempt and its "Configuration error" toast.
+   * Intervals.icu goes the way its row says (`intervalsConnectPath`): an
+   * authorized row back to the authorization, a key-linked row (a coach's:
+   * only the key reads the athletes they coach) to the key form, and a new
+   * link to the sheet that leads with the authorization and keeps the key
+   * form beside it.
    */
   const startConnect = (provider: ExtendedProviderStatus) => {
     // An OAuth provider whose notice the account has not accepted (WHOOP's
@@ -270,7 +282,12 @@ export function ConnectionsScreen() {
         setSciotteTarget(target);
       }
     } else if (provider.provider === 'intervals_icu') {
-      setIntervalsModalVisible(true);
+      const path = intervalsConnectPath(provider);
+      if (path === 'authorize') {
+        handleConnect(provider.provider, provider.display_name, tosConsent);
+      } else {
+        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: path === 'choose' });
+      }
     } else if (provider.own_app_required && devPortalUrl) {
       setOwnAppSetup({ provider, devPortalUrl, tosConsent });
     } else {
@@ -505,11 +522,20 @@ export function ConnectionsScreen() {
       />
 
       <IntervalsIcuLinkModal
-        visible={intervalsModalVisible}
-        onClose={() => setIntervalsModalVisible(false)}
+        visible={intervalsSheet !== null}
+        onClose={() => setIntervalsSheet(null)}
+        onAuthorize={
+          intervalsSheet?.offersAuthorize
+            ? () => {
+                const { displayName } = intervalsSheet;
+                setIntervalsSheet(null);
+                handleConnect('intervals_icu', displayName);
+              }
+            : undefined
+        }
         onConnected={() => {
           loadConnectionStatus();
-          setIntervalsModalVisible(false);
+          setIntervalsSheet(null);
         }}
       />
 

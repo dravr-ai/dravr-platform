@@ -109,9 +109,12 @@ pub fn render_connect_page(
     .replace("{{PROVIDERS_JSON}}", &script_json(providers))
 }
 
-/// Render the hosted Intervals.icu API-key form for the connect link-token,
-/// in the athlete's locale.
+/// Render the hosted Intervals.icu page for the connect link-token, in the
+/// athlete's locale.
 ///
+/// `offers_authorize` leads the page with the athlete's authorization (the
+/// link-token-authed OAuth init) and makes the API-key form the coach's
+/// path below it; without it the form is the page's only way in.
 /// `athlete_id` refills the athlete id field after a rejected attempt; the API
 /// key is never written back into the page. `error` is the already-localized
 /// reason shown in the page's alert banner, which stays hidden when it is
@@ -121,6 +124,7 @@ pub fn render_intervals_icu_form(
     strings: &PageStrings<'_>,
     link_token: &str,
     channel: &str,
+    offers_authorize: bool,
     athlete_id: &str,
     error: &str,
 ) -> String {
@@ -128,6 +132,20 @@ pub fn render_intervals_icu_form(
     // placeholder is never expanded.
     strings
         .fill(&with_hosted_page_css(INTERVALS_ICU_TEMPLATE))
+        .replace(
+            "{{AUTHORIZE_HIDDEN}}",
+            if offers_authorize { "" } else { " hidden" },
+        )
+        // One primary action a page: the authorization while it leads, the
+        // key form's submit when it is the only way in.
+        .replace(
+            "{{SUBMIT_CLASS}}",
+            if offers_authorize {
+                "btn-secondary"
+            } else {
+                "btn-primary"
+            },
+        )
         .replace(
             "{{LINKED_FROM}}",
             &strings.html(KEY_HOSTED_COMMON_LINKED_FROM, &[&strings.channel(channel)]),
