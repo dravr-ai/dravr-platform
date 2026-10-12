@@ -47,10 +47,8 @@ export default function PreApprovedEmails() {
   const allowMutation = useMutation({
     mutationFn: () => adminApi.allowEmail(email.trim(), note.trim() || undefined, sendInvite),
     onSuccess: (data) => {
-      setResult({
-        message: data.invited ? `${data.message} — sign-up link sent` : data.message,
-        ok: true,
-      });
+      // The server's sentence already says what became of a requested invitation.
+      setResult({ message: data.message, ok: true });
       setEmail('');
       setNote('');
       setSendInvite(false);
@@ -85,6 +83,7 @@ export default function PreApprovedEmails() {
         <p className="text-sm text-on-surface-variant mb-4">
           They register themselves as usual — the allow only spares them the approval queue, and
           records you as the approver. A pending account for the same address is approved now.
+          An invitation mails them a single-use link where they choose their own password.
         </p>
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
@@ -112,8 +111,8 @@ export default function PreApprovedEmails() {
         </form>
         <div className="mt-3">
           <Checkbox
-            label="Email them the sign-up link"
-            description="Only an address with no account yet is mailed; a pending account is approved instead."
+            label="Email them an invitation"
+            description="A link that works once, where they choose their password; the confirmation says when it expires. Only an address with no account yet is mailed; a pending account is approved instead. Sending again replaces the earlier link."
             checked={sendInvite}
             onChange={(e) => setSendInvite(e.target.checked)}
           />
@@ -174,7 +173,7 @@ export default function PreApprovedEmails() {
                       variant={entry.account_status ? statusVariant(entry.account_status) : 'secondary'}
                       className="text-xs"
                     >
-                      {entry.account_status ?? 'not registered'}
+                      {entry.account_status ?? (entry.invitation_expires_at ? 'invited' : 'not registered')}
                     </Badge>
                   </div>
                   {entry.note && (
@@ -183,6 +182,9 @@ export default function PreApprovedEmails() {
                   <div className="flex items-center space-x-4 text-xs text-outline">
                     <span>Allowed: {formatDate(entry.created_at, language)}</span>
                     <span>By: {entry.allowed_by_email ?? 'unattributed'}</span>
+                    {!entry.account_status && entry.invitation_expires_at && (
+                      <span>Invitation expires: {formatDate(entry.invitation_expires_at, language)}</span>
+                    )}
                   </div>
                 </div>
                 <Button

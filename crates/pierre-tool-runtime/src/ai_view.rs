@@ -53,12 +53,19 @@ pub(crate) fn withhold_from_caller(
     if withheld.off_interface > 0 {
         notes.insert(UNAVAILABLE_HERE_KEY.to_owned(), withheld.interface_note());
     }
+    attach_notes(response, notes);
+}
+
+/// Add `notes` to a tool result, beside what the tool returned.
+///
+/// The notes ride in the result: the chat loop, MCP clients and A2A agents
+/// read the result, never `metadata`. A result that is not an object is
+/// wrapped, its value moved under `result`, which only ever happens to a
+/// result that carried a note. Nothing happens when `notes` is empty.
+pub(crate) fn attach_notes(response: &mut UniversalResponse, mut notes: Map<String, Value>) {
     if notes.is_empty() {
         return;
     }
-    // The notes ride in the result: the chat loop and MCP clients read the
-    // result, never `metadata`. A result that is not an object is wrapped,
-    // which only ever happens to a result that had something held back.
     match response.result.take() {
         Some(Value::Object(mut object)) => {
             object.extend(notes);

@@ -27,6 +27,17 @@ const WAITING = {
   allowed_by: 'operator-1',
   allowed_by_email: 'admin@example.com',
   account_status: null,
+  invitation_expires_at: null,
+};
+
+const INVITED = {
+  email: 'coach@example.com',
+  note: 'coach cohort',
+  created_at: '2026-08-22T12:00:00Z',
+  allowed_by: 'operator-1',
+  allowed_by_email: 'admin@example.com',
+  account_status: null,
+  invitation_expires_at: '2026-08-29T12:00:00Z',
 };
 
 const REGISTERED = {
@@ -36,6 +47,7 @@ const REGISTERED = {
   allowed_by: null,
   allowed_by_email: null,
   account_status: 'active' as const,
+  invitation_expires_at: null,
 };
 
 function renderView() {
@@ -69,6 +81,19 @@ describe('PreApprovedEmails', () => {
     expect(screen.getByText('By: unattributed')).toBeTruthy();
   });
 
+  it('marks an address holding a live invitation as invited, with when the link expires', async () => {
+    vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([INVITED, WAITING]);
+
+    renderView();
+
+    expect(await screen.findByText('coach@example.com')).toBeTruthy();
+    expect(screen.getByText('invited')).toBeTruthy();
+    expect(screen.getByText('Invitation expires: Aug 29, 2026')).toBeTruthy();
+    // The allow with no invitation still reads as waiting, with no expiry line.
+    expect(screen.getByText('not registered')).toBeTruthy();
+    expect(screen.getAllByText(/Invitation expires:/)).toHaveLength(1);
+  });
+
   it('stamps each allow in the reader language, not a hard-coded en-US', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([WAITING]);
     await i18n.changeLanguage('fr');
@@ -90,6 +115,7 @@ describe('PreApprovedEmails', () => {
       email: 'newcomer@example.com',
       approved_user_id: null,
       invited: false,
+      invitation_expires_at: null,
     });
 
     renderView();
@@ -112,14 +138,16 @@ describe('PreApprovedEmails', () => {
     ).toBeTruthy();
   });
 
-  it('asks for the sign-up link when the invite box is ticked', async () => {
+  it('asks for an invitation when the invite box is ticked and shows the server sentence', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([]);
     vi.mocked(adminApi.allowEmail).mockResolvedValue({
-      message: 'invitee@example.com pre-approved — their registration will land active',
+      message:
+        'invitee@example.com pre-approved — their registration will land active (no approval queue) — invitation sent: its link works once, until 2026-08-29 12:00 UTC',
       outcome: 'recorded',
       email: 'invitee@example.com',
       approved_user_id: null,
       invited: true,
+      invitation_expires_at: '2026-08-29T12:00:00+00:00',
     });
 
     renderView();
@@ -127,13 +155,15 @@ describe('PreApprovedEmails', () => {
     fireEvent.change(await screen.findByLabelText('Email address to pre-approve'), {
       target: { value: 'invitee@example.com' },
     });
-    fireEvent.click(screen.getByLabelText(/Email them the sign-up link/));
+    fireEvent.click(screen.getByLabelText(/Email them an invitation/));
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
 
     await waitFor(() =>
       expect(adminApi.allowEmail).toHaveBeenCalledWith('invitee@example.com', undefined, true),
     );
-    expect(await screen.findByText(/sign-up link sent/)).toBeTruthy();
+    expect(
+      await screen.findByText(/invitation sent: its link works once, until 2026-08-29 12:00 UTC/),
+    ).toBeTruthy();
   });
 
   it('removes an allow through the API', async () => {
@@ -141,6 +171,7 @@ describe('PreApprovedEmails', () => {
     vi.mocked(adminApi.disallowEmail).mockResolvedValue({
       message: 'alpha@example.com removed from the pre-approved list',
       removed: true,
+      invitation_revoked: false,
     });
 
     renderView();

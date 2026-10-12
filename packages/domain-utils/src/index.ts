@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/domain-utils package
-// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches, the form trend and the weekly volume
+// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches, the form trend, the weekly volume and the PostHog distinct id
 
 // Formatting utilities
 export {
@@ -50,6 +50,9 @@ export {
   volumeSports,
   weekTotals,
 } from './training-volume';
+
+// PostHog identity (the distinct id the server derives for the same user)
+export { type Sha256Digest, analyticsDistinctId } from './analytics-identity';
 
 // Category utilities
 export {

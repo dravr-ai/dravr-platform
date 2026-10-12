@@ -190,17 +190,22 @@ impl ResendEmailService {
         self.send_email(to, SUBJECT_WEBSITE_SIGN_IN, &html).await
     }
 
-    /// Send an invitation carrying the sign-up link.
+    /// Send an invitation carrying its single-use accept link.
     ///
-    /// `signup_url` is the app's own sign-up page. The invitee still chooses
-    /// their own password; it is the standing pre-approval recorded alongside
-    /// this send that lets their registration land active.
+    /// `accept_url` opens the app's accept page with the invitation token,
+    /// where the invitee chooses their own password; `ttl_days` is rendered
+    /// into the copy.
     ///
     /// # Errors
     ///
     /// Returns an error if email delivery fails.
-    pub async fn send_invitation(&self, to: &str, signup_url: &str) -> AppResult<()> {
-        let html = templates::invitation_html(signup_url);
+    pub async fn send_invitation(
+        &self,
+        to: &str,
+        accept_url: &str,
+        ttl_days: i64,
+    ) -> AppResult<()> {
+        let html = templates::invitation_html(accept_url, ttl_days);
         self.send_email(to, SUBJECT_INVITATION, &html).await
     }
 

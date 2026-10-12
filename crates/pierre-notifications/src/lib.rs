@@ -13,19 +13,18 @@
 //! crate.
 //!
 //! `dravr-commere`'s dispatcher has exactly two sinks: it persists the
-//! notification row, and it pushes to the user's Expo devices.
-//!
-//! LIMITATION(registre#301): the Expo push sink resolves zero devices for every
-//! user. Nothing registers a device token — `frontend-mobile` carries no
-//! `expo-notifications` dependency and the `@pierre/api-client` `registerDevice`
-//! method has no caller — so `POST /api/notifications/device` is served and never
-//! called. The persisted row, which both clients read through their notification
-//! feed, is the sink that delivers.
+//! notification row, and it pushes to the user's Expo devices. The mobile app
+//! registers its device through `POST /api/notifications/device` once the
+//! athlete has allowed notifications and the build can mint an Expo push
+//! token, so the push sink reaches an athlete who has installed such a build
+//! and said yes; the persisted row, which both clients read through their
+//! notification feed, reaches the rest.
 //!
 //! An athlete who talks to Dravr on Telegram, Slack or `WhatsApp` and has never
-//! installed the mobile app therefore received *nothing* — not for training, not
-//! for recovery, not for agent follow-ups. [`NotificationChannelSink`] is the
-//! seam that fixes that for every category at once:
+//! installed the mobile app, or has refused its notifications, therefore
+//! received *nothing* — not for training, not for recovery, not for agent
+//! follow-ups. [`NotificationChannelSink`] is the seam that fixes that for
+//! every category at once:
 //! [`NotificationService::dispatch_event`] and
 //! [`NotificationService::dispatch_with_tier`] run the upstream pipeline first,
 //! so preferences, quiet hours and frequency caps decide as they always did,

@@ -36,6 +36,7 @@ use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use super::common::{get_tenant_id, verify_group_membership};
+use super::dto::preview_text;
 
 /// Default number of transcript entries returned when the caller names none.
 const DEFAULT_TRANSCRIPT_LIMIT: i64 = 50;
@@ -76,7 +77,8 @@ pub struct TranscriptMemberResponse {
 pub struct TranscriptEntryResponse {
     /// Entry id — the cursor for the page before it
     pub id: String,
-    /// `member` or `coach`
+    /// `member`, `coach` (the agent), or `correction` (the group's human
+    /// coach correcting one of the agent's replies)
     pub speaker: String,
     /// The consent rule withholds this entry from the caller: its author and
     /// its words are absent, and a client shows a placeholder in its place
@@ -94,8 +96,23 @@ pub struct TranscriptEntryResponse {
     /// that already holds that row shows it from its own conversation;
     /// `None` for ambient room chatter and for a withheld entry
     pub message_id: Option<String>,
+    /// The agent reply a `correction` entry corrects; `None` for every other
+    /// entry and for a withheld one
+    pub corrects: Option<CorrectedReplyResponse>,
     /// When the utterance was recorded (RFC 3339)
     pub created_at: String,
+}
+
+/// The reply a coach's correction is linked to.
+#[derive(Debug, Serialize)]
+pub struct CorrectedReplyResponse {
+    /// The reply's transcript entry id: its room row on another member's thread
+    pub entry_id: String,
+    /// The reply's `chat_messages` row: its own row on the thread of the
+    /// member it answered
+    pub message_id: Option<String>,
+    /// The reply's opening, one line
+    pub excerpt: String,
 }
 
 impl TranscriptEntryResponse {
@@ -116,6 +133,11 @@ impl TranscriptEntryResponse {
                 // Only a turn row names a chat message: an ambient row's
                 // provenance is the channel's own message id.
                 message_id: shared.source_conversation_id.and(shared.source_message_id),
+                corrects: shared.corrects.map(|reply| CorrectedReplyResponse {
+                    entry_id: reply.entry_id.to_string(),
+                    message_id: reply.message_id,
+                    excerpt: preview_text(&reply.content),
+                }),
                 created_at,
             },
             RoomEntryBody::Withheld => Self {
@@ -127,6 +149,7 @@ impl TranscriptEntryResponse {
                 author_display_name: None,
                 content: None,
                 message_id: None,
+                corrects: None,
                 created_at,
             },
         }

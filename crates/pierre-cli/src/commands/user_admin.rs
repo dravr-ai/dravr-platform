@@ -622,12 +622,13 @@ pub async fn set_user_manages_roster(
 }
 
 /// Columns of the pre-approval listing, in order.
-const ALLOWED_COLUMNS: [&str; 5] = [
+const ALLOWED_COLUMNS: [&str; 6] = [
     "email",
     "account_status",
     "created_at",
     "allowed_by_email",
     "note",
+    "invitation_expires_at",
 ];
 
 /// Pre-approve an email address over the admin API.
@@ -735,13 +736,17 @@ fn message_or_json(body: &Value) -> String {
 }
 
 /// `not yet` reads better than an empty cell for an address nobody has
-/// registered against — the normal steady state of a standing allow.
+/// registered against — the normal steady state of a standing allow — and
+/// `invited` says the address also holds an invitation link still waiting to
+/// be used.
 fn account_label(entry: &Value) -> String {
     let status = field(entry, "account_status");
-    if status.is_empty() {
+    if !status.is_empty() {
+        status
+    } else if field(entry, "invitation_expires_at").is_empty() {
         "not yet".to_owned()
     } else {
-        status
+        "invited".to_owned()
     }
 }
 
@@ -781,5 +786,36 @@ fn csv_cell(value: &str) -> String {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::account_label;
+
+    #[test]
+    fn an_account_status_wins_over_any_invitation() {
+        let entry = json!({
+            "account_status": "active",
+            "invitation_expires_at": "2026-10-16T12:00:00+00:00",
+        });
+        assert_eq!(account_label(&entry), "active");
+    }
+
+    #[test]
+    fn an_address_with_a_live_invitation_and_no_account_reads_invited() {
+        let entry = json!({
+            "account_status": null,
+            "invitation_expires_at": "2026-10-16T12:00:00+00:00",
+        });
+        assert_eq!(account_label(&entry), "invited");
+    }
+
+    #[test]
+    fn an_address_with_neither_reads_not_yet() {
+        let entry = json!({ "account_status": null, "invitation_expires_at": null });
+        assert_eq!(account_label(&entry), "not yet");
     }
 }

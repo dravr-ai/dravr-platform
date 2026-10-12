@@ -31,6 +31,7 @@ use uuid::Uuid;
 
 use crate::admin_ops::{create_default_mcp_token_for_user, transition_user_status};
 use crate::auth::AuthService;
+use crate::invitation;
 
 /// The address in its stored form ([`normalize_email`]), rejecting one that is
 /// not an email.
@@ -44,7 +45,7 @@ use crate::auth::AuthService;
 /// Returns [`AppError::invalid_input`] when the value is not a valid email
 /// address — rejected before it reaches the table, where a typo would sit as a
 /// permanent allow nobody can match against.
-fn valid_email(email: &str) -> AppResult<String> {
+pub(crate) fn valid_email(email: &str) -> AppResult<String> {
     let normalized = normalize_email(email);
     if !AuthService::is_valid_email(&normalized) {
         return Err(AppError::invalid_input(format!(
@@ -132,6 +133,8 @@ pub struct DisallowResult {
     pub email: String,
     /// Whether a row was actually removed.
     pub removed: bool,
+    /// Whether a live invitation to the address was revoked with it.
+    pub invitation_revoked: bool,
     /// Status of an account that exists for this address, if any. Removing a
     /// pre-approval never changes it, and an operator who expects otherwise
     /// needs to see that it did not.
@@ -148,6 +151,11 @@ impl DisallowResult {
         } else {
             format!("{email} was not on the pre-approved list (nothing to remove)")
         };
+        let invitation = if self.invitation_revoked {
+            " — its invitation link no longer works"
+        } else {
+            ""
+        };
         let note = self
             .account_status
             .as_deref()
@@ -157,7 +165,7 @@ impl DisallowResult {
                  which disallow does not change"
                 )
             });
-        format!("{outcome}{note}")
+        format!("{outcome}{invitation}{note}")
     }
 }
 
@@ -178,6 +186,9 @@ pub struct AllowedEmail {
     /// nobody has registered yet — the whole point of a standing allow is that
     /// it outlives the wait, so "not yet" is a normal steady state.
     pub account_status: Option<String>,
+    /// When the address's outstanding invitation link stops working, or `None`
+    /// when no invitation is waiting to be redeemed.
+    pub invitation_expires_at: Option<DateTime<Utc>>,
 }
 
 /// Record a standing pre-approval, approving a pending account on the spot.
@@ -248,7 +259,11 @@ pub async fn allow(
     })
 }
 
-/// Remove a standing pre-approval. Never touches an existing account's status.
+/// Remove a standing pre-approval, and revoke the invitation link sent with it.
+/// Never touches an existing account's status.
+///
+/// The invitation goes with the allow: redeeming one creates an active account,
+/// which is exactly what an operator who withdraws the allow means to stop.
 ///
 /// # Errors
 ///
@@ -260,6 +275,7 @@ pub async fn disallow(repos: &RepositoryRegistry, email: &str) -> AppResult<Disa
     if removed {
         info!("Pre-approved email removed");
     }
+    let invitation_revoked = invitation::revoke(repos, &email).await?;
     let account_status = match repos.users.get_by_email(&email).await {
         Ok(user) => user.map(|u| u.user_status.to_string()),
         Err(e) => {
@@ -270,11 +286,13 @@ pub async fn disallow(repos: &RepositoryRegistry, email: &str) -> AppResult<Disa
     Ok(DisallowResult {
         email,
         removed,
+        invitation_revoked,
         account_status,
     })
 }
 
-/// List every standing pre-approval with its operator and registration state.
+/// List every standing pre-approval with its operator, registration state and
+/// outstanding invitation.
 ///
 /// # Errors
 ///
@@ -284,6 +302,7 @@ pub async fn disallow(repos: &RepositoryRegistry, email: &str) -> AppResult<Disa
 /// refuse to show the allow-list.
 pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<AllowedEmail>> {
     let entries = repos.pre_approved_emails.list().await?;
+    let invitations = invitation::live_by_email(repos).await?;
 
     // One lookup per distinct operator, not per row: a cohort allowed in one
     // sitting shares an operator, and the listing is read often enough that
@@ -302,6 +321,9 @@ pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<AllowedEmail>> {
             }
         };
 
+        let invitation_expires_at = invitations
+            .get(&entry.email)
+            .map(|invitation| invitation.expires_at);
         out.push(AllowedEmail {
             email: entry.email,
             note: entry.note,
@@ -309,6 +331,7 @@ pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<AllowedEmail>> {
             allowed_by: entry.allowed_by,
             allowed_by_email,
             account_status,
+            invitation_expires_at,
         });
     }
 

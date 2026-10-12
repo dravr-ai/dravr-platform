@@ -37,8 +37,8 @@ use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
 use crate::routes::{athlete_gear, athlete_home, user_profile::routes as user_profile_routes};
 use crate::routes::{
-    check_in::CheckInRoutes, coach_access::CoachAccessRoutes, onboarding::OnboardingRoutes,
-    viz::VizRoutes,
+    check_in::CheckInRoutes, coach_access::CoachAccessRoutes, coach_replies::CoachReplyRoutes,
+    onboarding::OnboardingRoutes, viz::VizRoutes,
 };
 #[cfg(feature = "client-messaging")]
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -628,6 +628,8 @@ impl ProviderToolRouter {
         let app = app.merge(CheckInRoutes::routes(Arc::clone(resources)));
         // A coach's own coach-access request, decided in the admin console.
         let app = app.merge(CoachAccessRoutes::routes(Arc::clone(resources)));
+        // A coach's review of the agent's group replies: flag, correct, count.
+        let app = app.merge(CoachReplyRoutes::routes(Arc::clone(resources)));
         let app = app.merge(VizRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-agents")]

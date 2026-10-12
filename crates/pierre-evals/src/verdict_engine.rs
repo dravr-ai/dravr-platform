@@ -75,6 +75,45 @@ pub struct VerdictOutcome {
     pub evidence_refs: Option<String>,
 }
 
+/// Explanation recorded on the verdict of a claim whose LLM-judge call failed.
+///
+/// Persisted verbatim in the verdict row, so the triage view and the coach
+/// view read "this claim was never checked" from the row itself.
+const JUDGE_ERROR_EXPLANATION: &str = "Not checked: judge error";
+
+impl VerdictOutcome {
+    /// The verdict for a claim the LLM judge failed to check: the provider
+    /// refused, timed out, or answered something that was not the JSON the judge
+    /// asked for.
+    ///
+    /// The claim is [`ClaimStatus::Unverifiable`], the vocabulary's "no
+    /// confident verdict", with zero confidence. It never reads as
+    /// `Supported`, and it raises no flag of its own, because an unchecked
+    /// claim is not a contradicted one. What it does is stay visible as
+    /// unchecked: [`Self::is_judge_error`] tells it apart from a judge that
+    /// answered "unverifiable".
+    #[must_use]
+    pub fn judge_error() -> Self {
+        Self {
+            status: ClaimStatus::Unverifiable,
+            evidence_strength: EvidenceStrength::None,
+            confidence: 0.0,
+            layer_fired: VerdictLayer::Judge,
+            explanation: JUDGE_ERROR_EXPLANATION.to_owned(),
+            evidence_refs: None,
+        }
+    }
+
+    /// `true` when this verdict stands for a claim the LLM judge failed to
+    /// check, as built by [`Self::judge_error`].
+    #[must_use]
+    pub fn is_judge_error(&self) -> bool {
+        self.layer_fired == VerdictLayer::Judge
+            && self.status == ClaimStatus::Unverifiable
+            && self.explanation == JUDGE_ERROR_EXPLANATION
+    }
+}
+
 /// Result of running the pure-Rust layers (rhetoric, deterministic,
 /// evidence, consistency). Either one of them reached a confident verdict, or
 /// they were all inconclusive and the retrieved evidence is carried forward so
@@ -219,10 +258,13 @@ pub async fn check_claim_judged(
 /// `personalized` is supplied, the athlete-data layer when `athlete_record`
 /// is. Pass `judge: None` to keep the run fully deterministic.
 ///
-/// # Errors
-///
-/// Propagates the LLM error when the judge is invoked and the provider call
-/// (or its JSON parse) fails.
+/// The judge is the only step that can fail, and it fails one claim at a time:
+/// a claim whose judge call errors (the provider refused, timed out, or
+/// answered something unparseable) is recorded with
+/// [`VerdictOutcome::judge_error`] and the run goes on. Every other claim keeps
+/// its verdict, the ones the deterministic layers settled included, so a judge
+/// outage costs the claims that needed the judge and nothing else. The caller
+/// reads [`VerdictOutcome::is_judge_error`] to see which claims were not checked.
 pub async fn verify_reply(
     agent_reply: &str,
     config: &VerificationConfig,
@@ -230,14 +272,14 @@ pub async fn verify_reply(
     judge: Option<ClaimJudge<'_>>,
     personalized: Option<&PersonalizedContext<'_>>,
     athlete_record: Option<&AthleteRecord>,
-) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
+) -> Vec<(ExtractedClaim, VerdictOutcome)> {
     if !config.enabled {
-        return Ok(Vec::new());
+        return Vec::new();
     }
     let claims = extract_heuristic(agent_reply);
     let mut out = Vec::with_capacity(claims.len());
     for claim in claims.iter().filter(|c| config.is_enabled_for(c.category)) {
-        let outcome = check_claim_judged(
+        let outcome = match check_claim_judged(
             claim,
             &claims,
             corpus,
@@ -246,10 +288,23 @@ pub async fn verify_reply(
             personalized,
             athlete_record,
         )
-        .await?;
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                // The claim text is a sentence of the reply, so only its
+                // category is logged.
+                tracing::warn!(
+                    error = %e,
+                    category = claim.category.as_str(),
+                    "claim judge failed — recording the claim as not checked"
+                );
+                VerdictOutcome::judge_error()
+            }
+        };
         out.push((claim.clone(), outcome));
     }
-    Ok(out)
+    out
 }
 
 /// Run the pure-Rust layers (rhetoric, deterministic, evidence,
@@ -430,4 +485,231 @@ fn evidence_context(matches: &[EvidenceMatch]) -> String {
         .map(|m| format!("- {} ({})", m.record.proposition, m.record.citation))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use pierre_core::errors::AppError;
+    use pierre_core::llm::{
+        ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
+    };
+    use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
+
+    use super::{verify_reply, VerdictOutcome};
+    use crate::{ClaimJudge, EvidenceCorpus, VerificationConfig};
+
+    #[test]
+    fn a_judge_error_is_an_unchecked_claim_that_never_reads_as_support() {
+        let verdict = VerdictOutcome::judge_error();
+
+        assert_eq!(verdict.status, ClaimStatus::Unverifiable);
+        assert_eq!(verdict.layer_fired, VerdictLayer::Judge);
+        assert_eq!(verdict.evidence_strength, EvidenceStrength::None);
+        assert!(verdict.confidence.abs() < f32::EPSILON);
+        // Pinned on purpose: a persisted value, written verbatim to the verdict
+        // row that the triage and coach views read back.
+        assert_eq!(verdict.explanation, "Not checked: judge error");
+        assert_eq!(verdict.evidence_refs, None);
+        assert!(verdict.is_judge_error());
+    }
+
+    #[test]
+    fn a_judge_that_answered_unverifiable_is_not_a_judge_error() {
+        // Same status and layer as a judge error, but the judge ran and said it
+        // could not tell: that claim was checked.
+        let answered = VerdictOutcome {
+            status: ClaimStatus::Unverifiable,
+            evidence_strength: EvidenceStrength::None,
+            confidence: 0.4,
+            layer_fired: VerdictLayer::Judge,
+            explanation: "LLM judge: the evidence is mixed".to_owned(),
+            evidence_refs: None,
+        };
+
+        assert!(!answered.is_judge_error());
+    }
+
+    #[test]
+    fn only_a_judge_layer_unverifiable_verdict_can_be_a_judge_error() {
+        let by_other_layer = VerdictOutcome {
+            layer_fired: VerdictLayer::Evidence,
+            ..VerdictOutcome::judge_error()
+        };
+        let by_other_status = VerdictOutcome {
+            status: ClaimStatus::Unsupported,
+            ..VerdictOutcome::judge_error()
+        };
+
+        assert!(!by_other_layer.is_judge_error());
+        assert!(!by_other_status.is_judge_error());
+    }
+
+    /// A deterministic bound violation: the first claim never reaches the judge.
+    const OUT_OF_BOUNDS: &str = "Your maximum heart rate is 300 bpm.";
+    /// Reaches the judge, because an empty corpus can never settle it.
+    const JUDGED_AND_FAILED: &str =
+        "Drinking beetroot juice daily raises your lactate threshold by 12% within two weeks.";
+    /// Reaches the judge too, in another category so it never conflicts with the claim above.
+    const JUDGED_AND_ANSWERED: &str =
+        "Tart cherry juice before bed improves your sleep quality by 8% within a month.";
+
+    /// A judge provider that fails on one claim and supports every other.
+    struct FailsOnClaim {
+        failing_claim: &'static str,
+        calls: AtomicUsize,
+    }
+
+    impl FailsOnClaim {
+        fn new(failing_claim: &'static str) -> Self {
+            Self {
+                failing_claim,
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for FailsOnClaim {
+        fn name(&self) -> &'static str {
+            "fails_on_claim"
+        }
+        fn display_name(&self) -> &'static str {
+            "Judge that fails on one claim"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let asked_about_failing_claim = request
+                .messages
+                .iter()
+                .any(|m| m.role == MessageRole::User && m.content.contains(self.failing_claim));
+            if asked_about_failing_claim {
+                return Err(AppError::internal("judge provider timed out"));
+            }
+            Ok(ChatResponse {
+                content: r#"{"verdict":"supported","confidence":0.9,"rationale":"Replicated in trials."}"#
+                    .to_owned(),
+                model: "mock-model".to_owned(),
+                usage: None,
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls: None,
+            })
+        }
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming is not used here"))
+        }
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    fn judged(provider: &FailsOnClaim) -> ClaimJudge<'_> {
+        ClaimJudge {
+            provider,
+            system_prompt: "Judge the claim.",
+            model: None,
+            recorder: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_judge_error_on_one_claim_keeps_every_other_verdict() {
+        let reply = format!("{OUT_OF_BOUNDS} {JUDGED_AND_FAILED} {JUDGED_AND_ANSWERED}");
+        let provider = FailsOnClaim::new("beetroot");
+
+        let verdicts = verify_reply(
+            &reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            Some(judged(&provider)),
+            None,
+            None,
+        )
+        .await;
+
+        let texts: Vec<&str> = verdicts
+            .iter()
+            .map(|(claim, _)| claim.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            [OUT_OF_BOUNDS, JUDGED_AND_FAILED, JUDGED_AND_ANSWERED]
+        );
+
+        let (_, bound) = &verdicts[0];
+        assert_eq!(bound.status, ClaimStatus::Contradicted);
+        assert_eq!(bound.layer_fired, VerdictLayer::Deterministic);
+
+        let (_, unchecked) = &verdicts[1];
+        assert!(unchecked.is_judge_error());
+        assert_eq!(unchecked.status, ClaimStatus::Unverifiable);
+        assert_eq!(unchecked.layer_fired, VerdictLayer::Judge);
+
+        let (_, answered) = &verdicts[2];
+        assert!(!answered.is_judge_error());
+        assert_eq!(answered.status, ClaimStatus::Supported);
+        assert_eq!(answered.layer_fired, VerdictLayer::Judge);
+        assert!(answered.explanation.contains("Replicated in trials."));
+
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            2,
+            "the judge is asked about both inconclusive claims and no other"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_judge_that_fails_on_every_claim_still_returns_a_verdict_for_each() {
+        let reply = format!("{OUT_OF_BOUNDS} {JUDGED_AND_FAILED}");
+        // The empty needle is in every prompt, so every judge call fails.
+        let provider = FailsOnClaim::new("");
+
+        let verdicts = verify_reply(
+            &reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            Some(judged(&provider)),
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(verdicts.len(), 2, "no claim is dropped by a judge outage");
+        assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Deterministic);
+        assert_eq!(verdicts[0].1.status, ClaimStatus::Contradicted);
+        assert!(verdicts[1].1.is_judge_error());
+    }
+
+    #[tokio::test]
+    async fn without_a_judge_no_claim_is_marked_as_a_judge_error() {
+        let reply = format!("{OUT_OF_BOUNDS} {JUDGED_AND_FAILED}");
+
+        let verdicts = verify_reply(
+            &reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(verdicts.len(), 2);
+        assert!(verdicts
+            .iter()
+            .all(|(_, outcome)| !outcome.is_judge_error()));
+        assert_eq!(verdicts[1].1.status, ClaimStatus::Unsupported);
+    }
 }

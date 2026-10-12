@@ -184,12 +184,13 @@ pub fn registration_approved_html(display_name: Option<&str>, sign_in_url: Optio
 /// Generate the HTML body for an invitation message.
 ///
 /// Sent when an operator pre-approves an address and asks for the invitee to be
-/// told. The link is the app's own sign-up page, not a single-use token: the
-/// standing pre-approval is what lets the account land active, so the invitee
-/// still chooses their own password and no secret crosses this channel.
+/// told. The link is single-use and opens the app's accept page, where the
+/// invitee chooses their own password and the account is created active, so no
+/// password crosses this channel. `ttl_days` is stated in the copy so the
+/// expiry is known before the link stops working.
 #[must_use]
-pub fn invitation_html(signup_url: &str) -> String {
-    let url_attr = encode_double_quoted_attribute(signup_url);
+pub fn invitation_html(accept_url: &str, ttl_days: i64) -> String {
+    let url_attr = encode_double_quoted_attribute(accept_url);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -209,13 +210,17 @@ pub fn invitation_html(signup_url: &str) -> String {
       <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
         <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">You're invited</h2>
         <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
-          You've been invited to Dravr. Create your account with the link below
-          and you'll be let straight in &mdash; you choose your own password, and
-          there's no approval queue to wait through.
+          You've been invited to Dravr. Choose your password with the link below
+          and your account is ready &mdash; there's no approval queue to wait
+          through.
         </p>
         <div style="text-align:center;margin:0 0 24px;">
           <a href="{url_attr}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Create your account</a>
         </div>
+        <p style="margin:0 0 12px;font-size:13px;line-height:1.5;color:#6b7280;">
+          This link works once and expires in {ttl_days} days. If it has
+          expired, ask whoever invited you to send a new one.
+        </p>
         <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
           If you weren't expecting this, you can ignore it &mdash; nothing was
           created in your name.

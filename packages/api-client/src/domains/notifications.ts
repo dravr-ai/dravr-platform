@@ -41,17 +41,9 @@ export function createNotificationsApi(axios: AxiosInstance) {
     // ==================== DEVICE TOKENS ====================
 
     /**
-     * Register a device token for push notifications.
-     *
-     * LIMITATION(registre#301): `registerDevice`, `listDevices`, `deactivateDevice`
-     * and `badgeSync` have zero production callers. The server half is complete —
-     * `pierre-routes-groups` serves `POST`/`GET /api/notifications/device` and
-     * `DELETE /api/notifications/device/{id}` on exactly these paths — but neither
-     * client can produce a token to send: `frontend-mobile` carries no
-     * `expo-notifications` dependency, so nothing calls `getExpoPushTokenAsync`.
-     * The dispatcher's Expo push sink therefore resolves zero devices for every
-     * user; the persisted notification row that both clients read through their
-     * feed is the delivery path that works.
+     * Register a device token for push notifications. The mobile app calls this
+     * on entering the signed-in app and again whenever the device's push token
+     * rotates; the server upserts on (user, tenant, token).
      */
     async registerDevice(request: RegisterDeviceTokenRequest): Promise<DeviceToken> {
       const response = await axios.post<DeviceToken>(ENDPOINTS.NOTIFICATIONS.DEVICES, request);
@@ -60,6 +52,11 @@ export function createNotificationsApi(axios: AxiosInstance) {
 
     /**
      * List active device tokens for the current user.
+     *
+     * LIMITATION(registre#301): `listDevices` has no production caller. The
+     * mobile app registers and deactivates its own device from the id it stored
+     * when it registered, and neither client has a screen that lists an
+     * athlete's devices.
      */
     async listDevices(): Promise<DeviceToken[]> {
       const response = await axios.get<DeviceToken[]>(ENDPOINTS.NOTIFICATIONS.DEVICES);
@@ -67,7 +64,7 @@ export function createNotificationsApi(axios: AxiosInstance) {
     },
 
     /**
-     * Deactivate a device token.
+     * Deactivate a device token. The mobile app calls this on sign-out.
      */
     async deactivateDevice(deviceId: string): Promise<void> {
       await axios.delete(ENDPOINTS.NOTIFICATIONS.DEVICE(deviceId));
@@ -154,6 +151,10 @@ export function createNotificationsApi(axios: AxiosInstance) {
     /**
      * Sync badge count with the server.
      * Returns the current unread notification count for updating the app badge.
+     *
+     * LIMITATION(registre#301): `badgeSync` has no production caller. The mobile
+     * app's icon badge follows the `getUnreadCount` query the in-app bell
+     * already polls, which this route duplicates.
      */
     async badgeSync(): Promise<BadgeSyncResponse> {
       const response = await axios.post<BadgeSyncResponse>(ENDPOINTS.NOTIFICATIONS.BADGE_SYNC);

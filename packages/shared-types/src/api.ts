@@ -1,7 +1,7 @@
 // ABOUTME: Shared TypeScript types for common API structures
 // ABOUTME: Chat types, prompt suggestions, and common response patterns
 
-import type { TranscriptSpeaker } from './groups.js';
+import type { CorrectedReply, TranscriptSpeaker } from './groups.js';
 import type { ChatMessageAction } from './turn.js';
 
 // ========== CHAT TYPES ==========
@@ -180,6 +180,8 @@ export interface RoomAttribution {
   own: boolean;
   /** The author's sharing consent withholds the entry: the row has no words to show. */
   withheld: boolean;
+  /** The reply a coach's correction is linked to; `null` on every other row. */
+  corrects?: CorrectedReply | null;
 }
 
 /**

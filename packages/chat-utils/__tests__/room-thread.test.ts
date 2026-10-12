@@ -117,6 +117,47 @@ describe('composeRoomThread', () => {
   });
 });
 
+describe('a coach\'s correction in a group thread', () => {
+  const corrects = { entry_id: 't-2', message_id: 'msg-2', excerpt: 'Solid week, Alice.' };
+  const correction = entry({
+    id: 't-9',
+    created_at: '2026-09-14T12:00:00Z',
+    speaker: 'correction',
+    own: true,
+    author_user_id: ALICE,
+    author_display_name: 'Alice',
+    content: 'Alice, that week was lighter than it says.',
+    corrects,
+  });
+
+  it('joins the athlete\'s own thread from the other side, linked to the reply it corrects', () => {
+    const thread = composeRoomThread(OWN, [correction]);
+    expect(thread.map((row) => row.id)).toEqual(['msg-1', 'msg-2', 'room-t-9']);
+    const row = thread[2];
+    // Never drawn as the athlete's own words, though it concerns them.
+    expect(row.role).toBe('assistant');
+    expect('room' in row && row.room.speaker).toBe('correction');
+    expect('room' in row && row.room.corrects).toEqual(corrects);
+    expect(row.content).toBe('Alice, that week was lighter than it says.');
+  });
+
+  it('runs neither on from the agent\'s reply nor from the athlete\'s own rows', () => {
+    const at = (second: number) => new Date(2026, 8, 14, 12, 0, second).toISOString();
+    const room = { speaker: 'correction' as const, author_user_id: ALICE, author_name: 'Alice', own: true, withheld: false };
+    expect(
+      isSameMessageGroup({ role: 'assistant', created_at: at(0) }, { role: 'assistant', created_at: at(10), room }),
+    ).toBe(false);
+    expect(
+      isSameMessageGroup({ role: 'assistant', created_at: at(0), room }, { role: 'assistant', created_at: at(10), room }),
+    ).toBe(true);
+    // Corrections concerning two athletes are two runs, each under its own name.
+    const forBob = { ...room, own: false, author_user_id: 'user-bob', author_name: 'Bob' };
+    expect(
+      isSameMessageGroup({ role: 'assistant', created_at: at(0), room }, { role: 'assistant', created_at: at(10), room: forBob }),
+    ).toBe(false);
+  });
+});
+
 describe('isSameMessageGroup in a group thread', () => {
   const at = (second: number) => new Date(2026, 8, 14, 11, 0, second).toISOString();
   const room = (author: string | null, withheld = false, speaker: 'member' | 'coach' = 'member') => ({

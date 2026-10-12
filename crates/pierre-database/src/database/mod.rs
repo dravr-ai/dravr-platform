@@ -38,6 +38,8 @@ pub mod check_in_preferences;
 pub mod claim_verdicts;
 /// Coach-access requests a super-admin decides (`SQLite`)
 pub mod coach_access_requests;
+/// A coach's review of the agent's group replies (`SQLite`)
+pub mod coach_reply_reviews;
 /// Coaching group storage, membership, and invite management
 pub mod coaching_groups;
 /// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
@@ -145,6 +147,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
+/// Single-use user invitation links (`SQLite`)
+pub mod user_invitations;
 /// User MCP token management for AI client authentication
 pub mod user_mcp_tokens;
 /// User OAuth token storage and management

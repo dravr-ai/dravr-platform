@@ -227,7 +227,7 @@ pub struct CaptureStalenessReport {
 /// population entirely.
 ///
 /// `pub` so the decision is exercisable by the integration test suite, like
-/// `historical_depth_covered` and `before_bounds_a_closed_window` in
+/// `historical_head_slice` and `before_bounds_a_closed_window` in
 /// `pierre_tool_runtime::activity_fetch`.
 #[must_use]
 pub fn partition_stale_captures(

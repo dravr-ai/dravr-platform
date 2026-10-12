@@ -26,10 +26,11 @@ use pierre_middleware::redaction::mask_email;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::onboarding_reset::kept_for_groups;
-use pierre_services::pre_approval::{self, AllowOutcome};
+use pierre_services::pre_approval;
 use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
+use super::invitations::send_invite_if_eligible;
 use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
     UserActivityQuery,
@@ -1006,7 +1007,8 @@ pub(crate) async fn handle_allow_email(
         .await;
     }
 
-    let invited = send_invite_if_eligible(ctx, &result, request.send_invite).await;
+    let invite = send_invite_if_eligible(ctx, &result, request.send_invite, &admin_token).await?;
+    let invited = invite.invited();
     let recipient = mask_email(&result.email);
 
     info!(
@@ -1021,12 +1023,13 @@ pub(crate) async fn handle_allow_email(
     Ok(json_response(
         AdminResponse {
             success: true,
-            message: result.message(),
+            message: format!("{}{}", result.message(), invite.sentence()),
             data: to_value(json!({
                 "email": result.email,
                 "outcome": result.outcome,
                 "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
                 "invited": invited,
+                "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
             }))
             .ok(),
         },
@@ -1035,46 +1038,12 @@ pub(crate) async fn handle_allow_email(
     .into_response())
 }
 
-/// Email the sign-up link when it was asked for and the address has no
-/// account, logging which way it went. Returns whether the invite was handed
-/// to the notifier.
-///
-/// Only an address with no account is invited. A pending one was just
-/// approved by the allow and gets that announcement instead; an active or
-/// suspended account already exists, so a "create your account" link would be
-/// wrong.
-async fn send_invite_if_eligible(
-    ctx: &AdminApiContext,
-    result: &pre_approval::AllowResult,
-    send_invite: bool,
-) -> bool {
-    let invited = send_invite
-        && matches!(
-            result.outcome,
-            AllowOutcome::Recorded | AllowOutcome::AlreadyAllowed
-        );
-    let recipient = mask_email(&result.email);
-    if invited {
-        if let Some(notifier) = ctx.approval_notifier.as_ref() {
-            notifier.notify_user_invited(&result.email).await;
-        } else {
-            warn!(%recipient, "No approval notifier wired — invitation email not sent");
-        }
-    } else if send_invite {
-        info!(
-            %recipient,
-            outcome = ?result.outcome,
-            "Invitation requested but not sent: the address already has an account"
-        );
-    }
-    invited
-}
-
-/// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow.
+/// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow, and
+/// revoke the invitation link sent with it.
 ///
 /// An account that already registered against the address keeps whatever
 /// status it holds; removing the allow only stops a *future* registration from
-/// skipping the queue.
+/// skipping the queue, or an outstanding invitation from creating one.
 pub(crate) async fn handle_disallow_email(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -1099,6 +1068,7 @@ pub(crate) async fn handle_disallow_email(
             data: to_value(json!({
                 "email": result.email,
                 "removed": result.removed,
+                "invitation_revoked": result.invitation_revoked,
                 "account_status": result.account_status,
             }))
             .ok(),

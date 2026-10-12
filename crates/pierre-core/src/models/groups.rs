@@ -326,6 +326,10 @@ pub enum TranscriptSpeaker {
     Member,
     /// The AI agent's reply, attributed to the member it answered.
     Coach,
+    /// The group's human coach correcting one of the agent's replies,
+    /// attributed like that reply to the member it answered, so the room's
+    /// consent rule shows it to exactly the readers of the reply (carnet#847).
+    Correction,
 }
 
 impl TranscriptSpeaker {
@@ -335,6 +339,7 @@ impl TranscriptSpeaker {
         match self {
             Self::Member => "member",
             Self::Coach => "coach",
+            Self::Correction => "correction",
         }
     }
 
@@ -344,6 +349,7 @@ impl TranscriptSpeaker {
         match s {
             "member" => Some(Self::Member),
             "coach" => Some(Self::Coach),
+            "correction" => Some(Self::Correction),
             _ => None,
         }
     }
@@ -454,6 +460,24 @@ pub struct SharedRoomEntry {
     /// Provenance id of the source row (`chat_messages.id` for turn rows,
     /// the channel-native message id for ambient rows)
     pub source_message_id: Option<String>,
+    /// The agent reply a [`TranscriptSpeaker::Correction`] entry corrects;
+    /// `None` for every other entry.
+    pub corrects: Option<CorrectedReply>,
+}
+
+/// The agent reply a coach's correction is linked to.
+///
+/// It is attributed to the same member as the correction, so whoever may read
+/// the correction may read the reply it names.
+#[derive(Debug, Clone)]
+pub struct CorrectedReply {
+    /// The reply's transcript entry id — its room row on a peer's thread
+    pub entry_id: Uuid,
+    /// The `chat_messages` row the reply was fanned out from — its own row on
+    /// the thread of the member it answered
+    pub message_id: Option<String>,
+    /// The reply's words
+    pub content: String,
 }
 
 /// An invite code for joining a group

@@ -22,6 +22,9 @@ const AMBIENT_TRANSCRIPT_MAX_LINES: usize = 25;
 /// char truncation is fine for prompt context).
 const AMBIENT_TRANSCRIPT_MAX_LINE_CHARS: usize = 240;
 
+/// How a correction by the group's human coach is labelled in the block.
+const CORRECTION_LABEL: &str = "Coach (correcting Dravr)";
+
 /// Build the speaker-labeled ambient transcript for a group turn.
 ///
 /// Reads the group's shared room transcript (`group_transcript_entries`) —
@@ -90,6 +93,10 @@ pub(super) async fn build_group_ambient_context(
                 let label = speaker_label(dispatch, &author, &mut label_cache).await;
                 (label, entry.content.clone())
             }
+            // The group's human coach correcting one of the agent's replies
+            // (carnet#847): the agent reads it as the coach's word on its own
+            // earlier line, so the next reply does not repeat the mistake.
+            TranscriptSpeaker::Correction => (CORRECTION_LABEL.to_owned(), entry.content.clone()),
         };
         if content.trim().is_empty() {
             continue;

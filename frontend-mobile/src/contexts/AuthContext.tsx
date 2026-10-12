@@ -6,6 +6,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import { signInWithHostedPage } from '../utils/hostedSignIn';
+import { unregisterPushDevice } from '../services/pushNotifications';
 import type { User, FirebaseLoginResponse } from '../types';
 
 interface AuthContextType {
@@ -171,6 +172,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Before the server logout: deactivating this phone's push device needs
+    // the session that logout ends. It never throws, and gives up on an
+    // unreachable server after a few seconds.
+    await unregisterPushDevice();
     try {
       await authApi.logout();
     } catch (error) {

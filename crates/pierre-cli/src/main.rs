@@ -465,11 +465,13 @@ enum UserCommand {
         #[arg(long)]
         note: Option<String>,
 
-        /// Email the invitee the sign-up link
+        /// Email the invitee a single-use link to choose their password
         ///
         /// Off by default: recording an allow is not by itself a decision to
         /// contact the person. Only an address with no account is mailed — a
-        /// pending one is approved and told so instead.
+        /// pending one is approved and told so instead. The link opens the web
+        /// app, where the invitee sets their own password and the account is
+        /// created active; it works once, and sending again replaces it.
         #[arg(long)]
         send_invite: bool,
 

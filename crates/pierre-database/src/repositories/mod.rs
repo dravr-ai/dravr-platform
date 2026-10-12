@@ -47,6 +47,8 @@ pub mod claim_verdict_grading;
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).
 pub mod coach_access_requests;
+/// Repository trait and shared body for a coach's review of the agent's group replies (carnet#847).
+pub mod coach_reply_reviews;
 /// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
 pub mod coaching_groups;
 /// Repository trait for athlete commitments swept against real activity data.
@@ -65,6 +67,8 @@ pub mod federated_identities;
 pub mod firebase_identity_deletions;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
+/// Shared statements for a coaching group's room transcript.
+pub(crate) mod group_transcript;
 /// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
 pub mod guardian_actions;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
@@ -172,6 +176,8 @@ pub mod use_case_exposures;
 pub mod user_access;
 /// Repository trait and shared body for the per-user choices Home's layout honours.
 pub mod user_home_preferences;
+/// Repository trait, statements and shared body for single-use user invitations.
+pub mod user_invitations;
 /// Repository trait, statements and shared body for user MCP tokens.
 pub mod user_mcp_tokens;
 /// Statements, row decoders and the one `OAuthTokenRepository` body for provider OAuth tokens, the Strava pool and BYO OAuth apps.
@@ -226,6 +232,7 @@ pub use chat::*;
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
+pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
 pub use data_source::*;
 pub use delegated_connections::*;
@@ -269,6 +276,7 @@ pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};
 pub use user_access::*;
 pub use user_home_preferences::{HomePreferences, HomePreferencesRepository};
+pub use user_invitations::UserInvitationRepository;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;

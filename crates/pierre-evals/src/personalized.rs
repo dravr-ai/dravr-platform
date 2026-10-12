@@ -10,7 +10,9 @@
 //! a claim against *population* bounds ("HR max of 300 bpm is impossible"), this
 //! layer checks it
 //! against the *individual athlete's* computed physiology: VDOT-derived training
-//! paces, HR zones, FTP, VO2max, and recent training load. This is what makes
+//! paces, HR zones, FTP, VO2max, and today's form (see `form`) — and against
+//! their measured overnight HRV, resting heart rate and sleep
+//! ([`crate::personalized_recovery`]). This is what makes
 //! "checked against your VDOT 52" literally true — a 4:00/km threshold
 //! prescription is contradicted for an athlete whose VDOT 52 puts threshold at
 //! ~5:08/km, even though 4:00/km is a perfectly plausible *population* pace.
@@ -39,13 +41,18 @@
 //! A VDOT computed from a single stale activity is a garbage estimate, and
 //! firing "contradicted" off it is worse than staying silent. [`check`] returns
 //! `None` (the claim falls through to the evidence-retrieval layer unchanged) whenever the snapshot
-//! is backed by fewer than [`MIN_DATA_DAYS`] days of history.
+//! is backed by fewer than [`MIN_DATA_DAYS`] days of history. The overnight
+//! readings are measurements rather than estimates from that history, so the
+//! guard does not hold them back; a weekly mean carries its own (three nights).
 
 use crate::claim_extractor::ExtractedClaim;
 use crate::deterministic_bounds::extract_number_near;
+use crate::personalized_recovery::{self, RecoveryReadings};
 use crate::verdict_engine::VerdictOutcome;
-use pierre_core::models::{MeasurementKind, ATHLETE_REPORTED_ORIGIN};
+use pierre_core::models::{FormReading, MeasurementKind, ATHLETE_REPORTED_ORIGIN};
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
+
+mod form;
 
 /// Minimum days of activity history backing the snapshot before the personalized
 /// layer is allowed to fire. Below this the estimates are too noisy to contradict a
@@ -82,8 +89,10 @@ pub struct AthleteMetrics {
     pub ftp_watts: Option<f64>,
     /// Maximum heart rate (bpm).
     pub max_hr: Option<f64>,
-    /// Recent training-stress balance / form (Coggan TSB).
-    pub recent_tsb: Option<f64>,
+    /// Today's form: CTL, TSB, TSB as a share of CTL, and the band that share
+    /// falls in. It is the [`FormReading`] the tools render, so a reply is
+    /// checked against the framing the athlete was shown.
+    pub form: Option<FormReading>,
     /// Critical power (watts), with whether it was measured or estimated.
     pub critical_power_watts: Option<StoredMetric>,
     /// W′ (joules), with its provenance.
@@ -94,6 +103,9 @@ pub struct AthleteMetrics {
     pub d_prime_meters: Option<StoredMetric>,
     /// Days of activity history backing these estimates; gates [`MIN_DATA_DAYS`].
     pub data_days: u32,
+    /// Overnight HRV, resting heart rate and sleep from the stored health-sync
+    /// rows. Measured, not estimated, so [`MIN_DATA_DAYS`] does not gate them.
+    pub recovery: RecoveryReadings,
 }
 
 /// A stored physiological value and whether the athlete's profile holds it as
@@ -149,10 +161,17 @@ fn frames_as_estimate(sentence: &str, origin: Option<&str>) -> bool {
 }
 
 impl AthleteMetrics {
-    /// True when at least one metric is populated *and* the history is deep
-    /// enough to trust — i.e. the layer has something it can confidently fire.
+    /// True when the layer has something it can confidently fire: an
+    /// activity-derived metric backed by enough history, or an overnight
+    /// reading.
     #[must_use]
     pub fn is_usable(&self) -> bool {
+        self.has_trusted_physiology() || self.recovery.is_usable()
+    }
+
+    /// True when at least one activity-derived metric is populated *and* the
+    /// history is deep enough to trust.
+    fn has_trusted_physiology(&self) -> bool {
         self.data_days >= MIN_DATA_DAYS
             && (self.vdot.is_some()
                 || self.vo2max.is_some()
@@ -162,7 +181,7 @@ impl AthleteMetrics {
                 || self.interval_pace_range.is_some()
                 || self.ftp_watts.is_some()
                 || self.max_hr.is_some()
-                || self.recent_tsb.is_some()
+                || self.form.is_some()
                 || self.critical_power_watts.is_some()
                 || self.w_prime_joules.is_some()
                 || self.critical_speed_mps.is_some()
@@ -267,8 +286,11 @@ fn assess_with_margin(claim: f64, range: (f64, f64), margin_frac: f64) -> Tolera
     if claim >= lo && claim <= hi {
         return ToleranceCall::Supported;
     }
-    let buffer_lo = lo * (1.0 - margin_frac);
-    let buffer_hi = hi * (1.0 + margin_frac);
+    // The margin widens the range outward whatever the sign of its ends: form
+    // is negative in a hard block, and scaling a negative end by `1 - margin`
+    // would move it inward.
+    let buffer_lo = lo.abs().mul_add(-margin_frac, lo);
+    let buffer_hi = hi.abs().mul_add(margin_frac, hi);
     if claim >= buffer_lo && claim <= buffer_hi {
         ToleranceCall::Indeterminate
     } else {
@@ -306,10 +328,10 @@ type PaceProbe = (&'static [&'static str], Option<(f64, f64)>, &'static str);
 #[must_use]
 pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<VerdictOutcome> {
     let m = ctx.metrics;
-    if !m.is_usable() {
-        return None;
-    }
     let text = claim.text.as_str();
+    if !m.has_trusted_physiology() {
+        return personalized_recovery::check(text, ctx);
+    }
 
     // --- Critical-power family: probed first, because "threshold power" is
     // an FTP keyword and would otherwise claim a CP sentence. ---
@@ -509,39 +531,10 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
             }
         }
     }
-    if let Some(tsb) = m.recent_tsb {
-        for kw in [
-            "tsb",
-            "training stress balance",
-            "current form",
-            // fr. "indice de fatigue" is here because the agent invented it
-            // live on 2026-09-02 and then repeated it for fifteen turns — a
-            // label the model actually uses is worth probing whether or not
-            // anybody chose it (registre#204).
-            "forme actuelle",
-            "équilibre de charge",
-            "indice de fatigue",
-            "indice de forme",
-            // es
-            "forma actual",
-            "balance de carga",
-            "índice de fatiga",
-            // de
-            "aktuelle form",
-            "formwert",
-            "ermüdungsindex",
-            // pt
-            "forma atual",
-            "equilíbrio de carga",
-            "índice de fadiga",
-        ] {
-            if let Some(v) = extract_number_near(text, kw) {
-                return verdict_for(ctx, (tsb - 5.0, tsb + 5.0), v, &point_descr("TSB", tsb, v));
-            }
-        }
-    }
 
-    None
+    // --- Form: a share of fitness, a band, or a bare TSB ---
+    // --- then overnight HRV, resting HR and sleep ---
+    form::check(text, ctx).or_else(|| personalized_recovery::check(text, ctx))
 }
 
 /// Keywords for critical power, in the five shipped locales. No bare "cp":
@@ -733,29 +726,48 @@ fn verdict_for(
     value: f64,
     descr: &str,
 ) -> Option<VerdictOutcome> {
-    let outcome = match ctx.tolerance.assess(value, range) {
-        ToleranceCall::Supported => VerdictOutcome {
-            status: ClaimStatus::Supported,
-            evidence_strength: EvidenceStrength::Strong,
-            confidence: 0.9,
-            layer_fired: VerdictLayer::Personalized,
-            explanation: format!("Consistent with your own data — {descr}"),
-            evidence_refs: None,
-        },
-        ToleranceCall::Contradicted => VerdictOutcome {
-            status: ClaimStatus::Contradicted,
-            evidence_strength: EvidenceStrength::Strong,
-            confidence: 0.9,
-            layer_fired: VerdictLayer::Personalized,
-            explanation: format!(
-                "Contradicts your own data — {descr} ({} tolerance)",
-                ctx.tolerance.label()
-            ),
-            evidence_refs: None,
-        },
-        ToleranceCall::Indeterminate => return None,
-    };
-    Some(outcome)
+    verdict_from_call(ctx, ctx.tolerance.assess(value, range), descr)
+}
+
+/// The verdict for a tolerance call already made, explained by `descr`.
+/// `Indeterminate` collapses to `None`, as in [`verdict_for`].
+pub(crate) fn verdict_from_call(
+    ctx: &PersonalizedContext<'_>,
+    call: ToleranceCall,
+    descr: &str,
+) -> Option<VerdictOutcome> {
+    match call {
+        ToleranceCall::Supported => Some(supported_verdict(descr)),
+        ToleranceCall::Contradicted => Some(contradicted_verdict(&format!(
+            "{descr} ({} tolerance)",
+            ctx.tolerance.label()
+        ))),
+        ToleranceCall::Indeterminate => None,
+    }
+}
+
+/// The verdict for a claim that sits inside the athlete's own data.
+fn supported_verdict(descr: &str) -> VerdictOutcome {
+    VerdictOutcome {
+        status: ClaimStatus::Supported,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::Personalized,
+        explanation: format!("Consistent with your own data — {descr}"),
+        evidence_refs: None,
+    }
+}
+
+/// The verdict for a claim the athlete's own data rules out.
+fn contradicted_verdict(descr: &str) -> VerdictOutcome {
+    VerdictOutcome {
+        status: ClaimStatus::Contradicted,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::Personalized,
+        explanation: format!("Contradicts your own data — {descr}"),
+        evidence_refs: None,
+    }
 }
 
 /// Parse a running pace expressed as `M:SS` per km within a short window after

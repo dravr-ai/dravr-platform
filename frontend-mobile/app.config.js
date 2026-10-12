@@ -158,6 +158,21 @@ module.exports = {
         },
       },
     ],
+    // Push delivery: puts the aps-environment entitlement into the iOS build and
+    // gives Android its status-bar icon (a white silhouette of the mark, see
+    // assets/sources/README.md) tinted the design system's primary.
+    // The Expo push token also needs credentials this repo does not hold — an
+    // APNs key registered with EAS for iOS, and the Firebase project's
+    // google-services.json (android.googleServicesFile) with FCM v1
+    // credentials for Android. Without them a build still runs: the token
+    // request fails, which registerPushDevice logs and the athlete never sees.
+    [
+      'expo-notifications',
+      {
+        icon: './assets/notification-icon.png',
+        color: '#255f4d', // primary — BOREAL_LIGHT in design-system.ts
+      },
+    ],
     [
       'expo-speech-recognition',
       {

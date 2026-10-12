@@ -71,7 +71,11 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-xs font-medium text-on-surface-variant">
-                  {entry.author_display_name ?? entry.author_user_id}
+                  {/* A coach's correction is the coach speaking, about the
+                      member the reply it corrects answered (carnet#847). */}
+                  {entry.speaker === 'correction'
+                    ? t('chat.roomCorrectionTo', { name: entry.author_display_name ?? entry.author_user_id ?? '' })
+                    : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </span>
                 <span className="text-xs text-outline">

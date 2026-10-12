@@ -58,6 +58,9 @@ pub mod judge;
 pub mod multi_turn;
 /// Claim verifier: claim checked against the athlete's own computed physiology.
 pub mod personalized;
+/// Claim verifier: HRV, resting-HR and sleep claims checked against the
+/// athlete's synced nights.
+pub mod personalized_recovery;
 /// Aggregated rubric-driven scoring report.
 pub mod report;
 /// Claim verifier: rhetoric vs propositional classifier.
@@ -84,6 +87,7 @@ pub use personalized::{
     AgentConfiguredStrategy, AthleteMetrics, ConservativeStrategy, PersonalizedContext,
     StoredMetric, TightStrategy, ToleranceCall, ToleranceStrategy,
 };
+pub use personalized_recovery::{NightlyMetric, RecoveryReadings};
 pub use report::{EvalSummary, RubricKind};
 pub use rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 pub use rubrics::Rubric;

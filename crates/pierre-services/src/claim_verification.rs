@@ -17,8 +17,9 @@
 
 use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use pierre_evals::{
-    check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
-    extract_heuristic, VerdictOutcome, VerificationConfig,
+    athlete_data::AthleteRecord, check_claim, claim_extractor::ExtractedClaim,
+    evidence_retriever::EvidenceCorpus, extract_heuristic, PersonalizedContext, VerdictOutcome,
+    VerificationConfig,
 };
 use pierre_memory::claims::EvidenceStrength;
 use std::slice;
@@ -109,15 +110,23 @@ pub fn verify_reply_with_config_and_corpus(
         .collect()
 }
 
-/// Verify a single claim against a caller-provided corpus.
+/// Verify a single claim against a caller-provided corpus and the caller's
+/// athlete context.
 ///
 /// Used by the `verify_claim` MCP tool to honor the runtime registry
-/// without leaking the singleton through its API surface.
+/// without leaking the singleton through its API surface. `athlete` and
+/// `athlete_record` are the inputs the chat pipeline hands
+/// [`pierre_evals::verify_reply`], built by
+/// [`crate::athlete_claim_context`]: with them the personalized and
+/// athlete-data layers judge the claim against the athlete it is about, as
+/// they do for a reply Dravr writes (carnet#852).
 #[must_use]
 pub fn verify_single_claim_with(
     claim: &ExtractedClaim,
     minimum_strength: EvidenceStrength,
     corpus: &EvidenceCorpus,
+    athlete: Option<&PersonalizedContext<'_>>,
+    athlete_record: Option<&AthleteRecord>,
 ) -> VerdictOutcome {
     // Single-claim path: no siblings for the consistency-check layer to cross-check against.
     check_claim(
@@ -125,8 +134,8 @@ pub fn verify_single_claim_with(
         slice::from_ref(claim),
         corpus,
         minimum_strength,
-        None,
-        None,
+        athlete,
+        athlete_record,
     )
 }
 

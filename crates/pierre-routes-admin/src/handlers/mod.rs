@@ -34,6 +34,9 @@ pub mod feature_flags;
 pub mod guardian_config;
 pub mod harness_config;
 pub mod impersonation;
+/// The single-use invitation a pre-approval allow can mail: issue the link,
+/// hand it to the notifier, and report what became of it.
+mod invitations;
 pub mod llm_consumption;
 pub mod memory_worker;
 pub mod myth_busting;
@@ -55,13 +58,9 @@ pub mod user_removal;
 ///
 /// Includes the standing pre-approval allow-list
 /// (`/admin/pre-approved-emails`) that `pierre-cli user allow / disallow /
-/// list-allowed` drives with its device-login token.
-///
-/// LIMITATION(registre#43): pre-adding an address is a standing *allow*, not an
-/// invitation — the person still self-registers, choosing their own password, and the
-/// allow only spares them the approval queue (the account lands active, `approved_by`
-/// attributed). Still missing from this surface: the single-use invite table and
-/// redemption email from that issue.
+/// list-allowed` drives with its device-login token, and the single-use
+/// invitation an allow can mail: the invitee chooses their own password on the
+/// web app's accept page and the account lands active, `approved_by` attributed.
 pub mod users;
 /// dravr.ai website endpoints for its Worker: the docs magic link's send and redemption.
 pub mod website;

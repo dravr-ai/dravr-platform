@@ -655,7 +655,8 @@ export function MessageList({
 
   /**
    * A row a group thread shows from the room that is not the caller's own:
-   * another member's words under their name, the agent's reply to them, or a
+   * another member's words under their name, the agent's reply to them, the
+   * group's coach correcting a reply (on the caller's own thread too), or a
    * placeholder where the author's sharing consent withholds an entry.
    *
    * It has no menu. Rating, retry and copy act on a row of the caller's own
@@ -687,6 +688,29 @@ export function MessageList({
     }
 
     const name = room.author_name ?? room.author_user_id ?? '';
+    if (room.speaker === 'correction') {
+      // The group's coach correcting one of the agent's replies (carnet#847):
+      // the coach's words under the opening of the reply they correct, never
+      // the athlete's own bubble, even on the thread of the athlete it concerns.
+      return (
+        <View testID="room-entry-correction" className={`${spacing} items-start`}>
+          {groupStart ? (
+            <Text className="text-xs font-semibold text-text-secondary mb-1">
+              {room.own ? t('chat.roomCorrectionOwn') : t('chat.roomCorrectionTo', { name })}
+            </Text>
+          ) : null}
+          <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">
+            {room.corrects ? (
+              <Text testID="room-correction-quote" className="text-xs text-text-tertiary mb-1" numberOfLines={1}>
+                {t('chat.roomCorrectionOf', { excerpt: room.corrects.excerpt })}
+              </Text>
+            ) : null}
+            <Text className="text-base leading-6 text-text-primary">{item.content}</Text>
+          </View>
+          {time}
+        </View>
+      );
+    }
     if (room.speaker === 'member') {
       // Another member's words, shown as typed, on the room's side of the
       // thread under their name.
@@ -724,7 +748,11 @@ export function MessageList({
 
   const renderMessage = (item: Message, groupStart: boolean) => {
     const clock = item.created_at ? formatMessageTime(item.created_at, language) : '';
-    if (item.room && !item.room.own) return renderRoomRow(item, item.room, groupStart, clock);
+    // A coach's correction is a room row on every thread, the athlete's own
+    // included: it is the coach speaking, not the athlete.
+    if (item.room && (!item.room.own || item.room.speaker === 'correction')) {
+      return renderRoomRow(item, item.room, groupStart, clock);
+    }
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;

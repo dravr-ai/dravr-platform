@@ -128,4 +128,32 @@ describe('GroupTranscriptPanel', () => {
       await i18n.changeLanguage('en');
     }
   });
+
+  it('labels a coach\'s correction as the coach\'s, never as the member it concerns', async () => {
+    getTranscript.mockResolvedValue({
+      group_id: 'group-1',
+      members: [],
+      entries: [
+        {
+          id: 'e1',
+          speaker: 'correction',
+          withheld: false,
+          own: false,
+          author_user_id: 'user-bob',
+          author_display_name: 'Bob',
+          content: 'Bob, that was a half marathon.',
+          message_id: null,
+          corrects: { entry_id: 'e0', message_id: 'bob-msg', excerpt: 'Your marathon in May' },
+          created_at: '2026-10-09T12:00:00Z',
+        },
+      ],
+    } satisfies GroupTranscriptResponse);
+
+    renderPanel();
+
+    expect(await screen.findByText('Bob, that was a half marathon.')).toBeInTheDocument();
+    expect(screen.getByText("Human coach's correction for Bob")).toBeInTheDocument();
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+  });
 });
+

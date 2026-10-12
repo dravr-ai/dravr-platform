@@ -41,6 +41,40 @@ pub struct BackfillCoverage {
     pub capture_version: u32,
 }
 
+/// Whether a cached historical window is deep enough to serve as-is.
+///
+/// Cached rows alone are not enough — a prior limit-capped backfill leaves only
+/// the recent slice of a deep window. The window is covered when a backfill
+/// reached at least as far back as `after_ts`, OR exhausted the provider feed
+/// (`hit_feed_end`, so no older data exists). No coverage record ⇒ not covered.
+///
+/// Depth is necessary, not sufficient: the record must also have been written
+/// by the provider's current capture (`required_capture_version`, from
+/// `pierre_core::constants::provider_capture`). A record below it vouches for
+/// rows an older capture wrote — deep enough, and short of whatever the fix
+/// started reading — so the window is re-captured instead of served. Neither
+/// escape hatch outranks that: a feed the old capture exhausted was still read
+/// by the old capture.
+///
+/// The record is kept honest at the source rather than second-guessed here: a
+/// prune raises every coverage floor it just falsified
+/// (`prune_and_realign_coverage`), so a claim can no longer outlive the rows it
+/// vouches for. Comparing against the retention default instead would misjudge
+/// exactly the caches worth trusting — a deep backfill widens its own retention
+/// via `backfill_retention_days`, so its rows legitimately sit below the
+/// default floor.
+#[must_use]
+pub fn historical_depth_covered(
+    coverage: Option<BackfillCoverage>,
+    after_ts: i64,
+    required_capture_version: u32,
+) -> bool {
+    coverage.is_some_and(|c| {
+        c.capture_version >= required_capture_version
+            && (c.hit_feed_end || c.oldest_reached_ts <= after_ts)
+    })
+}
+
 /// One live provider connection paired with the last time a fetch actually
 /// reached its provider.
 ///

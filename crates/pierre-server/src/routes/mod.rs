@@ -89,6 +89,8 @@ pub mod oauth_grants;
 pub mod check_in;
 /// A coach's own coach-access request (carnet#738)
 pub mod coach_access;
+/// A coach's after-the-fact review of the agent's group replies (carnet#847)
+pub mod coach_replies;
 pub mod onboarding;
 
 /// API key management routes

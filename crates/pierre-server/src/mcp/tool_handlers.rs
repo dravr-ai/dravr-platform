@@ -638,9 +638,11 @@ impl ToolHandlers {
             //
             // Whatever credential reached `/mcp`, its caller is an MCP client
             // outside Dravr's own surfaces: the route decides, never the token
-            // (carnet#724).
+            // (carnet#724). It writes its own reply from the result, which
+            // Dravr's claim checker never sees (carnet#852).
             let executor = UniversalToolExecutor::new(ctx.resources.clone())
-                .with_transport(Transport::McpHttp);
+                .with_transport(Transport::McpHttp)
+                .with_caller_writing_reply();
             let request = UniversalRequest {
                 tool_name: tool_name.to_owned(),
                 parameters: args.clone(),

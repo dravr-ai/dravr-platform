@@ -393,10 +393,13 @@ export default function ClaimVerdictsTab() {
               Claim verdicts
             </h2>
             <p className="mt-1 text-sm text-on-surface-variant">
-              Every claim an agent makes is evaluated by the claim verifier and
-              recorded here. Filter, drill into the source message, record whether
-              the flag was right, and course-correct agents that ship unsupported
-              or contradicted claims.
+              The claims in replies a Dravr agent writes in the app and in
+              messaging are evaluated by the claim verifier and recorded here,
+              with the claims MCP and A2A clients submit through verify_claim.
+              A reply an MCP or A2A client writes itself is not checked. Filter,
+              drill into the source message, record whether the flag was right,
+              and course-correct agents that ship unsupported or contradicted
+              claims.
             </p>
           </div>
           <Button onClick={() => refetch()} variant="secondary">

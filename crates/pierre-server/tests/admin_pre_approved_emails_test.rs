@@ -33,15 +33,19 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::models::{User, UserStatus};
+use pierre_core::errors::AppResult;
+use pierre_core::models::{User, UserInvitation, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::invitation::{IssuedInvitation, INVITATIONS_PER_ADDRESS_PER_HOUR};
+use pierre_services::link_token::split_link_token;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use tracing::subscriber::set_default;
 use tracing::Level;
@@ -50,12 +54,22 @@ use uuid::Uuid;
 
 const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
 
+/// One invitation the handler handed over to be mailed: the address and the
+/// single-use token its link carries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MailedInvitation {
+    email: String,
+    token: String,
+}
+
 /// Records what the handler asked to be sent, so a test can assert on the
-/// notification decision rather than on a 200.
+/// notification decision rather than on a 200. `mail_fails` makes every
+/// invitation undeliverable, as an unconfigured or failing mail service does.
 #[derive(Default)]
 struct RecordingNotifier {
-    invited: Arc<Mutex<Vec<String>>>,
+    invited: Arc<Mutex<Vec<MailedInvitation>>>,
     approved: Arc<Mutex<Vec<String>>>,
+    mail_fails: Arc<AtomicBool>,
 }
 
 #[async_trait]
@@ -67,11 +81,15 @@ impl UserApprovalNotifier for RecordingNotifier {
             .push(email.to_owned());
     }
 
-    async fn notify_user_invited(&self, email: &str) {
+    async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool {
         self.invited
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(email.to_owned());
+            .push(MailedInvitation {
+                email: invitation.email.clone(),
+                token: invitation.token.clone(),
+            });
+        !self.mail_fails.load(Ordering::SeqCst)
     }
 }
 
@@ -83,8 +101,9 @@ struct Harness {
     operator_id: Uuid,
     operator_email: String,
     jwks: Arc<JwksManager>,
-    invited: Arc<Mutex<Vec<String>>>,
+    invited: Arc<Mutex<Vec<MailedInvitation>>>,
     approved: Arc<Mutex<Vec<String>>>,
+    mail_fails: Arc<AtomicBool>,
 }
 
 impl Harness {
@@ -124,9 +143,11 @@ impl Harness {
         // a recorder so "was this person mailed?" is observable.
         let invited = Arc::new(Mutex::new(Vec::new()));
         let approved = Arc::new(Mutex::new(Vec::new()));
+        let mail_fails = Arc::new(AtomicBool::new(false));
         context.approval_notifier = Some(Arc::new(RecordingNotifier {
             invited: Arc::clone(&invited),
             approved: Arc::clone(&approved),
+            mail_fails: Arc::clone(&mail_fails),
         }));
 
         // The super-admin who approved the device login. `pierre-cli auth
@@ -143,6 +164,7 @@ impl Harness {
             jwks,
             invited,
             approved,
+            mail_fails,
         })
     }
 
@@ -217,11 +239,29 @@ impl Harness {
         (status, response.json())
     }
 
+    /// The addresses an invitation was handed over for, in order.
     fn invited(&self) -> Vec<String> {
+        self.invitations()
+            .into_iter()
+            .map(|mailed| mailed.email)
+            .collect()
+    }
+
+    fn invitations(&self) -> Vec<MailedInvitation> {
         self.invited
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Redeem a mailed token at the repository, the way acceptance does.
+    async fn redeem(&self, token: &str) -> AppResult<UserInvitation> {
+        let (selector, verifier_hash) =
+            split_link_token(token).expect("a mailed token is <selector>.<verifier>");
+        self.repos
+            .user_invitations
+            .redeem(&selector, &verifier_hash)
+            .await
     }
 
     fn approved(&self) -> Vec<String> {
@@ -562,6 +602,250 @@ async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
         harness.invited(),
         vec![email.to_owned()],
         "exactly the invited address must be mailed"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("invitation sent: its link works once, until")),
+        "the operator must be told the invitation went out: {body}"
+    );
+    let expires_at = body["data"]["invitation_expires_at"]
+        .as_str()
+        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .expect("the response must carry the link's expiry");
+    let ttl = expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now();
+    assert!(
+        ttl > chrono::Duration::days(6) && ttl <= chrono::Duration::days(7),
+        "the link must live about a week: {ttl}"
+    );
+
+    // The mailed token is the one secret that opens the invitation, once, and
+    // it is attributed to the operator behind the device login.
+    let mailed = harness.invitations().remove(0);
+    let redeemed = harness.redeem(&mailed.token).await?;
+    assert_eq!(redeemed.email, email);
+    assert_eq!(redeemed.invited_by, Some(harness.operator_id));
+    assert!(
+        harness.redeem(&mailed.token).await.is_err(),
+        "a mailed token must redeem once"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sending_again_replaces_the_earlier_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "resend-me@example.com";
+
+    harness.allow_with_invite(&token, email).await;
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("already_allowed"),
+        "a re-send finds the allow already recorded: {body}"
+    );
+    assert_eq!(body["data"]["invited"].as_bool(), Some(true), "{body}");
+
+    let mailed = harness.invitations();
+    assert_eq!(mailed.len(), 2, "both sends must be mailed");
+    assert_ne!(
+        mailed[0].token, mailed[1].token,
+        "each send mints its own token"
+    );
+    assert!(
+        harness.redeem(&mailed[0].token).await.is_err(),
+        "the earlier link must stop working once a newer one is sent"
+    );
+    assert_eq!(harness.redeem(&mailed[1].token).await?.email, email);
+    Ok(())
+}
+
+/// The mailed token is the only copy of the secret: when the mail does not go
+/// out, nobody can redeem the invitation, so it is withdrawn and the operator
+/// is told nothing was sent rather than "invitation sent".
+#[tokio::test]
+async fn an_invitation_whose_mail_fails_is_withdrawn_and_not_reported_sent() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "mail-bounced@example.com";
+    harness.mail_fails.store(true, Ordering::SeqCst);
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "the allow itself still succeeds: {body}");
+    assert_eq!(body["data"]["outcome"].as_str(), Some("recorded"), "{body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(false), "{body}");
+    assert!(
+        body["data"]["invitation_expires_at"].is_null(),
+        "an undelivered invitation has no live link to report: {body}"
+    );
+    assert!(
+        body["message"].as_str().is_some_and(|m| m.contains(
+            "no invitation sent: its email could not be delivered, so the link was withdrawn"
+        )),
+        "the operator must be told the invitation did not go out: {body}"
+    );
+
+    let handed_over = harness.invitations().remove(0);
+    assert!(
+        harness.redeem(&handed_over.token).await.is_err(),
+        "an undelivered invitation must not stay redeemable"
+    );
+    let (status, listing) = harness.list(&token).await;
+    assert_eq!(status, 200, "{listing}");
+    let listed = entries(&listing);
+    let entry = listed
+        .iter()
+        .find(|e| e["email"].as_str() == Some(email))
+        .unwrap_or_else(|| panic!("{email} must be listed: {listing}"));
+    assert!(
+        entry["invitation_expires_at"].is_null(),
+        "the listing must not show an invitation nobody received: {listing}"
+    );
+
+    // Once mail works again, asking again sends a fresh link.
+    harness.mail_fails.store(false, Ordering::SeqCst);
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(true), "{body}");
+    let resent = harness.invitations().remove(1);
+    assert_eq!(harness.redeem(&resent.token).await?.email, email);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_listing_shows_an_outstanding_invitation() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    harness
+        .allow_with_invite(&token, "invited-listed@example.com")
+        .await;
+    harness
+        .allow(&token, "allowed-only@example.com", None)
+        .await;
+
+    let (status, body) = harness.list(&token).await;
+    assert_eq!(status, 200, "{body}");
+    let listed = entries(&body);
+    let by_email = |email: &str| {
+        listed
+            .iter()
+            .find(|e| e["email"].as_str() == Some(email))
+            .cloned()
+            .unwrap_or_else(|| panic!("{email} must be listed: {body}"))
+    };
+    assert!(
+        by_email("invited-listed@example.com")["invitation_expires_at"].is_string(),
+        "an outstanding invitation must be listed with its expiry: {body}"
+    );
+    assert!(
+        by_email("allowed-only@example.com")["invitation_expires_at"].is_null(),
+        "an allow with no invitation lists none: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_the_allow_revokes_the_invitation_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "changed-our-mind@example.com";
+    harness.allow_with_invite(&token, email).await;
+
+    let (status, body) = harness.disallow(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["invitation_revoked"].as_bool(),
+        Some(true),
+        "{body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("its invitation link no longer works")),
+        "{body}"
+    );
+
+    let mailed = harness.invitations().remove(0);
+    assert!(
+        harness.redeem(&mailed.token).await.is_err(),
+        "a withdrawn allow's invitation must not open"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_address_is_not_mailed_past_its_hourly_budget() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "mailed-a-lot@example.com";
+    for _ in 0..INVITATIONS_PER_ADDRESS_PER_HOUR {
+        harness.allow_with_invite(&token, email).await;
+    }
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "the allow itself still succeeds: {body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(false), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("no invitation sent")),
+        "the operator must be told why nothing went out: {body}"
+    );
+    assert_eq!(
+        harness.invitations().len(),
+        usize::try_from(INVITATIONS_PER_ADDRESS_PER_HOUR)?,
+        "nothing past the budget may be mailed"
+    );
+    Ok(())
+}
+
+/// The operator ping for an invitation names who sent it and nothing that
+/// could open it: the token never reaches a log line.
+#[tokio::test]
+async fn an_invitation_raises_user_invited_without_logging_its_token() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "notified-about@example.com";
+
+    let buffer = LogBuffer::default();
+    let subscriber = log_fmt()
+        .json()
+        .with_max_level(Level::INFO)
+        .with_writer(buffer.clone())
+        .finish();
+    let (status, body) = {
+        let _guard = set_default(subscriber);
+        harness.allow_with_invite(&token, email).await
+    };
+    assert_eq!(status, 200, "{body}");
+
+    let event = buffer
+        .lines()
+        .into_iter()
+        .find(|l| l["fields"]["event"].as_str() == Some("user.invited"))
+        .expect("the invitation must raise the user.invited notify event");
+    assert_eq!(event["target"].as_str(), Some("notify"), "{event}");
+    assert_eq!(
+        event["fields"]["invited_by"].as_str(),
+        Some(format!("device-cli:{}", harness.operator_id).as_str()),
+        "{event}"
+    );
+
+    let mailed = harness.invitations().remove(0);
+    let (selector, verifier) = mailed.token.split_once('.').expect("selector.verifier");
+    let leaked: Vec<Value> = buffer
+        .lines()
+        .into_iter()
+        .filter(|l| {
+            let line = l.to_string();
+            line.contains(verifier) || line.contains(selector) || line.contains(email)
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "neither the token nor the address may reach the log: {leaked:?}"
     );
     Ok(())
 }

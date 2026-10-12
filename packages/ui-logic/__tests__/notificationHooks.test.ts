@@ -66,6 +66,24 @@ describe('createNotificationHooks — the unread badge', () => {
     expect(options?.refetchOnWindowFocus).toBeUndefined();
     expect(options?.refetchOnMount).toBeUndefined();
   });
+
+  it('tells a count that arrived from one that never did: isSuccess is false until the read lands, and stays false when it fails', async () => {
+    const { api, wrapper, hooks } = setup(MOBILE_POLL);
+    api.getUnreadCount.mockRejectedValueOnce(new Error('offline'));
+
+    const failed = renderHook(() => hooks.useUnreadCount(), { wrapper });
+
+    expect(failed.result.current.isSuccess).toBe(false);
+    await waitFor(() => expect(failed.result.current.isLoading).toBe(false));
+    expect(failed.result.current.unreadCount).toBe(0);
+    expect(failed.result.current.isSuccess).toBe(false);
+
+    const { wrapper: freshWrapper, hooks: freshHooks } = setup(MOBILE_POLL);
+    const landed = renderHook(() => freshHooks.useUnreadCount(), { wrapper: freshWrapper });
+
+    await waitFor(() => expect(landed.result.current.isSuccess).toBe(true));
+    expect(landed.result.current.unreadCount).toBe(4);
+  });
 });
 
 describe('createNotificationHooks — the feed and its actions', () => {

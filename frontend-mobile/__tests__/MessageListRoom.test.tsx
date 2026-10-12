@@ -161,4 +161,31 @@ describe('MessageList group thread room', () => {
     fireEvent(getByTestId('message-turn-m2'), 'longPress');
     expect(menu).toHaveBeenCalledTimes(1);
   });
+
+  it('draws the coach\'s correction on the athlete\'s own thread as the coach\'s, under the reply it corrects', () => {
+    // carnet#847: the correction concerns the caller (own), yet it is the
+    // coach speaking — never the caller's own bubble, never a reply to rate.
+    const correction: GroupTranscriptEntry = {
+      id: 't10',
+      speaker: 'correction',
+      withheld: false,
+      own: true,
+      author_user_id: 'user-me',
+      author_display_name: 'Me',
+      content: 'That week was 52 km, not 62.',
+      message_id: null,
+      corrects: { entry_id: 't-own-reply', message_id: 'm2', excerpt: 'Solid week, 62 km.' },
+      created_at: '2026-09-14T12:30:00Z',
+    };
+    const { getByTestId, getByText, queryByTestId } = renderThread(
+      composeRoomThread(OWN, [...ROOM, correction]),
+    );
+
+    expect(getByTestId('room-entry-correction')).toBeTruthy();
+    expect(getByText("Your human coach's correction")).toBeTruthy();
+    expect(getByTestId('room-correction-quote')).toHaveTextContent('On: Solid week, 62 km.');
+    expect(getByText('That week was 52 km, not 62.')).toBeTruthy();
+    expect(queryByTestId('message-turn-room-t10')).toBeNull();
+  });
 });
+

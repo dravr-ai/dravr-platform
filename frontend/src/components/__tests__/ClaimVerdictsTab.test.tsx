@@ -141,6 +141,20 @@ describe('ClaimVerdictsTab', () => {
     });
   });
 
+  it('scopes the verifier to replies Dravr writes, not the ones MCP and A2A clients write', async () => {
+    // carnet#852: the checker runs on Dravr's own replies; an MCP or A2A
+    // client's reply reaches it only through verify_claim.
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      verdicts: [],
+      total: 0,
+    });
+    renderTab();
+    const intro = await screen.findByText(/evaluated by the claim verifier/i);
+    expect(intro).toHaveTextContent(/a Dravr agent writes in the app and in\s+messaging/);
+    expect(intro).toHaveTextContent(/A reply an MCP or A2A client writes itself is not checked/);
+    expect(intro).not.toHaveTextContent(/Every claim an agent makes/);
+  });
+
   it('lists verdicts returned from the API', async () => {
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
       verdicts: [

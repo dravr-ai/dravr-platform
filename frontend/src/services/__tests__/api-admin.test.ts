@@ -368,12 +368,18 @@ describe('API Service - Admin Functionality', () => {
       expect(result.approved_user_id).toBe('user-9');
     });
 
-    it('should ask for the sign-up link and report that it was mailed', async () => {
+    it('should ask for an invitation and report that it was mailed, with its expiry', async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: {
           success: true,
           message: 'new@example.com pre-approved',
-          data: { email: 'new@example.com', outcome: 'recorded', approved_user_id: null, invited: true },
+          data: {
+            email: 'new@example.com',
+            outcome: 'recorded',
+            approved_user_id: null,
+            invited: true,
+            invitation_expires_at: '2026-10-16T12:00:00+00:00',
+          },
         },
       });
 
@@ -385,6 +391,7 @@ describe('API Service - Admin Functionality', () => {
         send_invite: true,
       });
       expect(result.invited).toBe(true);
+      expect(result.invitation_expires_at).toBe('2026-10-16T12:00:00+00:00');
     });
 
     it('should url-encode the address when removing a pre-approval', async () => {
@@ -392,7 +399,12 @@ describe('API Service - Admin Functionality', () => {
         data: {
           success: true,
           message: 'user+tag@example.com removed from the pre-approved list',
-          data: { email: 'user+tag@example.com', removed: true, account_status: null },
+          data: {
+            email: 'user+tag@example.com',
+            removed: true,
+            invitation_revoked: true,
+            account_status: null,
+          },
         },
       });
 
@@ -402,6 +414,7 @@ describe('API Service - Admin Functionality', () => {
         '/api/admin/pre-approved-emails/user%2Btag%40example.com'
       );
       expect(result.removed).toBe(true);
+      expect(result.invitation_revoked).toBe(true);
     });
   });
 

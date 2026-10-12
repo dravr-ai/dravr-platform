@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: API service entry point - uses @pierre/api-client for shared modules
-// ABOUTME: Web-only modules (admin, admin usage, dashboard, a2a, messaging config) remain local
+// ABOUTME: Web-only modules (admin, admin usage, dashboard, a2a, messaging config, coach review) remain local
 
 import { pierreApi } from './client';
 
@@ -52,6 +52,9 @@ export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
 export { coachAccessAdminApi } from './coachAccessAdmin';
+// Accepting a mailed invitation: its link opens the web app only.
+export { invitationsApi } from './invitations';
+export { coachRepliesApi } from './coachReplies';
 export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';

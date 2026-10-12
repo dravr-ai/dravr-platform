@@ -33,6 +33,8 @@ pub mod api_key_cleanup;
 pub mod archetype_aggregation;
 /// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
 pub mod coach_access;
+/// A coach's after-the-fact review of the agent's group replies: flags, corrections, the weekly count (carnet#847)
+pub mod coach_replies;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;
@@ -45,6 +47,11 @@ pub mod athlete_clock;
 
 /// The athlete's state as the use-case starters read it (carnet#828).
 pub mod athlete_state;
+
+/// The athlete context a claim is judged against, shared by every surface that
+/// verifies one.
+#[cfg(feature = "tools-verification")]
+pub mod athlete_claim_context;
 
 /// The use-case starters ranked from that state, worded for a surface.
 pub mod use_case_rank;
@@ -379,6 +386,9 @@ pub mod user_removal;
 
 /// Standing per-email pre-approval allow-list.
 pub mod pre_approval;
+
+/// Single-use invitations mailed to an address with no account.
+pub mod invitation;
 
 /// Lazy weather backfill — fills missing ambient temperature on activities
 /// from start coordinates + start time via dravr-meteo.

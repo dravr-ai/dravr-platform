@@ -15,8 +15,8 @@ use crate::repositories::{
     ActivityConversationRepository, ActivityRouteTrackRepository, AdminRepository,
     AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, AthleteGearRepository,
     ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
-    CoachAccessRequestRepository, CoachingGroupRepository, CommitmentRepository,
-    DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
+    CoachAccessRequestRepository, CoachReplyReviewRepository, CoachingGroupRepository,
+    CommitmentRepository, DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
     EmailVerificationRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FirebaseIdentityDeletionRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
     HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
@@ -32,9 +32,9 @@ use crate::repositories::{
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UnitPreferencesRepository, UploadedActivityFileRepository, UsageCounterRepository,
-    UsageRepository, UseCaseExposureRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    UsageRepository, UseCaseExposureRepository, UserInvitationRepository, UserMcpTokenRepository,
+    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -92,6 +92,8 @@ pub struct RepositoryRegistry {
     pub pre_approved_emails: Arc<dyn PreApprovedEmailRepository>,
     /// Single-use magic links that open the members part of the dravr.ai docs
     pub website_sign_in_tokens: Arc<dyn WebsiteSignInTokenRepository>,
+    /// Single-use invitations an operator mails to an address with no account
+    pub user_invitations: Arc<dyn UserInvitationRepository>,
     /// Provider connection tracking
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Recipe CRUD with nutrition
@@ -104,6 +106,8 @@ pub struct RepositoryRegistry {
     pub app_attest_keys: Arc<dyn AppAttestKeyRepository>,
     /// Coach-access requests: a coach asks, a super-admin grants or declines
     pub coach_access_requests: Arc<dyn CoachAccessRequestRepository>,
+    /// A coach's flags and corrections on the agent's group replies (carnet#847)
+    pub coach_reply_reviews: Arc<dyn CoachReplyReviewRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
@@ -271,12 +275,14 @@ impl RepositoryRegistry {
             pre_approved_emails: db.clone(),
             federated_identities: db.clone(),
             website_sign_in_tokens: db.clone(),
+            user_invitations: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
             app_attest_keys: db.clone(),
             coach_access_requests: db.clone(),
+            coach_reply_reviews: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),
@@ -364,12 +370,14 @@ impl RepositoryRegistry {
             pre_approved_emails: db.clone(),
             federated_identities: db.clone(),
             website_sign_in_tokens: db.clone(),
+            user_invitations: db.clone(),
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
             app_attest_keys: db.clone(),
             coach_access_requests: db.clone(),
+            coach_reply_reviews: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),

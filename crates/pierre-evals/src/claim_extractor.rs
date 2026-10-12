@@ -204,6 +204,50 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "frequence cardiaque",
                 "bpm",
                 "seuil",
+                // Resting heart rate, which the personalized layer checks
+                // against the athlete's synced mornings (carnet#853). "Heart
+                // rate" and "fc" already catch it in English and French.
+                "resting hr",
+                "fc en reposo",
+                "frecuencia cardíaca en reposo",
+                "ruhepuls",
+                "ruheherzfrequenz",
+                "fc em repouso",
+                "frequência cardíaca em repouso",
+                // Form, which the personalized layer checks as a share of the
+                // athlete's own fitness and a band (carnet#850): the labels and
+                // possessives a reply puts on it, the fitness it is a share of,
+                // and the band only a form claim names.
+                "tsb",
+                "training stress balance",
+                "ctl",
+                "current form",
+                "your form",
+                "of your fitness",
+                "deep fatigue",
+                "forme actuelle",
+                "ta forme",
+                "votre forme",
+                "indice de forme",
+                "indice de fatigue",
+                "condition physique",
+                "fatigue profonde",
+                "forma actual",
+                "tu forma",
+                "su forma",
+                "condición física",
+                "fatiga profunda",
+                "aktuelle form",
+                "deine form",
+                "ihre form",
+                "deiner fitness",
+                "formwert",
+                "tiefe ermüdung",
+                "forma atual",
+                "tua forma",
+                "sua forma",
+                "condição física",
+                "fadiga profunda",
             ],
         ),
         (
@@ -350,6 +394,15 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
                 "last sunday",
                 "this week",
                 "so far this",
+                // A night slept, in the five shipped locales. The
+                // personalized layer checks it against the athlete's synced
+                // nights (carnet#853); this layer never matches it against an
+                // activity duration.
+                "slept",
+                "dormi",
+                "dormiste",
+                "geschlafen",
+                "dormiu",
                 // French
                 "ta plus longue",
                 "hier",

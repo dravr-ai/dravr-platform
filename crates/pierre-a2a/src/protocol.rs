@@ -950,13 +950,13 @@ impl A2AServer {
             return Err(format!("Unknown tool: {tool_name}"));
         }
 
-        // Route through the unified executor so A2A tool calls pass the Guardian
-        // chokepoint and resolve admin/tenant context exactly like the MCP and
-        // chat paths, under the client's own grant — unbound, it refuses. An
-        // agent speaking A2A is outside Dravr's own surfaces (carnet#724).
+        // The unified executor: Guardian chokepoint and admin/tenant context as on MCP and
+        // chat, under the client's own grant (unbound, it refuses). A2A is outside Dravr's
+        // own surfaces (carnet#724), and the agent's reply goes unchecked (carnet#852).
         let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
             .with_scopes(principal.scopes.clone())
-            .with_transport(Transport::A2a);
+            .with_transport(Transport::A2a)
+            .with_caller_writing_reply();
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,

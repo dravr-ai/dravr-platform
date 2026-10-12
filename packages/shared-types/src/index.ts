@@ -306,6 +306,7 @@ export type {
   GroupWeeklyReport,
   GroupMembersResponse,
   GroupTranscriptEntry,
+  CorrectedReply,
   GroupTranscriptPage,
   GroupTranscriptResponse,
   TranscriptMember,
@@ -381,3 +382,19 @@ export type {
   CoachAccessRequestResponse,
   CoachAccessRequestView,
 } from './coach-access';
+
+// A coach's after-the-fact review of the agent's group replies (carnet#847)
+export type {
+  ReplyFlagReason,
+  CoachReplyFlag,
+  CoachReplyCorrection,
+  CoachReply,
+  CoachedGroup,
+  CoachedAthlete,
+  CoachRepliesPage,
+  CoachRepliesQuery,
+  FlagReplyResponse,
+  CorrectReplyResponse,
+  CoachReviewWeek,
+  CoachReviewWeeklyResponse,
+} from './coach-review';

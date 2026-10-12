@@ -29,7 +29,7 @@
       "metrics": {
         "vdot": 49.0,
         "max_hr": 189.0,
-        "recent_tsb": -7.0,
+        "recent_tsb": -7.0, "recent_ctl": 58.0,
         "threshold_pace_range": [268.0, 278.0],
         "easy_pace_range": [320.0, 355.0],
         "data_days": 90
@@ -55,7 +55,7 @@
       "metrics": {
         "ftp_watts": 265.0,
         "max_hr": 182.0,
-        "recent_tsb": -14.0,
+        "recent_tsb": -14.0, "recent_ctl": 74.0,
         "data_days": 120
       }
     },

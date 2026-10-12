@@ -17,6 +17,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::invitation::IssuedInvitation;
+
 /// Notifies a just-approved user across every surface.
 ///
 /// Best-effort by contract: implementations log and swallow per-surface
@@ -29,11 +31,17 @@ pub trait UserApprovalNotifier: Send + Sync {
     /// each of the user's linked messaging channels.
     async fn notify_user_approved(&self, user_id: Uuid, email: &str, display_name: Option<&str>);
 
-    /// Send the invitation email carrying the sign-up link.
+    /// Send the invitation email carrying its single-use accept link, and say
+    /// whether it went out.
     ///
-    /// Takes an address rather than a user id because an invitee has no
-    /// account yet, and therefore no linked channels either: this reaches them
-    /// by email alone. The sign-up URL is resolved by the implementation, which
-    /// is where the frontend origin is configured.
-    async fn notify_user_invited(&self, email: &str);
+    /// Takes the issued invitation rather than a user id because an invitee
+    /// has no account yet, and therefore no linked channels either: this
+    /// reaches them by email alone. The link's origin is resolved by the
+    /// implementation, which is where the frontend origin is configured.
+    ///
+    /// Returns `false` when no mail service or frontend origin is configured,
+    /// or the send failed. The token exists only in `invitation`, so an
+    /// invitation that was not mailed is one nobody can redeem, and the caller
+    /// withdraws it instead of reporting it sent.
+    async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool;
 }

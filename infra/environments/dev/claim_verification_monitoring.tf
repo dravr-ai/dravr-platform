@@ -1,5 +1,5 @@
 # ABOUTME: Log-based metrics + alert policies for the two lines where claim verification stops verifying
-# ABOUTME: Added 2026-09-21 (carnet#455) — the stage panicked and was degraded, or the judge failed and verdicts were skipped
+# ABOUTME: Added 2026-09-21 (carnet#455) — the stage panicked and was degraded, or the judge failed on a claim and it went out unchecked
 #
 # Background
 # ----------
@@ -24,14 +24,18 @@
 #                      the scanner is exactly the class the bounds exist to
 #                      catch, so every occurrence is a reply that should have
 #                      been checked and was not.
-#   verification.rs   "claim verification failed — skipping claim verdicts"
-#                      WARN. pierre_evals::verify_reply returned Err,
-#                      and its only error source is the LLM-judge layer: the
-#                      configured judge provider refused, timed out or answered
-#                      something that did not parse. The whole reply is
-#                      delivered with no verdicts at all — not just the claims
-#                      the judge was asked about — and the triage tab shows
-#                      nothing for that message.
+#   verification.rs   "claim verification failed — judge error, claims
+#                      recorded as not checked"
+#                      WARN, once per reply. A judge call failed: the configured
+#                      judge provider refused, timed out or answered something
+#                      that did not parse (the only step of the verification
+#                      that can fail). Each claim whose judge call failed is
+#                      recorded as "Not checked: judge error"; every other
+#                      claim keeps its verdict, the deterministic ones
+#                      included. A non-blocking agent's reply is delivered with
+#                      those claims unchecked (`blocked` is false); a blocking
+#                      agent's reply is replaced by its block fallback, so that
+#                      athlete loses the turn (`blocked` is true).
 #
 # Both pairs follow turn_loss_monitoring.tf exactly: a message-substring
 # filter on the api service, labels for the fields that carry the triage key,
@@ -80,14 +84,14 @@ resource "google_logging_metric" "claim_verification_panicked" {
 }
 
 # -----------------------------------------------------------------------------
-# b. The judge failed and the reply carries no verdicts
+# b. The judge failed on a claim and the reply carries it unchecked
 # -----------------------------------------------------------------------------
 
 resource "google_logging_metric" "claim_verification_failed" {
   project = var.project_id
   name    = "dravr-claim-verification-failed"
 
-  description = "Counts agent replies whose claim verification returned an error and skipped every verdict. Emitted by apply_claim_verification in crates/pierre-chat-pipeline/src/stages/verification.rs when pierre_evals::verify_reply (crates/pierre-evals/src/verdict_engine.rs) fails; that call propagates only the LLM-judge layer's error, so this is the judge provider refusing, timing out or answering unparseable JSON. The reply is delivered with no chips and no rows, for every claim in it, not only the ones the judge was asked about. Added 2026-09-21 (carnet#455)."
+  description = "Counts agent replies in which the LLM judge failed on at least one claim. Emitted once per reply by verify_and_apply in crates/pierre-chat-pipeline/src/stages/verification.rs when pierre_evals::verify_reply (crates/pierre-evals/src/verdict_engine.rs) recorded a claim as not checked; the judge is the only step that can fail, so this is the judge provider refusing, timing out or answering unparseable JSON. Each such claim is persisted as unverifiable / judge / 'Not checked: judge error' and every other claim keeps its verdict. The reply is delivered with those claims unchecked, or replaced by the agent's block fallback when its fallback is Block. Added 2026-09-21 (carnet#455)."
 
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -209,50 +213,66 @@ resource "google_monitoring_alert_policy" "claim_verification_panicked" {
 
 resource "google_monitoring_alert_policy" "claim_verification_failed" {
   project      = var.project_id
-  display_name = "Claim verification is skipping verdicts"
+  display_name = "Claim verification judge is failing"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      Claim verification returned an error on an agent reply and skipped
-      every verdict for it. The athlete got the reply with no chips, and the
-      triage tab has no rows for that message.
+      The LLM judge failed on at least one claim of an agent reply. Each
+      such claim is recorded as "Not checked: judge error" (status
+      unverifiable, layer judge) and every other claim keeps its verdict.
+      The athlete got the reply with those claims unchecked — or, for an
+      agent whose fallback is Block, the block notice instead of a reply.
 
       ## Why any count pages
 
-      The only error the verification call propagates is the LLM judge's:
+      The only step of the verification that can fail is the LLM judge's:
       the provider refused, timed out, or answered something that was not
       the JSON the judge asked for. The judge runs once the pure-Rust layers
-      are inconclusive, so a reply reaching it is one the corpus could not
-      settle — the reply most in need of a verdict is the one that lost it.
+      are inconclusive, so a claim reaching it is one the corpus could not
+      settle — the claim most in need of a verdict is the one that lost it.
       A provider fault holds until it clears, so one count is the first of
       many.
 
       ## First step
 
-      The line carries the provider error:
+      The counted line says how many claims went unchecked and whether the
+      athlete lost the turn (`blocked=true` is a Block agent whose reply was
+      replaced by its block fallback; find the conversation and answer it by
+      hand if they have not already moved on):
 
           gcloud logging read \
             'resource.type="cloud_run_revision" AND
              resource.labels.service_name="${var.service_name}-api" AND
              jsonPayload.message=~"claim verification failed"' \
             --project ${var.project_id} --freshness=1h --limit 20 \
-            --format="value(timestamp, jsonPayload.error)"
+            --format="value(timestamp, jsonPayload.blocked, jsonPayload.unchecked_claims)"
+
+      The provider error is on the per-claim line, one for each claim the
+      judge failed on:
+
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND
+             resource.labels.service_name="${var.service_name}-api" AND
+             jsonPayload.message=~"claim judge failed"' \
+            --project ${var.project_id} --freshness=1h --limit 20 \
+            --format="value(timestamp, jsonPayload.error, jsonPayload.category)"
 
       The judge is the process's chat provider, switched on by the harness
       config's `runtime_judge` (resolve_claim_judge in verification.rs). A
       rate-limit or auth error is that provider's account, hit a second
       time per turn by the judge after the reply itself succeeded. A parse
       error is the judge model answering prose instead of JSON — check
-      whether the model behind the provider changed. Either way the
-      messages verified in the window have no verdicts; the admin triage
-      tab's message lookup shows an empty result for them.
+      whether the model behind the provider changed. Either way the claims
+      judged in the window are not checked; the admin triage tab lists them
+      under the unverifiable status with the explanation "Not checked: judge
+      error".
     EOT
     mime_type = "text/markdown"
   }
 
   conditions {
-    display_name = "Any reply with skipped verdicts"
+    display_name = "Any reply with a claim the judge failed on"
 
     condition_threshold {
       filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.claim_verification_failed.name}\""

@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use super::FormBand;
 
 /// An athlete's training load and the form reading derived from it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FormReading {
     /// Chronic Training Load — fitness, at the end of the day.
     pub ctl: f64,

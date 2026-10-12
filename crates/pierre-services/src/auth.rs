@@ -27,9 +27,11 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     normalize_email, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User, UserStatus,
 };
+use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
 use crate::default_agent::first_athlete_facing;
+use crate::link_token::split_link_token;
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
@@ -126,47 +128,12 @@ impl AuthService {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
-        // Hash password
-        let password_hash = bcrypt::hash(&request.password, bcrypt::DEFAULT_COST)
-            .map_err(|e| AppError::internal(format!("Password hashing failed: {e}")))?;
-
-        // Create user — determine_approval_status sets Pending or Active below
-        let mut user = User::new(email.clone(), password_hash, request.display_name);
-
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
-        let (status, approved_at, approved_by) = self.determine_approval_status(&email).await;
-        user.user_status = status;
-        user.approved_at = approved_at;
-        user.approved_by = approved_by;
-
-        // Propagated, not re-wrapped: `create` is insert-only now and reports a
-        // duplicate email as `invalid_input`. Wrapping it in `AppError::database`
-        // turned that into a 500, so the one case a caller can actually act on —
-        // "that address is taken" — arrived as a server fault. The bare `?` is
-        // what the Firebase-link branch below already does.
-        let user_id = self.data.repos().users.create(&user).await?;
-
-        // Create a personal tenant for the user (required for MCP operations)
-        let display_name = user
-            .display_name
-            .as_deref()
-            .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
-
-        let tenant_id = self
-            .create_personal_tenant(user_id, display_name, tiers::STARTER)
+        let approval = self.determine_approval_status(&email).await;
+        let (user_id, user) = self
+            .create_account(&email, request.password, request.display_name, approval)
             .await?;
-
-        // Assign user to their personal tenant
-        self.data
-            .repos()
-            .users
-            .update_tenant_id(user_id, tenant_id)
-            .await
-            .map_err(|e| {
-                error!("Failed to assign user to tenant: {}", e);
-                AppError::database(format!("Failed to assign tenant: {e}"))
-            })?;
 
         info!(user_id = %user_id, "User registered successfully");
 
@@ -182,6 +149,131 @@ impl AuthService {
             display_name: user.display_name,
             message,
         })
+    }
+
+    /// Create the account an invitation was mailed for, with the password the
+    /// invitee chose.
+    ///
+    /// The invitation is redeemed first, single-use: the account lands
+    /// [`UserStatus::Active`] with `approved_by` set to the operator who sent
+    /// it (none when that operator's account has since been deleted), and its
+    /// address is recorded as verified, since following the link
+    /// is the proof of the inbox that a verification mail would ask for. The
+    /// account gets its personal tenant exactly as a registration does.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for a password [`Self::is_valid_password`]
+    /// refuses, before the invitation is touched; the one uniform
+    /// [`invalid_invitation`] error for a token that is malformed, unknown,
+    /// expired, already redeemed, revoked or locked out; a user-state error
+    /// when an account already exists for the invited address (the invitation
+    /// is spent either way); or the repository's error when the account
+    /// cannot be created.
+    #[tracing::instrument(skip_all, fields(route = "accept_invitation"))]
+    pub async fn accept_invitation(
+        &self,
+        token: &str,
+        password: String,
+        display_name: Option<String>,
+    ) -> AppResult<RegisterResponse> {
+        if !Self::is_valid_password(&password) {
+            return Err(validation_error(error_messages::PASSWORD_TOO_WEAK));
+        }
+        let Some((selector, verifier_hash)) = split_link_token(token) else {
+            return Err(invalid_invitation());
+        };
+
+        let repos = self.data.repos();
+        let invitation = repos
+            .user_invitations
+            .redeem(&selector, &verifier_hash)
+            .await?;
+
+        if repos.users.get_by_email(&invitation.email).await?.is_some() {
+            return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
+        }
+
+        // The link is spent by now: an operator who cannot be attributed
+        // leaves the account unattributed rather than failing it.
+        let approved_by = self.existing_operator(invitation.invited_by).await;
+        let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
+        let (user_id, user) = self
+            .create_account(&invitation.email, password, display_name, approval)
+            .await?;
+
+        // Best-effort: the account exists and is active either way, and an
+        // unconfirmed address only offers the confirmation mail again.
+        if let Err(e) = repos.email_verification.mark_verified(user_id).await {
+            warn!(user_id = %user_id, error = %e, "Invited account created but its address not marked verified");
+        }
+
+        info!(user_id = %user_id, invited_by = ?invitation.invited_by, "Invited user created their account");
+
+        Ok(RegisterResponse {
+            user_id: user_id.to_string(),
+            user_status: user.user_status,
+            display_name: user.display_name,
+            message: "Your account is ready. Sign in with your email and the password you chose."
+                .to_owned(),
+        })
+    }
+
+    /// Create a password account in the given approval state, with its
+    /// personal tenant. Shared by every path that creates one: registration
+    /// and an accepted invitation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when hashing fails, the address is taken, or the
+    /// tenant cannot be created or assigned.
+    async fn create_account(
+        &self,
+        email: &str,
+        password: String,
+        display_name: Option<String>,
+        (status, approved_at, approved_by): (
+            UserStatus,
+            Option<chrono::DateTime<Utc>>,
+            Option<uuid::Uuid>,
+        ),
+    ) -> AppResult<(uuid::Uuid, User)> {
+        let password_hash = Self::hash_password(password).await?;
+
+        let mut user = User::new(email.to_owned(), password_hash, display_name);
+        user.user_status = status;
+        user.approved_at = approved_at;
+        user.approved_by = approved_by;
+
+        // Propagated, not re-wrapped: `create` is insert-only now and reports a
+        // duplicate email as `invalid_input`. Wrapping it in `AppError::database`
+        // turned that into a 500, so the one case a caller can actually act on —
+        // "that address is taken" — arrived as a server fault. The bare `?` is
+        // what the Firebase-link branch below already does.
+        let user_id = self.data.repos().users.create(&user).await?;
+
+        // Create a personal tenant for the user (required for MCP operations)
+        let tenant_name = user
+            .display_name
+            .as_deref()
+            .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
+
+        let tenant_id = self
+            .create_personal_tenant(user_id, tenant_name, tiers::STARTER)
+            .await?;
+
+        // Assign user to their personal tenant
+        self.data
+            .repos()
+            .users
+            .update_tenant_id(user_id, tenant_id)
+            .await
+            .map_err(|e| {
+                error!("Failed to assign user to tenant: {}", e);
+                AppError::database(format!("Failed to assign tenant: {e}"))
+            })?;
+
+        Ok((user_id, user))
     }
 
     /// Handle user login with email/password credentials
@@ -554,6 +646,25 @@ impl AuthService {
         }
     }
 
+    /// `operator`, while that operator's account still exists.
+    ///
+    /// An allow and an invitation both outlive the account of the operator
+    /// who recorded them (neither carries a foreign key onto `users`), but
+    /// `users.approved_by` references `users(id)` on Postgres: attributing a
+    /// new or promoted account to a deleted operator would fail the very
+    /// approval the allow or invitation grants. A lookup failure degrades the
+    /// same way, to an unattributed approval, never to a refused account.
+    async fn existing_operator(&self, operator: Option<uuid::Uuid>) -> Option<uuid::Uuid> {
+        let id = operator?;
+        match self.data.repos().users.get_global(id).await {
+            Ok(user) => user.map(|_| id),
+            Err(e) => {
+                warn!(operator = %id, "Approving operator lookup failed, approval left unattributed: {e}");
+                None
+            }
+        }
+    }
+
     /// Check if a specific email should be auto-approved.
     ///
     /// Returns true when:
@@ -607,7 +718,8 @@ impl AuthService {
         let now = Utc::now();
         if let Some(entry) = self.pre_approval_for(email).await {
             tracing::debug!("Auto-approval granted via pre-approved email");
-            return (UserStatus::Active, Some(now), entry.allowed_by);
+            let approved_by = self.existing_operator(entry.allowed_by).await;
+            return (UserStatus::Active, Some(now), approved_by);
         }
         if self.should_auto_approve_email(email).await {
             tracing::debug!("Auto-approval granted for new user");
@@ -650,10 +762,11 @@ impl AuthService {
 
         tracing::info!(user_id = %user.id, "Retroactive auto-approval for pending user");
 
-        let approver = self
+        let allowed_by = self
             .pre_approval_for(&user.email)
             .await
             .and_then(|entry| entry.allowed_by);
+        let approver = self.existing_operator(allowed_by).await;
         let updated = self
             .data
             .repos()

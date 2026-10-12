@@ -11,9 +11,10 @@
 //!
 //! - User-lifecycle endpoints (`/api/auth/*`, `/api/user/*`) — registration,
 //!   credential login, Firebase SSO, session restore, profile update,
-//!   password change, password reset, analytics consent, locale, coaching
-//!   persona, self-serve account deletion, plus the first-party `OAuth2`
-//!   token endpoint at `/oauth/token` (authorization code + PKCE, refresh).
+//!   password change, password reset, invitation acceptance, analytics
+//!   consent, locale, coaching persona, self-serve account deletion, plus the
+//!   first-party `OAuth2` token endpoint at `/oauth/token` (authorization
+//!   code + PKCE, refresh).
 //! - OAuth callback + provider connect/disconnect endpoints
 //!   (`/api/oauth/*`, `/api/providers/*`) — handles fitness provider OAuth
 //!   flows (Strava, Garmin, WHOOP, …) including mobile in-app browser
@@ -78,6 +79,7 @@ mod first_sync;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
 mod intervals_icu;
+mod invitation;
 mod login;
 mod oauth;
 mod password_attempts;
@@ -248,6 +250,12 @@ impl AuthRoutes {
             .route(
                 "/api/auth/complete-reset",
                 post(login::handle_complete_reset),
+            )
+            // An invitee chooses their password; the single-use token from the
+            // mailed link is the authorization.
+            .route(
+                "/api/auth/accept-invitation",
+                post(invitation::handle_accept_invitation),
             )
             .route("/api/user/stats", get(login::handle_user_stats))
             .route(

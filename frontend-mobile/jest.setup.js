@@ -116,6 +116,31 @@ jest.mock('expo-haptics', () => ({
   },
 }));
 
+// Mock expo-notifications — the permission sheet, the push token and the OS
+// badge are native; specs script what the phone answers. Every call is a
+// jest.fn so a spec can assert on it or hand it another answer.
+jest.mock('expo-notifications', () => ({
+  AndroidImportance: { UNKNOWN: 0, UNSPECIFIED: -1000, NONE: 1, MIN: 2, LOW: 3, DEFAULT: 4, HIGH: 5, MAX: 6 },
+  PermissionStatus: { GRANTED: 'granted', DENIED: 'denied', UNDETERMINED: 'undetermined' },
+  DEFAULT_ACTION_IDENTIFIER: 'expo.modules.notifications.actions.DEFAULT',
+  getPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' }),
+  ),
+  requestPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'denied', granted: false, canAskAgain: false, expires: 'never' }),
+  ),
+  getExpoPushTokenAsync: jest.fn(() =>
+    Promise.resolve({ type: 'expo', data: 'ExponentPushToken[test-device]' }),
+  ),
+  setNotificationChannelAsync: jest.fn(() => Promise.resolve(null)),
+  setBadgeCountAsync: jest.fn(() => Promise.resolve(true)),
+  addPushTokenListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponse: jest.fn(() => null),
+  clearLastNotificationResponse: jest.fn(),
+}));
+
 // Mock expo-localization
 // The device's language list. `getLocales` is a jest.fn so a spec that cares
 // about which tag the recognizer receives can hand the hook a different device.

@@ -108,6 +108,8 @@ const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
 const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
+// A coach's review of what Dravr sent their athletes (carnet#847).
+const CoachReplies = lazy(() => import('./coach/CoachReplies'));
 import { BILLING_ENABLED } from '../constants/features';
 import { PAGE_GUTTER_CLASS, layoutForRoute } from '../constants/surfaceLayout';
 import { useTranslation } from '@pierre/i18n';
@@ -149,6 +151,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // 'home' — today's plan and the latest activities, where the logo also leads.
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
+  // A coach (coach access granted) reviews the replies sent to their athletes.
+  const managesRoster = user?.manages_roster === true;
   // Initialize from URL hash so deep links (#users, #agents, …) survive
   // page reloads and bookmarks. Falls back to role default.
   // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
@@ -561,6 +565,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     ), badge: unreadGroupsCount > 0 ? unreadGroupsCount : undefined },
+    // A coach steps in after the fact on what Dravr sent their athletes: the
+    // replies, their verdicts, a flag and a correction (carnet#847).
+    ...(managesRoster
+      ? [{ id: 'coach-replies', name: t('coachReview.nav'), icon: (
+        <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m-9 6l2.5-2.5H18a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v14z" />
+        </svg>
+      ) }]
+      : []),
     // The agent library is a pinned section of Discover, not a tab of its own.
     { id: 'discover', name: t('nav.discover'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -578,7 +591,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         </svg>
       ) }]
       : []),
-  ], [unreadGroupsCount, unreadPersonalCount, t]);
+  ], [managesRoster, unreadGroupsCount, unreadPersonalCount, t]);
 
   // For admin users, use sidebar tabs
   const tabs = isSuperAdmin ? superAdminTabs : (isAdminUser ? adminTabs : regularTabs);
@@ -1144,6 +1157,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <NotificationsPanel onNavigate={applyRoute} />
+          </Suspense>
+        )}
+        {activeTab === 'coach-replies' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <CoachReplies />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (

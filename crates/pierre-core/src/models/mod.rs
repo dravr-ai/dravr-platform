@@ -158,9 +158,10 @@ pub use measurement::{
 pub use user::{
     default_locale, locale_from_accept_language, max_hr_fraction_at_vo2max_fraction,
     normalize_email, page_locale, supported_ui_locale, CoachingPersona, ColorScheme,
-    OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId, UserPhysiologicalProfile,
-    UserReference, UserReferenceKind, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
-    SUPPORTED_LOCALES, SWAIN_HRMAX_INTERCEPT_PERCENT, SWAIN_HRMAX_PER_VO2MAX_SLOPE,
+    OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId, UserInvitation,
+    UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
+    FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES, SWAIN_HRMAX_INTERCEPT_PERCENT,
+    SWAIN_HRMAX_PER_VO2MAX_SLOPE,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -241,6 +242,14 @@ pub use session_refresh_token::SessionRefreshToken;
 // Coach-access requests — a coach asks, a super-admin decides (carnet#738)
 mod coach_access;
 pub use coach_access::{CoachAccessRequest, CoachAccessStatus};
+
+// A coach's after-the-fact review of the agent's group replies (carnet#847)
+mod coach_review;
+pub use coach_review::{
+    CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,
+    CoachReviewWeek, NewReplyCorrection, NewReplyFlag, ReplyFlagReason, ReplyReviewKind,
+    ReplyReviewStamp,
+};
 
 // iOS App Attest keys — the installs of Dravr's iOS app that Apple attested
 mod app_attest_key;

@@ -212,6 +212,20 @@ pub struct CompleteResetRequest {
     pub new_password: String,
 }
 
+/// Request to accept an invitation: the invitee chooses their own password.
+///
+/// Not `Debug`: it carries the invitation token and the chosen password, and a
+/// `{:?}` anywhere would log both.
+#[derive(Deserialize)]
+pub struct AcceptInvitationRequest {
+    /// The `<selector>.<verifier>` token from the invitation link
+    pub token: String,
+    /// The password the invitee chose
+    pub password: String,
+    /// Optional display name for the account
+    pub display_name: Option<String>,
+}
+
 /// Request to initiate a self-service password reset
 ///
 /// Sends a 6-digit code to the user's email address. Always returns success

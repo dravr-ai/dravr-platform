@@ -391,6 +391,33 @@ const MessageItem = memo(function MessageItem({
     }
   }
 
+  // The group's coach correcting one of the agent's replies (carnet#847): the
+  // coach's words from the room's side, never the athlete's own bubble and
+  // never a rateable reply, under the opening of the reply it corrects.
+  if (room?.speaker === 'correction' && !room.withheld) {
+    const label = room.own
+      ? t('chat.roomCorrectionOwn')
+      : t('chat.roomCorrectionTo', { name: peerName });
+    return (
+      <MessageBubble side="assistant" authorLabel={label} timestamp={timestamp} groupStart={groupStart}>
+        {room.corrects && (
+          <p
+            data-testid="room-correction-quote"
+            className="mb-1 truncate border-l-2 ghost-border pl-2 text-xs text-on-surface-variant"
+          >
+            {t('chat.roomCorrectionOf', { excerpt: room.corrects.excerpt })}
+          </p>
+        )}
+        <p
+          data-testid="room-entry-correction"
+          className="whitespace-pre-wrap break-words text-base leading-relaxed text-on-surface"
+        >
+          {message.content}
+        </p>
+      </MessageBubble>
+    );
+  }
+
   // An entry the author's sharing consent withholds keeps its place in the
   // room as a placeholder — never a silent gap — naming no one.
   if (room?.withheld) {

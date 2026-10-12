@@ -16,20 +16,14 @@
 //! evidence corpus and `pierre_evals` dependency are not built in every
 //! workspace configuration.
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use futures_util::FutureExt;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::athlete_data::{
-    AthleteRecord, BackfillDepth, CacheRead, HistoryInputs, PeriodHistory, RecordedActivity,
-    SourceCoverage, SourceSessions, ATHLETE_RECORD_WINDOW,
-};
+use pierre_evals::athlete_data::AthleteRecord;
 use pierre_evals::{
     verify_reply, AthleteMetrics, ClaimJudge, ClaimSource, ExtractedClaim, PersonalizedContext,
     ResolvedAction, ToleranceStrategy, VerdictOutcome, VerificationConfig, VerificationFallback,
@@ -42,22 +36,17 @@ use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
     KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
-use pierre_core::constants::provider_capture::current_capture_version;
-use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::BackfillCoverage;
+use pierre_core::models::TenantId;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatProvider, LlmProvider};
-use pierre_memory::training_plans::PlanPhase;
 use pierre_providers::ai_scope;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_runtime_context::DataContext;
-use pierre_services::athlete_snapshot::build_athlete_metrics;
+use pierre_services::athlete_claim_context::{
+    build_athlete_record as shared_athlete_record,
+    build_personalized_inputs as shared_personalized_inputs, AthleteSources,
+};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
-use pierre_services::onboarding_gate::user_has_connected_provider;
-use pierre_services::training_history_read::resolve_compute_backends;
-use pierre_tool_runtime::activity_fetch::historical_depth_covered;
-use tracing::warn;
 use uuid::Uuid;
 
 /// Resolve the Layer-5 claim-judge provider, or `None` when the runtime
@@ -216,6 +205,16 @@ fn actionable_flag(claim: &ExtractedClaim, outcome: &VerdictOutcome) -> Option<b
 /// [`ContradictionPolicy`]; every other layer keeps the existing
 /// `fallback_behavior` mapping, so non-personalized behavior is unchanged.
 fn resolved_action(outcome: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction {
+    if outcome.is_judge_error() {
+        // A claim the judge never checked has no verdict to warn about, so
+        // only an agent that withholds unchecked replies acts on it; every
+        // other agent ships the reply and keeps the "not checked" row.
+        return if withholds_unchecked_reply(config) {
+            ResolvedAction::BlockRetry
+        } else {
+            ResolvedAction::RecordOnly
+        };
+    }
     if outcome.layer_fired == VerdictLayer::Personalized {
         config
             .personalized
@@ -230,15 +229,18 @@ fn resolved_action(outcome: &VerdictOutcome, config: &VerificationConfig) -> Res
     }
 }
 
-/// The strongest action across the reply's actionable verdicts. Non-actionable
-/// verdicts never drive a reply change, matching [`actionable_problems`].
+/// The strongest action across the reply's actionable verdicts and its
+/// unchecked claims. Every other verdict never drives a reply change, matching
+/// [`actionable_problems`].
 fn reply_action(
     verdicts: &[(ExtractedClaim, VerdictOutcome)],
     config: &VerificationConfig,
 ) -> ResolvedAction {
     verdicts
         .iter()
-        .filter(|(claim, outcome)| actionable_flag(claim, outcome).is_some())
+        .filter(|(claim, outcome)| {
+            actionable_flag(claim, outcome).is_some() || outcome.is_judge_error()
+        })
         .map(|(_, outcome)| resolved_action(outcome, config))
         .max_by_key(|action| action_rank(*action))
         .unwrap_or(ResolvedAction::Pass)
@@ -393,6 +395,19 @@ pub struct ClaimVerificationOutcome {
     pub chips: Vec<VerdictChip>,
 }
 
+/// Whether a reply the stage could not fully check is withheld.
+///
+/// The one fallback policy for every way verification can come up short: a
+/// panic in the detector ([`degrade_to_unverified`]) and a judge call that
+/// failed on a claim ([`resolved_action`]). An agent whose
+/// [`VerificationFallback::Block`] exists to REPLACE a reply carrying a
+/// contradicted claim must not deliver one nobody checked, and every other
+/// agent delivers it. A disabled config never withholds anything: the stage
+/// returns the reply untouched before it looks at a single claim.
+fn withholds_unchecked_reply(config: &VerificationConfig) -> bool {
+    config.enabled && config.fallback_behavior == VerificationFallback::Block
+}
+
 /// Run `stage` under a panic boundary, degrading per the agent's configured
 /// [`VerificationConfig::fallback_behavior`].
 ///
@@ -442,9 +457,7 @@ where
     match AssertUnwindSafe(stage).catch_unwind().await {
         Ok(outcome) => outcome,
         Err(payload) => {
-            // A disabled config never blocks anything: the stage returns the
-            // reply untouched before it looks at a single claim.
-            let blocks = config.enabled && config.fallback_behavior == VerificationFallback::Block;
+            let blocks = withholds_unchecked_reply(config);
             tracing::error!(
                 panic = %panic_payload_str(payload.as_ref()),
                 blocked = blocks,
@@ -566,7 +579,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     // of being built could never deliver it.
     let athlete_record = build_athlete_record(ctx, user_id, tenant_id, locale).await;
 
-    let verdicts = match verify_reply(
+    let verdicts = verify_reply(
         reply,
         config,
         &corpus,
@@ -574,18 +587,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         personalized.as_ref(),
         athlete_record.as_ref(),
     )
-    .await
-    {
-        Ok(verdicts) => verdicts,
-        Err(e) => {
-            tracing::warn!(error = %e, "claim verification failed — skipping claim verdicts");
-            return ClaimVerificationOutcome {
-                content: reply.to_owned(),
-                pending_verdicts: Vec::new(),
-                chips: Vec::new(),
-            };
-        }
-    };
+    .await;
     if verdicts.is_empty() {
         return ClaimVerificationOutcome {
             content: reply.to_owned(),
@@ -595,9 +597,23 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     }
 
     let problems = actionable_problems(&verdicts);
+    let unchecked_claims = verdicts
+        .iter()
+        .filter(|(_, outcome)| outcome.is_judge_error())
+        .count();
+    if unchecked_claims > 0 {
+        // The line the `dravr-claim-verification-failed` metric counts
+        // (infra/environments/dev/claim_verification_monitoring.tf): a reply
+        // went out with claims nobody checked.
+        tracing::warn!(
+            unchecked_claims,
+            blocked = withholds_unchecked_reply(config),
+            "claim verification failed — judge error, claims recorded as not checked"
+        );
+    }
 
     let mut chips = Vec::new();
-    let content = if problems.is_empty() {
+    let content = if problems.is_empty() && unchecked_claims == 0 {
         reply.to_owned()
     } else {
         match reply_action(&verdicts, config) {
@@ -635,6 +651,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
             ResolvedAction::BlockRetry => {
                 tracing::warn!(
                     flagged_claims = problems.len(),
+                    unchecked_claims,
                     "claim-verification block fallback fired — replacing reply"
                 );
                 ctx.messaging_strings_registry
@@ -650,348 +667,41 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     }
 }
 
-/// Gather what we hold about this athlete's own records.
+/// The sources the turn's athlete context is read from, or `None` when the
+/// user id does not parse.
 ///
-/// Two facts, from two sources that disagree in an important way: whether any
-/// provider is connected at all (`provider_connections`, the same table the
-/// onboarding gate reads), and what activities we actually hold (the cache).
-/// The first is what licenses a contradiction — no provider means a specific
-/// figure had no source — while the second only ever supports or fails to
-/// support one, because the cache is a window and can legitimately miss a run.
+/// Activities are filtered by the tool runtime's provider registry, the terms
+/// the turn's own tool calls were served under: a claim is checked against
+/// what the model could have seen (carnet#723).
+fn athlete_sources<'a>(
+    ctx: &'a ChatPipelineContext,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Option<AthleteSources<'a>> {
+    Some(AthleteSources {
+        repos: ctx.repos.as_ref(),
+        policies: ctx.tool_runtime.provider_registry().as_ref(),
+        tenant_id,
+        user_id: Uuid::parse_str(user_id).ok()?,
+    })
+}
+
+/// Gather what we hold about this athlete's own records, through the builder
+/// every verifying surface shares
+/// ([`pierre_services::athlete_claim_context::build_athlete_record`]).
 ///
-/// Returns `None` when the user id will not parse, and — importantly — when the
-/// connection lookup *fails*. Both mean we cannot establish the athlete's state,
-/// and this is the one layer where guessing is dangerous in a specific
-/// direction: "providerless" is what licenses a `Contradicted` verdict at 0.95
-/// confidence, saying the agent invented a figure. Collapsing an `Err` into
-/// `false` would let a pool timeout brand an accurate reply a fabrication and
-/// persist that accusation. Skipping the layer costs a verdict; guessing costs
-/// the athlete's trust, so absence of knowledge must never read as knowledge of
-/// absence.
-///
-/// `has_provider` mirrors [`user_has_connected_provider`] plus the `oauth_tokens`
-/// second source, exactly as the dispatch chokepoint does, because the two
-/// tables are known to drift. An athlete holding a live token whose connection
-/// row is missing is served by every tool, so calling them providerless here
-/// would contradict every true figure they were just given.
-///
-/// For a connected athlete the record also carries the history a period total
-/// is checked against (carnet#846): each workout once, each source's own
-/// sessions, the days every live source holds in full, and the current plan
-/// block. A failed cache or coverage read leaves it out, so no total is
-/// contradicted on a guess.
+/// Returns `None` when the user id will not parse or the athlete's connection
+/// state cannot be established — skipping the athlete-data layer rather than
+/// risking a contradiction of a true claim.
 async fn build_athlete_record(
     ctx: &ChatPipelineContext,
     user_id: &str,
     tenant_id: TenantId,
     locale: &str,
 ) -> Option<AthleteRecord> {
-    let uuid = Uuid::parse_str(user_id).ok()?;
-
-    let connected = match user_has_connected_provider(&ctx.repos.provider_connections, uuid).await {
-        Ok(true) => true,
-        Ok(false) => match ctx.repos.oauth_tokens.get_tokens(uuid, None).await {
-            Ok(tokens) => !tokens.is_empty(),
-            Err(e) => {
-                warn!(
-                    user_id = %uuid,
-                    error = %e,
-                    "athlete-record: oauth_tokens lookup failed — skipping the \
-                     athlete-data layer rather than risk contradicting a true claim"
-                );
-                return None;
-            }
-        },
-        Err(e) => {
-            warn!(
-                user_id = %uuid,
-                error = %e,
-                "athlete-record: provider_connections lookup failed — skipping the \
-                 athlete-data layer rather than risk contradicting a true claim"
-            );
-            return None;
-        }
-    };
-
-    // The athlete's own zone, so a 21:00 session belongs to the day they
-    // trained. A claim about "Tuesday" is checked against their Tuesday, and a
-    // claim about "hier" against their yesterday.
-    let user_timezone = ctx
-        .repos
-        .users
-        .get_global(uuid)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|u| u.timezone);
-    let zone = resolve_zone(user_timezone.as_deref());
-    let end = chrono::Utc::now();
-    let today = clock_date(end, zone);
-
-    // Without a provider there is nothing to fetch, and the window query would
-    // be a guaranteed-empty round trip on every verified reply.
-    if !connected {
-        return Some(AthleteRecord::providerless(today, locale));
-    }
-
-    let start = end - ATHLETE_RECORD_WINDOW;
-    let (read, cache_read) = read_record_window(ctx, uuid, tenant_id, start, end, |instant| {
-        local_date(instant, zone)
-    })
-    .await;
-    // A claim is checked against what the model could have seen (carnet#723).
-    let activities =
-        ai_scope::filter_activities(ctx.tool_runtime.provider_registry().as_ref(), read);
-
-    let recorded = |a: &Activity| {
-        #[allow(clippy::cast_precision_loss)]
-        let duration_min = (a.duration_seconds() as f64) / 60.0;
-        RecordedActivity {
-            date: local_date(a.start_date(), zone),
-            sport: a.sport_type().clone(),
-            name: a.name().to_owned(),
-            distance_km: a.distance_meters().map(|m| m / 1000.0),
-            duration_min,
-            elevation_m: a.elevation_gain(),
-        }
-    };
-    let held: Vec<RecordedActivity> = activities.iter().map(recorded).collect();
-    let by_source = sessions_by_source(&activities, recorded);
-    // A total counts each workout once: the copies two providers hold of one
-    // ride are merged the way the activity tools merge what the model reads.
-    let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
-    let (sources, block_start) = tokio::join!(
-        live_source_coverage(ctx, uuid, tenant_id),
-        current_block_start(ctx, uuid, tenant_id, today),
-    );
-    let history = period_history(cache_read, sources, |read, sources| HistoryInputs {
-        sessions: sessions.iter().map(recorded).collect(),
-        by_source,
-        read,
-        sources,
-        now: end,
-        zone,
-        block_start,
-    });
-
-    Some(AthleteRecord {
-        has_provider: true,
-        today,
-        locale: locale.to_owned(),
-        activities: held,
-        history,
-    })
+    let sources = athlete_sources(ctx, user_id, tenant_id)?;
+    shared_athlete_record(&sources, Some(locale)).await
 }
-
-/// The athlete's cached activities from `from` to `to`, and what the read
-/// reached, each instant placed on the athlete's calendar by `day`.
-///
-/// A failed read yields no rows and no [`CacheRead`], never an empty read: the
-/// per-activity layer then has nothing to match, which never contradicts a
-/// connected athlete, and [`period_history`] has no read to vouch from.
-async fn read_record_window(
-    ctx: &ChatPipelineContext,
-    uuid: Uuid,
-    tenant_id: TenantId,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    day: impl Fn(DateTime<Utc>) -> NaiveDate,
-) -> (Vec<Activity>, Option<CacheRead>) {
-    let rows = match ctx
-        .repos
-        .activity_cache
-        .get_cached_activities(uuid, &tenant_id, None, from, to, ATHLETE_RECORD_LIMIT)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!(
-                user_id = %uuid,
-                error = %e,
-                "athlete-record: activity cache read failed — period totals stay unverifiable"
-            );
-            return (Vec::new(), None);
-        }
-    };
-    // A read that filled its cap was cut inside its oldest day.
-    let read_full = usize::try_from(ATHLETE_RECORD_LIMIT).is_ok_and(|cap| rows.len() >= cap);
-    let read = CacheRead {
-        from,
-        cut_day: rows
-            .iter()
-            .map(|a| day(a.start_date()))
-            .min()
-            .filter(|_| read_full),
-    };
-    (rows, Some(read))
-}
-
-/// The history a period total is checked against, or `None` unless both the
-/// activity-cache read and every live source's coverage read succeeded.
-///
-/// The read succeeding is part of what [`PeriodHistory::vouched`] depends on.
-/// The sync marks say which days the cache holds in full, and the rows the
-/// read returned are then taken as every session of those days. A failed read
-/// taken as an empty one would vouch for a week of rest, and contradict every
-/// correct total stated over it.
-fn period_history<Z: TimeZone>(
-    read: Option<CacheRead>,
-    sources: Option<Vec<SourceCoverage>>,
-    inputs: impl FnOnce(CacheRead, Vec<SourceCoverage>) -> HistoryInputs<Z>,
-) -> Option<PeriodHistory> {
-    let (read, sources) = read.zip(sources)?;
-    PeriodHistory::vouched(inputs(read, sources))
-}
-
-/// Each source's own sessions, merged within the source, when more than one
-/// source holds any; empty otherwise, since one source's sessions are the
-/// merged ones.
-///
-/// A tool that reads one provider adds up that provider's week, so its total
-/// is a reading of a period figure as much as the merged one is.
-fn sessions_by_source(
-    activities: &[Activity],
-    recorded: impl Fn(&Activity) -> RecordedActivity,
-) -> Vec<SourceSessions> {
-    let mut grouped: BTreeMap<&str, Vec<Activity>> = BTreeMap::new();
-    // Cloned because `merge_duplicates` takes its rows by value and the caller
-    // still merges the whole list across sources afterwards.
-    for activity in activities {
-        grouped
-            .entry(activity.provider())
-            .or_default()
-            .push(activity.clone());
-    }
-    if grouped.len() < 2 {
-        return Vec::new();
-    }
-    grouped
-        .into_iter()
-        .map(|(source, rows)| {
-            let (own, _) = merge_duplicates(rows, &DedupConfig::from_env());
-            SourceSessions {
-                source: source.to_owned(),
-                sessions: own.iter().map(&recorded).collect(),
-            }
-        })
-        .collect()
-}
-
-/// What each of the athlete's live activity sources vouches for: when its
-/// list head was last read, and how deep its current capture's backfill
-/// reached.
-///
-/// Live means connected, not waiting on a reconnect, and able to deliver
-/// activities: the connections a training-history compute stands on
-/// ([`resolve_compute_backends`]), under the canonical slug their cached rows,
-/// fetch marks and backfill records are keyed by. A lapsed connection is left
-/// out because nothing new arrives from it until the athlete reconnects, and
-/// the athlete's uploads because they land in the cache the moment they are
-/// kept.
-///
-/// `None` when a read fails: a period total is then never contradicted.
-async fn live_source_coverage(
-    ctx: &ChatPipelineContext,
-    uuid: Uuid,
-    tenant_id: TenantId,
-) -> Option<Vec<SourceCoverage>> {
-    let backends = resolve_compute_backends(&ctx.repos, tenant_id, uuid)
-        .await
-        .inspect_err(|e| {
-            warn!(
-                user_id = %uuid,
-                error = %e,
-                "athlete-record: connection read failed — period totals stay unverifiable"
-            );
-        })
-        .ok()?;
-    let cache = &ctx.repos.activity_cache;
-    let mut sources = Vec::with_capacity(backends.len());
-    for backend in backends
-        .iter()
-        .filter(|backend| backend.capturable && !backend.requires_reauth)
-    {
-        let (last_sync, coverage) = tokio::join!(
-            cache.latest_activity_sync(uuid, &tenant_id, &backend.slug),
-            cache.get_backfill_coverage(uuid, &tenant_id, &backend.slug),
-        );
-        match (last_sync, coverage) {
-            (Ok(last_sync), Ok(coverage)) => sources.push(SourceCoverage {
-                last_sync,
-                depth: backfill_depth(coverage, &backend.slug),
-            }),
-            (Err(e), _) | (_, Err(e)) => {
-                warn!(
-                    user_id = %uuid,
-                    provider = %backend.slug,
-                    error = %e,
-                    "athlete-record: sync coverage read failed — period totals stay unverifiable"
-                );
-                return None;
-            }
-        }
-    }
-    Some(sources)
-}
-
-/// How deep a source's history is held, read with the historical gate's own
-/// rule ([`historical_depth_covered`]) so the period check and
-/// `get_activities` agree on which windows the cache serves as complete: a
-/// record of the source's current capture that exhausted the feed holds every
-/// window, one that reached a floor holds the windows opening at or after it,
-/// and anything else holds none.
-fn backfill_depth(coverage: Option<BackfillCoverage>, slug: &str) -> BackfillDepth {
-    let version = current_capture_version(slug);
-    let Some(record) = coverage else {
-        return BackfillDepth::Unrecorded;
-    };
-    if historical_depth_covered(coverage, i64::MIN, version) {
-        return BackfillDepth::FeedEnd;
-    }
-    if !historical_depth_covered(coverage, record.oldest_reached_ts, version) {
-        return BackfillDepth::Unrecorded;
-    }
-    Utc.timestamp_opt(record.oldest_reached_ts, 0)
-        .single()
-        .map_or(BackfillDepth::Unrecorded, BackfillDepth::Reached)
-}
-
-/// The first day of the training block the athlete is in: the phase of their
-/// active plan that covers `today`, when the plan may be read here.
-async fn current_block_start(
-    ctx: &ChatPipelineContext,
-    uuid: Uuid,
-    tenant_id: TenantId,
-    today: NaiveDate,
-) -> Option<NaiveDate> {
-    let plan = ctx
-        .repos
-        .training_plans
-        .get_active_plan(&tenant_id.to_string(), &uuid.to_string())
-        .await
-        .inspect_err(|e| {
-            warn!(
-                user_id = %uuid,
-                error = %e,
-                "athlete-record: active plan read failed — a block total stays unverifiable"
-            );
-        })
-        .ok()
-        .flatten()
-        .filter(|plan| ai_scope::admit_derived(plan.transport_policy))?;
-    plan.phases
-        .iter()
-        .find(|phase| phase.covers(today))
-        .and_then(PlanPhase::start_date)
-}
-
-/// Cap on activities pulled for one verification pass.
-///
-/// The layer only needs the set of values a figure could match, and an athlete
-/// with more than this in a quarter is not going to be adjudicated differently
-/// by the tail. A read that fills it vouches for period totals only from the
-/// day after its oldest row.
-const ATHLETE_RECORD_LIMIT: i64 = 500;
 
 /// Build the personalized-layer inputs (athlete snapshot + tolerance strategy) for a turn.
 ///
@@ -1004,25 +714,15 @@ async fn build_personalized_inputs(
     user_id: &str,
     tenant_id: TenantId,
 ) -> Option<(AthleteMetrics, Box<dyn ToleranceStrategy>)> {
-    if !config.personalized.enabled {
-        return None;
-    }
-    let uuid = Uuid::parse_str(user_id).ok()?;
+    let sources = athlete_sources(ctx, user_id, tenant_id)?;
     let cageux = ctx.cageux_config_registry.current();
-    let metrics = build_athlete_metrics(
-        ctx.repos.as_ref(),
-        ctx.tool_runtime.provider_registry().as_ref(),
+    shared_personalized_inputs(
+        &sources,
         &cageux.algorithms,
         &ctx.config.training_zones,
-        tenant_id,
-        uuid,
+        &config.personalized,
     )
-    .await;
-    if !metrics.is_usable() {
-        return None;
-    }
-    let tolerance = config.personalized.tolerance_strategy();
-    Some((metrics, tolerance))
+    .await
 }
 
 /// Persist the verdicts produced by [`apply_claim_verification`].
@@ -1071,62 +771,130 @@ pub async fn persist_pending_verdicts(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use chrono::TimeDelta;
+    use pierre_evals::{
+        ClaimSource, ExtractedClaim, ResolvedAction, VerdictOutcome, VerificationConfig,
+        VerificationFallback,
+    };
+    use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
-    /// Wednesday 2026-09-09 at 19:00 UTC.
-    fn now() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 9, 9, 19, 0, 0).unwrap()
-    }
+    use super::{reply_action, resolved_action, withholds_unchecked_reply};
 
-    fn read() -> CacheRead {
-        CacheRead {
-            from: now() - ATHLETE_RECORD_WINDOW,
-            cut_day: None,
+    fn config(fallback: VerificationFallback) -> VerificationConfig {
+        VerificationConfig {
+            fallback_behavior: fallback,
+            ..VerificationConfig::default()
         }
     }
 
-    /// One source read this turn whose feed is exhausted: every day of the
-    /// read is vouched for.
-    fn synced() -> Vec<SourceCoverage> {
-        vec![SourceCoverage {
-            last_sync: Some(now() - TimeDelta::minutes(1)),
-            depth: BackfillDepth::FeedEnd,
-        }]
-    }
-
-    /// A read that returned no rows; the inputs of one that failed are never
-    /// built.
-    fn no_sessions(read: CacheRead, sources: Vec<SourceCoverage>) -> HistoryInputs<Utc> {
-        HistoryInputs {
-            sessions: Vec::new(),
-            by_source: Vec::new(),
-            read,
-            sources,
-            now: now(),
-            zone: Utc,
-            block_start: None,
+    fn claim(text: &str) -> ExtractedClaim {
+        ExtractedClaim {
+            text: text.to_owned(),
+            category: ClaimCategory::Physiological,
+            source: ClaimSource::Reply,
         }
     }
 
-    /// A read that succeeded and held nothing vouches for its days: the
-    /// athlete rested, and a total stated over them is wrong. The same
-    /// coverage beside a read that failed vouches for nothing, so a pool error
-    /// never turns a correct total into a contradiction.
+    fn verdict(status: ClaimStatus, layer: VerdictLayer) -> VerdictOutcome {
+        VerdictOutcome {
+            status,
+            evidence_strength: EvidenceStrength::None,
+            confidence: 0.9,
+            layer_fired: layer,
+            explanation: String::new(),
+            evidence_refs: None,
+        }
+    }
+
+    fn supported() -> (ExtractedClaim, VerdictOutcome) {
+        (
+            claim("Sleep 8 hours per night to recover."),
+            verdict(ClaimStatus::Supported, VerdictLayer::Evidence),
+        )
+    }
+
+    fn unsupported() -> (ExtractedClaim, VerdictOutcome) {
+        (
+            claim("Beetroot juice raises your lactate threshold by 12%."),
+            verdict(ClaimStatus::Unsupported, VerdictLayer::Evidence),
+        )
+    }
+
+    fn unchecked() -> (ExtractedClaim, VerdictOutcome) {
+        (
+            claim("Tart cherry juice improves your sleep quality by 8%."),
+            VerdictOutcome::judge_error(),
+        )
+    }
+
     #[test]
-    fn a_failed_cache_read_vouches_for_no_period() {
-        assert!(
-            period_history(Some(read()), Some(synced()), no_sessions).is_some(),
-            "an empty read that succeeded vouches for its days"
+    fn an_unchecked_claim_blocks_an_agent_that_blocks() {
+        let action = resolved_action(
+            &VerdictOutcome::judge_error(),
+            &config(VerificationFallback::Block),
         );
-        assert!(
-            period_history(None, Some(synced()), no_sessions).is_none(),
-            "a failed read is not an empty one"
+
+        assert_eq!(action, ResolvedAction::BlockRetry);
+    }
+
+    #[test]
+    fn an_unchecked_claim_is_only_recorded_for_an_agent_that_warns_or_stays_silent() {
+        for fallback in [VerificationFallback::Warn, VerificationFallback::Silent] {
+            let action = resolved_action(&VerdictOutcome::judge_error(), &config(fallback));
+
+            assert_eq!(action, ResolvedAction::RecordOnly, "{fallback:?}");
+        }
+    }
+
+    #[test]
+    fn a_disabled_config_withholds_nothing() {
+        let disabled = VerificationConfig {
+            enabled: false,
+            ..config(VerificationFallback::Block)
+        };
+
+        assert!(!withholds_unchecked_reply(&disabled));
+        assert!(withholds_unchecked_reply(&config(
+            VerificationFallback::Block
+        )));
+    }
+
+    #[test]
+    fn a_blocking_agent_blocks_a_reply_with_an_unchecked_claim_and_no_flagged_one() {
+        let verdicts = vec![supported(), unchecked()];
+
+        let action = reply_action(&verdicts, &config(VerificationFallback::Block));
+
+        assert_eq!(action, ResolvedAction::BlockRetry);
+    }
+
+    #[test]
+    fn a_blocking_agent_passes_a_reply_whose_claims_were_all_checked() {
+        let verdicts = vec![supported()];
+
+        let action = reply_action(&verdicts, &config(VerificationFallback::Block));
+
+        assert_eq!(
+            action,
+            ResolvedAction::Pass,
+            "it is the unchecked claim that blocks, not the agent's setting"
         );
     }
 
     #[test]
-    fn a_failed_coverage_read_vouches_for_no_period() {
-        assert!(period_history(Some(read()), None, no_sessions).is_none());
+    fn a_warning_agent_ships_a_reply_with_an_unchecked_claim_and_records_it() {
+        let verdicts = vec![supported(), unchecked()];
+
+        let action = reply_action(&verdicts, &config(VerificationFallback::Warn));
+
+        assert_eq!(action, ResolvedAction::RecordOnly);
+    }
+
+    #[test]
+    fn a_flagged_claim_still_earns_its_warning_beside_an_unchecked_one() {
+        let verdicts = vec![unchecked(), unsupported()];
+
+        let action = reply_action(&verdicts, &config(VerificationFallback::Warn));
+
+        assert_eq!(action, ResolvedAction::WarnBanner);
     }
 }

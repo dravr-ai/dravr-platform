@@ -46,6 +46,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { GroupTranscriptSection } from '../src/screens/groups/GroupTranscriptSection';
+import { groupsApi } from '../src/services/api';
 
 function renderSection() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -82,4 +83,33 @@ describe('GroupTranscriptSection', () => {
       expect(getAllByText('Jan 15, 2026')).toHaveLength(2);
     });
   });
+
+  it('labels a coach\'s correction as the coach\'s, never as the member it concerns', async () => {
+    (groupsApi.getTranscript as jest.Mock).mockResolvedValueOnce({
+      group_id: 'group-1',
+      members: [],
+      entries: [
+        {
+          id: 'entry-3',
+          speaker: 'correction',
+          withheld: false,
+          own: false,
+          author_user_id: 'user-marie',
+          author_display_name: 'Marie',
+          content: 'Marie, ta sortie faisait 18 km.',
+          message_id: null,
+          corrects: { entry_id: 'entry-2', message_id: null, excerpt: 'Oui, allure facile.' },
+          created_at: '2026-01-15T12:05:00Z',
+        },
+      ],
+    } satisfies GroupTranscriptResponse);
+    const { getByText, queryByText } = renderSection();
+
+    await waitFor(() => {
+      expect(getByText('Marie, ta sortie faisait 18 km.')).toBeTruthy();
+    });
+    expect(getByText("Human coach's correction for Marie")).toBeTruthy();
+    expect(queryByText('Marie')).toBeNull();
+  });
 });
+

@@ -24,6 +24,12 @@ CANVAS = 1024
 # below this darkness is treated as background.
 SPECKLE_FLOOR = 14
 
+# Android draws a notification's status-bar icon from its alpha channel alone, so
+# it is a white silhouette of the mark. 96px is the xxxhdpi size of the 24dp icon;
+# the expo-notifications plugin cuts the lower densities from it.
+NOTIFICATION_CANVAS = 96
+NOTIFICATION_FILL = 84
+
 # Android draws an adaptive icon's 108dp canvas through a launcher mask that shows
 # 72dp of it, and recommends keeping key elements inside a centred 66dp circle so a
 # tighter OEM mask or a launcher's parallax/zoom does not clip them.
@@ -76,6 +82,17 @@ def place(mark_rgb, mark_mask, fill_px, transparent):
     return canvas
 
 
+def silhouette(mark_mask, canvas_px, fill_px):
+    """The mark as white ink on transparency, scaled to fill_px and centred on a canvas_px square."""
+    scale = fill_px / max(mark_mask.size)
+    size = (max(1, round(mark_mask.width * scale)), max(1, round(mark_mask.height * scale)))
+    ink = Image.new("RGBA", size, (255, 255, 255, 255))
+    ink.putalpha(mark_mask.resize(size, Image.LANCZOS))
+    canvas = Image.new("RGBA", (canvas_px, canvas_px), (255, 255, 255, 0))
+    canvas.paste(ink, ((canvas_px - size[0]) // 2, (canvas_px - size[1]) // 2), ink)
+    return canvas
+
+
 def ink_radius(canvas):
     """Distance from the canvas centre to the far corner of the outermost inked pixel."""
     alpha = canvas.getchannel("A")
@@ -124,6 +141,8 @@ def main():
     adaptive.save(ASSETS / "adaptive-icon.png")
     splash = place(mark_rgb, mark_mask, FILL["splash-icon"], transparent=True)
     splash.save(ASSETS / "splash-icon.png")
+
+    silhouette(mark_mask, NOTIFICATION_CANVAS, NOTIFICATION_FILL).save(ASSETS / "notification-icon.png")
 
     icon.resize((48, 48), Image.LANCZOS).save(ASSETS / "favicon.png")
     print(f"regenerated icon family from {MASTER.name} (mark bbox {bbox})")

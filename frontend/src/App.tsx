@@ -8,6 +8,8 @@ import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import VerifyEmail, { parseVerifyStatus, type VerifyEmailStatus } from './components/VerifyEmail';
+import AcceptInvitation from './components/AcceptInvitation';
+import { ACCEPT_INVITATION_PATH, parseInvitationToken } from './utils/invitationLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -56,6 +58,13 @@ function isVerifyEmailPath(): boolean {
 }
 
 /**
+ * Whether the current URL is a mailed invitation: /accept-invite#token=…
+ */
+function isAcceptInvitationPath(): boolean {
+  return window.location.pathname === ACCEPT_INVITATION_PATH;
+}
+
+/**
  * Check if the current URL is an invite link: /groups/join/:code
  */
 function getGroupInviteCode(): string | null {
@@ -84,6 +93,11 @@ function AppContent() {
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const [verifyEmailStatus, setVerifyEmailStatus] = useState<VerifyEmailStatus | null>(() =>
     isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
+  );
+  // The invitation token, read once from the link's fragment. `undefined`
+  // when this page load is not an invitation link.
+  const [invitationToken, setInvitationToken] = useState<string | null | undefined>(() =>
+    isAcceptInvitationPath() ? parseInvitationToken(window.location.hash) : undefined,
   );
   const localQueryClient = useQueryClient();
 
@@ -126,7 +140,7 @@ function AppContent() {
       const mod = await import('./services/analytics');
       if (cancelled) return;
       if (user && user.analytics_consent === true) {
-        mod.bootAnalytics(user.id, true);
+        await mod.bootAnalytics(user.id, true);
       } else {
         mod.shutdownAnalytics();
       }
@@ -170,6 +184,15 @@ function AppContent() {
     }
   }, [isLoading, isAuthenticated]);
 
+  // The invitation token is a single-use credential: once read into state, it
+  // leaves the address bar and the history entry, so a reload or a shared
+  // screenshot of the URL cannot carry it anywhere.
+  useEffect(() => {
+    if (isAcceptInvitationPath()) {
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, []);
+
   // Check for group invite link on mount: /groups/join/:code
   useEffect(() => {
     const code = getGroupInviteCode();
@@ -179,6 +202,25 @@ function AppContent() {
       window.history.replaceState({}, document.title, '/');
     }
   }, []);
+
+  // Invitation landing. Rendered before every auth branch for the same reason
+  // as the email-confirmation landing below: the invitee arrives from a mail
+  // client with no account yet, so nothing behind a sign-in can serve them.
+  if (invitationToken !== undefined) {
+    return (
+      <AcceptInvitation
+        token={invitationToken}
+        onSignIn={() => {
+          setInvitationToken(undefined);
+          setAuthView('login');
+        }}
+        onRegister={() => {
+          setInvitationToken(undefined);
+          setAuthView('register');
+        }}
+      />
+    );
+  }
 
   // Email-confirmation landing. Rendered before every auth branch: the user
   // arrives here from their mail client, usually signed out and often on a

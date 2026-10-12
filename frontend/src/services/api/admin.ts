@@ -27,6 +27,9 @@ export interface PreApprovedEmail {
   /// `null` until somebody registers against the address — the normal steady
   /// state of a standing allow, not a missing value.
   account_status: 'pending' | 'active' | 'suspended' | null;
+  /// When the address's outstanding invitation link stops working; `null` when
+  /// no invitation is waiting to be redeemed.
+  invitation_expires_at: string | null;
 }
 
 /// What an allow did, as reported by the server.
@@ -44,8 +47,10 @@ export interface AllowEmailResult {
   outcome: AllowEmailOutcome;
   email: string;
   approved_user_id: string | null;
-  /// True when the sign-up link was mailed: asked for, and the address has no account yet.
+  /// True when a single-use invitation was mailed: asked for, and the address has no account yet.
   invited: boolean;
+  /// When that invitation's link stops working; `null` when none was sent.
+  invitation_expires_at: string | null;
 }
 
 /// The effective auto-approval setting. `enabled` is what registration
@@ -244,14 +249,18 @@ export const adminApi = {
       email: response.data.data?.email,
       approved_user_id: response.data.data?.approved_user_id ?? null,
       invited: response.data.data?.invited ?? false,
+      invitation_expires_at: response.data.data?.invitation_expires_at ?? null,
     };
   },
 
-  async disallowEmail(email: string): Promise<{ message: string; removed: boolean }> {
+  async disallowEmail(
+    email: string,
+  ): Promise<{ message: string; removed: boolean; invitation_revoked: boolean }> {
     const response = await axios.delete(`/api/admin/pre-approved-emails/${encodeURIComponent(email)}`);
     return {
       message: response.data.message,
       removed: response.data.data?.removed ?? false,
+      invitation_revoked: response.data.data?.invitation_revoked ?? false,
     };
   },
 

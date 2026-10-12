@@ -74,7 +74,11 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
             <View key={entry.id} style={{ marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
-                  {entry.author_display_name ?? entry.author_user_id}
+                  {/* A coach's correction is the coach speaking, about the
+                      member the reply it corrects answered (carnet#847). */}
+                  {entry.speaker === 'correction'
+                    ? t('chat.roomCorrectionTo', { name: entry.author_display_name ?? entry.author_user_id ?? '' })
+                    : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </Text>
                 <Text className="text-xs font-mono tabular-nums" style={{ color: colors.text.tertiary }}>

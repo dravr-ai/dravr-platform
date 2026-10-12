@@ -80,7 +80,13 @@ export function createNotificationHooks(
     };
   }
 
-  /** The unread count behind the badge, polled as the client's {@link UnreadCountPolling} says. */
+  /**
+   * The unread count behind the badge, polled as the client's {@link UnreadCountPolling} says.
+   *
+   * `isSuccess` is what tells a count of zero from a count that never arrived:
+   * `unreadCount` reads 0 in both, so a consumer that writes the number
+   * somewhere durable (the phone's app-icon badge) waits for it.
+   */
   function useUnreadCount() {
     const query = useQuery({
       queryKey: QUERY_KEYS.notifications.unreadCount(),
@@ -91,6 +97,7 @@ export function createNotificationHooks(
     return {
       unreadCount: query.data?.unread_count ?? 0,
       isLoading: query.isLoading,
+      isSuccess: query.isSuccess,
     };
   }
 

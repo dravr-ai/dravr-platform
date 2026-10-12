@@ -10,8 +10,9 @@ in forest ink on a near-white field.
 | `../adaptive-icon.png` | 61% | yes | Android adaptive foreground. Android draws the 108dp canvas through a launcher mask that shows 72dp of it and recommends keeping key elements inside a 66dp circle, so a tighter OEM mask or a launcher's parallax/zoom does not clip them. At this fill every inked pixel sits inside that circle: the farthest is 312.2px from the centre against the 312.9px allowed on the 1024px canvas, and `generate-icons.py` refuses to write the file when that stops being true. The `#f9f9f6` ground comes from `adaptiveIcon.backgroundColor` in `app.config.js`. |
 | `../splash-icon.png` | 59% | yes | Launch screen, over the same `#f9f9f6`. |
 | `../favicon.png` | — | none | 48px downsample of `icon.png`. |
+| `../notification-icon.png` | 84px of 96px | yes | Android status-bar icon, referenced by the `expo-notifications` plugin in `app.config.js`. Android draws it from the alpha channel alone, so it is the mark as a white silhouette on transparency; the plugin cuts the lower densities from the 96px (xxxhdpi) source. |
 
-Regenerate all four with:
+Regenerate all five with:
 
 ```bash
 python3 frontend-mobile/assets/sources/generate-icons.py   # needs Pillow

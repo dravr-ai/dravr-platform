@@ -4,6 +4,8 @@
 // ABOUTME: Tells a dashboard route the app wrote from a deep link the athlete followed
 // ABOUTME: A route written during a session ends with it, so the next sign-in lands on the role default
 
+import { ACCEPT_INVITATION_PATH } from './invitationLink';
+
 /**
  * The `history.state` the dashboard writes beside every `#tab[/subview]` it
  * puts in the address bar. The browser keeps an entry's state across a reload
@@ -30,10 +32,15 @@ function currentHashRoute(): string {
 /**
  * The route a followed link asked for when this page loaded, until a session
  * has shown it. Read once, at module evaluation — before the first render,
- * whose route sync marks the entry and so erases the evidence.
+ * whose route sync marks the entry and so erases the evidence. The invitation
+ * landing is excluded: its fragment is a single-use token, and read as a
+ * followed link it would ride the sign-in round trip back into the address bar.
  */
 let pendingDeepLink: string | null =
-  typeof window !== 'undefined' && currentHashRoute() !== '' && !isSessionRouteState(window.history.state)
+  typeof window !== 'undefined' &&
+  window.location.pathname !== ACCEPT_INVITATION_PATH &&
+  currentHashRoute() !== '' &&
+  !isSessionRouteState(window.history.state)
     ? currentHashRoute()
     : null;
 

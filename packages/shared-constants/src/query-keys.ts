@@ -250,6 +250,15 @@ export const QUERY_KEYS = {
     permissions: () => ['groups', 'permissions'] as const,
   },
 
+  // ==================== COACH REVIEW (carnet#847) ====================
+  coachReplies: {
+    all: ['coach-replies'] as const,
+    /** The coach's pages of the agent's replies, under one athlete filter. */
+    list: (athleteId: string | null) => ['coach-replies', 'list', athleteId ?? 'all'] as const,
+    /** The coach's flags and corrections per week. */
+    weekly: () => ['coach-replies', 'weekly'] as const,
+  },
+
   // ==================== MESSAGING ====================
   messaging: {
     all: ['messaging'] as const,

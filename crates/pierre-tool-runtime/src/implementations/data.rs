@@ -40,9 +40,9 @@ use crate::activity_backfill::{
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
 use crate::activity_fetch::{
-    activity_date_span, activity_window_totals, historical_depth_covered,
-    maybe_merge_other_connections, read_cached_window, read_live_window, serve_historical_window,
-    serve_stale_activities, serve_without_primary, sort_activities, touch_connection_used,
+    activity_date_span, activity_window_totals, maybe_merge_other_connections, read_cached_window,
+    read_live_window, serve_historical_window, serve_stale_activities, serve_without_primary,
+    sort_activities, touch_connection_used,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -86,6 +86,7 @@ use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
+use pierre_database::repositories::historical_depth_covered;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::PropertySchema;

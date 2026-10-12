@@ -18,12 +18,27 @@
 //! repeatedly quoted — and eventually lost confidence over — went unchecked
 //! (registre#204).
 
+use chrono::NaiveDate;
+use pierre_core::models::{DailyTrainingState, FormReading};
 use pierre_evals::personalized::check as personalized_check;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
     AthleteMetrics, ConservativeStrategy, ExtractedClaim, PersonalizedContext, ToleranceStrategy,
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus};
+
+/// The athlete from the incident: CTL 120, ATL 197, so a TSB of -77 and a form
+/// of -64% of CTL.
+fn raph() -> FormReading {
+    DailyTrainingState {
+        ctl: 120.0,
+        atl: 197.0,
+        tsb: -77.0,
+        form_ctl: 120.0,
+        ..DailyTrainingState::zero(NaiveDate::from_ymd_opt(2026, 9, 2).unwrap())
+    }
+    .form_reading()
+}
 
 fn metrics() -> AthleteMetrics {
     AthleteMetrics {
@@ -33,7 +48,7 @@ fn metrics() -> AthleteMetrics {
         threshold_pace_range: Some((300.0, 315.0)),
         max_hr: Some(190.0),
         ftp_watts: Some(380.0),
-        recent_tsb: Some(-77.0),
+        form: Some(raph()),
         data_days: 30,
         ..AthleteMetrics::default()
     }
@@ -134,17 +149,15 @@ fn a_french_threshold_pace_claim_is_probed() {
 
 /// A range is not a negative number, and a negative number is not a range.
 ///
-/// `is_sign` accepts a `-` only when no digits are buffered yet, which is the
-/// whole of what separates the two. The test used to name a second guard as
-/// well — the previous character not being a digit — and could not have caught
-/// its removal: every path that leaves a digit behind also leaves the buffer
-/// non-empty, so that clause never fired and deleting it left the suite green.
-/// It is gone; this is the condition that actually does the work, asserted in
-/// both directions (registre#260).
+/// The form probe reads a `-` as a sign only when no digit precedes it, which
+/// is the whole of what separates the two. The form module's own unit tests
+/// assert that rule on the figures it reads; this test holds the probe's
+/// verdicts on either side of it, under the label from the incident
+/// (registre#260).
 #[test]
 fn a_hyphen_between_digits_is_still_a_range() {
-    // Drop the emptiness condition and "70-77" accumulates as one unparseable
-    // token, so the probe finds no number at all and returns None.
+    // "70" is the figure nearest the label and it is positive: the hyphen
+    // after it joins a range and signs nothing.
     assert_eq!(
         check("Ton indice de fatigue est à 70-77 cette semaine."),
         Some(ClaimStatus::Contradicted),
@@ -152,8 +165,8 @@ fn a_hyphen_between_digits_is_still_a_range() {
          become a negative number"
     );
 
-    // The other direction, and the reason `is_sign` exists: the athlete's real
-    // TSB is -77, so a leading minus must still be read as one.
+    // The other direction: the athlete's real TSB is -77, so a leading minus
+    // must still be read as one.
     assert_eq!(
         check("Ton indice de fatigue est à -77 cette semaine."),
         Some(ClaimStatus::Supported),

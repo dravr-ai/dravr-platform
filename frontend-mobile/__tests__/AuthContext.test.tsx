@@ -7,6 +7,7 @@ import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-nat
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import * as WebBrowser from 'expo-web-browser';
 import { authApi, onAuthFailure } from '../src/services/api';
+import { unregisterPushDevice } from '../src/services/pushNotifications';
 
 // Mock the api service
 jest.mock('../src/services/api', () => ({
@@ -21,6 +22,12 @@ jest.mock('../src/services/api', () => ({
     storeAuth: jest.fn(),
   },
   onAuthFailure: jest.fn(() => jest.fn()),
+}));
+
+// The push device is the push service's own business (pushNotifications.test.ts);
+// here it is the call sign-out makes, and when.
+jest.mock('../src/services/pushNotifications', () => ({
+  unregisterPushDevice: jest.fn(() => Promise.resolve()),
 }));
 
 /** What the transport raises when the phone is offline: no response at all. */
@@ -494,6 +501,44 @@ describe('AuthContext', () => {
       });
 
       expect(authApi.logout).toHaveBeenCalled();
+    });
+
+    it('takes the phone off the push list before the server ends the session', async () => {
+      const mockUser = {
+        user_id: '123',
+        email: 'stored@example.com',
+        is_admin: false,
+        role: 'user',
+        user_status: 'active',
+      };
+
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(mockUser);
+      (authApi.logout as jest.Mock).mockResolvedValue(undefined);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('authenticated').children[0]).toBe('authenticated');
+      });
+
+      await act(async () => {
+        fireEvent.press(getByTestId('logout-btn'));
+      });
+
+      await waitFor(() => {
+        expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      });
+
+      // Deactivating the device row needs the session that logout ends.
+      expect(unregisterPushDevice).toHaveBeenCalledTimes(1);
+      expect((unregisterPushDevice as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        (authApi.logout as jest.Mock).mock.invocationCallOrder[0],
+      );
     });
   });
 

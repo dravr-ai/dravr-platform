@@ -100,6 +100,8 @@ pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.
 pub mod reconnect;
 pub mod registry;
+/// The note on a result whose caller writes the reply Dravr does not check.
+mod reply_check;
 /// Single-flight slots for background activity-cache revalidations.
 pub mod revalidation;
 pub mod runtime;

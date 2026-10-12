@@ -2231,14 +2231,14 @@ export interface ValidateRecipeParams {
 
 
 /**
- * Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → personalized physiology → evidence corpus) and return a structured verdict with evidence strength and optional citations. Use this before emitting any physiological, nutrition, training, or supplement claim you are not certain about.
+ * Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.
  */
 export interface VerifyClaimParams {
 
   /** Optional agent id for the verdict row. */
   agent_id?: string;
 
-  /** One of: physiological | training_prescription | nutrition | recovery | supplement | injury_rehab. */
+  /** One of: athlete_data (a figure about this athlete's own training: a distance, duration, date or session) | physiological | training_prescription | nutrition | recovery | supplement | injury_rehab. */
   category: string;
 
   /** The factual proposition to verify, as a single sentence. */

@@ -68,7 +68,7 @@ pub fn check(claim: &ExtractedClaim) -> Option<BoundViolation> {
 /// Wide enough to span the clause a value normally shares with its keyword
 /// ("your `VO2max` of 55 ml/kg/min"), narrow enough that a number belonging to
 /// the next sentence is not attributed to this keyword.
-const WINDOW_BYTES: usize = 25;
+pub(crate) const WINDOW_BYTES: usize = 25;
 
 /// The largest char boundary at or below `i`.
 ///
@@ -359,4 +359,25 @@ fn check_supplement(lower: &str) -> Option<BoundViolation> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hyphen that arrives with digits already buffered joins a range, and
+    /// only a leading one is a sign (registre#260): without the emptiness
+    /// condition "2-3" is one unparseable token, and without the sign "−5"
+    /// reads as 5.
+    #[test]
+    fn a_hyphen_between_digits_is_a_range_and_a_leading_one_is_a_sign() {
+        assert_eq!(
+            extract_number_near("Zone 2-3 for the long run", "zone"),
+            Some(2.0)
+        );
+        assert_eq!(
+            extract_number_near("A change of −5 in max HR", "max hr"),
+            Some(-5.0)
+        );
+    }
 }

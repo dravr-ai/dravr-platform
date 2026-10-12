@@ -21,6 +21,7 @@ use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_REGIS
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_middleware::redaction::mask_email;
+use pierre_services::invitation::{IssuedInvitation, INVITATION_TTL_DAYS};
 use pierre_services::messaging_broadcast::send_to_linked_channels;
 use pierre_services::user_approval::UserApprovalNotifier;
 use tracing::{info, warn};
@@ -87,19 +88,29 @@ impl UserApprovalNotifier for ApprovalNotifier {
         self.send_channel_messages(user_id).await;
     }
 
-    async fn notify_user_invited(&self, email: &str) {
-        let recipient = mask_email(email);
+    async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool {
+        let recipient = mask_email(&invitation.email);
         let Some(svc) = &self.email_service else {
             warn!(%recipient, "Email service not configured — skipping invitation email");
-            return;
+            return false;
         };
-        let Some(signup_url) = self.frontend_url.as_deref() else {
+        let Some(frontend_url) = self.frontend_url.as_deref() else {
             warn!(%recipient, "No frontend URL configured — skipping invitation email");
-            return;
+            return false;
         };
-        match svc.send_invitation(email, signup_url).await {
-            Ok(()) => info!(%recipient, "Invitation email sent"),
-            Err(e) => warn!(%recipient, error = %e, "Failed to send invitation email"),
+        let accept_url = invitation.url(frontend_url);
+        match svc
+            .send_invitation(&invitation.email, &accept_url, INVITATION_TTL_DAYS)
+            .await
+        {
+            Ok(()) => {
+                info!(%recipient, "Invitation email sent");
+                true
+            }
+            Err(e) => {
+                warn!(%recipient, error = %e, "Failed to send invitation email");
+                false
+            }
         }
     }
 }

@@ -24,8 +24,8 @@
 //!   07:00 sync is not in the cache at 19:00.
 //! - **From when.** How deep a completed backfill of the source's *current*
 //!   capture reached (`ActivityCacheRepository::get_backfill_coverage`), read
-//!   with the historical gate's own rule (`historical_depth_covered` in the
-//!   tool runtime), so a window starts inside the span exactly when
+//!   with the historical gate's own rule (`historical_depth_covered` in
+//!   pierre-database), so a window starts inside the span exactly when
 //!   `get_activities` would itself serve it from the cache as complete. The
 //!   span never starts before the cache read behind the record reaches, nor on
 //!   a day that read's row cap may have cut.

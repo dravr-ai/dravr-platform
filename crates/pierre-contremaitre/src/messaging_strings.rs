@@ -1003,6 +1003,11 @@ pub const KEY_GROUP_DIGEST_TIER_OFF: &str = "commands.group.digest_tier_off";
 /// Key: `/group agent detach` confirmation — the group's human coach was
 /// cleared. `{0}` = group name.
 pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
+/// Key: a coach's correction of an agent reply, posted into the group's chat.
+///
+/// carnet#847. `{0}` = the coach's name, `{1}` = the athlete the reply
+/// answered, `{2}` = the reply's opening, `{3}` = the correction.
+pub const KEY_GROUP_REPLY_CORRECTED: &str = "humanCoach.reply_corrected";
 /// Key: `/group create` usage hint when no name was typed.
 pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
 /// Key: `/group create` refusal when neither the conversation nor the

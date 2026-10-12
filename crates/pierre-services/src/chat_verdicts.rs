@@ -19,7 +19,7 @@ use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::AgentRepos;
-use pierre_memory::EvidenceCitation;
+use pierre_memory::{ClaimVerdict, EvidenceCitation};
 
 /// User-facing wire shape for a claim verdict.
 ///
@@ -95,6 +95,29 @@ fn evidence_citations(
     citations
 }
 
+/// One verdict in its chat wire shape, naming the studies behind it from
+/// `corpus` — the chip row both the athlete's thread and the coach's review
+/// of a group reply render.
+#[must_use]
+pub fn verdict_row(v: ClaimVerdict, corpus: &EvidenceRegistry) -> ChatVerdictRow {
+    ChatVerdictRow {
+        id: v.id,
+        conversation_id: v.conversation_id,
+        message_id: v.message_id,
+        agent_id: v.agent_id,
+        claim_text: v.claim_text,
+        category: v.category.as_str().to_owned(),
+        status: v.status.as_str().to_owned(),
+        evidence_strength: v.evidence_strength.as_str().to_owned(),
+        confidence: v.confidence,
+        layer_fired: v.layer_fired.as_str().to_owned(),
+        explanation: v.explanation,
+        evidence: evidence_citations(v.evidence_refs.as_deref(), corpus),
+        evidence_refs: v.evidence_refs,
+        created_at: v.created_at.to_rfc3339(),
+    }
+}
+
 /// Verify the caller owns the conversation, then return all claim
 /// verdicts attached to messages in that conversation, each naming the
 /// studies behind it from `corpus`.
@@ -128,22 +151,7 @@ pub async fn list_for_conversation(
 
     let rows: Vec<ChatVerdictRow> = verdicts
         .into_iter()
-        .map(|v| ChatVerdictRow {
-            id: v.id,
-            conversation_id: v.conversation_id,
-            message_id: v.message_id,
-            agent_id: v.agent_id,
-            claim_text: v.claim_text,
-            category: v.category.as_str().to_owned(),
-            status: v.status.as_str().to_owned(),
-            evidence_strength: v.evidence_strength.as_str().to_owned(),
-            confidence: v.confidence,
-            layer_fired: v.layer_fired.as_str().to_owned(),
-            explanation: v.explanation,
-            evidence: evidence_citations(v.evidence_refs.as_deref(), corpus),
-            evidence_refs: v.evidence_refs,
-            created_at: v.created_at.to_rfc3339(),
-        })
+        .map(|v| verdict_row(v, corpus))
         .collect();
 
     let total = rows.len();

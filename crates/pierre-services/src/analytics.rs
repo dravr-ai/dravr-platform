@@ -285,3 +285,22 @@ impl AnalyticsTracker for PostHogTracker {
             .or_insert(enabled);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The web (`frontend/src/services/__tests__/analytics.test.ts`), phone
+    /// (`frontend-mobile/src/services/__tests__/analytics.test.ts`) and shared
+    /// helper (`packages/domain-utils/__tests__/analytics-identity.test.ts`)
+    /// tests pin this same pair. A client that identifies itself to `PostHog`
+    /// with anything else is a second person to it, and its events never join
+    /// the ones the server's sink sends under `hash_id(user_id)`.
+    const USER_ID: &str = "123e4567-e89b-12d3-a456-426614174000";
+    const DISTINCT_ID: &str = "986c0dc956dc822b5d8f698661b9eb1ef880786ff9043c16744d2a420e99e9bb";
+
+    #[test]
+    fn hash_id_of_a_user_uuid_is_the_distinct_id_every_surface_sends() {
+        assert_eq!(hash_id(USER_ID), DISTINCT_ID);
+    }
+}

@@ -14,11 +14,15 @@ const ROOM_ROW_ID_PREFIX = 'room-';
 /** A row a group thread shows from the room. */
 export type RoomMessage = Message & { room: RoomAttribution };
 
-/** The room entry as a thread row. */
+/**
+ * The room entry as a thread row. A member's words are a user row; the
+ * agent's reply and the human coach's correction of one speak from the other
+ * side of the thread, whoever reads them.
+ */
 function roomRow(entry: GroupTranscriptEntry): RoomMessage {
   return {
     id: `${ROOM_ROW_ID_PREFIX}${entry.id}`,
-    role: entry.speaker === 'coach' ? 'assistant' : 'user',
+    role: entry.speaker === 'member' ? 'user' : 'assistant',
     content: entry.content ?? '',
     created_at: entry.created_at,
     room: {
@@ -27,6 +31,7 @@ function roomRow(entry: GroupTranscriptEntry): RoomMessage {
       author_name: entry.author_display_name,
       own: entry.own,
       withheld: entry.withheld,
+      ...(entry.corrects ? { corrects: entry.corrects } : {}),
     },
   };
 }
@@ -79,10 +84,14 @@ export function composeRoomThread<M extends Pick<Message, 'id' | 'created_at'>>(
 /**
  * Who a row is drawn as, for grouping a run: the caller and the coach by role,
  * a room row by who it belongs to — so two members' lines never share one
- * author line, and a withheld entry never runs on from a readable one.
+ * author line, and a withheld entry never runs on from a readable one. A human
+ * coach's correction is its own author, never a run of the agent's replies,
+ * even on the thread of the athlete it concerns, and a run of corrections
+ * concerns one athlete, so each athlete's is labelled with their name.
  */
 export function runAuthorOf(row: { role: string; room?: RoomAttribution | null }): string {
   const room = row.room;
+  if (room?.speaker === 'correction' && !room.withheld) return `correction:${room.author_user_id ?? ''}`;
   if (!room || room.own) return row.role;
   if (room.withheld) return `withheld:${room.speaker}`;
   return `${room.speaker}:${room.author_user_id ?? ''}`;

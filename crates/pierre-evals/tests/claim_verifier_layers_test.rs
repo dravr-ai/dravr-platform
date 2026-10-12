@@ -334,6 +334,10 @@ async fn judge_maps_unknown_verdict_to_unverifiable() {
     .expect("judge call succeeds");
     assert_eq!(outcome.layer_fired, VerdictLayer::Judge);
     assert_eq!(outcome.status, ClaimStatus::Unverifiable);
+    assert!(
+        !outcome.is_judge_error(),
+        "a judge that answered checked the claim; only a failed call leaves it unchecked"
+    );
 }
 
 #[tokio::test]
@@ -550,8 +554,7 @@ async fn verify_reply_checks_nothing_when_the_agent_switched_verification_off() 
         None,
         None,
     )
-    .await
-    .unwrap();
+    .await;
     assert!(verdicts.is_empty());
     assert_eq!(judge.call_count(), 0);
 }
@@ -566,8 +569,7 @@ async fn verify_reply_drops_an_opted_out_category_and_checks_the_rest() {
         None,
         None,
     )
-    .await
-    .unwrap();
+    .await;
     let supplements = everything
         .iter()
         .filter(|(c, _)| c.category == ClaimCategory::Supplement)
@@ -582,9 +584,7 @@ async fn verify_reply_drops_an_opted_out_category_and_checks_the_rest() {
             ..CategoryConfig::default()
         },
     );
-    let kept = verify_reply(MIXED_REPLY, &config, &corpus(), None, None, None)
-        .await
-        .unwrap();
+    let kept = verify_reply(MIXED_REPLY, &config, &corpus(), None, None, None).await;
     assert_eq!(kept.len(), everything.len() - supplements);
     assert!(kept
         .iter()
@@ -606,8 +606,7 @@ async fn verify_reply_hands_an_inconclusive_claim_to_the_judge() {
         None,
         None,
     )
-    .await
-    .unwrap();
+    .await;
     assert_eq!(verdicts.len(), 1, "{verdicts:?}");
     assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Judge);
     assert_eq!(verdicts[0].1.status, ClaimStatus::Contradicted);

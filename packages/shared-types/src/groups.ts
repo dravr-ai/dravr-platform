@@ -248,8 +248,25 @@ export interface TranscriptMember {
   peer_sharing_consent: boolean;
 }
 
-/** Who spoke in a room entry: a member, or the coach answering one. */
-export type TranscriptSpeaker = 'member' | 'coach';
+/**
+ * Who spoke in a room entry: a member, the agent answering one (`coach`), or
+ * the group's human coach correcting one of the agent's replies
+ * (`correction`).
+ */
+export type TranscriptSpeaker = 'member' | 'coach' | 'correction';
+
+/**
+ * The agent reply a coach's correction is linked to. It is attributed to the
+ * same member as the correction, so whoever reads the correction reads it.
+ */
+export interface CorrectedReply {
+  /** The reply's room entry id: its room row on another member's thread. */
+  entry_id: string;
+  /** The reply's chat message: its own row on the thread of the member it answered. */
+  message_id: string | null;
+  /** The reply's opening, one line. */
+  excerpt: string;
+}
 
 /**
  * One utterance of the shared room, oldest first in the listing.
@@ -279,6 +296,8 @@ export interface GroupTranscriptEntry {
    * ambient room chatter and for a withheld entry.
    */
   message_id: string | null;
+  /** The reply a `correction` entry corrects; `null` or absent on every other entry and on a withheld one. */
+  corrects?: CorrectedReply | null;
   created_at: string;
 }
 

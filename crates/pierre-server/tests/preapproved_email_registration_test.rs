@@ -161,6 +161,46 @@ async fn preapproved_email_registers_active_with_attribution() {
 }
 
 #[tokio::test]
+async fn an_allow_outliving_its_operator_still_registers_active_unattributed() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let operator = register_operator(&resources, "departed-allow-operator@example.com").await;
+    let email = "outlived-allow@example.com";
+    repos
+        .pre_approved_emails
+        .allow(email, Some(operator), Some("alpha cohort"))
+        .await
+        .expect("recording the allow must succeed");
+
+    repos
+        .users
+        .delete(operator, None)
+        .await
+        .expect("an operator whose only trace is an allow can be deleted");
+
+    let (status, body) = register(&resources, email, "securePassword123").await;
+    assert_eq!(
+        status, 201,
+        "the allow must still let the address in: {body}"
+    );
+    assert_eq!(body["user_status"].as_str(), Some("active"), "{body}");
+    let user = repos
+        .users
+        .get_by_email(email)
+        .await
+        .expect("user lookup must succeed")
+        .expect("registered user must exist");
+    assert_eq!(
+        user.approved_by, None,
+        "a deleted operator cannot be the account's approver"
+    );
+    assert!(
+        user.approved_at.is_some(),
+        "the approval itself still stands"
+    );
+}
+
+#[tokio::test]
 async fn unlisted_email_registers_pending() {
     let resources = setup().await.expect("server context setup failed");
 

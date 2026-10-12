@@ -21,6 +21,7 @@ use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::reconnect::offer_in_payload;
+use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use chrono::{Duration, Utc};
@@ -231,6 +232,12 @@ pub struct UniversalExecutor {
     /// tool's first-party-only items is stamped. Held here for the reason
     /// [`Self::transport`] is: the Copilot loop's calls run on another task.
     provenance: Option<ai_scope::Provenance>,
+    /// Set when the caller writes its own reply from each result — an MCP
+    /// client, an A2A agent — so no Dravr verification stage follows the call
+    /// (carnet#852). Bound by those entry points with
+    /// [`Self::with_caller_writing_reply`]; never inherited, because a nested
+    /// dispatch answers the tool that made it, not the caller.
+    caller_writes_reply: bool,
 }
 
 impl UniversalExecutor {
@@ -266,7 +273,21 @@ impl UniversalExecutor {
             transport: ai_scope::declared_transport(),
             // And accumulates into the derivation its caller accumulates into.
             provenance: ai_scope::current_provenance(),
+            caller_writes_reply: false,
         }
+    }
+
+    /// Bind that the caller writes its own reply from each result.
+    ///
+    /// For an entry point whose caller is not Dravr's agent: an MCP client or
+    /// an A2A agent composes its own reply, and Dravr's claim checker runs only
+    /// on the replies Dravr writes. A result that served the athlete's data
+    /// then carries a `_reply_verification` note, saying the reply built on
+    /// it is unchecked and naming `verify_claim` (carnet#852).
+    #[must_use]
+    pub const fn with_caller_writing_reply(mut self) -> Self {
+        self.caller_writes_reply = true;
+        self
     }
 
     /// Bind the transport the calling entry point serves.
@@ -772,6 +793,19 @@ impl UniversalExecutor {
             held_back,
             ai_scope::result_exposure(transport),
         );
+        // The caller writes its own reply from this result, and Dravr's claim
+        // checker never sees that reply. A result that served the athlete's
+        // data says so, in a field the caller reads (carnet#852). Served by
+        // this body or by a dispatch it made (`analyze_activity` reads through
+        // `get_activity_intelligence`): a nested call's own `serving_items`
+        // scope hides its reads from `served_items`, but it marks the
+        // provenance it inherits from this call. At the MCP and A2A entry
+        // points no derivation encloses the call, so that provenance is this
+        // call's own.
+        if self.caller_writes_reply && provenance.served_provider_data() && !response.is_error {
+            reply_check::note_unchecked_reply(&mut universal);
+        }
+
         // What the backstop let through reaches the turn: a first-party-only
         // item still in it stamps what the turn derives (carnet#769).
         if ai_view::serves_first_party_only(self.resources.provider_registry().as_ref(), &universal)

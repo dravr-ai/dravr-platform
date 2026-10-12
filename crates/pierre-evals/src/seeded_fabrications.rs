@@ -39,7 +39,7 @@ use std::fmt::Write as _;
 
 use chrono::{NaiveDate, NaiveTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::resolve_sport_type;
+use pierre_core::models::{resolve_sport_type, DailyTrainingState};
 use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
 use serde::{Deserialize, Serialize};
 
@@ -129,6 +129,9 @@ pub struct SyntheticMetrics {
     pub max_hr: Option<f64>,
     /// Absolute TSB.
     pub recent_tsb: Option<f64>,
+    /// The CTL that TSB is read against: with it the snapshot carries the
+    /// athlete's form as a share of their own fitness, banded.
+    pub recent_ctl: Option<f64>,
     /// Days of history behind the estimates.
     #[serde(default)]
     pub data_days: u32,
@@ -233,6 +236,16 @@ impl SyntheticAthlete {
     /// The personalized layer's snapshot of this athlete.
     fn metrics(&self) -> AthleteMetrics {
         let m = &self.metrics;
+        let form = m.recent_tsb.zip(m.recent_ctl).map(|(tsb, ctl)| {
+            DailyTrainingState {
+                ctl,
+                atl: ctl - tsb,
+                tsb,
+                form_ctl: ctl,
+                ..DailyTrainingState::zero(self.today)
+            }
+            .form_reading()
+        });
         AthleteMetrics {
             vdot: m.vdot,
             vo2max: m.vo2max,
@@ -240,7 +253,7 @@ impl SyntheticAthlete {
             threshold_pace_range: m.threshold_pace_range,
             ftp_watts: m.ftp_watts,
             max_hr: m.max_hr,
-            recent_tsb: m.recent_tsb,
+            form,
             data_days: m.data_days,
             ..AthleteMetrics::default()
         }
@@ -493,7 +506,7 @@ async fn run_case(
         personalized.as_ref(),
         Some(&record),
     )
-    .await?;
+    .await;
 
     let mine: Vec<&(ExtractedClaim, VerdictOutcome)> = verdicts
         .iter()
