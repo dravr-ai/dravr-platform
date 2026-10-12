@@ -333,7 +333,10 @@ async fn context_pointed_at(api_base: &str, per_window: u32) -> (Arc<ServerConte
 /// quarter of which the walk may take. The registry is built here, after the
 /// environment pointing Strava at the mock is set.
 fn with_strava_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
-    let limiter = ProviderRateLimiter::new(Arc::clone(&resources.common.repos.usage_counters));
+    let limiter = ProviderRateLimiter::new(
+        Arc::clone(&resources.common.repos.usage_counters),
+        Arc::clone(&resources.common.repos.provider_connections),
+    );
     limiter.set_budgets("strava", &[(per_window, ONE_DAY)]);
     let mut context = (**resources).clone();
     context.fitness.provider_registry =
@@ -627,7 +630,10 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     );
     // The walk's requests are signed by the server's app; a live request
     // under it counts in the same windows, in the same database.
-    let live = ProviderRateLimiter::new(Arc::clone(&resources.common.repos.usage_counters));
+    let live = ProviderRateLimiter::new(
+        Arc::clone(&resources.common.repos.usage_counters),
+        Arc::clone(&resources.common.repos.provider_connections),
+    );
     live.set_budgets("strava", &[(12, ONE_DAY)]);
     assert_eq!(
         live.acquire("strava", "test_client", None).await.unwrap(),

@@ -387,8 +387,8 @@ impl IntervalsIcuProvider {
     }
 
     /// Admit one request against the budget the stored credentials carry,
-    /// before it is sent: the signing app's windows and the athlete's grant,
-    /// or a personal API key's own.
+    /// before it is sent: the pool of the signing app, which every athlete
+    /// who granted it shares, or a personal API key's own windows.
     async fn admit_request(&self) -> AppResult<()> {
         let budget = request_budget::carried_by(&self.credentials).await;
         request_budget::admit(budget.as_ref(), "intervals_icu").await

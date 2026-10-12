@@ -689,8 +689,11 @@ mod tests {
     async fn a_coachs_api_key_is_counted_in_the_windows_of_that_key() {
         let db = create_test_db().await.expect("test db");
         let counters = Arc::clone(&db.repositories().usage_counters);
-        let registry = ProviderRegistry::new()
-            .with_request_limiter(Arc::new(ProviderRateLimiter::new(Arc::clone(&counters))));
+        let registry =
+            ProviderRegistry::new().with_request_limiter(Arc::new(ProviderRateLimiter::new(
+                Arc::clone(&counters),
+                Arc::clone(&db.repositories().provider_connections),
+            )));
         counters
             .increment_counter(
                 PLATFORM_SCOPE,

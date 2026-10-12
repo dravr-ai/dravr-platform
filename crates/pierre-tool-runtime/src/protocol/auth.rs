@@ -449,9 +449,8 @@ impl AuthService {
 
     /// The client credentials a stored token's provider calls present, and
     /// the request budget they are admitted against: the signing OAuth app's
-    /// windows, and those its provider keeps for the athlete's grant, counted
-    /// for the provider's id for the athlete (else this user's, whose one
-    /// stored grant it is).
+    /// windows, which every athlete it signs for shares (on Intervals.icu one
+    /// pool sized by how many granted the app).
     ///
     /// Non-OAuth providers (sciotte, synthetic) skip the client lookup
     /// entirely, and so does a pasted API key on a provider that also links
@@ -488,12 +487,7 @@ impl AuthService {
                 token_data.oauth_app_client_id.as_deref(),
             )
             .await?;
-        let account = token_data
-            .provider_user_id
-            .clone()
-            .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| user_id.to_string());
-        let budget = registry.grant_budget(&signing.client_id, signing.daily_limit, &account);
+        let budget = registry.request_budget(&signing.client_id, signing.daily_limit);
         Ok((signing.client_id, signing.client_secret, budget))
     }
 

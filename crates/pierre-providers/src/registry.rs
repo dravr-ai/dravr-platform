@@ -106,7 +106,8 @@ pub struct ProviderRegistry {
     default_configs: HashMap<&'static str, ProviderConfig>,
     descriptors: HashMap<&'static str, Box<dyn ProviderDescriptor>>,
     /// The request budgets every provider call is admitted against, per
-    /// signing OAuth app. `None` counts nothing (a registry built for a test).
+    /// signing OAuth app or personal API key. `None` counts nothing (a
+    /// registry built for a test).
     request_limiter: Option<Arc<ProviderRateLimiter>>,
 }
 
@@ -736,7 +737,7 @@ impl ProviderRegistry {
     }
 
     /// This registry, admitting every provider call it hands credentials for
-    /// against `limiter`'s per-app budgets.
+    /// against `limiter`'s budgets.
     #[must_use]
     pub fn with_request_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
         self.request_limiter = Some(limiter);
@@ -751,27 +752,6 @@ impl ProviderRegistry {
         self.request_limiter
             .as_ref()
             .map(|limiter| RequestBudget::new(Arc::clone(limiter), app.to_owned(), daily_limit))
-    }
-
-    /// The budget of one athlete's grant to `app`: the app's windows as
-    /// [`Self::request_budget`] has them, and the windows the provider keeps
-    /// for each grant, counted for `account`, the provider's id for the
-    /// athlete. `None` when this registry counts nothing.
-    #[must_use]
-    pub fn grant_budget(
-        &self,
-        app: &str,
-        daily_limit: Option<u32>,
-        account: &str,
-    ) -> Option<RequestBudget> {
-        self.request_limiter.as_ref().map(|limiter| {
-            RequestBudget::for_grant(
-                Arc::clone(limiter),
-                app.to_owned(),
-                daily_limit,
-                account.to_owned(),
-            )
-        })
     }
 
     /// The budget of the personal API key that belongs to `account`, the

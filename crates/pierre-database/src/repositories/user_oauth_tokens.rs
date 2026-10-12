@@ -177,6 +177,7 @@ macro_rules! live_grant_filter_sql {
               )"
     };
 }
+pub(crate) use live_grant_filter_sql;
 
 /// The conditions under which a token `t` holds a shared-app seat, appended to
 /// the `WHERE` of every seat count so the counts cannot disagree on what a seat
@@ -196,6 +197,7 @@ macro_rules! seat_holder_filter_sql {
         )
     };
 }
+pub(crate) use seat_holder_filter_sql;
 
 /// Strava seat holders grouped by the app that issued the token; the NULL
 /// group is the env-default app and every pre-pool token. A non-NULL `$1`

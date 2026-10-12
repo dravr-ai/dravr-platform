@@ -42,7 +42,8 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::request_budget::{
-    api_key_counter_key, budget_period, grant_counter_key, FIFTEEN_MINUTES, ONE_DAY, PLATFORM_SCOPE,
+    api_key_counter_key, budget_counter_key, budget_period, FIFTEEN_MINUTES, ONE_DAY,
+    PLATFORM_SCOPE,
 };
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
@@ -60,9 +61,6 @@ const PROVIDER: &str = "intervals_icu";
 
 /// The client id the server's Intervals.icu app is configured with here.
 const CLIENT_ID: &str = "icu_client";
-
-/// The athlete id the mock's token response names for an OAuth link.
-const OAUTH_ATHLETE: &str = "2049151";
 
 /// The athlete id a seeded API-key link addresses.
 const KEY_ATHLETE: &str = "i777";
@@ -616,38 +614,48 @@ async fn spent(resources: &ServerContext, key: &str, window: Duration) -> i64 {
         .value
 }
 
-/// An OAuth link's reads are counted against the athlete's grant to the
-/// server's app, under the athlete id the token response named: once the
-/// day's 100 are spent, the next read is refused before anything is sent.
+/// An OAuth link's reads are counted in the server app's pool, which every
+/// athlete it signs for shares: with the day's last request taken by one
+/// athlete's read, the other athlete's next read is refused before anything
+/// is sent. Few athletes granted the app here, so its day is the provider's
+/// minimum, 5,000.
 #[tokio::test]
 #[serial]
-async fn an_oauth_athletes_reads_stop_at_the_grants_hundred_a_day() {
+async fn two_oauth_athletes_reads_spend_one_pool_of_the_servers_app() {
     let (base, mock) = mock_intervals().await;
     let (resources, _env) = context_pointed_at(&base).await;
-    let (user_id, tenant_id) = linked_user(&resources, "icu-grant-budget@example.com").await;
-    complete_oauth_link(&resources, user_id, tenant_id).await;
-    let grant = grant_counter_key(PROVIDER, CLIENT_ID, OAUTH_ATHLETE);
+    let (first_id, first_tenant) = linked_user(&resources, "icu-pool-first@example.com").await;
+    let (second_id, second_tenant) = linked_user(&resources, "icu-pool-second@example.com").await;
+    complete_oauth_link(&resources, first_id, first_tenant).await;
+    complete_oauth_link(&resources, second_id, second_tenant).await;
+    let app = budget_counter_key(PROVIDER, CLIENT_ID);
 
     let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
-    let provider = auth
-        .create_authenticated_provider(PROVIDER, user_id, Some(&tenant_id.to_string()))
+    let first = auth
+        .create_authenticated_provider(PROVIDER, first_id, Some(&first_tenant.to_string()))
         .await
         .unwrap_or_else(|response| panic!("provider builds: {:?}", response.error));
-    provider
-        .get_athlete()
+    let second = auth
+        .create_authenticated_provider(PROVIDER, second_id, Some(&second_tenant.to_string()))
         .await
-        .expect("the first read is sent");
-    assert_eq!(spent(&resources, &grant, ONE_DAY).await, 1);
+        .unwrap_or_else(|response| panic!("provider builds: {:?}", response.error));
+    first.get_athlete().await.expect("the first read is sent");
+    let counted = spent(&resources, &app, ONE_DAY).await;
+    assert!(counted >= 1, "the read is counted in the app's pool");
 
-    spend(&resources, &grant, ONE_DAY, 99).await;
-    let refused = provider
+    spend(&resources, &app, ONE_DAY, 4_999 - counted).await;
+    second
         .get_athlete()
         .await
-        .expect_err("the grant's day is spent");
+        .expect("the other athlete's read takes the day's last request");
+    let refused = first
+        .get_athlete()
+        .await
+        .expect_err("the app's day is spent for every athlete");
     assert_eq!(refused.code, ErrorCode::ExternalRateLimited);
     assert_eq!(
         mock.requests().len(),
-        1,
+        2,
         "the refused read never reached Intervals.icu"
     );
 }

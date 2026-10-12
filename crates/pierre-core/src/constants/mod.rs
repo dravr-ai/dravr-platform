@@ -398,18 +398,34 @@ pub mod rate_limits {
     pub const WAHOO_RATE_LIMIT_HOURLY: u32 = 1000;
     /// Wahoo's production budget per day, per app (sandbox: 250).
     pub const WAHOO_RATE_LIMIT_DAILY: u32 = 5000;
-    /// The requests a day each athlete's grant to an Intervals.icu OAuth app
-    /// is held to.
+    /// The requests a day each athlete who granted an Intervals.icu OAuth app
+    /// adds to that app's daily pool.
     ///
     /// Intervals.icu's default daily limit for an OAuth app is "100/user per
     /// day up to 500 users (max 50000 requests), with a minimum of 5000"
-    /// (forum.intervals.icu/t/609, post 1, as rewritten 2026-06-24): held to
-    /// 100 each, the grants never sum past the app's day.
+    /// (forum.intervals.icu/t/609, post 1, as rewritten 2026-06-24): one
+    /// pool for the whole app, 100 for each athlete who granted it, never
+    /// below [`INTERVALS_ICU_OAUTH_DAILY_MIN`] nor above
+    /// [`INTERVALS_ICU_OAUTH_DAILY_MAX`], which any of its athletes may spend.
     pub const INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE: u32 = 100;
-    /// The most requests a day one Intervals.icu OAuth app may make, whatever
-    /// its athletes spend: the "max 50000 requests" of that same limit. An app
-    /// past 500 athletes asks support@intervals.icu for more.
-    pub const INTERVALS_ICU_OAUTH_DAILY_PER_APP: u32 = 50_000;
+    /// The smallest daily pool of an Intervals.icu OAuth app, however few
+    /// athletes granted it: the "minimum of 5000" of that same limit.
+    pub const INTERVALS_ICU_OAUTH_DAILY_MIN: u32 = 5_000;
+    /// The largest daily pool of an Intervals.icu OAuth app, however many
+    /// athletes granted it: the "max 50000 requests" of that same limit. An
+    /// app past 500 athletes asks support@intervals.icu for more.
+    pub const INTERVALS_ICU_OAUTH_DAILY_MAX: u32 = 50_000;
+    /// What an Intervals.icu OAuth app's daily limit is divided by to give
+    /// its rolling 15-minute limit.
+    ///
+    /// "15-minute limit = 1/8 of daily (min 2,500), rolling"
+    /// (forum.intervals.icu/t/609, post 1, as the team's 2026-08-21
+    /// intervals.icu survey records it), never below
+    /// [`INTERVALS_ICU_OAUTH_15MIN_MIN`].
+    pub const INTERVALS_ICU_OAUTH_15MIN_DAILY_DIVISOR: u32 = 8;
+    /// The smallest rolling 15-minute limit of an Intervals.icu OAuth app:
+    /// the "min 2,500" of that same rule.
+    pub const INTERVALS_ICU_OAUTH_15MIN_MIN: u32 = 2_500;
     /// Intervals.icu's limit for one personal API key: "2500 requests per
     /// rolling 15 minute window" (forum.intervals.icu/t/609).
     pub const INTERVALS_ICU_API_KEY_15MIN: u32 = 2_500;
