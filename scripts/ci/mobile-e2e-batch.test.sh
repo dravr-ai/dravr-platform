@@ -384,6 +384,27 @@ else
 fi
 expect "nothing of the stopped attempt is left running" "$(orphans)" ""
 
+echo "Deadline closer than a reset: attempt 1 fails, no reset, exit 3:"
+EXTRA_ARGS=(--deadline "$(($(date +%s) + 30))")
+run_case deadline-no-reset ios "1 $TMP/two-of-three.xml" "0 $TMP/all-three.xml"
+expect "exit 3: the lane is out of time" "$CASE_RC" 3
+expect "one attempt ran" "$(summary_value ATTEMPTS_RUN)" 1
+expect "no reset: the app was not terminated" "$(grep -c 'simctl terminate' "$SHIM_LOG")" 0
+expect "returned at once, not after a reset's wait" "$([ "$CASE_SECS" -lt 10 ] && echo yes || echo "no: took ${CASE_SECS}s")" yes
+expect "judged on the attempt that ran" "$(summary_value PASSED)/$(summary_value TESTS)" "2/3"
+if grep -q 'the lane deadline leaves less than a reset (60s)' "$CASE_STDOUT"; then
+    pass "the log names the reset the deadline cannot fit"
+else
+    fail "the log names the reset the deadline cannot fit"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+
+echo "Deadline with room for a reset: attempt 1 fails, the retry runs:"
+EXTRA_ARGS=(--deadline "$(($(date +%s) + 300))")
+run_case deadline-room ios "1 $TMP/two-of-three.xml" "0 $TMP/all-three.xml"
+expect "exit 0: the retry passed" "$CASE_RC" 0
+expect "two attempts ran" "$(summary_value ATTEMPTS_RUN)" 2
+expect "the reset terminated the app once" "$(grep -c 'simctl terminate' "$SHIM_LOG")" 1
+
 echo "Deadline already passed: nothing runs, the report says so:"
 EXTRA_ARGS=(--deadline "$(($(date +%s) - 1))")
 run_case deadline-passed android "0 $TMP/all-three.xml"

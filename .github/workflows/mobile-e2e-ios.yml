@@ -712,9 +712,17 @@ jobs:
             echo "Screenshot captured" || echo "Screenshot failed"
 
       - name: Smoke test - verify Maestro can interact with app
-        timeout-minutes: 10
+        # The attempts get 570 s (the batch deadline below). The 150 s from
+        # there to the 12-minute cap are the failure branch's: the runner's
+        # 10 s kill grace to stop a running attempt, then the probes' bounds
+        # (40 + 15 + 45 + 30 s). Without the deadline a smoke that wedges runs
+        # to the cap, which kills the step before the branch below can print
+        # what is on screen (carnet#869, run 38258837932).
+        timeout-minutes: 12
         working-directory: frontend-mobile
         run: |
+          SMOKE_START=$(date +%s)
+          SMOKE_DEADLINE=$(( SMOKE_START + 570 ))
           MAESTRO="$HOME/.maestro/bin/maestro"
           echo "=== Maestro version ==="
           $MAESTRO --version || true
@@ -724,16 +732,25 @@ jobs:
           # The retry is a real reset (terminate Expo Go, confirm Metro still
           # serves, relaunch, wait for the process), not a re-opened deep link
           # into whatever state the failed attempt left — see the runner's header
-          # and carnet#443. Exit 2 means Metro is gone, which no retry fixes.
+          # and carnet#443. Exit 2 means Metro is gone, which no retry fixes;
+          # exit 3 means the deadline passed before the batch did, and an
+          # attempt still running then was stopped where it wedged, leaving
+          # that screen for the diagnostics.
           SMOKE_RC=0
           ../scripts/ci/mobile-e2e-batch.sh run --platform ios --maestro "$MAESTRO" \
             --device "$SIMULATOR_UDID" --label "smoke" --attempts 2 \
+            --deadline "$SMOKE_DEADLINE" \
             --output maestro-smoke-results.xml --summary /tmp/maestro-smoke.env \
             -- .maestro/login/01-show-login-screen.yaml || SMOKE_RC=$?
 
           if [ "$SMOKE_RC" -ne 0 ]; then
+            # Each probe gets its own bound, through perl's alarm because
+            # stock macOS has no `timeout`, so one probe that hangs on a
+            # wedged simulator cannot take the rest of the branch with it;
+            # a probe that cannot start exits non-zero with the reason.
+            bounded() { local secs="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "cannot run $ARGV[0]: $!\n"' "$secs" "$@"; }
             echo ""
-            echo "SMOKE TEST FAILED after 2 attempts (runner rc=$SMOKE_RC)."
+            echo "SMOKE TEST FAILED (runner rc=$SMOKE_RC)."
             echo ""
             echo "=== Diagnostics ==="
             echo "Xcode version: $(xcodebuild -version 2>&1 | head -1)"
@@ -747,8 +764,47 @@ jobs:
             curl -sf http://127.0.0.1:8082 > /dev/null 2>&1 && echo "OK" || echo "FAILED"
             echo "Metro log (last 50 lines):"
             tail -50 /tmp/metro.log 2>/dev/null || true
-            echo "Maestro hierarchy (what Maestro can see):"
-            timeout 30 $MAESTRO --device "$SIMULATOR_UDID" hierarchy 2>&1 | head -100 || echo "Hierarchy failed/timed out"
+            # What is on screen, as text: every label in the view tree. A
+            # flow that wedged on Expo Go's own loader or error page names
+            # it here ("Opening project…", "There was a problem running the
+            # requested project…") where the app's ids would otherwise be.
+            echo "On-screen text (Maestro view hierarchy):"
+            if bounded 40 "$MAESTRO" --device "$SIMULATOR_UDID" hierarchy > /tmp/smoke-hierarchy.json 2>&1; then
+              LABELS=$(grep -oE '"(text|accessibilityText|title|resource-id)" *: *"[^"]+"' /tmp/smoke-hierarchy.json \
+                | sort -u | head -80)
+              echo "${LABELS:-(no labels in the hierarchy)}"
+            else
+              echo "(hierarchy exited $? — stopped at 40s if 142):"
+              tail -20 /tmp/smoke-hierarchy.json
+            fi
+            # Why Expo Go does not load: its main thread, sampled from the
+            # host (a simulator app is a host process), and its own log.
+            EXPO_PID=""
+            if bounded 15 xcrun simctl spawn "$SIMULATOR_UDID" launchctl list > /tmp/sim-launchctl.txt 2>&1; then
+              EXPO_PID=$(awk '/host\.exp\.Exponent/ && $1 ~ /^[0-9]+$/ { print $1; exit }' /tmp/sim-launchctl.txt)
+              [ -n "$EXPO_PID" ] || echo "Expo Go is not running."
+            else
+              echo "(launchctl list exited $? — stopped at 15s if 142; whether Expo Go runs is unknown):"
+              tail -5 /tmp/sim-launchctl.txt
+            fi
+            if [ -n "$EXPO_PID" ]; then
+              echo "Expo Go main thread (pid $EXPO_PID, sampled 3s):"
+              bounded 45 sample "$EXPO_PID" 3 -mayDie -file /tmp/expo-go.sample.txt > /tmp/expo-go.sample.log 2>&1 \
+                || echo "(sample exited $? — stopped at 45s if 142)"
+              if grep -q 'com\.apple\.main-thread' /tmp/expo-go.sample.txt 2>/dev/null; then
+                awk '/com\.apple\.main-thread/ { on = 1 } on && n++ < 60' /tmp/expo-go.sample.txt
+              else
+                tail -20 /tmp/expo-go.sample.log
+              fi
+            fi
+            # The window opens at the step's start: one attempt can hold the
+            # whole 570 s, and the load it never finished began at its start.
+            echo "Expo Go log since the smoke began (last 80 lines):"
+            bounded 30 xcrun simctl spawn "$SIMULATOR_UDID" log show \
+              --last "$(( ($(date +%s) - SMOKE_START) / 60 + 1 ))m" --style compact \
+              --predicate 'process CONTAINS[c] "expo"' > /tmp/expo-go.log 2>&1 \
+              || echo "(log show exited $? — stopped at 30s if 142)"
+            tail -80 /tmp/expo-go.log
             exit 1
           fi
 

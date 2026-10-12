@@ -31,9 +31,11 @@
 #     (run 37779337862): three launches each sat ~23 min in "Waiting for flows to
 #     complete…" before passing, and the 90-minute step ran out with the retry
 #     never having fired;
-#   - --deadline EPOCH bounds the whole batch: no attempt runs past it and none
-#     starts after it, so a lane that hands every batch its own step deadline
-#     ends inside that step with its report written.
+#   - --deadline EPOCH bounds the whole batch: no attempt runs past it, none
+#     starts after it, and no reset starts whose waits (the process wait plus
+#     --settle) would carry it past the deadline, so a lane that hands every
+#     batch its own step deadline ends inside that step with its report
+#     written, and a failed attempt's last screen is still on the device.
 # Exit: 0 every flow of the best attempt passed; 1 some flow failed on every
 # attempt; 2 the environment is gone (Metro dead) — the caller stops the lane;
 # 3 the deadline passed before the batch passed — the caller stops the lane.
@@ -46,6 +48,11 @@ set -uo pipefail
 # --kill-grace says otherwise. Maestro is a JVM: TERM runs its shutdown hooks,
 # which release the device session.
 DEFAULT_KILL_GRACE_SECS=10
+
+# Seconds the reset waits for the relaunched app's process before re-running
+# anyway. With --settle it bounds a reset, which is how the run loop tells a
+# reset the deadline still leaves time after from one it would only spend.
+RESET_PROCESS_WAIT_SECS=60
 
 usage() {
     cat >&2 <<'EOF'
@@ -208,7 +215,7 @@ reset_app() {
             ;;
     esac
     local i
-    for i in $(seq 1 30); do
+    for i in $(seq 1 $((RESET_PROCESS_WAIT_SECS / 2))); do
         if app_running "$platform" "$device" "$app_id"; then
             log "reset: $app_id is running again (after ~$((i * 2))s); settling ${settle}s for the bundle"
             sleep "$settle"
@@ -216,7 +223,7 @@ reset_app() {
         fi
         sleep 2
     done
-    log "reset: $app_id did not come back within 60s; retrying anyway — the flow helper launches it itself"
+    log "reset: $app_id did not come back within ${RESET_PROCESS_WAIT_SECS}s; retrying anyway — the flow helper launches it itself"
     return 0
 }
 
@@ -400,6 +407,15 @@ run_batch() {
             if [ "$n" -lt "$attempts" ]; then
                 log "$label: the lane deadline has passed — the remaining attempts are not run."
             fi
+            out_of_time=1
+            break
+        fi
+        # A reset the deadline cannot fit is skipped too: it would end at or
+        # past the deadline, so no attempt follows it, and it would replace the
+        # screen the failed attempt left with a freshly launched app.
+        if [ "$n" -lt "$attempts" ] && [ "$deadline" -gt 0 ] \
+            && [ $((deadline - $(date +%s))) -le $((RESET_PROCESS_WAIT_SECS + settle)) ]; then
+            log "$label: the lane deadline leaves less than a reset ($((RESET_PROCESS_WAIT_SECS + settle))s) — the remaining attempts are not run."
             out_of_time=1
             break
         fi
