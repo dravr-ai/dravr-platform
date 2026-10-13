@@ -1,0 +1,77 @@
+# ABOUTME: Daily sweep deleting every dravr-ai branch whose content already landed on its default branch
+# ABOUTME: A Claude Code Web session cannot delete a branch through its git proxy; this lane does it instead
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# Squash merges leave the branch behind, and the session that landed it is
+# the one meant to delete it. A cloud session's git proxy refuses that delete
+# (both `push --delete` and the REST ref delete), so each one handed the job to
+# a human and ~70 dead branches built up across 19 repos by 2026-10-13.
+#
+# The decision is scripts/ci/sweep-landed-branches.sh: a branch goes only when
+# every path it changed is on its repo's default branch, its tip is older than
+# a day, it is not protected, not dependabot's, and not the head or base of an
+# open pull request. The delete is a lease on the checked SHA, and the step
+# summary prints each deleted SHA with the command that restores it.
+#
+# This repository is public, so its run logs are too: --redact-private keeps
+# every private repository's name, branches and paths out of them. Those are
+# only counted here; each deletion stays readable, with its SHA, in that
+# repository's own activity log (`activity?activity_type=branch_deletion`).
+#
+# The sweep covers the whole org from this public repo, where Actions minutes
+# are free; a per-repo lane would stall in every private repo the day the
+# org's private minutes run out. GITHUB_TOKEN reaches only this repository,
+# so the lane reads DRAVR_CARNET_TOKEN, the classic PAT the register lanes
+# file dravr-carnet issues with: its `repo` scope reaches every org repository,
+# which listing and deleting their branches needs. An empty or expired token
+# fails the run rather than sweeping nothing, and Monitor: Scheduled Lane
+# Health files the red.
+
+name: "Purge: Landed Branches"
+
+on:
+  schedule:
+    # Daily 06:27 UTC (02:27 EDT) — off :00, after the night's landings.
+    - cron: '27 6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it"
+        required: false
+        default: false
+        type: boolean
+      min_age_hours:
+        description: "Leave branches whose tip is younger than this many hours"
+        required: false
+        default: "24"
+        type: string
+
+concurrency:
+  group: purge-landed-branches
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Delete landed branches across the org
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Sweep every repository
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+          MIN_AGE_HOURS: ${{ inputs.min_age_hours || '24' }}
+        run: |
+          args=(--redact-private --min-age-hours "$MIN_AGE_HOURS")
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          ./scripts/ci/sweep-landed-branches.sh sweep "${args[@]}"

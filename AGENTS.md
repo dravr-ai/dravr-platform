@@ -232,7 +232,7 @@ The score is `min()` over caps, each printing its evidence and remedy: a held or
   git checkout main && git fetch origin
   git merge --squash origin/feature/my-feature && git commit && git push
   ```
-- **MANDATORY cleanup in the same session** once the squash lands on main (squash makes a new SHA, so the feature branch is dead immediately — leaving it accumulates dead refs):
+- **MANDATORY cleanup in the same session** once the squash lands (its new SHA kills the branch). A cloud proxy refuses the remote delete: skip it, never hand it to ChefFamille — `purge-landed-branches.yml` sweeps it daily:
   ```bash
   git branch -D feature/my-feature
   git push origin --delete feature/my-feature
