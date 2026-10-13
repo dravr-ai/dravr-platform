@@ -1,5 +1,5 @@
-// ABOUTME: Handler for /reset (/nouveau, /new) — rotate the athlete onto a fresh conversation
-// ABOUTME: One implementation for every surface: a messaging channel repoints its session, the app follows the id
+// ABOUTME: Handler for /reset (/nouveau, /new) — rotate the athlete onto a fresh conversation, or divide their personal thread
+// ABOUTME: One implementation for every surface: a messaging channel repoints its session, the app follows the id or re-reads the thread
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,12 +11,13 @@ use pierre_contremaitre::messaging_strings::{
     KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::OnboardingState;
+use pierre_core::models::{ConversationRecord, OnboardingState};
 use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
     conversation_cap_reply, dated_title, forge_conversation, repoint_messaging_session, ForgeAgent,
     ForgeParams, SlotQuota,
 };
+use pierre_services::personal_thread::{open_topic, TopicOpening};
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -34,6 +35,10 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// its own pointer at the conversation it writes into, so that pointer moves
 /// here; the in-app clients hold theirs in the UI, so the id is handed back on
 /// the turn and they open it.
+///
+/// The athlete's personal thread is never left: a reset there opens a new
+/// topic inside it instead (see [`open_personal_topic`]), and nothing is
+/// archived or forged.
 pub struct ResetHandler;
 
 #[async_trait]
@@ -52,6 +57,12 @@ impl CommandHandler for ResetHandler {
             .get_conversation(previous_id, &user_id, ctx.conversation_tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Conversation {previous_id}")))?;
+
+        // The personal thread is never left: a reset there opens a new topic
+        // inside it, and the model starts over from the divider (carnet#840).
+        if previous.personal {
+            return open_personal_topic(ctx, &previous, &user_id).await;
+        }
 
         // Read before forging: the fresh row's onboarding_state is NULL, so
         // asking afterwards always answers "no walk" and the athlete is never
@@ -166,18 +177,59 @@ impl CommandHandler for ResetHandler {
 
         ctx.rotation.record(new_id);
 
-        let confirm = reg.render(KEY_RESET_CONFIRM, locale, &[]);
-        let body = if interrupted_walk {
-            format!(
-                "{confirm}{}",
-                reg.render(KEY_RESET_WALK_INTERRUPTED, locale, &[])
-            )
-        } else {
-            confirm
-        };
-        // Rich, because the interrupted-walk note names `/pillars` as code.
-        Ok(CommandResponse::rich_text(body))
+        Ok(reset_confirmation(ctx, interrupted_walk))
     }
+}
+
+/// What `/reset` answers once the athlete starts over: the confirmation, and
+/// the note that the walk in progress ended when one did.
+fn reset_confirmation(ctx: &PlatformCommandContext, interrupted_walk: bool) -> CommandResponse {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+    let confirm = reg.render(KEY_RESET_CONFIRM, locale, &[]);
+    let body = if interrupted_walk {
+        format!(
+            "{confirm}{}",
+            reg.render(KEY_RESET_WALK_INTERRUPTED, locale, &[])
+        )
+    } else {
+        confirm
+    };
+    // Rich, because the interrupted-walk note names `/pillars` as code.
+    CommandResponse::rich_text(body)
+}
+
+/// `/reset` in the athlete's personal thread: a divider, not a new thread.
+///
+/// The thread stays the one Home opens and the coach posts into; what resets
+/// is what the model reads, and the walk in progress, as a fresh thread would
+/// reset them. Nothing is archived and no cap applies — no thread is created.
+/// The surface is told through [`ConversationRotation::record_topic`], and the
+/// agent welcomes the new topic the way it welcomes a rotated-to thread.
+///
+/// [`ConversationRotation::record_topic`]: crate::ConversationRotation::record_topic
+async fn open_personal_topic(
+    ctx: &PlatformCommandContext,
+    thread: &ConversationRecord,
+    user_id: &str,
+) -> Result<CommandResponse, AppError> {
+    let topic = open_topic(
+        ctx.ctx.repos(),
+        thread,
+        user_id,
+        ctx.conversation_tenant_id,
+        TopicOpening {
+            agent_id: None,
+            guided_flow: ctx.is_direct_message,
+        },
+    )
+    .await?;
+    // A topic nobody had spoken in yet wrote no divider: the athlete was
+    // already at a fresh start, and there is nothing new to draw.
+    if let Some(divider) = topic.divider {
+        ctx.rotation.record_topic(divider.id);
+    }
+    Ok(reset_confirmation(ctx, topic.interrupted_walk))
 }
 
 /// Put the thread a failed `/reset` archived back in the active set.

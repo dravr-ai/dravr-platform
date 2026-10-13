@@ -21,7 +21,7 @@ vi.mock('../dashboard/index', () => ({
 }));
 
 vi.mock('../../hooks/useConversationList', () => ({
-  useLatestPersonalConversation: () => latest,
+  usePersonalConversation: () => latest,
   // `undefined` would be a list still loading; these answers are all read.
   useConversationScope: (id: string | null) => (id === null ? null : (scopes[id] ?? null)),
 }));

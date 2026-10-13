@@ -15,6 +15,7 @@ import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
+import { homeConversationRoute } from './home/homeRoute';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
@@ -243,20 +244,21 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
   });
 
-  // t('discover.openChat') on the post-install hint: a fresh conversation bound to
-  // the copy the install minted, then the chat tab. Binding it at creation is
-  // what makes the server post the agent's welcome before the thread is read.
-  // The store refuses to install a listing twice, so the hint only ever holds
-  // a freshly minted copy and its id.
+  // t('discover.openChat') on the post-install hint: a new topic in the
+  // athlete's personal thread, bound to the copy the install minted, then
+  // Home. Binding it with the topic is what makes the server post the agent's
+  // welcome before the thread is read. The store refuses to install a listing
+  // twice, so the hint only ever holds a freshly minted copy and its id.
   const openChat = useMutation({
-    // No title: the server names the thread after the agent, the way it names
-    // one the chat tab opens.
-    mutationFn: (agentId: string) => chatApi.createConversation({ agent_id: agentId }),
-    onSuccess: (conversation) => {
+    mutationFn: (agentId: string) => chatApi.openPersonalTopic({ agent_id: agentId }),
+    onSuccess: ({ conversation }) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(conversation.id) });
+      // The topic may be what opened the athlete's thread.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
       setActionError(null);
       setInstalledCopy(null);
-      onNavigate?.(`chat/${encodeURIComponent(conversation.id)}`);
+      onNavigate?.(homeConversationRoute(conversation.id));
     },
     onError: (error: Error) => {
       setActionError(error.message || t('app.couldNotOpenChat'));

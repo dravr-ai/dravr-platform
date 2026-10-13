@@ -107,6 +107,7 @@ fn conversation() -> ConversationRecord {
         channel_type: CHANNEL_TYPE_WEB.to_owned(),
         onboarding_state: None,
         archived_at: None,
+        personal: false,
     }
 }
 

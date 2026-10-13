@@ -434,6 +434,9 @@ export function useMessages(): MessagesState & MessagesActions {
     // Set from the turn envelope when the turn moved the athlete to another
     // thread, and handed back so the screen can open it.
     let rotatedTo: string | null = null;
+    // `/reset` in the personal thread opens a topic in place: the divider was
+    // written before the turn's own rows, so the thread is read again.
+    let openedTopic = false;
     // The reply landed; a group thread then re-reads its room.
     let landed = false;
     // A streaming turn holds the client active: the athlete asked and is
@@ -501,6 +504,7 @@ export function useMessages(): MessagesState & MessagesActions {
           invalidateConversationList();
           landed = true;
           rotatedTo = turn.rotated_to_conversation_id ?? null;
+          openedTopic = Boolean(turn.opened_topic_divider_id);
           // The turn's verdict rows are written before `done`, and the
           // stream's `verdicts` block names only the flagged claims — a reply
           // whose claims all held streams no chip. Re-reading the rows gives
@@ -548,8 +552,9 @@ export function useMessages(): MessagesState & MessagesActions {
     recoverOnReturn(heldIds);
     // The turn joined the room, and other members may have spoken since it
     // was last read: a group thread re-reads its room once the reply is in.
+    // A turn that opened a topic re-reads the thread for its divider.
     const roomGroup = roomGroupOf(conversationId);
-    if (landed && !rotatedTo && roomGroup) void loadMessages(conversationId, roomGroup);
+    if (landed && !rotatedTo && (roomGroup || openedTopic)) void loadMessages(conversationId, roomGroup);
     return rotatedTo;
   }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages]);
 

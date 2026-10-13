@@ -54,6 +54,10 @@ export const ENDPOINTS = {
     STOP: (id: string) => `/api/chat/conversations/${id}/stop`,
     /** The use-case starters an empty thread offers, ranked from the athlete's state */
     STARTERS: '/api/chat/starters',
+    /** The caller's one personal thread, resolved by the server; a look never forges one */
+    PERSONAL: '/api/chat/personal',
+    /** Open a new topic in the personal thread — Home's "+" */
+    PERSONAL_TOPICS: '/api/chat/personal/topics',
   },
 
   // ==================== SLASH COMMANDS ====================

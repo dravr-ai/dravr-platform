@@ -17,6 +17,8 @@ export type { QuotaBanner, UsageCounter } from './quota';
 export {
   AGENT_WELCOME_FINISH_REASON,
   COMMAND_FINISH_REASON,
+  DIVIDER_FINISH_REASON,
+  isDivider,
   isModelReply,
   transcriptBlocks,
   withVerdictRows,

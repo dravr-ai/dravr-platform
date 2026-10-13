@@ -245,6 +245,15 @@ async function mockConversationCreate(page: Page) {
   await page.route(`**/api/chat/conversations/${CONVERSATION.id}/messages**`, async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) });
   });
+  // On Home a new chat is a topic in the athlete's one thread; with none yet,
+  // the topic forges it (carnet#840).
+  await page.route('**/api/chat/personal/topics', async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ conversation: { ...CONVERSATION, personal: true }, divider: null }),
+    });
+  });
   await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
     if (request.method() === 'POST') {
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(CONVERSATION) });

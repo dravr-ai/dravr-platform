@@ -32,6 +32,7 @@ const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 const applyNotice = vi.fn();
 const createConversation = vi.fn();
+const openPersonalTopic = vi.fn();
 const getGroup = vi.fn();
 const readRoom = vi.fn();
 
@@ -46,6 +47,7 @@ vi.mock('../../services/api', () => ({
     sendTurn: (...a: unknown[]) => sendTurn(...a),
     markConversationRead: vi.fn().mockResolvedValue(undefined),
     createConversation: (...a: unknown[]) => createConversation(...a),
+    openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
     updateConversation: vi.fn(),
     deleteConversation: vi.fn(),
     markConversationUnread: vi.fn(),
@@ -687,6 +689,41 @@ describe('ChatTab conversation rotation', () => {
     await waitFor(() => expect(sendTurn).toHaveBeenCalled());
     expect(onSelectConversation).not.toHaveBeenCalled();
   });
+
+  // carnet#840: `/reset` in the personal thread opens a topic in place. The
+  // athlete stays, and the divider — written before the turn's own rows — is
+  // drawn by re-reading the thread, as a rule rather than a bubble.
+  it('stays on the personal thread and re-reads it when /reset opens a topic', async () => {
+    const onSelectConversation = vi.fn();
+    sendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: { onBlock?: (block: ReplyBlock) => void; onDone?: (turn: TurnEnvelope) => void },
+      ) => {
+        options.onBlock?.({ type: 'prose', text: 'Fresh start.' });
+        const turn = turnEnvelope();
+        turn.assistant.finish_reason = 'command';
+        turn.opened_topic_divider_id = 'divider-1';
+        options.onDone?.(turn);
+      },
+    );
+
+    renderChatTab({ onSelectConversation });
+    await waitFor(() => expect(getConversationMessages).toHaveBeenCalledTimes(1));
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        { id: 'm1', role: 'user', content: 'How was my long run?', created_at: '2026-10-12T09:00:00Z' },
+        { id: 'divider-1', role: 'system', content: '', finish_reason: 'divider', created_at: '2026-10-12T09:05:00Z' },
+        { id: 'm2', role: 'user', content: '/reset', finish_reason: 'command', created_at: '2026-10-12T09:05:01Z' },
+      ],
+    });
+    await send('/reset');
+
+    await waitFor(() => expect(getConversationMessages).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId('topic-divider')).toHaveTextContent('New chat');
+    expect(onSelectConversation).not.toHaveBeenCalled();
+  });
 });
 
 describe('ChatTab agent welcome', () => {
@@ -1085,7 +1122,9 @@ describe('ChatTab conversation create failures', () => {
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
-  // A one-to-one thread is started from Home; the Groups tab's "+" offers rooms only.
+  // Home's "+" opens a topic in the personal thread, which no cap refuses —
+  // the cap's wording is pinned where a room is created (ChatComposeMenu).
+  // The Groups tab's "+" offers rooms only.
   async function startNewChat() {
     const user = userEvent.setup();
     renderChatTab({ layout: 'personal' });
@@ -1099,7 +1138,7 @@ describe('ChatTab conversation create failures', () => {
   }
 
   it('reads a spent request budget as the usage quota, not as the conversation cap', async () => {
-    createConversation.mockRejectedValue(
+    openPersonalTopic.mockRejectedValue(
       refusedWith(
         { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
         'RateLimitExceeded',
@@ -1118,26 +1157,8 @@ describe('ChatTab conversation create failures', () => {
     ).toBeNull();
   });
 
-  it('keeps the conversation-cap wording for the conversation cap', async () => {
-    createConversation.mockRejectedValue(
-      refusedWith(
-        { limit_type: 'max_active_conversations', current: 10, limit: 10, resets_at: '' },
-        'QuotaExceeded',
-      ),
-    );
-
-    await startNewChat();
-
-    expect(await screen.findByText('Conversation limit reached')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "You've reached your limit of 10 active conversations. Delete one from the sidebar to start a new chat.",
-      ),
-    ).toBeInTheDocument();
-  });
-
   it('falls back to the create-failed sentence for any other failure', async () => {
-    createConversation.mockRejectedValue({
+    openPersonalTopic.mockRejectedValue({
       response: { status: 409, data: { code: 'ResourceAlreadyExists' } },
     });
 

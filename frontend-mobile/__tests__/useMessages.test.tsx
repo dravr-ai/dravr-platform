@@ -2,7 +2,7 @@
 // ABOUTME: Tests message state management, sending, setMessages/setIsSending exposure
 
 import React from 'react';
-import { renderHook as rtlRenderHook, act } from '@testing-library/react-native';
+import { renderHook as rtlRenderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Mock API service
@@ -702,6 +702,49 @@ describe('useMessages conversation rotation', () => {
     });
 
     expect(rotatedTo).toBeNull();
+  });
+
+  // carnet#840: `/reset` in the personal thread opens a topic in place. The
+  // athlete stays, and the divider — written before the turn's own rows — is
+  // drawn by reading the thread again.
+  it('stays on the thread and reads it again when /reset opens a topic in it', async () => {
+    mockSendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _text: string,
+        options: { onDone?: (turn: Record<string, unknown>) => void },
+      ) => {
+        options.onDone?.({
+          turn_id: 't1',
+          user_message: { id: 'u1', role: 'user', content: '/reset', created_at: '2026-10-12T10:00:00Z' },
+          assistant: {
+            message: { id: 'a1', role: 'assistant', content: 'Fresh start.', created_at: '2026-10-12T10:00:01Z' },
+            blocks: [],
+            finish_reason: 'command',
+          },
+          conversation_updated_at: '2026-10-12T10:00:01Z',
+          opened_topic_divider_id: 'divider-1',
+          telemetry: { model: 'command', provider_name: 'platform', tool_calls_count: 0, tools_called: [], execution_time_ms: 0 },
+        });
+      },
+    );
+    mockGetConversationMessages.mockResolvedValue({
+      messages: [
+        { id: 'divider-1', role: 'system', content: '', finish_reason: 'divider', created_at: '2026-10-12T10:00:00Z' },
+        { id: 'u1', role: 'user', content: '/reset', finish_reason: 'command', created_at: '2026-10-12T10:00:00Z' },
+        { id: 'a1', role: 'assistant', content: 'Fresh start.', finish_reason: 'command', created_at: '2026-10-12T10:00:01Z' },
+      ],
+    });
+    const { result } = renderHook(() => useMessages());
+
+    let rotatedTo: string | null = 'unset';
+    await act(async () => {
+      rotatedTo = await result.current.sendTurn('conv-personal', '/reset');
+    });
+
+    expect(rotatedTo).toBeNull();
+    await waitFor(() => expect(mockGetConversationMessages).toHaveBeenCalledWith('conv-personal'));
+    await waitFor(() => expect(result.current.messages.map((m) => m.id)).toContain('divider-1'));
   });
 });
 

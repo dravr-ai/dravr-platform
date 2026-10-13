@@ -102,6 +102,19 @@ function homeServer(overrides: StubRoutes = {}): StubRoutes {
     [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
     // The route maps ask whether distance markers are armed (carnet#807); off here.
     'GET /api/me/features': { data: { flags: { route_km_markers: false }, known: [] } },
+    // The athlete's one thread a day's question is drafted into (carnet#840).
+    'GET /api/chat/personal': {
+      data: {
+        conversation: {
+          id: 'conv-personal',
+          title: 'Dravr',
+          personal: true,
+          message_count: 4,
+          created_at: '2026-09-20T07:00:00Z',
+          updated_at: '2026-09-24T07:00:00Z',
+        },
+      },
+    },
     ...overrides,
   };
 }
@@ -181,7 +194,7 @@ describe('the Home tab over the wire', () => {
     expect(stub.requests.every((request) => request.body === undefined)).toBe(true);
   });
 
-  it('draws today from the server\'s own today and drafts a chat about it', async () => {
+  it('draws today from the server\'s own today and drafts a question about it into the personal thread', async () => {
     stub = installHttpStub(homeServer());
     const screen = renderHome();
 
@@ -190,13 +203,15 @@ describe('the Home tab over the wire', () => {
     expect(screen.getByTestId('home-today-phase')).toHaveTextContent('Build · week 3');
 
     fireEvent.press(screen.getByTestId('home-today-day'));
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/(app)/chat/[conversationId]',
-      params: {
-        conversationId: 'new',
-        draft: 'Walk me through my session on Thursday, September 24: Tempo run',
-      },
-    });
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/(app)/chat/[conversationId]',
+        params: {
+          conversationId: 'conv-personal',
+          draft: 'Walk me through my session on Thursday, September 24: Tempo run',
+        },
+      }),
+    );
   });
 
   it('encodes a provider id that is not URL-safe into the route path', async () => {
@@ -246,10 +261,12 @@ describe('the Home tab over the wire', () => {
     const screen = renderHome();
 
     fireEvent.press(await screen.findByTestId('home-plan-build'));
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/(app)/chat/[conversationId]',
-      params: { conversationId: 'new', draft: 'Build me a training plan for my goal race.' },
-    });
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/(app)/chat/[conversationId]',
+        params: { conversationId: 'conv-personal', draft: 'Build me a training plan for my goal race.' },
+      }),
+    );
   });
 
   it('says why the latest has no map when the server refuses its route', async () => {

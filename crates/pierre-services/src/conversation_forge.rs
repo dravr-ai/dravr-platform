@@ -553,7 +553,7 @@ pub fn forged_title(group_name: Option<&str>, agent_title: Option<&str>, fallbac
 
 /// Best-effort `agent_assignments.use_count++` through the shared recorder,
 /// which also emits `agent.selected`.
-async fn record_agent_usage(
+pub(crate) async fn record_agent_usage(
     repos: &RepositoryRegistry,
     agent_id: &str,
     user_id: &str,
@@ -597,7 +597,7 @@ async fn stamp_channel_origin(
 /// The intake wins when it is outstanding, because it asks the two things
 /// every later answer is read against. Neither fires for an athlete who has
 /// already answered — on any surface, since coverage is shared.
-async fn start_guided_flow(
+pub async fn start_guided_flow(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: &str,

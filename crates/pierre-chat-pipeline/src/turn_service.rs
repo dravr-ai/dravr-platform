@@ -173,6 +173,11 @@ pub struct CommandTurn {
     /// handler, so this is the in-app clients' copy of the same fact: the
     /// thread they posted to is not the thread the next turn belongs to.
     pub rotated_to: Option<String>,
+    /// The divider of the topic the command opened in the athlete's personal
+    /// thread, where `/reset` divides the thread instead of rotating it
+    /// (carnet#840). The athlete stays on the thread; the in-app clients
+    /// re-read it to draw the divider.
+    pub opened_topic: Option<String>,
     /// The transcript rows this turn wrote, when the surface's
     /// [`CommandPersistence`] covered the command and the write succeeded.
     /// `None` is a turn the transcript does not hold: a private reply in a
@@ -598,6 +603,11 @@ pub async fn dispatch_slash(
     command.welcome = match command.rotated_to.as_deref() {
         // A thread the command just forged held no agent before it existed.
         Some(fresh) => welcome_if_bound(ctx, request, &user_id, fresh, None).await,
+        // A topic the command just opened is a fresh start the same way: its
+        // agent opens it, as it would a new thread (carnet#840).
+        None if command.opened_topic.is_some() => {
+            welcome_if_bound(ctx, request, &user_id, request.conversation_id, None).await
+        }
         None => match agent_before {
             Some(before) => {
                 welcome_if_bound(
@@ -686,6 +696,7 @@ async fn offer_command_steps(
     if !command.actions.is_empty()
         || !request.is_direct_message
         || command.rotated_to.is_some()
+        || command.opened_topic.is_some()
         || walk_owns_thread(ctx, request, user_id).await
     {
         return;
@@ -927,6 +938,7 @@ fn unavailable_suggestion(ctx: &ChatPipelineContext, locale: &str) -> CommandTur
         card_title: None,
         actions: Vec::new(),
         rotated_to: None,
+        opened_topic: None,
         persisted: None,
         welcome: None,
     }
@@ -944,6 +956,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
             card_title: None,
             actions: Vec::new(),
             rotated_to: None,
+            opened_topic: None,
             persisted: None,
             welcome: None,
         }),
@@ -951,6 +964,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
             command_name,
             response,
             rotated_to,
+            opened_topic,
         } => {
             info!(
                 command = %command_name,
@@ -978,6 +992,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
                 card_title,
                 actions,
                 rotated_to,
+                opened_topic,
                 persisted: None,
                 welcome: None,
             })
@@ -1094,6 +1109,7 @@ mod tests {
             card_title: None,
             actions: Vec::new(),
             rotated_to: None,
+            opened_topic: None,
             persisted: None,
             welcome: None,
         }

@@ -71,7 +71,7 @@ async fn record_agent_usage_best_effort(
 /// welcome lands before the client first reads the thread. Best-effort — a
 /// welcome that cannot be written is logged and the conversation is still
 /// created; one for an agent the athlete cannot see writes nothing.
-async fn post_welcome_best_effort(
+pub(super) async fn post_welcome_best_effort(
     resources: &ServerContext,
     conv: &ConversationRecord,
     agent_id: &str,
@@ -220,16 +220,7 @@ pub async fn create_conversation(
         }
     }
 
-    let response = ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        model: conv.model,
-        agent_id: conv.agent_id,
-        group_id: conv.group_id,
-        total_tokens: conv.total_tokens,
-        created_at: conv.created_at,
-        updated_at: conv.updated_at,
-    };
+    let response = ConversationResponse::from(conv);
 
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
@@ -282,6 +273,7 @@ pub async fn list_conversations(
                 group_name: c.group_name,
                 channel_type: c.channel_type,
                 archived_at: c.archived_at,
+                personal: c.personal,
                 last_message: c
                     .last_message
                     .filter(|m| ai_scope::admit_derived(m.transport_policy))
@@ -327,16 +319,7 @@ pub async fn get_conversation(
     )
     .await?;
 
-    let response = ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        model: conv.model,
-        agent_id: conv.agent_id,
-        group_id: conv.group_id,
-        total_tokens: conv.total_tokens,
-        created_at: conv.created_at,
-        updated_at: conv.updated_at,
-    };
+    let response = ConversationResponse::from(conv);
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -376,16 +359,7 @@ pub async fn update_conversation(
         .await?
         .ok_or_else(|| AppError::internal("Conversation not found after update"))?;
 
-    let response = ConversationResponse {
-        id: conv.id,
-        title: conv.title,
-        model: conv.model,
-        agent_id: conv.agent_id,
-        group_id: conv.group_id,
-        total_tokens: conv.total_tokens,
-        created_at: conv.created_at,
-        updated_at: conv.updated_at,
-    };
+    let response = ConversationResponse::from(conv);
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -433,6 +407,8 @@ pub async fn delete_conversation(
 }
 
 /// List all messages in a conversation after verifying the caller is a participant.
+///
+/// LIMITATION(registre#840): `get_messages` returns the whole transcript; the personal thread, which never rotates, is not yet read in windows.
 ///
 /// Reading the thread is reading it: the caller's read marker advances to the
 /// newest turn, so the list row's unread badge clears on the next list. The

@@ -47,6 +47,14 @@ pub struct TurnResponse {
     /// already repointed server-side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotated_to_conversation_id: Option<String>,
+    /// The divider of the topic this turn opened, when `/reset` was typed in
+    /// the athlete's personal thread (carnet#840).
+    ///
+    /// The athlete stays on the thread — nothing rotates — but the divider
+    /// was written before the turn's own rows, so a client that reads this
+    /// re-reads the thread to draw it in place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opened_topic_divider_id: Option<String>,
     /// The opening an agent posted because this turn bound it into the thread
     /// (carnet#735): `/agent add`, or `/group create` adopting the thread.
     ///
@@ -230,8 +238,10 @@ impl TurnResponse {
                 finish_reason: assistant.finish_reason,
             },
             conversation_updated_at: conversation.updated_at,
-            // Only a command rotates a thread, and this is the pipeline path.
+            // Only a command rotates or divides a thread, and this is the
+            // pipeline path.
             rotated_to_conversation_id: None,
+            opened_topic_divider_id: None,
             welcome_message: None,
             telemetry: telemetry_response(telemetry, execution_time_ms),
         }

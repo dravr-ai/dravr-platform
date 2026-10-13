@@ -2826,6 +2826,14 @@ async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
         .set_conversation_channel(&messaging, &user_id.to_string(), tenant_id, "telegram")
         .await
         .unwrap());
+    // A thread `/reset` opened on the phone is stamped `mobile`: still the
+    // athlete's own in-app thread (carnet#840).
+    let phone = conversation_mid_walk(repos, user_id, tenant_id, None).await;
+    assert!(repos
+        .chat
+        .set_conversation_channel(&phone, &user_id.to_string(), tenant_id, "mobile")
+        .await
+        .unwrap());
 
     let response = reset_onboarding(
         admin_context(&resources, &stub.url),
@@ -2844,21 +2852,26 @@ async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
             ("user_onboarding".to_owned(), 2),
             ("user_facts (onboarding)".to_owned(), 3),
             ("user_profiles".to_owned(), 1),
-            ("chat_conversations.onboarding_state".to_owned(), 1),
+            ("chat_conversations.onboarding_state".to_owned(), 2),
             ("user_facts".to_owned(), 1),
-            ("chat_conversations".to_owned(), 1),
+            ("chat_conversations".to_owned(), 2),
         ]),
         "{body}"
     );
     assert!(facts_of(repos, user_id, tenant_id).await.is_empty());
 
     let user = user_id.to_string();
-    assert!(repos
-        .chat
-        .get_conversation(&personal, &user, tenant_id)
-        .await
-        .unwrap()
-        .is_none());
+    for own in [&personal, &phone] {
+        assert!(
+            repos
+                .chat
+                .get_conversation(own, &user, tenant_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "the athlete's own in-app threads go, web or phone"
+        );
+    }
     for kept in [&room, &shared, &messaging] {
         assert!(
             repos

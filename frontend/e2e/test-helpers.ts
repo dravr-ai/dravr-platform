@@ -267,6 +267,59 @@ function mockStarters(language = 'en'): { id: string; label: string; postback: s
 /** The starters an English-speaking mocked dashboard is offered. */
 export const MOCK_STARTERS = mockStarters('en');
 
+/** The thread a mocked server forges for an athlete with none of their own. */
+export const MOCK_FORGED_PERSONAL_ID = 'conv-personal';
+
+interface MockedListRow {
+  id: string;
+  group_id?: string | null;
+  personal?: boolean;
+  updated_at?: string;
+  last_message?: { created_at?: string } | null;
+}
+
+/** The thread a mocked server forges when "+" finds the athlete has none. */
+function mockForgedPersonalThread(): Record<string, unknown> {
+  return {
+    id: MOCK_FORGED_PERSONAL_ID,
+    title: 'Dravr',
+    agent_id: null,
+    group_id: null,
+    personal: true,
+    message_count: 0,
+    total_tokens: 0,
+    created_at: '2026-10-01T09:00:00Z',
+    updated_at: '2026-10-01T09:00:00Z',
+  };
+}
+
+/**
+ * The athlete's personal thread as a mocked server finds it (carnet#840): the
+ * row flagged `personal`, else the newest row with no group, else `null`. The
+ * list is read with the page's own fetch, which the page's routes answer, so
+ * whichever list mock a spec registered is the one adopted from; a page that
+ * cannot fetch (mid-navigation) finds none.
+ */
+async function mockPersonalThread(page: Page): Promise<Record<string, unknown> | null> {
+  let rows: MockedListRow[];
+  try {
+    rows = await page.evaluate(async () => {
+      const response = await fetch('/api/chat/conversations?limit=50&offset=0');
+      if (!response.ok) return [];
+      const body = (await response.json()) as { conversations?: MockedListRow[] };
+      return body.conversations ?? [];
+    });
+  } catch {
+    return null;
+  }
+  const activity = (row: MockedListRow) => row.last_message?.created_at ?? row.updated_at ?? '';
+  const own = rows
+    .filter((row) => !row.group_id)
+    .sort((a, b) => activity(b).localeCompare(activity(a)));
+  const chosen = rows.find((row) => row.personal) ?? own[0];
+  return chosen ? { ...chosen, personal: true } : null;
+}
+
 /**
  * Sets up common API mocks for authenticated dashboard access.
  * This must be called BEFORE navigating to any page.
@@ -380,6 +433,37 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+    });
+  });
+
+  // The athlete's personal thread (carnet#840), found the way the server
+  // finds it: the thread flagged personal, else the newest one of their own the
+  // list holds, else none — a look forges nothing, so Home opens on its empty
+  // pane. The list is read through the page's own fetch, so a spec's list mock
+  // — registered after this one — is the list it adopts from. "+" opens a
+  // topic in that same thread, forging the one the server would when none.
+  await page.route('**/api/chat/personal', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ conversation: await mockPersonalThread(page) }),
+    });
+  });
+  await page.route('**/api/chat/personal/topics', async (route) => {
+    const conversation = (await mockPersonalThread(page)) ?? mockForgedPersonalThread();
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversation,
+        divider: {
+          id: `divider-${Date.now()}`,
+          role: 'system',
+          content: '',
+          finish_reason: 'divider',
+          created_at: new Date().toISOString(),
+        },
+      }),
     });
   });
 

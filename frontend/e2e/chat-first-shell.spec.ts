@@ -215,7 +215,19 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
     });
   });
 
-  return { created, sent };
+  // Home's "+" opens a topic in the athlete's one thread (carnet#840): the
+  // thread the list holds, here conv-1.
+  const topics: CreatedConversation[] = [];
+  await page.route('**/api/chat/personal/topics', async (route, request) => {
+    topics.push({ body: request.postDataJSON() });
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ conversation: { ...CONVERSATION, personal: true }, divider: null }),
+    });
+  });
+
+  return { created, sent, topics };
 }
 
 test.describe('Chat-first shell', () => {
@@ -272,8 +284,20 @@ test.describe('Chat-first shell', () => {
 
   test('a starter opens a thread whose first line is its postback, with no welcome', async ({ page }) => {
     const { created } = await setupShellMocks(page);
-    // No thread yet, so Home opens on the empty thread; a create still reaches
-    // the shell's POST mock, which records it.
+    // No thread yet, so Home opens on its empty pane; the tap opens the
+    // athlete's thread as a topic they speak first in, which forges it.
+    const topics: { body: unknown }[] = [];
+    await page.route('**/api/chat/personal/topics', async (route, request) => {
+      topics.push({ body: request.postDataJSON() });
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          conversation: { ...CONVERSATION, id: 'conv-new', title: 'Dravr', personal: true },
+          divider: null,
+        }),
+      });
+    });
     await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
       if (request.method() !== 'GET') return route.fallback();
       await route.fulfill({
@@ -297,8 +321,9 @@ test.describe('Chat-first shell', () => {
 
     await page.getByTestId('chat-empty-starter-about_me').click();
 
-    await expect.poll(() => created.length).toBe(1);
-    expect(created[0].body).toMatchObject({ athlete_speaks_first: true });
+    await expect.poll(() => topics.length).toBe(1);
+    expect(topics[0].body).toMatchObject({ athlete_speaks_first: true });
+    expect(created).toHaveLength(0);
     await expect.poll(() => sent, { timeout: 10000 }).toEqual(['uc:1:about_me']);
   });
 
@@ -365,8 +390,8 @@ test.describe('Chat-first shell', () => {
     await expect(page.getByText('custom AI personas')).toHaveCount(0);
   });
 
-  test('the "+" on Home offers a new chat, a new group chat and adding someone, and starts a plain chat', async ({ page }) => {
-    const { created } = await setupShellMocks(page);
+  test('the "+" on Home offers a new chat, a new group chat and adding someone, and opens a new topic in the athlete\'s thread', async ({ page }) => {
+    const { created, topics } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
     await openHome(page);
@@ -382,9 +407,10 @@ test.describe('Chat-first shell', () => {
 
     await menu.getByRole('menuitem', { name: 'New chat' }).click();
 
-    await expect.poll(() => created.length).toBe(1);
-    expect(created[0].body).not.toHaveProperty('group_id');
-    await expect(page).toHaveURL(/#home\/chat\/conv-new$/);
+    // A new chat on Home is a topic in the athlete's one thread, never another thread.
+    await expect.poll(() => topics.length).toBe(1);
+    expect(created).toHaveLength(0);
+    await expect(page).toHaveURL(/#home\/chat\/conv-1$/);
   });
 
   test('"New group chat" asks for a name and sends /group create, creating no group itself', async ({ page }) => {

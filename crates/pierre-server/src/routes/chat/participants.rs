@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::{ParticipantRole, TenantId};
+use pierre_core::models::{ConversationRecord, ParticipantRole, TenantId};
 use pierre_middleware::AuthenticatedUser;
 
 use super::common::get_tenant_id;
@@ -31,7 +31,7 @@ async fn require_participant(
     conversation_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> Result<(), AppError> {
+) -> Result<ConversationRecord, AppError> {
     resources
         .common
         .repos
@@ -39,7 +39,6 @@ async fn require_participant(
         .get_conversation(conversation_id, &user_id.to_string(), tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))
-        .map(|_| ())
 }
 
 /// List who is in the conversation, owner first.
@@ -84,7 +83,16 @@ pub async fn add_participant(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;
+    let conversation =
+        require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;
+    // The personal thread is the athlete and Dravr alone — the thread Home
+    // opens and the coach posts into. Talking with someone else is a group
+    // (carnet#840).
+    if conversation.personal {
+        return Err(AppError::invalid_input(
+            "The personal thread cannot be shared; start a group to talk with someone",
+        ));
+    }
 
     let target = Uuid::parse_str(request.user_id.trim())
         .map_err(|_| AppError::invalid_input("user_id must be a UUID"))?;

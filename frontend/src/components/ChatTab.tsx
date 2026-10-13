@@ -512,16 +512,31 @@ export default function ChatTab({
   // Mutations. The server resolves the agent's system prompt at runtime from
   // the coaches table, and binds the athlete's own agent when none is named.
   const createConversation = useMutation<{ id: string }, Error, NewThreadOptions | void>({
-    // The server names the thread — after its agent when one is attached,
-    // else for the moment it starts in the viewer's language; a rename
-    // replaces that. The stored title is what both clients print.
-    mutationFn: (options) =>
-      chatApi.createConversation({
+    // On Home a new chat is a new topic inside the athlete's personal thread,
+    // never another thread: a divider the coach reads afresh from, rebound to
+    // the agent they picked. Anywhere else the server creates the thread and
+    // names it — after its agent when one is attached, else for the moment it
+    // starts in the viewer's language; a rename replaces that.
+    mutationFn: async (options) => {
+      const request = {
         agent_id: pendingCoachId || undefined,
         athlete_speaks_first: options?.athleteSpeaksFirst || undefined,
-      }),
+      };
+      if (layout === 'personal') {
+        const opened = await chatApi.openPersonalTopic(request);
+        return { id: opened.conversation.id };
+      }
+      return chatApi.createConversation(request);
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      // The topic's divider and its agent's welcome are new rows of a thread
+      // that may already be on screen.
+      if (layout === 'personal') {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(data.id) });
+        // The first "+" of an athlete with no thread yet is what opened it.
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
+      }
       onSelectConversation(data.id);
       setPendingCoachId(null);
     },
@@ -889,6 +904,12 @@ export default function ChatTab({
         const rotatedTo = turn.rotated_to_conversation_id;
         if (rotatedTo && rotatedTo !== selectedConversation) {
           onSelectConversation(rotatedTo);
+        }
+        // `/reset` in the personal thread opens a topic instead: the athlete
+        // stays, and the divider — written before this turn's own rows — is
+        // drawn by re-reading the thread.
+        if (turn.opened_topic_divider_id) {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
         }
       },
       onError: error => {

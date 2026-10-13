@@ -183,6 +183,24 @@ async function recoverFromRefusedTurn(
   );
 }
 
+/** What Home's "+" asks of the personal thread. */
+export interface OpenTopicOptions {
+  /** The agent the topic is with, when the athlete picked one. */
+  agent_id?: string;
+  /** The athlete sends the topic's first line at once (a tapped starter), so
+   *  the agent's welcome, which offers the same starters, is not posted. */
+  athlete_speaks_first?: boolean;
+}
+
+/** The topic `openPersonalTopic` opened. */
+export interface OpenTopicResponse {
+  /** The personal thread, as it stands with the topic opened. */
+  conversation: Conversation;
+  /** The divider row the topic opened with; absent when the current topic
+   *  held no turn yet, so it already was the fresh start a divider marks. */
+  divider?: Message | null;
+}
+
 export interface CreateConversationOptions {
   /** A title the athlete typed. Omitted, the server names the thread after
    *  its group, else its agent, else the moment it started, in the athlete's
@@ -261,6 +279,34 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
     async createConversation(options?: CreateConversationOptions): Promise<Conversation> {
       const response = await axios.post<Conversation>(
         ENDPOINTS.CHAT.CONVERSATIONS,
+        options ?? {}
+      );
+      return response.data;
+    },
+
+    /**
+     * The caller's personal thread: the one continuous conversation Home
+     * opens. The server resolves it — adopting the athlete's newest thread of
+     * their own the first time — so every client and every server job agrees
+     * on which thread it is. `null` for an athlete who has none yet: nothing
+     * is forged for a look, and "+" or a starter opens it.
+     */
+    async getPersonalConversation(): Promise<Conversation | null> {
+      const response = await axios.get<{ conversation: Conversation | null }>(
+        ENDPOINTS.CHAT.PERSONAL
+      );
+      return response.data.conversation ?? null;
+    },
+
+    /**
+     * Open a new topic in the personal thread — Home's "+". A divider row,
+     * after which the coach reads the thread afresh; with `agent_id` the
+     * thread is rebound to that agent, whose welcome opens the topic. No
+     * conversation is created, so no cap applies.
+     */
+    async openPersonalTopic(options?: OpenTopicOptions): Promise<OpenTopicResponse> {
+      const response = await axios.post<OpenTopicResponse>(
+        ENDPOINTS.CHAT.PERSONAL_TOPICS,
         options ?? {}
       );
       return response.data;

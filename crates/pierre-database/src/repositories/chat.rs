@@ -289,7 +289,8 @@ pub trait ChatRepository: Send + Sync {
     /// semantics on purpose: this sizes the `max_active_conversations` quota,
     /// and a thread someone else opened must not count against the athlete
     /// added to it. Active means not archived: a thread `/reset` retired
-    /// stays readable but no longer holds a slot.
+    /// stays readable but no longer holds a slot. The personal thread holds
+    /// none either (carnet#840).
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
 
     /// Archive a conversation the caller owns, freeing its slot in the
@@ -428,17 +429,47 @@ pub trait ChatRepository: Send + Sync {
     ) -> AppResult<Option<ConversationRecord>>;
 
     /// The most recently active conversation that is `user_id`'s alone in
-    /// `tenant_id` — in-app, bound to no group, shared with nobody, and not
-    /// archived — or `None` when they have none.
+    /// `tenant_id` — in-app, bound to no group, shared with nobody, about no
+    /// single activity, and not archived — or `None` when they have none.
     ///
-    /// "Alone" is the predicate an onboarding reset clears by, so the thread
-    /// the platform posts into is the one a reset would consider the athlete's
-    /// own.
+    /// The thread a personal one is adopted from when none is designated yet.
+    /// "Alone" is the predicate an onboarding reset clears by, so the adopted
+    /// thread is one a reset would consider the athlete's own.
     async fn latest_personal_conversation(
         &self,
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<ConversationRecord>>;
+
+    /// `user_id`'s personal thread in `tenant_id`, or `None` before one is
+    /// designated (carnet#840).
+    async fn personal_conversation(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<ConversationRecord>>;
+
+    /// Make `conversation_id` its owner's personal thread in `tenant_id`.
+    ///
+    /// `Ok(false)` when it is not a thread `user_id` owns outside any room, or
+    /// when another thread already holds the designation — a race the unique
+    /// index settles, after which the caller reads the winner. Designating the
+    /// thread that already holds it answers `Ok(true)`.
+    async fn designate_personal_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// The id of the newest divider row in `conversation_id` — the row the
+    /// current topic of a personal thread opened with — or `None` while the
+    /// thread has none.
+    async fn latest_divider_id(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>>;
 
     /// Point an existing conversation at a different agent.
     ///
@@ -539,7 +570,7 @@ macro_rules! conversation_columns {
     () => {
         "c.id, c.user_id, c.tenant_id, c.title, c.model, c.agent_id, c.session_id, \
          c.total_tokens, c.created_at, c.updated_at, c.group_id, c.channel_type, \
-         c.onboarding_state, c.archived_at"
+         c.onboarding_state, c.archived_at, c.personal"
     };
 }
 
@@ -632,6 +663,7 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
 pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id, c.archived_at,
+           c.personal,
            g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
@@ -845,11 +877,13 @@ pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
 );
 
 /// A user's own active conversations in a tenant (owner semantics): the rows
-/// no `/reset` has archived.
+/// no `/reset` has archived. The personal thread is not one of them: it is the
+/// one thread every athlete has, never one they chose to open, so it holds no
+/// slot of the cap they manage (carnet#840).
 pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations
-    WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL";
+    WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL AND personal = FALSE";
 
 /// Archive a conversation the caller owns, when it is still active.
 pub(crate) const ARCHIVE_CONVERSATION_SQL: &str = r"
@@ -946,7 +980,8 @@ pub(crate) const FIND_GROUP_CONVERSATION_SQL: &str = concat!(
      LIMIT 1"
 );
 
-/// The newest active conversation that is the user's alone in a tenant. The
+/// The newest active conversation that is the user's alone in a tenant and
+/// about no single activity — the thread a personal one is adopted from. The
 /// predicate addresses `chat_conversations` unaliased, so it runs in a
 /// subquery of its own and the outer read projects the usual columns. `$1` is
 /// the user id as text, `$2` the tenant.
@@ -959,10 +994,37 @@ pub(crate) const LATEST_PERSONAL_CONVERSATION_SQL: &str = concat!(
        WHERE ",
     personal_conversation!(),
     " AND tenant_id = $2 AND archived_at IS NULL \
+       AND NOT EXISTS (SELECT 1 FROM activity_conversations l \
+         WHERE l.conversation_id = chat_conversations.id) \
        ORDER BY updated_at DESC \
        LIMIT 1 \
      )"
 );
+
+/// The user's personal thread in a tenant, once one is designated.
+pub(crate) const PERSONAL_CONVERSATION_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.personal = TRUE"
+);
+
+/// The newest divider row of a conversation in a tenant. `$3` is the divider
+/// stamp, bound rather than spelled so the one constant names it.
+pub(crate) const LATEST_DIVIDER_SQL: &str = r"
+    SELECT m.id FROM chat_messages m
+    JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id = $1 AND c.tenant_id = $2 AND m.finish_reason = $3
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT 1";
+
+/// Designate one of the owner's threads their personal one. A room never
+/// qualifies. The partial unique index refuses a second personal thread for
+/// the same owner and tenant.
+pub(crate) const DESIGNATE_PERSONAL_SQL: &str = r"
+    UPDATE chat_conversations
+    SET personal = TRUE
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL";
 
 /// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
 /// both backends — agent ids are slugs, not uuids — so unlike `group_id`

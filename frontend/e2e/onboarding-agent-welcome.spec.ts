@@ -73,6 +73,29 @@ async function installMocks(page: Page) {
   );
   await page.route('**/api/agents/*/usage', (route) => route.fulfill({ status: 204, body: '' }));
 
+  // « Start » opens a topic bound to the agent in the athlete's one thread,
+  // which forges it for a first-run athlete (carnet#840).
+  await page.route('**/api/chat/personal/topics', async (route) => {
+    state.created = true;
+    return json(
+      route,
+      {
+        conversation: {
+          id: CONVERSATION_ID,
+          title: AGENT_TITLE,
+          model: 'gemini',
+          agent_id: AGENT_ID,
+          total_tokens: 0,
+          personal: true,
+          created_at: '2026-10-02T10:00:00Z',
+          updated_at: '2026-10-02T10:00:00Z',
+        },
+        divider: null,
+      },
+      201,
+    );
+  });
+
   await page.route('**/api/chat/conversations**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());

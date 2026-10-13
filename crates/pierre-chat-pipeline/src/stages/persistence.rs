@@ -311,6 +311,12 @@ pub async fn resolve_platform_turn(
 /// [`super::prompt_builder`] drops them by the same stamp for any caller that
 /// assembles messages from rows it loaded itself.
 ///
+/// Nor does anything before the newest divider: "+" and `/reset` open a new
+/// topic inside the personal thread instead of a new thread (carnet#840), and
+/// the model starts that topic over exactly as it would a fresh conversation.
+/// A compaction summary of an earlier topic falls out with the rows it
+/// covers, since a block is spliced only when its last row is in the window.
+///
 /// # Errors
 ///
 /// Returns database errors on message retrieval failure.
@@ -330,12 +336,23 @@ pub async fn get_conversation_history(
             ai_scope::readable_policy(),
         )
         .await?;
+    since_last_divider(&mut history);
     history.retain(|row| !row.is_command_turn());
     // A row derived from first-party-only data never reaches an external
     // turn's prompt; on Dravr's own surfaces it does, and stamps the turn
     // that replays it (carnet#769).
     ai_scope::retain_admitted(&mut history, |row| row.transport_policy);
     Ok(history)
+}
+
+/// Drop every row up to and including the newest divider in `history`, which
+/// is in chronological order. A window with no divider is kept whole: either
+/// the thread has none, or the newest one is older than the window, and every
+/// row loaded is then after it.
+fn since_last_divider(history: &mut Vec<MessageRecord>) {
+    if let Some(divider) = history.iter().rposition(MessageRecord::is_divider) {
+        history.drain(..=divider);
+    }
 }
 
 /// Persist the assistant's response message.
@@ -394,4 +411,62 @@ pub async fn persist_assistant_response(
     }
 
     Ok((message, conversation))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::models::DIVIDER_FINISH_REASON;
+
+    fn row(id: &str, role: &str, finish_reason: Option<&str>) -> MessageRecord {
+        MessageRecord {
+            id: id.to_owned(),
+            conversation_id: "thread".to_owned(),
+            role: role.to_owned(),
+            content: String::new(),
+            token_count: None,
+            prompt_tokens: None,
+            model: None,
+            finish_reason: finish_reason.map(str::to_owned),
+            content_blocks: None,
+            created_at: String::new(),
+            transport_policy: TransportPolicy::AnyTransport,
+        }
+    }
+
+    fn ids(history: &[MessageRecord]) -> Vec<&str> {
+        history.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_topic_starts_after_the_newest_divider() {
+        let mut history = vec![
+            row("q1", "user", None),
+            row("a1", "assistant", None),
+            row("d1", "system", Some(DIVIDER_FINISH_REASON)),
+            row("q2", "user", None),
+            row("d2", "system", Some(DIVIDER_FINISH_REASON)),
+            row("q3", "user", None),
+            row("a3", "assistant", None),
+        ];
+        since_last_divider(&mut history);
+        assert_eq!(ids(&history), ["q3", "a3"]);
+    }
+
+    #[test]
+    fn a_window_without_a_divider_is_kept_whole() {
+        let mut history = vec![row("q1", "user", None), row("a1", "assistant", None)];
+        since_last_divider(&mut history);
+        assert_eq!(ids(&history), ["q1", "a1"]);
+    }
+
+    #[test]
+    fn a_divider_with_nothing_after_it_leaves_an_empty_topic() {
+        let mut history = vec![
+            row("q1", "user", None),
+            row("d1", "system", Some(DIVIDER_FINISH_REASON)),
+        ];
+        since_last_divider(&mut history);
+        assert!(history.is_empty());
+    }
 }

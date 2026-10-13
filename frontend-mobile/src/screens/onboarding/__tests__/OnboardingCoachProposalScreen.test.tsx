@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the mobile OnboardingCoachProposalScreen — analyzing spinner, inferred profile, top-3 coaches
-// ABOUTME: Pins the sport-mix summary, the "Start" flow (recordUsage → markSeen → createConversation → push) and the error/skip fallbacks
+// ABOUTME: Pins the sport-mix summary, the "Start" flow (recordUsage → markSeen → openPersonalTopic → push) and the error/skip fallbacks
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -11,7 +11,7 @@ import type { Agent, AgentProposalResponse } from '@pierre/shared-types';
 import { OnboardingCoachProposalScreen } from '../OnboardingCoachProposalScreen';
 import { coachesApi } from '../../../services/api';
 import { useCoachProposalSeen } from '../../../hooks/useCoachProposalSeen';
-import { useConversations } from '../../chat/useConversations';
+import { useOpenPersonalTopic } from '../../chat/usePersonalThread';
 
 const mockPush = jest.fn();
 
@@ -27,7 +27,7 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
     { id: 'coach_proposal', labelKey: 'onboarding.stepAgent', status: 'current' },
   ],
 }));
-jest.mock('../../chat/useConversations');
+jest.mock('../../chat/usePersonalThread');
 jest.mock('../../../services/api', () => ({
   coachesApi: { getProposal: jest.fn(), recordUsage: jest.fn() },
 }));
@@ -35,7 +35,7 @@ jest.mock('../../../services/api', () => ({
 const getProposal = coachesApi.getProposal as jest.Mock;
 const recordUsage = coachesApi.recordUsage as jest.Mock;
 const markSeen = jest.fn();
-const createConversation = jest.fn();
+const openPersonalTopic = jest.fn();
 
 function baseAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -84,9 +84,10 @@ describe('OnboardingCoachProposalScreen', () => {
     getProposal.mockReset().mockImplementation(() => new Promise(() => {}));
     recordUsage.mockReset().mockResolvedValue(undefined);
     markSeen.mockReset().mockResolvedValue(undefined);
-    createConversation.mockReset().mockResolvedValue({ id: 'conv-1' });
+    // The hook answers the personal thread's id once the topic is open.
+    openPersonalTopic.mockReset().mockResolvedValue('conv-1');
     (useCoachProposalSeen as jest.Mock).mockReturnValue({ seen: false, markSeen });
-    (useConversations as jest.Mock).mockReturnValue({ createConversation });
+    (useOpenPersonalTopic as jest.Mock).mockReturnValue(openPersonalTopic);
   });
 
   it('shows the analyzing spinner under the progress hairline while the proposal loads', () => {
@@ -105,7 +106,7 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(screen.getByText(/Over the last 90 days we logged 12 activities/)).toBeTruthy();
   });
 
-  it('starting a coach records usage, marks the step seen, and opens its thread', async () => {
+  it('starting a coach records usage, marks the step seen, and opens a topic for it in the personal thread', async () => {
     getProposal.mockResolvedValue(PROPOSAL);
     renderScreen();
 
@@ -113,8 +114,8 @@ describe('OnboardingCoachProposalScreen', () => {
 
     await waitFor(() => expect(recordUsage).toHaveBeenCalledWith('agent-1'));
     await waitFor(() => expect(markSeen).toHaveBeenCalled());
-    // No title: the server names the thread after the agent it is bound to.
-    await waitFor(() => expect(createConversation).toHaveBeenCalledWith({ agent_id: 'agent-1' }));
+    // The coach is bound to a topic of the athlete's one thread, never a second thread.
+    await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'agent-1' }));
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(
         expect.objectContaining({ params: { conversationId: 'conv-1' } }),

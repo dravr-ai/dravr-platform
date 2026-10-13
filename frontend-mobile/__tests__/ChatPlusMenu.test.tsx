@@ -28,11 +28,15 @@ jest.mock('../src/contexts/AuthContext', () => ({
 
 const mockGetConversations = jest.fn();
 const mockCreateConversation = jest.fn();
+const mockOpenPersonalTopic = jest.fn();
+const mockGetPersonalConversation = jest.fn();
 const mockListParticipants = jest.fn();
 jest.mock('../src/services/api', () => ({
   chatApi: {
     getConversations: (...args: unknown[]) => mockGetConversations(...args),
     createConversation: (...args: unknown[]) => mockCreateConversation(...args),
+    openPersonalTopic: (...args: unknown[]) => mockOpenPersonalTopic(...args),
+    getPersonalConversation: () => mockGetPersonalConversation(),
     listParticipants: (...args: unknown[]) => mockListParticipants(...args),
     addParticipant: jest.fn(),
     removeParticipant: jest.fn(),
@@ -110,16 +114,46 @@ describe('the chat "+"', () => {
     expect(getByTestId('conversations-screen')).toBeTruthy();
   });
 
-  it('new chat opens an empty thread', async () => {
+  // carnet#840: new chat is a new topic in the athlete's personal thread —
+  // never another thread — and the app lands there.
+  // A look forges nothing: an athlete who has not begun gets the empty
+  // thread, whose first send opens their personal thread.
+  it('new chat opens an empty thread for an athlete who has not begun', async () => {
+    mockGetPersonalConversation.mockResolvedValue(null);
     const { findByTestId } = render(withClient(<ConversationsScreen />));
 
     fireEvent.press(await findByTestId('conversations-empty-start'));
     presentedMenu().pick('New chat');
 
-    expect(mockRouter.push).toHaveBeenCalledWith({
-      pathname: CHAT_THREAD_ROUTE,
-      params: { conversationId: 'new' },
+    await waitFor(() =>
+      expect(mockRouter.push).toHaveBeenCalledWith({
+        pathname: CHAT_THREAD_ROUTE,
+        params: { conversationId: 'new' },
+      }),
+    );
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it('new chat opens a topic in the personal thread and lands in it', async () => {
+    mockGetPersonalConversation.mockResolvedValue({ id: 'conv-personal', title: 'Dravr', personal: true });
+    mockOpenPersonalTopic.mockResolvedValue({
+      conversation: { id: 'conv-personal', title: 'Dravr', personal: true },
+      divider: null,
     });
+    const { findByTestId } = render(withClient(<ConversationsScreen />));
+
+    fireEvent.press(await findByTestId('conversations-empty-start'));
+    presentedMenu().pick('New chat');
+
+    await waitFor(() =>
+      expect(mockRouter.push).toHaveBeenCalledWith({
+        pathname: CHAT_THREAD_ROUTE,
+        params: { conversationId: 'conv-personal' },
+      }),
+    );
+    expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 
   // Turns red if "New group chat" regrows a picker or a createGroup call:

@@ -11,6 +11,7 @@ import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-con
 import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
+import { homeConversationRoute } from './home/homeRoute';
 import { useTranslation } from '@pierre/i18n';
 
 /** One-time onboarding snapshot; not invalidated elsewhere. */
@@ -63,14 +64,14 @@ export default function OnboardingCoachProposal({
       // Non-fatal: the choice below still opens the agent's thread.
     }
     try {
-      // « Démarrer » means start talking to this agent: open a thread bound to
-      // it and land inside it. The server names the thread after the agent.
-      // The dashboard reads `#chat/<id>` when it mounts, so the hash is set
-      // before onboarding hands over to it.
-      const conversation = await chatApi.createConversation({ agent_id: agentId });
-      window.location.hash = `#chat/${encodeURIComponent(conversation.id)}`;
+      // « Démarrer » means start talking to this agent: a topic in the
+      // athlete's personal thread bound to it, opened on Home. The dashboard
+      // reads the hash when it mounts, so it is set before onboarding hands
+      // over to it.
+      const { conversation } = await chatApi.openPersonalTopic({ agent_id: agentId });
+      window.location.hash = `#${homeConversationRoute(conversation.id)}`;
     } catch {
-      // The dashboard still opens; the "+" beside the chat starts the thread.
+      // The dashboard still opens on Home; its "+" starts the topic.
     }
     onComplete();
   };

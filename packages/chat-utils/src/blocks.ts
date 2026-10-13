@@ -19,6 +19,19 @@ export const COMMAND_FINISH_REASON = 'command';
 export const AGENT_WELCOME_FINISH_REASON = 'agent_welcome';
 
 /**
+ * The `finish_reason` of the `system` row that opens a new topic inside the
+ * athlete's personal thread — what "+" and `/reset` write there instead of a
+ * new conversation. It has no content: each client draws it as a rule with
+ * its date.
+ */
+export const DIVIDER_FINISH_REASON = 'divider';
+
+/** Whether a transcript row is the divider a new topic opened with. */
+export function isDivider(message: Pick<Message, 'finish_reason'>): boolean {
+  return message.finish_reason === DIVIDER_FINISH_REASON;
+}
+
+/**
  * Whether a model wrote this row.
  *
  * A command's answer and an agent's welcome are written by the platform: there

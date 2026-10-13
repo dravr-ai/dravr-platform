@@ -13,6 +13,7 @@ import OnboardingCoachProposal from '../OnboardingCoachProposal';
 const getProposal = vi.fn();
 const recordUsage = vi.fn();
 const createConversation = vi.fn();
+const openPersonalTopic = vi.fn();
 
 vi.mock('../../services/api', () => ({
   coachesApi: {
@@ -21,6 +22,7 @@ vi.mock('../../services/api', () => ({
   },
   chatApi: {
     createConversation: (...a: unknown[]) => createConversation(...a),
+    openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
   },
 }));
 
@@ -58,19 +60,24 @@ describe('OnboardingCoachProposal', () => {
     getProposal.mockReset().mockResolvedValue(PROPOSAL);
     recordUsage.mockReset().mockResolvedValue(undefined);
     createConversation.mockReset().mockResolvedValue({ id: 'conv-9' });
+    openPersonalTopic.mockReset().mockResolvedValue({
+      conversation: { id: 'conv-9', title: 'Trail Coach', personal: true },
+      divider: null,
+    });
     window.location.hash = '';
   });
 
-  it('opens a thread bound to the chosen coach and lands the athlete in it', async () => {
+  it('opens a topic bound to the chosen coach in the personal thread and lands the athlete on Home', async () => {
     const onComplete = renderProposal();
     const start = await screen.findByRole('button', { name: 'Start' });
     await userEvent.click(start);
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(recordUsage).toHaveBeenCalledWith('coach-trail');
-    // No title: the server names the thread after the agent it is bound to.
-    expect(createConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
-    expect(window.location.hash).toBe('#chat/conv-9');
+    // The athlete's one thread, rebound to the coach — never a second thread.
+    expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe('#home/chat/conv-9');
   });
 
   it('writes the profile as one sentence with localized sport and category words', async () => {

@@ -44,6 +44,8 @@ async function setupSpentBudgetMocks(page: Page) {
 
   // The budget is spent: restoring the session answers 429, not 401.
   await page.route('**/api/auth/session', fulfillBudgetSpent);
+  // Home's "+" opens a topic in the athlete's thread; the spent budget refuses it.
+  await page.route('**/api/chat/personal/topics', fulfillBudgetSpent);
 
   await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
     if (request.method() === 'POST') {

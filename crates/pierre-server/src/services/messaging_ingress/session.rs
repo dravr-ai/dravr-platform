@@ -49,6 +49,8 @@ pub(super) struct ChannelChatRef<'a> {
 
 /// Resolve the conversation id a session should use for this turn.
 ///
+/// LIMITATION(registre#840): a messaging DM keeps a conversation of its own here; it is not yet routed into the athlete's personal thread.
+///
 /// Returns the stored `pierre_conversation_id` when it points to a
 /// row that the linked user can read; otherwise forges a fresh
 /// conversation, repoints the session at it, and returns the new id.

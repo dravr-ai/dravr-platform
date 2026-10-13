@@ -263,6 +263,12 @@ pub struct ConversationRecord {
     /// `max_active_conversations` slots until a turn reactivates it.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// Whether this is the owner's personal thread in its tenant — the one
+    /// continuous conversation Home opens, the coach posts into, and "+" or
+    /// `/reset` divide instead of replacing (carnet#840). At most one per
+    /// athlete per tenant.
+    #[serde(default)]
+    pub personal: bool,
 }
 
 /// Runtime context for an agent attached to a conversation.
@@ -437,6 +443,18 @@ pub const COMMAND_FINISH_REASON: &str = "command";
 /// Rows are recognised by this stamp, never by their wording.
 pub const AGENT_WELCOME_FINISH_REASON: &str = "agent_welcome";
 
+/// `finish_reason` stamped on the `system` row that opens a new topic inside
+/// the athlete's personal thread (carnet#840).
+///
+/// On the personal thread "+" and `/reset` write this row rather than forge a
+/// new conversation, so the thread stays one while the model starts over:
+/// prompt history is read from the newest divider on, which also leaves
+/// the compaction summaries of earlier topics out of the window. The row has
+/// no content — a client draws it as a rule with its date — and it is neither
+/// a turn nor a preview, since every count and preview reads `user` and
+/// `assistant` rows only.
+pub const DIVIDER_FINISH_REASON: &str = "divider";
+
 /// The `type` discriminator a persisted command reply's controls carry inside
 /// `chat_messages.content_blocks`, beside the visual specs (`chart`, `table`).
 pub const ACTIONS_BLOCK_TYPE: &str = "actions";
@@ -564,6 +582,13 @@ impl MessageRecord {
         self.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON)
     }
 
+    /// `true` when this row opens a new topic in a personal thread. See
+    /// [`DIVIDER_FINISH_REASON`].
+    #[must_use]
+    pub fn is_divider(&self) -> bool {
+        self.finish_reason.as_deref() == Some(DIVIDER_FINISH_REASON)
+    }
+
     /// The row's content as it may re-enter a prompt.
     ///
     /// A row stamped [`TRUNCATED_REPLY_FINISH_REASON`] or
@@ -648,6 +673,10 @@ pub struct ConversationSummary {
     /// its owner's `max_active_conversations` slots, so deleting it frees
     /// nothing — the client marks it so the quota advice stays actionable.
     pub archived_at: Option<String>,
+    /// Whether this is the caller's personal thread — see
+    /// [`ConversationRecord::personal`]. A personal thread is never shared,
+    /// so a list row carrying it is always the caller's own.
+    pub personal: bool,
     /// The newest `user`/`assistant` row, for the row preview; `None` for an
     /// empty conversation.
     pub last_message: Option<ConversationLastMessage>,

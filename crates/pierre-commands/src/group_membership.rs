@@ -132,7 +132,9 @@ impl GroupCreateHandler {
     /// this command's line included) do not count as history: a thread whose
     /// only rows are commands has never held a coaching turn. An archived
     /// thread is never adopted: `/group create` claims its thread before this
-    /// runs, and `/group join` claims none. Any
+    /// runs, and `/group join` claims none. Nor is the athlete's personal
+    /// thread, however empty: it is the one Home opens and the coach posts
+    /// into, and a room is somebody else's history too (carnet#840). Any
     /// other thread is left as it is and a group-scoped conversation named
     /// after the group is created beside it, which is how a member's group
     /// chat is made everywhere else (`POST /api/chat/conversations` with a
@@ -152,7 +154,7 @@ impl GroupCreateHandler {
         let group_id = group.id.to_string();
 
         let in_app = ctx.sender_id.is_none();
-        if in_app && thread.group_id.is_none() && thread.archived_at.is_none() {
+        if in_app && thread.group_id.is_none() && thread.archived_at.is_none() && !thread.personal {
             let messages = chat
                 .get_messages(&thread.id, &user_id, ctx.conversation_tenant_id)
                 .await?;

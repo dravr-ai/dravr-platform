@@ -34,11 +34,11 @@ const mockGet = jest.fn();
 const mockInstall = jest.fn();
 const mockUninstall = jest.fn();
 const mockGetInstallations = jest.fn();
-const mockCreateConversation = jest.fn();
+const mockOpenPersonalTopic = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
-    createConversation: (...args: unknown[]) => mockCreateConversation(...args),
+    openPersonalTopic: (...args: unknown[]) => mockOpenPersonalTopic(...args),
   },
   storeApi: {
     get: (...args: unknown[]) => mockGet(...args),
@@ -115,7 +115,10 @@ describe('StoreCoachDetailScreen', () => {
     mockGet.mockResolvedValue(createMockStoreCoachDetail());
     mockGetInstallations.mockResolvedValue({ agents: [] });
     mockInstall.mockResolvedValue({ message: 'Coach installed successfully', agent: installedCopy });
-    mockCreateConversation.mockResolvedValue({ id: 'conv-new', title: 'Marathon Training Agent' });
+    mockOpenPersonalTopic.mockResolvedValue({
+      conversation: { id: 'conv-personal', title: 'Marathon Training Agent', personal: true },
+      divider: null,
+    });
   });
 
   describe('rendering', () => {
@@ -335,7 +338,7 @@ describe('StoreCoachDetailScreen', () => {
       expect(getByTestId('edit-coach-button')).toBeTruthy();
     });
 
-    it('Open chat on the hint opens a thread bound to the installed copy', async () => {
+    it('Open chat on the hint opens a topic bound to the installed copy in the personal thread', async () => {
       const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
       const { getByText, findByTestId, getByTestId, queryByTestId } = render(
         <StoreCoachDetailScreen />
@@ -349,24 +352,24 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByTestId('post-install-open-chat'));
 
-      // Bound at creation to the athlete's own copy, not the store listing, so
-      // the server has posted the agent's welcome before the thread is read.
-      // No title: the server names the thread after the agent.
+      // Bound with the topic to the athlete's own copy, not the store listing,
+      // so the server has posted the agent's welcome before the thread is
+      // read — in the athlete's personal thread, never a second one.
       await waitFor(() => {
         expect(mockRouter.push).toHaveBeenCalledWith({
           pathname: CHAT_THREAD_ROUTE,
-          params: { conversationId: 'conv-new' },
+          params: { conversationId: 'conv-personal' },
         });
       });
-      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
+      expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
+      expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.chat.conversations() });
       expect(queryByTestId('post-install-hint')).toBeNull();
     });
 
-    it('Open chat creates one thread however often it is tapped', async () => {
-      let resolveCreate: (conversation: { id: string; title: string }) => void = () => {};
-      mockCreateConversation.mockReturnValue(
+    it('Open chat opens one topic however often it is tapped', async () => {
+      let resolveCreate: (opened: { conversation: { id: string; title: string } }) => void = () => {};
+      mockOpenPersonalTopic.mockReturnValue(
         new Promise((resolve) => {
           resolveCreate = resolve;
         }),
@@ -382,15 +385,15 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByTestId('post-install-open-chat'));
       fireEvent.press(getByTestId('post-install-open-chat'));
       await act(async () => {
-        resolveCreate({ id: 'conv-new', title: 'Marathon Training Agent' });
+        resolveCreate({ conversation: { id: 'conv-personal', title: 'Marathon Training Agent' } });
       });
 
-      expect(mockCreateConversation).toHaveBeenCalledTimes(1);
+      expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
       expect(mockRouter.push).toHaveBeenCalledTimes(1);
     });
 
-    it('Open chat that cannot create the thread says so and keeps the hint', async () => {
-      mockCreateConversation.mockRejectedValue(new Error('conversation limit reached'));
+    it('Open chat that cannot open the topic says so and keeps the hint', async () => {
+      mockOpenPersonalTopic.mockRejectedValue(new Error('service unavailable'));
       const { getByText, findByTestId, getByTestId } = render(<StoreCoachDetailScreen />);
 
       await waitFor(() => {

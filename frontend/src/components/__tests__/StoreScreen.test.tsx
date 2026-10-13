@@ -132,6 +132,10 @@ vi.mock('../../services/api', () => ({
   },
   chatApi: {
     createConversation: vi.fn().mockResolvedValue({ id: 'conv-new', title: 'Chat' }),
+    openPersonalTopic: vi.fn().mockResolvedValue({
+      conversation: { id: 'conv-personal', title: 'Marathon Coach', personal: true },
+      divider: null,
+    }),
   },
 }));
 
@@ -482,7 +486,7 @@ describe('StoreScreen', () => {
       expect(screen.queryByText(/has been added to your agents/)).not.toBeInTheDocument();
     });
 
-    it('Open chat starts a conversation bound to the installed copy and routes to it', async () => {
+    it('Open chat opens a topic bound to the installed copy in the personal thread and routes Home', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
@@ -492,13 +496,13 @@ describe('StoreScreen', () => {
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
 
       // Bound to the athlete's own copy, not the store listing, so the server
-      // posts the agent's welcome. No title: the server names the thread
-      // after the agent, the same way for every client.
+      // posts the agent's welcome — in the personal thread, never a second one.
       await waitFor(() => {
-        expect(chatApi.createConversation).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
+        expect(chatApi.openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
       });
+      expect(chatApi.createConversation).not.toHaveBeenCalled();
       await waitFor(() => {
-        expect(mockOnNavigate).toHaveBeenCalledWith('chat/conv-new');
+        expect(mockOnNavigate).toHaveBeenCalledWith('home/chat/conv-personal');
       });
       expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
     });
@@ -513,7 +517,7 @@ describe('StoreScreen', () => {
       await user.click(screen.getByRole('button', { name: 'Dismiss' }));
 
       expect(screen.queryByTestId('post-install-hint')).not.toBeInTheDocument();
-      expect(chatApi.createConversation).not.toHaveBeenCalled();
+      expect(chatApi.openPersonalTopic).not.toHaveBeenCalled();
       expect(storeApi.uninstall).not.toHaveBeenCalled();
     });
   });

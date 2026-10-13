@@ -5,7 +5,7 @@
 // ABOUTME: Where the app lands after sign-in; a day on it opens a chat with a drafted question, an activity its own view
 
 import React, { useCallback, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
@@ -22,6 +22,7 @@ import {
   useTrainingVolume,
 } from '../../hooks/useHome';
 import { CONNECTIONS_ROUTE, activityHref, threadHref } from '../../navigation/routes';
+import { useFindPersonalThread } from '../chat/usePersonalThread';
 import { HomePlan } from './HomePlan';
 import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
@@ -97,12 +98,19 @@ export function HomeScreen() {
     ]).finally(() => setRefreshing(false));
   }, [queryClient, refetchPlan, refetchRecent, refetchProvider, refetchStatus, refetchVolume]);
 
-  // A plan day asks the agent about it, in a fresh thread, with the question
-  // in the composer and the send left to the athlete; an activity opens its
-  // own view, where the questions about it are.
+  // A plan day asks the agent about it, in the athlete's personal thread, with
+  // the question in the composer and the send left to the athlete; an activity
+  // opens its own view, where the questions about it are. An athlete who has
+  // not begun drafts into an empty composer, whose send opens their thread. A
+  // thread that cannot be looked up is said so, as "New chat" says it.
+  const findPersonalThread = useFindPersonalThread();
   const openDraft = useCallback(
-    (draft: string) => router.push(threadHref(undefined, { draft })),
-    [router],
+    (draft: string) => {
+      findPersonalThread()
+        .then((id) => router.push(threadHref(id ?? undefined, { draft })))
+        .catch(() => Alert.alert(t('common.error'), t('app.couldNotOpenChat')));
+    },
+    [router, findPersonalThread, t],
   );
   const openActivity = useCallback(
     (activity: HomeActivity) => router.push(activityHref(activity.provider, activity.id)),

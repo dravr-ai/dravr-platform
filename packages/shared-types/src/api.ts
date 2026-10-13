@@ -60,6 +60,12 @@ export interface Conversation {
    * slots, so deleting it frees nothing. List rows only.
    */
   archived_at?: string | null;
+  /**
+   * Whether this is the caller's personal thread: the one continuous
+   * conversation Home opens, the coach posts into, and "+" or `/reset`
+   * divide into topics instead of replacing. At most one per athlete.
+   */
+  personal?: boolean;
   /** When conversation was created */
   created_at: string;
   /** When conversation was last updated */

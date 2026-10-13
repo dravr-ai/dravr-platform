@@ -365,6 +365,7 @@ impl TurnEgress {
             card_title,
             actions,
             rotated_to,
+            opened_topic,
             persisted,
             welcome,
             ..
@@ -412,6 +413,7 @@ impl TurnEgress {
                 .filter(|_| rotated_to.is_none())
                 .map(|posted| welcome_response(posted.message)),
             rotated_to_conversation_id: rotated_to,
+            opened_topic_divider_id: opened_topic,
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),
                 provider_name: COMMAND_PROVIDER.to_owned(),

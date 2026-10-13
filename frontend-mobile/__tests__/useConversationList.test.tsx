@@ -13,6 +13,8 @@ const mockMarkConversationRead = jest.fn();
 const mockMarkConversationUnread = jest.fn();
 const mockDeleteConversation = jest.fn();
 const mockUpdateConversation = jest.fn();
+const mockGetPersonalConversation = jest.fn();
+const mockOpenPersonalTopic = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
@@ -21,10 +23,13 @@ jest.mock('../src/services/api', () => ({
     markConversationUnread: (...args: unknown[]) => mockMarkConversationUnread(...args),
     deleteConversation: (...args: unknown[]) => mockDeleteConversation(...args),
     updateConversation: (...args: unknown[]) => mockUpdateConversation(...args),
+    getPersonalConversation: (...args: unknown[]) => mockGetPersonalConversation(...args),
+    openPersonalTopic: (...args: unknown[]) => mockOpenPersonalTopic(...args),
   },
 }));
 
 import { useConversationList, useConversationRows } from '../src/screens/conversations/useConversationList';
+import { useFindPersonalThread } from '../src/screens/chat/usePersonalThread';
 
 type Conv = {
   id: string;
@@ -167,5 +172,43 @@ describe('useConversationList', () => {
     await act(async () => {
       resolveDelete();
     });
+  });
+
+  // carnet#840: the row deleted may be the personal thread. The server then
+  // re-resolves it, and a Home tap must draft into that one, not the gone one.
+  it('re-asks for the personal thread once a row is deleted', async () => {
+    mockGetConversations.mockResolvedValue({ conversations: [makeConv('a')], total: 1, limit: 50, offset: 0 });
+    mockDeleteConversation.mockResolvedValue(undefined);
+    mockGetPersonalConversation
+      .mockResolvedValueOnce({ ...makeConv('a'), personal: true })
+      .mockResolvedValueOnce({ ...makeConv('older'), personal: true });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const shared = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(
+      () => ({ list: useConversationList(), resolve: useFindPersonalThread() }),
+      { wrapper: shared },
+    );
+    await waitFor(() => expect(result.current.list.rows).toHaveLength(1));
+
+    let before: string | null = null;
+    await act(async () => {
+      before = await result.current.resolve();
+    });
+    expect(before).toBe('a');
+
+    await act(async () => {
+      await result.current.list.remove('a');
+    });
+
+    let after: string | null = null;
+    await act(async () => {
+      after = await result.current.resolve();
+    });
+    expect(after).toBe('older');
+    expect(mockGetPersonalConversation).toHaveBeenCalledTimes(2);
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
   });
 });

@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home tab over mocked athlete reads — today and tomorrow, the week strip, the map, the sketches, the prompts, every empty state
-// ABOUTME: Pins that a rest day and an uncovered day read differently, a day drafts a chat about it, and an activity opens its view
+// ABOUTME: Pins that a rest day and an uncovered day read differently, a day drafts into the personal thread, and an activity opens its view
 
 import React from 'react';
-import { AccessibilityInfo, Platform } from 'react-native';
+import { AccessibilityInfo, Alert, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Path } from 'react-native-svg';
@@ -64,6 +64,8 @@ const mockGetTrainingPlan = jest.fn<Promise<TrainingPlanResponse>, [string?]>();
 const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [number?, { retry?: boolean }?]>();
 const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string, { retry?: boolean }?]>();
 const mockGetProvidersStatus = jest.fn();
+const mockGetPersonalConversation = jest.fn();
+const mockOpenPersonalTopic = jest.fn();
 const mockGetTrainingStatus = jest.fn<Promise<TrainingStatusResponse>, []>();
 const mockGetTrainingVolume = jest.fn<Promise<TrainingVolumeResponse>, []>();
 const mockGetHomePreferences = jest.fn<Promise<{ plan_suggestion_hidden: boolean }>, []>();
@@ -91,6 +93,10 @@ jest.mock('../src/services/api', () => ({
         : mockGetActivityRoute(provider, id, { retry: options.retry }),
   },
   oauthApi: { getProvidersStatus: () => mockGetProvidersStatus() },
+  chatApi: {
+    getPersonalConversation: () => mockGetPersonalConversation(),
+    openPersonalTopic: (options?: unknown) => mockOpenPersonalTopic(options),
+  },
 }));
 
 import { HomeScreen } from '../src/screens/home/HomeScreen';
@@ -107,9 +113,12 @@ function renderHome() {
   );
 }
 
-/** The navigation a tap that asks the agent about something makes. */
-function draftHref(draft: string) {
-  return { pathname: '/(app)/chat/[conversationId]', params: { conversationId: NEW_CONVERSATION_ID, draft } };
+/** The athlete's personal thread, as the server resolves it. */
+const PERSONAL_THREAD_ID = 'conv-personal';
+
+/** The navigation a tap that asks the agent about something makes: into the personal thread. */
+function draftHref(draft: string, conversationId: string = PERSONAL_THREAD_ID) {
+  return { pathname: '/(app)/chat/[conversationId]', params: { conversationId, draft } };
 }
 
 function routeFor(provider: string, id: string): ActivityRouteResponse {
@@ -128,6 +137,7 @@ beforeEach(() => {
   mockGetTrainingStatus.mockResolvedValue(STATUS_RESPONSE);
   mockGetTrainingVolume.mockResolvedValue(VOLUME_RESPONSE);
   mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
+  mockGetPersonalConversation.mockResolvedValue({ id: PERSONAL_THREAD_ID, title: 'Dravr', personal: true });
   // The strip's own workouts are the HomeWeek suite's; here the week holds none.
   mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { activities: [] }));
 });
@@ -162,25 +172,61 @@ describe('today and tomorrow', () => {
     expect(mockGetTrainingPlan).toHaveBeenCalledWith('en');
   });
 
-  it('opens a new chat drafted about today\'s session', async () => {
+  it('drafts a question about today\'s session into the personal thread', async () => {
     const screen = renderHome();
 
     fireEvent.press(await screen.findByTestId('home-today-day'));
 
-    expect(mockPush).toHaveBeenCalledWith(
-      draftHref('Walk me through my session on Thursday, September 24: Tempo run'),
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        draftHref('Walk me through my session on Thursday, September 24: Tempo run'),
+      ),
     );
   });
 
-  it('offers a route for today\'s session, drafted in a new chat that names it', async () => {
+  // carnet#840: a look forges nothing — an athlete who has not begun drafts
+  // into an empty composer, whose send opens their thread.
+  it('drafts into an empty composer for an athlete who has no thread yet', async () => {
+    mockGetPersonalConversation.mockResolvedValue(null);
+    const screen = renderHome();
+
+    fireEvent.press(await screen.findByTestId('home-today-day'));
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        draftHref('Walk me through my session on Thursday, September 24: Tempo run', NEW_CONVERSATION_ID),
+      ),
+    );
+    expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  it('says the chat could not open when the personal thread cannot be resolved, and forges none', async () => {
+    mockGetPersonalConversation.mockRejectedValue(new Error('offline'));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    try {
+      const screen = renderHome();
+
+      fireEvent.press(await screen.findByTestId('home-today-day'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledWith('Error', 'Could not open a chat'));
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockOpenPersonalTopic).not.toHaveBeenCalled();
+    } finally {
+      alert.mockRestore();
+    }
+  });
+
+  it('offers a route for today\'s session, drafted into the personal thread naming it', async () => {
     const screen = renderHome();
 
     const link = await screen.findByTestId('home-today-route');
     expect(within(link).getByText('Find a route for this session')).toBeTruthy();
     fireEvent.press(link);
 
-    expect(mockPush).toHaveBeenCalledWith(
-      draftHref('Suggest a route close to where I am for my session on Thursday, September 24: Tempo run'),
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        draftHref('Suggest a route close to where I am for my session on Thursday, September 24: Tempo run'),
+      ),
     );
   });
 
@@ -214,7 +260,9 @@ describe('today and tomorrow', () => {
     const empty = await screen.findByTestId('home-plan-empty');
     expect(within(empty).getByText('No training plan yet')).toBeTruthy();
     fireEvent.press(await screen.findByTestId('home-plan-build'));
-    expect(mockPush).toHaveBeenCalledWith(draftHref('Build me a training plan for my goal race.'));
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(draftHref('Build me a training plan for my goal race.')),
+    );
     // The week still renders without a plan, saying so in one line (carnet#708).
     expect(await screen.findByTestId('home-week-no-plan')).toBeTruthy();
   });
@@ -414,7 +462,9 @@ describe('the week strip', () => {
     expect(within(detail).getByText('Rest')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('home-plan-day-2026-09-22'));
-    expect(mockPush).toHaveBeenCalledWith(draftHref('Why is Tuesday, September 22 a rest day in my plan?'));
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(draftHref('Why is Tuesday, September 22 a rest day in my plan?')),
+    );
   });
 
   it('says the plan does not cover Sunday rather than calling it rest', async () => {

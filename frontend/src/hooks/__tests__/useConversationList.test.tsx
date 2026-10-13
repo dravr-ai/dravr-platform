@@ -15,6 +15,7 @@ import {
   patchCachedConversation,
   useConversationList,
   useConversationMutations,
+  usePersonalConversation,
   useUnreadConversationTotal,
 } from '../useConversationList';
 import { QUERY_KEYS } from '../../constants/queryKeys';
@@ -23,6 +24,7 @@ const getConversations = vi.fn();
 const updateConversation = vi.fn();
 const deleteConversation = vi.fn();
 const markConversationUnread = vi.fn();
+const getPersonalConversation = vi.fn();
 
 vi.mock('../../services/api', () => ({
   chatApi: {
@@ -30,6 +32,7 @@ vi.mock('../../services/api', () => ({
     updateConversation: (...a: unknown[]) => updateConversation(...a),
     deleteConversation: (...a: unknown[]) => deleteConversation(...a),
     markConversationUnread: (...a: unknown[]) => markConversationUnread(...a),
+    getPersonalConversation: (...a: unknown[]) => getPersonalConversation(...a),
   },
 }));
 
@@ -203,9 +206,62 @@ describe('useConversationMutations', () => {
     });
     expect(deleteConversation).toHaveBeenCalledWith('c1');
 
-    expect(invalidate).toHaveBeenCalledTimes(3);
-    for (const call of invalidate.mock.calls) {
-      expect(call[0]).toEqual({ queryKey: QUERY_KEYS.chat.conversations() });
-    }
+    // A delete also re-asks for the personal thread: the row deleted may be it.
+    expect(invalidate.mock.calls.map((call) => call[0])).toEqual([
+      { queryKey: QUERY_KEYS.chat.conversations() },
+      { queryKey: QUERY_KEYS.chat.conversations() },
+      { queryKey: QUERY_KEYS.chat.conversations() },
+      { queryKey: QUERY_KEYS.chat.personal() },
+    ]);
+  });
+});
+
+// carnet#840: the server names the athlete's thread, so Home never picks one
+// from whichever rows the client happens to have loaded.
+describe('usePersonalConversation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('opens the thread the server resolves, whatever the list holds', async () => {
+    getPersonalConversation.mockResolvedValue(conversation({ id: 'conv-personal', personal: true }));
+    const { result } = renderHook(() => usePersonalConversation(), { wrapper: wrapperFor(newClient()) });
+
+    expect(result.current.isLoading).toBe(true);
+    await waitFor(() => expect(result.current.id).toBe('conv-personal'));
+    expect(result.current.isLoading).toBe(false);
+    expect(getConversations).not.toHaveBeenCalled();
+  });
+
+  it('answers no thread for an athlete who has not begun, so Home opens on its empty pane', async () => {
+    getPersonalConversation.mockResolvedValue(null);
+    const { result } = renderHook(() => usePersonalConversation(), { wrapper: wrapperFor(newClient()) });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.id).toBeNull();
+  });
+
+  it('re-asks the server once the thread it named is deleted, rather than keep opening a gone thread', async () => {
+    getPersonalConversation.mockResolvedValueOnce(conversation({ id: 'conv-personal', personal: true }));
+    getPersonalConversation.mockResolvedValueOnce(conversation({ id: 'conv-older', personal: true }));
+    deleteConversation.mockResolvedValue(undefined);
+    const client = newClient();
+    const personal = renderHook(() => usePersonalConversation(), { wrapper: wrapperFor(client) });
+    const mutations = renderHook(() => useConversationMutations(), { wrapper: wrapperFor(client) });
+    await waitFor(() => expect(personal.result.current.id).toBe('conv-personal'));
+
+    await act(async () => {
+      await mutations.result.current.remove('conv-personal');
+    });
+
+    await waitFor(() => expect(personal.result.current.id).toBe('conv-older'));
+    expect(getPersonalConversation).toHaveBeenCalledTimes(2);
+  });
+
+  it('never asks for an operator, who has no Home thread', () => {
+    const { result } = renderHook(() => usePersonalConversation(false), { wrapper: wrapperFor(newClient()) });
+
+    expect(result.current).toEqual({ id: null, isLoading: false });
+    expect(getPersonalConversation).not.toHaveBeenCalled();
   });
 });

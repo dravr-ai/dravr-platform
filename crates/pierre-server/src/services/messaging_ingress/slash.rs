@@ -697,6 +697,7 @@ mod tests {
             card_title: card_title.map(ToOwned::to_owned),
             actions,
             rotated_to: None,
+            opened_topic: None,
             persisted: None,
             welcome: None,
         }

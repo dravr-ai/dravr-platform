@@ -9,9 +9,9 @@
 //! Decided before any turn runs, so no tokens are spent on a post nobody can
 //! receive:
 //!
-//! - **In the app**: the athlete's own thread ([`personal_thread`]); one is
-//!   forged for the post when they have none, and removed again when nothing
-//!   was posted into it.
+//! - **In the app**: the athlete's personal thread ([`personal_thread`]); one
+//!   is forged for the post when they have none, and removed again when
+//!   nothing was posted into it.
 //! - **On a DM**: the messaging DM they last wrote from, among those whose
 //!   channel may be written to unprompted right now
 //!   ([`channel_allows_proactive`] — Meta's 24-hour window on `WhatsApp` and
@@ -24,11 +24,10 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::messaging::ChannelType;
-use pierre_core::models::{TenantId, CHANNEL_TYPE_WEB};
-use pierre_services::agent_selection::AgentSelectionSource;
-use pierre_services::conversation_forge::{forge_conversation, ForgeAgent, ForgeParams, SlotQuota};
+use pierre_core::models::TenantId;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::messaging_broadcast::resolve_linked_targets;
+use pierre_services::personal_thread::{resolve_personal_thread, PersonalForge};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -197,55 +196,31 @@ pub async fn post_to_dm(
     Some(true)
 }
 
-/// The in-app thread a post lands in.
-///
-/// LIMITATION(registre#840): `personal_thread` stands in for the athlete's one personal thread (Personal Home step 2) — the newest in-app thread that is theirs alone, else one forged for the post.
+/// The in-app thread a post lands in: the athlete's personal thread
+/// (carnet#840), adopted or forged for the post when none is designated yet.
 async fn personal_thread(resources: &ServerContext, athlete: PostAthlete) -> Option<InAppThread> {
-    let repos = &resources.common.repos;
     let user = athlete.user_id.to_string();
-    match repos
-        .chat
-        .latest_personal_conversation(&user, athlete.tenant_id)
-        .await
-    {
-        Ok(Some(conversation)) => {
-            return Some(InAppThread {
-                id: conversation.id,
-                forged: false,
-            })
-        }
-        Ok(None) => {}
-        Err(e) => {
-            warn!(error = %e, "Platform post: personal thread lookup failed");
-            return None;
-        }
-    }
     let title_fallback = fresh_title_fallback(resources, &user).await;
-    match forge_conversation(
-        repos,
-        ForgeParams {
-            user_id: &user,
-            tenant_id: athlete.tenant_id,
+    match resolve_personal_thread(
+        &resources.common.repos,
+        &user,
+        athlete.tenant_id,
+        PersonalForge {
             title_fallback: &title_fallback,
-            model: None,
-            agent: ForgeAgent::Selected,
-            group_id: None,
-            channel_type: CHANNEL_TYPE_WEB,
-            selection_source: AgentSelectionSource::ChatConversation,
-            // The athlete's own thread, like one `/reset` opens in the app:
-            // an athlete who has answered nothing yet is walked through who
-            // they are on their first message.
+            // The platform opens the thread to deliver into: an athlete who
+            // has answered nothing yet is walked through who they are on
+            // their first reply, like a thread `/reset` opens in the app.
             guided_flow: true,
-            // The platform opens the thread to deliver into; the athlete did
-            // not ask for one, so the cap they manage does not refuse it.
-            quota: SlotQuota::Exempt,
         },
     )
     .await
     {
-        Ok(id) => Some(InAppThread { id, forged: true }),
+        Ok(thread) => Some(InAppThread {
+            id: thread.conversation.id,
+            forged: thread.forged,
+        }),
         Err(e) => {
-            warn!(error = %e, "Platform post: forging the athlete's thread failed");
+            warn!(error = %e, "Platform post: the athlete's personal thread could not be resolved");
             None
         }
     }

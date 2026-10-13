@@ -11,12 +11,14 @@ import {
   dayLabelFor,
   filterDisplayMessages,
   formatMessageTime,
+  isDivider,
   isSameMessageGroup,
   localDayKey,
 } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import MessageBubble from './MessageBubble';
 import DaySeparator from './DaySeparator';
+import TopicDivider from './TopicDivider';
 import CoachAvatar from './CoachAvatar';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
@@ -154,6 +156,19 @@ export default function MessageList({
           />,
         );
         previousDay = day;
+      }
+      // A new topic in the personal thread: a rule, and the next row starts
+      // a fresh run whoever wrote it.
+      if (isDivider(msg)) {
+        out.push(
+          <TopicDivider
+            key={msg.id}
+            label={t('chat.newChat')}
+            time={formatMessageTime(msg.created_at, language)}
+          />,
+        );
+        previous = null;
+        continue;
       }
       const groupStart = previous === null || !isSameMessageGroup(previous, msg);
       // Copy, rating and retry act on a row of the caller's own conversation;

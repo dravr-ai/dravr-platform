@@ -8,6 +8,7 @@ import { useCallback, useMemo } from 'react';
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
@@ -166,33 +167,30 @@ export function useConversationList(query = ''): ConversationListState {
 }
 
 /** What Home opens on when no link names a conversation. */
-export interface LatestPersonalConversation {
-  /** The athlete's own thread with the latest activity; `null` once the list is read and holds none. */
+export interface PersonalConversation {
+  /** The athlete's personal thread; `null` until the server answers, when it could not, or when the athlete has none yet. */
   id: string | null;
-  /** True until the list's first page answers. */
+  /** True until the server first answers. */
   isLoading: boolean;
 }
 
 /**
- * The athlete's own conversation Home opens on: the personal thread — plain,
- * an agent's, a channel DM — with the latest activity, by the same order the
- * history lists them in. `enabled` is the athlete check: an operator has no
- * Home conversation, and the list is never read for them.
+ * The athlete's personal thread — the one continuous conversation Home opens.
+ * The server resolves it, adopting their newest thread of their own the first
+ * time, so Home, "+" and the coach's own posts all name the same thread
+ * whatever the client has loaded. A look forges nothing: an athlete with no
+ * thread yet gets `null`, and Home opens on its empty pane until "+" or a
+ * starter opens one — or the coach's own post does, which the next read finds.
+ * `enabled` is the athlete check: an operator has no Home conversation, and
+ * the server is never asked for one.
  */
-export function useLatestPersonalConversation(enabled = true): LatestPersonalConversation {
-  const { data, isLoading } = useConversationsQuery(enabled);
-  const { t, language } = useTranslation();
-  const labels = useMemo(() => conversationRowLabels(t, language), [t, language]);
-  const id = useMemo(() => {
-    const now = new Date();
-    const rows = sortRowsByActivity(
-      (data?.pages.flatMap((page) => page.conversations) ?? []).map((conversation) =>
-        buildConversationRow(conversation, labels, now),
-      ),
-    );
-    return rows.find((row) => scopeOfKind(row.kind) === 'personal')?.id ?? null;
-  }, [data, labels]);
-  return { id, isLoading: enabled && isLoading };
+export function usePersonalConversation(enabled = true): PersonalConversation {
+  const { data, isLoading } = useQuery({
+    queryKey: QUERY_KEYS.chat.personal(),
+    queryFn: () => chatApi.getPersonalConversation(),
+    enabled,
+  });
+  return { id: data?.id ?? null, isLoading: enabled && isLoading };
 }
 
 /**
@@ -259,9 +257,15 @@ export function useConversationMutations(): ConversationMutations {
     onSuccess: invalidate,
   });
 
+  // The row deleted may be the personal thread, which the server then
+  // re-resolves from the athlete's other threads: Home re-asks for it rather
+  // than keep opening a thread that is gone.
   const removeMutation = useMutation({
     mutationFn: (conversationId: string) => chatApi.deleteConversation(conversationId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
+    },
   });
 
   // Clearing the marker makes every row of the thread unread again; the

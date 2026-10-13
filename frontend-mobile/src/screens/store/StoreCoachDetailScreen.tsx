@@ -15,17 +15,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
-import { chatApi, storeApi } from '../../services/api';
+import { storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
+import { useOpenPersonalTopic } from '../chat/usePersonalThread';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
 import { Section, Row } from '../../components/ui';
 import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate } from '@pierre/chat-utils';
-import { coachCategoryLabelKey, QUERY_KEYS } from '@pierre/shared-constants';
+import { coachCategoryLabelKey } from '@pierre/shared-constants';
 
 /**
  * The athlete's installed copy of a listing, if any. An install mints a copy
@@ -55,7 +55,7 @@ export function StoreCoachDetailScreen() {
   // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
   const cardStyle = useCardStyle();
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const openPersonalTopic = useOpenPersonalTopic();
   const { agentId } = useLocalSearchParams<{ agentId: string }>();
   const { isAuthenticated } = useAuth();
   // The action bar sits in the flow above the system tab bar; its own padding
@@ -111,20 +111,19 @@ export function StoreCoachDetailScreen() {
     }
   };
 
-  // t('discover.openChat') on the post-install hint: a fresh thread bound to the
-  // copy the install minted. Binding it at creation is what makes the server
-  // post the agent's welcome before the thread is read. The store refuses to
-  // install a listing twice, so the hint only ever holds a freshly minted copy
-  // and its id. No title: the server names the thread after the agent.
+  // t('discover.openChat') on the post-install hint: a new topic in the
+  // athlete's personal thread, bound to the copy the install minted. Binding it
+  // with the topic is what makes the server post the agent's welcome before the
+  // thread is read. The store refuses to install a listing twice, so the hint
+  // only ever holds a freshly minted copy and its id.
   const handleOpenChat = async () => {
     if (!postInstall || openingChatRef.current) return;
     openingChatRef.current = true;
     setIsOpeningChat(true);
     try {
-      const conversation = await chatApi.createConversation({ agent_id: postInstall.id });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      const personalThreadId = await openPersonalTopic({ agent_id: postInstall.id });
       setPostInstall(null);
-      router.push(threadHref(conversation.id));
+      router.push(threadHref(personalThreadId));
     } catch (error) {
       console.error('Failed to open a chat with the installed agent:', error);
       Alert.alert(t('common.error'), t('app.couldNotOpenChat'));

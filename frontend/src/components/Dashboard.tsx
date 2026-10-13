@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useUnreadCount } from '../hooks/useNotifications';
 import { useIsMobile, useIsTablet } from '../hooks/useBreakpoint';
 import { useComposerFocused } from '../hooks/useComposerFocused';
-import { useConversationScope, useLatestPersonalConversation } from '../hooks/useConversationList';
+import { useConversationScope, usePersonalConversation } from '../hooks/useConversationList';
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
@@ -273,7 +273,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   const [homeConversation, setHomeConversation] = useState<string | null>(
     initialTabSeg === 'home' ? parseHomeConversation(initialSubSeg) : null,
   );
-  const latestPersonal = useLatestPersonalConversation(!isAdminUser);
+  const personalThread = usePersonalConversation(!isAdminUser);
   const linkedScope = useConversationScope(linkedChatConversation, !isAdminUser);
   useEffect(() => {
     if (linkedChatConversation === null || linkedScope === undefined) return;
@@ -1108,10 +1108,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             ) : (
               <ChatTab
                 layout="personal"
-                selectedConversation={homeConversation ?? latestPersonal.id}
+                selectedConversation={homeConversation ?? personalThread.id}
                 onSelectConversation={setHomeConversation}
                 onNavigate={applyRoute}
-                resolving={homeConversation === null && latestPersonal.isLoading}
+                resolving={homeConversation === null && personalThread.isLoading}
                 today={personalToday}
               />
             )}

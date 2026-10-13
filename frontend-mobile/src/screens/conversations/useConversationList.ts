@@ -165,12 +165,18 @@ export function useConversationList() {
     onSettled: invalidate,
   });
 
+  // The row deleted may be the personal thread, which the server then
+  // re-resolves from the athlete's other threads: the cached one is dropped
+  // so a Home tap never drafts into a thread that is gone.
   const remove = useMutation({
     mutationFn: (id: string) => chatApi.deleteConversation(id),
     onMutate: (id) => {
       patchCachedConversation(queryClient, id, () => null);
     },
-    onSettled: invalidate,
+    onSettled: () => {
+      void invalidate();
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
+    },
   });
 
   const markRead = useMutation({

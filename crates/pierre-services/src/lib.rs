@@ -348,6 +348,10 @@ pub mod sync_failure_notice;
 /// the one notice each new one sends.
 pub mod personal_bests;
 
+/// The athlete's one personal thread, resolved on the server, and the topics
+/// "+" and `/reset` open inside it (carnet#840).
+pub mod personal_thread;
+
 /// The language an athlete reads, resolved once for every surface
 pub mod locale;
 

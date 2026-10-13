@@ -129,6 +129,10 @@ pub enum DispatchOutcome {
         /// a messaging channel already had its session repointed, the in-app
         /// clients open the id.
         rotated_to: Option<String>,
+        /// The divider of the topic the handler opened in the athlete's
+        /// personal thread instead of moving them — `/reset` there
+        /// (carnet#840). The in-app clients re-read the thread to draw it.
+        opened_topic: Option<String>,
     },
 }
 
@@ -247,5 +251,6 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         command_name: parsed.name,
         response,
         rotated_to: ctx.rotation.taken().map(ToOwned::to_owned),
+        opened_topic: ctx.rotation.opened_topic().map(ToOwned::to_owned),
     })
 }

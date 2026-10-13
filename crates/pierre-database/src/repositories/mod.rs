@@ -39,6 +39,8 @@ pub mod athlete_gear;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
+/// The row parsers `chat_backend` emits per backend.
+pub(crate) mod chat_rows;
 /// Repository trait for the check-in cadence each athlete chose.
 pub mod check_in_preferences;
 /// Statements and decoders for the blind-grading pool of claim verdicts.

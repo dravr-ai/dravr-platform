@@ -1,5 +1,5 @@
 // ABOUTME: The one ChatRepository implementation, emitted per backend by impl_chat_repository! with that backend's id codec
-// ABOUTME: Row parsers and the trait body over the statements in repositories/chat.rs; the shells are one line each
+// ABOUTME: The trait body over the statements in repositories/chat.rs, with the row parsers from chat_rows.rs; the shells are one line each
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,10 @@
 /// own type, its driver's row type, and its uuid codec from
 /// [`super::uuid_columns`] — how that backend binds an id the caller holds
 /// as text against its `user_id`/`group_id`/`added_by` columns and reads one
-/// back. The row parsers are emitted inside the macro because those id
-/// reads are the one thing in them that differs per driver; sqlx resolves
-/// the driver from `self.pool()` per expansion.
+/// back. The row parsers are emitted inside the macro, by
+/// [`impl_chat_row_parsers!`](super::chat_rows::impl_chat_row_parsers),
+/// because those id reads are the one thing in them that differs per driver;
+/// sqlx resolves the driver from `self.pool()` per expansion.
 ///
 /// `$lock` is the backend's clause for the owner slot lock (see
 /// `owner_slot_lock_sql!`): `FOR NO KEY UPDATE` on `PostgreSQL`, `""` on
@@ -25,165 +26,7 @@
 /// shell must `use` every one of them.
 macro_rules! impl_chat_repository {
     ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal) => {
-        /// Decode one conversation row via `try_get` only: `Row::get` is
-        /// `try_get().unwrap()`, and an unwind here takes the whole
-        /// container down with every in-flight request on it.
-        fn conversation_from_row(row: &$row) -> AppResult<ConversationRecord> {
-            let col = |name: &str| -> AppResult<String> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let opt = |name: &str| -> AppResult<Option<String>> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            Ok(ConversationRecord {
-                id: col("id")?,
-                user_id: $ids::read_text(row, "user_id")?,
-                tenant_id: col("tenant_id")?,
-                title: col("title")?,
-                model: col("model")?,
-                agent_id: opt("agent_id")?,
-                session_id: opt("session_id")?,
-                total_tokens: row
-                    .try_get("total_tokens")
-                    .map_err(|e| chat_column_error("total_tokens", &e))?,
-                created_at: stamp_column(row, "created_at")?,
-                updated_at: stamp_column(row, "updated_at")?,
-                group_id: $ids::read_text_opt(row, "group_id")?,
-                channel_type: col("channel_type")?,
-                onboarding_state: opt("onboarding_state")?,
-                archived_at: row
-                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
-                    .map_err(|e| chat_column_error("archived_at", &e))?
-                    .map(|t| t.to_rfc3339()),
-            })
-        }
-
-        /// Decode one list row. The three `last_*` columns are all `NULL` or
-        /// all set — they come from the same newest row — so the preview is
-        /// keyed on the role.
-        fn summary_from_row(row: &$row) -> AppResult<ConversationSummary> {
-            let col = |name: &str| -> AppResult<String> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let opt = |name: &str| -> AppResult<Option<String>> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let count = |name: &str| -> AppResult<i64> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let last_message = opt("last_role")?
-                .map(|role| -> AppResult<ConversationLastMessage> {
-                    let last_created_at: Option<DateTime<Utc>> = row
-                        .try_get("last_created_at")
-                        .map_err(|e| chat_column_error("last_created_at", &e))?;
-                    let last_first_party_only: Option<bool> = row
-                        .try_get("last_first_party_only")
-                        .map_err(|e| chat_column_error("last_first_party_only", &e))?;
-                    Ok(ConversationLastMessage {
-                        content_head: opt("last_content_head")?.unwrap_or_default(),
-                        role,
-                        created_at: last_created_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
-                        transport_policy: TransportPolicy::from_first_party_only(
-                            last_first_party_only.unwrap_or(false),
-                        ),
-                    })
-                })
-                .transpose()?;
-            Ok(ConversationSummary {
-                id: col("id")?,
-                title: col("title")?,
-                model: col("model")?,
-                message_count: count("message_count")?,
-                total_tokens: count("total_tokens")?,
-                agent_id: opt("agent_id")?,
-                agent_handle: opt("agent_handle")?,
-                agent_title: opt("agent_title")?,
-                group_id: $ids::read_text_opt(row, "group_id")?,
-                group_name: opt("group_name")?,
-                channel_type: opt("channel_type")?,
-                archived_at: row
-                    .try_get::<Option<DateTime<Utc>>, _>("archived_at")
-                    .map_err(|e| chat_column_error("archived_at", &e))?
-                    .map(|t| t.to_rfc3339()),
-                last_message,
-                unread_count: count("unread_count")?,
-                created_at: stamp_column(row, "created_at")?,
-                updated_at: stamp_column(row, "updated_at")?,
-            })
-        }
-
-        /// Decode one message row.
-        fn message_from_row(row: &$row) -> AppResult<MessageRecord> {
-            let col = |name: &str| -> AppResult<String> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let opt = |name: &str| -> AppResult<Option<String>> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let tokens = |name: &str| -> AppResult<Option<i64>> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            Ok(MessageRecord {
-                id: col("id")?,
-                conversation_id: col("conversation_id")?,
-                role: col("role")?,
-                content: col("content")?,
-                token_count: tokens("token_count")?,
-                prompt_tokens: tokens("prompt_tokens")?,
-                model: opt("model")?,
-                finish_reason: opt("finish_reason")?,
-                content_blocks: opt("content_blocks")?,
-                created_at: stamp_column(row, "created_at")?,
-                transport_policy: TransportPolicy::from_first_party_only(
-                    row.try_get("first_party_only")
-                        .map_err(|e| chat_column_error("first_party_only", &e))?,
-                ),
-            })
-        }
-
-        /// Decode one feedback row. `user_id` is a uuid column (matching
-        /// `chat_conversations`), surfaced as text for the wire DTO.
-        fn feedback_from_row(row: &$row) -> AppResult<MessageFeedbackRecord> {
-            let col = |name: &str| -> AppResult<String> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            Ok(MessageFeedbackRecord {
-                id: col("id")?,
-                message_id: col("message_id")?,
-                conversation_id: col("conversation_id")?,
-                user_id: $ids::read_text(row, "user_id")?,
-                tenant_id: col("tenant_id")?,
-                rating: col("rating")?,
-                comment: row
-                    .try_get("comment")
-                    .map_err(|e| chat_column_error("comment", &e))?,
-                created_at: stamp_column(row, "created_at")?,
-                updated_at: stamp_column(row, "updated_at")?,
-            })
-        }
-
-        /// Decode one membership row. The role column is CHECK-constrained
-        /// to the two known values, so an unknown one is a schema breach
-        /// surfaced as a database error rather than silently defaulted.
-        fn participant_from_row(row: &$row) -> AppResult<ConversationParticipant> {
-            let col = |name: &str| -> AppResult<String> {
-                row.try_get(name).map_err(|e| chat_column_error(name, &e))
-            };
-            let role = col("role")?;
-            let role = ParticipantRole::from_column(&role).ok_or_else(|| {
-                AppError::database(format!(
-                    "conversation_participants.role holds unknown value {role}"
-                ))
-            })?;
-            Ok(ConversationParticipant {
-                conversation_id: col("conversation_id")?,
-                user_id: $ids::read_text(row, "user_id")?,
-                tenant_id: col("tenant_id")?,
-                role,
-                added_by: $ids::read_text(row, "added_by")?,
-                added_at: stamp_column(row, "added_at")?,
-            })
-        }
+        $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -325,6 +168,8 @@ macro_rules! impl_chat_repository {
                     channel_type: CHANNEL_TYPE_WEB.to_owned(),
                     onboarding_state: None,
                     archived_at: None,
+                    // Designated afterwards, by the personal-thread resolver.
+                    personal: false,
                 })))
             }
 
@@ -1064,6 +909,66 @@ macro_rules! impl_chat_repository {
                         AppError::database(format!("Failed to find the personal conversation: {e}"))
                     })?;
                 row.as_ref().map(conversation_from_row).transpose()
+            }
+
+            async fn personal_conversation(
+                &self,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<ConversationRecord>> {
+                let row = sqlx::query(PERSONAL_CONVERSATION_SQL)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the personal thread: {e}"))
+                    })?;
+                row.as_ref().map(conversation_from_row).transpose()
+            }
+
+            async fn designate_personal_conversation(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                match sqlx::query(DESIGNATE_PERSONAL_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .execute(self.pool())
+                    .await
+                {
+                    Ok(result) => Ok(result.rows_affected() > 0),
+                    // Another thread holds the designation: the one-per-owner
+                    // index, reported by the driver as such.
+                    Err(e)
+                        if e.as_database_error()
+                            .is_some_and(|db| db.is_unique_violation()) =>
+                    {
+                        Ok(false)
+                    }
+                    Err(e) => Err(AppError::database(format!(
+                        "Failed to designate the personal thread: {e}"
+                    ))),
+                }
+            }
+
+            async fn latest_divider_id(
+                &self,
+                conversation_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<String>> {
+                sqlx::query_scalar(LATEST_DIVIDER_SQL)
+                    .bind(conversation_id)
+                    .bind(tenant_id.to_string())
+                    .bind(DIVIDER_FINISH_REASON)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the newest divider: {e}"))
+                    })
             }
 
             async fn set_conversation_agent_id(

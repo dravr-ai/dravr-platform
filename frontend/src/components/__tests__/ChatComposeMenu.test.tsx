@@ -16,6 +16,7 @@ const getConversationMessages = vi.fn();
 const getConversationVerdicts = vi.fn();
 const listParticipants = vi.fn();
 const createConversation = vi.fn();
+const openPersonalTopic = vi.fn();
 const markConversationRead = vi.fn();
 const sendTurn = vi.fn();
 const listCoaches = vi.fn();
@@ -30,6 +31,7 @@ vi.mock('../../services/api', () => ({
     getConversationVerdicts: (...a: unknown[]) => getConversationVerdicts(...a),
     listParticipants: (...a: unknown[]) => listParticipants(...a),
     createConversation: (...a: unknown[]) => createConversation(...a),
+    openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
     markConversationRead: (...a: unknown[]) => markConversationRead(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
   },
@@ -90,6 +92,10 @@ describe('chat "+" menu', () => {
     markConversationRead.mockResolvedValue(undefined);
     listCoaches.mockResolvedValue({ agents: [] });
     createConversation.mockResolvedValue({ id: 'conv-new', title: 'Chat' });
+    openPersonalTopic.mockResolvedValue({
+      conversation: { id: 'conv-personal', title: 'Dravr', personal: true },
+      divider: null,
+    });
     sendTurn.mockResolvedValue(undefined);
   });
 
@@ -104,7 +110,7 @@ describe('chat "+" menu', () => {
     expect(items).toEqual(['New chat', 'New group chat']);
   });
 
-  it('starts a plain conversation from "New chat"', async () => {
+  it('opens a new topic in the personal thread from "New chat", never another thread', async () => {
     const onSelectConversation = vi.fn();
     const user = userEvent.setup();
     renderChatTab(null, { onSelectConversation });
@@ -112,14 +118,14 @@ describe('chat "+" menu', () => {
     await user.click((await screen.findAllByRole('button', { name: 'New' }))[0]);
     await user.click(screen.getByRole('menuitem', { name: 'New chat' }));
 
-    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
-    expect(createConversation.mock.calls[0][0]).not.toHaveProperty('group_id');
-    // Nothing is waiting to be sent, so the thread's agent opens it with its welcome.
-    expect(createConversation.mock.calls[0][0].athlete_speaks_first).toBeFalsy();
-    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+    await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
+    expect(createConversation).not.toHaveBeenCalled();
+    // Nothing is waiting to be sent, so the thread's agent opens the topic with its welcome.
+    expect(openPersonalTopic.mock.calls[0][0].athlete_speaks_first).toBeFalsy();
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-personal'));
   });
 
-  it('asks for a name and opens a fresh thread when none is selected', async () => {
+  it('asks for a name and opens a topic for it when no thread is selected', async () => {
     const onSelectConversation = vi.fn();
     const user = userEvent.setup();
     renderChatTab(null, { onSelectConversation });
@@ -130,13 +136,14 @@ describe('chat "+" menu', () => {
     await user.type(await screen.findByTestId('group-name-input'), 'Sunday Riders');
     await user.click(screen.getByTestId('group-name-submit'));
 
-    // A plain thread is created first — the command carries the group, so
-    // nothing here posts a group. The queued command lands as its first turn,
-    // so the athlete speaks first and no agent welcome lands over its answer.
-    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
-    expect(createConversation.mock.calls[0][0]).not.toHaveProperty('group_id');
-    expect(createConversation.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
-    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+    // Home holds the personal thread, so the command lands there, in a topic
+    // of its own — the command carries the group, and the server files the
+    // room beside the thread. It is the topic's first turn, so the athlete
+    // speaks first and no agent welcome lands over its answer.
+    await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
+    expect(openPersonalTopic.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
+    expect(createConversation).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-personal'));
   });
 
   it('sends /group create <name> as the first turn of the fresh thread', async () => {
@@ -217,6 +224,34 @@ describe('chat "+" menu', () => {
 
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new'));
+  });
+
+  it('reads the conversation cap in its own words when a room cannot be opened', async () => {
+    // A room is a thread of its own, so it is the one start the cap still
+    // refuses: Home's "+" opens a topic in the personal thread instead.
+    createConversation.mockRejectedValue({
+      response: {
+        status: 429,
+        data: {
+          code: 'QuotaExceeded',
+          message: 'refused',
+          details: { limit_type: 'max_active_conversations', current: 10, limit: 10, resets_at: '' },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderChatTab(null, { layout: 'shell' });
+
+    await user.click(await screen.findByTestId('groups-empty-create'));
+    await user.type(await screen.findByTestId('group-name-input'), 'Sunday Riders');
+    await user.click(screen.getByTestId('group-name-submit'));
+
+    expect(await screen.findByText('Conversation limit reached')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "You've reached your limit of 10 active conversations. Delete one from the sidebar to start a new chat.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it('never says "No groups yet" over a list that failed to load — the list says what happened', async () => {

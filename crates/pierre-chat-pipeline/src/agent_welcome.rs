@@ -59,7 +59,9 @@ use uuid::Uuid;
 
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
-use crate::stages::introduction::{collapse_whitespace, display_title, introduction_thread};
+use crate::stages::introduction::{
+    collapse_whitespace, current_topic, display_title, introduction_thread,
+};
 use crate::stages::persistence::fan_out_to_group_transcript;
 use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_AGENT_WELCOME};
 use crate::surface_profile::SurfaceId;
@@ -318,6 +320,12 @@ pub async fn post_agent_welcome(
     let Some((text, transport_policy)) = welcome_text(repos, strings, &target, user).await? else {
         return Ok(None);
     };
+    let topic = current_topic(
+        repos.chat.as_ref(),
+        conversation,
+        target.conversation_tenant_id,
+    )
+    .await;
     let blocks = actions_content_blocks(text.starters_title.as_deref(), &text.actions())
         .map_err(|e| AppError::internal(format!("agent welcome actions not encodable: {e}")))?;
     let params = AddMessageParams {
@@ -336,7 +344,11 @@ pub async fn post_agent_welcome(
     };
     let Some(message) = repos
         .chat
-        .add_agent_welcome(&params, introduction_thread(conversation), target.agent_id)
+        .add_agent_welcome(
+            &params,
+            introduction_thread(conversation, topic.as_deref()),
+            target.agent_id,
+        )
         .await?
     else {
         return Ok(None);

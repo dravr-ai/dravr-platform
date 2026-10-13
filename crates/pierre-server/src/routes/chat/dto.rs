@@ -8,8 +8,8 @@ use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
-    is_turn_marker_block, ConversationParticipant, InputSource, ParticipantRole,
-    PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
+    is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
+    ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -236,6 +236,61 @@ pub struct ConversationResponse {
     pub created_at: String,
     /// Last update timestamp
     pub updated_at: String,
+    /// Whether this is the caller's personal thread — the one Home opens and
+    /// "+" or `/reset` divide instead of replacing (carnet#840).
+    #[serde(default)]
+    pub personal: bool,
+}
+
+impl From<ConversationRecord> for ConversationResponse {
+    fn from(conv: ConversationRecord) -> Self {
+        Self {
+            id: conv.id,
+            title: conv.title,
+            model: conv.model,
+            agent_id: conv.agent_id,
+            group_id: conv.group_id,
+            total_tokens: conv.total_tokens,
+            created_at: conv.created_at,
+            updated_at: conv.updated_at,
+            personal: conv.personal,
+        }
+    }
+}
+
+/// The caller's personal thread, as `GET /api/chat/personal` finds it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PersonalThreadResponse {
+    /// The thread; `null` for an athlete who has none yet — nothing is forged
+    /// for a look, so Home opens on its empty pane.
+    pub conversation: Option<ConversationResponse>,
+}
+
+/// Request to open a new topic in the caller's personal thread — Home's "+"
+/// (carnet#840).
+#[derive(Debug, Default, Deserialize)]
+pub struct OpenTopicRequest {
+    /// The agent the topic is with, when the athlete picked one: the thread
+    /// is rebound to it. Absent keeps the thread's agent.
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    /// The athlete is about to send the topic's first line themselves — a
+    /// tapped starter — so the agent's welcome would only offer the same
+    /// starters again, and is not posted.
+    #[serde(default)]
+    pub athlete_speaks_first: bool,
+}
+
+/// The topic `POST /api/chat/personal/topics` opened.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OpenTopicResponse {
+    /// The personal thread, as it stands with the topic opened.
+    pub conversation: ConversationResponse,
+    /// The divider row the topic opened with. The client re-reads the
+    /// thread to draw it, and the welcome that follows it. Absent when the
+    /// thread's current topic held no turn yet: it already was a fresh
+    /// start, and no second rule was drawn.
+    pub divider: Option<MessageResponse>,
 }
 
 /// Response for listing conversations
@@ -285,6 +340,10 @@ pub struct ConversationSummaryResponse {
     /// it — so deleting it frees nothing, and the client marks it.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// Whether this is the caller's personal thread (carnet#840) — the one
+    /// Home opens. It is bound to no group, so it is never a Groups row.
+    #[serde(default)]
+    pub personal: bool,
     /// The newest `user`/`assistant` row, shaped for the row preview; absent
     /// for an empty conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]

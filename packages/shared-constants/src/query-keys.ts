@@ -100,6 +100,8 @@ export const QUERY_KEYS = {
   chat: {
     all: ['chat'] as const,
     conversations: () => ['chat-conversations'] as const,
+    /** The caller's one personal thread, as the server resolves it. */
+    personal: () => ['chat-personal'] as const,
     messages: (conversationId: string | null) => ['chat-messages', conversationId] as const,
     /** Who can read and post in the conversation, owner first. */
     participants: (conversationId: string | null) =>

@@ -25,6 +25,7 @@ import {
   dayLabelFor,
   filterDisplayMessages,
   formatMessageTime,
+  isDivider,
   isModelReply,
   isSameMessageGroup,
   localDayKey,
@@ -45,6 +46,7 @@ import {
 import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import DaySeparator from './DaySeparator';
+import TopicDivider from './TopicDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
@@ -65,6 +67,7 @@ export type ThemeColors = ReturnType<typeof useThemeColors>;
  */
 export type ChatRow =
   | { kind: 'day'; key: string; label: string }
+  | { kind: 'topic'; key: string; label: string; time: string }
   | { kind: 'message'; key: string; message: Message; groupStart: boolean };
 
 /**
@@ -900,6 +903,18 @@ export function MessageList({
         });
         previousDay = day;
       }
+      // A new topic in the personal thread: a rule, and the next row starts
+      // a fresh run whoever wrote it.
+      if (isDivider(message)) {
+        out.push({
+          kind: 'topic',
+          key: message.id,
+          label: t('chat.newChat'),
+          time: message.created_at ? formatMessageTime(message.created_at, language) : '',
+        });
+        previous = null;
+        continue;
+      }
       out.push({
         kind: 'message',
         key: message.id,
@@ -911,12 +926,16 @@ export function MessageList({
     return out;
   }, [messages, language, t]);
 
-  const renderRow = ({ item }: { item: ChatRow }) =>
-    item.kind === 'day' ? (
-      <DaySeparator label={item.label} />
-    ) : (
-      renderMessage(item.message, item.groupStart)
-    );
+  const renderRow = ({ item }: { item: ChatRow }) => {
+    switch (item.kind) {
+      case 'day':
+        return <DaySeparator label={item.label} />;
+      case 'topic':
+        return <TopicDivider label={item.label} time={item.time} />;
+      case 'message':
+        return renderMessage(item.message, item.groupStart);
+    }
+  };
 
   /**
    * The coach is composing.

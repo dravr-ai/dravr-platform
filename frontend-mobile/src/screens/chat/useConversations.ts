@@ -134,13 +134,16 @@ export function useConversations(): ConversationsState & ConversationsActions {
         setCurrentConversation(null);
       }
       invalidateConversationList();
+      // The thread deleted may be the personal one, which the server then
+      // re-resolves: the cached one is dropped so Home never drafts into it.
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
     } catch (err) {
       const errorMessage =
         describeApiError(err, { t, fallbackKey: 'app.failedDeleteConversation' });
       setError(errorMessage);
       Alert.alert(t('common.error'), t('app.failedDeleteConversation'));
     }
-  }, [currentConversation?.id, invalidateConversationList]);
+  }, [currentConversation?.id, invalidateConversationList, queryClient]);
 
   const renameConversation = useCallback(async (conversationId: string, newTitle: string) => {
     try {

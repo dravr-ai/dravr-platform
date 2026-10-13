@@ -54,7 +54,7 @@ vi.mock('../components/ChatTab', () => ({
 // Home opens on the latest personal thread; these specs assert nothing about
 // which one, and no #chat link here names a thread the list knows.
 vi.mock('../hooks/useConversationList', () => ({
-  useLatestPersonalConversation: () => ({ id: null, isLoading: false }),
+  usePersonalConversation: () => ({ id: null, isLoading: false }),
   useConversationScope: () => null,
 }));
 

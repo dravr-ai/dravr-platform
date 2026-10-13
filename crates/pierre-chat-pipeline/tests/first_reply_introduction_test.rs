@@ -22,7 +22,7 @@ use pierre_chat_pipeline::stages::introduction::{
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_core::models::ConversationRecord;
 
-fn conversation(group_id: Option<&str>) -> ConversationRecord {
+fn conversation(group_id: Option<&str>, personal: bool) -> ConversationRecord {
     ConversationRecord {
         id: "conv-501".to_owned(),
         user_id: "user-501".to_owned(),
@@ -38,12 +38,16 @@ fn conversation(group_id: Option<&str>) -> ConversationRecord {
         channel_type: "web".to_owned(),
         onboarding_state: None,
         archived_at: None,
+        personal,
     }
 }
 
 #[test]
 fn a_one_to_one_conversation_is_its_own_thread() {
-    assert_eq!(introduction_thread(&conversation(None)), "conv-501");
+    assert_eq!(
+        introduction_thread(&conversation(None, false), None),
+        "conv-501"
+    );
 }
 
 #[test]
@@ -51,8 +55,33 @@ fn a_room_members_row_introduces_the_agent_to_the_room() {
     // Each member of a room has their own conversation row, so keyed by the
     // row every newcomer would hear the agent introduce itself again.
     assert_eq!(
-        introduction_thread(&conversation(Some("group-501"))),
+        introduction_thread(&conversation(Some("group-501"), false), None),
         "group-501"
+    );
+}
+
+#[test]
+fn each_topic_of_the_personal_thread_introduces_the_agent_again() {
+    // "+" and /reset open a topic in the personal thread where any other
+    // thread would get a fresh conversation, and a fresh conversation hears
+    // the agent introduce itself (carnet#840).
+    let personal = conversation(None, true);
+    assert_eq!(
+        introduction_thread(&personal, Some("divider-840")),
+        "divider-840"
+    );
+    assert_eq!(
+        introduction_thread(&personal, None),
+        "conv-501",
+        "before its first divider the personal thread is one topic"
+    );
+}
+
+#[test]
+fn only_the_personal_thread_is_keyed_by_topic() {
+    assert_eq!(
+        introduction_thread(&conversation(None, false), Some("divider-840")),
+        "conv-501"
     );
 }
 

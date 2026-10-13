@@ -42,7 +42,8 @@ use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
-    ChatMessageAction, ChatRoutes, ConversationResponse, ReplyBlockResponse, TurnResponse,
+    ChatMessageAction, ChatRoutes, ConversationResponse, OpenTopicResponse, ReplyBlockResponse,
+    TurnResponse,
 };
 use pierre_services::admin_ops;
 use pierre_services::trainingpeaks_accounts::revoke_roster_for_coach_connection;
@@ -676,6 +677,54 @@ async fn group_create_in_an_archived_empty_thread_adopts_it_and_takes_its_slot()
             .len(),
         1
     );
+}
+
+/// The personal thread is never adopted as a room, however empty: it is the
+/// one Home opens and the coach posts into (carnet#840). The room is filed
+/// beside it, and the thread stays the athlete's own.
+#[tokio::test]
+async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "group-personal@test.com", "professional").await;
+    seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    // "+" on Home opens the athlete's personal thread.
+    let resp = AxumTestRequest::post("/api/chat/personal/topics")
+        .header("authorization", &auth)
+        .json(&json!({}))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::CREATED);
+    let opened: OpenTopicResponse = resp.json();
+    let personal = opened.conversation;
+    assert!(personal.personal);
+
+    send(router, &auth, &personal.id, "/group create Sunday Runners").await;
+
+    let chat = &resources.common.repos.chat;
+    let user = user_id.to_string();
+    let thread = chat
+        .get_conversation(&personal.id, &user, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(thread.group_id.is_none(), "the personal thread is no room");
+    assert!(
+        thread.personal,
+        "and it stays the athlete's personal thread"
+    );
+    let listed = chat
+        .list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
+        .await
+        .unwrap()
+        .items;
+    let room = listed
+        .iter()
+        .find(|c| c.title == "Sunday Runners")
+        .expect("the room got a conversation of its own");
+    assert!(room.group_id.is_some());
+    assert!(!room.personal);
 }
 
 #[tokio::test]

@@ -10,6 +10,7 @@
 //!
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
 //! - [`chat::participants`] — who is in a conversation: list / add / remove
+//! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
@@ -24,6 +25,7 @@ mod dto;
 mod feedback;
 mod group_transcript;
 mod participants;
+mod personal;
 mod read_marker;
 mod send_message;
 mod starters;
@@ -42,9 +44,10 @@ pub use dto::{
     preview_text, AddParticipantRequest, ChatMessageAction, ConversationListResponse,
     ConversationResponse, ConversationSummaryResponse, CreateConversationRequest, FeedbackRating,
     LastMessageResponse, ListConversationsQuery, MessageActionsResponse, MessageFeedbackEntry,
-    MessageResponse, MessagesListResponse, ParticipantListResponse, ParticipantResponse,
-    SendMessageRequest, StarterResponse, StartersResponse, UpdateConversationRequest,
-    UpsertFeedbackRequest, MAX_LIST_LIMIT,
+    MessageResponse, MessagesListResponse, OpenTopicRequest, OpenTopicResponse,
+    ParticipantListResponse, ParticipantResponse, PersonalThreadResponse, SendMessageRequest,
+    StarterResponse, StartersResponse, UpdateConversationRequest, UpsertFeedbackRequest,
+    MAX_LIST_LIMIT,
 };
 pub use read_marker::MarkReadRequest;
 pub use stop_turn::StopTurnResponse;
@@ -80,6 +83,13 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}",
                 delete(conversations::delete_conversation),
+            )
+            // The caller's one personal thread, resolved on the server, and
+            // the topics "+" opens inside it (carnet#840)
+            .route("/api/chat/personal", get(personal::get_personal_thread))
+            .route(
+                "/api/chat/personal/topics",
+                post(personal::open_personal_topic),
             )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)

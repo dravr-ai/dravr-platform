@@ -5,12 +5,14 @@
 // ABOUTME: One list behind the tab bar's quick actions and the chat screens' sheet, so the set cannot drift
 
 import { useCallback, useMemo, useState } from 'react';
+import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MessageSquarePlus, UserPlus, Users } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import { threadHref } from '../../navigation/routes';
 import { useTranslation } from '@pierre/i18n';
+import { useFindPersonalThread, useOpenPersonalTopic } from './usePersonalThread';
 
 /** The three things the chat "+" can do. */
 export type ChatPlusActionId = 'new-chat' | 'new-group-chat' | 'add-participant';
@@ -59,7 +61,9 @@ export interface UseChatPlusActionsResult {
  *
  * "Add someone" appears only with a conversation open — the participants
  * routes need a thread to act on, and a fresh composer has none yet. New chat
- * opens an empty thread. New group chat asks for a name and then opens a
+ * opens a new topic in the athlete's personal thread — never another thread —
+ * and lands there; an athlete who has not begun gets an empty composer, whose
+ * first send opens their thread. New group chat asks for a name and then opens a
  * thread that sends `/group create <name>`: the command is the one
  * implementation of creating a group, shared with web and with messaging, so
  * the app has no second way to make one.
@@ -69,6 +73,20 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
   const router = useRouter();
   const [groupNamePromptVisible, setGroupNamePromptVisible] = useState(false);
   const [participantsVisible, setParticipantsVisible] = useState(false);
+  const findPersonalThread = useFindPersonalThread();
+  const openPersonalTopic = useOpenPersonalTopic();
+
+  const startNewChat = useCallback(() => {
+    findPersonalThread()
+      .then(async (existing) => {
+        if (existing === null) {
+          router.push(threadHref());
+          return;
+        }
+        router.push(threadHref(await openPersonalTopic()));
+      })
+      .catch(() => Alert.alert(t('common.error'), t('app.couldNotOpenChat')));
+  }, [findPersonalThread, openPersonalTopic, router, t]);
 
   const submitGroupName = useCallback(
     (name: string) => {
@@ -86,7 +104,7 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
         id: 'new-chat',
         label: t(NEW_CHAT_LABEL_KEY),
         icon: MessageSquarePlus,
-        onPress: () => router.push(threadHref()),
+        onPress: startNewChat,
       },
       {
         id: 'new-group-chat',
@@ -104,7 +122,7 @@ export function useChatPlusActions(conversationId: string | null): UseChatPlusAc
       });
     }
     return list;
-  }, [conversationId, router, t]);
+  }, [conversationId, startNewChat, t]);
 
   const flows = useMemo<ChatPlusFlowState>(
     () => ({

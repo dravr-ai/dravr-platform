@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the mobile onboarding coach proposal — « Démarrer » opens a thread bound to the chosen coach
-// ABOUTME: Pins the recordUsage → markSeen → createConversation → push order and the localized sport and category words
+// ABOUTME: Tests the mobile onboarding coach proposal — « Démarrer » opens a topic bound to the chosen coach in the personal thread
+// ABOUTME: Pins the recordUsage → markSeen → openPersonalTopic → push order and the localized sport and category words
 
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -33,11 +33,9 @@ jest.mock('../src/hooks/useCoachProposalSeen', () => ({
   useCoachProposalSeen: () => ({ seen: false, markSeen: (...args: unknown[]) => mockMarkSeen(...args) }),
 }));
 
-const mockCreateConversation = jest.fn();
-jest.mock('../src/screens/chat/useConversations', () => ({
-  useConversations: () => ({
-    createConversation: (...args: unknown[]) => mockCreateConversation(...args),
-  }),
+const mockOpenPersonalTopic = jest.fn();
+jest.mock('../src/screens/chat/usePersonalThread', () => ({
+  useOpenPersonalTopic: () => (...args: unknown[]) => mockOpenPersonalTopic(...args),
 }));
 
 const mockGetProposal = jest.fn();
@@ -109,13 +107,14 @@ describe('OnboardingCoachProposalScreen', () => {
     mockGetProposal.mockResolvedValue(PROPOSAL);
     mockRecordUsage.mockResolvedValue(undefined);
     mockMarkSeen.mockResolvedValue(undefined);
-    mockCreateConversation.mockResolvedValue({ id: 'conv-9', title: 'Trail Coach', agent_id: 'coach-trail' });
+    // The hook answers the personal thread's id once the topic is open.
+    mockOpenPersonalTopic.mockResolvedValue('conv-9');
   });
 
   // A coach the store shipped without a title used to open a thread named "",
   // which the list then drew as an untitled row. The screen sends no title at
-  // all now: the server names the thread after the coach, and falls back to
-  // the dated stamp itself when the coach has no title to give.
+  // all: the coach is bound to a topic of the personal thread, which the
+  // server already names.
   it('sends no title even when the coach has none; the server names the thread', async () => {
     mockGetProposal.mockResolvedValue({
       ...PROPOSAL,
@@ -125,11 +124,11 @@ describe('OnboardingCoachProposalScreen', () => {
     const { findByText } = renderScreen();
     fireEvent.press(await findByText('Start'));
 
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-    expect(mockCreateConversation.mock.calls[0][0]).toEqual({ agent_id: 'coach-trail' });
+    await waitFor(() => expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1));
+    expect(mockOpenPersonalTopic.mock.calls[0][0]).toEqual({ agent_id: 'coach-trail' });
   });
 
-  it('« Start » records the choice, completes the step, then lands the athlete in a thread bound to the coach', async () => {
+  it('« Start » records the choice, completes the step, then lands the athlete in a topic bound to the coach', async () => {
     const { findByText } = renderScreen();
 
     fireEvent.press(await findByText('Start'));
@@ -138,8 +137,8 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRecordUsage).toHaveBeenCalledTimes(1);
     expect(mockRecordUsage).toHaveBeenCalledWith('coach-trail');
     expect(mockMarkSeen).toHaveBeenCalledTimes(1);
-    expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
+    expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
+    expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(mockRouter.push).toHaveBeenCalledWith({
       pathname: CHAT_THREAD_ROUTE,
       params: { conversationId: 'conv-9' },
@@ -147,15 +146,15 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRouter.push.mock.calls[0][0]).toEqual(threadHref('conv-9'));
     expect(mockRouter.replace).not.toHaveBeenCalled();
 
-    // The step is marked before the thread exists, so the layout may leave
-    // onboarding even if the create call is slow; the push comes last.
+    // The step is marked before the topic opens, so the layout may leave
+    // onboarding even if the call is slow; the push comes last.
     expect(firstCallOrder(mockRecordUsage)).toBeLessThan(firstCallOrder(mockMarkSeen));
-    expect(firstCallOrder(mockMarkSeen)).toBeLessThan(firstCallOrder(mockCreateConversation));
-    expect(firstCallOrder(mockCreateConversation)).toBeLessThan(firstCallOrder(mockRouter.push));
+    expect(firstCallOrder(mockMarkSeen)).toBeLessThan(firstCallOrder(mockOpenPersonalTopic));
+    expect(firstCallOrder(mockOpenPersonalTopic)).toBeLessThan(firstCallOrder(mockRouter.push));
   });
 
-  it('a failed thread creation still completes the step, navigates nowhere and leaks no rejection', async () => {
-    mockCreateConversation.mockRejectedValue(new Error('conversation_create_failed'));
+  it('a topic that cannot open still completes the step, navigates nowhere and leaks no rejection', async () => {
+    mockOpenPersonalTopic.mockRejectedValue(new Error('topic_open_failed'));
     const onUnhandledRejection = jest.fn();
     process.on('unhandledRejection', onUnhandledRejection);
 
@@ -164,14 +163,14 @@ describe('OnboardingCoachProposalScreen', () => {
 
       fireEvent.press(await findByText('Start'));
 
-      await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
+      await waitFor(() => expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1));
+      expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
       // Node reports an orphaned rejection only after the microtask queue
       // drains; a macrotask boundary lets that report land before we look.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
       expect(mockMarkSeen).toHaveBeenCalledTimes(1);
-      expect(firstCallOrder(mockMarkSeen)).toBeLessThan(firstCallOrder(mockCreateConversation));
+      expect(firstCallOrder(mockMarkSeen)).toBeLessThan(firstCallOrder(mockOpenPersonalTopic));
       expect(mockRouter.push).not.toHaveBeenCalled();
       expect(mockRouter.replace).not.toHaveBeenCalled();
       expect(onUnhandledRejection).not.toHaveBeenCalled();

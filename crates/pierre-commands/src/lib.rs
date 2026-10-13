@@ -174,13 +174,24 @@ pub struct PlatformCommandContext {
     pub tool_runtime: Arc<dyn ToolRuntime>,
 }
 
-/// The conversation a handler moved the athlete onto, if any.
+/// The conversation a handler moved the athlete onto, or the topic it opened
+/// in the one they are on, if either.
 ///
-/// Write-once: a command rotates a thread at most once, and a second write
+/// Write-once: a command moves a thread at most once, and a second write
 /// would mean two handlers each believing they owned the turn. Defaults to
 /// "nothing moved", which is the answer for all but `/reset`.
 #[derive(Debug, Default)]
-pub struct ConversationRotation(OnceLock<String>);
+pub struct ConversationRotation(OnceLock<ThreadMove>);
+
+/// What a handler did to the thread the command was typed in.
+#[derive(Debug)]
+enum ThreadMove {
+    /// Moved the athlete onto another conversation, by its id.
+    Rotated(String),
+    /// Opened a new topic inside the same conversation — the athlete's
+    /// personal thread (carnet#840) — by the divider row's id.
+    OpenedTopic(String),
+}
 
 impl ConversationRotation {
     /// Record the conversation the athlete is now on.
@@ -188,9 +199,19 @@ impl ConversationRotation {
     /// A second call is ignored and logged: the first writer is the one that
     /// actually rotated the thread.
     pub fn record(&self, conversation_id: String) {
-        if let Err(ignored) = self.0.set(conversation_id) {
+        self.set(ThreadMove::Rotated(conversation_id));
+    }
+
+    /// Record that the athlete stays on the thread, in a new topic opened by
+    /// the divider `divider_id`. Write-once like [`Self::record`].
+    pub fn record_topic(&self, divider_id: String) {
+        self.set(ThreadMove::OpenedTopic(divider_id));
+    }
+
+    fn set(&self, moved: ThreadMove) {
+        if let Err(ignored) = self.0.set(moved) {
             warn!(
-                conversation_id = %ignored,
+                ignored = ?ignored,
                 "a second conversation rotation was recorded for one command turn; keeping the first"
             );
         }
@@ -199,7 +220,20 @@ impl ConversationRotation {
     /// The recorded conversation, or `None` when the turn stayed put.
     #[must_use]
     pub fn taken(&self) -> Option<&str> {
-        self.0.get().map(String::as_str)
+        match self.0.get() {
+            Some(ThreadMove::Rotated(conversation_id)) => Some(conversation_id),
+            _ => None,
+        }
+    }
+
+    /// The divider of the topic the turn opened, or `None` when it opened
+    /// none.
+    #[must_use]
+    pub fn opened_topic(&self) -> Option<&str> {
+        match self.0.get() {
+            Some(ThreadMove::OpenedTopic(divider_id)) => Some(divider_id),
+            _ => None,
+        }
     }
 }
 

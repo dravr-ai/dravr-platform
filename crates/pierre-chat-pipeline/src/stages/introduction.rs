@@ -41,6 +41,7 @@
 
 use pierre_core::models::{AgentRuntimeContext, ConversationRecord, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::repositories::ChatRepository;
 use tracing::{info, warn};
 
 use crate::turn::TurnInput;
@@ -72,11 +73,44 @@ impl PendingIntroduction {
 /// The thread an introduction belongs to.
 ///
 /// A group-bound conversation is one member's row in a shared room, and the
-/// room is what heard the agent, so it is the group id. Any other
-/// conversation is its own thread.
+/// room is what heard the agent, so it is the group id. A personal thread is
+/// one conversation holding many topics, each opened by a divider where any
+/// other thread would forge a fresh conversation (carnet#840), so its thread
+/// is the current topic — `topic`, the newest divider, from [`current_topic`]
+/// — and the conversation before the first one. Any other conversation is its
+/// own thread.
 #[must_use]
-pub fn introduction_thread(conv: &ConversationRecord) -> &str {
-    conv.group_id.as_deref().unwrap_or(&conv.id)
+pub fn introduction_thread<'a>(conv: &'a ConversationRecord, topic: Option<&'a str>) -> &'a str {
+    if let Some(group_id) = conv.group_id.as_deref() {
+        return group_id;
+    }
+    match topic {
+        Some(divider) if conv.personal => divider,
+        _ => &conv.id,
+    }
+}
+
+/// The current topic of a personal thread: its newest divider, or `None`
+/// before the first one and for any other conversation.
+///
+/// A divider that cannot be read answers `None`, leaving the conversation as
+/// the thread: the agent may then go unintroduced in a new topic, which is
+/// recoverable, where a second introduction in one topic is not.
+pub async fn current_topic(
+    chat: &dyn ChatRepository,
+    conv: &ConversationRecord,
+    tenant_id: TenantId,
+) -> Option<String> {
+    if !conv.personal || conv.group_id.is_some() {
+        return None;
+    }
+    match chat.latest_divider_id(&conv.id, tenant_id).await {
+        Ok(topic) => topic,
+        Err(e) => {
+            warn!(error = %e, conversation_id = %conv.id, "newest divider unreadable; introducing against the whole thread");
+            None
+        }
+    }
 }
 
 /// The title an agent introduces itself by: the localized one when the store
@@ -142,7 +176,8 @@ pub(crate) async fn resolve(
 ) -> Option<PendingIntroduction> {
     let agent = agent?;
     let agent_id = input.turn_agent_id(conv)?;
-    let thread_id = introduction_thread(conv);
+    let topic = current_topic(ctx.repos.chat.as_ref(), conv, input.conversation_tenant_id).await;
+    let thread_id = introduction_thread(conv, topic.as_deref());
     match ctx
         .repos
         .chat

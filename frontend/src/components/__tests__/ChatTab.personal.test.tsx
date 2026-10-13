@@ -17,6 +17,7 @@ const getConversations = vi.fn();
 const getConversationMessages = vi.fn();
 const getConversationVerdicts = vi.fn();
 const createConversation = vi.fn();
+const openPersonalTopic = vi.fn();
 const markConversationRead = vi.fn();
 const sendTurn = vi.fn();
 const listStarters = vi.fn();
@@ -31,6 +32,7 @@ vi.mock('../../services/api', () => ({
     getConversationMessages: (...a: unknown[]) => getConversationMessages(...a),
     getConversationVerdicts: (...a: unknown[]) => getConversationVerdicts(...a),
     createConversation: (...a: unknown[]) => createConversation(...a),
+    openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
     markConversationRead: (...a: unknown[]) => markConversationRead(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
     listStarters: (...a: unknown[]) => listStarters(...a),
@@ -145,6 +147,10 @@ describe('Home — the personal surface', () => {
     markConversationRead.mockResolvedValue(undefined);
     listCoaches.mockResolvedValue({ agents: [] });
     createConversation.mockResolvedValue({ id: 'conv-new', title: 'Chat' });
+    openPersonalTopic.mockResolvedValue({
+      conversation: { id: 'conv-new', title: 'Dravr', personal: true },
+      divider: null,
+    });
     listStarters.mockResolvedValue(STARTERS);
     sendTurn.mockResolvedValue(undefined);
   });
@@ -231,7 +237,7 @@ describe('Home — the personal surface', () => {
     expect(screen.queryByTestId('home-today-panel')).toBeNull();
   });
 
-  it('offers the starters ranked for the athlete with no thread open, and a tap opens a thread on its postback', async () => {
+  it('offers the starters ranked for the athlete with no thread open, and a tap opens a topic on its postback', async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -253,10 +259,11 @@ describe('Home — the personal surface', () => {
 
     await user.click(within(empty).getByTestId('chat-empty-starter-about_me'));
 
-    // The athlete speaks first: the thread is created without a welcome, so
-    // the same starters are not offered again over the answer.
-    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1));
-    expect(createConversation.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
+    // The athlete speaks first: the topic opens in the personal thread without
+    // a welcome, so the same starters are not offered again over the answer.
+    await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledTimes(1));
+    expect(openPersonalTopic.mock.calls[0][0]).toMatchObject({ athlete_speaks_first: true });
+    expect(createConversation).not.toHaveBeenCalled();
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
     const [conversationId, content] = sendTurn.mock.calls[0];
     expect(conversationId).toBe('conv-new');

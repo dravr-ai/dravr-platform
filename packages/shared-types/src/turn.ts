@@ -145,6 +145,13 @@ export interface TurnEnvelope {
    */
   rotated_to_conversation_id?: string;
   /**
+   * The divider of the topic this turn opened, when `/reset` was typed in the
+   * athlete's personal thread. Nothing rotates — the athlete stays on the
+   * thread — but the divider was written before the turn's own rows, so a
+   * client that reads this re-reads the thread to draw it in place.
+   */
+  opened_topic_divider_id?: string;
+  /**
    * The opening an agent posted because this turn bound it into the thread
    * (`/agent add`, or `/group create` adopting the thread).
    *

@@ -19,7 +19,7 @@ import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useTranslation } from '@pierre/i18n';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
-import { useConversations } from '../chat/useConversations';
+import { useOpenPersonalTopic } from '../chat/usePersonalThread';
 import { threadHref } from '../../navigation/routes';
 
 /**
@@ -39,7 +39,7 @@ export function OnboardingCoachProposalScreen() {
   const progress = useOnboardingProgress('coach_proposal');
   const [selecting, setSelecting] = useState<string | null>(null);
   const router = useRouter();
-  const { createConversation } = useConversations();
+  const openPersonalTopic = useOpenPersonalTopic();
 
   // A sport as the profile spells it, in the athlete's language when the
   // vocabulary knows it and as spelled on the wire when it does not.
@@ -63,13 +63,13 @@ export function OnboardingCoachProposalScreen() {
       // Non-fatal: the choice below still opens the coach's thread.
     }
     // « Démarrer » means start talking to this coach: the step is done, and
-    // the athlete lands inside a thread bound to the coach rather than on
-    // the list. Marking the step first lets the layout leave onboarding. The
-    // server names the thread after the coach.
+    // the athlete lands in their personal thread, in a topic bound to the
+    // coach, rather than on the list. Marking the step first lets the layout
+    // leave onboarding.
     await markSeen();
     try {
-      const conversation = await createConversation({ agent_id: agentId });
-      router.push(threadHref(conversation.id));
+      const personalThreadId = await openPersonalTopic({ agent_id: agentId });
+      router.push(threadHref(personalThreadId));
     } catch {
       // The list still opens; the "+" starts the thread.
     }

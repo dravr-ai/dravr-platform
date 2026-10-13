@@ -102,26 +102,28 @@ async function setupStoreMocks(
   // Set up base dashboard mocks for regular user
   await setupDashboardMocks(page, { role: 'user' });
 
-  // "Open chat" on the post-install hint creates a conversation; the base
-  // mocks answer every method with the list shape, so the POST needs its own.
-  await page.route('**/api/chat/conversations', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fallback();
-      return;
-    }
+  // "Open chat" on the post-install hint opens a topic bound to the copy in
+  // the athlete's one thread (carnet#840), which forges it for an athlete with
+  // none yet.
+  await page.route('**/api/chat/personal/topics', async (route) => {
+    const { agent_id: agentId } = route.request().postDataJSON() as { agent_id?: string };
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
-        id: 'conv-from-hint',
-        title: 'Chat Aug 26 9:00 PM',
-        model: null,
-        total_tokens: 0,
-        agent_id: null,
-        channel_type: null,
-        created_at: '2026-08-26T21:00:00Z',
-        updated_at: '2026-08-26T21:00:00Z',
-        message_count: 0,
+        conversation: {
+          id: 'conv-from-hint',
+          title: 'Chat Aug 26 9:00 PM',
+          model: null,
+          total_tokens: 0,
+          agent_id: agentId ?? null,
+          channel_type: null,
+          personal: true,
+          created_at: '2026-08-26T21:00:00Z',
+          updated_at: '2026-08-26T21:00:00Z',
+          message_count: 0,
+        },
+        divider: null,
       }),
     });
   });
@@ -946,7 +948,7 @@ test.describe('Agent Store Failures', () => {
 });
 
 test.describe('Agent Store Navigation', () => {
-  test('Open chat on the hint starts a conversation bound to the installed copy and lands on it', async ({ page }) => {
+  test('Open chat on the hint opens a topic bound to the installed copy in the athlete\'s thread and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -959,16 +961,16 @@ test.describe('Agent Store Navigation', () => {
     await page.getByRole('button', { name: 'Add Agent' }).click();
     await expect(page.getByTestId('post-install-hint')).toBeVisible({ timeout: 5000 });
 
-    const created = page.waitForRequest(
-      (request) => request.method() === 'POST' && request.url().includes('/api/chat/conversations'),
+    const opened = page.waitForRequest(
+      (request) => request.method() === 'POST' && request.url().includes('/api/chat/personal/topics'),
     );
     await page.getByTestId('post-install-open-chat').click();
     // Bound to the copy the install minted, not the listing, so the server
-    // posts the agent's welcome; no title, so it names the thread after it.
-    expect((await created).postDataJSON()).toEqual({ agent_id: personalCopyOf(mockStoreCoaches[0]).id });
+    // posts the agent's welcome — in the athlete's thread, never a second one.
+    expect((await opened).postDataJSON()).toEqual({ agent_id: personalCopyOf(mockStoreCoaches[0]).id });
 
-    // The new conversation is the route: Discover has no agent list to return to.
-    await expect(page).toHaveURL(/#chat\/conv-from-hint$/, { timeout: 10000 });
+    // The athlete's thread on Home is the route: Discover has no agent list to return to.
+    await expect(page).toHaveURL(/#home\/chat\/conv-from-hint$/, { timeout: 10000 });
     await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
   });
 

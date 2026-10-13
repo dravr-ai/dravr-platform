@@ -82,13 +82,14 @@ pub struct OnboardingReset {
 /// A conversation that is the user's alone.
 ///
 /// Theirs, in-app (the web and
-/// mobile clients create with the column's `web` default, messaging threads
-/// carry their channel), bound to no group, and shared with nobody. A
-/// messaging room keeps a per-member row, and an in-app thread can carry other
-/// participants; either is somebody else's history too, so neither matches.
+/// mobile clients create with the column's `web` default, a `/reset` stamps
+/// the client it was typed on, messaging threads carry their channel), bound
+/// to no group, and shared with nobody. A messaging room keeps a per-member
+/// row, and an in-app thread can carry other participants; either is somebody
+/// else's history too, so neither matches.
 macro_rules! personal_conversation {
     () => {
-        "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND channel_type = 'web' \
+        "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND channel_type IN ('web', 'mobile') \
          AND NOT EXISTS (SELECT 1 FROM conversation_participants p \
          WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"
     };
