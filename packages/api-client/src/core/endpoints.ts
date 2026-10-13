@@ -145,14 +145,12 @@ export const ENDPOINTS = {
     READ: (id: string) => `/api/notifications/${id}/read`,
     /** Delete a notification */
     DELETE: (id: string) => `/api/notifications/${id}`,
-    /** Register/list device tokens */
+    /** Register device tokens */
     DEVICES: '/api/notifications/device',
     /** Deactivate a specific device token */
     DEVICE: (id: string) => `/api/notifications/device/${id}`,
     /** Get/update notification preferences */
     PREFERENCES: '/api/notifications/preferences',
-    /** Sync badge count with server */
-    BADGE_SYNC: '/api/notifications/badge-sync',
   },
 
   // ==================== GROUPS ====================

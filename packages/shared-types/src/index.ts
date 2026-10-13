@@ -261,7 +261,6 @@ export type {
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
-  BadgeSyncResponse,
 } from './notifications.js';
 
 // Admin types (admin tokens, A2A protocol, dashboard)

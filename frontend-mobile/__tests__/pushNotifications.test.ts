@@ -14,6 +14,7 @@ import {
   PUSH_UNREGISTER_TIMEOUT_MS,
   canHoldPushToken,
   registerPushDevice,
+  releasePushDevice,
   unregisterPushDevice,
 } from '../src/services/pushNotifications';
 
@@ -60,6 +61,7 @@ const requestPermissions = Notifications.requestPermissionsAsync as jest.Mock;
 const getExpoPushToken = Notifications.getExpoPushTokenAsync as jest.Mock;
 const setChannel = Notifications.setNotificationChannelAsync as jest.Mock;
 const setBadge = Notifications.setBadgeCountAsync as jest.Mock;
+const releaseToken = Notifications.unregisterForNotificationsAsync as jest.Mock;
 
 const EXPO_TOKEN = 'ExponentPushToken[abc123]';
 
@@ -381,6 +383,26 @@ describe('push registration', () => {
       expect(setBadge).toHaveBeenCalledWith(0);
     });
 
+    it('releases the push token once the server has been asked, so the phone stops receiving either way', async () => {
+      await AsyncStorage.setItem(PUSH_DEVICE_STORAGE_KEY, 'device-1');
+
+      await unregisterPushDevice();
+
+      expect(releaseToken).toHaveBeenCalledTimes(1);
+      expect(deactivateDevice.mock.invocationCallOrder[0]).toBeLessThan(
+        releaseToken.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('releases the push token when the server cannot be reached', async () => {
+      await AsyncStorage.setItem(PUSH_DEVICE_STORAGE_KEY, 'device-1');
+      deactivateDevice.mockRejectedValue(new Error('Network Error'));
+
+      await unregisterPushDevice();
+
+      expect(releaseToken).toHaveBeenCalledTimes(1);
+    });
+
     it('asks the server for nothing when this install never registered', async () => {
       await unregisterPushDevice();
 
@@ -436,6 +458,44 @@ describe('push registration', () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+  });
+  describe('releasePushDevice', () => {
+    it('stops the pushes without the server: releases the token, forgets the row, clears the badge', async () => {
+      await AsyncStorage.setItem(PUSH_DEVICE_STORAGE_KEY, 'device-1');
+
+      await releasePushDevice();
+
+      expect(deactivateDevice).not.toHaveBeenCalled();
+      expect(releaseToken).toHaveBeenCalledTimes(1);
+      expect(await AsyncStorage.getItem(PUSH_DEVICE_STORAGE_KEY)).toBeNull();
+      expect(setBadge).toHaveBeenCalledWith(0);
+    });
+
+    it('does not hold the sign-out on a token release that never settles', async () => {
+      releaseToken.mockReturnValueOnce(new Promise(() => {}));
+
+      await expect(releasePushDevice()).resolves.toBeUndefined();
+
+      expect(releaseToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs a token release the phone refuses without failing the sign-out', async () => {
+      releaseToken.mockRejectedValueOnce(new Error('No push service'));
+
+      await expect(releasePushDevice()).resolves.toBeUndefined();
+      await Promise.resolve();
+
+      expect(warnSpy).toHaveBeenCalledWith('Push token release failed:', 'Error: No push service');
+    });
+
+    it('releases nothing on a simulator, which never held a push token', async () => {
+      mockIsDevice = false;
+
+      await releasePushDevice();
+
+      expect(releaseToken).not.toHaveBeenCalled();
+      expect(setBadge).toHaveBeenCalledWith(0);
     });
   });
 });

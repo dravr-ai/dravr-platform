@@ -208,11 +208,6 @@ impl NotificationRoutes {
                 "/api/notifications/analytics",
                 get(Self::handle_get_analytics::<C>),
             )
-            // Badge sync
-            .route(
-                "/api/notifications/badge-sync",
-                post(Self::handle_badge_sync::<C>),
-            )
             // Scheduled notifications
             .route(
                 "/api/notifications/scheduled",
@@ -298,7 +293,11 @@ impl NotificationRoutes {
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
 
-    /// Handle GET /api/notifications/device - List active device tokens
+    /// Handle GET /api/notifications/device - List active device tokens.
+    ///
+    /// An external caller (an API key, MCP, A2A) sees only the devices external
+    /// callers registered. A token is all it takes to push to a phone through
+    /// Expo's public API, so the Dravr app's own tokens stay off this answer.
     async fn handle_list_devices<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -308,9 +307,11 @@ impl NotificationRoutes {
 
         let service = Self::get_service(&resources)?;
         let tokens = notif(service.get_device_tokens(auth.user_id, tenant_id).await)?;
+        let caller = device_registrar();
 
         let response: Vec<DeviceTokenResponse> = tokens
             .into_iter()
+            .filter(|t| caller == DeviceRegistrar::FirstParty || t.registrar == caller)
             .map(|t| DeviceTokenResponse {
                 id: t.id,
                 user_id: t.user_id,
@@ -326,7 +327,11 @@ impl NotificationRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Handle DELETE /api/notifications/device/:id - Deactivate device token
+    /// Handle DELETE /api/notifications/device/:id - Deactivate device token.
+    ///
+    /// An external caller deactivates only an active device external callers
+    /// registered. The Dravr app's own device answers as not found, as it is
+    /// absent from the list, so an API key cannot silence the phone's pushes.
     async fn handle_deactivate_device<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -336,6 +341,15 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
+        if device_registrar() == DeviceRegistrar::External {
+            let tokens = notif(service.get_device_tokens(auth.user_id, tenant_id).await)?;
+            if !tokens
+                .iter()
+                .any(|t| t.id == id && t.registrar == DeviceRegistrar::External)
+            {
+                return Err(AppError::not_found("Device token"));
+            }
+        }
         let deactivated = notif(
             service
                 .deactivate_device_token(auth.user_id, tenant_id, id)
@@ -949,20 +963,6 @@ impl NotificationRoutes {
         }
 
         Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
-    }
-
-    /// Handle POST /api/notifications/badge-sync - Get unread count for badge display
-    async fn handle_badge_sync<C: GroupsCtx + MiddlewareCtx>(
-        State(resources): State<Arc<C>>,
-        auth: AuthenticatedUser,
-    ) -> Result<Response, AppError> {
-        let auth = auth.into_inner();
-        let tenant_id = Self::get_tenant_id(&auth)?;
-
-        let service = Self::get_service(&resources)?;
-        let count = notif(service.get_unread_count(auth.user_id, tenant_id).await)?;
-
-        Ok((StatusCode::OK, Json(serde_json::json!({"count": count}))).into_response())
     }
 }
 

@@ -202,14 +202,11 @@ async function deactivateWithin(deviceId: string, ms: number): Promise<void> {
  * row needs the session it belongs to; once the server has answered, the
  * signed-out phone receives nothing meant for the athlete who used it. It
  * never throws and waits at most {@link PUSH_UNREGISTER_TIMEOUT_MS}: a server
- * that cannot be reached must not keep an athlete signed in.
+ * that cannot be reached must not keep an athlete signed in. The phone then
+ * releases its push token itself ({@link releasePushDevice}), so a sign-out
+ * the server never heard still stops the pushes.
  */
 export async function unregisterPushDevice(): Promise<void> {
-  // LIMITATION(registre#301): a sign-out that never reaches the server (the phone
-  // is offline, or the app was signed out because the refresh token died, which
-  // leaves no session to deactivate with) leaves this install's device row
-  // active, so the signed-out phone keeps receiving the athlete's pushes until
-  // its token is registered again.
   try {
     const deviceId = await AsyncStorage.getItem(PUSH_DEVICE_STORAGE_KEY);
     if (deviceId) {
@@ -218,14 +215,35 @@ export async function unregisterPushDevice(): Promise<void> {
   } catch (error) {
     console.warn('Push device deactivation failed:', String(error));
   }
+  await releasePushDevice();
+}
+
+/**
+ * Stop this install receiving pushes without asking the server.
+ *
+ * The session may already be gone (the refresh token died) or the phone
+ * offline, so nothing here needs either. Unregistering for remote
+ * notifications voids the install's push token, so the phone shows nothing
+ * pushed to it from then on. Apple or Google then report the token
+ * unregistered, and the server retires the row when it reads that from the
+ * next push's Expo receipt (or ticket). The next sign-in asks for a token
+ * again, which registers anew. Neither native call holds up a sign-out,
+ * because either can go unanswered (Expo Go on the iOS simulator), and
+ * neither failure fails it.
+ */
+export async function releasePushDevice(): Promise<void> {
   try {
     await AsyncStorage.removeItem(PUSH_DEVICE_STORAGE_KEY);
   } catch (error) {
     console.warn('Push device cleanup failed:', String(error));
   }
-  // The badge is cosmetic, and its native call can go unanswered (Expo Go on
-  // the iOS simulator), so sign-out does not wait on it.
-  void loadNotifications()
+  const notifications = loadNotifications();
+  if (canHoldPushToken()) {
+    void notifications
+      ?.unregisterForNotificationsAsync()
+      .catch((error: unknown) => console.warn('Push token release failed:', String(error)));
+  }
+  void notifications
     ?.setBadgeCountAsync(0)
     .catch((error: unknown) => console.warn('Push badge reset failed:', String(error)));
 }

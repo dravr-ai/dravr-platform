@@ -15,7 +15,6 @@ import type {
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
-  BadgeSyncResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -30,7 +29,6 @@ export type {
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
-  BadgeSyncResponse,
 };
 
 /**
@@ -47,19 +45,6 @@ export function createNotificationsApi(axios: AxiosInstance) {
      */
     async registerDevice(request: RegisterDeviceTokenRequest): Promise<DeviceToken> {
       const response = await axios.post<DeviceToken>(ENDPOINTS.NOTIFICATIONS.DEVICES, request);
-      return response.data;
-    },
-
-    /**
-     * List active device tokens for the current user.
-     *
-     * LIMITATION(registre#301): `listDevices` has no production caller. The
-     * mobile app registers and deactivates its own device from the id it stored
-     * when it registered, and neither client has a screen that lists an
-     * athlete's devices.
-     */
-    async listDevices(): Promise<DeviceToken[]> {
-      const response = await axios.get<DeviceToken[]>(ENDPOINTS.NOTIFICATIONS.DEVICES);
       return response.data;
     },
 
@@ -144,21 +129,6 @@ export function createNotificationsApi(axios: AxiosInstance) {
      */
     async deleteNotification(notificationId: string): Promise<void> {
       await axios.delete(ENDPOINTS.NOTIFICATIONS.DELETE(notificationId));
-    },
-
-    // ==================== BADGE SYNC ====================
-
-    /**
-     * Sync badge count with the server.
-     * Returns the current unread notification count for updating the app badge.
-     *
-     * LIMITATION(registre#301): `badgeSync` has no production caller. The mobile
-     * app's icon badge follows the `getUnreadCount` query the in-app bell
-     * already polls, which this route duplicates.
-     */
-    async badgeSync(): Promise<BadgeSyncResponse> {
-      const response = await axios.post<BadgeSyncResponse>(ENDPOINTS.NOTIFICATIONS.BADGE_SYNC);
-      return response.data;
     },
   };
 }

@@ -6,7 +6,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import { signInWithHostedPage } from '../utils/hostedSignIn';
-import { unregisterPushDevice } from '../services/pushNotifications';
+import { releasePushDevice, unregisterPushDevice } from '../services/pushNotifications';
 import type { User, FirebaseLoginResponse } from '../types';
 
 interface AuthContextType {
@@ -132,10 +132,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => subscription.remove();
   }, [signedIn]);
 
-  // Listen for auth failures (401 responses)
+  // Listen for auth failures (401 responses). The session is already gone, so
+  // the phone releases its push token itself rather than asking the server.
   useEffect(() => {
     const unsubscribe = onAuthFailure(() => {
       setUser(null);
+      void releasePushDevice();
     });
     return unsubscribe;
   }, []);

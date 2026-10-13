@@ -567,13 +567,13 @@ mod notification_routes_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Badge sync tests
+    // Unread count (the app icon badge reads it)
     // ════════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn test_badge_sync_returns_unread_count() {
+    async fn test_unread_count_counts_each_unread_notification() {
         let resources = create_test_server_resources().await.unwrap();
-        let (user, token) = create_test_tenant(&resources, "badge_sync@example.com")
+        let (user, token) = create_test_tenant(&resources, "unread_count@example.com")
             .await
             .unwrap();
 
@@ -595,8 +595,8 @@ mod notification_routes_tests {
                     user_id: user.id,
                     tenant_id: CommereTenantId(tenant_id.as_uuid()),
                     category: NotificationCategory::Training,
-                    notification_type: format!("badge_test_{i}"),
-                    title: format!("Badge test {i}"),
+                    notification_type: format!("unread_test_{i}"),
+                    title: format!("Unread test {i}"),
                     body: format!("Body {i}"),
                     data: None,
                     image_url: None,
@@ -608,16 +608,13 @@ mod notification_routes_tests {
 
         let router = NotificationRoutes::routes(Arc::clone(&resources));
 
-        let response = AxumTestRequest::post("/api/notifications/badge-sync")
+        let response = AxumTestRequest::get("/api/notifications/unread-count")
             .header("authorization", &format!("Bearer {token}"))
             .send(router)
             .await;
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert_eq!(
-            body["count"], 2,
-            "Badge sync should return 2 unread notifications"
-        );
+        assert_eq!(body["unread_count"], 2, "both notifications are unread");
     }
 }

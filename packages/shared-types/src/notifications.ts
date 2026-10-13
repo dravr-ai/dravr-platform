@@ -145,12 +145,6 @@ export interface NotificationItem {
   collapsed_ids?: string[];
 }
 
-/** Response for POST /api/notifications/badge-sync */
-export interface BadgeSyncResponse {
-  /** Current unread notification count */
-  count: number;
-}
-
 /** Response for GET /api/notifications (feed) */
 export interface NotificationFeedResponse {
   /** List of notifications */

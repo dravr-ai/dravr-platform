@@ -1541,8 +1541,24 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
     use pierre_notifications::events::stamp_data;
     use pierre_notifications::models::{DeviceRegistrar, NotificationCategory};
     use pierre_notifications::{
-        DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId,
+        DispatchOutcome, DispatchRequest, NotificationService, PushTier, TenantId as CommTenantId,
     };
+    use std::collections::BTreeMap;
+
+    /// The user's active push devices: each one's id, keyed by its Expo token
+    async fn devices_by_token(
+        service: &NotificationService,
+        user_id: Uuid,
+        tenant_id: CommTenantId,
+    ) -> BTreeMap<String, String> {
+        service
+            .get_device_tokens(user_id, tenant_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|token| (token.expo_push_token, token.id.to_string()))
+            .collect()
+    }
 
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
@@ -1664,6 +1680,53 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
                 DeviceRegistrar::External
             ),
         ]
+    );
+
+    // Listing devices hands an external caller only the devices external
+    // callers registered: the app's push token would let it push to the phone.
+    let (status, listed) = get(&app, "/api/notifications/device", &key).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let listed = listed.to_string();
+    assert!(listed.contains("transport-gate-key"), "{listed}");
+    assert!(!listed.contains("transport-gate-app"), "{listed}");
+    let (_, own) = get(&app, "/api/notifications/device", &session).await;
+    let own = own.to_string();
+    assert!(
+        own.contains("transport-gate-key") && own.contains("transport-gate-app"),
+        "{own}"
+    );
+
+    // Nor can an external caller deactivate the app's device: it answers as
+    // not found and the row stays active, while the caller's own device goes.
+    let app_device_id = registered["id"].as_str().expect("registered device id");
+    let key_device_id = devices_by_token(&service, rider.user_id, tenant_id)
+        .await
+        .remove("ExponentPushToken[transport-gate-key]")
+        .expect("the key's device is active");
+    let none = serde_json::json!({});
+    let (status, body) = send_json(
+        &app,
+        "DELETE",
+        &format!("/api/notifications/device/{app_device_id}"),
+        &key,
+        &none,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, body) = send_json(
+        &app,
+        "DELETE",
+        &format!("/api/notifications/device/{key_device_id}"),
+        &key,
+        &none,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let active = devices_by_token(&service, rider.user_id, tenant_id).await;
+    assert_eq!(
+        active.keys().collect::<Vec<_>>(),
+        vec!["ExponentPushToken[transport-gate-app]"],
+        "{active:?}"
     );
 }
 

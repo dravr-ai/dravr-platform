@@ -7,7 +7,7 @@ import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-nat
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import * as WebBrowser from 'expo-web-browser';
 import { authApi, onAuthFailure } from '../src/services/api';
-import { unregisterPushDevice } from '../src/services/pushNotifications';
+import { releasePushDevice, unregisterPushDevice } from '../src/services/pushNotifications';
 
 // Mock the api service
 jest.mock('../src/services/api', () => ({
@@ -28,6 +28,7 @@ jest.mock('../src/services/api', () => ({
 // here it is the call sign-out makes, and when.
 jest.mock('../src/services/pushNotifications', () => ({
   unregisterPushDevice: jest.fn(() => Promise.resolve()),
+  releasePushDevice: jest.fn(() => Promise.resolve()),
 }));
 
 /** What the transport raises when the phone is offline: no response at all. */
@@ -671,6 +672,27 @@ describe('AuthContext', () => {
 
       expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
       expect(getByTestId('user-email').children[0]).toBe('no-user');
+    });
+
+    // The refused session cannot deactivate the device row, so the phone
+    // releases its push token itself; without it a phone signed out this way
+    // kept receiving the athlete's pushes.
+    it('releases the push token without asking the server when the listener fires', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+
+      render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+
+      const notifyAuthFailure = (onAuthFailure as jest.Mock).mock.calls[0][0] as () => void;
+      await act(async () => {
+        notifyAuthFailure();
+      });
+
+      expect(releasePushDevice).toHaveBeenCalledTimes(1);
+      expect(unregisterPushDevice).not.toHaveBeenCalled();
     });
   });
 });
