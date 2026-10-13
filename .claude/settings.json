@@ -48,7 +48,7 @@
           {
             "type": "command",
             "timeout": 20,
-            "command": "[ -f .agents/skills/bilan/hooks/session-start-sweep.sh ] && bash .agents/skills/bilan/hooks/session-start-sweep.sh || true"
+            "command": "[ -f .build/ci/savoir.sh ] && SAVOIR_LOCK_WAIT=10 bash .build/ci/savoir.sh sync >/dev/null 2>&1; [ -f .claude/skills/bilan/hooks/session-start-sweep.sh ] && bash .claude/skills/bilan/hooks/session-start-sweep.sh || true"
           },
           {
             "type": "command",
@@ -65,7 +65,7 @@
           {
             "type": "command",
             "timeout": 20,
-            "command": "[ -f .agents/skills/carnet/hooks/prompt-status.sh ] && bash .agents/skills/carnet/hooks/prompt-status.sh || true"
+            "command": "[ -f .claude/skills/carnet/hooks/prompt-status.sh ] && bash .claude/skills/carnet/hooks/prompt-status.sh || true"
           }
         ]
       }
@@ -76,7 +76,7 @@
           {
             "type": "command",
             "timeout": 30,
-            "command": "[ -f .agents/skills/carnet/hooks/session-end-release.sh ] && bash .agents/skills/carnet/hooks/session-end-release.sh || true"
+            "command": "[ -f .claude/skills/carnet/hooks/session-end-release.sh ] && bash .claude/skills/carnet/hooks/session-end-release.sh || true"
           }
         ]
       }
@@ -88,7 +88,7 @@
           {
             "type": "command",
             "timeout": 20,
-            "command": "[ -f .agents/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .agents/skills/carnet/hooks/auto-claim.sh"
+            "command": "[ -f .claude/skills/carnet/hooks/auto-claim.sh ] || exit 0; bash .claude/skills/carnet/hooks/auto-claim.sh"
           }
         ]
       },

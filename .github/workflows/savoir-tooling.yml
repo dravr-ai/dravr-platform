@@ -1,0 +1,72 @@
+# ABOUTME: Runs the private dravr-savoir tooling suite against this commit when a change here can break it
+# ABOUTME: Public minutes, so an exhausted private quota cannot hide a red; --quiet keeps private output out of the log
+#
+# The carnet, bilan, private-ci and retro scripts moved to the private dravr-savoir
+# (carnet#890), and their tests run inside a checkout of this repo. What they read
+# from here — the hook wiring in .claude/settings.json, registre.toml, the .build pin,
+# the floor — still changes here, and without this lane such a change would first be
+# tested at the next push to dravr-savoir. So this lane clones dravr-savoir into
+# .savoir/ and runs its suite at this exact commit.
+#
+# It runs here, on this public repo's free minutes, rather than by dispatching
+# dravr-savoir's own workflow: the private-repo minutes run out (2026-09-22,
+# 2026-10-13), and a lane waiting on them goes red for a bill, not a break. The
+# runner's --quiet mode prints each suite's verdict and counts only; the suites'
+# output, which can quote private scripts, never reaches this public log.
+#
+# Cloning dravr-savoir needs a token that reaches it; GITHUB_TOKEN reaches only this
+# repository, so the lane reads DRAVR_CARNET_TOKEN, as purge-landed-branches does.
+
+name: "Guard: private tooling"
+
+on:
+  push:
+    branches: [ "main", "feature/**", "features/**", "fix/**", "claude/**" ]
+    paths:
+      - '.claude/settings.json'
+      # The link every suite resolves the private scripts through.
+      - '.claude/skills'
+      - '.gitignore'
+      - 'AGENTS.md'
+      - 'registre.toml'
+      - '.build'
+      - '.github/workflows/savoir-tooling.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  # Per commit on main, so no verdict is evicted; branches keep only the latest.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  private-tooling:
+    name: dravr-savoir tooling at this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Clone dravr-savoir into .savoir/
+        env:
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::DRAVR_CARNET_TOKEN is empty — the private suite cannot be fetched, so nothing would be tested"
+            exit 1
+          fi
+          # gh's clone prints no commit subject, so nothing of the private history reaches this log.
+          gh repo clone dravr-ai/dravr-savoir .savoir -- --quiet --depth 1
+          test -f .savoir/ci/run-tooling-tests.sh
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Every tooling suite (verdicts only)
+        run: bash .savoir/ci/run-tooling-tests.sh --quiet

@@ -971,7 +971,7 @@ else
     if [ -n "$PHANTOM_ITEMS" ]; then
         echo -e "${RED}❌ Phantom capability surface — declared but never consumed in production:${NC}"
         for item in $PHANTOM_ITEMS; do echo "  - $item"; done
-        fail_validation "Wire a production consumer or add a LIMITATION(registre#issue) marker line naming each item (see docs/coding-standards.md 'Consume what you declare')"
+        fail_validation "Wire a production consumer or add a LIMITATION(registre#issue) marker line naming each item (see .savoir/platform/coding-standards.md 'Consume what you declare')"
     else
         pass_validation "Every declared capability is consumed or registered"
     fi

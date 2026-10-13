@@ -158,7 +158,7 @@ where
 /// This reads the Terraform source on purpose: the log line and the metric
 /// filter live on two sides of a boundary no test can cross (the metric runs
 /// in Cloud Logging), and a reworded line would otherwise stop paging in
-/// silence (docs/coding-standards.md, Tests).
+/// silence (.savoir/platform/coding-standards.md, Tests).
 fn metric_filter() -> Regex {
     let terraform =
         include_str!("../../../infra/environments/dev/claim_verification_monitoring.tf");

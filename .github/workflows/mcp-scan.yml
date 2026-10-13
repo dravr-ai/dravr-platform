@@ -1,4 +1,4 @@
-# ABOUTME: CI workflow that scans MCP server config and Claude skills for security issues
+# ABOUTME: CI workflow that scans the MCP server config for security issues (the skills scan runs in dravr-savoir)
 # ABOUTME: Uses Snyk Agent Scan (formerly mcp-scan) via uvx to detect prompt injection and tool poisoning
 
 name: "Security: MCP Tool Scan"
@@ -8,13 +8,11 @@ on:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - '.mcp.json'
-      - '.claude/skills/**'
       - '.github/workflows/mcp-scan.yml'
   pull_request:
     branches: [ main ]
     paths:
       - '.mcp.json'
-      - '.claude/skills/**'
       - '.github/workflows/mcp-scan.yml'
   schedule:
     # Weekly scan (Sundays at 3 AM UTC)
@@ -54,6 +52,3 @@ jobs:
         if: ${{ env.SNYK_TOKEN != '' }}
         run: uvx snyk-agent-scan@latest .mcp.json
 
-      - name: Scan Claude skills
-        if: ${{ env.SNYK_TOKEN != '' }}
-        run: uvx snyk-agent-scan@latest --skills .claude/skills

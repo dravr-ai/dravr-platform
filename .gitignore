@@ -54,8 +54,6 @@ eggs/
 .eggs/
 lib/
 lib64/
-# …but the skills' shared shell library is source, not a Python build artifact.
-!.agents/skills/lib/
 parts/
 sdist/
 var/
@@ -97,6 +95,9 @@ frontend/dist/
 
 # Documentation directory (symlink created per-machine by obsidian-vault-setup skill)
 claude_docs
+# The private agent knowledge (dravr-ai/dravr-savoir): a clone kept by .build/ci/savoir.sh,
+# which .claude/skills, .claude/agents, .claude/rules and AGENTS.md's import point into.
+.savoir/
 GEMINI.md
 .workflow*
 

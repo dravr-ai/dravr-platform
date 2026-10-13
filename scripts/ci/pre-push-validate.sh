@@ -748,35 +748,6 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-workflow-test-targets.sh" ]] \
 fi
 
 # ----------------------------------------------------------------------------
-# Tier 1n: AGENTS.md size budget (compile-free, instant)
-# ----------------------------------------------------------------------------
-#
-# AGENTS.md loads into every session, and it doubled in September 2026 one
-# incident paragraph at a time. carnet#660 moved the coding standards to
-# docs/coding-standards.md (read by the review-standards pass) and task
-# procedures to skills; this keeps it from regrowing unnoticed.
-if [[ -x "$PROJECT_ROOT/scripts/ci/check-agents-md-budget.sh" ]] \
-    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^AGENTS\.md$|^scripts/ci/check-agents-md-budget(\.test)?\.sh$'; then
-    echo "Tier 1n: AGENTS.md size budget"
-    echo "------------------------------"
-    if ! "$PROJECT_ROOT/scripts/ci/check-agents-md-budget.sh"; then
-        echo ""
-        echo "FAIL: AGENTS.md is over its size budget!"
-        exit 1
-    fi
-    if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-        | grep -qE '^scripts/ci/check-agents-md-budget(\.test)?\.sh$'; then
-        if ! "$PROJECT_ROOT/scripts/ci/check-agents-md-budget.test.sh"; then
-            echo ""
-            echo "FAIL: the AGENTS.md budget gate no longer catches what its self-test plants!"
-            exit 1
-        fi
-    fi
-    echo ""
-fi
-
-# ----------------------------------------------------------------------------
 # Tier 1o: Merge-Risk one-way doors (compile-free, instant, every push)
 # ----------------------------------------------------------------------------
 #

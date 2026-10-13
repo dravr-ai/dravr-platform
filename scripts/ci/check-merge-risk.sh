@@ -11,7 +11,7 @@
 #   them apart. A migration a deploy applied stays applied after the revert, a
 #   destroyed secret takes with it the versions only Secret Manager held, and a
 #   notification or email that went out cannot be called back. So every squash
-#   to main ends with a Merge-Risk trailer (AGENTS.md, review-standards skill):
+#   to main ends with a Merge-Risk trailer (.savoir/platform/AGENTS.md, review-standards skill):
 #
 #     Merge-Risk: two-way · blast radius: <area>
 #     Merge-Risk: ONE-WAY · <why it cannot be rolled back>

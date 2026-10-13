@@ -17,6 +17,10 @@
 //! (`~N files`), because it moves with every new test. It is checked against a
 //! 5% band rather than exactly, so ordinary growth does not force a doc edit
 //! while a stale order-of-magnitude still fails.
+//!
+//! AGENTS.md here is the public floor (carnet#890): the headline and the project
+//! map that carry these figures live in it, and the private rules it imports
+//! refer back to the project map instead of repeating the count.
 
 #![allow(
     clippy::unwrap_used,
@@ -180,9 +184,9 @@ fn agents_md_test_file_counts_track_the_tests_directory() {
     let agents = read_repo_file("AGENTS.md");
     let documented = approximate_file_counts(&agents);
     assert!(
-        documented.len() >= 3,
-        "AGENTS.md should carry the server test file count in at least three places \
-         (project map, backend-tests section, the NEVER-cargo-test line); found {documented:?}"
+        !documented.is_empty(),
+        "AGENTS.md's project map should carry the server test file count as `~N files`; \
+         found none"
     );
 
     for value in documented {
