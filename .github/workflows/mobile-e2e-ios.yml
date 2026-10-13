@@ -128,6 +128,10 @@ jobs:
     # `macos-latest`.
     runs-on: macos-15
     timeout-minutes: 150
+    env:
+      # The "Run Maestro tests" step's timeout-minutes, read there and by its
+      # script, whose lane deadline it is the budget of.
+      E2E_STEP_TIMEOUT_MINUTES: "90"
 
     steps:
       - name: Checkout code
@@ -152,6 +156,18 @@ jobs:
 
       - name: Make binaries executable
         run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      # Spotlight indexes the runner's volumes for the whole job, and nothing in
+      # it searches with Spotlight. In run 38436819123 this macos-15 runner
+      # (7.5 GB) sat at 0% idle with a 1-minute load average of 436-729 in all
+      # 55 samples of the test step, mds_stores and mdworker_shared were among
+      # its top CPU users in 25 of them (up to 69% and 25%), and that is the
+      # load the simulator's process launches stalled under (carnet#869). A
+      # runner that refuses keeps indexing, and the warning says so.
+      - name: Stop Spotlight indexing on the runner
+        run: |
+          sudo mdutil -a -i off \
+            || echo "::warning title=Spotlight indexing still on::mdutil -a -i off failed; the runner keeps indexing during the tests"
 
       - name: Select Xcode 16.3
         run: |
@@ -850,13 +866,108 @@ jobs:
           fi
 
       - name: Run Maestro tests
-        # 90: batch 2 carries the verdict-sheet and coach-group flows (~7-10 min
-        # each, carnet#802/#740) beside chat/01, and each batch may take a
-        # second attempt; 45 cut batch 2's first attempt short on 2026-10-08.
-        timeout-minutes: 90
+        # 90 (E2E_STEP_TIMEOUT_MINUTES): batch 2 carries the verdict-sheet and
+        # coach-group flows (~7-10 min each, carnet#802/#740) beside chat/01, and
+        # each batch may take a second attempt; 45 cut batch 2's first attempt
+        # short on 2026-10-08. The batches do not run into this cap: each
+        # attempt has its own and every batch the lane deadline below, so the
+        # step ends with its batches judged and its summary written. Run
+        # 38402697100 is why (carnet#869): batch 2's retry wrote its report at
+        # 14:30:57, its maestro never exited, and this cap killed the step at
+        # 15:16 with nothing judged or summarized.
+        timeout-minutes: ${{ fromJSON(env.E2E_STEP_TIMEOUT_MINUTES) }}
         working-directory: frontend-mobile
         run: |
           MAESTRO="$HOME/.maestro/bin/maestro"
+          STEP_START=$(date +%s)
+
+          # Every batch stops at the lane deadline, 180 s inside this step's cap:
+          # the runner's 10 s kill grace for an attempt still running there, the
+          # judge, the merge and the summary below. A batch the deadline stopped
+          # exits 3 with its report written, and the batches after it are not run.
+          if [ -z "${E2E_STEP_TIMEOUT_MINUTES:-}" ]; then
+            echo "E2E_STEP_TIMEOUT_MINUTES is not set: the lane deadline has no budget."
+            exit 1
+          fi
+          LANE_DEADLINE=$(( STEP_START + E2E_STEP_TIMEOUT_MINUTES * 60 - 180 ))
+          # Each attempt's cap, per batch. The complete attempts of 2026-10-13
+          # took 590-625 s for batch 1 and 870-890 s for batch 2 (runs
+          # 38392431568 and 38402697100), and batch 2's retry in 38402697100,
+          # its chat/11 and onboarding/02 sheets blank, wrote its report after
+          # 1156 s. A blank sheet fails its flow 240 s after the tap
+          # (helpers/open-hosted-sign-in.yaml), and a stall that does not clear
+          # blanks the sheets after it too (onboarding/02 waited 7+ min behind a
+          # launch chat/11's sheet had issued). At each flow's slowest
+          # start-to-tap time in those runs, an attempt whose every sheet stays
+          # blank reports after ~1160 s in batch 1 (three sign-in flows after
+          # login/01) and ~1190 s in batch 2. Each cap clears that: a capped
+          # attempt records no flow result, so the stall would read as a
+          # timeout instead of failing under its cause. Two capped attempts
+          # leave batch 1 nothing passed and its fail-fast ends the lane, so the
+          # longest batch 1 that batch 2 follows is a capped attempt with its
+          # kill grace, a reset (60 s plus the 15 s settle) and a blank-sheet
+          # one, its ~1160 s plus maestro's exit after the report (7.7-19.5 s
+          # on those runs): 1330 + 75 + ~1175 = ~2580 s. That leaves batch 2
+          # ~2640 s: an attempt to its cap (1450 s with the grace), a reset and
+          # a ~1115 s retry, more than a healthy attempt (890 s) takes; past
+          # that the deadline stops the retry.
+          BATCH1_ATTEMPT_TIMEOUT=1320
+          BATCH2_ATTEMPT_TIMEOUT=1440
+
+          # carnet#869 cause C: the hosted sign-in sheet stays blank while its
+          # WebKit process launch stalls, and Expo Go's own launches stalled
+          # too (24-36 s) in run 38402697100 — process launch on the simulator
+          # is what is slow, and Maestro's per-flow logs do not say why. Two
+          # captures cover the whole of this step to say it: the
+          # simulator's launch path (runningboardd, launchd, xpcproxy,
+          # SafariViewService, WebKit's processes, ExtensionKit) and the host's
+          # memory, swap, disk and CPU every 30 s, which puts several samples
+          # inside any stall long enough to fail a flow's 240 s sheet wait.
+          # Both are uploaded with the results, and stopped on every way out
+          # of this step by the EXIT trap below. They are diagnostics: neither
+          # can change this step's status, and every host probe is bounded so
+          # a wedged one cannot stop the samples. The stream runs at info
+          # level, which keeps default-level records: runningboardd's
+          # "Creating and launching job" / "Submitting extension overlay" /
+          # "Full encoding handle" records, the measurement, were all
+          # default-level in run 38436819123 (203 of 203), and debug records
+          # were 69% of that run's debug-level stream (220k of 321k) on a host
+          # where diagnosticd, the daemon serving it, used the most CPU.
+          bounded() { local secs="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "cannot run $ARGV[0]: $!\n"' "$secs" "$@"; }
+          xcrun simctl spawn "$SIMULATOR_UDID" log stream --style compact --level info \
+            --predicate 'process == "runningboardd" OR process BEGINSWITH "launchd" OR process BEGINSWITH "xpcproxy" OR process == "SafariViewService" OR process BEGINSWITH "com.apple.WebKit" OR process == "extensionkitservice" OR subsystem == "com.apple.extensionkit"' \
+            > /tmp/simulator-launches.log 2>&1 &
+          # The sampler also ends on its own once this step's shell ($$ in the
+          # subshell) is gone, so a step killed before its trap runs leaves no
+          # sampler behind. top's first sample has no interval to measure CPU
+          # over, so the second of two is kept; iostat's first line is the
+          # average since boot.
+          (
+            set +e
+            while kill -0 $$ 2>/dev/null; do
+              echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+              bounded 10 vm_stat
+              bounded 10 memory_pressure -Q
+              bounded 10 sysctl vm.swapusage
+              bounded 10 iostat -c 2 -w 1
+              bounded 15 top -l 2 -s 1 -o cpu -n 12 -stats pid,command,cpu,mem,state \
+                | awk '/^Processes:/ { n++ } n == 2'
+              bounded 10 ps -axwwo pid,stat,etime,command | grep -E '[W]ebContent|[x]pcproxy|[l]aunchd_sim'
+              sleep 30
+            done
+          ) > /tmp/host-load.log 2>&1 &
+          HOST_SAMPLER_PID=$!
+          # Every command in the trap ends in || true: under the step's
+          # `bash -e`, one failing in an EXIT trap replaces the step's exit
+          # status with its own.
+          stop_launch_diagnostics() {
+            kill "$HOST_SAMPLER_PID" 2>/dev/null || true
+            # The stream's `log` is a simulator process, which launchd_sim
+            # starts on the host outside this step's process tree, so it is
+            # stopped by its command line, with the xcrun that asked for it.
+            pkill -f 'log stream --style compact --level info' 2>/dev/null || true
+          }
+          trap stop_launch_diagnostics EXIT
 
           # Every trigger runs the critical subset (decided 2026-09-05). The mode this
           # replaces ran one flow on a scheduled main run, and its critical branch had
@@ -885,11 +996,17 @@ jobs:
 
           TOTAL_FAILURES=0
           TOTAL_PASSED=0
+          OUT_OF_TIME=false
           for BATCH_NUM in $(seq 1 $BATCH_COUNT); do
             # Build the list of flow files for this batch
             FLOW_ARGS=""
-            if [ "$BATCH_NUM" = "1" ]; then FILES="$BATCH1_FILES"
-            else FILES="$BATCH2_FILES"; fi
+            if [ "$BATCH_NUM" = "1" ]; then
+              FILES="$BATCH1_FILES"
+              ATTEMPT_TIMEOUT=$BATCH1_ATTEMPT_TIMEOUT
+            else
+              FILES="$BATCH2_FILES"
+              ATTEMPT_TIMEOUT=$BATCH2_ATTEMPT_TIMEOUT
+            fi
             for F in $FILES; do
               FLOW_ARGS="$FLOW_ARGS .maestro/$F"
             done
@@ -915,10 +1032,12 @@ jobs:
             # the lane. Every attempt's junit is kept under maestro-attempts/.
             # The runner counts a driver that exited non-zero without recording
             # a failure as one, so the totals below never read a dead maestro
-            # as a clean batch.
+            # as a clean batch. A maestro that wrote its report and then never
+            # exits is stopped by the runner and judged on that report.
             BATCH_RC=0
             ../scripts/ci/mobile-e2e-batch.sh run --platform ios --maestro "$MAESTRO" \
               --device "$SIMULATOR_UDID" --label "Batch $BATCH_NUM" --attempts 2 \
+              --attempt-timeout "$ATTEMPT_TIMEOUT" --deadline "$LANE_DEADLINE" \
               --output "maestro-results-batch${BATCH_NUM}.xml" \
               --summary "/tmp/maestro-batch${BATCH_NUM}.env" \
               -- $FLOW_ARGS || BATCH_RC=$?
@@ -934,6 +1053,11 @@ jobs:
             # Fail-fast: stop early if the environment is clearly broken.
             if [ "$BATCH_RC" -eq 2 ]; then
               echo "FAIL-FAST: Metro died during batch $BATCH_NUM — the remaining batches cannot run."
+              break
+            fi
+            if [ "$BATCH_RC" -eq 3 ]; then
+              echo "OUT OF TIME: the lane deadline passed during batch $BATCH_NUM — the remaining batches are not run."
+              OUT_OF_TIME=true
               break
             fi
             if [ "$BATCH_PASSED" -eq 0 ] && [ "$BATCH_TESTS" -gt 0 ]; then
@@ -960,6 +1084,13 @@ jobs:
           echo "## iOS E2E Test Results (critical mode)" >> $GITHUB_STEP_SUMMARY
           echo "- Passed: $TOTAL_PASSED" >> $GITHUB_STEP_SUMMARY
           echo "- Failed: $TOTAL_FAILURES" >> $GITHUB_STEP_SUMMARY
+          # A stall a cap cut short is otherwise invisible once its retry
+          # passed; counting them shows how often attempts still stall.
+          CAPPED_ATTEMPTS=$(grep -l 'was stopped before recording a result' maestro-attempts/maestro-results-batch*-attempt*.xml 2>/dev/null | wc -l | tr -d ' ')
+          echo "- Attempts stopped by their batch's cap or the deadline before recording a result: $CAPPED_ATTEMPTS" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$OUT_OF_TIME" = "true" ]; then
+            echo "- The lane deadline passed during batch $BATCH_NUM of $BATCH_COUNT and stopped it; batches not run: $((BATCH_COUNT - BATCH_NUM))" >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "$TOTAL_FAILURES" -gt 0 ]; then
             echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
             for f in maestro-results-batch*.xml; do
@@ -976,6 +1107,12 @@ jobs:
             echo "$TOTAL_FAILURES test(s) failed"
             exit 1
           fi
+          # Flows the deadline left unrun verified nothing, whatever the
+          # batches before them reported.
+          if [ "$OUT_OF_TIME" = "true" ]; then
+            echo "The lane deadline passed during batch $BATCH_NUM of $BATCH_COUNT."
+            exit 1
+          fi
         env:
           TEST_EMAIL: "mobiletest@pierre.dev"
           TEST_PASSWORD: "MobileTest1234"
@@ -984,6 +1121,11 @@ jobs:
       - name: Post-test diagnostics
         if: always()
         run: |
+          # The test step's simulator log stream stops with it, through its
+          # EXIT trap; a step killed outright runs no trap, and the stream runs
+          # outside its process tree, so it is stopped here as well, before the
+          # upload reads its file. The host sampler ends with the step's shell.
+          pkill -f 'log stream --style compact --level info' 2>/dev/null || true
           echo "=== Post-test screenshot ==="
           xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/post-maestro-screenshot.png || echo "Screenshot failed"
           echo ""
@@ -1056,4 +1198,7 @@ jobs:
             /tmp/metro-install.log
             /tmp/pierre-server.log
             /tmp/home-sync-control.log
+            # The test step's process-launch log and host samples (carnet#869)
+            /tmp/simulator-launches.log
+            /tmp/host-load.log
           retention-days: 1

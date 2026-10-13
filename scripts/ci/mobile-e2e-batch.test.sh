@@ -16,6 +16,13 @@
 # maestro that never finishes, with a child under it the way the JVM has them,
 # is stopped at a 2 s cap, and the test then looks for anything of it still
 # running. They take tens of seconds, most of it the KILL grace one case waits out.
+#
+# The exit-grace cases (carnet#869, run 38402697100) do the same to a fake that
+# writes its whole junit and then never exits, the way maestro hung in its JVM
+# shutdown teardown, under a 2 s --exit-grace. One more case wedges the
+# simulator's `launchctl list` probe for good, and takes the full minute a reset
+# may spend: that window is what the deadline arithmetic relies on, so it is
+# waited out rather than shortened.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,6 +82,12 @@ cat > "$SHIMS/maestro" <<'EOF'
 #                                 that a broken watchdog fails the test rather
 #                                 than stalls it), with a child process under it
 #   "hang-stubborn"               the same, and the child ignores TERM
+#   "report-then-hang <fixture>"  copy the fixture to --output, then hang as
+#                                 "hang" does: maestro after its summary, stuck
+#                                 in its shutdown teardown
+#   "report-then-hang-stubborn <fixture>"
+#                                 the same, and maestro itself ignores TERM, as
+#                                 a JVM already inside System.exit does
 echo "maestro $*" >> "$SHIM_LOG"
 out=""
 while [ $# -gt 0 ]; do
@@ -89,6 +102,12 @@ case "$line" in
         else
             (exec -a "fake-maestro-child-$HANG_MARKER" "$REAL_SLEEP" 60) &
         fi
+        exec -a "fake-maestro-$HANG_MARKER" "$REAL_SLEEP" 60
+        ;;
+    "report-then-hang "* | "report-then-hang-stubborn "*)
+        cp "${line#* }" "$out"
+        (exec -a "fake-maestro-child-$HANG_MARKER" "$REAL_SLEEP" 60) &
+        if [ "${line%% *}" = report-then-hang-stubborn ]; then trap '' TERM; fi
         exec -a "fake-maestro-$HANG_MARKER" "$REAL_SLEEP" 60
         ;;
     "slow "*)
@@ -108,6 +127,12 @@ cat > "$SHIMS/xcrun" <<'EOF'
 echo "xcrun $*" >> "$SHIM_LOG"
 case "$*" in
     *"launchctl list"*)
+        # A wedged simulator ($XCRUN_HANG present): the probe never answers.
+        # 90 s, past the reset's 60 s window, so a probe left unbounded fails
+        # the case's time bound instead of passing inside it.
+        if [ -f "$XCRUN_HANG" ]; then
+            exec -a "fake-xcrun-$HANG_MARKER" "$REAL_SLEEP" 90
+        fi
         # The app is "running" once the shim has seen a launch.
         if grep -q "simctl launch" "$SHIM_LOG"; then
             echo "3481	0	UIKitApplication:host.exp.Exponent[34a8][rb-legacy]"
@@ -163,7 +188,8 @@ run_case() {
     local name="$1" platform="$2"; shift 2
     local dir="$TMP/case-$name"
     mkdir -p "$dir"
-    export SHIM_LOG="$dir/shims.log" MAESTRO_PLAN="$dir/plan" METRO_DEAD="$dir/metro-dead"
+    export SHIM_LOG="$dir/shims.log" MAESTRO_PLAN="$dir/plan" METRO_DEAD="$dir/metro-dead" \
+        XCRUN_HANG="$dir/xcrun-hang"
     : > "$SHIM_LOG"
     printf '%s\n' "$@" > "$MAESTRO_PLAN"
     CASE_OUT="$dir/results.xml"
@@ -354,7 +380,7 @@ expect "nothing of either attempt is left running" "$(orphans)" ""
 # runner; an unbounded attempt would run the fake's full 60 s.
 expect "bounded by attempts x cap plus one KILL grace" "$(within $((2 * (2 + 2) + KILL_GRACE + 6)))" yes
 
-echo "No --attempt-timeout (the iOS lane's calls): a slow attempt is waited for:"
+echo "No --attempt-timeout: a slow attempt is waited for:"
 run_case uncapped android "slow 3 0 $TMP/all-three.xml"
 expect "exit 0" "$CASE_RC" 0
 expect "one attempt" "$(summary_value ATTEMPTS_RUN)" 1
@@ -414,6 +440,112 @@ expect "no attempt ran" "$(summary_value ATTEMPTS_RUN)" 0
 expect "counted as one failed test" "$(summary_value TESTS)/$(summary_value FAILS)" "1/1"
 expect "the report names the flow as not run" "$(grep -c 'not run — the lane deadline had passed' "$CASE_OUT")" 1
 
+# ------------------------------------------------ exit grace (carnet#869)
+# run 38402697100: batch 2's retry wrote its whole junit, printed "2/3 Flows
+# Failed" and never exited. A small grace keeps the cases fast; the KILL grace is
+# not the runner's default, so the KILL log naming it shows the flag got through.
+EXIT_GRACE=2
+REPORT_KILL_GRACE=3
+# The grace, the KILL grace, a second of polling on each side and slack for a
+# loaded runner; an attempt left to its teardown would run the fake's full 60 s.
+REPORT_BOUND=$((EXIT_GRACE + REPORT_KILL_GRACE + 4))
+
+echo "Exit grace: a clean report, then maestro ignores TERM and never exits:"
+EXTRA_ARGS=(--exit-grace "$EXIT_GRACE" --kill-grace "$REPORT_KILL_GRACE")
+run_case report-clean ios "report-then-hang-stubborn $TMP/all-three.xml" "0 $TMP/all-three.xml"
+expect "exit 0: the report passed" "$CASE_RC" 0
+expect "no retry" "$(summary_value ATTEMPTS_RUN)/$(grep -c '^maestro ' "$SHIM_LOG")" "1/1"
+expect "attempt 1 is the report's 3 of 3 with rc 0, not 124" "$(summary_value ATTEMPT_1)" "3/3/0/0"
+expect "the report is maestro's own junit" "$(grep -c '<testcase' "$CASE_OUT")/$(grep -c 'timed out' "$CASE_OUT")" "3/0"
+# The gap is logged as measured, which a loaded runner's polling can put a
+# second past the grace.
+if grep -q 'watchdog: maestro wrote its report [0-9]*s ago and has not exited' "$CASE_STDOUT"; then
+    pass "the log says the teardown hung after the report"
+else
+    fail "the log says the teardown hung after the report"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+expect "maestro ignored TERM and was sent KILL after the grace" \
+    "$(grep -c "still running ${REPORT_KILL_GRACE}s after TERM, sending KILL" "$CASE_STDOUT")" 1
+expect "nothing of the stopped attempt is left running" "$(orphans)" ""
+expect "ended within the exit grace plus the KILL grace" "$(within "$REPORT_BOUND")" yes
+expect "waited out the exit grace first" "$([ "$CASE_SECS" -ge "$EXIT_GRACE" ] && echo yes || echo "no: took ${CASE_SECS}s")" yes
+
+echo "Exit grace: a 2-of-3 report, then maestro never exits:"
+EXTRA_ARGS=(--attempts 1 --exit-grace "$EXIT_GRACE" --kill-grace "$REPORT_KILL_GRACE")
+run_case report-failed ios "report-then-hang $TMP/two-of-three.xml"
+expect "exit 1: the report has a failure" "$CASE_RC" 1
+expect "attempt 1 is the report's 2 of 3 with rc 1, not 124" "$(summary_value ATTEMPT_1)" "3/2/1/1"
+expect "the report is kept as the batch's junit" "$(grep -c '<testcase' "$CASE_OUT")/$(grep -c '<failure' "$CASE_OUT")" "3/1"
+expect "the attempt's junit is kept" "$(grep -c '<testcase' "$(dirname "$CASE_OUT")/maestro-attempts/results-attempt1.xml")" 3
+expect "no timeout junit was written over it" "$(grep -c 'timed out' "$CASE_OUT")" 0
+expect "TERM was enough" "$(grep -c 'sending KILL' "$CASE_STDOUT")" 0
+expect "nothing of the stopped attempt is left running" "$(orphans)" ""
+expect "ended within the exit grace plus the KILL grace" "$(within "$REPORT_BOUND")" yes
+
+echo "Cap reached after a complete report, exit grace off: the report's status, not 124:"
+EXTRA_ARGS=(--attempts 1 --attempt-timeout 2 --exit-grace 0 --kill-grace "$REPORT_KILL_GRACE")
+run_case report-capped ios "report-then-hang $TMP/two-of-three.xml"
+expect "exit 1" "$CASE_RC" 1
+expect "attempt 1 is the report's 2 of 3 with rc 1" "$(summary_value ATTEMPT_1)" "3/2/1/1"
+expect "no timeout junit written" "$(grep -c 'timed out' "$CASE_OUT")" 0
+expect "no timeout logged" "$(grep -c 'timed out' "$CASE_STDOUT")" 0
+expect "--exit-grace 0 did not stop it early" "$(grep -c 'has not exited' "$CASE_STDOUT")" 0
+if grep -q 'watchdog: the 2s cap was reached [0-9]*s after maestro wrote its report' "$CASE_STDOUT"; then
+    pass "the log says the cap came after the report"
+else
+    fail "the log says the cap came after the report"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+expect "nothing of the stopped attempt is left running" "$(orphans)" ""
+expect "stopped at the cap" "$(within $((2 + REPORT_KILL_GRACE + 4)))" yes
+
+echo "Deadline reached after a clean report: the batch passed, exit 0 not 3:"
+EXTRA_ARGS=(--deadline "$(($(date +%s) + 2))" --exit-grace 60 --kill-grace "$REPORT_KILL_GRACE")
+run_case report-deadline ios "report-then-hang $TMP/all-three.xml" "0 $TMP/all-three.xml"
+expect "exit 0: the report passed before the deadline stopped maestro" "$CASE_RC" 0
+expect "attempt 1 is the report's 3 of 3 with rc 0" "$(summary_value ATTEMPT_1)" "3/3/0/0"
+expect "no retry" "$(summary_value ATTEMPTS_RUN)" 1
+expect "nothing of the stopped attempt is left running" "$(orphans)" ""
+
+# ------------------------------------------------ judge tie (carnet#869)
+echo "A capped attempt with a clean report ties a clean retry on passed flows:"
+run_case tie ios "124 $TMP/all-three.xml" "0 $TMP/all-three.xml"
+expect "exit 0: the clean retry wins" "$CASE_RC" 0
+expect "judged on attempt 2" "$(summary_value BEST_ATTEMPT)" 2
+expect "attempt 1 carries the unrecorded failure" "$(summary_value ATTEMPT_1)" "3/3/1/124"
+expect "no failures reported" "$(summary_value FAILS)" 0
+
+# ------------------------------------------------ wedged simulator during a reset
+echo "Reset against a simulator whose launchctl probe never answers:"
+mkdir -p "$TMP/case-reset-hang" && touch "$TMP/case-reset-hang/xcrun-hang"
+run_case reset-hang ios "1 $TMP/two-of-three.xml" "0 $TMP/all-three.xml"
+expect "exit 0: the retry ran after the reset and passed" "$CASE_RC" 0
+expect "two attempts ran" "$(summary_value ATTEMPTS_RUN)" 2
+if grep -q 'simctl spawn did not return within 15s and was stopped' "$CASE_STDOUT"; then
+    pass "the log names the probe stopped at its 15 s bound"
+else
+    fail "the log names the probe stopped at its 15 s bound"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+if grep -q 'did not come back within 60s; retrying anyway' "$CASE_STDOUT"; then
+    pass "a stopped probe counts as not running, until the window ends"
+else
+    fail "a stopped probe counts as not running, until the window ends"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+# An unbounded probe would hold the reset for the shim's 90 s; one bounded probe
+# per window would leave no room to ask again.
+expect "the probe was asked again after each stop" \
+    "$([ "$(grep -c 'launchctl list' "$SHIM_LOG")" -ge 2 ] && echo yes || echo "no: $(grep -c 'launchctl list' "$SHIM_LOG") probe(s)")" yes
+# Three 15 s probes and their 2 s pauses leave ~9 s of the window, so the last
+# probe gets that, not its own 15 s, which would carry the reset ~6 s past it.
+if grep -Eq 'simctl spawn did not return within ([1-9]|1[0-4])s and was stopped' "$CASE_STDOUT"; then
+    pass "the last probe was given only what was left of the window"
+else
+    fail "the last probe was given only what was left of the window"; sed 's/^/      /' "$CASE_STDOUT"
+fi
+expect "nothing of a stopped probe is left running" "$(orphans)" ""
+# The reset's 60 s window (settle is 0), the two attempts' polling, and slack
+# for a loaded runner; an unbounded probe alone would take the shim's 90 s.
+expect "the reset stayed inside its 60 s window" "$(within 70)" yes
+
 # ------------------------------------------------ judge alone
 echo "judge subcommand over recorded attempts:"
 SUM="$TMP/judge.env"; OUT="$TMP/judge.xml"
@@ -424,8 +556,22 @@ expect "exit 1" "$rc" 1
 expect "the first best attempt wins a tie" "$(sed -n 's/^BEST_ATTEMPT=//p' "$SUM")" 2
 expect "usage on no attempts" "$("$UNDER_TEST" judge --label x --output "$OUT" --summary "$SUM" 2>/dev/null; echo $?)" 64
 
-echo "run refuses a cap, a deadline or a kill grace that is not whole seconds:"
-for bad in "--attempt-timeout 10m" "--attempt-timeout -5" "--deadline soon" "--kill-grace 1s"; do
+# A retry the cap stopped before it recorded anything counts one failure, the
+# 0-of-3 before it three; both passed nothing, and the report must keep the
+# three flows the first attempt names, not trade them for the timeout.
+junit "$TMP/timed-out.xml" -- "Batch 1: attempt 2 timed out after 1020s"
+for second in "124:$TMP/timed-out.xml" "1:$TMP/no-such-junit.xml"; do
+    rc=0
+    "$UNDER_TEST" judge --label "Batch 1" --output "$OUT" --summary "$SUM" \
+        -- "1:$TMP/none-of-three.xml" "$second" > /dev/null || rc=$?
+    expect "0-of-3, then ${second%%:*} with nothing recorded: exit 1" "$rc" 1
+    expect "judged on the attempt that names its flows" "$(sed -n 's/^BEST_ATTEMPT=//p' "$SUM")" 1
+    expect "all three failures reported" \
+        "$(sed -n 's/^TESTS=//p' "$SUM")/$(sed -n 's/^FAILS=//p' "$SUM")/$(grep -c '<failure' "$OUT")" "3/3/3"
+done
+
+echo "run refuses a cap, a deadline, a kill grace or an exit grace that is not whole seconds:"
+for bad in "--attempt-timeout 10m" "--attempt-timeout -5" "--deadline soon" "--kill-grace 1s" "--exit-grace 2m"; do
     # shellcheck disable=SC2086 # the flag and its value are split on purpose
     expect "usage on $bad" "$("$UNDER_TEST" run --platform android --label x --output "$OUT" --summary "$SUM" \
         $bad -- a.yaml 2>/dev/null; echo $?)" 64

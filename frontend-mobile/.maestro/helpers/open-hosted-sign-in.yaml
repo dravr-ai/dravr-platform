@@ -1,5 +1,5 @@
 # ABOUTME: Helper that taps the app's sign-in button and waits for the server's hosted login page in the system browser
-# ABOUTME: Answers what the platform puts in front of the page: iOS's "wants to use … to sign in" alert, Chrome's first-run screens
+# ABOUTME: iOS waits once for the page and fails on a sheet whose web process never launched; Android answers Chrome's first-run screens
 
 appId: host.exp.Exponent
 
@@ -17,66 +17,84 @@ appId: host.exp.Exponent
 - tapOn:
     id: "login-button"
 
-# Whatever the platform shows before the page. Each check is a `when`, not an
-# optional tap, so a round with nothing to answer costs no lookup budget.
-#   - iOS asks '"Expo Go" Wants to Use "<host>" to Sign In' for a shared
-#     session. The app opens an ephemeral one, which iOS does not ask about;
-#     the check stays for a runtime that asks anyway.
-#   - Chrome on a fresh emulator (or after clearState) runs its first-run
-#     screens inside the Custom Tab: terms, sign-in to Chrome, notifications.
-# The loop ends when the page's password field label is on screen, or when no
-# page comes at all — a browser already signed in to the authorization server
-# returns to the app at once, which the caller's Home wait then sees.
-- repeat:
-    times: 8
-    while:
-      notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+# iOS: one tap, one wait. The sheet draws its page once WebKit has launched a
+# web content process for it, and on the CI simulator that launch can stall:
+# runningboardd accepts it ("Submitting extension overlay") and a stalled one
+# takes 16 s to more than 7 min, where every other launch completed within
+# 1.1 s (carnet#869, runs 38402697100 and 38392431568). Until it completes,
+# the sheet is blank — its BrowserView reads WebViewProcessID=0 — and
+# nothing reaches the server. SafariViewService, one process for the whole run,
+# launches these processes one at a time, so a sheet opened during a stall
+# launches nothing of its own: it queues behind the stuck launch, and a
+# cancelled sheet's queued launch carries into the next flow (onboarding/02
+# waited 7+ min on one issued for a sheet chat/11 had dismissed). Cancelling
+# and tapping again therefore never gets a fresh process, and a short wait
+# cancels sheets that are still loading: healthy sheets drew 3-9 s after the
+# tap in one run and up to 18 s in the other. The single wait outlasts the
+# 25.7 s, 67 s and 182 s stalls measured; the 336 s and 7+ min ones still fail,
+# here, under their cause rather than at the caller's Email wait.
+#
+# The app's session is ephemeral, which iOS does not ask about; the
+# '"Expo Go" Wants to Use "<host>" to Sign In' alert is answered for a runtime
+# that asks anyway. It is shown before the sheet, so it is looked for once,
+# right after the tap.
+- runFlow:
+    when:
+      platform: iOS
     commands:
-      - extendedWaitUntil:
-          visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
-          timeout: 4000
-          optional: true
-      # A sheet whose page never drew after the wait above: the simulator
-      # sometimes opens the auth sheet with no web content process
-      # (BrowserView WebViewProcessID=0, CI 2026-10-06), nothing reaches the
-      # server, and the sheet's Reload only spins. A new sheet gets a new
-      # process, so the sheet is cancelled and sign-in started again, as an
-      # athlete would with a stuck page.
-      - runFlow:
-          when:
-            platform: iOS
-            visible: "Cancel"
-            notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
-          commands:
-            - tapOn: "Cancel"
-            - extendedWaitUntil:
-                visible:
-                  id: "login-button"
-                timeout: 10000
-            - tapOn:
-                id: "login-button"
       - runFlow:
           when:
             visible: ".*Wants to Use.*to Sign In.*"
           commands:
             - tapOn: "Continue"
-      - runFlow:
-          when:
-            visible: "Accept & continue"
+      - extendedWaitUntil:
+          visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+          timeout: 240000
+          optional: true
+      # Maestro matches `id` against the element's resource-id, the whole of
+      # it: "BrowserView?IsPageLoaded=true&WebViewProcessID=0" on every blank
+      # sheet of both runs, a real pid once the process is up.
+      - assertNotVisible:
+          id: "BrowserView.*WebViewProcessID=0(&.*)?"
+          label: "hosted sign-in: the sheet's web content process never launched (simulator process-launch stall, carnet#869)"
+
+# Android: Chrome on a fresh emulator (or after clearState) runs its first-run
+# screens inside the Custom Tab: terms, sign-in to Chrome, notifications. Each
+# check is a `when`, not an optional tap, so a round with nothing to answer
+# costs no lookup budget. The loop ends when the page's password field label
+# is on screen, or when no page comes at all — a browser already signed in to
+# the authorization server returns to the app at once, which the caller's Home
+# wait then sees.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - repeat:
+          times: 8
+          while:
+            notVisible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
           commands:
-            - tapOn: "Accept & continue"
-      - runFlow:
-          when:
-            visible: "Use without an account"
-          commands:
-            - tapOn: "Use without an account"
-      - runFlow:
-          when:
-            visible: "No thanks"
-          commands:
-            - tapOn: "No thanks"
-      - runFlow:
-          when:
-            visible: "No, thanks"
-          commands:
-            - tapOn: "No, thanks"
+            - extendedWaitUntil:
+                visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
+                timeout: 4000
+                optional: true
+            - runFlow:
+                when:
+                  visible: "Accept & continue"
+                commands:
+                  - tapOn: "Accept & continue"
+            - runFlow:
+                when:
+                  visible: "Use without an account"
+                commands:
+                  - tapOn: "Use without an account"
+            - runFlow:
+                when:
+                  visible: "No thanks"
+                commands:
+                  - tapOn: "No thanks"
+            - runFlow:
+                when:
+                  visible: "No, thanks"
+                commands:
+                  - tapOn: "No, thanks"

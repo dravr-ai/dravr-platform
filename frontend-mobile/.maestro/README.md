@@ -124,6 +124,14 @@ Flows type the credentials into that page. In Expo Go the return address is
 Chrome keeps the server's session cookie between flows, so a flow that needs the page
 to appear starts with `helpers/reset-browser-session.yaml`.
 
+On the iOS simulator the sheet can stay blank for minutes: WebKit's web content process
+for it was asked for and has not launched (carnet#869). `helpers/open-hosted-sign-in.yaml`
+taps once and waits up to 240 s for the page, never cancelling and re-tapping, because a
+new sheet only queues behind the stuck launch. A sheet still blank after that fails the
+flow on its blank `BrowserView` — the report reads "Assertion is false: id:
+BrowserView.*WebViewProcessID=0(&.*)? is not visible", and the flow's own log names the
+step "hosted sign-in: the sheet's web content process never launched".
+
 ## Flows that need more than the seeded tester
 
 - `chat/11-verdict-sheet.yaml` opens the chip of a reply the claim verifier judged.
