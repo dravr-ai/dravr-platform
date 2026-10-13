@@ -3389,6 +3389,9 @@
     "about_me": {
       "label": "Get to know me"
     },
+    "about_me_more": {
+      "label": "Know me better"
+    },
     "calendar": {
       "label": "Add to my calendar",
       "prompt": "Send my training plan to my calendar."

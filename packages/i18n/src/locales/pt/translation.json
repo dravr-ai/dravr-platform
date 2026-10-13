@@ -3389,6 +3389,9 @@
     "about_me": {
       "label": "Fica a conhecer-me"
     },
+    "about_me_more": {
+      "label": "Conhece-me melhor"
+    },
     "calendar": {
       "label": "No meu calendário",
       "prompt": "Envia o meu plano de treino para o meu calendário."
