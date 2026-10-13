@@ -68,6 +68,8 @@ pub mod sync;
 pub mod text_guardrails;
 /// Hot-reloadable tool description overlays for MCP tool schemas
 pub mod tool_descriptions;
+/// Tool-description half of the sync engine, applied in one swap
+mod tool_sync;
 /// Hot-reloadable training catalogue — flavours, skeletons, workouts, selection table
 pub mod training_catalogue;
 /// Training-catalogue half of the sync engine

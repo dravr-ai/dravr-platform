@@ -22,7 +22,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
-use pierre_contremaitre::tool_descriptions::{ParameterOverlay, ToolDescriptionOverlay};
+use pierre_contremaitre::tool_descriptions::{
+    FetchedOverlay, ParameterOverlay, ToolDescriptionOverlay,
+};
 use pierre_core::models::TenantId;
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
@@ -1067,14 +1069,17 @@ async fn test_contremaitre_tool_overlay_reaches_the_served_schema() {
             description: Some(overlaid_limit.to_owned()),
         },
     );
-    resources.mcp.tool_description_registry.update(
-        target,
-        ToolDescriptionOverlay {
-            description: Some(overlaid.to_owned()),
-            parameters,
-        },
-        "0000000000000000000000000000000000000000000000000000000000000000".to_owned(),
-    );
+    resources
+        .mcp
+        .tool_description_registry
+        .update_all(vec![fetched(
+            target.to_owned(),
+            ToolDescriptionOverlay {
+                description: Some(overlaid.to_owned()),
+                parameters,
+            },
+            "0000000000000000000000000000000000000000000000000000000000000000".to_owned(),
+        )]);
 
     let after_sync = served(&resources);
 
@@ -1124,4 +1129,13 @@ async fn test_contremaitre_tool_overlay_reaches_the_served_schema() {
         compiled_in.description,
         "removing the overlay reverts the served schema to the compiled-in description"
     );
+}
+
+/// A fetched overlay for `update_all`.
+fn fetched(tool_name: String, overlay: ToolDescriptionOverlay, sha256: String) -> FetchedOverlay {
+    FetchedOverlay {
+        tool_name,
+        overlay,
+        sha256,
+    }
 }

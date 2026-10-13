@@ -36,5 +36,9 @@ tracing = "0.1"
 urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
+[dev-dependencies]
+# The tool-description sync is async; its inline tests drive it directly.
+tokio = { version = "1.50", features = ["macros", "rt"] }
+
 [lints]
 workspace = true

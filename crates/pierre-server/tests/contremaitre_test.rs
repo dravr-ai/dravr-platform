@@ -25,7 +25,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_contremaitre::sync::system_prompt_content_is_valid;
 use pierre_contremaitre::tool_descriptions::{
-    parse_tool_yaml, ToolDescriptionOverlay, ToolDescriptionRegistry,
+    parse_tool_yaml, FetchedOverlay, ToolDescriptionOverlay, ToolDescriptionRegistry,
 };
 use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_mcp_server::routes::contremaitre_webhook::verify_github_signature;
@@ -649,13 +649,13 @@ fn test_tool_description_registry_new_is_empty() {
 }
 
 #[test]
-fn test_tool_description_registry_update_and_get() {
+fn test_tool_description_registry_update_all_and_get() {
     let registry = ToolDescriptionRegistry::new();
-    registry.update(
-        "analyze_activity",
+    registry.update_all(vec![fetched(
+        "analyze_activity".to_owned(),
         make_overlay("Analyze a single activity"),
         "sha1".to_owned(),
-    );
+    )]);
     assert_eq!(registry.count(), 1);
 
     let overlay = registry.get_overlay("analyze_activity").expect("present");
@@ -667,10 +667,18 @@ fn test_tool_description_registry_update_and_get() {
 }
 
 #[test]
-fn test_tool_description_registry_update_replaces_existing() {
+fn test_tool_description_registry_update_all_replaces_existing() {
     let registry = ToolDescriptionRegistry::new();
-    registry.update("foo", make_overlay("v1"), "sha_v1".to_owned());
-    registry.update("foo", make_overlay("v2"), "sha_v2".to_owned());
+    registry.update_all(vec![fetched(
+        "foo".to_owned(),
+        make_overlay("v1"),
+        "sha_v1".to_owned(),
+    )]);
+    registry.update_all(vec![fetched(
+        "foo".to_owned(),
+        make_overlay("v2"),
+        "sha_v2".to_owned(),
+    )]);
 
     assert_eq!(registry.count(), 1);
     assert_eq!(
@@ -683,7 +691,11 @@ fn test_tool_description_registry_update_replaces_existing() {
 #[test]
 fn test_tool_description_registry_remove() {
     let registry = ToolDescriptionRegistry::new();
-    registry.update("foo", make_overlay("desc"), "sha".to_owned());
+    registry.update_all(vec![fetched(
+        "foo".to_owned(),
+        make_overlay("desc"),
+        "sha".to_owned(),
+    )]);
     assert!(registry.remove("foo"));
     assert!(!registry.remove("foo"));
     assert_eq!(registry.count(), 0);
@@ -692,8 +704,16 @@ fn test_tool_description_registry_remove() {
 #[test]
 fn test_tool_description_registry_list_returns_all_entries() {
     let registry = ToolDescriptionRegistry::new();
-    registry.update("a", make_overlay("a"), "sha_a".to_owned());
-    registry.update("b", make_overlay("b"), "sha_b".to_owned());
+    registry.update_all(vec![fetched(
+        "a".to_owned(),
+        make_overlay("a"),
+        "sha_a".to_owned(),
+    )]);
+    registry.update_all(vec![fetched(
+        "b".to_owned(),
+        make_overlay("b"),
+        "sha_b".to_owned(),
+    )]);
 
     let mut names: Vec<String> = registry.list().into_iter().map(|(n, _)| n).collect();
     names.sort();
@@ -703,7 +723,11 @@ fn test_tool_description_registry_list_returns_all_entries() {
 #[test]
 fn test_tool_description_registry_entries_marked_contremaitre_source() {
     let registry = ToolDescriptionRegistry::new();
-    registry.update("foo", make_overlay("desc"), "sha".to_owned());
+    registry.update_all(vec![fetched(
+        "foo".to_owned(),
+        make_overlay("desc"),
+        "sha".to_owned(),
+    )]);
     let entries = registry.list();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].1.source, PromptSource::Contremaitre);
@@ -1238,4 +1262,13 @@ fn test_compiled_in_pierre_system_passes_its_own_validator() {
         ),
         "compiled-in pierre_system.md drifted from the declared placeholder schema"
     );
+}
+
+/// A fetched overlay for `update_all`.
+fn fetched(tool_name: String, overlay: ToolDescriptionOverlay, sha256: String) -> FetchedOverlay {
+    FetchedOverlay {
+        tool_name,
+        overlay,
+        sha256,
+    }
 }

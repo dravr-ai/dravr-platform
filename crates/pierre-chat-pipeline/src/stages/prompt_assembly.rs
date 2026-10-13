@@ -1095,11 +1095,13 @@ pub(crate) async fn assemble_prompt_and_messages(
     let raw_system_prompt =
         close_with_anchors(&raw_system_prompt, agent_ctx.map(|c| c.slug.as_str()));
 
-    // Stage 7h: Harden the prompt with a per-turn canary. Salted with the agent
-    // answering this turn, which is also what the reply scan reads.
+    // Stage 7h: Harden the prompt with the conversation's canary, scoped to the
+    // agent the reply scan reads. One token for every turn, so the prompt-cache
+    // prefix survives the turn boundary (carnet#891).
     let prompt_guard = prompt_leak::harden_system_prompt(
         input.conversation_tenant_id,
         turn_agent_id,
+        &input.conversation_id,
         &raw_system_prompt,
     );
 

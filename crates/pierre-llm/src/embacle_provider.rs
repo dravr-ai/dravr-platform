@@ -503,6 +503,13 @@ impl EmbacleProvider {
     ///   the probe to `CopilotSdkRunner` before reasoning about cross-turn
     ///   caching on this transport either way.
     ///
+    /// The `anthropic` tier is the route where the platform builds the request,
+    /// so the lever exists there: embacle breakpoints the tools, the system
+    /// block and the tail. Measured 2026-10-13 on `claude-haiku-5-5`: a
+    /// follow-up turn read 53,739 of its 57,173 prompt tokens from cache, with
+    /// the leak canary fixed per conversation (carnet#891) and a
+    /// tool-description sync applied in one swap.
+    ///
     /// Public beside [`Self::from_runner`] for the same reason: the tool-loop
     /// tests chain a scripted turn provider as a tier, which is the only way
     /// to drive the headless path without a Copilot runtime. Those tests run

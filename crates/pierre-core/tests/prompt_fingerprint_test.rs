@@ -7,7 +7,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use pierre_core::prompt_fingerprint::{
-    detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_marker,
+    conversation_canary, detect_canary_in_response, fingerprint_prompt, inject_canary_marker,
     scan_response_for_leaks, LeakVerdict, DEFAULT_LEAK_THRESHOLD, SHINGLE_WINDOW,
 };
 
@@ -134,23 +134,29 @@ fn different_prompts_have_different_hashes() {
 
 #[test]
 fn canary_token_has_expected_shape() {
-    let c = generate_canary("tenant-a:coach-1");
+    let c = conversation_canary("tenant-a:coach-1:conv-1");
     assert!(c.starts_with("CANARY-"));
     // CANARY- (7) + 16 hex chars = 23
     assert_eq!(c.len(), 23);
 }
 
 #[test]
-fn canary_tokens_differ_across_salts() {
-    use std::thread::sleep;
-    use std::time::Duration;
-    let c1 = generate_canary("coach-1");
-    // Sleep a nanosecond between calls — SystemTime::now is monotonic
-    // enough on all supported platforms to ensure distinct entropy on
-    // back-to-back calls.
-    sleep(Duration::from_nanos(1));
-    let c2 = generate_canary("coach-2");
-    assert_ne!(c1, c2);
+fn canary_is_stable_for_one_scope() {
+    // Every turn of a conversation must carry the same token, or the last
+    // bytes of the system prompt change and the prompt cache misses
+    // (carnet#891).
+    assert_eq!(
+        conversation_canary("tenant-a:coach-1:conv-1"),
+        conversation_canary("tenant-a:coach-1:conv-1")
+    );
+}
+
+#[test]
+fn canary_differs_across_scopes() {
+    let base = conversation_canary("tenant-a:coach-1:conv-1");
+    assert_ne!(base, conversation_canary("tenant-a:coach-1:conv-2"));
+    assert_ne!(base, conversation_canary("tenant-a:coach-2:conv-1"));
+    assert_ne!(base, conversation_canary("tenant-b:coach-1:conv-1"));
 }
 
 #[test]

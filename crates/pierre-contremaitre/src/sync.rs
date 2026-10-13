@@ -20,7 +20,8 @@ use super::narration_vocab;
 use super::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use super::registry::PromptRegistry;
 use super::store::{PromptStore, StoredFile};
-use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
+use super::tool_descriptions::ToolDescriptionRegistry;
+use super::tool_sync::{sync_all_tool_descriptions, sync_changed_tool_descriptions};
 use super::training_catalogue::TrainingCatalogueRegistry;
 use super::training_sync::{sync_all_training, sync_changed_training};
 use crate::cageux_config::CageuxConfigRegistry;
@@ -728,88 +729,6 @@ pub async fn selective_sync(
     );
 
     Ok(result)
-}
-
-// =============================================================================
-// Tool description sync
-// =============================================================================
-
-/// Sync all tool descriptions from the manifest (full sync).
-async fn sync_all_tool_descriptions(
-    registry: &ToolDescriptionRegistry,
-    store: &dyn PromptStore,
-    manifest_tools: &HashMap<String, ManifestEntry>,
-) -> Result<SyncResult, ContremaitreError> {
-    let mut result = SyncResult {
-        synced: 0,
-        skipped: 0,
-        failed: 0,
-    };
-
-    for (tool_name, entry) in manifest_tools {
-        if registry.sha256(tool_name).as_deref() == Some(&entry.sha256) {
-            debug!(tool_name, "tool description unchanged, skipping");
-            result.skipped += 1;
-            continue;
-        }
-        let outcome = fetch_and_apply_tool_description(registry, store, tool_name, entry).await;
-        accumulate_outcome(&mut result, outcome);
-    }
-
-    Ok(result)
-}
-
-/// Sync only changed tool descriptions (selective sync from webhook).
-async fn sync_changed_tool_descriptions(
-    registry: &ToolDescriptionRegistry,
-    store: &dyn PromptStore,
-    manifest_tools: &HashMap<String, ManifestEntry>,
-    changed_set: &HashSet<&str>,
-) -> Result<SyncResult, ContremaitreError> {
-    let mut result = SyncResult {
-        synced: 0,
-        skipped: 0,
-        failed: 0,
-    };
-
-    for (tool_name, entry) in manifest_tools {
-        if !changed_set.contains(entry.path.as_str()) {
-            continue;
-        }
-        let outcome = fetch_and_apply_tool_description(registry, store, tool_name, entry).await;
-        accumulate_outcome(&mut result, outcome);
-    }
-
-    Ok(result)
-}
-
-/// Download and apply a single tool description YAML.
-async fn fetch_and_apply_tool_description(
-    registry: &ToolDescriptionRegistry,
-    store: &dyn PromptStore,
-    tool_name: &str,
-    entry: &ManifestEntry,
-) -> SyncOutcome {
-    match store.read_file(&entry.path).await {
-        Ok(file) => {
-            let actual_sha = compute_sha256(file.content.as_bytes());
-            match parse_tool_yaml(&file.content) {
-                Ok(overlay) => {
-                    registry.update(tool_name, overlay, actual_sha);
-                    debug!(tool_name, "synced tool description");
-                    SyncOutcome::Synced
-                }
-                Err(e) => {
-                    warn!(tool_name, error = %e, "failed to parse tool description YAML");
-                    SyncOutcome::Failed
-                }
-            }
-        }
-        Err(e) => {
-            warn!(tool_name, error = %e, "failed to download tool description");
-            SyncOutcome::Failed
-        }
-    }
 }
 
 // =============================================================================

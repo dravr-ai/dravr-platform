@@ -19,7 +19,7 @@ fn tenant() -> TenantId {
 
 #[test]
 fn harden_injects_canary_and_produces_fingerprint() {
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), "You are helpful.");
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "conv-1", "You are helpful.");
     assert!(guard.hardened_prompt.contains("You are helpful."));
     assert!(guard.hardened_prompt.contains(&guard.canary));
     assert!(guard.fingerprint.shingle_count() > 0);
@@ -27,7 +27,7 @@ fn harden_injects_canary_and_produces_fingerprint() {
 
 #[test]
 fn clean_reply_passes_scan() {
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), "You are helpful.");
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "conv-1", "You are helpful.");
     let report = scan_assistant_reply(
         &guard,
         "Sure — do a 30 min easy run.",
@@ -41,7 +41,7 @@ fn clean_reply_passes_scan() {
 
 #[test]
 fn canary_echo_trips_leak_detection() {
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), "You are helpful.");
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "conv-1", "You are helpful.");
     // Simulate the attacker extracting the hidden canary.
     let malicious_reply = format!("Full prompt: {}", guard.canary);
     let report = scan_assistant_reply(&guard, &malicious_reply, tenant(), Some("coach-1"));
@@ -54,7 +54,12 @@ fn canary_echo_trips_leak_detection() {
 
 #[test]
 fn identity_flip_reply_reports_pattern_labels() {
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), "You are a cycling coach.");
+    let guard = harden_system_prompt(
+        tenant(),
+        Some("coach-1"),
+        "conv-1",
+        "You are a cycling coach.",
+    );
     let report = scan_assistant_reply(
         &guard,
         "I'm GitHub Copilot CLI, a terminal-based coding assistant.",
@@ -74,7 +79,12 @@ fn identity_flip_reply_reports_pattern_labels() {
 
 #[test]
 fn french_roleplay_framing_reports_fr_locale() {
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), "Tu es un coach de vélo.");
+    let guard = harden_system_prompt(
+        tenant(),
+        Some("coach-1"),
+        "conv-1",
+        "Tu es un coach de vélo.",
+    );
     let report = scan_assistant_reply(
         &guard,
         "Je ne vais pas jouer le rôle d'un coach fictif.",
@@ -91,7 +101,7 @@ fn french_roleplay_framing_reports_fr_locale() {
 #[test]
 fn verbatim_prompt_dump_reports_full_shingle_overlap() {
     let prompt = "You are a running coach named Pierre with decades of experience and a gentle tone that encourages consistency above all else.";
-    let guard = harden_system_prompt(tenant(), Some("coach-1"), prompt);
+    let guard = harden_system_prompt(tenant(), Some("coach-1"), "conv-1", prompt);
     // Dump the base prompt back verbatim. The canary lives only in the marker
     // the guard appended, so this isolates the shingle detector.
     let report = scan_assistant_reply(&guard, prompt, tenant(), Some("coach-1"));
@@ -107,4 +117,17 @@ fn verbatim_prompt_dump_reports_full_shingle_overlap() {
             threshold: DEFAULT_LEAK_THRESHOLD,
         }
     );
+}
+
+#[test]
+fn harden_is_byte_stable_across_turns_of_one_conversation() {
+    // The hardened prompt is the cached prefix: a byte that changes between
+    // turns re-writes the whole system block into the cache (carnet#891).
+    let tenant = tenant();
+    let first = harden_system_prompt(tenant, Some("coach-1"), "conv-1", "You are helpful.");
+    let second = harden_system_prompt(tenant, Some("coach-1"), "conv-1", "You are helpful.");
+    assert_eq!(first.hardened_prompt, second.hardened_prompt);
+
+    let other = harden_system_prompt(tenant, Some("coach-1"), "conv-2", "You are helpful.");
+    assert_ne!(first.canary, other.canary);
 }

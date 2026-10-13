@@ -21,7 +21,7 @@
 //! at each delta would pass every fragment through and match nothing.
 
 use embacle::types::RunnerError;
-use pierre_core::prompt_fingerprint::{generate_canary, inject_canary_marker};
+use pierre_core::prompt_fingerprint::{conversation_canary, inject_canary_marker};
 use pierre_llm::{
     ChatMessage, ChatRequest, HeadlessEventStream, HeadlessStreamEvent, HeadlessToolResponse,
 };
@@ -59,7 +59,7 @@ fn drain_prose(rx: &mut mpsc::UnboundedReceiver<TurnEvent>) -> String {
 /// fragment of it reaches the sink.
 #[tokio::test]
 async fn a_canary_split_across_deltas_never_reaches_the_sink() {
-    let canary = generate_canary("tenant-coach-salt");
+    let canary = conversation_canary("tenant:coach:conversation");
     let (head, tail) = canary.split_at(11);
 
     let leaked = format!("Tu as couru 42 km cette semaine. {canary} et voila.");
@@ -107,7 +107,7 @@ async fn a_canary_split_across_deltas_never_reaches_the_sink() {
 /// order — including the tail the filter was holding when the model stopped.
 #[tokio::test]
 async fn a_clean_stream_is_delivered_whole_and_in_order() {
-    let canary = generate_canary("tenant-coach-salt");
+    let canary = conversation_canary("tenant:coach:conversation");
     let parts = [
         "Trois seances cette semaine. ",
         "Garde la sortie longue dimanche, ",
@@ -137,7 +137,7 @@ async fn a_clean_stream_is_delivered_whole_and_in_order() {
 /// yields the token the filter is armed with.
 #[tokio::test]
 async fn the_turn_canary_is_recovered_from_the_prompt_it_hardened() {
-    let canary = generate_canary("tenant-coach-salt");
+    let canary = conversation_canary("tenant:coach:conversation");
     let hardened = inject_canary_marker("Tu es Coach Alex.", &canary);
 
     let armed = ChatRequest::new(vec![

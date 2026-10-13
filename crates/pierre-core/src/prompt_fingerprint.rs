@@ -31,7 +31,6 @@
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -223,29 +222,26 @@ pub fn scan_response_for_leaks(
     }
 }
 
-/// Hidden 12-character canary token used by
-/// [`inject_canary_marker`]. Unique per dispatch turn so a stale
-/// token seen in a later response cannot be written off as "already
-/// leaked once".
+/// Hidden canary token used by [`inject_canary_marker`], derived from
+/// `scope` — the tenant, agent and conversation a prompt is assembled for.
 ///
-/// The token is generated from process-unique entropy: the current
-/// monotonic nanoseconds, a `DefaultHasher` mix with the provided
-/// salt, and the result squeezed through SHA-256. That gives a
-/// deterministic construction without pulling in the `rand` crate as
-/// a dependency for every crate that touches this module, but still
-/// produces tokens with effectively no collisions at Pierre's call
-/// rate (millions per second would take decades to collide).
+/// Deterministic on purpose. The marker is the last bytes of the system
+/// prompt, and the Anthropic tier puts a cache breakpoint on the last system
+/// block, so a token that changed every turn would invalidate the whole
+/// cached system prefix on every follow-up turn: ~20K prompt tokens
+/// re-written per turn, measured (carnet#891). One token per conversation keeps the prefix
+/// byte-stable across turns and across server instances.
+///
+/// It also detects more. The reply scan is a substring match on the current
+/// token, so a per-turn token would not see an earlier turn's canary echoed
+/// later in the conversation; a per-conversation token does. Secrecy is not
+/// what the marker relies on: a dump that strips it is caught by the shingle
+/// fingerprint, not by the token.
 #[must_use]
-pub fn generate_canary(salt: &str) -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let mut hasher = Sha256::new();
-    hasher.update(nanos.to_le_bytes());
-    hasher.update(salt.as_bytes());
-    let digest = hasher.finalize();
-    // Base36-ish: 24 hex chars is plenty of entropy; keep the prefix
-    // distinctive so log greps can spot the canary shape.
+pub fn conversation_canary(scope: &str) -> String {
+    let digest = Sha256::digest(scope.as_bytes());
+    // 16 hex chars (64 bits) keeps distinct scopes from colliding; keep the
+    // prefix distinctive so log greps can spot the canary shape.
     let hex = format!("{digest:x}");
     format!("CANARY-{}", &hex[..16])
 }

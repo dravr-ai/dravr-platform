@@ -150,7 +150,7 @@ mod reply_narration_scrub {
     }
 
     /// Deterministic provider that simulates a jailbroken agent: it reads the
-    /// per-turn canary marker out of the system prompt it was handed and
+    /// canary marker out of the system prompt it was handed and
     /// echoes it back verbatim — the exact exfiltration the canary detector
     /// exists to catch. The reply must be withheld at the response boundary,
     /// never persisted or delivered.

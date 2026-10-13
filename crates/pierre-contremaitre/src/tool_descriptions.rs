@@ -47,6 +47,17 @@ pub struct ToolDescriptionEntry {
     pub loaded_at: DateTime<Utc>,
 }
 
+/// One fetched overlay, ready for [`ToolDescriptionRegistry::update_all`].
+#[derive(Debug, Clone)]
+pub struct FetchedOverlay {
+    /// Tool the overlay applies to
+    pub tool_name: String,
+    /// The parsed overlay data
+    pub overlay: ToolDescriptionOverlay,
+    /// SHA-256 hex digest of the YAML content
+    pub sha256: String,
+}
+
 /// Thread-safe registry for externalized tool descriptions.
 ///
 /// Starts empty — the compiled-in Rust descriptions serve as the fallback.
@@ -76,17 +87,30 @@ impl ToolDescriptionRegistry {
         self.read().get(tool_name).map(|e| e.sha256.clone())
     }
 
-    /// Insert or update a tool description overlay.
-    pub fn update(&self, tool_name: &str, overlay: ToolDescriptionOverlay, sha256: String) {
-        self.write().insert(
-            tool_name.to_owned(),
-            ToolDescriptionEntry {
-                overlay,
-                sha256,
-                source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
-            },
-        );
+    /// Insert or update several overlays under one write lock, so a reader
+    /// sees either none of them or all of them.
+    pub fn update_all(&self, overlays: Vec<FetchedOverlay>) {
+        if overlays.is_empty() {
+            return;
+        }
+        let loaded_at = Utc::now();
+        let mut entries = self.write();
+        for FetchedOverlay {
+            tool_name,
+            overlay,
+            sha256,
+        } in overlays
+        {
+            entries.insert(
+                tool_name,
+                ToolDescriptionEntry {
+                    overlay,
+                    sha256,
+                    source: PromptSource::Contremaitre,
+                    loaded_at,
+                },
+            );
+        }
     }
 
     /// Remove a tool description overlay (reverts to compiled-in).

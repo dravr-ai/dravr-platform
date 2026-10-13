@@ -10,8 +10,8 @@
 //! [`pierre_core::prompt_fingerprint`]. This module owns the logging
 //! policy for how the chat dispatch paths invoke those functions:
 //!
-//! - [`harden_system_prompt`] takes a raw system prompt, generates a
-//!   per-turn canary token, appends it as an inert comment marker (no
+//! - [`harden_system_prompt`] takes a raw system prompt, derives the
+//!   conversation's canary token, appends it as an inert comment marker (no
 //!   instruction — the model gets nothing to obey or narrate about),
 //!   fingerprints the *post-injection* prompt, and returns a
 //!   [`PromptGuard`] the caller holds for the whole turn.
@@ -25,7 +25,7 @@
 use pierre_core::models::TenantId;
 use pierre_core::narration::{self, IdentityLeakMatch};
 use pierre_core::prompt_fingerprint::{
-    detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_marker,
+    conversation_canary, detect_canary_in_response, fingerprint_prompt, inject_canary_marker,
     scan_response_for_leaks, LeakVerdict, PromptFingerprint, DEFAULT_LEAK_THRESHOLD,
 };
 use tracing::{error, info, warn};
@@ -69,23 +69,27 @@ pub struct ReplyLeakReport {
 
 /// Build a hardened system prompt for this dispatch turn.
 ///
-/// Generates a per-turn canary token, appends it as an inert comment
-/// marker, and fingerprints the resulting prompt. The caller sends
+/// Appends the conversation's canary token as an inert comment marker and
+/// fingerprints the resulting prompt. The caller sends
 /// `PromptGuard::hardened_prompt` to the LLM and keeps the guard for
 /// [`scan_assistant_reply`] after the reply comes back; a canary hit
 /// there is enforced at the response boundary (reply withheld), never
 /// by instructing the model.
+///
+/// The token is the same on every turn of one conversation with one agent,
+/// so the hardened prompt stays byte-stable and the provider's prompt cache
+/// can serve it (see [`conversation_canary`]).
 pub fn harden_system_prompt(
     tenant_id: TenantId,
     agent_id: Option<&str>,
+    conversation_id: &str,
     base_prompt: &str,
 ) -> PromptGuard {
-    // Salt the canary with tenant + agent so the entropy source is
-    // visibly tied to the caller's context. SystemTime nanoseconds
-    // do the heavy lifting for uniqueness; the salt is belt and
-    // braces.
-    let salt = format!("{tenant_id}:{}", agent_id.unwrap_or("default-coach"));
-    let canary = generate_canary(&salt);
+    let scope = format!(
+        "{tenant_id}:{}:{conversation_id}",
+        agent_id.unwrap_or("default-coach")
+    );
+    let canary = conversation_canary(&scope);
     let hardened_prompt = inject_canary_marker(base_prompt, &canary);
     let fingerprint = fingerprint_prompt(&hardened_prompt);
 
@@ -110,8 +114,8 @@ pub fn harden_system_prompt(
 /// Scan an assistant reply against the prompt guard.
 ///
 /// Canary hits escalate to `error` level because they are unmistakable
-/// exfiltration evidence — the canary is generated per-turn and never
-/// appears anywhere except in the hidden instruction block. Shingle
+/// exfiltration evidence — the canary is derived per conversation and
+/// never appears anywhere except in the hidden comment marker. Shingle
 /// hits log at `warn` because they are "strong signal, not proof".
 pub fn scan_assistant_reply(
     guard: &PromptGuard,
