@@ -85,6 +85,9 @@ jsonschema = { version = "0.46.5", default-features = false }
 dravr-contremaitre = { workspace = true }
 # Captures the rewrite re-check's log line, its only observable output.
 tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
+# Resolves a hydrated route block the way the server does, so the fields
+# hydration adds are checked against the spec that reads them.
+photograveur = { workspace = true }
 
 [lints]
 workspace = true

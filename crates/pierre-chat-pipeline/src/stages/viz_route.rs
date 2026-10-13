@@ -26,7 +26,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tracing::warn;
 
 use std::sync::Arc;
@@ -230,9 +230,17 @@ fn decode_streams(response: UniversalResponse) -> Result<TimeSeriesData, String>
 /// there is no half-drawn map, and an empty one would read as "you went
 /// nowhere".
 ///
-/// `highlight` is consumed here rather than carried: it asks a question the
-/// platform answers, and a renderer that had to answer it again could answer
-/// it differently. `climbs` empty is the whole of "no marks".
+/// The fields added are the ones photograveur's route spec declares beside
+/// what the agent wrote, and no others, because that spec refuses any field it
+/// does not declare: `coordinates`, `distances_meters` when the track is
+/// measured, `elevation_meters` when it carries a vertical, and `climbs`. The
+/// extent is not among them — photograveur frames the line itself; a block
+/// that carried `bounds` was dropped at resolution and the athlete got the
+/// prose alone.
+///
+/// `climbs` is empty unless the block asked for them. The `highlight` the
+/// agent wrote stays on the block, since photograveur reads it as the block's
+/// request and resolves a view with no highlight of its own.
 ///
 /// # Errors
 ///
@@ -258,18 +266,41 @@ pub fn hydrate_route(block: &mut Value, tracks: &RouteTracks) -> Result<(), Stri
             ))
         }
     };
-    let Ok(Value::Object(geometry)) = serde_json::to_value(track) else {
+    let marks_climbs = fields.get("highlight").and_then(Value::as_str) == Some(HIGHLIGHT_CLIMBS);
+    let Some(geometry) = route_geometry(track, marks_climbs) else {
         return Err(format!(
             "activity \"{activity_id}\"'s track could not be encoded for the renderer"
         ));
     };
-    let marks_climbs = fields.get("highlight").and_then(Value::as_str) == Some(HIGHLIGHT_CLIMBS);
-    fields.remove("highlight");
-    for (name, value) in geometry {
-        fields.insert(name, value);
-    }
-    if !marks_climbs {
-        fields.insert("climbs".to_owned(), Value::Array(Vec::new()));
-    }
+    fields.extend(geometry);
     Ok(())
+}
+
+/// The geometry fields a hydrated route block carries, or `None` when one of
+/// them does not encode.
+fn route_geometry(track: &RouteTrack, marks_climbs: bool) -> Option<Map<String, Value>> {
+    let mut geometry = Map::new();
+    geometry.insert(
+        "coordinates".to_owned(),
+        serde_json::to_value(&track.coordinates).ok()?,
+    );
+    if let Some(elevations) = &track.elevation_meters {
+        geometry.insert(
+            "elevation_meters".to_owned(),
+            serde_json::to_value(elevations).ok()?,
+        );
+    }
+    if let Some(distances) = &track.distances_meters {
+        geometry.insert(
+            "distances_meters".to_owned(),
+            serde_json::to_value(distances).ok()?,
+        );
+    }
+    let climbs = if marks_climbs {
+        serde_json::to_value(&track.climbs).ok()?
+    } else {
+        Value::Array(Vec::new())
+    };
+    geometry.insert("climbs".to_owned(), climbs);
+    Some(geometry)
 }

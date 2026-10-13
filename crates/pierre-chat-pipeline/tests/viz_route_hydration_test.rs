@@ -1,5 +1,5 @@
 // ABOUTME: A route block carries the platform's reading of a recorded track, never the agent's
-// ABOUTME: Asserts the hydrated block's real coordinates, its trimmed endpoints and its climb marks
+// ABOUTME: Asserts the hydrated block's real coordinates, its trimmed endpoints, its climb marks and its resolution
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,6 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap/expect/panic (valid in tests per CLAUDE.md).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
+use photograveur::{resolve, Locale, RenderBlock, RouteView};
 use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteTracks};
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
@@ -87,6 +88,17 @@ fn tracks_for(activity_id: &str, outcome: Result<RouteTrack, String>) -> RouteTr
     let mut tracks = RouteTracks::new();
     tracks.insert(activity_id.to_owned(), outcome);
     tracks
+}
+
+/// Resolve a hydrated block the way the server does before any client sees
+/// it: the stored spec goes through photograveur, whose route spec refuses any
+/// field it does not declare.
+fn resolved(block: &Value) -> RouteView {
+    match resolve(block, Locale::from_tag("en")) {
+        Ok(RenderBlock::Route(view)) => view,
+        Ok(other) => panic!("a route block resolved to another kind: {other:?}"),
+        Err(e) => panic!("a hydrated route block must resolve, got: {e}"),
+    }
 }
 
 #[test]
@@ -196,11 +208,8 @@ fn a_hydrated_block_carries_the_read_geometry() {
     );
 
     assert!(
-        (block["bounds"]["min_latitude"].as_f64().unwrap() - latitude_at(FIRST_DRAWN)).abs()
-            < 1e-12
-    );
-    assert!(
-        (block["bounds"]["max_latitude"].as_f64().unwrap() - latitude_at(LAST_DRAWN)).abs() < 1e-12
+        block.get("bounds").is_none(),
+        "photograveur frames the line itself, and refuses a field its route spec does not declare"
     );
 
     assert_eq!(
@@ -223,14 +232,47 @@ fn a_hydrated_block_carries_the_read_geometry() {
         "the grade is carried as the athlete reads it, since the client captions it directly"
     );
 
-    // The reference the agent wrote survives; the question it asked does not,
-    // because hydration answered it.
+    // The reference the agent wrote survives, and so does the question it
+    // asked: photograveur reads the highlight as the block's request.
     assert_eq!(block["activity_id"], json!("14872003941"));
     assert_eq!(block["title"], json!("Ta sortie de dimanche"));
     assert_eq!(block["source_tool"], json!("get_activities"));
+    assert_eq!(block["highlight"], json!("climbs"));
+}
+
+/// The hydrated block is a spec photograveur resolves, not one it drops: the
+/// framed extent is the drawn line's, and the climb asked for reaches the
+/// view the clients draw.
+///
+/// The hydrator once carried the track's `bounds` and consumed the
+/// `highlight`; photograveur's route spec refuses an undeclared field, so
+/// every chat map was dropped at resolution and the athlete got the prose
+/// alone, with nothing here to say so.
+#[test]
+fn a_hydrated_block_resolves_to_the_view_the_clients_draw() {
+    let track = RouteTrack::from_streams(&hill_streams()).expect("the hill is a drawable track");
+    let tracks = tracks_for("14872003941", Ok(track));
+
+    let mut asked = route_block(Some("climbs"));
+    hydrate_route(&mut asked, &tracks).expect("a read track hydrates its block");
+    let view = resolved(&asked);
+    assert_eq!(view.coordinates.len(), DRAWN_POINTS);
+    assert!((view.bounds.min_latitude - latitude_at(FIRST_DRAWN)).abs() < 1e-12);
+    assert!((view.bounds.max_latitude - latitude_at(LAST_DRAWN)).abs() < 1e-12);
+    assert!((view.bounds.min_longitude - LONGITUDE).abs() < 1e-12);
+    assert_eq!(view.climbs.len(), 1, "the climb asked for is drawn");
+    assert_eq!(view.climbs[0].end_index, DRAWN_POINTS - 1);
+    assert_eq!(
+        view.elevation_meters.as_ref().map(Vec::len),
+        Some(DRAWN_POINTS)
+    );
+    assert_eq!(view.title.as_deref(), Some("Ta sortie de dimanche"));
+
+    let mut plain = route_block(None);
+    hydrate_route(&mut plain, &tracks).expect("a read track hydrates its block");
     assert!(
-        block.get("highlight").is_none(),
-        "highlight is consumed by hydration, not carried into the renderer"
+        resolved(&plain).climbs.is_empty(),
+        "a block that did not ask for climbs draws none"
     );
 }
 

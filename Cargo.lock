@@ -3799,6 +3799,7 @@ dependencies = [
  "futures-util",
  "jsonschema",
  "lingua",
+ "photograveur",
  "pierre-agui",
  "pierre-commands",
  "pierre-config",
