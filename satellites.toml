@@ -83,11 +83,7 @@ source = "git-tag"
 
 [dravr-commere]
 repo = "dravr-commere"
-# Pinned by rev: 54a945c is commere's `release: v0.4.0` commit, which carries no
-# tag. Tags are cut by commere's Release workflow, and that workflow could not run
-# for the 0.4.0 release (private-repo Actions refused). Returning this to git-tag is
-# the bump that pins the tag once it exists on that commit.
-source = "git-rev"
+source = "git-tag"
 
 [dravr-meteo]
 repo = "dravr-meteo"
