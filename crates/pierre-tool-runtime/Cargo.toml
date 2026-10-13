@@ -99,6 +99,10 @@ embacle = { version = "0.36.0" }
 # returns. Same version the chat pipeline validates structured replies with.
 jsonschema = { version = "0.46.5", default-features = false }
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
+# Captures the line the guardian gate logs under the tainted-destructive `Log`
+# phase, so its unit test reads the fields the arming measurement groups by.
+# Same spec the chat pipeline's log-asserting tests use.
+tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
 
 # Integration tests that import a feature-gated module state that gate here.
 # Every tool module in this crate sits behind a `tools-*` feature and the crate

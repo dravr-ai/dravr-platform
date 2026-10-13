@@ -148,17 +148,42 @@ pub fn guardian_gate(
     tenant: Option<Uuid>,
 ) -> (GateOutcome, bool) {
     let mode_blocks = guardian.mode().blocks();
+    // Taint provenance captured under the turn lock when the call is a
+    // tainted-destructive sequence the `Log` phase lets through, so the
+    // telemetry below is emitted outside the lock.
+    let mut logged_taint_sources: Option<Vec<String>> = None;
     let (decision, reserved) = turns.decide_and_reserve(
         turn_key,
         tool_name,
         labels,
         writes_data,
-        |turn_state| guardian.decide(labels, writes_data, tenant, turn_state),
+        |turn_state| {
+            let decision = guardian.decide(labels, writes_data, tenant, turn_state);
+            if guardian.logs_tainted_destructive(labels, turn_state, decision) {
+                logged_taint_sources = Some(turn_state.taint_sources().to_vec());
+            }
+            decision
+        },
         // Reserve budget when the call WILL run: on an allow, and on a
         // would-deny/would-confirm in a non-blocking mode (observe/off execute
         // anyway).
         |decision| matches!(decision, Decision::Allow) || !mode_blocks,
     );
+    if let Some(taint_sources) = logged_taint_sources {
+        // The Phase 1 base-rate signal for `TaintedDestructive`: under `Log` the
+        // call proceeds, so this line is the only record that `Confirm` would
+        // have parked it. Grouped by `tool_name` and `taint_sources` in Cloud
+        // Logging, it is the measurement the confirm phase is armed on.
+        warn!(
+            tool_name = %tool_name,
+            rule = TAINTED_DESTRUCTIVE_RULE,
+            phase = "log",
+            taint_sources = %taint_sources.join(","),
+            tenant_id = ?tenant,
+            mode = guardian.mode().as_str(),
+            "guardian logged tainted-destructive dispatch"
+        );
+    }
     match decision {
         Decision::Allow => {}
         Decision::Deny(reason) => {
@@ -185,6 +210,9 @@ pub fn guardian_gate(
     }
     (GateOutcome::Proceed, reserved)
 }
+
+/// `rule` field of the `Log`-phase tainted-destructive telemetry line.
+const TAINTED_DESTRUCTIVE_RULE: &str = "tainted_destructive";
 
 /// The dispatch-time security guard. Holds the resolved [`GuardianPolicy`];
 /// the per-turn state it reads lives in the shared [`GuardianTurns`] store.
@@ -266,6 +294,23 @@ impl Guardian {
 
         Decision::Allow
     }
+
+    /// Whether `decision` let through an `IRREVERSIBLE` call in a tainted turn
+    /// only because the policy is [`TaintedDestructive::Log`] — the sequence
+    /// `Confirm` would park and `Deny` would block. A call already denied for
+    /// another reason (budget) is not counted: `Confirm` would deny it the same
+    /// way, and the gate logs that denial on its own line.
+    fn logs_tainted_destructive(
+        &self,
+        labels: SecurityLabels,
+        turn: &TurnState,
+        decision: Decision,
+    ) -> bool {
+        decision == Decision::Allow
+            && self.policy.tainted_destructive == TaintedDestructive::Log
+            && labels.is_irreversible()
+            && turn.is_tainted()
+    }
 }
 
 /// `error_code` a tenant tool-disable refusal carries: the chat pipeline reads
@@ -332,6 +377,156 @@ pub async fn tenant_tool_enabled(
                 "guardian tenant tool-allowlist lookup failed; failing CLOSED"
             );
             false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Result as IoResult, Write};
+    use std::sync::Mutex;
+
+    use tracing::subscriber::with_default;
+    use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
+
+    use super::*;
+
+    /// In-memory sink for the lines one gate call logs. The `Arc` is shared by
+    /// every writer the subscriber makes and by the test that reads it back.
+    #[derive(Clone, Default)]
+    struct LogSink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+            self.0.lock().expect("sink lock").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> IoResult<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for LogSink {
+        type Writer = Self;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Dispatch one `IRREVERSIBLE` call through [`guardian_gate`] under the
+    /// `Log` policy, in a turn tainted by `sources`, and return what it logged.
+    fn log_phase_gate_output(sources: &[&str]) -> String {
+        let sink = LogSink::default();
+        let subscriber = log_fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .finish();
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let turns = GuardianTurns::new();
+        let key = TurnKey::new(None, "log-phase-turn");
+        for source in sources {
+            turns.record_taint(&key, source, SecurityLabels::UNTRUSTED_OUTPUT);
+        }
+        let (outcome, _reserved) = with_default(subscriber, || {
+            guardian_gate(
+                &guardian,
+                &turns,
+                &key,
+                "delete_agent",
+                SecurityLabels::IRREVERSIBLE,
+                false,
+                None,
+            )
+        });
+        assert_eq!(outcome, GateOutcome::Proceed);
+        let bytes = sink.0.lock().expect("sink lock");
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn log_phase_gate_logs_the_tainted_destructive_dispatch_it_lets_through() {
+        let log = log_phase_gate_output(&["get_activities", "get_activity_intelligence"]);
+        assert!(log.contains(" WARN "), "{log}");
+        assert!(
+            log.contains("guardian logged tainted-destructive dispatch"),
+            "{log}"
+        );
+        // The fields the arming measurement in feature-phases.yaml groups by.
+        assert!(log.contains("tool_name=delete_agent"), "{log}");
+        assert!(log.contains(r#"rule="tainted_destructive""#), "{log}");
+        assert!(log.contains(r#"phase="log""#), "{log}");
+        assert!(
+            log.contains("taint_sources=get_activities,get_activity_intelligence"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn log_phase_gate_logs_nothing_for_an_untainted_destructive_dispatch() {
+        let log = log_phase_gate_output(&[]);
+        assert!(log.is_empty(), "{log}");
+    }
+
+    fn policy(tainted_destructive: TaintedDestructive) -> GuardianPolicy {
+        GuardianPolicy {
+            tainted_destructive,
+            ..GuardianPolicy::default()
+        }
+    }
+
+    fn tainted_turn() -> TurnState {
+        let mut turn = TurnState::default();
+        turn.add_taint("get_activities", SecurityLabels::UNTRUSTED_OUTPUT);
+        turn
+    }
+
+    #[test]
+    fn log_phase_records_a_tainted_destructive_call_it_allows() {
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let turn = tainted_turn();
+        let decision = guardian.decide(SecurityLabels::IRREVERSIBLE, false, None, &turn);
+        assert_eq!(decision, Decision::Allow);
+        assert!(guardian.logs_tainted_destructive(SecurityLabels::IRREVERSIBLE, &turn, decision));
+    }
+
+    #[test]
+    fn log_phase_ignores_an_untainted_destructive_call() {
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let turn = TurnState::default();
+        let decision = guardian.decide(SecurityLabels::IRREVERSIBLE, false, None, &turn);
+        assert!(!guardian.logs_tainted_destructive(SecurityLabels::IRREVERSIBLE, &turn, decision));
+    }
+
+    #[test]
+    fn log_phase_ignores_a_tainted_reversible_write() {
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let turn = tainted_turn();
+        let decision = guardian.decide(SecurityLabels::empty(), true, None, &turn);
+        assert!(!guardian.logs_tainted_destructive(SecurityLabels::empty(), &turn, decision));
+    }
+
+    #[test]
+    fn log_phase_does_not_count_a_call_the_budget_already_denied() {
+        let guardian = Guardian::new(policy(TaintedDestructive::Log));
+        let mut turn = tainted_turn();
+        turn.record_success("delete_agent", SecurityLabels::IRREVERSIBLE, false);
+        let decision = guardian.decide(SecurityLabels::IRREVERSIBLE, false, None, &turn);
+        assert_eq!(decision, Decision::Deny(DenyReason::BudgetExceeded));
+        assert!(!guardian.logs_tainted_destructive(SecurityLabels::IRREVERSIBLE, &turn, decision));
+    }
+
+    #[test]
+    fn armed_phases_are_not_counted_as_log_telemetry() {
+        let turn = tainted_turn();
+        for armed in [TaintedDestructive::Confirm, TaintedDestructive::Deny] {
+            let guardian = Guardian::new(policy(armed));
+            let decision = guardian.decide(SecurityLabels::IRREVERSIBLE, false, None, &turn);
+            assert_ne!(decision, Decision::Allow);
+            assert!(!guardian.logs_tainted_destructive(
+                SecurityLabels::IRREVERSIBLE,
+                &turn,
+                decision
+            ));
         }
     }
 }
