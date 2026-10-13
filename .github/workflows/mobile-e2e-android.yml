@@ -180,17 +180,32 @@ jobs:
       - name: Strip Expo owner for CI
         working-directory: frontend-mobile
         run: |
-          # Remove owner and eas config to avoid "Input is required" auth error in CI
+          # Remove owner and eas config to avoid "Input is required" auth error in CI.
+          # runtimeVersion goes too: its fingerprint policy makes Metro hash the
+          # native sources on every manifest request, 16-60 s on the iOS lane's
+          # runner against Expo Go's 60 s manifest timeout (carnet#869; that
+          # lane's strip step says more). Expo Go checks compatibility by sdkVersion.
           node << 'STRIP_EOF'
           const fs = require('fs');
           const config = require('./app.config.js');
           delete config.owner;
           if (config.extra) delete config.extra.eas;
-          const header = '// ABOUTME: Expo configuration for Pierre mobile app\n// ABOUTME: Uses Expo Go for development; CI-stripped owner/eas fields\n\n';
+          delete config.runtimeVersion;
+          for (const platform of ['ios', 'android']) {
+            if (config[platform]) delete config[platform].runtimeVersion;
+          }
+          const header = '// ABOUTME: Expo configuration for Pierre mobile app\n// ABOUTME: Uses Expo Go for development; CI-stripped owner, eas and runtimeVersion\n\n';
           fs.writeFileSync('app.config.js', header + 'module.exports = ' + JSON.stringify(config, null, 2) + ';\n');
           STRIP_EOF
-          echo "=== app.config.js (stripped owner/eas) ==="
-          grep -n "owner\|eas\|projectId" app.config.js || echo "Owner/eas fields removed successfully"
+          echo "=== app.config.js (stripped owner, eas, runtimeVersion) ==="
+          if grep -nE '"(owner|eas|projectId|runtimeVersion)"' app.config.js; then
+            echo "ERROR: a stripped field is still in app.config.js"
+            exit 1
+          fi
+          # The check above also passes on a file that holds no config at all,
+          # so the stripped config must still carry the app's slug.
+          grep -q '"slug"' app.config.js || { echo "ERROR: the stripped app.config.js has no slug"; exit 1; }
+          echo "owner, eas and runtimeVersion removed"
 
       - name: Install Maestro CLI
         # `curl | bash` returns bash's status, so a curl that timed out handed

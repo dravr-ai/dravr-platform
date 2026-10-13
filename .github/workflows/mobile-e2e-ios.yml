@@ -446,16 +446,40 @@ jobs:
           # The owner field triggers Expo CLI to verify project ownership, which needs
           # interactive login or EXPO_TOKEN that we don't have in CI
           # Using node for safe AST-aware modification (sed breaks brace matching)
+          #
+          # runtimeVersion goes too. Metro runs `expo-updates
+          # runtimeversion:resolve` on EVERY manifest request, and the
+          # fingerprint policy makes that command hash ~13,000 files of native
+          # sources with nothing cached: 6 s on an idle machine, 16-60 s on
+          # this runner, where Expo Go gives a manifest 60 s before "The
+          # request timed out". That was the iOS lane's recurring red
+          # (carnet#869): Expo Go sat on "Opening project…" in the smoke and
+          # in flows that relaunch it. Without a runtimeVersion the command
+          # returns without hashing and Metro falls back to the sdkVersion
+          # policy, which is how Expo Go checks compatibility, so the manifest
+          # it gets is the same app. The real app.config.js keeps the
+          # fingerprint, which OTA safety needs in store builds.
           node << 'STRIP_EOF'
           const fs = require('fs');
           const config = require('./app.config.js');
           delete config.owner;
           if (config.extra) delete config.extra.eas;
-          const header = '// ABOUTME: Expo configuration for Pierre mobile app\n// ABOUTME: Uses Expo Go for development; CI-stripped owner/eas fields\n\n';
+          delete config.runtimeVersion;
+          for (const platform of ['ios', 'android']) {
+            if (config[platform]) delete config[platform].runtimeVersion;
+          }
+          const header = '// ABOUTME: Expo configuration for Pierre mobile app\n// ABOUTME: Uses Expo Go for development; CI-stripped owner, eas and runtimeVersion\n\n';
           fs.writeFileSync('app.config.js', header + 'module.exports = ' + JSON.stringify(config, null, 2) + ';\n');
           STRIP_EOF
-          echo "=== app.config.js (stripped owner/eas) ==="
-          grep -n "owner\|eas\|projectId" app.config.js || echo "Owner/eas fields removed successfully"
+          echo "=== app.config.js (stripped owner, eas, runtimeVersion) ==="
+          if grep -nE '"(owner|eas|projectId|runtimeVersion)"' app.config.js; then
+            echo "ERROR: a stripped field is still in app.config.js"
+            exit 1
+          fi
+          # The check above also passes on a file that holds no config at all,
+          # so the stripped config must still carry the app's slug.
+          grep -q '"slug"' app.config.js || { echo "ERROR: the stripped app.config.js has no slug"; exit 1; }
+          echo "owner, eas and runtimeVersion removed"
 
       - name: Start Metro, install Expo Go, and open app
         working-directory: frontend-mobile
@@ -541,6 +565,21 @@ jobs:
             exit 1
           fi
           echo "Bundle URL: $BUNDLE_URL"
+          # The time Expo Go waits for its manifest, measured on a second
+          # request (the first also loads Metro's config plugins). Expo Go
+          # gives up at 60 s; carnet#869's red runs took 16-60 s here with the
+          # fingerprint runtimeVersion in the config. The warning fires at
+          # 10 s, under the fastest of those, so a manifest drifting back
+          # toward the limit shows here before it fails a run.
+          MANIFEST_START=$(date +%s)
+          curl -sf -o /dev/null -H 'expo-platform: ios' \
+            -H 'Accept: application/expo+json,application/json' \
+            http://127.0.0.1:8082 || { echo "ERROR: Metro served no manifest on the second request"; exit 1; }
+          MANIFEST_SECS=$(( $(date +%s) - MANIFEST_START ))
+          echo "Manifest served in ${MANIFEST_SECS}s"
+          if [ "$MANIFEST_SECS" -ge 10 ]; then
+            echo "::warning title=Slow Expo manifest::Metro took ${MANIFEST_SECS}s to serve the manifest; Expo Go gives up at 60s (carnet#869)"
+          fi
           WARM_START=$(date +%s)
           if ! curl -sf -o /dev/null "$BUNDLE_URL"; then
             echo "ERROR: bundle warm-up request failed"
