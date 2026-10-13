@@ -427,7 +427,7 @@ impl EmbacleProvider {
     /// subprocess on the other model, so no stage defaults off the main model
     /// here.
     ///
-    /// LIMITATION(registre#104): `build_headless` serves a whole turn's tool loop as one ACP session on one `CopilotHeadlessConfig::model` — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn.
+    /// LIMITATION(registre#888): `build_headless` serves a whole turn's tool loop as one ACP session on one `CopilotHeadlessConfig::model` — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn.
     fn build_headless(model_override: Option<&str>) -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
         if let Some(model) = entry_model(model_override) {
@@ -455,7 +455,7 @@ impl EmbacleProvider {
     /// each is its own SDK session, and the runtime validates the requested id
     /// against its catalogue per session.
     ///
-    /// LIMITATION(registre#104): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
+    /// LIMITATION(registre#888): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
     fn build_sdk(model_override: Option<&str>) -> Self {
         let mut config = CopilotSdkConfig::from_env();
         if let Some(model) = entry_model(model_override) {
