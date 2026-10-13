@@ -16,6 +16,8 @@
 //! - **Digest computation** — weekly group reports for notifications
 //! - **Delegated connections** — [`delegation::DelegationStore`], where every
 //!   group lifecycle event ends the links a coach reads members through
+//! - **Athlete billing** — [`athlete_billing::AthleteBilling`], the one count
+//!   behind both a plan's group allowance and the per-athlete charge above it
 
 // Re-export pierre-core modules for path compatibility within this crate
 pub use pierre_core::errors;
@@ -45,5 +47,9 @@ pub mod creation_policy;
 /// Which agents may answer a group's athletes
 pub mod group_agent;
 
+/// The count, cap and per-athlete charge for one owner's athletes
+pub mod athlete_billing;
+
 // Re-export key types for consumers
+pub use athlete_billing::AthleteBilling;
 pub use service::GroupService;

@@ -37,6 +37,9 @@ pub mod data;
 pub mod tenant;
 
 pub use data::DataContext;
+/// Re-exported so a host can name it in its [`BillingCtx`] impl whether or
+/// not it links the group coaching routes.
+pub use pierre_groups::AthleteBilling;
 pub use tenant::{resolve_tenant, TenantMode};
 
 use std::future::Future;
@@ -203,10 +206,11 @@ pub trait A2ACtx: Send + Sync + 'static {
 /// Covers `/api/billing/{checkout,portal,subscription,invoices}` and the
 /// `/webhooks/{provider}` receiver: the active `BillingProvider` trait
 /// object (for hosted-session creation, invoice listing, webhook
-/// signature verification + payload normalization) and the repository
+/// signature verification + payload normalization), the repository
 /// registry (for subscription row reads/writes and webhook-event
-/// idempotency keyed on `(provider, event_id)`). Anything broader
-/// belongs on a separate trait.
+/// idempotency keyed on `(provider, event_id)`), and the athlete billing a
+/// subscription change re-applies. Anything broader belongs on a separate
+/// trait.
 pub trait BillingCtx: Send + Sync + 'static {
     /// Billing provider — handles checkout/portal sessions, invoice
     /// listing, and webhook envelope parsing for the configured vendor
@@ -216,6 +220,11 @@ pub trait BillingCtx: Send + Sync + 'static {
     /// Repository registry — primary data-access surface for
     /// subscription row mutations and webhook idempotency tracking.
     fn repos(&self) -> &Arc<RepositoryRegistry>;
+
+    /// The per-athlete charge the group service applies, which the webhook
+    /// re-applies whenever a subscription is created or changes. `None` in a
+    /// build without group coaching, where no owner holds a group to bill.
+    fn athlete_billing(&self) -> Option<&Arc<AthleteBilling>>;
 }
 
 /// Slice of runtime state the slash-command handler layer needs.

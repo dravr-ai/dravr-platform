@@ -79,6 +79,21 @@ pub struct PortalResponse {
     pub portal_url: String,
 }
 
+/// Inputs for [`BillingProvider::set_extra_athletes`].
+///
+/// Assembled by the platform from the group owner's own `subscriptions` row
+/// and the count of groups they hold, never from a request body.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtraAthletesRequest {
+    /// Provider-side subscription the per-athlete charge is added to
+    /// (`subscriptions.provider_subscription_id`).
+    pub provider_subscription_id: String,
+    /// Athletes billed above the plan's included allowance. An absolute
+    /// count, never a delta: a repeated or late call converges on the same
+    /// charge, and `0` removes the charge.
+    pub quantity: u64,
+}
+
 /// Provider-normalized webhook event.
 ///
 /// Every concrete impl translates its own payload to one of these
@@ -230,4 +245,12 @@ pub trait BillingProvider: Send + Sync {
     /// first. The platform caps the visible window to the most recent
     /// 20; impls may return fewer.
     async fn list_invoices(&self, provider_customer_id: &str) -> AppResult<Vec<Invoice>>;
+
+    /// Bill exactly `req.quantity` athletes above the plan's included
+    /// allowance on the subscription — the per-athlete add-on.
+    ///
+    /// Called whenever the number of groups an owner holds changes, and on
+    /// every subscription upsert, so the provider-side charge follows the
+    /// count the group cap reads.
+    async fn set_extra_athletes(&self, req: &ExtraAthletesRequest) -> AppResult<()>;
 }

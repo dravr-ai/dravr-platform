@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the Stripe billing adapter
-// ABOUTME: Tier price lookup and error mapping via the provider API, plus signed-webhook event normalization
+// ABOUTME: Tier price lookup, the per-athlete add-on, error mapping, and signed-webhook event normalization
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,8 @@ use dravr_stripe::StripeClient;
 use hmac::{Hmac, Mac};
 use pierre_core::billing::stripe::{StripePriceConfig, StripeProvider};
 use pierre_core::billing::{
-    BillingEvent, BillingProvider, CheckoutRequest, EventEnvelope, WebhookPayload,
+    BillingEvent, BillingProvider, CheckoutRequest, EventEnvelope, ExtraAthletesRequest,
+    WebhookPayload,
 };
 use pierre_core::errors::ErrorCode;
 use serde_json::{json, Value};
@@ -29,29 +30,50 @@ use tokio::task::JoinHandle;
 async fn stub_stripe(status: u16, body: &'static str) -> (String, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let handle = tokio::spawn(async move { answer(&listener, status, body).await });
+    (base_url, handle)
+}
+
+/// Stand-in for a run of Stripe calls: answers one connection per reply, in
+/// order, and hands back every raw request it received. Each reply closes its
+/// connection, so the client opens a fresh one for the next call.
+async fn stub_stripe_replies(
+    replies: Vec<(u16, &'static str)>,
+) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
     let handle = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        let mut chunk = [0_u8; 4096];
-        loop {
-            let read = socket.read(&mut chunk).await.unwrap();
-            if read == 0 {
-                break;
-            }
-            request.extend_from_slice(&chunk[..read]);
-            if request_complete(&request) {
-                break;
-            }
+        let mut requests = Vec::with_capacity(replies.len());
+        for (status, body) in replies {
+            requests.push(answer(&listener, status, body).await);
         }
-        let response = format!(
-            "HTTP/1.1 {status} STUB\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        socket.write_all(response.as_bytes()).await.unwrap();
-        socket.shutdown().await.unwrap();
-        String::from_utf8(request).unwrap()
+        requests
     });
     (base_url, handle)
+}
+
+/// Accept one connection, read its whole request, answer `status` + `body`.
+async fn answer(listener: &TcpListener, status: u16, body: &str) -> String {
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut request = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        let read = socket.read(&mut chunk).await.unwrap();
+        if read == 0 {
+            break;
+        }
+        request.extend_from_slice(&chunk[..read]);
+        if request_complete(&request) {
+            break;
+        }
+    }
+    let response = format!(
+        "HTTP/1.1 {status} STUB\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    socket.write_all(response.as_bytes()).await.unwrap();
+    socket.shutdown().await.unwrap();
+    String::from_utf8(request).unwrap()
 }
 
 /// True once the buffer holds the full header block and `content-length` body.
@@ -80,6 +102,7 @@ fn provider(base_url: &str) -> StripeProvider {
         StripePriceConfig {
             professional: "price_pro".to_owned(),
             enterprise: "price_ent".to_owned(),
+            professional_extra_athlete: "price_athlete".to_owned(),
         },
     )
 }
@@ -304,4 +327,115 @@ async fn bad_webhook_signature_becomes_invalid_input() {
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidInput);
     assert!(err.message.contains("signature verification failed"));
+}
+
+/// `GET /v1/subscription_items` for `sub_coach`: the US$79 plan, plus the
+/// add-on line when the subscription already carries one.
+const ITEMS_PLAN_ONLY: &str = r#"{"object":"list","has_more":false,"data":[
+    {"id":"si_plan","price":{"id":"price_pro"},"quantity":1}]}"#;
+const ITEMS_WITH_ADDON: &str = r#"{"object":"list","has_more":false,"data":[
+    {"id":"si_plan","price":{"id":"price_pro"},"quantity":1},
+    {"id":"si_athletes","price":{"id":"price_athlete"},"quantity":2}]}"#;
+
+fn extra_athletes(quantity: u64) -> ExtraAthletesRequest {
+    ExtraAthletesRequest {
+        provider_subscription_id: "sub_coach".to_owned(),
+        quantity,
+    }
+}
+
+#[tokio::test]
+async fn extra_athletes_add_the_per_athlete_price_at_the_billed_quantity() {
+    let (base_url, stub) = stub_stripe_replies(vec![
+        (200, ITEMS_PLAN_ONLY),
+        (
+            200,
+            r#"{"id":"si_athletes","price":{"id":"price_athlete"},"quantity":3}"#,
+        ),
+    ])
+    .await;
+
+    provider(&base_url)
+        .set_extra_athletes(&extra_athletes(3))
+        .await
+        .unwrap();
+
+    let requests = stub.await.unwrap();
+    assert!(
+        requests[0].starts_with("GET /v1/subscription_items?subscription=sub_coach&limit=100 "),
+        "the adapter reads the subscription's items first: {}",
+        requests[0]
+    );
+    assert!(requests[1].starts_with("POST /v1/subscription_items "));
+    let form = requests[1].split("\r\n\r\n").nth(1).unwrap();
+    assert_eq!(
+        form, "subscription=sub_coach&price=price_athlete&quantity=3",
+        "the add-on is the per-athlete price, never the plan's"
+    );
+}
+
+#[tokio::test]
+async fn extra_athletes_update_the_add_on_already_on_the_subscription() {
+    let (base_url, stub) = stub_stripe_replies(vec![
+        (200, ITEMS_WITH_ADDON),
+        (
+            200,
+            r#"{"id":"si_athletes","price":{"id":"price_athlete"},"quantity":5}"#,
+        ),
+    ])
+    .await;
+
+    provider(&base_url)
+        .set_extra_athletes(&extra_athletes(5))
+        .await
+        .unwrap();
+
+    let requests = stub.await.unwrap();
+    assert!(requests[1].starts_with("POST /v1/subscription_items/si_athletes "));
+    assert!(requests[1].ends_with("\r\n\r\nquantity=5"));
+}
+
+#[tokio::test]
+async fn zero_extra_athletes_remove_the_add_on() {
+    let (base_url, stub) = stub_stripe_replies(vec![
+        (200, ITEMS_WITH_ADDON),
+        (
+            200,
+            r#"{"id":"si_athletes","object":"subscription_item","deleted":true}"#,
+        ),
+    ])
+    .await;
+
+    provider(&base_url)
+        .set_extra_athletes(&extra_athletes(0))
+        .await
+        .unwrap();
+
+    let requests = stub.await.unwrap();
+    assert!(
+        requests[1].starts_with("DELETE /v1/subscription_items/si_athletes "),
+        "a coach back within the included athletes carries no add-on line: {}",
+        requests[1]
+    );
+}
+
+#[tokio::test]
+async fn a_refused_add_on_becomes_external_service() {
+    let (base_url, stub) = stub_stripe_replies(vec![
+        (200, ITEMS_PLAN_ONLY),
+        (
+            400,
+            r#"{"error":{"type":"invalid_request_error","message":"No such price: 'price_athlete'"}}"#,
+        ),
+    ])
+    .await;
+
+    let err = provider(&base_url)
+        .set_extra_athletes(&extra_athletes(1))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code, ErrorCode::ExternalServiceError);
+    assert!(err.message.contains("No such price"), "{}", err.message);
+    stub.await.unwrap();
 }

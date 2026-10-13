@@ -11,7 +11,7 @@ repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
 [dependencies]
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors", "billing"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 # backend_resolver: the provider name a delegated connection's disconnect event reports.
 pierre-providers = { version = "0.3.0", path = "../pierre-providers", default-features = false }

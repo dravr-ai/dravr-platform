@@ -29,10 +29,10 @@ dravr-tronc = "4.3.0"
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.29.2" }
 
 # Messaging types and channel adapters.
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.7.2" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.8.0" }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", rev = "54a945c89e0f80e146792a18b073aaffb55dcf62" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", rev = "3a6733dd81c592600a4950f5f39b2399c7850676" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.

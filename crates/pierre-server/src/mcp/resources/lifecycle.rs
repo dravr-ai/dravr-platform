@@ -96,6 +96,8 @@ use pierre_email::ResendEmailService;
 use pierre_groups::delegation::DelegationStore;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
+#[cfg(feature = "tools-groups")]
+use pierre_groups::AthleteBilling;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 #[cfg(feature = "provider-sciotte")]
@@ -188,6 +190,14 @@ impl ServerContext {
         options: ServerContextOptions,
     ) -> AppResult<Self> {
         let rsa_key_size_bits = options.rsa_key_size_bits.unwrap_or(4096);
+        // Use the injected billing provider when present (production binaries
+        // pass StripeProvider when Stripe env is configured). Otherwise fall
+        // back to the in-tree DummyProvider so the platform compiles, tests
+        // run, and local dev works without a vendor crate configured. Resolved
+        // first because the group service bills athletes through it too.
+        let billing_provider = options
+            .billing_provider
+            .unwrap_or_else(|| Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>);
         let jwks_manager = options.jwks_manager;
         let llm_provider = options.llm_provider;
         // Honor explicit chat_provider passthrough first; otherwise wrap
@@ -337,6 +347,12 @@ impl ServerContext {
             repos.groups.clone(),
             Arc::new(DelegationStore::new(&repos)),
             tier_strategy_for("professional"),
+            Arc::new(AthleteBilling::new(
+                Arc::clone(&repos.groups),
+                Arc::clone(&repos.tenants),
+                Arc::clone(&repos.subscriptions),
+                Arc::clone(&billing_provider),
+            )),
         ));
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
@@ -610,13 +626,6 @@ impl ServerContext {
             a2a_system_user_service,
         };
 
-        // Use the injected billing provider when present (production binaries
-        // pass StripeProvider when Stripe env is configured). Otherwise fall
-        // back to the in-tree DummyProvider so the platform compiles, tests
-        // run, and local dev works without a vendor crate configured.
-        let billing_provider = options
-            .billing_provider
-            .unwrap_or_else(|| Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>);
         let billing = super::slices::BillingSlice {
             billing_provider,
             repos: usage_repos_view,

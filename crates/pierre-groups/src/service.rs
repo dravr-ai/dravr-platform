@@ -17,7 +17,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::FormBand;
 use pierre_core::models::{DelegationEndReason, TenantId};
 use pierre_database::repositories::CoachingGroupRepository;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 // ============================================================================
@@ -70,6 +70,7 @@ pub struct ChannelGroupSpec<'a> {
     pub channel_chat_id: &'a str,
 }
 
+use crate::athlete_billing::{AthleteBilling, AthleteCharge};
 use crate::context_alerts::connection_and_staleness_alerts;
 use crate::delegation::DelegationStore;
 use crate::setup_timing::record_member_joined;
@@ -89,22 +90,29 @@ pub struct GroupService {
     /// once over the same repository registry.
     delegation: Arc<DelegationStore>,
     tier: Arc<dyn GroupTierStrategy>,
+    /// Counts an owner's groups for the plan allowance and bills the athletes
+    /// above it. Shared (`Arc`) with the billing webhook, which re-applies the
+    /// charge when a subscription changes.
+    athlete_billing: Arc<AthleteBilling>,
 }
 
 impl GroupService {
     /// Create a group service over the group repository, the store that ends
-    /// delegated connections when the group relation behind them ends, and the
-    /// tier strategy
+    /// delegated connections when the group relation behind them ends, the
+    /// tier strategy, and the athlete billing that counts an owner's groups
+    /// against their plan and charges the athletes above its allowance
     #[must_use]
     pub fn new(
         repo: Arc<dyn CoachingGroupRepository>,
         delegation: Arc<DelegationStore>,
         tier: Arc<dyn GroupTierStrategy>,
+        athlete_billing: Arc<AthleteBilling>,
     ) -> Self {
         Self {
             repo,
             delegation,
             tier,
+            athlete_billing,
         }
     }
 
@@ -279,15 +287,18 @@ impl GroupService {
     /// owns tenant-plan access via the tenants repo): `tier_strategy_for(&plan)`.
     /// The service owns the policy *application*: a member cap of `0` rejects
     /// creation with [`ErrorCode::PermissionDenied`], the owner's groups are
-    /// counted against the plan's `max_groups`, and the requested
-    /// `max_members` (defaulting to 20) is clamped into `2..=member cap`.
+    /// counted against the plan's group allowance (see
+    /// [`AthleteBilling::ensure_room`]), and the requested `max_members`
+    /// (defaulting to 20) is clamped into `2..=member cap`. A group above a
+    /// Professional plan's included athletes is billed on the owner's
+    /// subscription once it exists.
     ///
     /// # Errors
     ///
     /// Returns [`ErrorCode::PermissionDenied`] when the plan's tier disables
     /// group coaching (a member cap of `0`), an `invalid_input` error when the
-    /// owner already holds the plan's `max_groups`, or a database error on
-    /// failure.
+    /// plan's group allowance does not cover another group, or a database
+    /// error on failure.
     pub async fn create_group(
         &self,
         request: &CreateGroupRequest,
@@ -334,7 +345,7 @@ impl GroupService {
             owner_id,
             tenant_id,
             tier_member_cap,
-            OwnerGroupLimit::Enforced(plan_tier.max_groups()),
+            OwnerGroupLimit::Enforced(plan_tier.group_allowance()),
         )
         .await
     }
@@ -351,7 +362,9 @@ impl GroupService {
     /// gate and made every chat-created group invisible to analytics.
     ///
     /// The owner's tier group *count* allowance deliberately does not apply
-    /// here — see [`OwnerGroupLimit`]. The per-group member cap still does.
+    /// here — see [`OwnerGroupLimit`]. The per-group member cap still does,
+    /// and the group still counts as one of the owner's athletes, so a
+    /// Professional owner's per-athlete charge follows it.
     ///
     /// # Errors
     ///
@@ -422,7 +435,8 @@ impl GroupService {
     /// `tenant_id` are supplied inline because the messaging ingress span
     /// carries neither, so the `NotifyLayer` has nothing to inherit there.
     /// `limit` selects whether this creation spends the owner's tier group
-    /// allowance; the tier gate and member clamp apply either way.
+    /// allowance; the tier gate, member clamp and per-athlete charge apply
+    /// either way.
     async fn create_group_with_owner(
         &self,
         mut group: CoachingGroup,
@@ -440,16 +454,10 @@ impl GroupService {
         }
 
         // Per-owner group allowance, on the paths that spend it.
-        if let OwnerGroupLimit::Enforced(Some(max)) = limit {
-            let current = self
-                .repo
-                .count_groups_for_owner(owner_id, tenant_id)
+        if let OwnerGroupLimit::Enforced(allowance) = limit {
+            self.athlete_billing
+                .ensure_room(owner_id, tenant_id, allowance)
                 .await?;
-            if current >= i64::try_from(max).unwrap_or_default() {
-                return Err(AppError::invalid_input(format!(
-                    "Group limit reached ({max}). Upgrade your plan for more groups."
-                )));
-            }
         }
 
         // Clamp the requested member count into the tier's per-group range.
@@ -488,7 +496,39 @@ impl GroupService {
             group_id = %created.id,
             "coaching group created"
         );
+        self.bill_athletes(owner_id, tenant_id).await;
         Ok(created)
+    }
+
+    /// Re-apply the owner's per-athlete charge after their count of active
+    /// groups changed.
+    ///
+    /// The group change has already been written, so a billing failure does
+    /// not undo it: it is logged at ERROR, which the error digest carries to
+    /// an operator, and the next change or subscription webhook re-applies the
+    /// absolute count, so a missed update converges instead of drifting.
+    async fn bill_athletes(&self, owner_id: Uuid, tenant_id: TenantId) {
+        match self.athlete_billing.sync(owner_id, tenant_id).await {
+            Ok(AthleteCharge::Billed { quantity, .. }) => info!(
+                owner_id = %owner_id,
+                tenant_id = %tenant_id,
+                billed_athletes = quantity,
+                "per-athlete charge applied"
+            ),
+            Ok(AthleteCharge::Unbilled { quantity: 0 }) => {}
+            Ok(AthleteCharge::Unbilled { quantity }) => warn!(
+                owner_id = %owner_id,
+                tenant_id = %tenant_id,
+                unbilled_athletes = quantity,
+                "owner holds athletes above the plan allowance with no live subscription to bill"
+            ),
+            Err(e) => error!(
+                owner_id = %owner_id,
+                tenant_id = %tenant_id,
+                error = %e,
+                "failed to apply the per-athlete charge"
+            ),
+        }
     }
 
     /// Look up the coaching group bound to a messaging chat, if one exists.
@@ -617,6 +657,11 @@ impl GroupService {
                 .end_for_group(group.id, actor, DelegationEndReason::GroupArchived)
                 .await?;
         }
+        // Activating or deactivating a group moves the owner's count, and the
+        // per-athlete charge follows it.
+        if let Some(group) = updated.as_ref().filter(|_| request.is_active.is_some()) {
+            self.bill_athletes(group.owner_id, tenant_id).await;
+        }
         Ok(updated)
     }
 
@@ -632,6 +677,13 @@ impl GroupService {
         tenant_id: TenantId,
         actor: Uuid,
     ) -> AppResult<bool> {
+        // The owner whose count the archive lowers, read before the row
+        // stops being active.
+        let owner_id = self
+            .repo
+            .get_group(group_id, tenant_id)
+            .await?
+            .map(|group| group.owner_id);
         let archived = self.repo.delete_group(group_id, tenant_id).await?;
         if archived {
             self.delegation
@@ -641,6 +693,9 @@ impl GroupService {
                     DelegationEndReason::GroupArchived,
                 )
                 .await?;
+            if let Some(owner_id) = owner_id {
+                self.bill_athletes(owner_id, tenant_id).await;
+            }
         }
         Ok(archived)
     }
@@ -1097,6 +1152,14 @@ impl GroupService {
     #[must_use]
     pub fn repo(&self) -> &dyn CoachingGroupRepository {
         self.repo.as_ref()
+    }
+
+    /// The count, cap and per-athlete charge this service applies, shared
+    /// with the billing webhook so a subscription change re-applies the same
+    /// charge
+    #[must_use]
+    pub fn athlete_billing(&self) -> &Arc<AthleteBilling> {
+        &self.athlete_billing
     }
 }
 

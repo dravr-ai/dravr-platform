@@ -1432,8 +1432,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.7.2"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.7.2#d4d265f154c3e27e4cc7c5ab34874f6eb0ece8fd"
+version = "0.8.0"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.8.0#befba7bdd081e5c9a5750fbf15102cef0e4d8929"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1457,8 +1457,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.4.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?rev=54a945c89e0f80e146792a18b073aaffb55dcf62#54a945c89e0f80e146792a18b073aaffb55dcf62"
+version = "0.4.1"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?rev=3a6733dd81c592600a4950f5f39b2399c7850676#3a6733dd81c592600a4950f5f39b2399c7850676"
 dependencies = [
  "async-trait",
  "chrono",

@@ -62,6 +62,16 @@ impl pierre_runtime_context::BillingCtx for ServerContext {
     fn repos(&self) -> &Arc<RepositoryRegistry> {
         &self.common.repos
     }
+
+    #[cfg(feature = "tools-groups")]
+    fn athlete_billing(&self) -> Option<&Arc<pierre_runtime_context::AthleteBilling>> {
+        Some(self.common.group_service.athlete_billing())
+    }
+
+    #[cfg(not(feature = "tools-groups"))]
+    fn athlete_billing(&self) -> Option<&Arc<pierre_runtime_context::AthleteBilling>> {
+        None
+    }
 }
 
 impl pierre_runtime_context::IdentityCtx for ServerContext {

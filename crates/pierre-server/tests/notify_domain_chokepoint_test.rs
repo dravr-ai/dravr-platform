@@ -490,8 +490,9 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
             .unwrap();
     }
 
-    // REST still refuses past the allowance — the limit is real, it just does
-    // not govern the chat path.
+    // REST still refuses past the allowance — the limit is real for an owner
+    // with no subscription to bill a further athlete to, it just does not
+    // govern the chat path.
     let refused = res
         .group_service()
         .create_group(

@@ -25,7 +25,7 @@ use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
 use serde::{Deserialize, Serialize};
-use tracing::{field, info, instrument, Span};
+use tracing::{error, field, info, instrument, Span};
 use uuid::Uuid;
 
 /// `GET /api/billing/subscription` view returned to the frontend.
@@ -408,12 +408,56 @@ async fn webhook<C: BillingCtx>(
     let usage_repos = repos.usage_repos();
     dispatch_billing_event(&auth_repos, &usage_repos, expected, &envelope.event).await?;
 
+    if let BillingEvent::SubscriptionUpserted(payload) = &envelope.event {
+        bill_subscriber_athletes(resources.as_ref(), payload).await;
+    }
+
     usage_repos
         .subscriptions
         .mark_billing_event_processed(expected, &envelope.event_id, &envelope.event_type)
         .await?;
 
     Ok((StatusCode::OK, "ok").into_response())
+}
+
+/// Re-apply the subscriber's per-athlete charge after their subscription was
+/// created or changed.
+///
+/// A new subscription starts billing the athletes the coach already holds
+/// above the plan's allowance (chat-bound groups never stopped at it), and a
+/// plan change re-prices the charge or clears it. The charge is absolute, so
+/// this also converges one a failed group-side update left behind. It is
+/// logged rather than failed: the subscription row above has landed, and a
+/// provider retry of the whole event must not hinge on the add-on.
+async fn bill_subscriber_athletes<C: BillingCtx>(
+    resources: &C,
+    payload: &SubscriptionEventPayload,
+) {
+    let Some(athlete_billing) = resources.athlete_billing() else {
+        return;
+    };
+    // `dispatch_billing_event` parsed both ids before it wrote the row, so
+    // they are well-formed here.
+    let (Ok(user_id), Ok(tenant_id)) = (
+        Uuid::parse_str(&payload.user_id),
+        TenantId::parse_str(&payload.tenant_id),
+    ) else {
+        return;
+    };
+    match athlete_billing.sync(user_id, tenant_id).await {
+        Ok(charge) => info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            charge = ?charge,
+            "per-athlete charge re-applied after a subscription change"
+        ),
+        Err(e) => error!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            error = %e,
+            "failed to re-apply the per-athlete charge after a subscription change"
+        ),
+    }
 }
 
 /// Apply a normalized [`BillingEvent`] to the repositories.
@@ -481,13 +525,38 @@ async fn admin_override_blocks_tier_change(
     Ok(false)
 }
 
+/// Whether an upsert left the subscription's identity, status, tier and
+/// billing period as they were.
+///
+/// The provider re-sends the subscription whenever any part of it moves,
+/// including a line-item quantity the platform does not store: the
+/// per-athlete add-on follows a coach's athlete count, so every athlete added
+/// or removed above the plan's allowance comes back as one of these.
+fn subscription_unchanged(prior: &Subscription, stored: &Subscription) -> bool {
+    prior.provider == stored.provider
+        && prior.provider_customer_id == stored.provider_customer_id
+        && prior.provider_subscription_id == stored.provider_subscription_id
+        && prior.status == stored.status
+        && prior.plan_tier == stored.plan_tier
+        && prior.current_period_start == stored.current_period_start
+        && prior.current_period_end == stored.current_period_end
+        && prior.cancel_at_period_end == stored.cancel_at_period_end
+        && prior.canceled_at == stored.canceled_at
+        && prior.trial_end == stored.trial_end
+}
+
 /// Emit the analytics notify events for an entitled subscription upsert:
-/// always `checkout.completed`, plus `tier_changed` when the entitled tier
-/// differs from `prior_tier`.
+/// `checkout.completed` unless the upsert left the subscription as it was
+/// (see [`subscription_unchanged`]), plus `tier_changed` when the
+/// entitled tier differs from the prior one.
 ///
 /// The webhook runs outside any user-scoped handler span, so `user_id` /
 /// `tenant_id` are passed inline rather than read from the enclosing span.
-fn notify_entitlement(stored: &Subscription, prior_tier: Option<&UserTier>) {
+fn notify_entitlement(stored: &Subscription, prior: Option<&Subscription>) {
+    if prior.is_some_and(|prior| subscription_unchanged(prior, stored)) {
+        return;
+    }
+    let prior_tier = prior.map(|prior| &prior.plan_tier);
     info!(
         target: "notify",
         event = "checkout.completed",
@@ -516,15 +585,16 @@ fn notify_entitlement(stored: &Subscription, prior_tier: Option<&UserTier>) {
 /// subscriptions push their `plan_tier` onto the user and tenant; others
 /// only log the status update.
 ///
-/// `prior_tier` is the user's tier on the subscription row before this
-/// upsert (`None` when no prior subscription existed). It drives the
-/// `tier_changed` notify event so a renewal that keeps the same tier does
-/// not emit a spurious change.
+/// `prior` is the user's subscription row before this upsert (`None` when
+/// no prior subscription existed). It drives the notify events: an upsert
+/// that left the subscription as it was emits none, and `tier_changed`
+/// fires only when the tier moved, so a renewal that keeps the same tier
+/// does not emit a spurious change.
 async fn apply_entitled_tier(
     auth_repos: &AuthRepos,
     provider: &str,
     stored: &Subscription,
-    prior_tier: Option<&UserTier>,
+    prior: Option<&Subscription>,
 ) -> AppResult<()> {
     if stored.is_entitled() {
         auth_repos
@@ -542,7 +612,7 @@ async fn apply_entitled_tier(
             tier = stored.plan_tier.as_str(),
             "billing webhook applied tier change",
         );
-        notify_entitlement(stored, prior_tier);
+        notify_entitlement(stored, prior);
     } else {
         tracing::info!(
             billing_provider = provider,
@@ -569,14 +639,14 @@ async fn handle_subscription_upsert(
     let status =
         SubscriptionStatus::from_str(&payload.status).unwrap_or(SubscriptionStatus::Incomplete);
 
-    // Capture the tier on the user's existing subscription (if any) before the
-    // upsert overwrites it, so apply_entitled_tier can tell a genuine tier
-    // change apart from a same-tier renewal for the `tier_changed` event.
-    let prior_tier = usage_repos
+    // Capture the user's existing subscription (if any) before the upsert
+    // overwrites it, so apply_entitled_tier can tell a genuine tier change
+    // apart from a same-tier renewal for the `tier_changed` event, and an
+    // update that left the subscription as it was from a real one.
+    let prior = usage_repos
         .subscriptions
         .get_subscription_by_user(user_id)
-        .await?
-        .map(|existing| existing.plan_tier);
+        .await?;
 
     let now = Utc::now();
     let sub = Subscription {
@@ -605,7 +675,7 @@ async fn handle_subscription_upsert(
         return Ok(());
     }
 
-    apply_entitled_tier(auth_repos, provider, &stored, prior_tier.as_ref()).await
+    apply_entitled_tier(auth_repos, provider, &stored, prior.as_ref()).await
 }
 
 async fn handle_subscription_canceled(

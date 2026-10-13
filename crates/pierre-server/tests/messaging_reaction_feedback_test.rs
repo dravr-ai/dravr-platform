@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for inbound emoji reactions writing the shared per-message feedback
-// ABOUTME: Covers the write, the clear, the unmapped no-op, the Meta gate, and the group-room trap
+// ABOUTME: Covers the write, the clear, the unmapped no-op, the Meta gate, the group-room trap, and the Discord Gateway stream
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,6 +19,7 @@ use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::channels::descriptor_for;
+use dravr_canot::channels::discord::DiscordChannel;
 use dravr_canot::channels::messenger::MessengerChannel;
 use dravr_canot::channels::whatsapp::WhatsAppChannel;
 use http::HeaderMap;
@@ -29,9 +30,10 @@ use pierre_database::repositories::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::messaging_ingress::reactions::{
-    apply_reactions, channel_delivers_reactions, rating_for_emoji,
+    apply_reactions, channel_delivers_reactions, consume_reactions, rating_for_emoji,
 };
 use serde_json::json;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// One athlete, their conversation, the assistant message the agent wrote, and
@@ -54,6 +56,11 @@ struct Delivered {
 /// Build an athlete whose agent reply has been delivered over Telegram, with
 /// the outbound row stamped the way `persist_outbound_message` stamps it.
 async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
+    deliver_a_reply_on("telegram", chat_id, channel_user_id).await
+}
+
+/// [`deliver_a_reply`] over any channel, named by its `channel_type` slug.
+async fn deliver_a_reply_on(channel: &str, chat_id: &str, channel_user_id: &str) -> Delivered {
     let resources = create_test_server_resources().await.unwrap();
     let (user_uuid, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = resources
@@ -70,7 +77,14 @@ async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
         .common
         .repos
         .chat
-        .create_conversation(&user_id, tenant_id, "Telegram coach", "", None, None)
+        .create_conversation(
+            &user_id,
+            tenant_id,
+            &format!("{channel} coach"),
+            "",
+            None,
+            None,
+        )
         .await
         .unwrap();
     let conversation_id = conversation.id.clone();
@@ -101,7 +115,7 @@ async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
         id: &session_id,
         user_id: &user_id,
         tenant_id,
-        channel_type: "telegram",
+        channel_type: channel,
         channel_user_id,
         channel_conversation_id: Some(chat_id),
         pierre_conversation_id: Some(&conversation_id),
@@ -109,13 +123,13 @@ async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
     .await
     .unwrap();
 
-    let channel_message_id = format!("tg-{}", Uuid::new_v4());
+    let channel_message_id = format!("{channel}-{}", Uuid::new_v4());
     db.insert_message(&InsertMessageParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id,
         session_id: &session_id,
         direction: "outbound",
-        channel_type: "telegram",
+        channel_type: channel,
         channel_message_id: &channel_message_id,
         sender_id: "pierre",
         content_type: "text",
@@ -375,6 +389,154 @@ async fn a_reaction_from_another_chat_does_not_rate_this_conversation() {
         feedback(&delivered).await,
         Vec::<(String, String)>::new(),
         "the chat id narrows the match, so a collision elsewhere rates nothing"
+    );
+}
+
+/// What canot's Gateway client forwards for a Discord reaction: the dispatch
+/// frame Discord sends, decoded by canot's own parser.
+async fn discord_gateway_reactions(
+    delivered: &Delivered,
+    event_name: &str,
+    reactor_id: &str,
+    emoji: &str,
+) -> Vec<InboundReaction> {
+    let frame = json!({
+        "op": 0,
+        "s": 31,
+        "t": event_name,
+        "d": {
+            "user_id": reactor_id,
+            "channel_id": delivered.channel_conversation_id,
+            "message_id": delivered.channel_message_id,
+            "guild_id": "103735883630395392",
+            "emoji": {"id": null, "name": emoji},
+        }
+    });
+    DiscordChannel::new("ab".repeat(32), "app-id".to_owned())
+        .receive_reactions(&HeaderMap::new(), &serde_json::to_vec(&frame).unwrap())
+        .await
+        .unwrap()
+}
+
+/// Feed `reactions` through the stream consumer the Discord Gateway hands its
+/// receiver to, and wait until it has applied every one.
+async fn stream_reactions(delivered: &Delivered, reactions: Vec<InboundReaction>) {
+    let (tx, rx) = mpsc::channel(8);
+    for reaction in reactions {
+        tx.send(reaction).await.unwrap();
+    }
+    drop(tx);
+    consume_reactions(Arc::clone(&delivered.resources), "test gateway", rx).await;
+}
+
+#[tokio::test]
+async fn a_discord_gateway_reaction_records_a_rating_on_the_assistant_message() {
+    let delivered = deliver_a_reply_on("discord", "103735883630395392", "80351110224678912").await;
+
+    let reactions = discord_gateway_reactions(
+        &delivered,
+        "MESSAGE_REACTION_ADD",
+        &delivered.channel_user_id,
+        "👍",
+    )
+    .await;
+    assert_eq!(
+        reactions.len(),
+        1,
+        "the dispatch frame carries one reaction"
+    );
+    assert_eq!(reactions[0].channel_type, ChannelType::Discord);
+    stream_reactions(&delivered, reactions).await;
+
+    assert_eq!(
+        feedback(&delivered).await,
+        vec![(delivered.assistant_message_id.clone(), "up".to_owned())],
+        "a Discord thumb rates the reply exactly as a Telegram or Slack one does"
+    );
+}
+
+#[tokio::test]
+async fn a_discord_gateway_reaction_removal_clears_the_rating() {
+    let delivered = deliver_a_reply_on("discord", "103735883630395393", "80351110224678913").await;
+
+    let added = discord_gateway_reactions(
+        &delivered,
+        "MESSAGE_REACTION_ADD",
+        &delivered.channel_user_id,
+        "👎",
+    )
+    .await;
+    assert_eq!(added.len(), 1, "the addition frame carries one reaction");
+    stream_reactions(&delivered, added).await;
+    assert_eq!(
+        feedback(&delivered).await,
+        vec![(delivered.assistant_message_id.clone(), "down".to_owned())],
+        "rating landed first"
+    );
+
+    let removed = discord_gateway_reactions(
+        &delivered,
+        "MESSAGE_REACTION_REMOVE",
+        &delivered.channel_user_id,
+        "👎",
+    )
+    .await;
+    assert_eq!(removed.len(), 1, "the removal frame carries one reaction");
+    assert_eq!(removed[0].action, ReactionAction::Removed);
+    stream_reactions(&delivered, removed).await;
+
+    assert_eq!(
+        feedback(&delivered).await,
+        Vec::<(String, String)>::new(),
+        "taking the reaction back on Discord leaves no rating behind"
+    );
+}
+
+#[tokio::test]
+async fn a_discord_bystander_reaction_from_the_gateway_rates_nothing() {
+    let delivered = deliver_a_reply_on("discord", "103735883630395394", "80351110224678914").await;
+
+    let reactions =
+        discord_gateway_reactions(&delivered, "MESSAGE_REACTION_ADD", "bystander-99", "👍").await;
+    assert_eq!(reactions.len(), 1, "the bystander's reaction is decoded");
+    assert_eq!(reactions[0].reactor_id, "bystander-99");
+    stream_reactions(&delivered, reactions).await;
+
+    assert_eq!(
+        feedback(&delivered).await,
+        Vec::<(String, String)>::new(),
+        "another member of the Discord channel is not the athlete"
+    );
+}
+
+#[tokio::test]
+async fn the_reaction_stream_drops_a_channel_that_declares_no_reactions() {
+    // WhatsApp's reply is mapped exactly like any other, so only the
+    // descriptor gate stands between this reaction and a rating.
+    let delivered = deliver_a_reply_on("whatsapp", "chat-whatsapp", "athlete-50").await;
+
+    let mut reaction = reaction(
+        &delivered,
+        &delivered.channel_user_id,
+        "👍",
+        ReactionAction::Added,
+    );
+    reaction.channel_type = ChannelType::WhatsApp;
+    stream_reactions(&delivered, vec![reaction.clone()]).await;
+
+    assert_eq!(
+        feedback(&delivered).await,
+        Vec::<(String, String)>::new(),
+        "a channel whose API delivers no reaction event rates nothing"
+    );
+
+    // The same reaction applied past the gate does rate the reply, so the
+    // empty result above is the stream's gate at work and not a lookup miss.
+    apply_reactions(&delivered.resources, &[reaction]).await;
+    assert_eq!(
+        feedback(&delivered).await,
+        vec![(delivered.assistant_message_id.clone(), "up".to_owned())],
+        "without the gate the reaction resolves to the delivered reply"
     );
 }
 

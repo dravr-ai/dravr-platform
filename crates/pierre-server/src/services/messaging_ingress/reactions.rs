@@ -21,16 +21,12 @@
 //! # Reach
 //!
 //! Telegram delivers reactions on its webhook, Slack on both its webhook and
-//! Socket Mode, and both paths call in here.
-//!
-//! LIMITATION(registre#106): Discord reactions never reach this module.
-//! `DiscordChannel::parse_reactions` reads a Gateway dispatch envelope
-//! correctly and the webhook path would hand it one, but Discord posts only
-//! interactions to a webhook, and dravr-canot v0.4.23's Gateway client
-//! forwards `MESSAGE_CREATE` alone and asks for neither reaction intent — so
-//! the frames are never received to forward. The gate below is the channel's
-//! own predicate, so Discord starts working the moment canot surfaces those
-//! frames; nothing here has to change.
+//! Socket Mode, and Discord on its Gateway: Discord posts only interactions to
+//! a webhook, so the Gateway client in dravr-canot requests the reaction
+//! intents, decodes `MESSAGE_REACTION_ADD` / `MESSAGE_REACTION_REMOVE`, and
+//! hands them over as [`InboundReaction`]s. The webhook paths call
+//! [`apply_reactions`] on the parsed body; the two socket paths hand their
+//! stream to [`consume_reactions`]. All of them land in the same write.
 //!
 //! # Who is allowed to rate
 //!
@@ -42,6 +38,7 @@
 //! here is what keeps a group room from turning every refusal into a logged
 //! error.
 
+use std::slice;
 use std::sync::Arc;
 
 use dravr_canot::channels::descriptor_for;
@@ -49,6 +46,7 @@ use dravr_canot::descriptor::ChannelDescriptor;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, ReactionAction};
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_database::repositories::{MessagingRepository, ReactionFeedbackTarget};
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::mcp::resources::ServerContext;
@@ -157,6 +155,48 @@ pub async fn apply_reactions(resources: &Arc<ServerContext>, reactions: &[Inboun
     {
         apply_one(resources, reaction).await;
     }
+}
+
+/// Apply every reaction a socket-style source delivers until it closes.
+///
+/// Slack Socket Mode and the Discord Gateway push reactions as they happen
+/// rather than posting a body to a webhook, so each hands the receiving end of
+/// its reaction channel here. `source` names the feed in the log lines.
+///
+/// A reaction whose channel does not declare inbound reactions is dropped
+/// without a write: the descriptor is the channel's own statement of what it
+/// delivers, and the webhook path honours it before parsing for the same
+/// reason.
+pub async fn consume_reactions(
+    resources: Arc<ServerContext>,
+    source: &'static str,
+    mut rx: mpsc::Receiver<InboundReaction>,
+) {
+    while let Some(reaction) = rx.recv().await {
+        apply_streamed(&resources, source, &reaction).await;
+    }
+    info!(source, "reaction consumer stopped");
+}
+
+/// Apply one streamed reaction, unless its channel declares no inbound
+/// reactions.
+async fn apply_streamed(resources: &Arc<ServerContext>, source: &str, reaction: &InboundReaction) {
+    debug!(
+        source,
+        channel = %reaction.channel_type,
+        channel_message_id = %reaction.channel_message_id,
+        action = %reaction.action,
+        "received reaction"
+    );
+    if !channel_delivers_reactions(reaction.channel_type) {
+        debug!(
+            source,
+            channel = %reaction.channel_type,
+            "channel declares no inbound reactions; dropped"
+        );
+        return;
+    }
+    apply_reactions(resources, slice::from_ref(reaction)).await;
 }
 
 /// Resolve one reaction to a chat message and write (or clear) the rating.

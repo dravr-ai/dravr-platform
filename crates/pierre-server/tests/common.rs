@@ -28,6 +28,7 @@ use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyReque
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{HttpClientConfig, ServerConfig};
+use pierre_core::billing::BillingProvider;
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -627,6 +628,7 @@ async fn create_test_server_resources_inner_typed(
         config_override,
         chat_provider,
         None,
+        None,
     )
     .await
 }
@@ -676,6 +678,7 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
         None,
         Some(Arc::new(ChatProvider::Custom(chat_provider))),
         turn_runner,
+        None,
     )
     .await
 }
@@ -700,6 +703,26 @@ pub async fn create_test_server_resources_with_chat_provider_and_runner(
         None,
         Some(Arc::new(ChatProvider::Custom(provider))),
         Some(turn_runner),
+        None,
+    )
+    .await
+}
+
+/// [`create_test_server_resources`] with a caller-supplied billing provider in
+/// place of the in-tree `DummyProvider`, for a test that reads what the
+/// platform asked the provider to bill.
+pub async fn create_test_server_resources_with_billing_provider(
+    billing_provider: Arc<dyn BillingProvider>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        None,
+        Some(billing_provider),
     )
     .await
 }
@@ -711,6 +734,7 @@ async fn create_test_server_resources_over(
     config_override: Option<ServerConfig>,
     chat_provider: Option<Arc<ChatProvider>>,
     turn_runner: Option<Arc<TurnRunner>>,
+    billing_provider: Option<Arc<dyn BillingProvider>>,
 ) -> Result<Arc<ServerContext>> {
     init_test_logging();
     init_test_http_clients();
@@ -747,7 +771,7 @@ async fn create_test_server_resources_over(
                 llm_provider,
                 chat_provider,
                 extra_tools,
-                billing_provider: None,
+                billing_provider,
                 turn_runner,
             },
         )

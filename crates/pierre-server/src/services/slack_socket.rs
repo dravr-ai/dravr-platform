@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::slice;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,7 +76,7 @@ pub fn start_slack_socket_mode(resources: &Arc<ServerContext>) {
 
     let reaction_resources = Arc::clone(resources);
     tokio::spawn(async move {
-        process_socket_reactions(reaction_resources, reaction_rx).await;
+        reactions::consume_reactions(reaction_resources, "Slack Socket Mode", reaction_rx).await;
     });
 
     info!(
@@ -351,22 +350,6 @@ async fn parse_socket_reactions(payload: &Value) -> Vec<InboundReaction> {
             Vec::new()
         }
     }
-}
-
-/// Consumer task: drains reactions and applies each as message feedback.
-async fn process_socket_reactions(
-    resources: Arc<ServerContext>,
-    mut rx: mpsc::Receiver<InboundReaction>,
-) {
-    while let Some(reaction) = rx.recv().await {
-        debug!(
-            channel_message_id = %reaction.channel_message_id,
-            action = %reaction.action,
-            "Slack Socket Mode: received reaction"
-        );
-        reactions::apply_reactions(&resources, slice::from_ref(&reaction)).await;
-    }
-    info!("Slack Socket Mode: reaction consumer stopped");
 }
 
 /// Re-serialize the socket payload and hand it to canot's parser. Returns

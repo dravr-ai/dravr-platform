@@ -31,12 +31,56 @@ pub struct GroupFeatureFlags {
     pub advanced_invites: bool,
 }
 
+/// Athletes the Professional plan includes. Each athlete above this many is
+/// billed per athlete on the coach's subscription rather than refused.
+const PROFESSIONAL_INCLUDED_ATHLETES: usize = 15;
+
+/// Athletes a Starter coach may hold — one group each — before creation is
+/// refused.
+const STARTER_MAX_ATHLETES: usize = 10;
+
+/// How a tier treats the number of groups one owner holds.
+///
+/// A coach brings each athlete into a group of their own, so a group is an
+/// athlete: the allowance is counted in groups and charged in athletes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupAllowance {
+    /// Creation is refused once the owner holds this many groups.
+    Capped(usize),
+    /// This many groups are included in the plan; each one above it is billed
+    /// as one extra athlete on the owner's subscription. Without a
+    /// subscription to bill, the included count is a cap.
+    BilledAbove(usize),
+    /// No limit and no per-athlete charge.
+    Unlimited,
+}
+
+impl GroupAllowance {
+    /// Athletes billed when the owner holds `active_groups` groups: the
+    /// groups above the included count under [`Self::BilledAbove`], and zero
+    /// for a tier with no per-athlete charge.
+    ///
+    /// `active_groups` is the count the cap reads, so the charge and the cap
+    /// can never disagree about how many athletes a coach has.
+    #[must_use]
+    pub(crate) fn billed_athletes(self, active_groups: i64) -> u64 {
+        match self {
+            Self::BilledAbove(included) => {
+                let held = u64::try_from(active_groups).unwrap_or(0);
+                held.saturating_sub(u64::try_from(included).unwrap_or(u64::MAX))
+            }
+            Self::Capped(_) | Self::Unlimited => 0,
+        }
+    }
+}
+
 /// Strategy composition based on tenant pricing tier.
 ///
 /// Each tier determines which sub-strategies are used and what limits apply.
 pub trait GroupTierStrategy: Send + Sync {
-    /// Maximum number of groups this tier allows (None = unlimited)
-    fn max_groups(&self) -> Option<usize>;
+    /// How many groups one owner may hold under this tier, and whether the
+    /// ones above the included count are refused or billed.
+    fn group_allowance(&self) -> GroupAllowance;
 
     /// Maximum members per group
     fn max_members_per_group(&self) -> usize;
@@ -58,7 +102,7 @@ pub trait GroupTierStrategy: Send + Sync {
 }
 
 /// Whether a group-creation path spends one of the owner's tier group
-/// allowance ([`GroupTierStrategy::max_groups`]).
+/// allowance ([`GroupTierStrategy::group_allowance`]).
 ///
 /// A REST group creation is a user asking for a new group, so it spends
 /// it. A messaging auto-bind is not a request — the group materializes because
@@ -67,9 +111,9 @@ pub trait GroupTierStrategy: Send + Sync {
 /// member cap is the gate there instead: a live chat must never be silently
 /// un-grouped because its owner reached the plan's allowance.
 pub(crate) enum OwnerGroupLimit {
-    /// Count the owner's groups against this plan allowance (`None` =
-    /// unlimited) and refuse beyond it.
-    Enforced(Option<usize>),
+    /// Count the owner's groups against this plan allowance and refuse a
+    /// creation it does not cover.
+    Enforced(GroupAllowance),
     /// Skip the count — the member cap governs this path.
     Exempt,
 }
@@ -89,8 +133,8 @@ pub(crate) enum OwnerGroupLimit {
 pub struct StarterTierStrategy;
 
 impl GroupTierStrategy for StarterTierStrategy {
-    fn max_groups(&self) -> Option<usize> {
-        Some(10)
+    fn group_allowance(&self) -> GroupAllowance {
+        GroupAllowance::Capped(STARTER_MAX_ATHLETES)
     }
 
     fn max_members_per_group(&self) -> usize {
@@ -126,13 +170,14 @@ impl GroupTierStrategy for StarterTierStrategy {
     }
 }
 
-/// Professional tier: one group per athlete, like Starter, for the 15
-/// athletes a paid coach seat includes.
+/// Professional tier: one group per athlete, like Starter. The paid coach
+/// seat includes 15 athletes; each one above is billed per athlete on the
+/// coach's subscription instead of being refused.
 pub struct ProfessionalTierStrategy;
 
 impl GroupTierStrategy for ProfessionalTierStrategy {
-    fn max_groups(&self) -> Option<usize> {
-        Some(15)
+    fn group_allowance(&self) -> GroupAllowance {
+        GroupAllowance::BilledAbove(PROFESSIONAL_INCLUDED_ATHLETES)
     }
 
     fn max_members_per_group(&self) -> usize {
@@ -172,8 +217,8 @@ impl GroupTierStrategy for ProfessionalTierStrategy {
 pub struct EnterpriseTierStrategy;
 
 impl GroupTierStrategy for EnterpriseTierStrategy {
-    fn max_groups(&self) -> Option<usize> {
-        None
+    fn group_allowance(&self) -> GroupAllowance {
+        GroupAllowance::Unlimited
     }
 
     fn max_members_per_group(&self) -> usize {
@@ -228,4 +273,72 @@ pub fn tier_strategy_for(plan: &str) -> Arc<dyn GroupTierStrategy> {
 #[must_use]
 pub fn tier_enables_digest(plan: &str) -> bool {
     tier_strategy_for(plan).allowed_features().weekly_digest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_plan_name_resolves_to_its_tier_allowance() {
+        let starter = StarterTierStrategy.group_allowance();
+        let professional = ProfessionalTierStrategy.group_allowance();
+        assert_eq!(tier_strategy_for("starter").group_allowance(), starter);
+        assert_eq!(
+            tier_strategy_for("professional").group_allowance(),
+            professional
+        );
+        assert_eq!(tier_strategy_for("pro").group_allowance(), professional);
+        assert_eq!(
+            tier_strategy_for("enterprise").group_allowance(),
+            EnterpriseTierStrategy.group_allowance()
+        );
+        assert_eq!(
+            tier_strategy_for("an-unknown-plan").group_allowance(),
+            starter,
+            "an unknown plan resolves to Starter"
+        );
+        assert!(
+            matches!(starter, GroupAllowance::Capped(_)),
+            "Starter refuses past its allowance"
+        );
+        assert!(
+            matches!(professional, GroupAllowance::BilledAbove(_)),
+            "Professional bills past its allowance"
+        );
+        assert_eq!(
+            EnterpriseTierStrategy.group_allowance(),
+            GroupAllowance::Unlimited
+        );
+    }
+
+    #[test]
+    fn professional_bills_only_the_athletes_above_fifteen() {
+        let allowance = ProfessionalTierStrategy.group_allowance();
+        assert_eq!(allowance.billed_athletes(0), 0);
+        assert_eq!(allowance.billed_athletes(14), 0);
+        assert_eq!(
+            allowance.billed_athletes(15),
+            0,
+            "the 15th athlete is included"
+        );
+        assert_eq!(
+            allowance.billed_athletes(16),
+            1,
+            "the 16th is the first billed"
+        );
+        assert_eq!(allowance.billed_athletes(40), 25);
+    }
+
+    #[test]
+    fn tiers_without_a_per_athlete_charge_bill_nothing() {
+        assert_eq!(GroupAllowance::Capped(10).billed_athletes(10), 0);
+        assert_eq!(GroupAllowance::Capped(10).billed_athletes(25), 0);
+        assert_eq!(GroupAllowance::Unlimited.billed_athletes(500), 0);
+    }
+
+    #[test]
+    fn a_negative_count_bills_nothing() {
+        assert_eq!(GroupAllowance::BilledAbove(15).billed_athletes(-3), 0);
+    }
 }

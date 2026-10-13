@@ -37,6 +37,7 @@ fn provider() -> StripeProvider {
     let prices = StripePriceConfig {
         professional: "price_pro".to_owned(),
         enterprise: "price_ent".to_owned(),
+        professional_extra_athlete: "price_athlete".to_owned(),
     };
     StripeProvider::new(client, prices)
 }

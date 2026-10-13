@@ -782,8 +782,8 @@ async fn build_chat_provider_singleton() -> Option<Arc<pierre_llm::ChatProvider>
 /// Build the production billing provider from environment configuration.
 ///
 /// When `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are both present, wires
-/// the real `StripeProvider` (which additionally requires the
-/// `STRIPE_PRICE_PROFESSIONAL` / `STRIPE_PRICE_ENTERPRISE` price ids). When the
+/// the real `StripeProvider` (which also requires the `STRIPE_PRICE_PROFESSIONAL`,
+/// `STRIPE_PRICE_ENTERPRISE` and `STRIPE_PRICE_PROFESSIONAL_EXTRA_ATHLETE` price ids). When the
 /// Stripe environment is absent, returns `None` so resources init falls back to
 /// the in-tree `DummyProvider` for local dev. A partial / malformed Stripe
 /// configuration is logged and also falls back rather than crashing startup.
@@ -1119,7 +1119,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
-    // Start Discord Gateway WebSocket client for real-time message delivery
+    // Start Discord Gateway WebSocket client for real-time message and reaction delivery
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::start_discord_gateway;

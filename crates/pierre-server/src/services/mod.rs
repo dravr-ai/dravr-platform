@@ -48,7 +48,7 @@ pub mod training_volume;
 /// The athlete's gear ledger over their cached workouts: lazy default pairs, choices once per workout
 pub mod gear_ledger;
 
-/// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
+/// Discord Gateway WebSocket client — bridges real-time messages and reactions to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;
 

@@ -1,5 +1,5 @@
 // ABOUTME: Discord Gateway integration bridging real-time WebSocket events to the webhook pipeline
-// ABOUTME: Spawns dravr-canot Gateway client and routes MESSAGE_CREATE events through persist+dispatch
+// ABOUTME: Spawns dravr-canot Gateway client; MESSAGE_CREATE runs persist+dispatch, reactions become message feedback
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,9 +8,9 @@ use std::env;
 use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
-use dravr_canot::channels::discord::gateway::{start_gateway, GatewayConfig};
+use dravr_canot::channels::discord::gateway::{start_gateway, GatewayConfig, GatewaySinks};
 use dravr_canot::factory::create_adapter_from_config;
-use pierre_core::models::messaging::{ChannelType, IncomingMessage};
+use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
 use serde_json::Value;
@@ -19,6 +19,7 @@ use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
+use crate::services::messaging_ingress::reactions;
 use pierre_runtime_context::DataContext;
 
 /// Start the Discord Gateway background service
@@ -26,6 +27,8 @@ use pierre_runtime_context::DataContext;
 /// Reads `DISCORD_BOT_TOKEN` from environment. If present, spawns the Gateway
 /// WebSocket client and a message processor that feeds incoming messages through
 /// the same pipeline as webhook-delivered messages (persist → LLM dispatch → reply).
+/// Emoji reactions ride their own channel to the shared reaction consumer: they
+/// rate a reply already sent, so they never open a turn.
 pub fn start_discord_gateway(resources: &Arc<ServerContext>) {
     let bot_token = match env::var("DISCORD_BOT_TOKEN") {
         Ok(t) if !t.is_empty() => t,
@@ -36,16 +39,26 @@ pub fn start_discord_gateway(resources: &Arc<ServerContext>) {
     };
 
     let config = GatewayConfig::new(bot_token);
-    let (tx, rx) = mpsc::channel(256);
+    let (tx, rx) = mpsc::channel::<IncomingMessage>(256);
+    let (reaction_tx, reaction_rx) = mpsc::channel::<InboundReaction>(256);
+    let sinks = GatewaySinks {
+        messages: tx,
+        reactions: reaction_tx,
+    };
 
     tokio::spawn(async move {
-        start_gateway(config, tx).await;
+        start_gateway(config, sinks).await;
         warn!("Discord Gateway: client stopped");
     });
 
     let processor_resources = Arc::clone(resources);
     tokio::spawn(async move {
         process_gateway_messages(processor_resources, rx).await;
+    });
+
+    let reaction_resources = Arc::clone(resources);
+    tokio::spawn(async move {
+        reactions::consume_reactions(reaction_resources, "Discord Gateway", reaction_rx).await;
     });
 
     info!("Discord Gateway: started");

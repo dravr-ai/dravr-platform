@@ -13,7 +13,8 @@
 //! - **Tier → price mapping** — the trait's [`CheckoutRequest::tier`] is a
 //!   logical plan name (`starter` / `professional` / `enterprise`); Stripe
 //!   needs a `price_…` id. The mapping is read from environment config
-//!   ([`StripePriceConfig::from_env`]).
+//!   ([`StripePriceConfig::from_env`]), together with the per-athlete add-on
+//!   price the Professional plan bills above the athletes it includes.
 //! - **Metadata round-trip** — `tenant_id`, `user_id`, and `plan_tier` are
 //!   attached to the checkout session so they survive onto the
 //!   `customer.subscription.*` webhooks and rebuild a
@@ -32,13 +33,15 @@ use std::env;
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use dravr_stripe::{
-    CheckoutParams, PortalParams, StripeClient, StripeError, StripeEvent, StripeEventData,
-    SubscriptionEvent,
+    CheckoutParams, ItemQuantityChange, PortalParams, StripeClient, StripeError, StripeEvent,
+    StripeEventData, SubscriptionEvent,
 };
+use tracing::info;
 
 use crate::billing::{
-    BillingEvent, BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope, Invoice,
-    PortalRequest, PortalResponse, SubscriptionEventPayload, WebhookPayload,
+    BillingEvent, BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope,
+    ExtraAthletesRequest, Invoice, PortalRequest, PortalResponse, SubscriptionEventPayload,
+    WebhookPayload,
 };
 use crate::errors::{AppError, AppResult};
 
@@ -57,26 +60,33 @@ const META_PLAN_TIER: &str = "plan_tier";
 ///
 /// Each tier the platform sells must have a corresponding Stripe Price.
 /// `starter` is the free tier and has no price (no checkout is created for
-/// it), so only the paid tiers are required.
+/// it), so only the paid tiers are required — plus the per-athlete add-on the
+/// Professional plan bills for every athlete above the ones it includes.
 #[derive(Debug, Clone)]
 pub struct StripePriceConfig {
-    /// Stripe price id for the `professional` tier.
+    /// Stripe price id for the `professional` tier (the US$79/month plan).
     pub professional: String,
     /// Stripe price id for the `enterprise` tier.
     pub enterprise: String,
+    /// Stripe price id of the per-athlete add-on (US$5/month an athlete)
+    /// billed for each athlete above the Professional plan's allowance. A
+    /// recurring, per-unit price in the same currency and interval as
+    /// `professional`, since it is a second line item on that subscription.
+    pub professional_extra_athlete: String,
 }
 
 impl StripePriceConfig {
-    /// Read the price mapping from `STRIPE_PRICE_PROFESSIONAL` and
-    /// `STRIPE_PRICE_ENTERPRISE`.
+    /// Read the price mapping from `STRIPE_PRICE_PROFESSIONAL`,
+    /// `STRIPE_PRICE_ENTERPRISE` and `STRIPE_PRICE_PROFESSIONAL_EXTRA_ATHLETE`.
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::config`] if either variable is unset or empty.
+    /// Returns [`AppError::config`] if any variable is unset or empty.
     pub fn from_env() -> AppResult<Self> {
         Ok(Self {
             professional: required_env("STRIPE_PRICE_PROFESSIONAL")?,
             enterprise: required_env("STRIPE_PRICE_ENTERPRISE")?,
+            professional_extra_athlete: required_env("STRIPE_PRICE_PROFESSIONAL_EXTRA_ATHLETE")?,
         })
     }
 
@@ -124,7 +134,7 @@ impl StripeProvider {
 
     /// Build a provider from environment configuration:
     /// `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PROFESSIONAL`,
-    /// `STRIPE_PRICE_ENTERPRISE`.
+    /// `STRIPE_PRICE_ENTERPRISE`, `STRIPE_PRICE_PROFESSIONAL_EXTRA_ATHLETE`.
     ///
     /// # Errors
     ///
@@ -207,6 +217,29 @@ impl BillingProvider for StripeProvider {
             .map_err(map_stripe_err)?;
 
         Ok(invoices.into_iter().map(map_invoice).collect())
+    }
+
+    async fn set_extra_athletes(&self, req: &ExtraAthletesRequest) -> AppResult<()> {
+        let change = self
+            .client
+            .set_price_quantity(
+                &req.provider_subscription_id,
+                &self.prices.professional_extra_athlete,
+                req.quantity,
+            )
+            .await
+            .map_err(map_stripe_err)?;
+
+        if change != ItemQuantityChange::Unchanged {
+            // Stripe object ids and a count only — nothing secret.
+            info!(
+                provider_subscription_id = %req.provider_subscription_id,
+                quantity = req.quantity,
+                change = ?change,
+                "stripe per-athlete add-on quantity set"
+            );
+        }
+        Ok(())
     }
 }
 

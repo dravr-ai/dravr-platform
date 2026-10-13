@@ -23,8 +23,8 @@
 //! need a billing event drive `dispatch_billing_event` directly.
 
 use crate::billing::{
-    BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope, Invoice, PortalRequest,
-    PortalResponse, WebhookPayload,
+    BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope, ExtraAthletesRequest,
+    Invoice, PortalRequest, PortalResponse, WebhookPayload,
 };
 use crate::errors::{AppError, AppResult};
 use async_trait::async_trait;
@@ -80,5 +80,12 @@ impl BillingProvider for DummyProvider {
 
     async fn list_invoices(&self, _provider_customer_id: &str) -> AppResult<Vec<Invoice>> {
         Ok(Vec::new())
+    }
+
+    /// No billing vendor stands behind this provider, so there is no invoice
+    /// for a per-athlete charge to land on: the call is accepted and nothing
+    /// is billed, exactly as its checkout bills nothing.
+    async fn set_extra_athletes(&self, _req: &ExtraAthletesRequest) -> AppResult<()> {
+        Ok(())
     }
 }
