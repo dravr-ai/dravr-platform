@@ -1071,6 +1071,8 @@
     "routeMapZoomIn": "Acercar",
     "routeMapZoomOut": "Alejar",
     "routeNoTrack": "Esta actividad no registró ningún track GPS.",
+    "routeProposedAlt": "Mapa de la ruta propuesta",
+    "routeProposedAltTitled": "Mapa de la ruta propuesta: {{title}}",
     "saveChanges": "Guardar cambios",
     "saving": "Guardando...",
     "sendButton": "Enviar",

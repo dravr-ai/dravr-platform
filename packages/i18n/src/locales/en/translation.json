@@ -1071,6 +1071,8 @@
     "routeMapZoomIn": "Zoom in",
     "routeMapZoomOut": "Zoom out",
     "routeNoTrack": "This activity recorded no GPS track.",
+    "routeProposedAlt": "Map of the proposed route",
+    "routeProposedAltTitled": "Map of the proposed route: {{title}}",
     "saveChanges": "Save Changes",
     "saving": "Saving...",
     "sendButton": "Send",

@@ -1071,6 +1071,8 @@
     "routeMapZoomIn": "Aproximar",
     "routeMapZoomOut": "Afastar",
     "routeNoTrack": "Esta atividade não registou nenhum trilho GPS.",
+    "routeProposedAlt": "Mapa do percurso proposto",
+    "routeProposedAltTitled": "Mapa do percurso proposto: {{title}}",
     "saveChanges": "Guardar alterações",
     "saving": "A guardar...",
     "sendButton": "Enviar",

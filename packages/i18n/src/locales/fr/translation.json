@@ -1071,6 +1071,8 @@
     "routeMapZoomIn": "Zoom avant",
     "routeMapZoomOut": "Zoom arrière",
     "routeNoTrack": "Cette activité n'a enregistré aucune trace GPS.",
+    "routeProposedAlt": "Carte du parcours proposé",
+    "routeProposedAltTitled": "Carte du parcours proposé : {{title}}",
     "saveChanges": "Enregistrer les modifications",
     "saving": "Enregistrement...",
     "sendButton": "Envoyer",

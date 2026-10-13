@@ -1071,6 +1071,8 @@
     "routeMapZoomIn": "Vergrößern",
     "routeMapZoomOut": "Verkleinern",
     "routeNoTrack": "Diese Aktivität hat keinen GPS-Track aufgezeichnet.",
+    "routeProposedAlt": "Karte der vorgeschlagenen Route",
+    "routeProposedAltTitled": "Karte der vorgeschlagenen Route: {{title}}",
     "saveChanges": "Änderungen speichern",
     "saving": "Wird gespeichert...",
     "sendButton": "Senden",
