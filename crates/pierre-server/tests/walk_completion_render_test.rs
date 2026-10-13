@@ -16,8 +16,9 @@
 //! `onboarding.completed` from the same window, and its wrap-up states how
 //! many of the pillars its audience may hear are covered. Each ending also
 //! picks its next steps from the transition table (carnet#830), filtered by what the athlete's state allows — the
-//! season after the pillars, the fortnight once a season is set, the
-//! calendar and today's session once the fortnight landed — and a platform
+//! season after the pillars, or the walk again while pillars are open, the
+//! fortnight once a season is set, the calendar and today's session once the
+//! fortnight landed — and a platform
 //! reply delivers them the way a command's controls are: on the live
 //! envelope, and on the stored row a reload reads.
 
@@ -491,9 +492,11 @@ async fn the_pillars_walk_states_its_count_and_answers_its_last_turn() {
         "the count is the platform's, read from the facts that landed, and counts \
          pillars: the North Star landed too but is not one"
     );
-    assert!(
-        reply.next_steps.is_empty(),
-        "five pillars untold: no season to plan yet, and no plan to calibrate"
+    assert_eq!(
+        values(&reply.next_steps.into_actions()),
+        ["nx:0:about_me_more"],
+        "pillars still untold: no season to plan yet and no plan to calibrate, so the \
+         walk is offered again"
     );
     assert_eq!(
         answered,

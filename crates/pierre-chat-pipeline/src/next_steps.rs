@@ -9,9 +9,10 @@
 //! A guided walk, a command and an analysis each end somewhere the athlete
 //! could go next. [`StepsAfter`] is the transition table that says where: a
 //! row per ending, naming use-case catalogue entries in priority order —
-//! the pillars walk leads to the season or a calibration, the season to the
-//! fortnight, a saved fortnight to the calendar or today's session, a first
-//! analysis to a week-on-week comparison. Every candidate is then filtered
+//! the pillars walk leads to the season or a calibration, or back into itself
+//! while pillars are still open, the season to the fortnight, a saved
+//! fortnight to the calendar or today's session, a first analysis to a
+//! week-on-week comparison. Every candidate is then filtered
 //! through its catalogue `requires:` against the athlete's
 //! [`AthleteState`], so no step is offered before its prerequisite holds,
 //! and a `once` entry the athlete already tapped is not offered again. A post
@@ -93,7 +94,9 @@ impl StepsAfter {
     #[must_use]
     pub const fn candidates(self) -> &'static [&'static str] {
         match self {
-            Self::PillarsWalk => &["season", "harder"],
+            // A walk that ended with pillars open offers itself again: the
+            // season needs every pillar, a calibration needs a plan.
+            Self::PillarsWalk => &["season", "harder", "about_me_more"],
             Self::SeasonWalk => &["fortnight"],
             Self::FortnightSaved => &["calendar", "today"],
             Self::FirstAnalysis => &["compare_week"],
@@ -397,6 +400,7 @@ mod tests {
     const CATALOGUE: &str = "
 - {id: connect, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [any], repeat: once}
 - {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
+- {id: about_me_more, run: command, command: /pillars, requires: [pillars_open], stage: any, domains: [any], repeat: recurring}
 - {id: season, run: command, command: /season, requires: [pillars_done, no_season], stage: first_week, domains: [training], repeat: once}
 - {id: harder, run: command, command: /calibrate, requires: [plan_active], stage: first_week, domains: [training], repeat: once}
 - {id: today, run: command, command: /plan today, requires: [plan_active], stage: any, domains: [training], repeat: recurring}
@@ -472,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn the_pillars_walk_leads_to_the_season_or_a_calibration_as_the_athlete_stands() {
+    fn the_pillars_walk_leads_to_the_season_a_calibration_or_itself_as_the_athlete_stands() {
         assert_eq!(picked(StepsAfter::PillarsWalk, &pillars_done()), ["season"]);
         let with_plan = AthleteState {
             plan_active: true,
@@ -491,9 +495,19 @@ mod tests {
             },
             ..pillars_done()
         };
-        assert!(
-            picked(StepsAfter::PillarsWalk, &gaps_left).is_empty(),
-            "no season before every pillar is told, no calibration without a plan"
+        assert_eq!(
+            picked(StepsAfter::PillarsWalk, &gaps_left),
+            ["about_me_more"],
+            "no season before every pillar is told, no calibration without a plan: the walk again"
+        );
+        let gaps_with_plan = AthleteState {
+            plan_active: true,
+            ..gaps_left
+        };
+        assert_eq!(
+            picked(StepsAfter::PillarsWalk, &gaps_with_plan),
+            ["harder", "about_me_more"],
+            "a plan to calibrate comes before the walk again"
         );
     }
 

@@ -26,10 +26,10 @@
 //!
 //! Each ending also picks what the athlete can do next from the transition
 //! table ([`StepsAfter`]): the season wrap-up offers the fortnight, a landed
-//! fortnight the calendar and today's session, the pillars walk the season or
-//! a calibration — each only once its catalogue requirements hold. The
-//! wrap-up's own words stay the reply; the steps are the same choices as
-//! taps.
+//! fortnight the calendar and today's session, the pillars walk the season,
+//! a calibration, or the walk again while pillars are open — each only once
+//! its catalogue requirements hold. The wrap-up's own words stay the reply;
+//! the steps are the same choices as taps.
 
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -446,8 +446,8 @@ pub async fn render_fortnight(
 /// already complete therefore reports it complete rather than a count of
 /// nothing asked, and a room never learns about a DM-only pillar. The answer
 /// to the last question is extracted after this reply, so the count can fall
-/// short and never runs over. The steps are the season or a calibration
-/// ([`StepsAfter::PillarsWalk`]).
+/// short and never runs over. The steps are the season, a calibration, or the
+/// walk again while pillars are open ([`StepsAfter::PillarsWalk`]).
 ///
 /// The record is `onboarding.completed` with `flow = pillars`, counted like
 /// the fixed-list walks from the facts that landed inside the walk's window.
