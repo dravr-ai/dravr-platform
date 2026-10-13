@@ -3801,6 +3801,7 @@ dependencies = [
  "lingua",
  "photograveur",
  "pierre-agui",
+ "pierre-cache",
  "pierre-commands",
  "pierre-config",
  "pierre-contremaitre",

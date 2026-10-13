@@ -30,8 +30,9 @@
 //! visible code fence rather than vanishing. Ugly is recoverable; silent loss
 //! is not.
 //!
-//! A `route` block is the one kind the agent cannot write out: a recorded
-//! track is thousands of points, so the block names an activity and the
+//! A `route` block is the one kind the agent cannot write out: a line is
+//! thousands of points, so the block names one — a recorded activity by its
+//! `activity_id`, or a route the coach proposes by its `route_ref` — and the
 //! platform reads its geometry ([`read_route_tracks`]) and carries it on the
 //! block ([`RouteTrack`](pierre_fitness_compute::route_track::RouteTrack)).
 //! Coordinates the model produced itself would be
@@ -124,6 +125,9 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
             })
             .unwrap_or_default();
         let _ = writeln!(out, "\n**`{kind}`** — required: {required}");
+        for line in describe_alternatives(arm) {
+            let _ = writeln!(out, "- {line}");
+        }
 
         let props = arm.get("properties").and_then(Value::as_object);
         for (name, spec) in props.into_iter().flatten() {
@@ -212,6 +216,67 @@ pub async fn repair_refused_blocks(
     }
 }
 
+/// The lines an arm's own `oneOf` of required-field sets contributes.
+///
+/// The top-level `required` is only half of what a block must carry when an
+/// arm says "one of these, never both": a route names an `activity_id` or a
+/// `route_ref`, and a contract that printed `required: type, source_tool`
+/// alone told the agent neither existed. So the alternation is stated as one
+/// line, and a property some alternatives forbid is tied to the ones that
+/// allow it (`highlight` belongs to a recorded activity only). Generic: any
+/// arm whose `oneOf` is all required-sets reads the same way, and an arm whose
+/// `oneOf` is anything else contributes nothing rather than a half-truth.
+fn describe_alternatives(arm: &Value) -> Vec<String> {
+    let Some(branches) = arm.get("oneOf").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let sets: Vec<Vec<&str>> = branches
+        .iter()
+        .filter_map(|branch| branch.get("required").and_then(Value::as_array))
+        .map(|fields| fields.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+        .filter(|fields| !fields.is_empty())
+        .collect();
+    if sets.len() < 2 || sets.len() != branches.len() {
+        return Vec::new();
+    }
+    let set_text = |fields: &[&str]| {
+        fields
+            .iter()
+            .map(|field| format!("`{field}`"))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    };
+    let mut lines = vec![format!(
+        "exactly one of: {}",
+        sets.iter()
+            .map(|fields| set_text(fields))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    )];
+
+    let props = arm.get("properties").and_then(Value::as_object);
+    for name in props.into_iter().flatten().map(|(name, _)| name) {
+        if sets.iter().any(|fields| fields.contains(&name.as_str())) {
+            continue;
+        }
+        let allowed: Vec<String> = branches
+            .iter()
+            .zip(&sets)
+            .filter(|(branch, _)| {
+                branch
+                    .get("properties")
+                    .and_then(|forbidden| forbidden.get(name))
+                    != Some(&Value::Bool(false))
+            })
+            .map(|(_, fields)| set_text(fields))
+            .collect();
+        if !allowed.is_empty() && allowed.len() < branches.len() {
+            lines.push(format!("`{name}` only with {}", allowed.join(" or ")));
+        }
+    }
+    lines
+}
+
 /// One or more bullet lines describing a property's enforced bounds.
 ///
 /// Nested one level deliberately: `series` is an array of objects whose own
@@ -227,6 +292,13 @@ fn describe_property(name: &str, spec: &Value) -> Vec<String> {
             .collect::<Vec<_>>()
             .join(", ");
         lines.push(format!("`{name}`: one of {joined}"));
+        return lines;
+    }
+
+    // A reference the agent copies rather than composes — a route's `rt_…`
+    // handle — is only ever valid in the one shape the producing tool writes.
+    if let Some(pattern) = spec.get("pattern").and_then(Value::as_str) {
+        lines.push(format!("`{name}`: a string matching `{pattern}`"));
         return lines;
     }
 
@@ -375,7 +447,7 @@ pub struct VizExtraction {
 ///
 /// `tracks` carries the geometry [`read_route_tracks`] read for this reply. A
 /// `route` block is hydrated from it and refused down the same path as any
-/// other faulty block when the activity it names has no drawable track — the
+/// other faulty block when the route it names has no drawable line — the
 /// athlete keeps the prose, and the reason travels out for the repair re-ask.
 ///
 /// It used to be left in place as literal text, on the reasoning that a visible
@@ -673,15 +745,24 @@ fn schema_check(schemas: &SchemaTexts, block: &Value) -> Result<(), String> {
 
 /// Per-branch validators keyed by the `type` const of each `oneOf` arm.
 ///
-/// The dravr-viz schema is a `oneOf` over Chart and Table, and a whole-schema
+/// The dravr-viz schema is a `oneOf` over Chart, Table and Route, and a whole-schema
 /// failure reports only that the block "is not valid under any of the schemas
 /// listed in the 'oneOf' keyword" — true, unactionable, and identical for every
 /// possible mistake. Validating against the arm the block *claims* to be yields
 /// the real fault instead.
-static BRANCH_VALIDATORS: OnceLock<BTreeMap<String, jsonschema::Validator>> = OnceLock::new();
+static BRANCH_VALIDATORS: OnceLock<BTreeMap<String, Branch>> = OnceLock::new();
+
+/// One `oneOf` arm, compiled.
+struct Branch {
+    /// The arm's own validator.
+    validator: jsonschema::Validator,
+    /// The arm's own one-of rules in words ([`describe_alternatives`]), empty
+    /// for an arm with none.
+    alternatives: Vec<String>,
+}
 
 /// Compile one validator per `oneOf` arm, keyed by that arm's `type` const.
-fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, jsonschema::Validator> {
+fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, Branch> {
     BRANCH_VALIDATORS.get_or_init(|| {
         let mut compiled = BTreeMap::new();
         let Some(text) = schemas.get(DRAVR_VIZ) else {
@@ -707,7 +788,14 @@ fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, jsonsch
                 continue;
             };
             if let Ok(validator) = jsonschema::validator_for(arm) {
-                compiled.insert(kind.to_owned(), validator);
+                let alternatives = describe_alternatives(arm);
+                compiled.insert(
+                    kind.to_owned(),
+                    Branch {
+                        validator,
+                        alternatives,
+                    },
+                );
             }
         }
         compiled
@@ -721,18 +809,29 @@ fn branch_validators(schemas: &SchemaTexts) -> &'static BTreeMap<String, jsonsch
 /// and the repair prompt instead of the bare `oneOf` refusal. A block whose
 /// `type` matches no arm gets that stated plainly rather than a fault list from
 /// an arm it never claimed.
+///
+/// An arm's own `oneOf` fails the same bare way one level down — a route that
+/// names both an `activity_id` and a `route_ref`, or neither, is "not valid
+/// under any of the schemas listed" — so that fault is stated as the rules the
+/// arm's alternatives set, which name the fields.
 fn schema_faults(schemas: &SchemaTexts, block: &Value) -> Vec<String> {
     let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
-    let Some(validator) = branch_validators(schemas).get(kind) else {
+    let Some(branch) = branch_validators(schemas).get(kind) else {
         return vec![format!(
             "type: \"{kind}\" is not one of the block kinds this schema defines"
         )];
     };
-    let faults: Vec<String> = validator
+    let faults: Vec<String> = branch
+        .validator
         .iter_errors(block)
         .map(|e| {
             let path = e.instance_path().to_string();
-            if path.is_empty() {
+            if path.is_empty() && e.kind().keyword() == "oneOf" && !branch.alternatives.is_empty() {
+                format!(
+                    "a {kind} block must hold to: {}",
+                    branch.alternatives.join("; ")
+                )
+            } else if path.is_empty() {
                 e.to_string()
             } else {
                 format!("{}: {e}", path.trim_start_matches('/'))

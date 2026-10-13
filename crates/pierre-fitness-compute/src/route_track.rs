@@ -1,5 +1,5 @@
 // ABOUTME: One activity's drawable route — privacy-trimmed coordinates with index-aligned elevation, distance and climbs
-// ABOUTME: Built from recorded streams or a provider's route overview; the one derivation the chat map and Home share
+// ABOUTME: Built from recorded streams, a provider's route overview or a public mapped path; the one derivation the maps share
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,6 +23,11 @@
 //! decoded Strava `summary_polyline` ([`RouteTrack::from_overview`]). Both go
 //! through the same gate and the same trim, which is why the chat map, the
 //! Home page and anything after them cannot disagree about where a ride ends.
+//!
+//! A third input is not a recording at all: a public path the coach proposes,
+//! such as a mapped trail or an itinerary stitched from several
+//! ([`RouteTrack::from_public_path`]). It goes through the same gate, but not
+//! the trim — its ends are a trailhead or a junction, not anyone's door.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -45,6 +50,16 @@ const EARTH_RADIUS_METERS: f64 = 6_371_000.0;
 /// centimetre changes nothing a map can draw, and floating-point noise on a
 /// straight stretch must not read as a corner.
 const MIN_DEVIATION_METERS: f64 = 0.01;
+
+/// Most coordinates a map carries.
+///
+/// A map in a Home card or a chat bubble cannot show more than a few hundred
+/// points, and every point past that is payload the phone downloads for
+/// nothing: a recorded ride runs to thousands, and so does an itinerary
+/// stitched from mapped trails. The Home map simplifies a recorded track to
+/// it, and [`RouteTrack::from_public_path`] simplifies every public path to
+/// it, since every surface that draws one draws it at map size.
+pub const MAP_MAX_POINTS: usize = 200;
 
 /// Why an activity has no drawable track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,6 +241,48 @@ impl RouteTrack {
         }
         let (valid_points, _) = paired_points(points, None);
         Self::trimmed(&valid_points, None, None)
+    }
+
+    /// Build the drawable track of a public path: a mapped trail, or an
+    /// itinerary composed from mapped trails, that the coach proposes rather
+    /// than anything the athlete recorded.
+    ///
+    /// The validity gate of the other constructors applies; the privacy trim
+    /// does not. An OpenStreetMap path is public, and its ends are a trailhead
+    /// or a junction rather than the athlete's door, so trimming them would
+    /// only cut the start off the route being proposed. The distance series
+    /// runs from 0 at the first point — there is no recorded ride for it to
+    /// count into — and there is no vertical, so no climbs. The line is
+    /// simplified to [`MAP_MAX_POINTS`]; the first and last points,
+    /// and the distance each kept point sits at, survive it.
+    ///
+    /// # Errors
+    ///
+    /// [`RouteTrackError::NoGps`] for an empty path;
+    /// [`RouteTrackError::TooShort`] when fewer than two points survive the
+    /// gate, or when every point that does sits in one place — a pin, not a
+    /// path.
+    pub fn from_public_path(points: &[(f64, f64)]) -> Result<Self, RouteTrackError> {
+        if points.is_empty() {
+            return Err(RouteTrackError::NoGps);
+        }
+        let (coordinates, _) = paired_points(points, None);
+        if coordinates.len() < 2 {
+            return Err(RouteTrackError::TooShort);
+        }
+        let distances = cumulative_distances(&coordinates);
+        if distances.last().is_none_or(|&length| length <= 0.0) {
+            return Err(RouteTrackError::TooShort);
+        }
+        let bounds = bounds_of(&coordinates).ok_or(RouteTrackError::TooShort)?;
+        let track = Self {
+            coordinates,
+            bounds,
+            elevation_meters: None,
+            distances_meters: Some(distances),
+            climbs: Vec::new(),
+        };
+        Ok(track.simplified(MAP_MAX_POINTS))
     }
 
     /// Trim the endpoint neighbourhoods off gated points and frame what is
@@ -526,8 +583,22 @@ fn simplify_indices(
 fn project(coordinates: &[(f64, f64)]) -> Vec<(f64, f64)> {
     let count = coordinates.len().max(1) as f64;
     let mean_latitude = coordinates.iter().map(|&(lat, _)| lat).sum::<f64>() / count;
+    project_about(coordinates, mean_latitude)
+}
+
+/// Coordinates as planar `(east, north)` metres on an equirectangular
+/// projection scaled at `reference_latitude`.
+///
+/// Shared with route composition, which measures how close two mapped paths
+/// come in the same frame simplification ranks points in. At the scale of one
+/// route the projection is good to well under a metre, which is all either
+/// question needs.
+pub(crate) fn project_about(
+    coordinates: &[(f64, f64)],
+    reference_latitude: f64,
+) -> Vec<(f64, f64)> {
     let metres_per_degree = EARTH_RADIUS_METERS.to_radians();
-    let longitude_scale = metres_per_degree * mean_latitude.to_radians().cos();
+    let longitude_scale = metres_per_degree * reference_latitude.to_radians().cos();
     coordinates
         .iter()
         .map(|&(latitude, longitude)| (longitude * longitude_scale, latitude * metres_per_degree))
@@ -552,6 +623,13 @@ fn farthest_point(planar: &[(f64, f64)], start: usize, end: usize) -> Option<Str
 /// Metres from `point` to the segment `a`–`b` (to `a` itself when the two
 /// ends coincide, as they do on a loop).
 fn distance_to_chord(point: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    nearest_on_chord(point, a, b).1
+}
+
+/// Where on the planar segment `a`–`b` lies nearest `point`, as the share of
+/// the way from `a` to `b` (0 at `a`, 1 at `b`), and how far that is in
+/// metres. A segment whose ends coincide is nearest at `a`.
+pub(crate) fn nearest_on_chord(point: (f64, f64), a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let length_squared = dx.mul_add(dx, dy * dy);
     let along = if length_squared > 0.0 {
@@ -560,5 +638,99 @@ fn distance_to_chord(point: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
         0.0
     };
     let nearest = (along.mul_add(dx, a.0), along.mul_add(dy, a.1));
-    (point.0 - nearest.0).hypot(point.1 - nearest.1)
+    (along, (point.0 - nearest.0).hypot(point.1 - nearest.1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A straight path running north from `(46.0, -72.0)`, one point every
+    /// 0.0001° of latitude (about 11 m).
+    fn northward(points: usize) -> Vec<(f64, f64)> {
+        (0..points)
+            .map(|index| (index as f64).mul_add(0.0001, 46.0))
+            .map(|latitude| (latitude, -72.0))
+            .collect()
+    }
+
+    /// A path weaving east and west as it runs north, so simplification has
+    /// corners to keep.
+    fn weaving(points: usize) -> Vec<(f64, f64)> {
+        northward(points)
+            .into_iter()
+            .enumerate()
+            .map(|(index, (latitude, longitude))| {
+                (
+                    latitude,
+                    (index as f64 * 0.3).sin().mul_add(0.0005, longitude),
+                )
+            })
+            .collect()
+    }
+
+    /// A public path keeps its ends: the trailhead is where the coach sends
+    /// the athlete, not an address to hide.
+    #[test]
+    fn a_public_path_is_drawn_from_end_to_end_without_a_trim() {
+        let path = northward(100);
+        let track = RouteTrack::from_public_path(&path).unwrap();
+        assert_eq!(track.coordinates.first(), path.first());
+        assert_eq!(track.coordinates.last(), path.last());
+        assert_eq!(track.elevation_meters, None);
+        assert!(track.climbs.is_empty());
+        // The overview of the same line loses its first and last stretches.
+        let overview = RouteTrack::from_overview(&path).unwrap();
+        assert_ne!(overview.coordinates.first(), path.first());
+    }
+
+    /// Distances count from the start of the path, so the last one is its
+    /// length, and every kept point keeps the distance it sat at.
+    #[test]
+    fn a_public_path_measures_from_zero_along_its_line() {
+        let path = weaving(600);
+        let track = RouteTrack::from_public_path(&path).unwrap();
+        let distances = track.distances_meters.as_deref().unwrap();
+        assert_eq!(distances.len(), track.coordinates.len());
+        assert!(distances[0].abs() < f64::EPSILON);
+        let full = cumulative_distances(&path);
+        let length = full[full.len() - 1];
+        assert!((distances[distances.len() - 1] - length).abs() < 1e-6);
+        assert!(distances.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// A long line is drawn at map size, through the same simplifier the
+    /// recorded tracks use.
+    #[test]
+    fn a_long_public_path_is_simplified_to_the_map_budget() {
+        let path = weaving(2_000);
+        let track = RouteTrack::from_public_path(&path).unwrap();
+        assert_eq!(track.coordinates.len(), MAP_MAX_POINTS);
+        assert_eq!(track.coordinates.first(), path.first());
+        assert_eq!(track.coordinates.last(), path.last());
+    }
+
+    /// The gate is the one every track passes: invalid points are dropped,
+    /// and what is left must still be a line.
+    #[test]
+    fn a_public_path_passes_the_validity_gate() {
+        assert_eq!(
+            RouteTrack::from_public_path(&[]).unwrap_err(),
+            RouteTrackError::NoGps
+        );
+        assert_eq!(
+            RouteTrack::from_public_path(&[(46.0, -72.0), (f64::NAN, -72.0), (95.0, -72.0)])
+                .unwrap_err(),
+            RouteTrackError::TooShort
+        );
+        assert_eq!(
+            RouteTrack::from_public_path(&[(46.0, -72.0), (46.0, -72.0)]).unwrap_err(),
+            RouteTrackError::TooShort,
+            "two points in one place are a pin"
+        );
+        let gated =
+            RouteTrack::from_public_path(&[(46.0, -72.0), (f64::NAN, 0.0), (46.001, -72.0)])
+                .unwrap();
+        assert_eq!(gated.coordinates, vec![(46.0, -72.0), (46.001, -72.0)]);
+    }
 }

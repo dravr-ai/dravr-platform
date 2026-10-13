@@ -1,4 +1,4 @@
-// ABOUTME: Offline tests for RouteDiscoveryService ranking, Overpass queries and geocode input checks
+// ABOUTME: Offline tests for RouteDiscoveryService ranking, Overpass queries, geocode input checks and compose_route
 // ABOUTME: Live Overpass/Nominatim tests live in tests/live/route_discovery_live_test.rs (live-e2e)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,17 +8,34 @@
 #![allow(missing_docs)]
 
 //! Route discovery tests that run without the network: Overpass query
-//! construction, ranking over captured fixtures, and input rejection that
-//! happens before any HTTP call. The tests that hit the live Overpass and
+//! construction, ranking over captured fixtures, input rejection that
+//! happens before any HTTP call, and `compose_route` joining stored stretches
+//! through the tool itself. The tests that hit the live Overpass and
 //! Nominatim APIs are in `tests/live/route_discovery_live_test.rs`, built only
 //! with `--features live-e2e`.
 
-use pierre_core::models::SportType;
+mod common;
+
+use std::sync::Arc;
+
+use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use pierre_chat_pipeline::stages::viz_blocks::extract_viz_blocks;
+use pierre_chat_pipeline::stages::viz_route::{read_route_tracks, RouteTracks};
+use pierre_chat_pipeline::{InputSource, QuotaState, TurnInput, TurnOrigin};
+use pierre_core::models::{ConversationTurnId, SportType, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::location::LocationService;
+use pierre_fitness_compute::route_compose;
 use pierre_fitness_compute::{
     build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
     RouteDiscoveryService, TargetFit, TargetUse,
 };
+use pierre_tool_runtime::implementations::compose_route::ComposeRouteTool;
+use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
+use pierre_tool_runtime::route_store::{self, StoredRoute};
+use pierre_tool_runtime::runtime::ToolRuntime;
+use serde_json::{json, Value};
+use uuid::Uuid;
 
 /// Prévost, Québec — reference point for the dispatch tests. Nominatim
 /// resolves this to roughly 45.87, -74.08.
@@ -677,4 +694,492 @@ fn test_queries_ask_for_geometry_without_adding_a_clause() {
         .expect("run is a supported sport");
     assert!(query.contains("out tags geom "), "{query}");
     assert_eq!(query.matches("(around:").count(), 3, "{query}");
+}
+
+// ============================================================================
+// compose_route — stretches joined through the tool, against the store the
+// test server builds (in memory), exactly as discover_routes leaves them.
+// ============================================================================
+
+/// One athlete's view of the route store and the tool.
+struct Athlete {
+    runtime: Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    ctx: ToolContext,
+}
+
+impl Athlete {
+    async fn new() -> Self {
+        let runtime: Arc<dyn ToolRuntime> = common::create_test_server_resources()
+            .await
+            .expect("test server resources");
+        Self::on(runtime)
+    }
+
+    /// Another athlete on the same server, in a tenant of their own.
+    fn on(runtime: Arc<dyn ToolRuntime>) -> Self {
+        let (tenant, user_id) = (Uuid::new_v4(), Uuid::new_v4());
+        Self {
+            runtime,
+            tenant_id: TenantId::from_uuid(tenant),
+            user_id,
+            ctx: ToolContext::new()
+                .with_user(user_id.to_string())
+                .with_tenant(tenant.to_string())
+                .with_auth_method("jwt_bearer"),
+        }
+    }
+
+    /// Store a stretch the way `discover_routes` does, returning its ref.
+    async fn store(&self, name: &str, coordinates: Vec<(f64, f64)>) -> String {
+        let length_meters = north_meters(&coordinates);
+        route_store::store_route(
+            self.runtime.cache(),
+            self.tenant_id,
+            self.user_id,
+            &StoredRoute {
+                name: name.to_owned(),
+                coordinates,
+                length_meters,
+                out_and_back: false,
+            },
+        )
+        .await
+        .expect("the stretch is stored")
+    }
+
+    async fn load(&self, route_ref: &str) -> Option<StoredRoute> {
+        route_store::load_route(
+            self.runtime.cache(),
+            self.tenant_id,
+            self.user_id,
+            route_ref,
+        )
+        .await
+        .expect("the store reads")
+    }
+
+    /// Call `compose_route`; the payload on success, the error text otherwise.
+    async fn compose(&self, args: Value) -> Result<Value, String> {
+        let response = ComposeRouteTool
+            .execute(&self.runtime, &self.ctx, args)
+            .await;
+        let payload = response
+            .structured_content
+            .expect("compose_route answers with structured content");
+        if response.is_error {
+            Err(payload["error"]
+                .as_str()
+                .expect("an error carries its text")
+                .to_owned())
+        } else {
+            Ok(payload)
+        }
+    }
+}
+
+/// A line due north along `longitude` from `south`, `meters` long, a node
+/// every 100 m.
+fn north_line(longitude: f64, south: f64, meters: f64) -> Vec<(f64, f64)> {
+    let nodes = (meters / 100.0).round() as usize;
+    (0..=nodes)
+        .map(|index| {
+            (
+                south + index as f64 * 100.0 / METERS_PER_DEGREE_OF_LATITUDE,
+                longitude,
+            )
+        })
+        .collect()
+}
+
+/// Length of a line that runs due north, which is all the latitude it gains.
+fn north_meters(line: &[(f64, f64)]) -> f64 {
+    line.windows(2)
+        .map(|pair| (pair[1].0 - pair[0].0).abs() * METERS_PER_DEGREE_OF_LATITUDE)
+        .sum()
+}
+
+fn assert_route_ref(value: &Value) -> &str {
+    let route_ref = value.as_str().expect("a route_ref is a string");
+    assert!(
+        route_ref.len() == 19
+            && route_ref.starts_with("rt_")
+            && route_ref[3..]
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+        "not a route_ref the viz schema accepts: {route_ref}"
+    );
+    route_ref
+}
+
+/// Two stretches that meet end to end become one line, measured along it,
+/// stored under the ref the answer carries and named by both stretches.
+#[tokio::test]
+async fn test_compose_route_joins_two_stretches_that_meet() {
+    let athlete = Athlete::new().await;
+    let riverside = athlete
+        .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
+        .await;
+    let rail_trail = athlete
+        .store(
+            "Ancienne voie ferrée",
+            north_line(-72.0, 46.0 + 1_000.0 / METERS_PER_DEGREE_OF_LATITUDE, 500.0),
+        )
+        .await;
+
+    let answer = athlete
+        .compose(json!({ "route_refs": [riverside, rail_trail] }))
+        .await
+        .expect("stretches that meet compose");
+
+    assert_eq!(answer["distance_meters"], 1_500.0, "{answer:#}");
+    assert_eq!(answer["out_and_back"], false);
+    assert_eq!(answer["joins_meters"], json!([0.0]));
+    assert_eq!(
+        answer["stretches"],
+        json!([
+            { "route_ref": riverside, "name": "Sentier de la Rivière" },
+            { "route_ref": rail_trail, "name": "Ancienne voie ferrée" },
+        ])
+    );
+    let composed = assert_route_ref(&answer["route_ref"]);
+    assert!(composed != riverside && composed != rail_trail);
+
+    let stored = athlete
+        .load(composed)
+        .await
+        .expect("the composed line is stored under the ref it answers with");
+    assert_eq!(stored.name, "Sentier de la Rivière → Ancienne voie ferrée");
+    assert!(!stored.out_and_back);
+    assert_eq!(stored.coordinates.first(), Some(&(46.0, -72.0)));
+    assert!((stored.length_meters - 1_500.0).abs() < 1.0);
+}
+
+/// Out and back returns along the line: twice the distance, and a route of
+/// its own, stored apart from the one-way line.
+#[tokio::test]
+async fn test_compose_route_out_and_back_doubles_the_distance() {
+    let athlete = Athlete::new().await;
+    let riverside = athlete
+        .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
+        .await;
+    let rail_trail = athlete
+        .store(
+            "Ancienne voie ferrée",
+            north_line(-72.0, 46.0 + 1_000.0 / METERS_PER_DEGREE_OF_LATITUDE, 500.0),
+        )
+        .await;
+    let refs = json!([riverside, rail_trail]);
+
+    let one_way = athlete
+        .compose(json!({ "route_refs": refs }))
+        .await
+        .expect("one way composes");
+    let both_ways = athlete
+        .compose(json!({ "route_refs": refs, "out_and_back": true }))
+        .await
+        .expect("out and back composes");
+
+    assert_eq!(both_ways["distance_meters"], 3_000.0, "{both_ways:#}");
+    assert_eq!(both_ways["out_and_back"], true);
+    assert_ne!(both_ways["route_ref"], one_way["route_ref"]);
+    let stored = athlete
+        .load(assert_route_ref(&both_ways["route_ref"]))
+        .await
+        .expect("the out-and-back is stored");
+    assert!(stored.out_and_back);
+    assert_eq!(stored.coordinates.first(), stored.coordinates.last());
+}
+
+/// A ref the athlete's store does not hold is refused by name, worded so
+/// the model searches again — and a ref is no capability: another athlete
+/// on the same server cannot compose with it.
+#[tokio::test]
+async fn test_compose_route_refuses_an_unknown_ref_by_name() {
+    let athlete = Athlete::new().await;
+    let riverside = athlete
+        .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
+        .await;
+
+    let error = athlete
+        .compose(json!({ "route_refs": [riverside, "rt_0000000000000000"] }))
+        .await
+        .expect_err("a ref nobody stored is refused");
+    assert!(
+        error.contains("unknown or expired route_ref \"rt_0000000000000000\"")
+            && error.contains("call discover_routes again"),
+        "{error}"
+    );
+
+    let stranger = Athlete::on(Arc::clone(&athlete.runtime));
+    let error = stranger
+        .compose(json!({ "route_refs": [riverside] }))
+        .await
+        .expect_err("another athlete's ref reads nothing");
+    assert!(
+        error.contains(&format!("unknown or expired route_ref \"{riverside}\"")),
+        "{error}"
+    );
+}
+
+/// Stretches that do not meet are refused with the sentence the composer
+/// gives — both names and the width of the gap — and nothing is stored.
+#[tokio::test]
+async fn test_compose_route_refuses_a_gap_naming_both_stretches() {
+    let athlete = Athlete::new().await;
+    let riverside = athlete
+        .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
+        .await;
+    let canal = athlete
+        .store(
+            "Piste du canal",
+            north_line(-72.0, 46.0 + 1_412.0 / METERS_PER_DEGREE_OF_LATITUDE, 500.0),
+        )
+        .await;
+
+    let error = athlete
+        .compose(json!({ "route_refs": [riverside, canal] }))
+        .await
+        .expect_err("a 412 m gap is not bridged");
+    assert!(
+        error.contains("\"Sentier de la Rivière\" and \"Piste du canal\" do not meet")
+            && error.contains("412 m")
+            && error.contains("30 m"),
+        "{error}"
+    );
+}
+
+/// The argument is checked before the store is read: an absent list, an
+/// empty one, one past the bound, and a flag that is no boolean.
+#[tokio::test]
+async fn test_compose_route_refuses_arguments_it_cannot_compose() {
+    let athlete = Athlete::new().await;
+    let riverside = athlete
+        .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
+        .await;
+    let nine = vec![riverside.clone(); route_compose::MAX_STRETCHES + 1];
+
+    for (args, expected) in [
+        (json!({}), "route_refs is required"),
+        (
+            json!({ "route_refs": riverside }),
+            "route_refs must be an array",
+        ),
+        (json!({ "route_refs": [] }), "no stretches were given"),
+        (json!({ "route_refs": nine }), "at most 8 stretches"),
+        (json!({ "route_refs": [42] }), "is a route_ref string"),
+        (
+            json!({ "route_refs": [riverside], "out_and_back": "yes" }),
+            "out_and_back must be true or false",
+        ),
+    ] {
+        let error = athlete
+            .compose(args.clone())
+            .await
+            .expect_err("the argument is refused");
+        assert!(error.contains(expected), "{args}: {error}");
+    }
+}
+
+/// Over a real capture: a discovered stretch, stored as discovery stores it,
+/// composes on its own into exactly its own line — the same reference, the
+/// same measured distance — and out and back into twice that distance.
+#[tokio::test]
+async fn test_compose_route_over_a_real_capture_keeps_the_discovered_line() {
+    let routes = routes_from_overpass_json(
+        PREVOST_CYCLING_FIXTURE,
+        &SportType::Ride,
+        PREVOST_QC_LAT,
+        PREVOST_QC_LON,
+        None,
+    )
+    .expect("capture is a valid Overpass payload");
+    let (route, line) = routes
+        .iter()
+        .filter_map(|route| Some((route, route.geometry.clone()?)))
+        .max_by(|(a, _), (b, _)| {
+            let length = |route: &DiscoveredRoute| route.distance_meters.unwrap_or(0.0);
+            length(a).total_cmp(&length(b))
+        })
+        .expect("the capture holds a mapped stretch");
+    let measured = route.distance_meters.expect("a mapped stretch is measured");
+
+    let athlete = Athlete::new().await;
+    let route_ref = route_store::store_route(
+        athlete.runtime.cache(),
+        athlete.tenant_id,
+        athlete.user_id,
+        &StoredRoute {
+            name: route.name.clone(),
+            coordinates: line.clone(),
+            length_meters: measured,
+            out_and_back: false,
+        },
+    )
+    .await
+    .expect("the stretch is stored");
+    assert_eq!(route_ref, route_compose::route_ref(&line, false));
+
+    let alone = athlete
+        .compose(json!({ "route_refs": [route_ref] }))
+        .await
+        .unwrap_or_else(|error| panic!("{}: {error}", route.name));
+    assert_eq!(alone["route_ref"], route_ref, "one stretch is its own line");
+    let distance = alone["distance_meters"].as_f64().expect("a distance");
+    assert!(
+        (distance - measured).abs() <= 1.0,
+        "{}: composed {distance} m, discovered {measured} m",
+        route.name
+    );
+
+    let both_ways = athlete
+        .compose(json!({ "route_refs": [route_ref], "out_and_back": true }))
+        .await
+        .unwrap_or_else(|error| panic!("{}: {error}", route.name));
+    let doubled = both_ways["distance_meters"].as_f64().expect("a distance");
+    assert!(
+        2.0f64.mul_add(-measured, doubled).abs() <= 1.0,
+        "{}: out and back {doubled} m, discovered {measured} m",
+        route.name
+    );
+}
+
+/// A proposed map end to end, keyed by the ids a real chat turn carries.
+///
+/// The tool runs through the executor exactly as the tool loop dispatches a
+/// model's call — `protocol: "chat"`, the turn's tool tenant, the athlete — so
+/// it reads the stretches and stores the itinerary under the owner it derives
+/// from that call. The reply naming the itinerary is then read and hydrated
+/// from the turn's own `tool_tenant_id` and `user_id`, on a shared-room turn
+/// whose conversation tenant is another one. A store and a read keyed apart
+/// would refuse every proposed map as unknown, and only this path shows it.
+#[tokio::test]
+async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
+    let resources = common::create_test_server_resources()
+        .await
+        .expect("test server resources");
+    let (user_id, user) = common::create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("a test user has a tenant")
+        .id;
+    let runtime: Arc<dyn ToolRuntime> = Arc::clone(&resources) as _;
+
+    // The stretches discover_routes would have stored for this athlete.
+    let riverside_line = north_line(-72.0, 46.0, 1_000.0);
+    let rail_trail_line = north_line(-72.0, 46.0 + 1_000.0 / METERS_PER_DEGREE_OF_LATITUDE, 500.0);
+    let mut refs = Vec::new();
+    for (name, coordinates) in [
+        ("Sentier de la Rivière", riverside_line.clone()),
+        ("Ancienne voie ferrée", rail_trail_line.clone()),
+    ] {
+        let length_meters = north_meters(&coordinates);
+        refs.push(
+            route_store::store_route(
+                runtime.cache(),
+                tenant,
+                user_id,
+                &StoredRoute {
+                    name: name.to_owned(),
+                    coordinates,
+                    length_meters,
+                    out_and_back: false,
+                },
+            )
+            .await
+            .expect("the stretch is stored"),
+        );
+    }
+
+    let turn_id = ConversationTurnId::new();
+    let executor = UniversalExecutor::new(Arc::clone(&runtime))
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_token(turn_id.0.to_string());
+    let response = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "compose_route".to_owned(),
+            parameters: json!({ "route_refs": refs }),
+            user_id: user_id.to_string(),
+            protocol: "chat".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await
+        .expect("compose_route dispatches");
+    assert!(
+        response.success,
+        "compose_route failed: {:?}",
+        response.error
+    );
+    let answer = response.result.expect("compose_route answers");
+    let composed = assert_route_ref(&answer["route_ref"]).to_owned();
+
+    let input = TurnInput {
+        origin: TurnOrigin::Athlete,
+        input_source: InputSource::Typed,
+        conversation_id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
+        // A shared room's conversation lives in the bot's tenant; the tools,
+        // and so the route store, run in the athlete's.
+        conversation_tenant_id: TenantId::generate(),
+        tool_tenant_id: tenant,
+        is_direct_message: false,
+        content: "Propose-moi une sortie de 1,5 km".to_owned(),
+        turn_id,
+        ambient_context: None,
+        quota: QuotaState::Ok,
+        mentioned_agent: None,
+        steps_after: None,
+    };
+    let block = json!({
+        "type": "route",
+        "source_tool": "compose_route",
+        "route_ref": composed,
+        "title": "Rivière puis voie ferrée",
+    });
+    let reply = format!("Voici l'itinéraire :\n\n```dravr-viz\n{block}\n```");
+    let granted = vec!["route".to_owned()];
+    let tools_called = vec!["compose_route".to_owned()];
+    let ctx = resources.chat_pipeline_context();
+    let mut tracks = RouteTracks::new();
+    read_route_tracks(&ctx, &input, &granted, &tools_called, &reply, &mut tracks).await;
+    let extraction = extract_viz_blocks(&ctx.viz_schemas, &granted, &tools_called, &tracks, &reply)
+        .expect("the reply carries a fence");
+
+    assert!(extraction.refusals.is_empty(), "{:?}", extraction.refusals);
+    assert_eq!(extraction.blocks.len(), 1);
+    let hydrated = &extraction.blocks[0];
+    let drawn: Vec<(f64, f64)> =
+        serde_json::from_value(hydrated["coordinates"].clone()).expect("coordinates");
+    assert_eq!(
+        drawn.first(),
+        riverside_line.first(),
+        "from the riverside's start"
+    );
+    assert_eq!(
+        drawn.last(),
+        rail_trail_line.last(),
+        "to the rail trail's end"
+    );
+    let distances = hydrated["distances_meters"]
+        .as_array()
+        .expect("a public line is measured");
+    let drawn_meters = distances
+        .last()
+        .and_then(Value::as_f64)
+        .expect("a last distance");
+    assert!(
+        (drawn_meters - 1_500.0).abs() < 1.0,
+        "the map measures the itinerary compose_route quoted: {drawn_meters} m"
+    );
+    assert_eq!(hydrated["route_ref"], json!(composed));
 }

@@ -32,6 +32,8 @@
 //!   (`tools-recipes`)
 //! - `routes` — `discover_routes` OSM + Overpass route discovery
 //!   (`tools-analytics`)
+//! - `compose_route` — `compose_route`, discovered stretches joined into one
+//!   drawable itinerary (`tools-analytics`)
 //! - `store` — Agent Store browse / search / install (`tools-agents`)
 //! - `sync` — `refresh_provider_data`, `get_data_freshness` (`tools-connection`)
 //! - `verification` — `verify_claim` tool (`tools-verification`)
@@ -276,6 +278,11 @@ pub mod usda_shared;
 /// (`tools-analytics` feature).
 #[cfg(feature = "tools-analytics")]
 pub mod routes;
+
+/// Route composition: `compose_route`, the stretches `discover_routes` found
+/// joined into one itinerary where they meet (`tools-analytics` feature).
+#[cfg(feature = "tools-analytics")]
+pub mod compose_route;
 
 /// Weather forecast tool: `get_weather_forecast` (Open-Meteo forecast API)
 /// (`tools-analytics` feature).

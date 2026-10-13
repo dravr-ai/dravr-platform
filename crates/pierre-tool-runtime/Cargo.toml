@@ -27,7 +27,7 @@ client-chat = []
 # with --features tools-admin compiles the same set as pierre-server does).
 tools-agents = []
 tools-admin = ["tools-agents"]  # admin tools depend on coach tools
-tools-analytics = []       # discover_routes (Overpass + OSM piste data)
+tools-analytics = []       # discover_routes (Overpass + OSM piste data), compose_route
 tools-mobility = []
 tools-config = []          # fitness config tools, user configuration
 tools-connection = ["transport-sse"]  # sync / refresh tools (refresh_provider_data, get_data_freshness) — require SSE for SyncNotifier

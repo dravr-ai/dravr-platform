@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use photograveur::{resolve, Locale, RenderBlock, RouteView};
-use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteTracks};
+use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteSubject, RouteTracks};
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use serde_json::{json, Value};
@@ -86,7 +86,7 @@ fn route_block(highlight: Option<&str>) -> Value {
 /// The read of one activity, as the extraction stage receives it.
 fn tracks_for(activity_id: &str, outcome: Result<RouteTrack, String>) -> RouteTracks {
     let mut tracks = RouteTracks::new();
-    tracks.insert(activity_id.to_owned(), outcome);
+    tracks.insert(RouteSubject::Activity(activity_id.to_owned()), outcome);
     tracks
 }
 

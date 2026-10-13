@@ -246,9 +246,11 @@ async fn test_configuration_tools_count_in_total() {
     // planned calendar a provider's PLANNED_WORKOUTS capability reads.
     // 2026-10-05: get_roster_overview added (108→109, total 114→115) — the
     // coach's consent-gated roster review from their own thread, registre#748.
+    // 2026-10-13: compose_route added (109→110, total 115→116) — the stretches
+    // discover_routes found joined into one itinerary the chat map draws.
     assert_eq!(
-        fitness_tools, 109,
-        "Expected exactly 109 non-configuration tools"
+        fitness_tools, 110,
+        "Expected exactly 110 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -256,5 +258,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 115, "Expected total of 115 tools"); // 109 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 116, "Expected total of 116 tools"); // 110 non-configuration + 6 configuration
 }

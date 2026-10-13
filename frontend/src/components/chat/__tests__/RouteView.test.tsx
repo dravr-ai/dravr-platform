@@ -533,6 +533,76 @@ describe('RouteView', () => {
   });
 });
 
+/**
+ * A route the coach proposes: a public line stitched from mapped trails. No
+ * vertical, so no climbs, and its distances count from the trailhead.
+ */
+const PROPOSED: RouteViewData = {
+  ...ROUTE,
+  elevation_meters: null,
+  distances_meters: [0, 2600, 5200, 7800, 10400],
+  climbs: [],
+  title: 'Lachine – Vieux-Port',
+  source_tool: 'compose_route',
+};
+
+describe('RouteView proposed route', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it('calls the map a proposed route, to a screen reader and to MapLibre', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView view={PROPOSED} />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+
+    expect(
+      screen.getByRole('figure', { name: 'Map of the proposed route: Lachine – Vieux-Port' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('figure', { name: /recorded/ })).toBeNull();
+    const locale = harness.constructed[0].locale as Record<string, string>;
+    expect(locale['Map.Title']).toBe('Map of the proposed route');
+    // The line is drawn the way a recorded one is, with nothing to mark on it.
+    harness.handlers.get('style.load')?.();
+    expect(harness.layers.map((layer) => layer.id)).toEqual([
+      'route-casing',
+      'route-line',
+      'route-climb',
+    ]);
+    expect(screen.queryByText('Climbs')).toBeNull();
+    expect(screen.queryByText(/compose_route/)).toBeNull();
+  });
+
+  it('names an untitled proposed route in the athlete’s language', async () => {
+    await i18n.changeLanguage('fr');
+    render(
+      <ThemeProvider>
+        <RouteView view={{ ...PROPOSED, title: null, source_tool: 'discover_routes' }} />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+
+    expect(screen.getByRole('figure', { name: 'Carte du parcours proposé' })).toBeInTheDocument();
+    const locale = harness.constructed[0].locale as Record<string, string>;
+    expect(locale['Map.Title']).toBe('Carte du parcours proposé');
+  });
+
+  it('never tells a proposed route it recorded no GPS track', () => {
+    render(
+      <ThemeProvider>
+        <RouteView view={{ ...PROPOSED, coordinates: [], distances_meters: null }} />
+      </ThemeProvider>
+    );
+
+    expect(screen.getByText("The map couldn't be loaded.")).toBeInTheDocument();
+    expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
+    expect(harness.constructed).toHaveLength(0);
+  });
+});
+
 describe('RouteView layer switcher', () => {
   it('offers map, satellite and terrain with no key configured, and opens on the map', async () => {
     render(

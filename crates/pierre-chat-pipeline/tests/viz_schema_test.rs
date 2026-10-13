@@ -93,8 +93,71 @@ fn rejects_a_route_without_activity_id() {
     block.as_object_mut().unwrap().remove("activity_id");
     assert!(
         !v.is_valid(&block),
-        "a route without activity_id names no track and cannot be drawn"
+        "a route with neither activity_id nor route_ref names no line and cannot be drawn"
     );
+}
+
+/// A route the coach proposes, by the handle `discover_routes` returned.
+fn proposed_route() -> Value {
+    json!({
+        "type": "route",
+        "source_tool": "discover_routes",
+        "route_ref": "rt_3f9a0c41d27b8e65",
+        "title": "Piste du canal de Lachine"
+    })
+}
+
+#[test]
+fn accepts_a_route_named_by_its_route_ref() {
+    let v = validator();
+    assert!(v.is_valid(&proposed_route()), "one discovered stretch");
+    let mut itinerary = proposed_route();
+    itinerary["source_tool"] = json!("compose_route");
+    itinerary["route_ref"] = json!("rt_c07e5d2a9b146f38");
+    assert!(v.is_valid(&itinerary), "an itinerary compose_route joined");
+}
+
+#[test]
+fn rejects_a_route_naming_both_an_activity_and_a_route_ref() {
+    // A block names one line. Both ids would leave the platform choosing which
+    // to draw, and the caption would describe whichever it did not.
+    let v = validator();
+    let mut block = proposed_route();
+    block["activity_id"] = json!("14523911087");
+    assert!(
+        !v.is_valid(&block),
+        "activity_id and route_ref are one of two"
+    );
+}
+
+#[test]
+fn rejects_climbs_on_a_proposed_route() {
+    // A public mapped line carries no vertical to find a climb in.
+    let v = validator();
+    let mut block = proposed_route();
+    block["highlight"] = json!("climbs");
+    assert!(
+        !v.is_valid(&block),
+        "highlight belongs to a recorded activity only"
+    );
+}
+
+#[test]
+fn rejects_a_route_ref_in_any_other_shape() {
+    let v = validator();
+    for malformed in [
+        "rt_3F9A0C41D27B8E65",
+        "rt_3f9a0c41",
+        "3f9a0c41d27b8e65",
+        "route_3f9a0c41d27b8e65",
+    ] {
+        let mut block = proposed_route();
+        block["route_ref"] = json!(malformed);
+        assert!(
+            !v.is_valid(&block),
+            "{malformed} is not a ref the route tools write"
+        );
+    }
 }
 
 #[test]
@@ -215,6 +278,53 @@ fn generated_contract_states_the_points_minimum() {
         assert!(
             contract.contains(&format!("**`{kind}`**")),
             "every block kind must be described, {kind} is missing: {contract}"
+        );
+    }
+}
+
+/// The route arm's top-level `required` is only `type` and `source_tool`: the
+/// id that names the line sits in the arm's own `oneOf`. A contract that read
+/// only the top level told the agent `required: type, source_tool` and never
+/// that a route needs an `activity_id` or a `route_ref`, nor that `highlight`
+/// belongs to the first alone.
+#[test]
+fn generated_contract_states_the_route_alternatives() {
+    let mut schemas = SchemaTexts::new();
+    schemas.insert("dravr-viz".to_owned(), DRAVR_VIZ_SCHEMA.to_owned());
+    let contract = schema_contract(&schemas);
+    let route = contract
+        .split("**`route`**")
+        .nth(1)
+        .and_then(|rest| rest.split("\n\n").next())
+        .unwrap_or_else(|| panic!("the route arm must be described: {contract}"));
+
+    assert!(
+        route.contains("- exactly one of: `activity_id` | `route_ref`"),
+        "both ids, and that a block names exactly one: {route}"
+    );
+    assert!(
+        route.contains("- `highlight` only with `activity_id`"),
+        "the property one alternative forbids is tied to the other: {route}"
+    );
+    assert!(
+        route.contains("- `route_ref`: a string matching `^rt_[0-9a-f]{16}$`"),
+        "the ref's shape is stated: {route}"
+    );
+    assert!(
+        route.contains("- `highlight`: one of none, climbs"),
+        "the enum line still stands: {route}"
+    );
+
+    // An arm with no alternation of its own reads exactly as it did.
+    for kind in ["chart", "table"] {
+        let arm = contract
+            .split(&format!("**`{kind}`**"))
+            .nth(1)
+            .and_then(|rest| rest.split("\n\n").next())
+            .unwrap_or_default();
+        assert!(
+            !arm.contains("exactly one of") && !arm.contains("a string matching"),
+            "{kind} has no alternatives or patterns to state: {arm}"
         );
     }
 }

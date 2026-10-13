@@ -74,6 +74,9 @@ use pierre_tool_runtime::implementations::athlete_stats::{
 use pierre_tool_runtime::implementations::commitments::{
     CommitmentCancelResult, CommitmentCancelTool, CommitmentCreateResult, CommitmentCreateTool,
 };
+use pierre_tool_runtime::implementations::compose_route::{
+    ComposeRouteResult, ComposeRouteTool, ComposedStretch,
+};
 use pierre_tool_runtime::implementations::configuration::{
     CalculatePersonalizedZonesTool, GetConfigurationCatalogTool, GetConfigurationProfilesTool,
     GetUserConfigurationTool, UpdateUserConfigurationTool, ValidateConfigurationTool,
@@ -3375,6 +3378,11 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             output_schema_for::<DiscoverRoutesResult>(),
         ),
         (
+            "compose_route",
+            <ComposeRouteTool as McpTool<dyn ToolRuntime>>::definition(&ComposeRouteTool),
+            output_schema_for::<ComposeRouteResult>(),
+        ),
+        (
             "get_group_member_activities",
             <GetGroupMemberActivitiesTool as McpTool<dyn ToolRuntime>>::definition(
                 &GetGroupMemberActivitiesTool,
@@ -3757,6 +3765,8 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
             latitude: 45.47,
             longitude: -73.58,
             distance_from_center_meters: 3_400.0,
+            route_ref: None,
+            connects_to: Vec::new(),
         }],
     })
     .expect("serializes");
@@ -3768,6 +3778,9 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
     // No target was named, so nothing about one is said.
     assert!(value.get("target_distance_meters").is_none(), "{value:#}");
     assert!(value["routes"][0].get("target_fit").is_none(), "{value:#}");
+    // No mapped line, so nothing to draw or compose it by.
+    assert!(value["routes"][0].get("route_ref").is_none(), "{value:#}");
+    assert!(value["routes"][0].get("connects_to").is_none(), "{value:#}");
 }
 
 #[test]
@@ -3796,6 +3809,8 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
             latitude: 45.47,
             longitude: -73.58,
             distance_from_center_meters: 3_400.0,
+            route_ref: Some("rt_3f9a0c41d27b8e65".to_owned()),
+            connects_to: vec!["rt_c07e5d2a9b146f38".to_owned()],
         }],
     })
     .expect("serializes");
@@ -3805,6 +3820,43 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
     assert_eq!(value["routes"][0]["target_fit"], "out_and_back");
     assert_eq!(value["routes"][0]["passes_for_target"], 2);
     assert_eq!(value["routes"][0]["distance_source"], "mapped_geometry");
+    assert_eq!(value["routes"][0]["route_ref"], "rt_3f9a0c41d27b8e65");
+    assert_eq!(value["routes"][0]["connects_to"][0], "rt_c07e5d2a9b146f38");
+}
+
+#[test]
+fn compose_route_declares_a_schema_that_accepts_its_payload() {
+    let derived = output_schema_for::<ComposeRouteResult>();
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let value = serde_json::to_value(ComposeRouteResult {
+        route_ref: "rt_c07e5d2a9b146f38".to_owned(),
+        distance_meters: 14_800.0,
+        out_and_back: true,
+        stretches: vec![
+            ComposedStretch {
+                route_ref: "rt_3f9a0c41d27b8e65".to_owned(),
+                name: "Piste du canal de Lachine".to_owned(),
+            },
+            ComposedStretch {
+                route_ref: "rt_0b1c2d3e4f506172".to_owned(),
+                name: "Promenade du Vieux-Port".to_owned(),
+            },
+        ],
+        joins_meters: vec![4.0],
+    })
+    .expect("serializes");
+    assert!(validator.is_valid(&value), "{value:#}");
+
+    // The ref and the distance are what the reply is for: one without them
+    // must not validate.
+    for field in ["route_ref", "distance_meters"] {
+        let mut missing = value.clone();
+        missing.as_object_mut().expect("object").remove(field);
+        assert!(
+            !validator.is_valid(&missing),
+            "a composed route without {field} must not validate"
+        );
+    }
 }
 
 #[test]

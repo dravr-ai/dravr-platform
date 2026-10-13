@@ -53,6 +53,15 @@ use std::fmt;
 use std::time::Duration;
 use uuid::Uuid;
 
+/// How long the drawable line of a discovered or composed route stays
+/// addressable by its `route_ref` (24 hours).
+///
+/// The same day the route search that found the line caches its candidates
+/// for: a ref outliving the search could be drawn from a line the search no
+/// longer returns, and one expiring sooner would leave a map the coach drew
+/// this morning unredrawable by lunch.
+const TTL_DISCOVERED_ROUTE_SECS: u64 = 86_400;
+
 /// Cache provider trait for pluggable backend implementations
 ///
 /// Provides a storage-agnostic interface for caching API responses with
@@ -322,6 +331,14 @@ pub enum CacheResource {
     /// a knob this crate has no visibility into — so `recommended_ttl` returns
     /// 0 for it, as it does for [`CacheResource::Custom`].
     SciotteLoginFlow,
+    /// The drawable line of a route found by route discovery or composed from
+    /// such routes, addressed by its `route_ref` (24 h TTL). Shared rather than
+    /// process-local because the line is stored by the tool call that found
+    /// the route and read back by whichever pod draws the chat map naming it.
+    DiscoveredRoute {
+        /// The route's content-derived reference, `rt_` and 16 hex digits.
+        route_ref: String,
+    },
     /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
     /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
     Custom(String),
@@ -340,6 +357,7 @@ impl CacheResource {
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
             Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
+            Self::DiscoveredRoute { .. } => Duration::from_secs(TTL_DISCOVERED_ROUTE_SECS),
             Self::SciotteLoginFlow | Self::Custom(_) => Duration::ZERO,
         }
     }
@@ -376,7 +394,32 @@ impl fmt::Display for CacheResource {
             }
             Self::ProviderRoster => write!(f, "provider_roster"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
+            Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A route's line is addressed by its ref alone under the athlete's own
+    /// key, and lives the day its route search is cached for.
+    #[test]
+    fn a_discovered_route_keys_by_its_ref_and_lives_a_day() {
+        let tenant_id = TenantId::generate();
+        let user_id = Uuid::new_v4();
+        let resource = CacheResource::DiscoveredRoute {
+            route_ref: "rt_0123456789abcdef".to_owned(),
+        };
+        assert_eq!(resource.to_string(), "discovered_route:rt_0123456789abcdef");
+        assert_eq!(
+            CacheKey::new(tenant_id, user_id, "osm".to_owned(), resource.clone()).to_string(),
+            format!(
+                "tenant:{tenant_id}:user:{user_id}:provider:osm:discovered_route:rt_0123456789abcdef"
+            )
+        );
+        assert_eq!(resource.recommended_ttl(), Duration::from_hours(24));
     }
 }

@@ -772,6 +772,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "commitment_cancel",
     "commitment_create",
     "compare_activities",
+    "compose_route",
     "compute_training_history",
     "connect_provider",
     "create_agent",

@@ -56,6 +56,10 @@ pub use route_track::{
     trimmed_overview_polyline, RouteBounds, RouteClimb, RouteTrack, RouteTrackError,
 };
 
+/// Stitching discovered trail stretches into one drawable itinerary, and the
+/// `route_ref` a drawable public line is stored and named by.
+pub mod route_compose;
+
 /// Endurance Phase 3 LT1 / LT2 threshold estimators.
 pub mod threshold_estimation;
 pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};

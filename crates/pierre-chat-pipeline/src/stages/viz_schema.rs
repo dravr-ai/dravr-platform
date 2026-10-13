@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 use serde_json::Value;
 use tracing::warn;
 
-/// Schema id for an inline visual block (`chart` or `table`).
+/// Schema id for an inline visual block (`chart`, `table` or `route`).
 ///
 /// The one schema a reply's blocks are validated against. A block is
 /// embedded in prose and a reply may carry several; the plan card is not a

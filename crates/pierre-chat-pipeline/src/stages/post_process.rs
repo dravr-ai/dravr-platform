@@ -291,8 +291,8 @@ async fn repaired_extraction(
         Some(&recorder),
     )
     .await?;
-    // A repaired reply may name an activity the first pass never read. The
-    // map is shared, so the ones it already holds cost nothing here.
+    // A repaired reply may name a route the first pass never read. The map is
+    // shared, so the ones it already holds cost nothing here.
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &repaired, tracks).await;
     let second =
         viz_blocks::extract_viz_blocks(&ctx.viz_schemas, granted, tools_called, tracks, &repaired)?;
@@ -338,10 +338,11 @@ async fn lift_viz_blocks(
         return (raw_content, None, 0);
     }
     let granted = granted.as_slice();
-    // A route block names an activity and the platform reads its recorded
-    // track: the geometry is thousands of points, so the agent cites it and
-    // never writes it. Reads happen before extraction because a block without
-    // its track has no map to render and is refused like any other faulty one.
+    // A route block names an activity or a proposed route and the platform
+    // reads its line: the geometry is thousands of points, so the agent cites
+    // it and never writes it. Reads happen before extraction because a block
+    // without its line has no map to render and is refused like any other
+    // faulty one.
     let mut tracks = viz_route::RouteTracks::new();
     viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
         .await;

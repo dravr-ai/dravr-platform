@@ -10,10 +10,13 @@ import {
   climbGradient,
   climbGrade,
   climbRange,
+  isProposedRoute,
   kilometres,
   metresAt,
   routeFrame,
+  routeLabel,
   routeMarkers,
+  routeMissingText,
   trackGeometry,
 } from '../src/route';
 
@@ -140,6 +143,37 @@ describe('climbGrade', () => {
 
   it('gives an ungraded climb no caption', () => {
     expect(climbGrade(climb(0, 1, null), t)).toBeNull();
+  });
+});
+
+describe('proposed routes', () => {
+  it('reads a route as proposed only when a route tool stored its line', () => {
+    expect(isProposedRoute({ source_tool: 'discover_routes' })).toBe(true);
+    expect(isProposedRoute({ source_tool: 'compose_route' })).toBe(true);
+    // A recorded activity's map cites the tool or provider it came from.
+    for (const source of ['get_activities', 'get_activity_route', 'strava', 'Discover_Routes']) {
+      expect(isProposedRoute({ source_tool: source })).toBe(false);
+    }
+  });
+
+  it('labels a proposed map as proposed and a recorded one as recorded, caption or not', () => {
+    expect(routeLabel({ source_tool: 'compose_route', title: 'Lachine – Vieux-Port' }, t)).toBe(
+      'chat.routeProposedAltTitled({"title":"Lachine – Vieux-Port"})'
+    );
+    expect(routeLabel({ source_tool: 'discover_routes', title: null }, t)).toBe(
+      'chat.routeProposedAlt({})'
+    );
+    expect(routeLabel({ source_tool: 'get_activities', title: 'Mont Royal loop' }, t)).toBe(
+      'chat.routeAltTitled({"title":"Mont Royal loop"})'
+    );
+    expect(routeLabel({ source_tool: 'get_activities', title: null }, t)).toBe('chat.routeAlt({})');
+  });
+
+  it('never tells a proposed route it recorded no GPS', () => {
+    expect(routeMissingText({ source_tool: 'get_activities' }, t)).toBe('chat.routeNoTrack({})');
+    expect(routeMissingText({ source_tool: 'discover_routes' }, t)).toBe(
+      'home.activities.routeFailed({})'
+    );
   });
 });
 

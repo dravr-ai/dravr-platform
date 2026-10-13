@@ -23,7 +23,9 @@ import {
   climbGrade,
   climbRange,
   routeFrame,
+  routeLabel,
   routeMarkers,
+  routeMissingText,
   trackGeometry,
   type DistanceUnit,
   type RouteMarker,
@@ -360,13 +362,15 @@ function MapControlBar({
 }
 
 /**
- * One recorded track, drawn.
+ * One route, drawn: a track the athlete recorded, or a line the coach proposes.
  *
- * The geometry arrives hydrated — the agent emitted an activity reference and
- * the platform read the GPS trace out of the time series — so everything here
- * is presentation: a basemap in the athlete's scheme, the track over it, and
- * the numbers underneath in words a screen reader can read, which the canvas
- * itself can never be.
+ * The geometry arrives hydrated — the agent emitted a reference, an activity
+ * or a proposed route's `route_ref`, and the platform read the line itself —
+ * so everything here is presentation: a basemap in the athlete's scheme, the
+ * line over it, and the numbers underneath in words a screen reader can read,
+ * which the canvas itself can never be. The one difference between the two is
+ * what the map is called ({@link routeLabel}): a proposed line has no climbs
+ * and no recording behind it.
  */
 export default function RouteView({
   route,
@@ -409,18 +413,18 @@ export default function RouteView({
 
   // A track with no positions is not a map. Both clients say why rather than
   // dropping the block silently: the athlete asked to see a route and is owed
-  // the reason there is none.
+  // the reason there is none — and a proposed route is never told it recorded
+  // no GPS.
   if (route.coordinates.length === 0) {
-    return <Text className="my-3 text-sm text-text-secondary">{t('chat.routeNoTrack')}</Text>;
+    return <Text className="my-3 text-sm text-text-secondary">{routeMissingText(route, t)}</Text>;
   }
 
-  // Read for the climbs' ranges only. The series is measured along the drawn
-  // GPS line and ends where the privacy trim cuts it, so its last value is not
-  // the activity's distance and is never printed as one.
+  // Read for the climbs' ranges only. On a recorded track the series is
+  // measured along the drawn GPS line and ends where the privacy trim cuts it;
+  // on a proposed route it counts from the trailhead. Either way its last value
+  // is not a distance anyone asked for and is never printed as one.
   const distances = alignedSeries(route.distances_meters, route.coordinates.length);
-  const label = route.title
-    ? t('chat.routeAltTitled', { title: route.title })
-    : t('chat.routeAlt');
+  const label = routeLabel(route, t);
 
   // The card spans the coach's turn whatever the sentence above it, so a
   // one-line reply never leaves a narrow map; the map under it keeps one
