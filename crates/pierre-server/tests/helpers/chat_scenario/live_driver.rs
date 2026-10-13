@@ -174,6 +174,24 @@ pub struct LiveScenarioDriver {
     real: Option<RealExecution>,
 }
 
+/// The model `chain`'s head serves, when that head is a `local` entry naming
+/// one — the only chain [`LiveScenarioDriver::from_env`] accepts.
+fn local_model(chain: &LlmChain) -> Result<String, String> {
+    let head = chain.head();
+    if head.provider != LlmProviderType::Local {
+        return Err(format!(
+            "{} must lead with local=<model> for LiveScenarioDriver, got {chain:?}",
+            LlmChain::ENV_VAR
+        ));
+    }
+    head.model.clone().ok_or_else(|| {
+        format!(
+            "{}'s local entry must name the model a running Ollama serves (local=<model>)",
+            LlmChain::ENV_VAR
+        )
+    })
+}
+
 impl LiveScenarioDriver {
     /// Build a driver from process env. `PIERRE_LLM_CHAIN` must lead with
     /// `local=<model>` — the production chain grammar, naming the local
@@ -197,20 +215,7 @@ impl LiveScenarioDriver {
     /// entry naming its model, or when the underlying provider fails to
     /// initialize.
     pub fn from_env() -> Result<Self, String> {
-        let chain = LlmChain::from_env();
-        let head = chain.head();
-        if head.provider != LlmProviderType::Local {
-            return Err(format!(
-                "{} must lead with local=<model> for LiveScenarioDriver, got {chain:?}",
-                LlmChain::ENV_VAR
-            ));
-        }
-        let model = head.model.clone().ok_or_else(|| {
-            format!(
-                "{}'s local entry must name the model a running Ollama serves (local=<model>)",
-                LlmChain::ENV_VAR
-            )
-        })?;
+        let model = local_model(&LlmChain::from_env())?;
 
         let mut config = OpenAiCompatibleConfig::ollama(&model);
         // Point at a non-default Ollama / OpenAI-compatible endpoint (remote
@@ -1086,24 +1091,21 @@ mod tests {
         }
     }
 
+    /// Reads the chain through [`LlmChain::parse`], never by setting
+    /// `PIERRE_LLM_CHAIN`: this module compiles into every test binary that
+    /// declares `mod helpers`, and a process-wide `local` chain with no model
+    /// fails any concurrent test that forges a conversation from the chain.
     #[test]
-    fn from_env_errors_unless_the_chain_leads_with_a_local_model() {
-        // SAFETY: integration test, env is set + cleared synchronously.
-        let prior = env::var(LlmChain::ENV_VAR).ok();
-        let mut refusals = Vec::new();
+    fn only_a_chain_led_by_a_local_model_is_accepted() {
         for chain in ["gemini=gemini-flash-lite-latest", "local"] {
-            env::set_var(LlmChain::ENV_VAR, chain);
-            refusals.push((chain, LiveScenarioDriver::from_env().is_err()));
-        }
-        match prior {
-            Some(value) => env::set_var(LlmChain::ENV_VAR, value),
-            None => env::remove_var(LlmChain::ENV_VAR),
-        }
-        for (chain, refused) in refusals {
             assert!(
-                refused,
-                "expected from_env to refuse PIERRE_LLM_CHAIN={chain}"
+                local_model(&LlmChain::parse(chain)).is_err(),
+                "expected the driver to refuse PIERRE_LLM_CHAIN={chain}"
             );
         }
+        assert_eq!(
+            local_model(&LlmChain::parse("local=qwen2.5:7b")),
+            Ok("qwen2.5:7b".to_owned())
+        );
     }
 }
