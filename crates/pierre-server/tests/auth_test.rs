@@ -12,7 +12,9 @@ mod common;
 use chrono::{Duration, Utc};
 use pierre_auth::{
     admin::jwks::JwksManager,
-    auth::{generate_jwt_secret, AuthManager, AuthMethod, Claims, JwtValidationError},
+    auth::{
+        generate_jwt_secret, AuthManager, AuthMethod, Claims, DelegatedGrant, JwtValidationError,
+    },
 };
 use pierre_core::models::{AuthRequest, User, UserStatus, UserTier};
 use pierre_core::uuid_utils::parse_uuid;
@@ -436,16 +438,24 @@ fn test_generate_oauth_access_token() {
     // Setup JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();
 
+    let grant = DelegatedGrant {
+        client_id: "mcp_client_test",
+        scopes: &scopes,
+        audience: None,
+    };
     let token_result =
-        auth_manager.generate_oauth_access_token(&jwks_manager, &user_id, &scopes, &[], None, None);
+        auth_manager.generate_oauth_access_token(&jwks_manager, &grant, &user_id, &[], None);
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();
     assert!(!token.is_empty());
 
-    // Validate the token
+    // Validate the token: it acts for the athlete, through the client the
+    // grant was issued to (RFC 9068 §2.2).
     let claims = auth_manager.validate_token(&token, &jwks_manager).unwrap();
     assert_eq!(claims.sub, user_id.to_string());
+    assert_eq!(claims.client_id.as_deref(), Some("mcp_client_test"));
+    assert_eq!(claims.client_credentials_client(), None);
 }
 
 #[test]
@@ -471,6 +481,37 @@ fn test_generate_client_credentials_token() {
 
     // Validate the token structure
     assert_eq!(token.split('.').count(), 3);
+
+    // No resource owner: the client is the subject, and names itself in
+    // `client_id` too (RFC 9068 §2.2) — the shape that marks it a client's.
+    let claims = auth_manager.validate_token(&token, &jwks_manager).unwrap();
+    assert_eq!(claims.sub, client_id);
+    assert_eq!(claims.client_id.as_deref(), Some(client_id));
+    assert_eq!(claims.client_credentials_client(), Some(client_id));
+}
+
+#[test]
+fn test_session_token_names_the_client_it_was_signed_in_to() {
+    let auth_manager = create_auth_manager();
+    let user = create_test_user();
+    let jwks_manager = common::get_shared_test_jwks();
+
+    let token = auth_manager
+        .generate_client_session_token(&user, &jwks_manager, None, Some("dravr-mobile"))
+        .unwrap();
+    let claims = auth_manager
+        .validate_session_token(&token, &jwks_manager)
+        .unwrap();
+    assert_eq!(claims.sub, user.id.to_string());
+    assert_eq!(claims.client_id.as_deref(), Some("dravr-mobile"));
+    assert_eq!(claims.client_credentials_client(), None);
+
+    // A session no client signed in to names none.
+    let unnamed = auth_manager.generate_token(&user, &jwks_manager).unwrap();
+    let claims = auth_manager
+        .validate_session_token(&unnamed, &jwks_manager)
+        .unwrap();
+    assert_eq!(claims.client_id, None);
 }
 
 #[test]

@@ -12,6 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_auth::oauth2_server::first_party::MOBILE_CLIENT_ID;
 use pierre_auth::tenant::TenantOAuthCredentials;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
@@ -942,9 +943,14 @@ async fn test_token_refresh_success() -> Result<()> {
         .jwt_token
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in login response"))?;
 
-    // The login opens a refresh-token family; the exchange rotates it.
+    // The login opens a refresh-token family for the app that signed in;
+    // the exchange rotates it.
     let first = auth_routes
-        .issue_refresh_token(user_uuid, login_response.user.tenant_id.clone())
+        .issue_refresh_token(
+            user_uuid,
+            login_response.user.tenant_id.clone(),
+            MOBILE_CLIENT_ID.to_owned(),
+        )
         .await?;
     let refreshed = auth_routes.refresh_session(&first).await?;
 
@@ -955,6 +961,10 @@ async fn test_token_refresh_success() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in refresh response"))?;
     assert!(!renewed_jwt.is_empty());
     assert_ne!(renewed_jwt, original_token, "a refresh mints a new JWT");
+    // The renewed session still names the client the family was signed in to.
+    let renewed_claims = common::create_test_auth_manager()
+        .validate_session_token(renewed_jwt, &common::get_shared_test_jwks())?;
+    assert_eq!(renewed_claims.client_id.as_deref(), Some(MOBILE_CLIENT_ID));
     assert_eq!(refreshed.login.user.email, "refresh@example.com");
     assert_eq!(refreshed.login.user.user_id, user_id);
     assert_ne!(
@@ -1186,7 +1196,11 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
 
     let login_response = auth_routes.login(login_request).await?;
     let refresh_token = auth_routes
-        .issue_refresh_token(user_id, login_response.user.tenant_id.clone())
+        .issue_refresh_token(
+            user_id,
+            login_response.user.tenant_id.clone(),
+            MOBILE_CLIENT_ID.to_owned(),
+        )
         .await?;
 
     // Suspension ends the session at the next exchange, not the next login.
@@ -1710,7 +1724,11 @@ async fn test_complete_auth_flow() -> Result<()> {
 
     // 3. Refresh token
     let refresh_token = auth_routes
-        .issue_refresh_token(user_id, login_response.user.tenant_id.clone())
+        .issue_refresh_token(
+            user_id,
+            login_response.user.tenant_id.clone(),
+            MOBILE_CLIENT_ID.to_owned(),
+        )
         .await?;
     let refresh_response = auth_routes.refresh_session(&refresh_token).await?.login;
 

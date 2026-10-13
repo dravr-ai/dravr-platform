@@ -159,7 +159,7 @@ pub async fn handle_oauth2_token(
                 }
             }
             match auth_service
-                .sign_in_with_code(redeemed.user_id, &redeemed.tenant_id)
+                .sign_in_with_code(redeemed.user_id, &redeemed.tenant_id, &redeemed.client_id)
                 .await
             {
                 Err(e) => Err(e),
@@ -174,6 +174,7 @@ pub async fn handle_oauth2_token(
                                 .issue_refresh_token(
                                     redeemed.user_id,
                                     response.user.tenant_id.clone(),
+                                    redeemed.client_id,
                                 )
                                 .await?,
                         )

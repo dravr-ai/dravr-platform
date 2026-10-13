@@ -382,6 +382,7 @@ async fn seed_owned_rows(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: T
                 family_id: Uuid::new_v4().to_string(),
                 user_id,
                 tenant_id: Some(tenant.clone()),
+                client_id: None,
                 created_at: Utc::now(),
                 expires_at: Utc::now() + Duration::days(30),
             },

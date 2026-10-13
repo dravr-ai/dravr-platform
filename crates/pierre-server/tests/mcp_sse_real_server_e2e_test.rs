@@ -10,7 +10,7 @@
 mod common;
 
 use anyhow::Result;
-use pierre_auth::auth::AuthManager;
+use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -237,10 +237,13 @@ impl TestServer {
             .collect();
         let jwt_token = self.auth_manager.generate_oauth_access_token(
             &common::get_shared_test_jwks(),
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &scopes,
+                audience: None,
+            },
             &user.id,
-            &scopes,
             &[],
-            None,
             None,
         )?;
 

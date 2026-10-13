@@ -379,11 +379,12 @@ impl AuthService {
     ///
     /// Dravr's web and mobile apps sign in on the hosted login page, which
     /// checks the password (or Google), and redeem the code it issues
-    /// (carnet#787). `user_id` and `tenant_id` are what that code recorded.
-    /// The session is the one a sign-in has always opened: the self grant,
-    /// 24 hours, the tenant the code names while the athlete still belongs to
-    /// it. A suspended account is refused; a pending one signs in, so the app
-    /// can show the approval it awaits.
+    /// (carnet#787). `user_id` and `tenant_id` are what that code recorded,
+    /// and `client_id` the app that redeemed it, which the session's JWT
+    /// names in its `client_id` claim. The session is the one a sign-in has
+    /// always opened: the self grant, 24 hours, the tenant the code names
+    /// while the athlete still belongs to it. A suspended account is refused;
+    /// a pending one signs in, so the app can show the approval it awaits.
     ///
     /// # Errors
     /// Returns an error if the account is gone or suspended, or the session
@@ -392,6 +393,7 @@ impl AuthService {
         &self,
         user_id: uuid::Uuid,
         tenant_id: &str,
+        client_id: &str,
     ) -> AppResult<LoginResponse> {
         let repos = self.data.repos();
         let user = repos.users.get_global(user_id).await?.ok_or_else(|| {
@@ -406,7 +408,12 @@ impl AuthService {
         };
         let jwt_token = self
             .auth_manager
-            .generate_token_with_tenant(&user, &self.jwks_manager, tenant_id.clone())
+            .generate_client_session_token(
+                &user,
+                &self.jwks_manager,
+                tenant_id.clone(),
+                Some(client_id),
+            )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
         let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
@@ -416,7 +423,7 @@ impl AuthService {
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
 
-        info!(user_id = %user.id, "User signed in with an authorization code");
+        info!(user_id = %user.id, client_id, "User signed in with an authorization code");
 
         let user_info = self.user_info(&user, tenant_id).await;
         Ok(LoginResponse {
@@ -819,8 +826,9 @@ impl AuthService {
     ///
     /// The JWT the login minted lasts `JWT_EXPIRY_HOURS`; this is what the
     /// device holds past that. It is returned once, in plaintext, and stored
-    /// only as its HMAC. `tenant_id` is the tenant the login resolved, so the
-    /// JWTs a refresh mints later carry the same one.
+    /// only as its HMAC. `tenant_id` is the tenant the login resolved and
+    /// `client_id` the client it signed in to, so the JWTs a refresh mints
+    /// later carry the same ones.
     ///
     /// # Errors
     /// Returns an error if the RNG fails or the token cannot be stored.
@@ -828,12 +836,14 @@ impl AuthService {
         &self,
         user_id: uuid::Uuid,
         tenant_id: Option<String>,
+        client_id: String,
     ) -> AppResult<String> {
         let now = Utc::now();
         let record = SessionRefreshToken {
             family_id: uuid::Uuid::new_v4().to_string(),
             user_id,
             tenant_id,
+            client_id: Some(client_id),
             created_at: now,
             expires_at: now + self.refresh_token_lifetime(),
         };
@@ -890,9 +900,17 @@ impl AuthService {
             _ => self.ensure_user_has_tenant(&user).await?,
         };
 
+        // The client the family was signed in to, re-stamped on every JWT it
+        // mints and carried to the successor, so a session names its client
+        // for as long as it keeps refreshing.
         let jwt_token = self
             .auth_manager
-            .generate_token_with_tenant(&user, &self.jwks_manager, tenant_id.clone())
+            .generate_client_session_token(
+                &user,
+                &self.jwks_manager,
+                tenant_id.clone(),
+                record.client_id.as_deref(),
+            )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
         let expires_at = now + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
@@ -900,6 +918,7 @@ impl AuthService {
             family_id: record.family_id,
             user_id: user.id,
             tenant_id: tenant_id.clone(),
+            client_id: record.client_id,
             created_at: now,
             expires_at: now + self.refresh_token_lifetime(),
         };

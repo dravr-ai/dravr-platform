@@ -82,6 +82,7 @@ impl ToolHandlers {
         fields(
             tool_name = Empty,
             arguments_hash = Empty,
+            client = Empty,
             user_id = %user_id,
             tenant_id = %tenant_id,
         )
@@ -95,7 +96,7 @@ impl ToolHandlers {
         tool_name: &str,
         args: Value,
     ) -> ToolResponse {
-        record_tool_call(tool_name, &args);
+        record_tool_call(tool_name, &args, tool_context);
 
         let tenant_context = match extract_tenant_context_internal(
             &resources.common.repos,

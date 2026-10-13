@@ -9,7 +9,7 @@ use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
-use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
+use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims};
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
 };
@@ -106,6 +106,25 @@ fn mcp_token_refused() -> AppError {
         ErrorCode::PermissionDenied,
         "A personal MCP token is accepted only by the MCP endpoint",
     )
+}
+
+/// The user a JWT acts for: its `sub`, read as the user's UUID.
+///
+/// A client-credentials token acts for its client, not for a user: its
+/// subject is the client (RFC 9068 §2.2). It is refused on the claims' own
+/// shape before `sub` is parsed, so whatever form a client id takes, it is
+/// never looked up as a user.
+fn token_user_id(claims: &Claims) -> AppResult<uuid::Uuid> {
+    if let Some(client_id) = claims.client_credentials_client() {
+        warn!(
+            client_id = %client_id,
+            "Client-credentials token refused: it names no user"
+        );
+        return Err(AppError::auth_invalid(
+            "A client-credentials token does not act for a user",
+        ));
+    }
+    parse_uuid(&claims.sub).map_err(|_| AppError::auth_invalid("Invalid user ID in token"))
 }
 
 /// A credential its request budget admitted, and that budget.
@@ -551,6 +570,9 @@ impl McpAuthMiddleware {
                 // them, so the credential is not a narrowed delegation. The
                 // role gate still decides admin independently.
                 scopes: OAuthScope::self_grant(),
+                // An API key is issued to the athlete, not to a registered
+                // client, so it names none.
+                client_id: None,
             },
             budget,
         })
@@ -625,6 +647,9 @@ impl McpAuthMiddleware {
                 },
                 active_tenant_id,
                 scopes: OAuthScope::delegable_grant(),
+                // Minted in Settings and pasted into a client, not issued to
+                // a registered one: no client was verified.
+                client_id: None,
             },
             budget,
         })
@@ -757,6 +782,7 @@ impl McpAuthMiddleware {
             // so the credential is not a narrowed delegation. The role gate
             // still decides admin independently.
             scopes: OAuthScope::self_grant(),
+            client_id: None,
         })
     }
 
@@ -780,8 +806,8 @@ impl McpAuthMiddleware {
         }
         .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
 
-        let user_id = parse_uuid(&claims.sub)
-            .map_err(|_| AppError::auth_invalid("Invalid user ID in token"))?;
+        // A client-credentials token names no user, and is refused here.
+        let user_id = token_user_id(&claims)?;
 
         // An impersonation token acts only while its session is live: ending
         // the session revokes it, rather than leaving it good until its hour
@@ -883,6 +909,7 @@ impl McpAuthMiddleware {
                 },
                 active_tenant_id,
                 scopes,
+                client_id: claims.client_id,
             },
             budget,
         })
@@ -1003,5 +1030,52 @@ pub async fn record_jwt_usage_for_request(
             error = %e,
             "Failed to record jwt_usage (rate limiting counter impacted)"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::constants::service_names::{MCP, PIERRE_MCP_SERVER};
+
+    /// Claims naming `sub` and, when given, `client_id`; the rest is inert.
+    fn claims(sub: &str, client_id: Option<&str>) -> Claims {
+        Claims {
+            sub: sub.to_owned(),
+            email: "athlete@example.com".to_owned(),
+            iat: 0,
+            exp: 0,
+            iss: PIERRE_MCP_SERVER.to_owned(),
+            jti: "jti-1".to_owned(),
+            providers: Vec::new(),
+            aud: MCP.to_owned(),
+            active_tenant_id: None,
+            impersonator_id: None,
+            impersonation_session_id: None,
+            scope: String::new(),
+            client_id: client_id.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_user_token_acts_for_its_subject_whichever_client_holds_it() {
+        let user = uuid::Uuid::new_v4();
+        let subject = user.to_string();
+
+        assert_eq!(token_user_id(&claims(&subject, None)).unwrap(), user);
+        assert_eq!(
+            token_user_id(&claims(&subject, Some("dravr-mobile"))).unwrap(),
+            user
+        );
+    }
+
+    #[test]
+    fn a_client_credentials_token_is_never_read_as_a_user() {
+        assert!(token_user_id(&claims("a2a_client_1", Some("a2a_client_1"))).is_err());
+
+        // The claims' shape decides, not the id's form: a client id that
+        // would parse as a UUID is still refused rather than looked up.
+        let uuid_shaped = uuid::Uuid::new_v4().to_string();
+        assert!(token_user_id(&claims(&uuid_shaped, Some(&uuid_shaped))).is_err());
     }
 }

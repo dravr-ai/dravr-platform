@@ -23,6 +23,7 @@ fn record(user_id: Uuid, family_id: &str) -> SessionRefreshToken {
         family_id: family_id.to_owned(),
         user_id,
         tenant_id: Some("tenant-a".to_owned()),
+        client_id: Some("dravr-mobile".to_owned()),
         created_at: now,
         expires_at: now + Duration::days(30),
     }
@@ -54,6 +55,7 @@ async fn exchange_returns_the_record_once() {
     assert_eq!(consumed.family_id, "family-1");
     assert_eq!(consumed.user_id, user_id);
     assert_eq!(consumed.tenant_id.as_deref(), Some("tenant-a"));
+    assert_eq!(consumed.client_id.as_deref(), Some("dravr-mobile"));
 
     // Consumed in the same statement that read it: the second exchange sees
     // a revoked row.

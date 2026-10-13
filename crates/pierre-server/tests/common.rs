@@ -25,7 +25,7 @@
 use anyhow::Result;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
-use pierre_auth::auth::AuthManager;
+use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{HttpClientConfig, ServerConfig};
 use pierre_core::billing::BillingProvider;
@@ -376,11 +376,14 @@ pub fn delegated_test_token_for_tenant(
         .auth_manager
         .generate_oauth_access_token(
             &resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &scopes,
+                audience: None,
+            },
             &user_id,
-            &scopes,
             &[],
             tenant_id,
-            None,
         )
         .unwrap()
 }

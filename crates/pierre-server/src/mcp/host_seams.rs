@@ -92,7 +92,8 @@ pub const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-1
 /// Build the per-call [`ToolContext`] the engine threads into the dispatcher.
 ///
 /// Maps the platform's [`AuthResult`] auth method onto the host-agnostic label,
-/// records user/tenant/admin, and carries the request id for correlation.
+/// records user/tenant/admin and the OAuth client the credential was issued
+/// to, and carries the request id for correlation.
 fn build_context(
     user_id: Uuid,
     tenant_id: TenantId,
@@ -124,6 +125,14 @@ fn build_context(
         .iter()
         .map(|scope| scope.as_str().to_owned())
         .collect();
+
+    // The client the credential was issued to, as its token's own
+    // `client_id` claim names it — what the audit trail records as the
+    // client. Never the `clientInfo` the request carries in `_meta`: the
+    // caller chooses that.
+    if let Some(client_id) = auth_method.client_id.as_deref() {
+        ctx = ctx.with_client_id(client_id);
+    }
 
     if let Some(req_id) = request_id {
         ctx = ctx.with_request_id(req_id);

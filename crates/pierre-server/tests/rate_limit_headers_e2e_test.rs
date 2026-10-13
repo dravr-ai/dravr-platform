@@ -381,7 +381,8 @@ async fn drop_jwt_usage(resources: &Arc<ServerContext>) {
 
 /// A stored active A2A client `owner` registered, admitting `limit` calls per
 /// hour, and a client-credentials token naming it that grants `fitness:read`
-/// (the `client:{id}` subject `generate_client_credentials_token` mints).
+/// (`generate_client_credentials_token` names the client in both `sub` and
+/// `client_id`).
 async fn a2a_client(
     resources: &Arc<ServerContext>,
     owner: &Athlete,

@@ -44,6 +44,7 @@ use dravr_tronc::mcp::auth::AuthHook;
 use dravr_tronc::mcp::host::ToolDispatcher;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::tool::ToolContext;
+use pierre_auth::auth::DelegatedGrant;
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::{PierreAuthHook, PierreToolDispatcher};
@@ -277,11 +278,14 @@ fn bench_auth_hook(c: &mut Criterion) {
         .auth_manager
         .generate_oauth_access_token(
             &f.resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &scopes,
+                audience: None,
+            },
             &f.member.id,
-            &scopes,
             &[],
             Some(f.member_tenant.to_string()),
-            None,
         )
         .unwrap();
     let hook = PierreAuthHook {

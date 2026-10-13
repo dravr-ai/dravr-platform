@@ -36,10 +36,10 @@ macro_rules! store_token_sql {
         concat!(
             "
             INSERT INTO session_refresh_tokens
-                (token_hash, family_id, user_id, tenant_id, created_at, expires_at)
+                (token_hash, family_id, user_id, tenant_id, created_at, expires_at, client_id)
             VALUES ($1, $2, $3",
             $uuid,
-            ", $4, $5, $6)
+            ", $4, $5, $6, $7)
             "
         )
     };
@@ -60,7 +60,7 @@ macro_rules! consume_token_sql {
               AND expires_at > $2
             RETURNING family_id, user_id",
             $text,
-            " AS user_id, tenant_id, created_at, expires_at
+            " AS user_id, tenant_id, created_at, expires_at, client_id
             "
         )
     };
@@ -127,6 +127,9 @@ where
         expires_at: row
             .try_get("expires_at")
             .map_err(|e| AppError::database(format!("Failed to get expires_at: {e}")))?,
+        client_id: row
+            .try_get("client_id")
+            .map_err(|e| AppError::database(format!("Failed to get client_id: {e}")))?,
     })
 }
 
@@ -159,6 +162,7 @@ macro_rules! impl_session_refresh_token_repository {
                     .bind(&record.tenant_id)
                     .bind(record.created_at)
                     .bind(record.expires_at)
+                    .bind(&record.client_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

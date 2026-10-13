@@ -40,6 +40,7 @@ use pierre_auth::config::{GoogleSignInConfig, OAuth2ServerConfig};
 use pierre_auth::dto::auth::LoginRequest;
 use pierre_auth::google_oidc::google_callback_url;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
+use pierre_auth::oauth2_server::first_party::MOBILE_CLIENT_ID;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::cookies::auth_cookie_name;
@@ -1411,7 +1412,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
     repos.users.update(&squatted).await.unwrap();
     let accounts = f.resources.oauth2_accounts();
     let session_refresh = accounts
-        .issue_refresh_token(squatted.id, None)
+        .issue_refresh_token(squatted.id, None, MOBILE_CLIENT_ID.to_owned())
         .await
         .unwrap();
     let tenant_id = repos.tenants.list_for_user(squatted.id).await.unwrap()[0]

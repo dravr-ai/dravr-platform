@@ -31,11 +31,12 @@ impl A2AServer {
     /// Authenticate the A2A request and resolve the acting principal.
     ///
     /// Two token shapes are accepted, matching the card's `securitySchemes`:
-    /// user JWTs (`sub` = user UUID), and `OAuth2` client-credentials JWTs
-    /// (`sub` = `client:{id}`, minted by the `/oauth2/token`
-    /// `client_credentials` grant). A client token acts as the client's
-    /// registering user, with the client identity kept on the principal for
-    /// task keying and scoping.
+    /// user JWTs (`sub` = user UUID), and `OAuth2` client-credentials JWTs,
+    /// minted by the `/oauth2/token` `client_credentials` grant, whose `sub`
+    /// and `client_id` both name the client (RFC 9068 §2.2; see
+    /// [`Claims::client_credentials_client`](pierre_auth::auth::Claims::client_credentials_client)).
+    /// A client token acts as the client's registering user, with the client
+    /// identity kept on the principal for task keying and scoping.
     ///
     /// A user JWT is a delegated OAuth grant — a first-party session token is
     /// refused, since it is Dravr's own app signed in rather than an agent's
@@ -81,6 +82,21 @@ impl A2AServer {
                 ))
             })?;
 
+        // Client-credentials JWT: the client is the subject. Read off the two
+        // claims together before anything parses `sub` as a user, so a client
+        // is never taken for one.
+        if let Some(client_id) = claims.client_credentials_client() {
+            let granted = OAuthScope::parse_granted(&claims.scope);
+            return Self::resolve_client_principal(
+                client_id,
+                granted,
+                &request.method,
+                resources,
+                request_id,
+            )
+            .await;
+        }
+
         // User JWT: subject is the user UUID. Admitted on the scoped entry
         // point, as `/mcp` is: the task runs under the token's own grant (the
         // executor is bound to `scopes` below), so a delegated OAuth grant is
@@ -101,18 +117,10 @@ impl A2AServer {
             });
         }
 
-        // Client-credentials JWT: subject is client:{id} (the shape
-        // /oauth2/token mints via generate_client_credentials_token).
-        let Some(client_id) = claims.sub.strip_prefix("client:") else {
-            return Err(Box::new(Self::auth_error(
-                "Invalid principal in authentication token",
-                Some(request_id),
-            )));
-        };
-
-        let granted = OAuthScope::parse_granted(&claims.scope);
-        Self::resolve_client_principal(client_id, granted, &request.method, resources, request_id)
-            .await
+        Err(Box::new(Self::auth_error(
+            "Invalid principal in authentication token",
+            Some(request_id),
+        )))
     }
 
     /// Resolve a client-credentials subject into its acting principal: the

@@ -56,6 +56,7 @@ fn record(user_id: Uuid, family_id: &str) -> SessionRefreshToken {
         family_id: family_id.to_owned(),
         user_id,
         tenant_id: None,
+        client_id: Some("dravr-mobile".to_owned()),
         created_at: now,
         expires_at: now + Duration::days(30),
     }
@@ -86,6 +87,7 @@ async fn test_pg_exchange_round_trips_the_record() {
     assert_eq!(consumed.family_id, "family-pg");
     assert_eq!(consumed.user_id, user_id);
     assert_eq!(consumed.tenant_id, None);
+    assert_eq!(consumed.client_id.as_deref(), Some("dravr-mobile"));
     assert_eq!(
         consumed.expires_at.timestamp_millis(),
         stored.expires_at.timestamp_millis()

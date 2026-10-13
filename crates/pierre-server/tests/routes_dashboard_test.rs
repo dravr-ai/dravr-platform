@@ -411,6 +411,7 @@ impl DashboardTestSetup {
 
         AuthResult {
             scopes: OAuthScope::self_grant(),
+            client_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -587,6 +588,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .get_usage_analytics(
             AuthResult {
                 scopes: OAuthScope::self_grant(),
+                client_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -603,6 +605,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
         .get_usage_analytics(
             AuthResult {
                 scopes: OAuthScope::self_grant(),
+                client_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -702,6 +705,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .get_tool_usage_breakdown(
             AuthResult {
                 scopes: OAuthScope::self_grant(),
+                client_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -719,6 +723,7 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
         .get_tool_usage_breakdown(
             AuthResult {
                 scopes: OAuthScope::self_grant(),
+                client_id: None,
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),

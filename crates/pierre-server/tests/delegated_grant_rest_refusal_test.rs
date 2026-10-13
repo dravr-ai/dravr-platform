@@ -30,6 +30,7 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use pierre_auth::auth::DelegatedGrant;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
@@ -130,10 +131,13 @@ fn delegated_token(
         .auth_manager
         .generate_oauth_access_token(
             &resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &scopes,
+                audience: None,
+            },
             &athlete.user_id,
-            &scopes,
             &[],
-            None,
             None,
         )
         .unwrap()

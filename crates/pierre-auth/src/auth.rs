@@ -215,6 +215,39 @@ pub struct Claims {
     /// credential — tokens turn over within hours.
     #[serde(default)]
     pub scope: String,
+    /// The OAuth client the token was issued to (RFC 9068 §2.2): the
+    /// `client_id` assigned at registration and checked at issuance, which
+    /// the audit trail names — never the `clientInfo` or `User-Agent` a caller
+    /// sends about itself. `None` on a session no client signed in to, and on
+    /// a token minted before this claim existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+}
+
+impl Claims {
+    /// The client a client-credentials token was issued to; `None` for a
+    /// token that acts for a user. RFC 9068 §2.2 makes such a token's `sub`
+    /// the client itself, and no `client_id` this server assigns is a user's
+    /// UUID, so reading both claims keeps a client from being taken for one.
+    #[must_use]
+    pub fn client_credentials_client(&self) -> Option<&str> {
+        self.client_id
+            .as_deref()
+            .filter(|client_id| *client_id == self.sub)
+    }
+}
+
+/// What an OAuth grant decided about the access token it is redeemed for.
+#[derive(Debug, Clone, Copy)]
+pub struct DelegatedGrant<'a> {
+    /// The registered client the grant was issued to: the `client_id` the
+    /// token endpoint authenticated
+    pub client_id: &'a str,
+    /// The scope the grant carries
+    pub scopes: &'a [String],
+    /// The RFC 8707 resource the token is bound to; `None` mints the platform
+    /// audience every Pierre surface accepts
+    pub audience: Option<&'a str>,
 }
 
 /// Authentication result with user context
@@ -242,6 +275,10 @@ pub struct AuthResult {
     /// [`OAuthScope::self_grant`]. That is not a way in: the role gate runs
     /// independently and still refuses an admin tool to a non-admin.
     pub scopes: Vec<OAuthScope>,
+    /// The OAuth client the credential was issued to ([`Claims::client_id`]);
+    /// `None` for an API key, a personal MCP token or a channel link, which
+    /// no registered client holds, and for a session no client signed in to.
+    pub client_id: Option<String>,
 }
 
 /// Authentication method used
@@ -423,7 +460,24 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        self.generate_session_for(user, jwks_manager, active_tenant_id, MCP)
+        self.generate_session_for(user, jwks_manager, active_tenant_id, MCP, None)
+    }
+
+    /// [`Self::generate_token_with_tenant`] for a session a client signed in
+    /// to: `client_id` is the first-party app that redeemed the code, or, on
+    /// a refresh, restore or tenant switch, the client the session named.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::generate_token_with_tenant`].
+    pub fn generate_client_session_token(
+        &self,
+        user: &User,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+        client_id: Option<&str>,
+    ) -> AppResult<String> {
+        self.generate_session_for(user, jwks_manager, active_tenant_id, MCP, client_id)
     }
 
     /// Generate the authorization server's own sign-in token: the one the
@@ -446,16 +500,18 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        self.generate_session_for(user, jwks_manager, active_tenant_id, OAUTH2_AUTHORIZE)
+        self.generate_session_for(user, jwks_manager, active_tenant_id, OAUTH2_AUTHORIZE, None)
     }
 
-    /// Mint a self-grant session token for `user` addressed to `audience`.
+    /// Mint a self-grant session token for `user` addressed to `audience`,
+    /// naming the client it was signed in to, if any.
     fn generate_session_for(
         &self,
         user: &User,
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
         audience: &str,
+        client_id: Option<&str>,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + Duration::hours(self.token_expiry_hours);
@@ -473,6 +529,7 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            client_id: client_id.map(str::to_owned),
         };
 
         // Get active RSA key from JWKS manager
@@ -522,6 +579,8 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: Some(impersonator_id.to_string()),
             impersonation_session_id: Some(session_id.to_owned()),
+            // An operator acting as the athlete, through no client.
+            client_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -982,8 +1041,9 @@ impl AuthManager {
     /// This method uses RSA private key from JWKS manager for token signing.
     /// Clients can verify tokens using the public key from /.well-known/jwks.json
     ///
-    /// `audience` is the RFC 8707 resource the token is bound to; `None` mints
-    /// the platform audience every Pierre surface accepts.
+    /// `grant` is what the authorization server decided: the registered
+    /// client the token is issued to, which it carries in
+    /// [`Claims::client_id`], its scope, and its audience.
     ///
     /// # Errors
     ///
@@ -994,11 +1054,10 @@ impl AuthManager {
     pub fn generate_oauth_access_token(
         &self,
         jwks_manager: &JwksManager,
+        grant: &DelegatedGrant<'_>,
         user_id: &Uuid,
-        scopes: &[String],
         providers: &[String],
         active_tenant_id: Option<String>,
-        audience: Option<&str>,
     ) -> AppResult<String> {
         let now = Utc::now();
         let expiry = now + Duration::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
@@ -1016,11 +1075,12 @@ impl AuthManager {
             // `fitness:read` as a connected provider; the grant now rides in
             // `scope`, where a resource server can read it.
             providers: providers.to_vec(),
-            scope: scopes.join(" "),
-            aud: audience.unwrap_or(MCP).to_owned(),
+            scope: grant.scopes.join(" "),
+            aud: grant.audience.unwrap_or(MCP).to_owned(),
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            client_id: Some(grant.client_id.to_owned()),
         };
 
         // Get active RSA key from JWKS manager
@@ -1041,6 +1101,10 @@ impl AuthManager {
     ///
     /// This method uses RSA private key from JWKS manager for token signing.
     /// Clients can verify tokens using the public key from /.well-known/jwks.json
+    ///
+    /// No resource owner is involved, so the client is the subject: `sub` and
+    /// `client_id` both name it, as RFC 9068 §2.2 has a client-credentials
+    /// token do, and [`Claims::client_credentials_client`] reads it back.
     ///
     /// `audience` is the RFC 8707 resource the token is bound to; `None` mints
     /// the platform audience every Pierre surface accepts.
@@ -1063,7 +1127,7 @@ impl AuthManager {
         let expiry = now + Duration::hours(1); // 1 hour for client credentials
 
         let claims = Claims {
-            sub: format!("client:{client_id}"),
+            sub: client_id.to_owned(),
             email: "client_credentials".to_owned(),
             iat: now.timestamp(),
             exp: expiry.timestamp(),
@@ -1078,6 +1142,7 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: None,
             impersonation_session_id: None,
+            client_id: Some(client_id.to_owned()),
         };
 
         // Get active RSA key from JWKS manager

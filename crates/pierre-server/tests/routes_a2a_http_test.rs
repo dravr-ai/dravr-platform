@@ -569,7 +569,8 @@ async fn test_rest_unknown_task_action_is_404() {
 // ============================================================================
 
 /// Register an A2A client for the seeded user and mint a client-credentials
-/// JWT for it (the `client:{id}` subject shape `/oauth2/token` issues).
+/// JWT for it (the shape `/oauth2/token` issues: `sub` and `client_id` both
+/// name the client).
 async fn register_client_and_mint_token(
     resources: &Arc<ServerContext>,
     user_id: uuid::Uuid,

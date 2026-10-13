@@ -10,8 +10,9 @@
 //! # The card's `oauth2ClientCredentials` flow works for the clients it names
 //!
 //! The agent card advertises an `oauth2ClientCredentials` scheme whose
-//! `tokenUrl` is `/oauth2/token`, and the A2A principal accepts the
-//! `client:{id}` tokens that grant mints. Registration through
+//! `tokenUrl` is `/oauth2/token`, and the A2A principal accepts the tokens
+//! that grant mints, whose `sub` and `client_id` both name the client
+//! (RFC 9068 §2.2). Registration through
 //! `POST /a2a/clients` is what hands a client its `client_id` and
 //! `client_secret`, so those two must be exactly what the token endpoint
 //! authenticates, and deactivating the client must take the credential away.
@@ -178,7 +179,12 @@ async fn a_registered_client_gets_a_token_at_the_card_token_url_and_calls_a2a_wi
         .auth_manager
         .validate_token(&access_token, &resources.auth.jwks_manager)
         .expect("the minted token validates");
-    assert_eq!(claims.sub, format!("client:{client_id}"));
+    // No resource owner, so the client is the subject (RFC 9068 §2.2), and
+    // it names itself as the client too: that pair is what marks the token
+    // a client's rather than a user's.
+    assert_eq!(claims.sub, client_id);
+    assert_eq!(claims.client_id.as_deref(), Some(client_id.as_str()));
+    assert_eq!(claims.client_credentials_client(), Some(client_id.as_str()));
 
     let envelope = extended_card(&resources, &access_token).await;
     assert!(

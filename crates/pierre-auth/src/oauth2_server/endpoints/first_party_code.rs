@@ -20,6 +20,9 @@ pub struct RedeemedFirstPartyCode {
     pub user_id: Uuid,
     /// The tenant the code was minted for
     pub tenant_id: String,
+    /// The first-party client the code was issued to and redeemed by
+    /// (`dravr-web`, `dravr-mobile`), which the session it opens names
+    pub client_id: String,
 }
 
 impl OAuth2AuthorizationServer {
@@ -60,6 +63,7 @@ impl OAuth2AuthorizationServer {
         Ok(RedeemedFirstPartyCode {
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id,
+            client_id: auth_code.client_id,
         })
     }
 

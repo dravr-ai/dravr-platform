@@ -10,7 +10,7 @@
 mod common;
 
 use chrono::Utc;
-use pierre_auth::auth::AuthManager;
+use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -33,10 +33,13 @@ async fn test_validate_jwt_token_structure() {
     let access_token = auth_manager
         .generate_oauth_access_token(
             &jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &["read".to_owned()],
+                audience: None,
+            },
             &user_id,
-            &["read".to_owned()],
             &[],
-            None,
             None,
         )
         .expect("Failed to generate access token");

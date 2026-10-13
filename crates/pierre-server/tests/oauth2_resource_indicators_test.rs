@@ -31,7 +31,7 @@ use common::{create_test_server_resources_with_config, create_test_tenant};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
-use pierre_auth::auth::Claims;
+use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_auth::config::{resolve_issuer_url, resolve_mcp_resource_url, OAuth2ServerConfig};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
@@ -539,11 +539,14 @@ async fn a_token_bound_to_another_resource_is_refused_at_mcp() {
             .auth_manager
             .generate_oauth_access_token(
                 &resources.auth.jwks_manager,
+                &DelegatedGrant {
+                    client_id: "mcp_client_test",
+                    scopes: &["fitness:read".to_owned()],
+                    audience: Some(audience),
+                },
                 &user.id,
-                &["fitness:read".to_owned()],
                 &[],
                 tenant.clone(),
-                Some(audience),
             )
             .unwrap()
     };
@@ -672,11 +675,14 @@ async fn a_token_bound_to_either_host_is_served_at_mcp() {
             .auth_manager
             .generate_oauth_access_token(
                 &resources.auth.jwks_manager,
+                &DelegatedGrant {
+                    client_id: "mcp_client_test",
+                    scopes: &["fitness:read".to_owned()],
+                    audience: Some(audience),
+                },
                 &user.id,
-                &["fitness:read".to_owned()],
                 &[],
                 tenant.clone(),
-                Some(audience),
             )
             .unwrap()
     };
@@ -766,11 +772,14 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
         .auth_manager
         .generate_oauth_access_token(
             &resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &["fitness:read".to_owned()],
+                audience: Some(OTHER_RESOURCE),
+            },
             &user.id,
-            &["fitness:read".to_owned()],
             &[],
             None,
-            Some(OTHER_RESOURCE),
         )
         .unwrap();
     let refused = validate_and_refresh(&resources, &foreign, None).await;
@@ -791,11 +800,14 @@ async fn validate_and_refresh_rotates_a_bound_grant_into_a_token_still_bound() {
         .auth_manager
         .generate_oauth_access_token(
             &resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &["fitness:read".to_owned()],
+                audience: Some(MCP_RESOURCE),
+            },
             &intruder.id,
-            &["fitness:read".to_owned()],
             &[],
             None,
-            Some(MCP_RESOURCE),
         )
         .unwrap();
     let stolen = validate_and_refresh(

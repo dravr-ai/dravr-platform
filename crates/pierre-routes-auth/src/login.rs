@@ -407,10 +407,16 @@ pub async fn handle_session(
     };
     let tenant_id_for_response = active_tenant_id.clone();
 
-    // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
+    // Generate a fresh JWT token for WebSocket authentication with
+    // active_tenant_id, naming the client the restored session was signed in to
     let jwt_token = resources
         .auth_manager
-        .generate_token_with_tenant(&user, &resources.jwks_manager, active_tenant_id)
+        .generate_client_session_token(
+            &user,
+            &resources.jwks_manager,
+            active_tenant_id,
+            auth_result.client_id.as_deref(),
+        )
         .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
     // Generate fresh CSRF token (stateless HMAC — no server storage)

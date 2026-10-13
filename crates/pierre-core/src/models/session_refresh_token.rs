@@ -20,6 +20,10 @@ pub struct SessionRefreshToken {
     pub user_id: Uuid,
     /// The tenant the session's JWTs are minted for, as the login resolved it.
     pub tenant_id: Option<String>,
+    /// The first-party client the session was signed in to (`dravr-web`,
+    /// `dravr-mobile`), which every JWT a refresh mints names in its
+    /// `client_id` claim. `None` for a session no client signed in to.
+    pub client_id: Option<String>,
     /// When this token was issued.
     pub created_at: DateTime<Utc>,
     /// When this token stops being exchangeable, whether or not it was used.

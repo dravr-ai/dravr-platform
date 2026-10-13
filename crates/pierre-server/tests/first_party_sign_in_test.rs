@@ -65,6 +65,20 @@ async fn athlete_with_status(resources: &ServerContext, status: UserStatus) -> (
     (user_id, email)
 }
 
+/// The `client_id` claim of the session JWT a sign-in or refresh answered
+/// with: the app that redeemed the code (RFC 9068 §2.2).
+fn session_client(resources: &ServerContext, body: &Value) -> Option<String> {
+    let token = body["access_token"]
+        .as_str()
+        .expect("the answer carries an access token");
+    resources
+        .auth
+        .auth_manager
+        .validate_session_token(token, &resources.auth.jwks_manager)
+        .expect("the access token is a session this server signed")
+        .client_id
+}
+
 fn error_of(response: AxumTestResponse) -> (u16, String) {
     let status = response.status();
     let body: Value = response.json();
@@ -178,6 +192,11 @@ async fn the_web_app_signs_in_with_cookies_csrf_and_the_user() {
     assert_eq!(body["user"]["email"], email.as_str(), "{body}");
     assert_eq!(body["user"]["user_status"], "active", "{body}");
     assert!(body.get("refresh_token").is_none(), "{body}");
+    // The session names the app that redeemed the code.
+    assert_eq!(
+        session_client(&resources, &body).as_deref(),
+        Some(WEB_CLIENT_ID)
+    );
 
     // The access token is a first-party session the API accepts.
     let me = AxumTestRequest::get("/api/auth/session")
@@ -214,6 +233,10 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
     let refresh_token = with["refresh_token"]
         .as_str()
         .expect("offline_access carries a refresh token");
+    assert_eq!(
+        session_client(&resources, &with).as_deref(),
+        Some(MOBILE_CLIENT_ID)
+    );
 
     let refreshed = AxumTestRequest::post("/oauth/token")
         .form(&[
@@ -227,6 +250,12 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
     assert!(refreshed["access_token"].is_string(), "{refreshed}");
     assert_eq!(refreshed["user"]["email"], email.as_str(), "{refreshed}");
     assert_ne!(refreshed["refresh_token"], with["refresh_token"]);
+    // The refresh family remembers the app it was opened for, so the renewed
+    // session still names it.
+    assert_eq!(
+        session_client(&resources, &refreshed).as_deref(),
+        Some(MOBILE_CLIENT_ID)
+    );
 }
 
 /// A pending account signs in, so the app can show it the approval it

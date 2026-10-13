@@ -18,7 +18,7 @@ use super::pkce::{check_code_challenge, check_pkce};
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::{bound_audience, token_audience};
 use crate::admin::jwks::JwksManager;
-use crate::auth::AuthManager;
+use crate::auth::{AuthManager, DelegatedGrant};
 use crate::refresh_rotation::{
     consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
 };
@@ -910,11 +910,14 @@ impl OAuth2AuthorizationServer {
         self.auth_manager
             .generate_oauth_access_token(
                 &self.jwks_manager,
+                &DelegatedGrant {
+                    client_id,
+                    scopes: &scopes,
+                    audience,
+                },
                 &uid,
-                &scopes,
                 &providers,
                 None,
-                audience,
             )
             .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }

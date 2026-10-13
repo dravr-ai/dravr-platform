@@ -35,6 +35,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
+use pierre_auth::auth::DelegatedGrant;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -255,10 +256,13 @@ fn delegated_bearer(resources: &ServerContext, user_id: Uuid, grant: &[OAuthScop
         .auth_manager
         .generate_oauth_access_token(
             &resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: "mcp_client_test",
+                scopes: &scopes,
+                audience: None,
+            },
             &user_id,
-            &scopes,
             &[],
-            None,
             None,
         )
         .unwrap();

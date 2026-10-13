@@ -11,7 +11,12 @@
 //! not available here: tool arguments carry athlete data throughout and, on the
 //! connect-style tools, provider credentials, so a log line holding them would
 //! breach the logging-hygiene rule the rest of the server follows.
+//!
+//! The event names the client by its OAuth `client_id` (RFC 9068 §2.2), the
+//! identifier assigned at registration and checked when the token was issued,
+//! never by the `clientInfo` or `User-Agent` a caller sends about itself.
 
+use dravr_tronc::mcp::tool::ToolContext;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use tracing::Span;
@@ -45,8 +50,19 @@ pub fn arguments_fingerprint(args: &Value) -> String {
 /// Keeps the audit fields and the rule about what may be logged together in
 /// one place, rather than spread across the dispatch path: the call site names
 /// the call, this decides what is safe to say about it.
-pub fn record_tool_call(tool_name: &str, args: &Value) {
+///
+/// `client` is the OAuth `client_id` the credential was issued to, which the
+/// auth hook verified ([`ToolContext::client_id`]) — the client the
+/// authorization server registered and checked at issuance. It is left empty
+/// for a credential no registered client holds, such as an API key, and is
+/// never filled from what the caller says about itself: the request's
+/// `_meta` `clientInfo` and its `User-Agent` are the caller's own choice, and
+/// an audit trail that recorded them would name whoever the caller claimed.
+pub fn record_tool_call(tool_name: &str, args: &Value, ctx: &ToolContext) {
     let span = Span::current();
     span.record("tool_name", tool_name);
     span.record("arguments_hash", arguments_fingerprint(args).as_str());
+    if let Some(client_id) = ctx.client_id.as_deref() {
+        span.record("client", client_id);
+    }
 }

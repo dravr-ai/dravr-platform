@@ -35,6 +35,7 @@ mod strava_seat_reclaim_tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Duration, Utc};
     use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
+    use pierre_auth::auth::DelegatedGrant;
     use pierre_config::admin_types::{
         ConfigDataType, ConfigScope, ResetConfigRequest, UpdateConfigRequest, UpdateConfigResponse,
     };
@@ -841,11 +842,14 @@ mod strava_seat_reclaim_tests {
             .auth_manager
             .generate_oauth_access_token(
                 &resources.auth.jwks_manager,
+                &DelegatedGrant {
+                    client_id: "mcp_client_test",
+                    scopes: &["read".to_owned()],
+                    audience: None,
+                },
                 &connector.user_id,
-                &["read".to_owned()],
                 &[],
                 Some(connector.tenant_id.to_string()),
-                None,
             )
             .unwrap();
         let (api_key, api_key_value) = ApiKeyManager::new()

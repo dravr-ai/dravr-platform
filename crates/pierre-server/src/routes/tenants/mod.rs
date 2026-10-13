@@ -176,14 +176,16 @@ impl TenantRoutes {
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
-        // Generate new JWT with active_tenant_id set
+        // Generate new JWT with active_tenant_id set, still naming the client
+        // the session was signed in to
         let token = resources
             .auth
             .auth_manager
-            .generate_token_with_tenant(
+            .generate_client_session_token(
                 &user,
                 &resources.auth.jwks_manager,
                 Some(tenant_id.to_string()),
+                auth.client_id.as_deref(),
             )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
