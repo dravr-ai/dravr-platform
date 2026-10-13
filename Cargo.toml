@@ -144,25 +144,30 @@ codegen-units = 16
 panic = "unwind"
 strip = true
 
+# What the server image, the release-binary size gate and release.yml build.
+#
+# codegen-units = 1 rather than the 16 `release` uses. Fat LTO merges every
+# codegen unit into one module and optimises it serially whatever this is set
+# to, so 16 units only split the pre-LTO stage, duplicating inlined code
+# across units. Measured in CI with the shipped invocation (carnet#499,
+# runs 38370038374 and 38392763517): on the same commit, pierre-mcp-server is
+# 98.8 MiB at 1 against the gate's 111 MiB at 16. The rest is bridged across
+# the two runs through `release`, which both built: the largest build process
+# peaked at 6.4 GiB at 1 against 9.3 GiB at 16, and one cold build per side
+# took 1.15x `release` at 1 against 1.31x at 16, so nothing shows 1 slower.
+# scripts/ci/architectural-validation.sh requires codegen-units = 1 here, since
+# the size gate would still pass with it dropped, and forbids it in `release`.
 [profile.release-lto]
 inherits = "release"
 lto = "fat"
+codegen-units = 1
 
-# Measurement fixtures for .github/workflows/lto-comparison.yml (carnet#499).
-# The two differ in `lto` and nothing else, so whatever separates their builds
-# is the LTO mode. Both pin codegen-units = 1 so LTO is not confounded with how
-# the compile is partitioned. Neither ships: the image and release.yml build
-# `release-lto`, whose codegen-units is the 16 it inherits from `release`. The
-# workflow takes the profile names as inputs, so that pair (`release` against
-# `release-lto`) can be measured on the same footing.
+# Measurement fixture for .github/workflows/lto-comparison.yml (carnet#499).
+# It differs from `release-lto` in `lto` alone, so whatever separates their
+# builds is the LTO mode, not how the compile is partitioned.
 [profile.lto-compare-thin]
 inherits = "release"
 lto = "thin"
-codegen-units = 1
-
-[profile.lto-compare-fat]
-inherits = "release"
-lto = "fat"
 codegen-units = 1
 
 # ============================================================================

@@ -1437,7 +1437,7 @@ echo ""
 echo -e "${BLUE}==== Build Profile Guardrails ====${NC}"
 
 # Check codegen-units is not 1 in [profile.release] (forces single-threaded LLVM codegen)
-RELEASE_CU=$(grep -A5 '^\[profile\.release\]' "$PROJECT_ROOT/Cargo.toml" | grep 'codegen-units' | head -1 | grep -o '[0-9]*')
+RELEASE_CU=$(grep -A5 '^\[profile\.release\]' "$PROJECT_ROOT/Cargo.toml" | grep 'codegen-units' | head -1 | grep -o '[0-9]*' || true)
 if [ -n "$RELEASE_CU" ] && [ "$RELEASE_CU" -eq 1 ]; then
     echo -e "${RED}❌ FORBIDDEN: [profile.release] has codegen-units = 1${NC}"
     echo -e "${RED}This forces single-threaded LLVM codegen and multiplies build time by 4-8x.${NC}"
@@ -1445,6 +1445,22 @@ if [ -n "$RELEASE_CU" ] && [ "$RELEASE_CU" -eq 1 ]; then
     VALIDATION_FAILED=true
 else
     echo -e "${GREEN}  ✅ Release profile codegen-units OK (${RELEASE_CU:-default})${NC}"
+fi
+
+# Check [profile.release-lto] keeps codegen-units = 1. The size gate would not
+# fail without it: at 16 the shipped binary measured 111 MiB against 98.8 at 1
+# (carnet#499), still under the 115 MiB ceiling, so dropping the line would pass
+# every other check while costing ~12 MiB and ~3 GiB of peak build memory, for
+# no gain in build time. The value is read up to the first non-digit, so a
+# trailing comment on that line cannot add digits of its own.
+LTO_SECTION=$(awk '/^\[profile\.release-lto\]/{in_section=1; next} /^\[/{in_section=0} in_section' "$PROJECT_ROOT/Cargo.toml")
+LTO_CU=$(grep -E '^[[:space:]]*codegen-units[[:space:]]*=' <<<"$LTO_SECTION" | head -1 | sed -E 's/^[^=]*=[[:space:]]*([0-9]*).*/\1/' || true)
+if [ "$LTO_CU" != "1" ]; then
+    echo -e "${RED}❌ FORBIDDEN: [profile.release-lto] must set codegen-units = 1 (found: ${LTO_CU:-no codegen-units line in that section})${NC}"
+    echo -e "${RED}Fat LTO merges every codegen unit into one module, so 16 units only duplicate code: +12 MiB binary, +3 GiB peak memory (carnet#499).${NC}"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ Release-lto profile codegen-units OK (1)${NC}"
 fi
 
 # Check for heavy duplicate crates that indicate transitive dependency divergence

@@ -87,9 +87,8 @@ def values(name):
 # Profile name -> (lto, codegen-units), as the repository's Cargo.toml defines them.
 PROFILES = {
     "release": ("thin", 16),
-    "release-lto": ("fat", 16),
+    "release-lto": ("fat", 1),
     "lto-compare-thin": ("thin", 1),
-    "lto-compare-fat": ("fat", 1),
 }
 if args == ["-V"]:
     print("cargo 1.98.1 (stand-in)")
@@ -262,7 +261,7 @@ expect_fails() { # $1 = label, $2 = needle in the combined output, rest = comman
 # --- describe: the shipped invocation and the two profiles ----------------------
 echo "describe"
 OUT="$WORK/out"
-lto --out "$OUT" describe --thin-profile lto-compare-thin --fat-profile lto-compare-fat >/dev/null
+lto --out "$OUT" describe --thin-profile lto-compare-thin --fat-profile release-lto >/dev/null
 expect_eq "features are read from the server-binaries action" \
   "$(jget "$OUT/meta.json" "d['shipped']['features']")" \
   "$(python3 -c 'import re,sys; print(re.search(r"--features \"([^\"]+)\"", open(sys.argv[1]).read()).group(1))' "$REPO/.github/actions/server-binaries/action.yml")"
@@ -277,23 +276,20 @@ bootstrap_only_for_unit_graph() { # prints True when RUSTC_BOOTSTRAP=1 appears o
 expect_eq "RUSTC_BOOTSTRAP is set for the unit-graph query and for nothing else" "$(bootstrap_only_for_unit_graph)" "True"
 expect_eq "the toolchain version is recorded" "$(jget "$OUT/meta.json" "d['toolchain']['cargo']")" "cargo 1.98.1 (stand-in)"
 
-OUT_SHIPPED="$WORK/out-shipped"
-lto --out "$OUT_SHIPPED" describe --thin-profile release --fat-profile release-lto >/dev/null
-expect_eq "the shipped pair (release against release-lto) differs in lto alone" "$(jget "$OUT_SHIPPED/meta.json" "d['profiles_differ_in']")" "['lto']"
 OUT_MIXED="$WORK/out-mixed"
-lto --out "$OUT_MIXED" describe --thin-profile release --fat-profile lto-compare-fat >/dev/null 2>&1
-expect_eq "a pair that differs in more than lto says so" "$(jget "$OUT_MIXED/meta.json" "d['profiles_differ_in']")" "['lto', 'codegen_units']"
+lto --out "$OUT_MIXED" describe --thin-profile release --fat-profile release-lto >/dev/null 2>&1
+expect_eq "a pair that differs in more than lto (release against release-lto) says so" "$(jget "$OUT_MIXED/meta.json" "d['profiles_differ_in']")" "['lto', 'codegen_units']"
 
 expect_fails "a profile on the wrong side is refused" "is the thin side" \
-  lto --out "$WORK/out-wrong" describe --thin-profile lto-compare-fat --fat-profile lto-compare-thin
+  lto --out "$WORK/out-wrong" describe --thin-profile release-lto --fat-profile lto-compare-thin
 expect_fails "a profile cargo cannot resolve is refused" "could not resolve profile" \
-  lto --out "$WORK/out-unknown" describe --thin-profile no-such-profile --fat-profile lto-compare-fat
+  lto --out "$WORK/out-unknown" describe --thin-profile no-such-profile --fat-profile release-lto
 
 REPO_DRIFT="$WORK/repo-drift"
 make_repo "$REPO_DRIFT"
 sed -i 's/--no-default-features //' "$REPO_DRIFT/.github/actions/server-binaries/action.yml"
 expect_fails "an action file that dropped --no-default-features is refused" "no longer passes --no-default-features" \
-  python3 "$UNDER_TEST" --repo "$REPO_DRIFT" --out "$WORK/out-drift" describe --thin-profile lto-compare-thin --fat-profile lto-compare-fat
+  python3 "$UNDER_TEST" --repo "$REPO_DRIFT" --out "$WORK/out-drift" describe --thin-profile lto-compare-thin --fat-profile release-lto
 
 # --- build, bench-build, bench ---------------------------------------------------
 echo "build"
@@ -328,7 +324,7 @@ expect_eq "both suites are kept for each profile" "$(ls "$OUT/bench-bin/thin" | 
 expect_eq "the bin's own test harness is not mistaken for a suite" "$(jget "$OUT/build/thin.json" "d['bench_build']['suites']")" "['fitness_bench', 'serde_bench']"
 if [ -e "$OUT/target/thin" ] || [ -e "$OUT/target/fat" ]; then fail "target dirs were left on disk"; else pass "the target dirs are removed once the executables are kept"; fi
 expect_eq "the bench working directory is the package's manifest dir" "$(jget "$OUT/build/thin.json" "d['bench_build']['cwd']")" "$REPO/crates/pierre-server"
-lto --out "$WORK/out-subset" describe --thin-profile lto-compare-thin --fat-profile lto-compare-fat >/dev/null
+lto --out "$WORK/out-subset" describe --thin-profile lto-compare-thin --fat-profile release-lto >/dev/null
 lto --out "$WORK/out-subset" build --label thin >/dev/null
 mkdir -p "$WORK/out-subset/target/thin/stale" && : >"$WORK/out-subset/target/thin/stale/leftover"
 lto --out "$WORK/out-subset" build --label thin >/dev/null
@@ -346,7 +342,7 @@ lto --out "$OUT" bench --reps 3 >/dev/null
 expect_eq "twelve runs: two suites, two profiles, three repetitions" "$(wc -l <"$FAKE_ORDER_LOG" | tr -d ' ')" "12"
 expect_eq "thin and fat alternate which goes first, per suite and per repetition" \
   "$(head -8 "$FAKE_ORDER_LOG" | awk '{print $1 "/" $2 "/" $3}' | tr '\n' ' ')" \
-  "lto-compare-thin/rep1/fitness_bench lto-compare-fat/rep1/fitness_bench lto-compare-fat/rep1/serde_bench lto-compare-thin/rep1/serde_bench lto-compare-fat/rep2/fitness_bench lto-compare-thin/rep2/fitness_bench lto-compare-thin/rep2/serde_bench lto-compare-fat/rep2/serde_bench "
+  "lto-compare-thin/rep1/fitness_bench release-lto/rep1/fitness_bench release-lto/rep1/serde_bench lto-compare-thin/rep1/serde_bench release-lto/rep2/fitness_bench lto-compare-thin/rep2/fitness_bench lto-compare-thin/rep2/serde_bench release-lto/rep2/serde_bench "
 expect_eq "benches run from the manifest dir" "$(awk '{print $4}' "$FAKE_ORDER_LOG" | sort -u)" "cwd=$REPO/crates/pierre-server"
 expect_eq "each run has its own CRITERION_HOME" "$(find "$OUT/criterion" -name estimates.json | wc -l | tr -d ' ')" "42"
 
@@ -393,7 +389,7 @@ for needle in \
   '`serde_bench`: -20.6% over 3 benchmarks.' \
   '`fitness_bench`: -7.5% over 4 benchmarks.' \
   'The two profiles differ in `lto` and nothing else.' \
-  '- **fat**: `lto-compare-fat`: lto=fat, codegen-units=1, opt-level=3, panic=unwind, strip=symbols'; do
+  '- **fat**: `release-lto`: lto=fat, codegen-units=1, opt-level=3, panic=unwind, strip=symbols'; do
   if grep -qF -- "$needle" "$SUMMARY"; then pass "summary says: $needle"; else fail "summary lacks: $needle"; fi
 done
 expect_eq "the JSON artifact carries every benchmark" "$(jget "$OUT/lto-compare.json" "len(d['benchmarks'])")" "7"
@@ -413,7 +409,7 @@ PY
 expect_fails "builds that started with different SDK state are not comparable" "existed at the start of one cold build and not the other" \
   lto --out "$OUT_SDK" report --summary-file "$WORK/summary-sdk.md"
 mkdir -p "$REPO/sdk/dist" && : >"$REPO/sdk/dist/cli.js"
-lto --out "$WORK/out-sdk-present" describe --thin-profile lto-compare-thin --fat-profile lto-compare-fat >/dev/null
+lto --out "$WORK/out-sdk-present" describe --thin-profile lto-compare-thin --fat-profile release-lto >/dev/null
 lto --out "$WORK/out-sdk-present" build --label thin >/dev/null
 expect_eq "a present SDK marker is recorded as such" "$(jget "$WORK/out-sdk-present/build/thin.json" "d['sdk_dist_present_at_start']")" "True"
 rm -r "$REPO/sdk"
@@ -436,7 +432,7 @@ echo "failing runs"
 OUT_FAIL="$WORK/out-fail"
 cp -r "$OUT" "$OUT_FAIL"
 rm -rf "$OUT_FAIL/criterion" "$OUT_FAIL/bench-failures.txt" "$OUT_FAIL/bench.json"
-FAKE_FAIL="lto-compare-fat:serde_bench" expect_fails "a bench run that exits non-zero fails the bench step" "bench runs failed" \
+FAKE_FAIL="release-lto:serde_bench" expect_fails "a bench run that exits non-zero fails the bench step" "bench runs failed" \
   lto --out "$OUT_FAIL" bench --reps 2
 expect_eq "the failure names the profile, repetition and suite" "$(head -1 "$OUT_FAIL/bench-failures.txt" | cut -d' ' -f1-4)" "fat rep 1 serde_bench"
 expect_eq "the remaining runs still happened" "$(find "$OUT_FAIL/criterion/thin" -name estimates.json | wc -l | tr -d ' ')" "14"

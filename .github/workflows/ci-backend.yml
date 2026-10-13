@@ -1266,6 +1266,13 @@ jobs:
           # (carnet#839, a product decision). Measured 108MB here against 86MB
           # on main the run before — the 22MB is model data, not code. The
           # ceiling keeps roughly the old headroom over what ships.
+          #
+          # 2026-10-13: `release-lto` pins codegen-units = 1 (carnet#499). At
+          # 16, the value `release` sets, this step read 111MB; at 1 the same
+          # commit measures 98.8MB. The ceiling stays at 115, so dropping the
+          # line again would pass here with only the warning below (111 is
+          # inside the band), and scripts/ci/architectural-validation.sh
+          # fails on it instead.
           MAX_SIZE_MB=115
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency

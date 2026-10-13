@@ -31,13 +31,12 @@
 #      agrees and it clears 5%; Criterion noise on shared runners reaches ~40%
 #      between identical runs, so a single pair of numbers proves nothing.
 #
-# THE TWO PROFILES. The default pair, `lto-compare-thin` and `lto-compare-fat`
-# in Cargo.toml, differ in `lto` only and both pin codegen-units = 1 (JF,
-# 2026-09-21). The image's `release-lto` does NOT pin it: it inherits 16 from
-# `release`. To measure exactly the choice in front of us, dispatch a second time
-# with thin_profile=release and fat_profile=release-lto, which also differ in
-# `lto` only. The report prints the effective settings and says when the pair
-# differs in anything else.
+# THE TWO PROFILES. The default pair, `lto-compare-thin` and the shipped
+# `release-lto`, differ in `lto` only: both pin codegen-units = 1 (JF,
+# 2026-09-21; `release-lto` since carnet#499). `release` is thin LTO with
+# codegen-units = 16, so thin_profile=release against release-lto differs in
+# both, and the report says so. The report prints the effective settings and
+# names every setting a pair differs in.
 #
 # WHAT THE BENCHES COVER. The decision turns on CPU-bound code: request paths
 # dominated by HTTP, the database and the network will not show an LTO
@@ -78,11 +77,12 @@
 #   A "no clear difference" in the table therefore speaks for the benched code
 #   only. Closing the gaps above is what would let it speak for the rest.
 #
-# COST. A cold fat build with codegen-units = 1 on four vCPUs has not been timed
-# before this job, so the budget is hours: two cold builds, two bench builds, and
-# repetitions x 2 profiles x 7 suites of Criterion. timeout-minutes is the
-# runner's six-hour ceiling less margin; the report step runs even when the job
-# is cut short, so what finished is still tabulated.
+# COST. A cold fat build with codegen-units = 1 on four vCPUs took 17 and 22
+# minutes in the two runs that timed it, and each whole run about three hours
+# (carnet#499): two cold builds, two bench builds, and repetitions x 2 profiles
+# x 7 suites of Criterion. timeout-minutes is the runner's six-hour ceiling less
+# margin; the report step runs even when the job is cut short, so what finished
+# is still tabulated.
 
 name: "Measure: Thin vs Fat LTO"
 
@@ -95,9 +95,9 @@ on:
         default: lto-compare-thin
         type: string
       fat_profile:
-        description: 'Cargo profile for the fat side (release-lto measures what ships)'
+        description: 'Cargo profile for the fat side (release-lto is what ships)'
         required: false
-        default: lto-compare-fat
+        default: release-lto
         type: string
       repetitions:
         description: 'Criterion repetitions per profile; each runs every suite once'
