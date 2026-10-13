@@ -204,19 +204,17 @@ git -C "$R" add -A && git -C "$R" commit -qm "the register" && git -C "$R" push 
 STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || die "mktemp -d failed for the gh stub"
 cat > "$STUB/gh" <<'GH'
 #!/usr/bin/env bash
-# Smallest gh that can answer the filed-issue and marker paths. On the `issue view` path every
-# issue is OPEN and only 2001 is labelled `limitation`. The REST path the marker check reads,
-# `api repos/<tracker>/issues/<n> --jq <filter>`, answers from the same register plus a closed
-# entry (2003) and a pull request (2004), applying the caller's filter with the real jq; any other
-# number is a 404. Everything else (run list, check-runs) fails, so CI reads as absent — which is
-# why the assertions below are on the presence of a CAP, never on the score.
-want=""
-for a in "$@"; do case "$a" in labels) want=labels;; state) want=state;; esac; done
-if [ "${1:-}" = issue ] && [ "${2:-}" = view ]; then
-    case "$want" in
-        state)  echo OPEN; exit 0 ;;
-        labels) if [ "${3:-}" = 2001 ]; then echo limitation; else echo bug; fi; exit 0 ;;
-    esac
+# Smallest gh that can answer the filed-issue and marker paths, and only over REST, the way the
+# agent proxy answers in Claude Code on the web: `issue view` is GraphQL there and is refused, so
+# a tracker read that drifts back onto it fails every exemption below. `api
+# repos/<tracker>/issues/<n> --jq <filter>` answers from a small register — 2001 open and labelled
+# `limitation`, 2002 open and labelled `bug`, a closed entry (2003) and a pull request (2004) —
+# applying the caller's filter with the real jq; any other number is a 404. Everything else (run
+# list, check-runs) fails, so CI reads as absent — which is why the assertions below are on the
+# presence of a CAP, never on the score.
+if [ "${1:-}" = issue ]; then
+    echo 'HTTP 403: GitHub GraphQL is not available from Claude Code sessions' >&2
+    exit 1
 fi
 if [ "${1:-}" = api ] && [ "${3:-}" = --jq ]; then
     case "${2:-}" in
@@ -271,6 +269,13 @@ printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2002,"at":"202
     >> "$STATE/carnet-claims/$SID.jsonl"
 check "a marker without the limitation label does not exempt" 1 "$(filed_caps "$(run_full "$R" --json)")"
 git -C "$R" checkout -q -- src/lib.rs
+
+# A filed issue someone has since closed is no longer owed. Only the full run can ask the tracker,
+# and it has to ask over REST: this stub refuses `issue view` as the proxy does, and a refused read
+# counts as open, which would keep the closed issue owed.
+printf '%s\n%s\n' "$IDENTITY" '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2003,"at":"2026-09-08T00:00:00Z"}' \
+    > "$STATE/carnet-claims/$SID.jsonl"
+check "the full run drops a filed issue the tracker has closed" 0 "$(filed_caps "$(run_full "$R" --json)")"
 
 # --cheap never touches the network, and the status line runs it. It used to keep this cap
 # unconditionally, which held every correctly registered limitation at 6 there for as long as
@@ -587,8 +592,8 @@ rm -f "$STATE/carnet-claims/$SID.jsonl"; rm -rf "${split_stub:?}"
 closed_stub=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-held.XXXXXX") || die "mktemp -d failed for the closed-claim gh stub"
 cat > "$closed_stub/gh" <<'GH'
 #!/bin/sh
-[ "$1 $2" = "issue view" ] || exit 1
-case "$3" in 9) echo CLOSED ;; *) echo OPEN ;; esac
+[ "$1" = api ] || { echo 'HTTP 403: GitHub GraphQL is not available from Claude Code sessions' >&2; exit 1; }
+case "$2" in */issues/9) echo CLOSED ;; *) echo OPEN ;; esac
 GH
 chmod +x "$closed_stub/gh"
 printf '%s\n%s\n%s\n' "$IDENTITY" \
@@ -744,9 +749,13 @@ cat > "$sweep_ledger" <<LEDGER
 {"v":1,"session":"11111111-1111-1111-1111-111111111111","name":"Dead","user":"t","host":"h","pid":999999,"repo":"r","branch":"main","at":"2026-09-03T11:07:02Z","kind":"identity"}
 {"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":236,"at":"2026-09-03T11:07:02Z"}
 LEDGER
-# No gh in the fixture, so the tracker cannot be consulted: the claim must still be REPORTED
-# rather than silently dropped — absence of a verdict is not a closed issue.
-sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH=/usr/bin:/bin bash "$BILAN" sweep 2>/dev/null ) )
+# A gh that cannot reach the tracker, so it cannot be consulted: the claim must still be REPORTED
+# rather than silently dropped — absence of a verdict is not a closed issue. A stub, not a trimmed
+# PATH: a Linux host carries gh in /usr/bin, and where it is authenticated it answers for the REAL
+# carnet#236, which is closed.
+nogh=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-down.XXXXXX") || die "mktemp -d failed for the unreachable gh stub"
+printf '#!/bin/sh\necho "gh: could not reach api.github.com" >&2\nexit 1\n' > "$nogh/gh"; chmod +x "$nogh/gh"
+sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH="$nogh:/usr/bin:/bin" bash "$BILAN" sweep 2>/dev/null ) )
 check "an unverifiable claim is still reported, not dropped" 1 \
     "$(printf '%s' "$sweep_out" | grep -c 'carnet#236')"
 check "and the ledger is left intact when it cannot be checked" 1 \
@@ -758,7 +767,10 @@ check "and the ledger is left intact when it cannot be checked" 1 \
 sleep 60 & RESUMED=$!
 mkdir -p "$HOME/.claude-perso/sessions"
 printf '{"pid":%s,"sessionId":"11111111-1111-1111-1111-111111111111"}\n' "$RESUMED" > "$HOME/.claude-perso/sessions/$RESUMED.json"
-sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH=/usr/bin:/bin bash "$BILAN" sweep 2>/dev/null ) )
+# The same unreachable gh: a tracker answering CLOSED for the real carnet#236 would drop the claim
+# and pass this case whether or not liveness was detected.
+sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" PATH="$nogh:/usr/bin:/bin" bash "$BILAN" sweep 2>/dev/null ) )
+rm -rf "${nogh:?}"
 check "a session running under a new pid is not reported as dead" 0 \
     "$(printf '%s' "$sweep_out" | grep -c 'carnet#236')"
 kill "$RESUMED" 2>/dev/null; wait "$RESUMED" 2>/dev/null
@@ -775,7 +787,7 @@ cat > "$sweep_ledger" <<LEDGER
 {"kind":"claim","tracker":"Other/other-carnet","issue":12,"at":"2026-09-03T11:07:02Z"}
 LEDGER
 xstub=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh-closed.XXXXXX") || die "mktemp -d failed for the closed-issue gh stub"
-printf '#!/bin/sh\necho CLOSED\n' > "$xstub/gh"; chmod +x "$xstub/gh"
+printf '#!/bin/sh\n[ "$1" = api ] || exit 1\necho CLOSED\n' > "$xstub/gh"; chmod +x "$xstub/gh"
 sweep_out=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" REGISTRE_TRACKER=dravr-ai/dravr-carnet PATH="$xstub:/usr/bin:/bin" bash "$BILAN" sweep 2>/dev/null ) )
 check "this register's closed claim is cleared from the dead ledger" 0 \
     "$(grep -c '"tracker":"dravr-ai/dravr-carnet"' "$sweep_ledger" 2>/dev/null || true)"

@@ -556,6 +556,26 @@ check_unreviewed() {
 }
 
 # ------------------------------------------------------------------ checks · carnet
+# Every tracker read goes through REST. `gh issue view` is GraphQL, which the agent proxy refuses in
+# Claude Code on the web. Each caller here takes a failed read as "open, unlabelled" — the safe
+# direction for one failure, but under a refusal that never lifts a closed claim is never dropped
+# and a registered limitation filed in that session caps the score at 6.
+#
+# Both print nothing and fail when the tracker cannot answer. gh writes an error response's body
+# to stdout before it exits non-zero, so the exit status is checked here rather than that body
+# passed on for a caller to judge.
+issue_state() { # <tracker> <issue-number> -> OPEN or CLOSED
+    local out
+    out=$(gh api "repos/$1/issues/$2" --jq '.state | ascii_upcase' 2>/dev/null) || return 1
+    printf '%s\n' "$out"
+}
+
+issue_labels() { # <tracker> <issue-number> -> one label name per line
+    local out
+    out=$(gh api "repos/$1/issues/$2" --jq '.labels[].name' 2>/dev/null) || return 1
+    printf '%s\n' "$out"
+}
+
 # A claim whose issue is already closed is not held. The close that should have dropped its line
 # can have run where this ledger could not see it: under another account before the ledgers were
 # shared, where its own ledger held nothing else and was removed, so adoption moved this one
@@ -570,7 +590,7 @@ check_carnet_held() {
         [ -n "$n" ] || continue
         if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
             tracker=${t:-${TRACKER:-dravr-ai/dravr-carnet}}
-            state=$(gh issue view "$n" -R "$tracker" --json state -q .state 2>/dev/null || echo OPEN)
+            state=$(issue_state "$tracker" "$n" || echo OPEN)
             if [ "$state" = CLOSED ]; then
                 held=0; state_ledger_lock "$f" || held=$?
                 tmp=$(mktemp "${TMPDIR:-/tmp}/bilan-ledger.XXXXXX") \
@@ -622,8 +642,7 @@ check_carnet_held() {
 labelled_limitation() { # <issue-number>
     local f
     if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
-        gh issue view "$1" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" --json labels \
-            -q '.labels[].name' 2>/dev/null | grep -qx limitation
+        grep -qx limitation <<< "$(issue_labels "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" "$1")"
         return
     fi
     f=$(ledger_file) || return 1
@@ -643,8 +662,7 @@ check_carnet_filed() {
         # Someone else may have closed it. Only the full run can tell; --cheap keeps the cap,
         # which is the safe direction for a rule about not walking away from your own issues.
         if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
-            state=$(gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" \
-                    --json state -q .state 2>/dev/null || echo OPEN)
+            state=$(issue_state "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" "$n" || echo OPEN)
             [ "$state" = CLOSED ] && continue
         fi
         if registered_limitation "$n"; then
@@ -1268,7 +1286,7 @@ cmd_sweep() {
         # sweep does not own. A line without a tracker predates the field and is ours.
         for n in $(jq -r --arg t "$TRACKER" 'select(.kind == "claim" and (.tracker // $t) == $t) | .issue' "$f" 2>/dev/null); do
             if [ -n "$TRACKER" ] && command -v gh >/dev/null 2>&1 \
-               && [ "$(gh issue view "$n" -R "$TRACKER" --json state -q .state 2>/dev/null)" = CLOSED ]; then
+               && [ "$(issue_state "$TRACKER" "$n")" = CLOSED ]; then
                 tmp=$(mktemp)
                 jq -c --argjson n "$n" --arg t "$TRACKER" 'select((.kind == "claim" and .issue == $n and (.tracker // $t) == $t) | not)' "$f" > "$tmp" \
                     && mv "$tmp" "$f"
