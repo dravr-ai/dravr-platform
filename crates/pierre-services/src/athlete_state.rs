@@ -164,6 +164,7 @@ impl AthleteState {
             Predicate::NoProvider => !self.has_provider,
             Predicate::NoSeason => !self.season_set,
             Predicate::PillarsDone => self.dossier.complete,
+            Predicate::PillarsOpen => self.dossier.covered > 0 && !self.dossier.complete,
             Predicate::PlanActive => self.plan_active,
             Predicate::SeasonSet => self.season_set,
             Predicate::WeeksOfData(weeks) => self.weeks_of_data >= weeks,
@@ -358,6 +359,31 @@ mod tests {
         assert!(!connected.holds(Predicate::NoProvider));
         assert!(!connected.holds(Predicate::WeeksOfData(1)));
         assert!(!state().holds(Predicate::HasActivities));
+    }
+
+    #[test]
+    fn the_pillars_are_open_only_between_an_empty_and_a_complete_dossier() {
+        let with = |covered, complete, empty| AthleteState {
+            dossier: DossierCoverage {
+                covered,
+                complete,
+                empty,
+            },
+            ..state()
+        };
+        assert!(!state().holds(Predicate::PillarsOpen), "an empty dossier");
+        assert!(
+            with(2, false, false).holds(Predicate::PillarsOpen),
+            "a partial one"
+        );
+        assert!(
+            !with(0, false, false).holds(Predicate::PillarsOpen),
+            "physiology or goals but no pillar"
+        );
+        assert!(
+            !with(7, true, false).holds(Predicate::PillarsOpen),
+            "a complete one"
+        );
     }
 
     #[test]

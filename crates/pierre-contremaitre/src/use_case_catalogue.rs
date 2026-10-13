@@ -67,6 +67,8 @@ pub enum Predicate {
     NoSeason,
     /// Every pillar is covered.
     PillarsDone,
+    /// Some pillar is covered and some is not: the pillars walk has more to ask.
+    PillarsOpen,
     /// The active plan has a week covering today.
     PlanActive,
     /// A season plan is active.
@@ -77,7 +79,7 @@ pub enum Predicate {
 
 impl Predicate {
     /// Every predicate name, and whether it takes a `>=N` threshold.
-    pub const VOCABULARY: [(&'static str, bool); 10] = [
+    pub const VOCABULARY: [(&'static str, bool); 11] = [
         ("calendar_writable", false),
         ("dossier_empty", false),
         ("has_activities", false),
@@ -85,6 +87,7 @@ impl Predicate {
         ("no_provider", false),
         ("no_season", false),
         ("pillars_done", false),
+        ("pillars_open", false),
         ("plan_active", false),
         ("season_set", false),
         ("weeks_of_data", true),
@@ -101,6 +104,7 @@ impl Predicate {
             Self::NoProvider => "no_provider",
             Self::NoSeason => "no_season",
             Self::PillarsDone => "pillars_done",
+            Self::PillarsOpen => "pillars_open",
             Self::PlanActive => "plan_active",
             Self::SeasonSet => "season_set",
             Self::WeeksOfData(_) => "weeks_of_data",
@@ -126,6 +130,7 @@ impl Predicate {
             "no_provider" => Some(Self::NoProvider),
             "no_season" => Some(Self::NoSeason),
             "pillars_done" => Some(Self::PillarsDone),
+            "pillars_open" => Some(Self::PillarsOpen),
             "plan_active" => Some(Self::PlanActive),
             "season_set" => Some(Self::SeasonSet),
             "weeks_of_data" => None,

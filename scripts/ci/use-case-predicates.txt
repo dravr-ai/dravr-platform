@@ -11,6 +11,7 @@ has_recovery_source
 no_provider
 no_season
 pillars_done
+pillars_open
 plan_active
 season_set
 weeks_of_data>=N
