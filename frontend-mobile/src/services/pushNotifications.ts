@@ -220,8 +220,12 @@ export async function unregisterPushDevice(): Promise<void> {
   }
   try {
     await AsyncStorage.removeItem(PUSH_DEVICE_STORAGE_KEY);
-    await loadNotifications()?.setBadgeCountAsync(0);
   } catch (error) {
     console.warn('Push device cleanup failed:', String(error));
   }
+  // The badge is cosmetic, and its native call can go unanswered (Expo Go on
+  // the iOS simulator), so sign-out does not wait on it.
+  void loadNotifications()
+    ?.setBadgeCountAsync(0)
+    .catch((error: unknown) => console.warn('Push badge reset failed:', String(error)));
 }

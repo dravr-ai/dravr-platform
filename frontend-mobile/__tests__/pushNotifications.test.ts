@@ -398,6 +398,22 @@ describe('push registration', () => {
       expect(warnSpy).toHaveBeenCalledWith('Push device deactivation failed:', 'Error: Network Error');
     });
 
+    it('does not hold the sign-out on a badge reset that never settles', async () => {
+      setBadge.mockReturnValueOnce(new Promise(() => {}));
+
+      await expect(unregisterPushDevice()).resolves.toBeUndefined();
+
+      expect(setBadge).toHaveBeenCalledWith(0);
+    });
+
+    it('logs a badge reset the phone refuses without failing the sign-out', async () => {
+      setBadge.mockRejectedValueOnce(new Error('Badge unavailable'));
+
+      await expect(unregisterPushDevice()).resolves.toBeUndefined();
+
+      expect(warnSpy).toHaveBeenCalledWith('Push badge reset failed:', 'Error: Badge unavailable');
+    });
+
     it('gives up on a server that never answers instead of holding the sign-out', async () => {
       jest.useFakeTimers();
       try {
