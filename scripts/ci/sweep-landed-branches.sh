@@ -30,14 +30,18 @@
 # The delete is a compare-and-swap push (`--force-with-lease` on the SHA that
 # was checked), so a branch someone pushed to after the check survives. Every
 # deletion is printed with its SHA and the one command that restores it — except
-# under --redact-private, which the public CI lane passes: a private repository
-# is then only counted, and its deletions are read back from that repository's
-# own activity log.
+# under --redact-private, which the public CI lane passes. A repository is then
+# itemized only when it is public AND named by --itemize; every other one is
+# only counted, and its deletions are read back from its own activity log.
+# Public-right-now is not enough: private-ci.sh makes a private repository
+# public for the length of a CI run, and this log outlives that window. A
+# stale --itemize list can only hide detail, never leak it.
 #
 # Usage:
 #   sweep-landed-branches.sh landed <git-dir> <main-ref> <branch-ref>
 #       exit 0 landed, 1 not landed (names the first path main lacks), 2 error
-#   sweep-landed-branches.sh sweep [--dry-run] [--redact-private] [--min-age-hours N] [--org O]
+#   sweep-landed-branches.sh sweep [--dry-run] [--redact-private [--itemize R]...]
+#                                  [--min-age-hours N] [--org O]
 #       exit 0 swept, 1 on an empty token or any listing, clone, content-check
 #       or delete failure, 2 on a bad argument
 #
@@ -167,11 +171,21 @@ report() {
 }
 
 cmd_sweep() {
-    local dry_run=0 redact=0 min_age_hours=24 org="dravr-ai"
+    local dry_run=0 redact=0 min_age_hours=24 org="dravr-ai" itemize=""
     while [ $# -gt 0 ]; do
+        # A value flag never swallows the next flag: `--itemize --dry-run`
+        # would otherwise itemize a repository named --dry-run and delete.
+        case "$1" in
+            --itemize|--min-age-hours|--org)
+                if [ $# -lt 2 ] || [ "${2#--}" != "$2" ]; then
+                    echo "$1 wants a value" >&2
+                    return 2
+                fi ;;
+        esac
         case "$1" in
             --dry-run) dry_run=1 ;;
             --redact-private) redact=1 ;;
+            --itemize) itemize+="$2"$'\n'; shift ;;
             --min-age-hours) min_age_hours="$2"; shift ;;
             --org) org="$2"; shift ;;
             *) echo "unknown argument: $1" >&2; return 2 ;;
@@ -234,10 +248,10 @@ cmd_sweep() {
     report ""
 
     local name default private dir branches protected prs b sha age verdict
-    local private_err="- ❌ a private repository"
+    local private_err="- ❌ an unnamed repository"
     while IFS=$'\t' read -r name default private; do
         quiet=0
-        if [ $redact -eq 1 ] && [ "$private" = true ]; then
+        if [ $redact -eq 1 ] && { [ "$private" != false ] || ! grep -qxF -- "$name" <<<"$itemize"; }; then
             quiet=1; hidden=$((hidden + 1))
         fi
         # gh's stderr names the URL, so it goes to a file and reaches the log
@@ -259,7 +273,9 @@ cmd_sweep() {
             continue
         fi
 
-        dir="$work/$name.git"
+        # The clone's path never carries the repository's name: git prints the
+        # directory in any fatal error about it, on a stderr nothing captures.
+        dir="$work/clone.git"
         if ! git clone --quiet --bare --filter=blob:none --config 'credential.helper=!gh auth git-credential' \
                 "https://github.com/$org/$name.git" "$dir" 2>"$work/clone.err"; then
             item errors "- ❌ \`$name\`: clone failed — $(tail -1 "$work/clone.err")" "$private_err: clone failed"
@@ -314,7 +330,8 @@ cmd_sweep() {
         # Every deletion is still recoverable: the repository's own activity
         # log records the ref and the SHA it pointed at, readable only by
         # those with access to the repository.
-        report "- 🔒 $hidden private repositories swept without itemizing, because this log is public:" \
+        report "- 🔒 $hidden repositories swept without itemizing (private, or public but not declared" \
+            "permanently public with --itemize), because this log is public:" \
             "$verb $p_deleted, kept $p_kept unlanded, skipped $p_skipped, errors $p_errors." \
             "A deleted branch's SHA is in its repository's activity log:" \
             "\`gh api 'repos/$org/<repo>/activity?activity_type=branch_deletion'\`;" \
@@ -330,7 +347,7 @@ case "${1:-}" in
     sweep) shift; cmd_sweep "$@" ;;
     *)
         echo "usage: $0 landed <git-dir> <main-ref> <branch-ref>" >&2
-        echo "       $0 sweep [--dry-run] [--redact-private] [--min-age-hours N] [--org O]" >&2
+        echo "       $0 sweep [--dry-run] [--redact-private [--itemize R]...] [--min-age-hours N] [--org O]" >&2
         exit 2
         ;;
 esac

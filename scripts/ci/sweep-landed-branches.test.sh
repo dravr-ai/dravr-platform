@@ -201,15 +201,26 @@ git -C "$priv" checkout -qb secret-work && echo w >"$priv/secret-work-path.txt" 
 git -C "$priv" checkout -q main
 git clone -q --bare "$priv" "$TMP/remotes/repo-p.git"
 git -C "$TMP/remotes/repo-p.git" config uploadpack.allowFilter true
+# repo.t and -erepo-a are private repositories inside a private-ci.sh window:
+# public right now, not declared permanently public, so a public log must not
+# name them. GitHub allows a dot and a leading hyphen in a repository name, so
+# each is matched against --itemize as an exact literal, never as a pattern or
+# an option: `-erepo-a` read by grep is `-e repo-a`, a declared name.
+for r in repo.t -erepo-a; do
+    git clone -q --bare "$priv" "$TMP/remotes/$r.git"
+    git -C "$TMP/remotes/$r.git" config uploadpack.allowFilter true
+done
 
 # The fake gh answers the five reads the sweep makes, per repository, with
 # GitHub-shaped JSON run through the script's own --jq filter, so the filters
 # are under test too: an archived repository must be dropped, and a pull
 # request's base is held while a fork's head of the same name is not.
 # FAKE_GH_FAIL makes the org listing fail, FAKE_GH_EMPTY makes it list
-# nothing, and FAKE_GH_PRIVATE adds two private repositories: repo-p, and
-# repo-gone, which lists a branch but has no remote, so its clone fails with
-# an error that names it.
+# nothing, and FAKE_GH_PRIVATE adds the private repo-p; repo-gone, whose
+# visibility the listing does not report and which lists a branch but has no
+# remote, so its clone fails with an error that names it; and repo.t and
+# -erepo-a, public for the length of a window. The fake reads a remote with
+# --git-dir, so a run under safe.bareRepository=explicit still lists it.
 cat >"$TMP/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
 [ "$1" = auth ] && exit 0
@@ -226,7 +237,9 @@ case "$2" in
         json='[{"name":"repo-a","default_branch":"main","private":false,"archived":false},
                {"name":"repo-old","default_branch":"main","private":false,"archived":true}'
         [ -n "${FAKE_GH_PRIVATE:-}" ] && json+=',{"name":"repo-p","default_branch":"main","private":true,"archived":false},
-               {"name":"repo-gone","default_branch":"main","private":true,"archived":false}'
+               {"name":"repo-gone","default_branch":"main","archived":false},
+               {"name":"repo.t","default_branch":"main","private":false,"archived":false},
+               {"name":"-erepo-a","default_branch":"main","private":false,"archived":false}'
         json+=']' ;;
     *branches\?protected=true*)
         json='[]'; [ "$name" = repo-a ] && json='[{"name":"protected-one"}]' ;;
@@ -234,7 +247,7 @@ case "$2" in
         if [ "$name" = repo-gone ] || [ "$name" = repo-old ]; then
             json='[{"name":"ghost"}]'
         else
-            json=$(git -C "$FAKE_REMOTES/$name.git" for-each-ref --format='{"name":"%(refname:lstrip=2)"}' refs/heads \
+            json=$(git --git-dir="$FAKE_REMOTES/$name.git" for-each-ref --format='{"name":"%(refname:lstrip=2)"}' refs/heads \
                 | jq -s .) || exit 1
         fi ;;
     *pulls*)
@@ -333,21 +346,65 @@ else
     fail "without --redact-private a private repository is itemized"; echo "      exit $got"; sed 's/^/      /' "$TMP/sweep.txt"
 fi
 
-# The public lane's run log names no private repository, branch or path —
-# not even through git's clone error — yet still sweeps and counts them.
-priv_heads() { git -C "$TMP/remotes/repo-p.git" for-each-ref --format='%(refname:lstrip=2)' refs/heads | sort | tr '\n' ' '; }
-got=0; FAKE_GH_PRIVATE=1 run_sweep --redact-private >"$TMP/sweep.txt" 2>&1 || got=$?
-if [ $got -eq 1 ] && [ "$(priv_heads)" = "main secret-work " ] \
-    && ! grep -qE 'repo-p|repo-gone|secret|ghost' "$TMP/sweep.txt" \
-    && grep -qF '🔒 2 private repositories swept without itemizing' "$TMP/sweep.txt" \
-    && grep -qF 'deleted 1, kept 1 unlanded, skipped 0, errors 1.' "$TMP/sweep.txt" \
-    && grep -qF 'a private repository: clone failed' "$TMP/sweep.txt" \
-    && grep -qF '`repo-a` `unlanded`' "$TMP/sweep.txt"; then
-    pass "--redact-private sweeps private repositories without naming them"
+# --redact-private with no --itemize names nothing, public or not.
+got=0; FAKE_GH_PRIVATE=1 run_sweep --redact-private --dry-run >"$TMP/sweep.txt" 2>&1 || got=$?
+if [ $got -eq 1 ] && ! grep -qE 'repo[-.]|secret|ghost|`unlanded`' "$TMP/sweep.txt" \
+    && grep -qF '🔒 5 repositories swept without itemizing' "$TMP/sweep.txt"; then
+    pass "--redact-private without --itemize names no repository at all"
 else
-    fail "--redact-private sweeps private repositories without naming them"
-    echo "      exit $got, repo-p heads: $(priv_heads)"; sed 's/^/      /' "$TMP/sweep.txt"
+    fail "--redact-private without --itemize names no repository at all"; echo "      exit $got"; sed 's/^/      /' "$TMP/sweep.txt"
 fi
+
+# The public lane's run log names no private repository, branch or path —
+# not even through git's clone error, nor for a repository public only for a
+# private-ci window, nor for a private one wrongly listed in --itemize, nor
+# for one whose visibility the listing does not report, nor through a stale
+# --itemize entry that only resembles a name (repo.tools holds repo.t as a
+# substring, repo-t matches it as a pattern) — yet still sweeps and counts them.
+priv_heads() { git -C "$TMP/remotes/$1.git" for-each-ref --format='%(refname:lstrip=2)' refs/heads | sort | tr '\n' ' '; }
+got=0; FAKE_GH_PRIVATE=1 run_sweep --redact-private --itemize repo-a --itemize repo-p --itemize repo-gone \
+    --itemize repo-t --itemize repo.tools >"$TMP/sweep.txt" 2>&1 || got=$?
+if [ $got -eq 1 ] && [ "$(priv_heads repo-p)" = "main secret-work " ] && [ "$(priv_heads repo.t)" = "main secret-work " ] \
+    && [ "$(priv_heads -erepo-a)" = "main secret-work " ] \
+    && ! grep -qE 'repo-p|repo-gone|repo\.t|-erepo|secret|ghost' "$TMP/sweep.txt" \
+    && grep -qF '🔒 4 repositories swept without itemizing' "$TMP/sweep.txt" \
+    && grep -qF 'deleted 3, kept 3 unlanded, skipped 0, errors 1.' "$TMP/sweep.txt" \
+    && grep -qF 'an unnamed repository: clone failed' "$TMP/sweep.txt" \
+    && grep -qF '`repo-a` `unlanded`' "$TMP/sweep.txt"; then
+    pass "--redact-private sweeps undeclared repositories without naming them"
+else
+    fail "--redact-private sweeps undeclared repositories without naming them"
+    echo "      exit $got, repo-p: $(priv_heads repo-p), repo.t: $(priv_heads repo.t), -erepo-a: $(priv_heads -erepo-a)"
+    sed 's/^/      /' "$TMP/sweep.txt"
+fi
+
+# A git failure inside a redacted repository's clone names nothing either.
+# Real git refuses a bare repository under safe.bareRepository=explicit and
+# prints the directory it refused, on a stderr the sweep does not capture:
+# the clone's path must not carry the repository's name.
+got=0; FAKE_GH_PRIVATE=1 GIT_CONFIG_PARAMETERS="'safe.bareRepository'='explicit'" \
+    run_sweep --redact-private --itemize repo-a >"$TMP/sweep.txt" 2>&1 || got=$?
+if [ $got -eq 1 ] && grep -qF 'safe.bareRepository' "$TMP/sweep.txt" \
+    && grep -qF 'an unnamed repository: a listed branch is absent from the clone' "$TMP/sweep.txt" \
+    && ! grep -qE 'repo-p|repo-gone|repo\.t|-erepo|secret|ghost' "$TMP/sweep.txt"; then
+    pass "a git error inside a redacted repository's clone does not name it"
+else
+    fail "a git error inside a redacted repository's clone does not name it"; echo "      exit $got"; sed 's/^/      /' "$TMP/sweep.txt"
+fi
+
+# A value flag with no value, or with the next flag as its value, is a usage
+# error before anything is listed: `--itemize --dry-run` must never become a
+# real sweep that itemizes a repository called --dry-run.
+for args in "--itemize" "--itemize --dry-run" "--org --dry-run" "--min-age-hours"; do
+    got=0
+    # shellcheck disable=SC2086 # each case is a word list on purpose
+    PATH="$TMP/bin:$PATH" GH_TOKEN=fixture "$UNDER_TEST" sweep $args >"$TMP/sweep.txt" 2>&1 || got=$?
+    if [ $got -eq 2 ] && grep -qF 'wants a value' "$TMP/sweep.txt"; then
+        pass "sweep $args is a usage error"
+    else
+        fail "sweep $args is a usage error"; echo "      exit $got"; sed 's/^/      /' "$TMP/sweep.txt"
+    fi
+done
 
 # expect_sweep_fails <label> <reason-substring> <env-assignment...>
 # The reason is asserted too: a run failing on some later error would pass a

@@ -19,6 +19,10 @@
 # every private repository's name, branches and paths out of them. Those are
 # only counted here; each deletion stays readable, with its SHA, in that
 # repository's own activity log (`activity?activity_type=branch_deletion`).
+# ITEMIZE names the repositories that are public for good. Being public at run
+# time is not enough, because private-ci.sh opens a public window on a private
+# repository for one CI run and this log outlives it; a repository missing from
+# the list is only counted, so the list can go stale without leaking anything.
 #
 # The sweep covers the whole org from this public repo, where Actions minutes
 # are free; a per-repo lane would stall in every private repo the day the
@@ -71,7 +75,9 @@ jobs:
           GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
           MIN_AGE_HOURS: ${{ inputs.min_age_hours || '24' }}
+          ITEMIZE: dravr-platform dravr-embacle dravr-tronc dravr-build-config llm-registre homebrew-tap
         run: |
           args=(--redact-private --min-age-hours "$MIN_AGE_HOURS")
+          for repo in $ITEMIZE; do args+=(--itemize "$repo"); done
           if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
           ./scripts/ci/sweep-landed-branches.sh sweep "${args[@]}"
