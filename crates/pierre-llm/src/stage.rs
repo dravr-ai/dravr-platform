@@ -49,6 +49,12 @@
 //!   the visual-block repair run on the turn's active model; they are not
 //!   stages.
 //!
+//! The turn's own tool loop is routed the same way, through one more slot:
+//! [`TOOL_ITERATION_ENV`] moves the iterations that only pick the next tool
+//! onto a cheaper model on a head that bills per call, defaulting to
+//! [`ANTHROPIC_TOOL_ITERATION_MODEL`] on `anthropic`, while the reply stays on
+//! the turn's model.
+//!
 //! [`ChatProvider::from_env`]: crate::ChatProvider::from_env
 
 use std::env;
@@ -83,6 +89,42 @@ const INHERIT: &str = "inherit";
 /// yet earned a model of its own.
 fn background_default(head: LlmProviderType) -> Option<&'static str> {
     matches!(head, LlmProviderType::CopilotSdk).then_some(COPILOT_SDK_BACKGROUND_MODEL)
+}
+
+/// The model a turn's tool-calling iterations default to when the head is
+/// `anthropic`: the API's id for Claude Haiku 5.5, which the Anthropic
+/// provider publishes.
+///
+/// The Anthropic API bills every call by its tokens, so an iteration that only
+/// picks the next tool costs what its model costs; Haiku sits well below
+/// Sonnet and Opus per token. The reply the athlete reads is still written by
+/// the turn's own model ([`TOOL_ITERATION_ENV`] has the contract). Anthropic
+/// ids spell the version with dashes. A turn whose own model is already this
+/// one routes nothing.
+pub const ANTHROPIC_TOOL_ITERATION_MODEL: &str = "claude-haiku-5-5";
+
+/// The variable naming the model a turn's tool-calling iterations run on.
+///
+/// Read only by the platform's own tool loop — the one a head with native
+/// function calling (Anthropic, Gemini) runs, where each iteration is its own
+/// call. Each iteration runs on this model; when one answers without a tool
+/// call, that answer is billed and discarded and the turn's own model is
+/// asked again on the same messages, so the reply is always the turn's model's
+/// own. A Copilot head drops it at boot with a warning: its runtime serves
+/// the whole tool loop as one session billed per turn, so there is no
+/// per-iteration call to route and nothing a cheaper model would save.
+/// `inherit` keeps every iteration on the turn's model.
+pub const TOOL_ITERATION_ENV: &str = "PIERRE_LLM_MODEL_TOOL_ITERATION";
+
+/// The stage label the tool-iteration model is logged under at boot.
+const TOOL_ITERATION_STAGE: &str = "tool_iteration";
+
+/// The model a turn's tool-calling iterations run on when
+/// [`TOOL_ITERATION_ENV`] is unset and the head is `head`:
+/// [`ANTHROPIC_TOOL_ITERATION_MODEL`] on `anthropic`, the turn's own model
+/// everywhere else.
+fn tool_iteration_default(head: LlmProviderType) -> Option<&'static str> {
+    matches!(head, LlmProviderType::Anthropic).then_some(ANTHROPIC_TOOL_ITERATION_MODEL)
 }
 
 /// An LLM call the platform makes beside the reply, whose model can be chosen
@@ -165,6 +207,9 @@ pub struct StageModels {
     /// Boxed because every provider carries one, routed or not: inline, the
     /// six slots would grow `ChatProvider::Embacle` by 144 bytes.
     models: Box<[Option<String>; LlmStage::ALL.len()]>,
+    /// The model a turn's tool-calling iterations run on
+    /// ([`TOOL_ITERATION_ENV`]), `None` for the turn's own model.
+    tool_iteration: Option<String>,
 }
 
 impl StageModels {
@@ -184,15 +229,14 @@ impl StageModels {
     pub fn resolve(head: Option<LlmProviderType>, lookup: impl Fn(&str) -> Option<String>) -> Self {
         let mut stages = Self::default();
         for stage in LlmStage::ALL {
-            let configured = lookup(stage.env_var())
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty());
-            stages.models[stage.index()] = match configured {
-                Some(value) if value.eq_ignore_ascii_case(INHERIT) => None,
-                Some(value) => Some(value),
-                None => head.and_then(background_default).map(str::to_owned),
-            };
+            stages.models[stage.index()] =
+                configured_model(&lookup, stage.env_var(), head.and_then(background_default));
         }
+        stages.tool_iteration = configured_model(
+            &lookup,
+            TOOL_ITERATION_ENV,
+            head.and_then(tool_iteration_default),
+        );
         stages
     }
 
@@ -208,6 +252,13 @@ impl StageModels {
         self.models[stage.index()].as_deref()
     }
 
+    /// The model a turn's tool-calling iterations run on, or `None` for the
+    /// turn's own model.
+    #[must_use]
+    pub fn tool_iteration_model(&self) -> Option<&str> {
+        self.tool_iteration.as_deref()
+    }
+
     /// These stage models held to `head`: each model the head publishes, or
     /// that it cannot be checked against, stays; each one the head's published
     /// list leaves out is dropped, so its stage runs on the head's own model.
@@ -218,41 +269,111 @@ impl StageModels {
     /// — a pooled account on its own model — while the head sat idle. An empty
     /// list is a provider that publishes none, and the configured model is
     /// trusted. Logged once per stage, here, when the head is built.
+    ///
+    /// The tool-iteration model is also dropped on a head without native
+    /// function calling: that head serves a turn's whole tool loop as one
+    /// session, so the platform loop that reads it never runs there.
     #[must_use]
     pub fn checked_against(self, head: &(impl LlmProvider + ?Sized)) -> Self {
-        self.keep_published(head.name(), head.default_model(), head.available_models())
+        self.for_tool_loop(head.name(), head.capabilities().supports_function_calling())
+            .keep_published(head.name(), head.default_model(), head.available_models())
+    }
+
+    /// These stage models for a head whose turns run the platform's own tool
+    /// loop when `per_call` is set; otherwise without a tool-iteration model,
+    /// with a warning naming its variable when one was configured.
+    fn for_tool_loop(mut self, provider: &str, per_call: bool) -> Self {
+        if per_call {
+            return self;
+        }
+        if let Some(model) = self.tool_iteration.take() {
+            warn!(
+                provider,
+                model = %model,
+                env_var = TOOL_ITERATION_ENV,
+                "LLM tool-iteration model ignored: this head serves a turn's whole tool loop as \
+                 one session on the turn's model, so there is no iteration to route — unset the \
+                 variable or set it to `inherit` to silence this"
+            );
+        }
+        self
     }
 
     /// [`Self::checked_against`] over the head's name, own model and published
     /// list.
     fn keep_published(mut self, provider: &str, head_model: &str, available: &[String]) -> Self {
+        let head = PublishedHead {
+            provider,
+            head_model,
+            available,
+        };
         for stage in LlmStage::ALL {
-            let slot = &mut self.models[stage.index()];
-            let Some(model) = slot.take() else {
-                continue;
-            };
-            if available.is_empty() || available.contains(&model) {
-                info!(
-                    provider,
-                    stage = stage.call_type(),
-                    model = %model,
-                    "LLM stage routed to its own model"
-                );
-                *slot = Some(model);
-            } else {
-                warn!(
-                    provider,
-                    stage = stage.call_type(),
-                    model = %model,
-                    env_var = stage.env_var(),
-                    head_model,
-                    "LLM stage model is not in the head provider's published list, so the \
-                     stage stays on the head's own model until the provider publishes this id \
-                     — set the variable to a published id, or to `inherit` to silence this"
-                );
-            }
+            head.keep(
+                &mut self.models[stage.index()],
+                stage.call_type(),
+                stage.env_var(),
+            );
         }
+        head.keep(
+            &mut self.tool_iteration,
+            TOOL_ITERATION_STAGE,
+            TOOL_ITERATION_ENV,
+        );
         self
+    }
+}
+
+/// The value of `env_var`, trimmed: `None` for `inherit`, the variable's
+/// model when one is set, `default` when it is unset or blank.
+fn configured_model(
+    lookup: &impl Fn(&str) -> Option<String>,
+    env_var: &str,
+    default: Option<&str>,
+) -> Option<String> {
+    let configured = lookup(env_var)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    match configured {
+        Some(value) if value.eq_ignore_ascii_case(INHERIT) => None,
+        Some(value) => Some(value),
+        None => default.map(str::to_owned),
+    }
+}
+
+/// What a head publishes, for holding each routed model to it.
+struct PublishedHead<'a> {
+    provider: &'a str,
+    head_model: &'a str,
+    available: &'a [String],
+}
+
+impl PublishedHead<'_> {
+    /// Keep `slot`'s model when the head publishes it (or publishes nothing to
+    /// check against), and drop it with a warning naming `env_var` otherwise.
+    fn keep(&self, slot: &mut Option<String>, stage: &str, env_var: &str) {
+        let Some(model) = slot.take() else {
+            return;
+        };
+        if self.available.is_empty() || self.available.contains(&model) {
+            info!(
+                provider = self.provider,
+                stage,
+                model = %model,
+                "LLM stage routed to its own model"
+            );
+            *slot = Some(model);
+        } else {
+            warn!(
+                provider = self.provider,
+                stage,
+                model = %model,
+                env_var,
+                head_model = self.head_model,
+                "LLM stage model is not in the head provider's published list, so the \
+                 stage stays on the head's own model until the provider publishes this id \
+                 — set the variable to a published id, or to `inherit` to silence this"
+            );
+        }
     }
 }
 
@@ -262,6 +383,7 @@ mod tests {
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, PoisonError};
 
+    use tracing::callsite::rebuild_interest_cache;
     use tracing::field::{Field, Visit};
     use tracing::subscriber::with_default;
     use tracing::{Event, Level, Subscriber};
@@ -377,13 +499,30 @@ mod tests {
         ids.iter().map(|id| (*id).to_owned()).collect()
     }
 
+    /// Held by every test that reaches `keep_published`'s log lines: tracing
+    /// caches each callsite's interest, and a test reaching one with no
+    /// subscriber while another installs its own can cache it as never
+    /// interested, so the capturing test would see no warning.
+    static LOG_CALLSITES: Mutex<()> = Mutex::new(());
+
+    /// `stages` held to a head, with the log callsites to itself.
+    fn held(
+        stages: StageModels,
+        provider: &str,
+        head_model: &str,
+        available: &[String],
+    ) -> StageModels {
+        let _callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
+        stages.keep_published(provider, head_model, available)
+    }
+
     #[test]
     fn a_stage_model_the_head_does_not_publish_runs_on_the_head_model() {
-        let stages = StageModels::resolve(
-            Some(LlmProviderType::CopilotSdk),
-            lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
-        )
-        .keep_published(
+        let stages = held(
+            StageModels::resolve(
+                Some(LlmProviderType::CopilotSdk),
+                lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
+            ),
             "copilot_sdk",
             "claude-sonnet-5.5",
             &published(&["claude-sonnet-5.5", "gpt-5-mini"]),
@@ -412,7 +551,12 @@ mod tests {
     #[test]
     fn each_dropped_stage_warns_once_naming_its_variable_and_the_head_model() {
         let warnings = Warnings::default();
+        let callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
         let stages = with_default(Registry::default().with(warnings.clone()), || {
+            // An earlier test may have reached the warning with no subscriber,
+            // caching the callsite as never interested; rebuild the cache now
+            // that this thread's subscriber is installed.
+            rebuild_interest_cache();
             StageModels::resolve(
                 Some(LlmProviderType::CopilotSdk),
                 lookup(&[("PIERRE_LLM_MODEL_CLAIM_JUDGE", "gpt-5-mini")]),
@@ -423,6 +567,7 @@ mod tests {
                 &published(&["claude-sonnet-5.5", "gpt-5-mini"]),
             )
         });
+        drop(callsites);
 
         assert_eq!(stages.model_for(LlmStage::ClaimJudge), Some("gpt-5-mini"));
         let logged = warnings.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -451,8 +596,12 @@ mod tests {
             published(&["claude-sonnet-5.5", COPILOT_SDK_BACKGROUND_MODEL]),
             Vec::new(),
         ] {
-            let stages = StageModels::resolve(Some(LlmProviderType::CopilotSdk), lookup(&[]))
-                .keep_published("copilot_sdk", "claude-sonnet-5.5", &available);
+            let stages = held(
+                StageModels::resolve(Some(LlmProviderType::CopilotSdk), lookup(&[])),
+                "copilot_sdk",
+                "claude-sonnet-5.5",
+                &available,
+            );
             for stage in LlmStage::ALL {
                 assert_eq!(
                     stages.model_for(stage),
@@ -476,5 +625,96 @@ mod tests {
         for (position, stage) in LlmStage::ALL.into_iter().enumerate() {
             assert_eq!(stage.index(), position);
         }
+    }
+
+    #[test]
+    fn tool_iterations_default_to_haiku_on_anthropic_and_to_the_turns_model_elsewhere() {
+        let anthropic = StageModels::resolve(Some(LlmProviderType::Anthropic), lookup(&[]));
+        assert_eq!(
+            anthropic.tool_iteration_model(),
+            Some(ANTHROPIC_TOOL_ITERATION_MODEL)
+        );
+        for stage in LlmStage::ALL {
+            assert_eq!(
+                anthropic.model_for(stage),
+                None,
+                "{stage:?}: the iteration default moves no background stage"
+            );
+        }
+        for head in [
+            None,
+            Some(LlmProviderType::CopilotSdk),
+            Some(LlmProviderType::CopilotHeadless),
+            Some(LlmProviderType::ClaudeCode),
+            Some(LlmProviderType::Gemini),
+        ] {
+            assert_eq!(
+                StageModels::resolve(head, lookup(&[])).tool_iteration_model(),
+                None,
+                "{head:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_tool_iteration_variable_overrides_inherits_and_is_held_to_the_head() {
+        let set = StageModels::resolve(
+            Some(LlmProviderType::Gemini),
+            lookup(&[(TOOL_ITERATION_ENV, " gemini-flash-lite-latest ")]),
+        );
+        assert_eq!(set.tool_iteration_model(), Some("gemini-flash-lite-latest"));
+        let inherit = StageModels::resolve(
+            Some(LlmProviderType::Anthropic),
+            lookup(&[(TOOL_ITERATION_ENV, "INHERIT")]),
+        );
+        assert_eq!(inherit.tool_iteration_model(), None);
+
+        let warnings = Warnings::default();
+        let callsites = LOG_CALLSITES.lock().unwrap_or_else(PoisonError::into_inner);
+        let unpublished = with_default(Registry::default().with(warnings.clone()), || {
+            // As in the stage warning test: rebuild the callsite cache under
+            // this thread's subscriber.
+            rebuild_interest_cache();
+            StageModels::resolve(Some(LlmProviderType::Anthropic), lookup(&[])).keep_published(
+                "anthropic",
+                "claude-sonnet-5-5",
+                &published(&["claude-sonnet-5-5"]),
+            )
+        });
+        drop(callsites);
+        assert_eq!(
+            unpublished.tool_iteration_model(),
+            None,
+            "an iteration model the head does not publish stays on the turn's model"
+        );
+        let logged = warnings.0.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(logged.len(), 1, "{logged:?}");
+        let field = |name: &str| logged[0].get(name).map(String::as_str);
+        assert_eq!(field("stage"), Some(TOOL_ITERATION_STAGE));
+        assert_eq!(field("env_var"), Some(TOOL_ITERATION_ENV));
+        assert_eq!(field("model"), Some(ANTHROPIC_TOOL_ITERATION_MODEL));
+        assert_eq!(field("head_model"), Some("claude-sonnet-5-5"));
+    }
+
+    #[test]
+    fn a_head_without_native_function_calling_drops_the_tool_iteration_model() {
+        let set = StageModels::resolve(
+            Some(LlmProviderType::CopilotSdk),
+            lookup(&[(TOOL_ITERATION_ENV, "claude-haiku-5.5")]),
+        );
+        assert_eq!(set.tool_iteration_model(), Some("claude-haiku-5.5"));
+        let copilot = set.clone().for_tool_loop("copilot_sdk", false);
+        assert_eq!(copilot.tool_iteration_model(), None);
+        for stage in LlmStage::ALL {
+            assert_eq!(
+                copilot.model_for(stage),
+                set.model_for(stage),
+                "{stage:?}: the background stages keep their models"
+            );
+        }
+        assert_eq!(
+            set.for_tool_loop("anthropic", true).tool_iteration_model(),
+            Some("claude-haiku-5.5")
+        );
     }
 }

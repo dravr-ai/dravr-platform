@@ -315,6 +315,13 @@ export PIERRE_LLM_DEFAULT_MODEL=gemini-3-flash-preview
 # export ANTHROPIC_API_KEY_2="sk-ant-..."
 # export ANTHROPIC_EFFORT=low                          # low, medium, high, xhigh, max
 # Models: claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5
+# A turn's tool-calling iterations run on claude-haiku-5-5 on this head; the
+# reply the athlete reads stays on the turn's model (an iteration that answers
+# instead of calling a tool is discarded and re-asked on it). Set another
+# published id to move them, or `inherit` to keep every iteration on the
+# turn's model. A Copilot head drops it at boot with a warning: it bills per
+# turn, not per call, and runs the whole tool loop as one session.
+# export PIERRE_LLM_MODEL_TOOL_ITERATION=inherit
 
 # --- Gemini (PIERRE_LLM_CHAIN=gemini) ---
 export GEMINI_API_KEY="your-gemini-api-key"

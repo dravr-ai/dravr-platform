@@ -176,6 +176,17 @@ impl ChatProvider {
         }
     }
 
+    /// The model this provider's turns run their tool-calling iterations on,
+    /// or `None` for the turn's own model; a custom provider and a test
+    /// double answer `None`.
+    #[must_use]
+    pub fn tool_iteration_model(&self) -> Option<&str> {
+        match self {
+            Self::Embacle(provider) => provider.tool_iteration_model(),
+            Self::Custom(_) => None,
+        }
+    }
+
     /// `request`, routed to `stage`'s model when this provider routes it, and
     /// untouched otherwise.
     #[must_use]

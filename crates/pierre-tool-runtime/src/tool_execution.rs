@@ -37,15 +37,13 @@ use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
 use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
+use crate::tool_iteration::{iteration_response, LoopSpend};
 use crate::tool_loop_fallback::{run_api_turn, run_headless_turn, ApiLoopError};
 use crate::tool_loop_io::{
     observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
     ToolLoopTally, ToolRoundRecord,
 };
-use crate::tool_loop_telemetry::{
-    accumulate_optional, emit_call_record, log_iteration_response, log_iteration_start,
-    log_wire_shape, millis_elapsed, served_provider_name,
-};
+use crate::tool_loop_telemetry::{log_wire_shape, millis_elapsed, served_provider_name};
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
@@ -68,11 +66,12 @@ use pierre_llm::{
 /// Gemini, Cohere, Groq).
 ///
 /// Flow: `complete_with_tools_on_head()` → parse `function_calls` → execute via
-/// MCP → iterate. Every call goes to the chain's head alone, outside the
-/// chain's own fallback: a head fault comes back as [`ApiLoopError::Head`] for
-/// [`run_api_turn`] to re-run on the tail, routed by the tail's capabilities,
-/// instead of embacle handing this tool-carrying request to a tier that
-/// cannot honour it.
+/// MCP → iterate. An iteration that picks a tool may run on a cheaper model
+/// than the reply (`tool_iteration`). Every call goes to the chain's head
+/// alone, outside the chain's own fallback: a head fault comes back as
+/// [`ApiLoopError::Head`] for [`run_api_turn`] to re-run on the tail, routed
+/// by the tail's capabilities, instead of embacle handing this tool-carrying
+/// request to a tier that cannot honour it.
 ///
 /// # Errors
 ///
@@ -92,139 +91,11 @@ pub(crate) async fn run_api_tool_loop(
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, ApiLoopError> {
     let mut tally = ToolLoopTally::default();
-    let mut cumulative_usage = TokenUsage::new(0, 0, 0);
+    let mut spend = LoopSpend::default();
 
     for iteration in 0..params.max_iterations {
-        let llm_request = {
-            // Not only on the ACP path: a CLI runner that accepts them —
-            // `copilot` takes `--additional-mcp-config` — executes those tools
-            // itself, which is the only way it will touch them.
-            let req = ChatRequest::new(llm_messages.clone())
-                .with_model(params.model)
-                .with_mcp_servers(params.mcp_servers.clone());
-            match params.temperature {
-                Some(t) => req.with_temperature(t),
-                None => req,
-            }
-        };
-
-        log_iteration_start(iteration, params, llm_messages.len());
-        log_wire_shape("api_tool_loop", llm_messages);
-
-        // notify: LLM call about to start. Per-iteration so tool-loop
-        // breadth is observable from Slack (paired with the completion
-        // event right after the await returns).
-        info!(
-            target: "notify",
-            event = "embacle.call_started",
-            model = %params.model,
-            "LLM call dispatching"
-        );
-
-        let call_start = Instant::now();
-        let (response_result, served) = observe_served_tier(
-            params
-                .provider
-                .complete_with_tools_on_head(&llm_request, Some(vec![params.tools.clone()])),
-        )
-        .await;
-        let latency_ms = millis_elapsed(call_start);
-        // The call went to the head alone, so no chain observer reports a tier
-        // and the call is attributed to the head itself. Kept on the served
-        // tier for a provider that reports one: those tokens are that
-        // provider's bill, and the log line keeps the configured tier beside it.
-        let served_provider = served_provider_name(served, params.provider.name());
-        let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
-        let response = match response_result {
-            Ok(r) => {
-                let tools_in_response = r
-                    .function_calls
-                    .as_ref()
-                    .map(|fcs| fcs.iter().map(|c| c.name.clone()).collect())
-                    .unwrap_or_default();
-                emit_call_record(CallRecordInputs {
-                    recorder: params.call_recorder.as_ref(),
-                    provider: served_provider,
-                    model: &r.model,
-                    usage: r.usage.as_ref(),
-                    latency_ms,
-                    success: true,
-                    call_sequence: call_seq,
-                    tools_called: tools_in_response,
-                });
-                tally.note_provider_warnings(r.warnings.as_deref());
-                // notify: LLM call succeeded — latency lands on the Slack
-                // ping so a regression in tail latency surfaces in chat.
-                info!(
-                    target: "notify",
-                    event = "embacle.call_completed",
-                    provider = served_provider,
-                    model = %r.model,
-                    configured_provider = params.provider.name(),
-                    configured_model = %params.model,
-                    latency_ms = latency_ms,
-                    ok = true,
-                    "LLM call completed"
-                );
-                r
-            }
-            Err(e) => {
-                // The prompt reached the provider before it failed, so the
-                // abandoned leg is charged for what it actually sent.
-                let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
-                emit_call_record_with_text(
-                    CallRecordInputs {
-                        recorder: params.call_recorder.as_ref(),
-                        provider: params.provider.name(),
-                        model: params.model,
-                        usage: None,
-                        latency_ms,
-                        success: false,
-                        call_sequence: call_seq,
-                        tools_called: Vec::new(),
-                    },
-                    Some(&prompt_text),
-                    None,
-                );
-                // notify: LLM call failed — ok=false so the routing rule
-                // can amplify failures even when sample_rate hides successes.
-                info!(
-                    target: "notify",
-                    event = "embacle.call_completed",
-                    model = %params.model,
-                    latency_ms = latency_ms,
-                    ok = false,
-                    "LLM call failed"
-                );
-                let usage_so_far = (cumulative_usage.total_tokens > 0).then_some(cumulative_usage);
-                return Err(ApiLoopError::Head {
-                    error: e,
-                    prior: Box::new(tally.interrupted(usage_so_far)),
-                });
-            }
-        };
-
-        log_iteration_response(iteration, latency_ms, &response);
-
-        // Accumulate token usage from every LLM call. The optional counts
-        // accumulate too: a loop that reads 40K tokens from cache across five
-        // iterations and reports none of it bills as if the prefix were fresh
-        // every time.
-        if let Some(ref usage) = response.usage {
-            cumulative_usage.prompt_tokens += usage.prompt_tokens;
-            cumulative_usage.completion_tokens += usage.completion_tokens;
-            cumulative_usage.total_tokens += usage.total_tokens;
-            cumulative_usage.cached_read_tokens = accumulate_optional(
-                cumulative_usage.cached_read_tokens,
-                usage.cached_read_tokens,
-            );
-            cumulative_usage.cached_write_tokens = accumulate_optional(
-                cumulative_usage.cached_write_tokens,
-                usage.cached_write_tokens,
-            );
-            cumulative_usage.reasoning_tokens =
-                accumulate_optional(cumulative_usage.reasoning_tokens, usage.reasoning_tokens);
-        }
+        let response =
+            iteration_response(params, llm_messages, iteration, &mut spend, &mut tally).await?;
 
         // Check for function calls
         if let Some(ref function_calls) = response.function_calls {
@@ -280,7 +151,7 @@ pub(crate) async fn run_api_tool_loop(
                     if let Some(list) = extract_activity_list(&function_responses) {
                         tally.activity_list = Some(list);
                     }
-                    return Ok(tally.provider_auth_required(Some(cumulative_usage), provider));
+                    return Ok(tally.provider_auth_required(Some(spend.usage), provider));
                 }
 
                 // Guardian-denied short-circuit (enforce mode): a consequential
@@ -288,14 +159,14 @@ pub(crate) async fn run_api_tool_loop(
                 // chat pipeline renders a deterministic "blocked for safety"
                 // reply instead of feeding the in-band denial back to the LLM.
                 if let Some(denial) = guardian_denied {
-                    return Ok(tally.guardian_denied(Some(cumulative_usage), denial));
+                    return Ok(tally.guardian_denied(Some(spend.usage), denial));
                 }
 
                 // Guardian confirm-required short-circuit (enforce mode): the
                 // chokepoint parked a destructive call; exit so the chat
                 // pipeline renders the deterministic confirmation ask.
                 if let Some(confirm) = guardian_confirm {
-                    return Ok(tally.guardian_confirm(Some(cumulative_usage), confirm));
+                    return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
                 }
 
                 // Add assistant's text to messages if present (strip synthetic function syntax)
@@ -380,13 +251,13 @@ pub(crate) async fn run_api_tool_loop(
                 if let Some(list) = extract_activity_list(&function_responses) {
                     tally.activity_list = Some(list);
                 }
-                return Ok(tally.provider_auth_required(Some(cumulative_usage), provider));
+                return Ok(tally.provider_auth_required(Some(spend.usage), provider));
             }
             if let Some(denial) = guardian_denied {
-                return Ok(tally.guardian_denied(Some(cumulative_usage), denial));
+                return Ok(tally.guardian_denied(Some(spend.usage), denial));
             }
             if let Some(confirm) = guardian_confirm {
-                return Ok(tally.guardian_confirm(Some(cumulative_usage), confirm));
+                return Ok(tally.guardian_confirm(Some(spend.usage), confirm));
             }
             let assistant_round_text =
                 response
@@ -418,16 +289,11 @@ pub(crate) async fn run_api_tool_loop(
             .content
             .map(|c| strip_synthetic_function_calls(&c).into_owned())
             .unwrap_or_default();
-        return Ok(tally.answered(content, Some(cumulative_usage), response.finish_reason));
+        return Ok(tally.answered(content, Some(spend.usage), response.finish_reason));
     }
 
     // Max iterations reached
-    let usage = if cumulative_usage.total_tokens > 0 {
-        Some(cumulative_usage)
-    } else {
-        None
-    };
-    Ok(tally.max_iterations(usage))
+    Ok(tally.max_iterations(spend.reported()))
 }
 
 // ============================================================================

@@ -168,6 +168,13 @@ impl EmbacleProvider {
         self.stage_models.model_for(stage)
     }
 
+    /// The model this provider's turns run their tool-calling iterations on,
+    /// or `None` for the turn's own model ([`crate::stage::TOOL_ITERATION_ENV`]).
+    #[must_use]
+    pub fn tool_iteration_model(&self) -> Option<&str> {
+        self.stage_models.tool_iteration_model()
+    }
+
     /// Wrap an already-built embacle runner whose rate limit is the
     /// account's quota — a CLI or Copilot runner, the evals' bench candidates,
     /// and tests that script a runner.
@@ -427,7 +434,9 @@ impl EmbacleProvider {
     /// subprocess on the other model, so no stage defaults off the main model
     /// here.
     ///
-    /// LIMITATION(registre#888): `build_headless` serves a whole turn's tool loop as one ACP session on one `CopilotHeadlessConfig::model` — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn.
+    /// A turn's whole tool loop is one ACP session on one model, billed per
+    /// turn, so [`crate::stage::TOOL_ITERATION_ENV`] does not reach it: there is
+    /// no per-iteration call to move, and a cheaper one would save nothing.
     fn build_headless(model_override: Option<&str>) -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
         if let Some(model) = entry_model(model_override) {
@@ -455,7 +464,10 @@ impl EmbacleProvider {
     /// each is its own SDK session, and the runtime validates the requested id
     /// against its catalogue per session.
     ///
-    /// LIMITATION(registre#888): `build_sdk` serves a whole turn's tool loop as one SDK session on one model — the tool-calling iterations and the athlete-facing draft cannot run on different models within a turn (`session.model.switchTo` is deferred while a turn is active).
+    /// A turn's whole tool loop is one SDK session on one model, billed per
+    /// turn × the model's multiplier, so [`crate::stage::TOOL_ITERATION_ENV`]
+    /// does not reach it: the runtime defers `session.model.switchTo` while a
+    /// turn is active, and iterations inside a turn are free on this tier.
     fn build_sdk(model_override: Option<&str>) -> Self {
         let mut config = CopilotSdkConfig::from_env();
         if let Some(model) = entry_model(model_override) {

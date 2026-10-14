@@ -108,15 +108,22 @@ pub fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage])
 
 /// Emit a structured log marking the start of one tool-loop iteration.
 ///
-/// Extracted from [`run_api_tool_loop`] to keep the loop body inside
-/// the workspace cognitive complexity budget. Records the iteration
-/// index and resolved provider/model so an operator can tie the call
-/// to its eventual `llm_usage` row by `turn_id` + `call_sequence`.
-pub fn log_iteration_start(iteration: usize, params: &ToolLoopParams<'_>, message_count: usize) {
+/// Records the iteration index, the call's sequence number within the turn
+/// and the provider/model the call asks, so an operator can tie the call to
+/// its eventual `llm_usage` row by `turn_id` + `call_sequence`. An iteration
+/// re-asked on the turn's model is two calls, so the two numbers diverge.
+pub fn log_iteration_start(
+    iteration: usize,
+    call_sequence: i64,
+    params: &ToolLoopParams<'_>,
+    model: &str,
+    message_count: usize,
+) {
     info!(
         iteration,
+        call_sequence,
         provider = params.provider.name(),
-        model = params.model,
+        model,
         message_count,
         "tool loop iteration: dispatching to provider"
     );

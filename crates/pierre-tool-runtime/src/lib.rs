@@ -129,6 +129,9 @@ pub mod cli_loop;
 pub mod function_dispatch;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
+/// One API tool-loop iteration's call to the chain head, routed per iteration
+#[cfg(feature = "client-chat")]
+mod tool_iteration;
 /// The runtime fallback chain, re-created for the tool loops that converse
 /// with the chain's head alone: quota cooldown, fall-through to the tail
 #[cfg(feature = "client-chat")]
