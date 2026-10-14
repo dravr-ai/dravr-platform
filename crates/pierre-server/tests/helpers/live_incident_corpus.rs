@@ -589,10 +589,9 @@ impl Fixture {
     ///
     /// `channel_type` is what makes the DM a DM: the Slack transport reads
     /// `"im"` and nothing else as a 1:1, so a body without it lands on the
-    /// room path. Every DM episode then ran in a one-member group the ingress
-    /// created for the "room", its thread forged with no agent, and
-    /// `first_reply_introduction` failed every scheduled run since the lane
-    /// was armed (carnet#894).
+    /// room path: the episode runs in a one-member group the ingress creates
+    /// for the "room", its thread forged with no agent, and
+    /// `first_reply_introduction` cannot pass (carnet#894).
     pub fn slack_message_event(&self, channel: &str, text: &str) -> Value {
         let channel_type = if channel == self.dm_channel {
             "im"

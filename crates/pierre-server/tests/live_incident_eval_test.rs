@@ -38,7 +38,7 @@ mod live_incident_eval {
     use crate::common::create_test_server_resources;
     use crate::live_incident_corpus::{
         athlete_run_metres, classify_findings, ground_truth, km_range, peer_run_metres,
-        seed_fixture, turn_timeout, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS,
+        seed_fixture, turn_timeout, Expect, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS,
         PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
     use dravr_canot::channels::slack::transport::SlackTransport;
@@ -185,10 +185,10 @@ mod live_incident_eval {
     /// 1:1. A DM body without it lands on the room path: the ingress creates
     /// a one-member group for the "room", forges the thread with no agent,
     /// and `first_reply_introduction` asks a coach-less thread to give a
-    /// coach's name. Every scheduled run failed it that way until carnet#894.
-    /// The transport is the production one, so the classification asserted
-    /// here is the one the live lane gets; the agent a DM with no selection
-    /// falls back to is the name that episode requires.
+    /// coach's name, which no reply can pass (carnet#894). The transport is
+    /// the production one, so the classification asserted here is the one
+    /// the live lane gets; the agent a DM with no selection falls back to is
+    /// the name that episode requires.
     #[tokio::test]
     #[serial]
     async fn the_fixtures_dm_is_a_direct_message_bound_to_the_eval_coach() {
@@ -226,7 +226,23 @@ mod live_incident_eval {
             .await
             .unwrap()
             .expect("the bound agent exists");
+        let required = CORPUS
+            .iter()
+            .find(|episode| episode.name == "first_reply_introduction")
+            .and_then(|episode| episode.turns.first())
+            .and_then(|turn| {
+                turn.expect.iter().find_map(|expect| match expect {
+                    Expect::AnyOf(names) => Some(*names),
+                    _ => None,
+                })
+            })
+            .expect("the introduction episode names the coach it must hear");
         assert_eq!(agent.title, "Eval Coach");
+        assert!(
+            required.contains(&agent.title.to_lowercase().as_str()),
+            "the DM's agent «{}» is not a name {required:?} accepts",
+            agent.title
+        );
     }
 
     /// The lane must wait out the server's turn watchdog before it moves on,
