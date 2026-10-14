@@ -22,8 +22,9 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
-use pierre_llm::call_record::LlmCallRecorder;
-use pierre_llm::judge::{ask_for_json, judge_request};
+use pierre_core::llm::ChatRequest;
+use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
+use pierre_llm::judge::{ask_for_json, judge_request, parse_json_response};
 use pierre_llm::LlmProvider;
 use pierre_memory::ClaimStatus;
 use serde::{Deserialize, Serialize};
@@ -199,10 +200,15 @@ pub struct ClaimJudge<'a> {
 /// anything the model returns outside the three known verdicts is treated as
 /// [`ClaimStatus::Unverifiable`] so a drifty model never fabricates support.
 ///
+/// An answer with no usable JSON is asked for once more before the claim is
+/// given up on: one malformed completion is a sampling flake, while a
+/// provider error (refusal, rate limit, timeout) is returned at once, since
+/// asking again would only hit it twice.
+///
 /// # Errors
 ///
-/// Returns the LLM call error if the judge fails or its response cannot be
-/// parsed into the expected JSON envelope.
+/// Returns the LLM call error if the judge fails, or the parse error if both
+/// answers lack the expected JSON envelope.
 pub async fn judge_claim(
     judge: ClaimJudge<'_>,
     claim_text: &str,
@@ -221,7 +227,7 @@ pub async fn judge_claim(
     if let Some(model) = judge.model {
         request.model = Some(model.to_owned());
     }
-    let raw: RawClaimJudgement = ask_for_json(judge.provider, &request, judge.recorder).await?;
+    let raw = ask_for_judgement(judge, &request).await?;
 
     let status = match raw.verdict.trim().to_lowercase().as_str() {
         "supported" => ClaimStatus::Supported,
@@ -234,4 +240,21 @@ pub async fn judge_claim(
         confidence: raw.confidence.clamp(0.0, 1.0),
         rationale: raw.rationale,
     })
+}
+
+/// Send the judge `request`, re-asking once when the answer holds no
+/// [`RawClaimJudgement`]; provider errors are never retried.
+async fn ask_for_judgement(
+    judge: ClaimJudge<'_>,
+    request: &ChatRequest,
+) -> AppResult<RawClaimJudgement> {
+    let first = complete_recorded(judge.provider, request, judge.recorder).await?;
+    match parse_json_response(&first) {
+        Ok(raw) => Ok(raw),
+        Err(e) => {
+            tracing::warn!(error = %e, "claim judge answer unparseable — asking once more");
+            let second = complete_recorded(judge.provider, request, judge.recorder).await?;
+            parse_json_response(&second)
+        }
+    }
 }

@@ -160,7 +160,7 @@ resource "google_monitoring_alert_policy" "claim_verification_panicked" {
             'resource.type="cloud_run_revision" AND
              resource.labels.service_name="${var.service_name}-api" AND
              jsonPayload.message=~"claim verification panicked"' \
-            --project ${var.project_id} --freshness=1h --limit 20 \
+            --project ${var.project_id} --freshness=1d --limit 20 \
             --format="value(timestamp, jsonPayload.blocked, jsonPayload.panic)"
 
       The payload names the panicking expression. Reproduce it with the
@@ -228,9 +228,11 @@ resource "google_monitoring_alert_policy" "claim_verification_failed" {
 
       The only step of the verification that can fail is the LLM judge's:
       the provider refused, timed out, or answered something that was not
-      the JSON the judge asked for. The judge runs once the pure-Rust layers
-      are inconclusive, so a claim reaching it is one the corpus could not
-      settle — the claim most in need of a verdict is the one that lost it.
+      the JSON the judge asked for (twice: an unparseable answer is asked
+      for once more before the claim is given up). The judge runs once the
+      pure-Rust layers are inconclusive, so a claim reaching it is one the
+      corpus could not settle — the claim most in need of a verdict is the
+      one that lost it.
       A provider fault holds until it clears, so one count is the first of
       many.
 
@@ -245,7 +247,7 @@ resource "google_monitoring_alert_policy" "claim_verification_failed" {
             'resource.type="cloud_run_revision" AND
              resource.labels.service_name="${var.service_name}-api" AND
              jsonPayload.message=~"claim verification failed"' \
-            --project ${var.project_id} --freshness=1h --limit 20 \
+            --project ${var.project_id} --freshness=1d --limit 20 \
             --format="value(timestamp, jsonPayload.blocked, jsonPayload.unchecked_claims)"
 
       The provider error is on the per-claim line, one for each claim the
@@ -255,18 +257,22 @@ resource "google_monitoring_alert_policy" "claim_verification_failed" {
             'resource.type="cloud_run_revision" AND
              resource.labels.service_name="${var.service_name}-api" AND
              jsonPayload.message=~"claim judge failed"' \
-            --project ${var.project_id} --freshness=1h --limit 20 \
+            --project ${var.project_id} --freshness=1d --limit 20 \
             --format="value(timestamp, jsonPayload.error, jsonPayload.category)"
 
       The judge is the process's chat provider, switched on by the harness
-      config's `runtime_judge` (resolve_claim_judge in verification.rs). A
-      rate-limit or auth error is that provider's account, hit a second
-      time per turn by the judge after the reply itself succeeded. A parse
-      error is the judge model answering prose instead of JSON — check
-      whether the model behind the provider changed. Either way the claims
-      judged in the window are not checked; the admin triage tab lists them
-      under the unverifiable status with the explanation "Not checked: judge
-      error".
+      config's `runtime_judge` (resolve_claim_judge in verification.rs), on
+      the `claim_judge` stage model (PIERRE_LLM_MODEL_CLAIM_JUDGE; Haiku on a
+      copilot_sdk head). A rate-limit or auth error is that provider's
+      account, hit a second time per turn by the judge after the reply
+      itself succeeded. A parse error is the judge model answering without
+      a usable JSON object; the
+      "judge response held no parseable JSON object" line beside it gives
+      the answer's shape (finish_reason, length, brace and fence counts —
+      never its text), which tells a cut-off answer from prose. Check whether the stage model changed.
+      Either way the claims judged in the window are not checked; the
+      admin triage tab lists them under the unverifiable status with the
+      explanation "Not checked: judge error".
     EOT
     mime_type = "text/markdown"
   }

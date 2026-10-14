@@ -20,11 +20,12 @@
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::llm::{ChatMessage, ChatRequest};
+use pierre_core::llm::{ChatMessage, ChatRequest, ChatResponse};
 use serde::de::DeserializeOwned;
 use tracing::warn;
 
 use crate::call_record::{complete_recorded, LlmCallRecorder};
+use crate::provider_stop::ProviderStop;
 use crate::LlmProvider;
 
 /// The request a judge call sends: the rubric as the system prompt, the case
@@ -44,8 +45,8 @@ pub fn judge_request(system_prompt: &str, user_message: &str, temperature: f32) 
 /// Send a judge `request` and deserialize the response as JSON into a
 /// caller-chosen type, handing the call's usage to `recorder`.
 ///
-/// The response text is passed through [`extract_json`] so it tolerates
-/// LLMs that wrap JSON in prose or fenced code blocks.
+/// The response goes through [`parse_json_response`], so it tolerates LLMs
+/// that wrap JSON in prose or fenced code blocks.
 ///
 /// # Errors
 ///
@@ -57,11 +58,46 @@ pub async fn ask_for_json<T: DeserializeOwned>(
     recorder: Option<&Arc<dyn LlmCallRecorder>>,
 ) -> AppResult<T> {
     let response = complete_recorded(provider, request, recorder).await?;
+    parse_json_response(&response)
+}
 
-    let json_str = extract_json(&response.content)?;
+/// Deserialize a judge's completed `response` into `T`, via [`extract_json`].
+///
+/// Apart from [`ask_for_json`] so a caller can tell a provider failure (the
+/// call errored) from an answer that held no usable JSON, and re-ask on the
+/// second only.
+///
+/// # Errors
+///
+/// Returns an error if no JSON object can be recovered from the content, or
+/// it does not deserialize into `T`.
+pub fn parse_json_response<T: DeserializeOwned>(response: &ChatResponse) -> AppResult<T> {
+    let json_str = extract_json(&response.content).inspect_err(|_| {
+        // The text can echo the athlete's reply, so only its shape is logged:
+        // enough to tell a cut-off object from prose or a refusal.
+        let content = &response.content;
+        warn!(
+            model = %response.model,
+            finish_reason = response.finish_reason.as_deref().unwrap_or("none"),
+            stop = ?ProviderStop::from_finish_reason(response.finish_reason.as_deref()),
+            content_len = content.len(),
+            open_braces = content.matches('{').count(),
+            close_braces = content.matches('}').count(),
+            fences = content.matches("```").count(),
+            "judge response held no parseable JSON object"
+        );
+    })?;
     serde_json::from_str::<T>(&json_str).map_err(|e| {
-        warn!("Failed to deserialize judge response: {e}");
-        AppError::internal(format!("Failed to parse judge response: {e}"))
+        // serde's message can quote a field value, which can echo the
+        // athlete's reply; its category and position are enough to triage.
+        let shape = format!(
+            "{:?} error at line {} column {}",
+            e.classify(),
+            e.line(),
+            e.column()
+        );
+        warn!(error = %shape, "Failed to deserialize judge response");
+        AppError::internal(format!("Failed to parse judge response: {shape}"))
     })
 }
 
@@ -70,8 +106,11 @@ pub async fn ask_for_json<T: DeserializeOwned>(
 ///
 /// Strategy (in order):
 /// 1. Whole response parses as JSON → return verbatim.
-/// 2. Substring between first `{` and last `}` parses as JSON → return it.
-/// 3. A `` ```json `` fenced block contains JSON → recurse into its body.
+/// 2. A fenced block (`` ```json `` or a bare `` ``` ``) contains JSON →
+///    recurse into its body.
+/// 3. The first balanced `{…}` span that parses as JSON → return it. Braces
+///    inside JSON strings are not counted, so a rationale quoting `{` or a
+///    trailing remark with a stray `}` cannot shift the span.
 ///
 /// Returns an [`AppError::internal`] if none of these succeed.
 ///
@@ -83,24 +122,65 @@ pub fn extract_json(response: &str) -> AppResult<String> {
         return Ok(response.to_owned());
     }
 
-    if let (Some(start), Some(end)) = (response.find('{'), response.rfind('}')) {
-        if start <= end {
-            let candidate = &response[start..=end];
+    if let Some(body) = fenced_body(response) {
+        if let Ok(json) = extract_json(body) {
+            return Ok(json);
+        }
+    }
+
+    let mut from = 0;
+    while let Some(offset) = response[from..].find('{') {
+        let start = from + offset;
+        if let Some(len) = balanced_object_len(&response[start..]) {
+            let candidate = &response[start..start + len];
             if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
                 return Ok(candidate.to_owned());
             }
         }
-    }
-
-    if let Some(fence_start) = response.find("```json") {
-        let after_fence = &response[fence_start + "```json".len()..];
-        if let Some(fence_end) = after_fence.find("```") {
-            let body = after_fence[..fence_end].trim();
-            return extract_json(body);
-        }
+        from = start + 1;
     }
 
     Err(AppError::internal(
         "Could not extract valid JSON from LLM response",
     ))
+}
+
+/// The trimmed body of the first closed `` ``` `` fence, with an optional
+/// `json` language tag dropped.
+fn fenced_body(response: &str) -> Option<&str> {
+    let after_open = &response[response.find("```")? + 3..];
+    let after_tag = after_open.strip_prefix("json").unwrap_or(after_open);
+    let close = after_tag.find("```")?;
+    Some(after_tag[..close].trim())
+}
+
+/// Byte length of the brace-balanced span opening at `text[0] == '{'`,
+/// skipping braces inside JSON strings; `None` when it never closes.
+fn balanced_object_len(text: &str) -> Option<usize> {
+    let mut depth = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, ch) in text.char_indices() {
+        if in_string {
+            match ch {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }

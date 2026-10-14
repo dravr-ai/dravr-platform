@@ -46,14 +46,15 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
     }
 }
 
-/// Test double for an LLM provider. Returns a canned JSON body for every
-/// `complete` call and counts how many times it was invoked, so a test can
+/// Test double for an LLM provider. Returns its canned bodies in order, the
+/// last one for every call past the end, or a provider error on every call
+/// when it holds none. It counts how many times it was invoked, so a test can
 /// assert the judge fired (or did NOT fire) without a network call.
 ///
 /// Mock is confined to test code per the project mock policy: it stands in for
 /// a real `LlmProvider` to exercise the LLM-judge fallback deterministically.
 struct CannedJudge {
-    body: String,
+    bodies: Vec<String>,
     calls: AtomicUsize,
     /// System message of the last request, so a test can assert which
     /// instructions the judge call actually carried.
@@ -64,8 +65,17 @@ struct CannedJudge {
 
 impl CannedJudge {
     fn new(body: &str) -> Self {
+        Self::answering(&[body])
+    }
+
+    /// A provider whose every call errors, as a rate-limited account does.
+    fn failing() -> Self {
+        Self::answering(&[])
+    }
+
+    fn answering(bodies: &[&str]) -> Self {
         Self {
-            body: body.to_owned(),
+            bodies: bodies.iter().map(|b| (*b).to_owned()).collect(),
             calls: AtomicUsize::new(0),
             last_system_prompt: Mutex::new(None),
             last_model: Mutex::new(None),
@@ -111,7 +121,7 @@ impl LlmProvider for CannedJudge {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
         self.last_model
             .lock()
             .expect("model lock")
@@ -121,8 +131,11 @@ impl LlmProvider for CannedJudge {
             .iter()
             .find(|m| m.role == MessageRole::System)
             .map(|m| m.content.clone());
+        let Some(last) = self.bodies.len().checked_sub(1) else {
+            return Err(AppError::external_service("canned-judge", "rate limited"));
+        };
         Ok(ChatResponse {
-            content: self.body.clone(),
+            content: self.bodies[call.min(last)].clone(),
             model: "canned".to_owned(),
             usage: None,
             finish_reason: Some("stop".to_owned()),
@@ -471,6 +484,42 @@ async fn judge_call_carries_the_system_prompt_it_was_given() {
 
     assert_eq!(outcome.layer_fired, VerdictLayer::Judge);
     assert_eq!(provider.last_system_prompt().as_deref(), Some(instructions));
+}
+
+/// One answer with no JSON is a sampling flake: the judge asks once more and
+/// takes the second answer's verdict.
+#[tokio::test]
+async fn judge_reasks_once_when_the_answer_holds_no_json() {
+    let provider = CannedJudge::answering(&[
+        "I cannot assess this claim without more context.",
+        r#"{"verdict":"supported","confidence":0.8,"rationale":"Matches the evidence."}"#,
+    ]);
+    let judgement = judge_claim(claim_judge(&provider), "Zone 2 is below LT1.", "")
+        .await
+        .expect("the re-ask's verdict is used");
+
+    assert_eq!(judgement.status, ClaimStatus::Supported);
+    assert_eq!(provider.call_count(), 2);
+}
+
+/// Two answers with no JSON give the claim up after exactly one re-ask.
+#[tokio::test]
+async fn judge_gives_up_after_one_reask() {
+    let provider = CannedJudge::new("No JSON here, just prose.");
+    let result = judge_claim(claim_judge(&provider), "Zone 2 is below LT1.", "").await;
+
+    assert!(result.is_err(), "two unparseable answers stay an error");
+    assert_eq!(provider.call_count(), 2);
+}
+
+/// A provider error is returned at once: asking again would only hit it twice.
+#[tokio::test]
+async fn judge_does_not_reask_on_a_provider_error() {
+    let provider = CannedJudge::failing();
+    let result = judge_claim(claim_judge(&provider), "Zone 2 is below LT1.", "").await;
+
+    assert!(result.is_err(), "a provider error stays an error");
+    assert_eq!(provider.call_count(), 1);
 }
 
 /// The catalogue prompt the production judge runs under still states the
