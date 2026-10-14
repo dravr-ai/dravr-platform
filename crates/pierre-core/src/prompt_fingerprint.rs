@@ -30,8 +30,11 @@
 //! in the dispatch path without synchronization.
 
 use std::collections::HashSet;
+use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+use hmac::digest::Output;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -222,24 +225,55 @@ pub fn scan_response_for_leaks(
     }
 }
 
-/// Hidden canary token used by [`inject_canary_marker`], derived from
-/// `scope` — the tenant, agent and conversation a prompt is assembled for.
+/// The key the leak canary is derived under.
 ///
-/// Deterministic on purpose. The marker is the last bytes of the system
-/// prompt, and the Anthropic tier puts a cache breakpoint on the last system
-/// block, so a token that changed every turn would invalidate the whole
-/// cached system prefix on every follow-up turn: ~20K prompt tokens
-/// re-written per turn, measured (carnet#891). One token per conversation keeps the prefix
-/// byte-stable across turns and across server instances.
+/// Derived from the admin JWT secret with a purpose label, the way the CSRF
+/// key is, so it is the same on every server instance and across restarts
+/// without a secret of its own, and unrelated to any other key derived from
+/// that secret. `Debug` never prints the bytes.
+#[derive(Clone)]
+pub struct CanaryKey([u8; 32]);
+
+impl CanaryKey {
+    /// Derive the canary key: `HMAC-SHA256(jwt_secret, "pierre-prompt-canary-key-v1")`.
+    #[must_use]
+    pub fn from_jwt_secret(jwt_secret: &str) -> Self {
+        Self(hmac_sha256(jwt_secret.as_bytes(), b"pierre-prompt-canary-key-v1").into())
+    }
+}
+
+impl fmt::Debug for CanaryKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("CanaryKey(<redacted>)")
+    }
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> Output<Sha256> {
+    // `new_from_slice` accepts a key of any length for HMAC, so this never fails.
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)
+        .unwrap_or_else(|_| unreachable!("HMAC accepts keys of any length"));
+    mac.update(message);
+    mac.finalize().into_bytes()
+}
+
+/// Hidden canary token used by [`inject_canary_marker`]: `HMAC-SHA256(key,
+/// scope)`, where `scope` is the tenant, agent and conversation a prompt is
+/// assembled for.
 ///
-/// It also detects more. The reply scan is a substring match on the current
-/// token, so a per-turn token would not see an earlier turn's canary echoed
-/// later in the conversation; a per-conversation token does. Secrecy is not
-/// what the marker relies on: a dump that strips it is caught by the shingle
-/// fingerprint, not by the token.
+/// Stable for one scope. The marker is the last bytes of the system prompt, and
+/// the Anthropic tier puts a cache breakpoint on the last system block, so a
+/// token that changed every turn would invalidate the whole cached system
+/// prefix on every follow-up turn: ~20K prompt tokens re-written per turn,
+/// measured (carnet#891). One token per conversation keeps the prefix
+/// byte-stable across turns and across server instances, and lets the reply
+/// scan, a substring match on the current token, catch an earlier turn's
+/// canary echoed later in the conversation.
+///
+/// Keyed so it stays secret (carnet#896): the scope's ids are ones an athlete
+/// can learn, and a bare hash of them would let them compute the token.
 #[must_use]
-pub fn conversation_canary(scope: &str) -> String {
-    let digest = Sha256::digest(scope.as_bytes());
+pub fn conversation_canary(key: &CanaryKey, scope: &str) -> String {
+    let digest = hmac_sha256(&key.0, scope.as_bytes());
     // 16 hex chars (64 bits) keeps distinct scopes from colliding; keep the
     // prefix distinctive so log greps can spot the canary shape.
     let hex = format!("{digest:x}");

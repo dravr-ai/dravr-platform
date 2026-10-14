@@ -16,8 +16,8 @@
 //!
 //! The athlete's. Every timestamp here renders in their timezone, through
 //! [`pierre_core::civil_time::format_local_stamp`] — the same helper
-//! `pierre_chat_pipeline::stages::prompt_assembly::format_current_date` uses for
-//! `{{CURRENT_DATE}}`, so both carry the same `%Y-%m-%d <weekday> %H:%M` shape.
+//! `pierre_chat_pipeline::stages::turn_clock::format_current_date` uses for
+//! the turn clock, so both carry the same `%Y-%m-%d <weekday> %H:%M` shape.
 //! That agreement is the point, and it is load-bearing.
 //!
 //! Rendering the rows in UTC while the prompt anchor said local put two

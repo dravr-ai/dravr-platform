@@ -8,7 +8,7 @@
 
 use pierre_core::prompt_fingerprint::{
     conversation_canary, detect_canary_in_response, fingerprint_prompt, inject_canary_marker,
-    scan_response_for_leaks, LeakVerdict, DEFAULT_LEAK_THRESHOLD, SHINGLE_WINDOW,
+    scan_response_for_leaks, CanaryKey, LeakVerdict, DEFAULT_LEAK_THRESHOLD, SHINGLE_WINDOW,
 };
 
 /// The fingerprint hashes the normalized text, so its SHA-256 and length pin
@@ -132,9 +132,13 @@ fn different_prompts_have_different_hashes() {
     assert_ne!(fp1.sha256_hex, fp2.sha256_hex);
 }
 
+fn key() -> CanaryKey {
+    CanaryKey::from_jwt_secret("test-admin-jwt-secret")
+}
+
 #[test]
 fn canary_token_has_expected_shape() {
-    let c = conversation_canary("tenant-a:coach-1:conv-1");
+    let c = conversation_canary(&key(), "tenant-a:coach-1:conv-1");
     assert!(c.starts_with("CANARY-"));
     // CANARY- (7) + 16 hex chars = 23
     assert_eq!(c.len(), 23);
@@ -146,17 +150,33 @@ fn canary_is_stable_for_one_scope() {
     // bytes of the system prompt change and the prompt cache misses
     // (carnet#891).
     assert_eq!(
-        conversation_canary("tenant-a:coach-1:conv-1"),
-        conversation_canary("tenant-a:coach-1:conv-1")
+        conversation_canary(&key(), "tenant-a:coach-1:conv-1"),
+        conversation_canary(&key(), "tenant-a:coach-1:conv-1")
     );
 }
 
 #[test]
 fn canary_differs_across_scopes() {
-    let base = conversation_canary("tenant-a:coach-1:conv-1");
-    assert_ne!(base, conversation_canary("tenant-a:coach-1:conv-2"));
-    assert_ne!(base, conversation_canary("tenant-a:coach-2:conv-1"));
-    assert_ne!(base, conversation_canary("tenant-b:coach-1:conv-1"));
+    let base = conversation_canary(&key(), "tenant-a:coach-1:conv-1");
+    assert_ne!(base, conversation_canary(&key(), "tenant-a:coach-1:conv-2"));
+    assert_ne!(base, conversation_canary(&key(), "tenant-a:coach-2:conv-1"));
+    assert_ne!(base, conversation_canary(&key(), "tenant-b:coach-1:conv-1"));
+}
+
+#[test]
+fn canary_depends_on_the_key() {
+    // Keyed so an athlete who knows the tenant, agent and conversation ids
+    // cannot compute their own canary (carnet#896).
+    let other = CanaryKey::from_jwt_secret("another-deployment-secret");
+    assert_ne!(
+        conversation_canary(&key(), "tenant-a:coach-1:conv-1"),
+        conversation_canary(&other, "tenant-a:coach-1:conv-1")
+    );
+}
+
+#[test]
+fn canary_key_debug_never_prints_the_bytes() {
+    assert_eq!(format!("{:?}", key()), "CanaryKey(<redacted>)");
 }
 
 #[test]

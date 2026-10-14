@@ -36,6 +36,7 @@ use super::peer_grounding::{inject_peer_grounding, mentioned_peers, PEER_FETCH_T
 use super::prefetch::{
     inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs, PREFETCH_TOOL,
 };
+use super::turn_clock::inject_turn_clock;
 
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
 ///
@@ -70,6 +71,9 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// system prompt), used by Tier 1 compaction to anchor block first/last
     /// message ids to real persisted rows rather than positional guesses.
     pub source_ids: &'a [Option<String>],
+    /// The turn clock ([`super::turn_clock::format_current_date`]), sent just
+    /// before the athlete's message after Tier-1 compaction.
+    pub turn_clock: &'a str,
     /// The guided flow that owns this turn, when one does.
     ///
     /// The flow itself, not a flag: what a walk withholds is a property of
@@ -140,6 +144,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         agent_ctx,
         history,
         source_ids,
+        turn_clock,
         guided_flow,
         peer_roster,
         turn_agent_id,
@@ -200,6 +205,10 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
     apply_tier1_compaction(ctx, provider, input, source_ids, llm_messages).await;
+
+    // Stage 12a: The turn clock. After compaction for the reason 12b gives, and
+    // out of the system prompt so the cached prefix survives the turn boundary.
+    inject_turn_clock(llm_messages, turn_clock);
 
     // Stage 12b: Later-turn activity grounding. On any turn past the first,
     // a plan/analysis/recommendation ask must be answered from the athlete's

@@ -792,8 +792,10 @@ impl ScenarioDriver for LiveScenarioDriver {
 fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     // Resolve `{{CURRENT_DATE}}` to a real date BEFORE stripping the rest.
     // The placeholder lives in `platform_contract.md`, under "## Current
-    // date", and production fills it via
-    // `prompt_assembly::format_current_date` (the user's local wall clock).
+    // date". Production resolves it to a fixed pointer sentence and sends
+    // the clock itself (`turn_clock::format_current_date`, the user's local
+    // wall clock) as its own message before the athlete's (carnet#895); this
+    // driver builds a one-shot prompt, so it inlines the date instead.
     // Without the anchor the model has no notion of "today" and labels the
     // freshest activity in history as today — exactly the drift
     // `today_anchor_no_stale_date_drift` pins. The eval carries no per-user

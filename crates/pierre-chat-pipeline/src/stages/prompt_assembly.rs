@@ -18,10 +18,11 @@ use pierre_contremaitre::messaging_strings::{
     KEY_TURN_LANGUAGE,
 };
 use pierre_contremaitre::PromptRegistry;
-use pierre_core::civil_time::{clock_date, format_clock_stamp, resolve_zone};
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::{AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot, User};
+use pierre_core::prompt_fingerprint::CanaryKey;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -40,6 +41,7 @@ use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
+use super::turn_clock::{format_current_date, CURRENT_DATE_POINTER};
 use super::viz_blocks;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
@@ -337,12 +339,9 @@ fn progression_guardrails(
 ///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
 ///   the chosen agent personality — it controls structure / citation
 ///   density / verbosity, not voice or domain.
-/// - `{{CURRENT_DATE}}` → today's local date and wall-clock time in the
-///   user's IANA timezone, formatted `YYYY-MM-DD HH:MM (Continent/City)`.
-///   Falls back to UTC when the user has no timezone on file. Without this
-///   anchor the LLM defaults to the latest date it sees in activity history
-///   when the user says "today" / "aujourd'hui", which fails the moment data
-///   goes stale; the time lets it reason about morning/evening too.
+/// - `{{CURRENT_DATE}}` → [`CURRENT_DATE_POINTER`], a fixed sentence naming
+///   the turn-clock message. The clock itself is sent after the cache
+///   breakpoints by [`super::turn_clock`], so this block stays byte-stable.
 ///
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
@@ -352,7 +351,6 @@ fn interpolate_prompt_placeholders(
     locale: &str,
     agent_ctx: Option<&AgentRuntimeContext>,
     persona: CoachingPersona,
-    user_timezone: Option<&str>,
     prompt: &str,
 ) -> String {
     let has_scope = prompt.contains("{{SCOPE_REFUSAL}}");
@@ -378,13 +376,12 @@ fn interpolate_prompt_placeholders(
             // first sync completes; once contremaitre lands a newer version
             // via webhook → selective_sync, the same lookup here picks it up.
             let persona_block = prompt_registry.coaching_persona_prompt(persona, locale);
-            let current_date = format_current_date(user_timezone, locale);
             prompt
                 .replace("{{SCOPE_REFUSAL}}", &scope)
                 .replace("{{CAPABILITY_REFUSAL}}", &capability)
                 .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
                 .replace("{{COACHING_PERSONA_RULES}}", &persona_block)
-                .replace("{{CURRENT_DATE}}", &current_date)
+                .replace("{{CURRENT_DATE}}", CURRENT_DATE_POINTER)
         };
     let stray = unsubstituted_placeholders(&assembled);
     if !stray.is_empty() {
@@ -394,119 +391,6 @@ fn interpolate_prompt_placeholders(
         );
     }
     assembled
-}
-
-/// Granularity the prompt's "now" values are floored to, in seconds.
-///
-/// Five minutes: long enough that consecutive turns in a conversation share a
-/// byte-identical prompt prefix (so a provider that caches implicitly on a
-/// stable prefix can actually hit), short enough that the clock the agent reads
-/// is never meaningfully wrong. The date boundaries below are NOT quantized —
-/// they are derived from the true local time, so "today" never shifts.
-const NOW_QUANTUM_SECS: i64 = 300;
-
-// Divides `now`; a zero quantum would panic. Const-asserted rather than guarded
-// at runtime, because the value is compile-time.
-const _: () = assert!(NOW_QUANTUM_SECS > 0);
-
-/// Resolve `{{CURRENT_DATE}}` to a single line for the LLM prompt.
-///
-/// Output shape: `YYYY-MM-DD <weekday> HH:MM (Continent/City)` when the user has
-/// a valid IANA timezone, e.g. `2026-05-21 jeu 14:30 (America/Toronto)`. Falls
-/// back to `(UTC)` when the timezone is `None` (no client has reported yet) or
-/// fails to parse (e.g. a malformed string somehow landed in the column). Both
-/// date and time are *local* to the user's tz, not the server's UTC clock —
-/// that's the whole point of the anchor: when the user says "today" at 23:30
-/// EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the server
-/// clock has already rolled over to. The wall-clock time lets the agent reason
-/// about time of day (morning/evening) without asking.
-///
-/// The weekday is named in `locale` for the same reason the epoch table below
-/// precomputes every window boundary: the model gets calendar arithmetic wrong,
-/// and a wrong weekday is the failure an athlete actually notices.
-#[must_use]
-pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String {
-    use chrono::{Datelike, Duration, TimeZone, Utc};
-    let now_utc = Utc::now();
-    let tz = resolve_zone(user_timezone);
-    let local = now_utc.with_timezone(&tz);
-    let label = tz.name();
-
-    // Quantized, and that is the whole point: this block is interpolated as
-    // `{{CURRENT_DATE}}` into the platform contract, which LEADS the system
-    // prompt. Prompt caching is a prefix match — one changed byte invalidates
-    // everything after it, and the render order is tools, then system, then
-    // messages. Carrying `now = <unix seconds>` here changed the front of the
-    // prefix on every single request, so no provider could reuse any of the
-    // prompt behind it. That is a cause of poor cache reuse that is entirely
-    // ours, independent of what the transport reports. The flat zero cache
-    // reads recorded across August 2026 turned out to be a measurement
-    // artifact -- embacle parsed past the counts until 0.22.0 -- so they are
-    // not evidence about this block either way; the churn was real and this
-    // quantization is the fix for it.
-    //
-    // Floored, never rounded up: rounding up crosses midnight and would move
-    // "today" a day early at 23:58. Floor costs an upper bound up to one
-    // quantum stale, which is immaterial here because the guidance below tells
-    // the model to pass NO bounds for a freshness fetch — `now` is only ever a
-    // `before` for a window question (today / this week / this month).
-    let quantized_epoch = (now_utc.timestamp() / NOW_QUANTUM_SECS) * NOW_QUANTUM_SECS;
-    // The weekday is named here, never left to the model. Deriving "mercredi"
-    // from 2026-09-02 is calendar arithmetic, which the epoch table below
-    // already refuses to ask of the model for epochs; on 2026-09-02 an athlete
-    // left the conversation after correcting weekday claims three times.
-    let datetime_str = Utc.timestamp_opt(quantized_epoch, 0).single().map_or_else(
-        || format_clock_stamp(local.with_timezone(&Utc), tz, locale),
-        |q| format_clock_stamp(q, tz, locale),
-    );
-    let now_epoch = quantized_epoch;
-
-    // Local-midnight epoch `days_back` days before today, DST-safe (a spring
-    // gap/fold at midnight is vanishingly rare; take the earliest valid
-    // instant). Falls back to `now` if construction ever fails so a boundary
-    // is never silently wrong by years.
-    let midnight_epoch = |days_back: i64| -> i64 {
-        (local - Duration::days(days_back))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .and_then(|naive| tz.from_local_datetime(&naive).earliest())
-            .map_or(now_epoch, |dt| dt.timestamp())
-    };
-    let today0 = midnight_epoch(0);
-    let yesterday0 = midnight_epoch(1);
-    // Monday-anchored week (the convention pierre_system.md already states).
-    let days_since_monday = i64::from(local.weekday().num_days_from_monday());
-    let week0 = midnight_epoch(days_since_monday);
-    // First of the current month, 00:00 local — the "ce mois" / "this month"
-    // window, which is otherwise a from-scratch date→epoch conversion.
-    let month0 = local
-        .date_naive()
-        .with_day(1)
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .and_then(|naive| tz.from_local_datetime(&naive).earliest())
-        .map_or(now_epoch, |dt| dt.timestamp());
-
-    // A full epoch reference table so the model COPIES every common boundary
-    // instead of converting an absolute date to an epoch — the arithmetic LLMs
-    // get wrong. 2026-07-24: an agent reading the human date still passed
-    // `before=1753362000` (2025-07-24, a year early) and served year-old data;
-    // the same failure lurks on any window bound (`after=<Monday 00:00>` etc.),
-    // so every boundary is precomputed here. Local to the user's tz, not the
-    // server's UTC clock. The guidance is inline so it holds regardless of the
-    // surrounding prompt template.
-    format!(
-        "{datetime_str} ({label}).\n\
-         Unix epochs (seconds) — COPY these; never convert a date to an epoch yourself (it is error-prone):\n\
-         - now = {now_epoch}\n\
-         - start of today (00:00 local) = {today0}\n\
-         - start of yesterday (00:00 local) = {yesterday0}\n\
-         - start of this week (Monday 00:00 local) = {week0}\n\
-         - start of this month (1st, 00:00 local) = {month0}\n\
-         For a freshness/recent fetch pass no `after`/`before` (the server returns your newest \
-         activities first). For a window question (today / hier / cette semaine / ce mois) pass \
-         `after` = the matching start above and `before` = now (count only the rows whose start \
-         falls inside the window)."
-    )
 }
 
 /// Look up the user's selected coaching persona, falling back to the
@@ -620,6 +504,7 @@ pub(crate) type AssembledPrompt = (
     Vec<MemberFitnessSnapshot>,
     Option<super::introduction::PendingIntroduction>,
     Option<super::group_subject::CoachSeat>,
+    String,
 );
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -712,7 +597,6 @@ pub(crate) async fn assemble_prompt_and_messages(
         &profile.locale,
         agent_ctx,
         persona,
-        user_timezone.as_deref(),
         &base_prompt,
     );
 
@@ -1099,6 +983,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // agent the reply scan reads. One token for every turn, so the prompt-cache
     // prefix survives the turn boundary (carnet#891).
     let prompt_guard = prompt_leak::harden_system_prompt(
+        &CanaryKey::from_jwt_secret(&ctx.admin_jwt_secret),
         input.conversation_tenant_id,
         turn_agent_id,
         &input.conversation_id,
@@ -1170,6 +1055,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         group_roster,
         introduction,
         coach_seat,
+        format_current_date(user_timezone.as_deref(), &profile.locale),
     ))
 }
 

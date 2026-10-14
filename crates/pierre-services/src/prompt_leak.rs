@@ -26,7 +26,7 @@ use pierre_core::models::TenantId;
 use pierre_core::narration::{self, IdentityLeakMatch};
 use pierre_core::prompt_fingerprint::{
     conversation_canary, detect_canary_in_response, fingerprint_prompt, inject_canary_marker,
-    scan_response_for_leaks, LeakVerdict, PromptFingerprint, DEFAULT_LEAK_THRESHOLD,
+    scan_response_for_leaks, CanaryKey, LeakVerdict, PromptFingerprint, DEFAULT_LEAK_THRESHOLD,
 };
 use tracing::{error, info, warn};
 
@@ -78,8 +78,10 @@ pub struct ReplyLeakReport {
 ///
 /// The token is the same on every turn of one conversation with one agent,
 /// so the hardened prompt stays byte-stable and the provider's prompt cache
-/// can serve it (see [`conversation_canary`]).
+/// can serve it, and it is keyed by `canary_key`, so an athlete who knows the
+/// ids cannot compute it (see [`conversation_canary`]).
 pub fn harden_system_prompt(
+    canary_key: &CanaryKey,
     tenant_id: TenantId,
     agent_id: Option<&str>,
     conversation_id: &str,
@@ -89,7 +91,7 @@ pub fn harden_system_prompt(
         "{tenant_id}:{}:{conversation_id}",
         agent_id.unwrap_or("default-coach")
     );
-    let canary = conversation_canary(&scope);
+    let canary = conversation_canary(canary_key, &scope);
     let hardened_prompt = inject_canary_marker(base_prompt, &canary);
     let fingerprint = fingerprint_prompt(&hardened_prompt);
 

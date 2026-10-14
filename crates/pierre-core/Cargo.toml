@@ -145,6 +145,10 @@ dravr-stripe = { workspace = true, optional = true }
 # admin JWT hashing. Non-optional because prompt fingerprinting is part of
 # the always-on safety surface.
 sha2 = "0.10"
+# The leak canary is HMAC-SHA256 under a key derived from the admin JWT
+# secret (prompt_fingerprint::CanaryKey); tests/billing_stripe_test.rs also
+# signs webhook payloads with it the way Stripe does.
+hmac = "0.12"
 
 # Optional: Admin JWT utilities
 rand = { version = "0.9", optional = true }
@@ -153,10 +157,6 @@ bcrypt = { version = "0.16", optional = true }
 [dev-dependencies]
 # Used by the DummyProvider tests in tests/billing_dummy_test.rs.
 tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
-# tests/billing_stripe_test.rs signs webhook payloads the way Stripe does
-# (HMAC-SHA256 over "{t}.{body}", hex) so events reach normalization only
-# through parse_webhook's signature check.
-hmac = "0.12"
 hex = "0.4"
 # tests/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
 # (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.

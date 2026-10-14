@@ -38,6 +38,7 @@ use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
 use super::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use super::turn_clock::TURN_CLOCK_LEAD;
 
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
@@ -384,11 +385,13 @@ fn push_history_row(
 /// grounding leads assert that the activities under them were loaded from the
 /// athlete's real provider data. [`REPAIR_EVIDENCE_FRAME`] asserts that the
 /// data under it was fetched by the platform and is not the athlete speaking.
-const PLATFORM_MARKERS: [&str; 4] = [
+/// [`TURN_CLOCK_LEAD`] asserts what today is.
+const PLATFORM_MARKERS: [&str; 5] = [
     REPLAYED_SUMMARY_PREFIX,
     REFRESH_GROUNDING_LEAD,
     STARTUP_GROUNDING_LEAD,
     REPAIR_EVIDENCE_FRAME,
+    TURN_CLOCK_LEAD,
 ];
 
 /// What replaces a platform marker found in athlete-authored text.

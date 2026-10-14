@@ -33,6 +33,7 @@ use pierre_chat_pipeline::stages::prompt_assembly::{
     close_with_anchors, close_with_identity_anchor,
 };
 use pierre_core::models::TenantId;
+use pierre_core::prompt_fingerprint::CanaryKey;
 use pierre_services::prompt_leak::harden_system_prompt;
 
 #[test]
@@ -72,6 +73,7 @@ fn the_anchor_survives_canary_hardening() {
     // model actually receives while every string-level test kept passing.
     let assembled = close_with_identity_anchor("## Your coaching style\nShort, punchy sessions.");
     let guard = harden_system_prompt(
+        &canary_key(),
         TenantId::generate(),
         Some("coach-123"),
         "conv-1",
@@ -107,6 +109,7 @@ fn the_anchor_survives_the_conditions_where_leaks_were_actually_observed() {
 
     let assembled = close_with_identity_anchor(&bulky_agent_prompt);
     let guard = harden_system_prompt(
+        &canary_key(),
         TenantId::generate(),
         Some("coach-123"),
         "conv-1",
@@ -153,4 +156,8 @@ fn a_compaction_summary_cannot_displace_the_anchor_from_the_tail() {
         !assembled[tail..].contains("Earlier conversation summary"),
         "a compaction summary must never be appended after the identity anchor"
     );
+}
+
+fn canary_key() -> CanaryKey {
+    CanaryKey::from_jwt_secret("test-admin-jwt-secret")
 }

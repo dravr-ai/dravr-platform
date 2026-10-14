@@ -356,6 +356,8 @@ struct DispatchStageArgs<'a> {
     /// Per-message history-row ids parallel to `llm_messages` (`None` for the
     /// system prompt), threaded to Tier 1 compaction for id-anchored blocks.
     source_ids: &'a [Option<String>],
+    /// The turn clock, inserted before the athlete's message after compaction.
+    turn_clock: &'a str,
     /// Which guided conversational flow owns this turn, when one does (see
     /// `DispatchLlmInputs::guided_flow`).
     guided_flow: Option<GuidedFlow>,
@@ -384,6 +386,7 @@ async fn dispatch_stage(
             agent_ctx: args.agent_ctx,
             history: args.history,
             source_ids: args.source_ids,
+            turn_clock: args.turn_clock,
             guided_flow: args.guided_flow,
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
@@ -758,6 +761,7 @@ async fn run_turn(
         group_roster,
         intro,
         coach_seat,
+        turn_clock,
     ) = assemble_prompt_stage(AssemblePromptArgs {
         hooks,
         ctx,
@@ -786,6 +790,7 @@ async fn run_turn(
             agent_ctx: agent_ctx.as_ref(),
             history: &history,
             source_ids: &source_ids,
+            turn_clock: &turn_clock,
             guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),

@@ -88,6 +88,8 @@ pub(crate) mod source_attribution;
 pub mod subject_context;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
+/// The turn clock, sent after the cache breakpoints (carnet#895).
+pub mod turn_clock;
 /// Post-turn memory extraction, recorded before it runs
 pub mod turn_extraction;
 /// The unit system the reader writes in (prompt stage 7b.1).
