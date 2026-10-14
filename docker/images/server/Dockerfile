@@ -196,7 +196,12 @@ WORKDIR /app
 # 2026-10-12 deploy of a4840b475, which touched no Docker file, was gated with
 # 154.0.8037.92-1~deb13u1 served from the cached apt layer (step logged CACHED
 # under "apt security epoch: 2026-10-01").
-ARG APT_SECURITY_EPOCH=2026-10-12
+# curl 8.14.1-2+deb13u7 closes CVE-2026-8286 (insecure connection through a TLS
+# configuration mismatch) and CVE-2026-8927 (proxy authentication state left
+# uncleared): six HIGH findings, each CVE once for curl, libcurl3t64-gnutls and
+# libcurl4t64. The 2026-10-14 deploy of a2d6c608d, which touched no Docker
+# file, was gated with deb13u5 installed under "apt security epoch: 2026-10-12".
+ARG APT_SECURITY_EPOCH=2026-10-14
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
