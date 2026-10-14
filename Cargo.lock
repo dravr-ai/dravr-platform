@@ -1706,9 +1706,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.36.0"
+version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93a1741bf1e1038af7b170d1d281361670c1a1caff7dbd80629388f0b01c2c65"
+checksum = "50edcfc23ae0dbe9daa51105d8489d862e7948de9fd660ec6fbee8446ed1bf2d"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1728,9 +1728,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.36.0"
+version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91ab26d38e80fef319949aec4d9095e79f7a8f8d9246ab090b82e9ee7337089b"
+checksum = "49196b97f22a561b2498891645f6145d5e339a4690d9a5426cff7430eb67c4df"
 dependencies = [
  "async-trait",
  "axum",
@@ -2535,7 +2535,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5000,7 +5000,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5038,7 +5038,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
