@@ -136,14 +136,18 @@ pub fn display_title(localized: Option<&str>, canonical: &str) -> Option<String>
 /// It follows whichever directive owns Stage 7g.3 — an ordinary turn, a guided
 /// probe, the release after an interview — so the rest of the reply is still
 /// that directive's. A persona whose first turn starts with tool calls keeps
-/// them first: the sentence opens the text, not the turn.
+/// them first: the sentence opens the text, not the turn. The name is asked
+/// for exactly as written because the ledger recognises the agent by that
+/// string ([`reply_names_agent`]): a reply that renders it in other words
+/// leaves the agent unintroduced, and the directive returns on every turn.
 #[must_use]
 pub fn introduction_directive(title: &str) -> String {
     format!(
         "\nYou have not introduced yourself in this conversation yet. Open the text of this \
          reply with one short sentence introducing yourself as Dravr's {title} and saying what \
-         you help with, then carry on with this turn as the instructions above ask. Any tool \
-         call you need still comes before that sentence."
+         you help with, giving that name exactly as it is written here, then carry on with \
+         this turn as the instructions above ask. Any tool call you need still comes before \
+         that sentence."
     )
 }
 

@@ -129,6 +129,11 @@ fn the_directive_introduces_then_hands_the_reply_back_to_the_turn() {
         "an introduction names the role as well as the name: {directive}"
     );
     assert!(
+        directive.contains("giving that name exactly as it is written here"),
+        "the ledger recognises the agent by its title as written; a reply that renders it \
+         in other words is never recorded and the directive returns every turn: {directive}"
+    );
+    assert!(
         directive.contains("then carry on with this turn as the instructions above ask"),
         "the introduction must never replace the turn's own task — an answer, a guided \
          probe, the release after an interview: {directive}"

@@ -44,10 +44,14 @@ mod live_incident_eval {
     use dravr_canot::channels::slack::transport::SlackTransport;
     use dravr_canot::transport::TransportAdapter;
     use http::HeaderMap;
+    use pierre_chat_pipeline::stages::viz_blocks::granted_visuals;
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
     use pierre_providers::registry::global_registry;
-    use pierre_services::conversation_forge::selected_or_system_agent;
+    use pierre_services::agent_selection::AgentSelectionSource;
+    use pierre_services::conversation_forge::{
+        forge_conversation, selected_or_system_agent, ForgeAgent, ForgeParams, SlotQuota,
+    };
     use serial_test::serial;
     use std::env;
 
@@ -242,6 +246,70 @@ mod live_incident_eval {
             required.contains(&agent.title.to_lowercase().as_str()),
             "the DM's agent «{}» is not a name {required:?} accepts",
             agent.title
+        );
+    }
+
+    /// The fixture's DM must open as an ordinary coaching thread whose coach
+    /// may draw.
+    ///
+    /// The thread is forged exactly as the Slack session forges a fresh DM.
+    /// An athlete with intake outstanding or an empty dossier gets an
+    /// interview on it (intake, then the pillars walk), and an interview owns
+    /// its turns: it withholds the visual contract, so the chart episodes
+    /// grade onboarding instead of the incident. A coach whose `visuals`
+    /// grant is empty is never taught the contract either, and answers
+    /// «je ne peux pas dessiner de graphique ici» on every chart turn.
+    #[tokio::test]
+    #[serial]
+    async fn the_fixtures_dm_is_a_coaching_thread_that_may_draw() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = seed_fixture(&resources).await;
+        let repos = &resources.common.repos;
+        let user_id = fixture.athlete.to_string();
+
+        let conversation_id = forge_conversation(
+            repos,
+            ForgeParams {
+                user_id: &user_id,
+                tenant_id: fixture.athlete_tenant,
+                title_fallback: "DM",
+                model: None,
+                agent: ForgeAgent::Selected,
+                group_id: None,
+                channel_type: "slack",
+                selection_source: AgentSelectionSource::MessagingSession,
+                guided_flow: true,
+                quota: SlotQuota::Exempt,
+            },
+        )
+        .await
+        .unwrap();
+        let conversation = repos
+            .chat
+            .get_conversation(&conversation_id, &user_id, fixture.athlete_tenant)
+            .await
+            .unwrap()
+            .expect("the forged DM exists");
+
+        assert_eq!(
+            conversation.onboarding_state, None,
+            "a fresh fixture DM opened an onboarding interview; every DM episode would \
+             grade the interview instead of the incident"
+        );
+        let agent_id = conversation
+            .agent_id
+            .expect("a DM with no selection falls back to the tenant's system agent");
+        let runtime = repos
+            .agents
+            .get_agent_runtime_context(&agent_id, fixture.athlete_tenant)
+            .await
+            .unwrap()
+            .expect("the bound agent has a runtime context");
+        assert!(
+            granted_visuals(Some(&runtime.visuals)).contains(&"chart".to_owned()),
+            "the DM's coach may not draw a chart (visuals {:?}); the chart episodes would \
+             grade a refusal",
+            runtime.visuals
         );
     }
 

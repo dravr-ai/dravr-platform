@@ -19,19 +19,25 @@
 
 use crate::helpers::sciotte_mock::seed_sciotte_session;
 use chrono::{Duration as ChronoDuration, Utc};
-use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
+use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus, UserTier,
+    ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User, UserStatus,
+    UserTier,
 };
 use pierre_core::permissions::UserRole;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
+use pierre_database::repositories::UpsertUserFactParams;
+use pierre_database::seed_models::SeedAgent;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::intake::{record_steps, STATUS_COMPLETE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -838,6 +844,7 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
             .unwrap();
     }
 
+    seed_onboarded(resources, athlete, tenant).await;
     wire_slack(resources, tenant, athlete, "U_EVAL_JF", "JF").await;
 
     Fixture {
@@ -848,27 +855,96 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     }
 }
 
+/// The tenant's one system agent, «Eval Coach», as the catalogue seeder
+/// writes a coach.
+///
+/// Through the seeder because it is the only writer of `agents.visuals`, and
+/// a NULL grant means the agent is never taught the visual contract — the
+/// chart episodes would then grade a coach that cannot draw. The grant is
+/// the default set every turn without an agent gets. Its title has no
+/// translation overlay, so a French reply is asked for the English name as
+/// written, which is the shape of every coach-authored agent. The slug is in
+/// no prompt registry, so the base prompt falls back to `system_prompt`.
 async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> Uuid {
+    let id = Uuid::new_v4();
+    let now = Utc::now();
     resources
         .common
         .repos
-        .agents
-        .create_system_agent(
+        .seeder
+        .seed_insert_agent(&SeedAgent {
+            id: id.to_string(),
             user_id,
             tenant_id,
-            &CreateSystemAgentRequest {
-                title: "Eval Coach".to_owned(),
-                description: None,
-                system_prompt: "Test prompt".to_owned(),
-                category: AgentCategory::Training,
-                tags: vec![],
-                sample_prompts: vec![],
-                visibility: AgentVisibility::Global,
-            },
-        )
+            title: "Eval Coach".to_owned(),
+            description: String::new(),
+            system_prompt: "Test prompt".to_owned(),
+            category: "training".to_owned(),
+            tags_json: "[]".to_owned(),
+            sample_prompts_json: "[]".to_owned(),
+            token_count: 10,
+            visibility: "global".to_owned(),
+            slug: "eval-coach".to_owned(),
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
+            prerequisites_json: "{}".to_owned(),
+            source_file: None,
+            content_hash: None,
+            startup_query: None,
+            data_requirements: None,
+            visuals: Some(DEFAULT_VISUALS.join(",")),
+            created_at: now,
+            updated_at: now,
+        })
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    id
+}
+
+/// Record the athlete as onboarded, as every athlete the incidents came from
+/// was.
+///
+/// A fresh DM otherwise opens the intake interview and then the pillars
+/// walk, and an interview owns its turns: it withholds the visual contract
+/// and reshapes the reply, so every DM episode would grade onboarding rather
+/// than the incident it replays. Intake ends with both steps complete —
+/// never `not_applicable`, the coach-who-does-not-train answer — and the walk
+/// is skipped once any pillar is covered.
+async fn seed_onboarded(resources: &Arc<ServerContext>, athlete: Uuid, tenant: TenantId) {
+    let repos = &resources.common.repos;
+    let user_id = athlete.to_string();
+    record_steps(
+        repos.user_onboarding.as_ref(),
+        &user_id,
+        Some(&tenant.to_string()),
+        STATUS_COMPLETE,
+        STATUS_COMPLETE,
+    )
+    .await
+    .unwrap();
+    repos
+        .memory
+        .upsert_user_fact(&UpsertUserFactParams {
+            tenant_id: tenant,
+            user_id: &user_id,
+            agent_id: None,
+            scope: MemoryScope::User,
+            kind: FactKind::Preference,
+            pillar: Some(Pillar::TrainingAndMovement),
+            predicate_code: PredicateCode::States,
+            object: "runs three times a week",
+            confidence: 0.9,
+            source: FactSource::Onboarding,
+            valid_until: None,
+            source_msg_id: None,
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap();
 }
 
 /// The activity history behind the corpus.
