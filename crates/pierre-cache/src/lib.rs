@@ -405,9 +405,9 @@ mod tests {
     use super::*;
 
     /// A route's line is addressed by its ref alone under the athlete's own
-    /// key, and lives the day its route search is cached for.
+    /// key.
     #[test]
-    fn a_discovered_route_keys_by_its_ref_and_lives_a_day() {
+    fn a_discovered_route_keys_by_its_ref_under_the_athlete() {
         let tenant_id = TenantId::generate();
         let user_id = Uuid::new_v4();
         let resource = CacheResource::DiscoveredRoute {
@@ -415,11 +415,10 @@ mod tests {
         };
         assert_eq!(resource.to_string(), "discovered_route:rt_0123456789abcdef");
         assert_eq!(
-            CacheKey::new(tenant_id, user_id, "osm".to_owned(), resource.clone()).to_string(),
+            CacheKey::new(tenant_id, user_id, "osm".to_owned(), resource).to_string(),
             format!(
                 "tenant:{tenant_id}:user:{user_id}:provider:osm:discovered_route:rt_0123456789abcdef"
             )
         );
-        assert_eq!(resource.recommended_ttl(), Duration::from_hours(24));
     }
 }

@@ -99,8 +99,6 @@ pub struct ComposedRoute {
     /// Metres the line crosses at each join, one per pair of consecutive
     /// stretches; each is within [`JOIN_TOLERANCE_METERS`].
     pub joins_meters: Vec<f64>,
-    /// Whether the line returns along itself to where it started.
-    pub out_and_back: bool,
 }
 
 /// Why stretches cannot be composed. Each message is a sentence the model
@@ -289,7 +287,6 @@ pub fn compose(
         length_meters: line_meters(&line),
         coordinates: line,
         joins_meters,
-        out_and_back,
     })
 }
 
@@ -620,7 +617,6 @@ mod tests {
         assert_eq!(route.coordinates.len(), first.len() + second.len() - 1);
         assert_near(route.length_meters, 1_500.0, "length");
         assert_eq!(route.joins_meters, vec![0.0]);
-        assert!(!route.out_and_back);
     }
 
     /// Stretches mapped against the walking direction are turned round: the
@@ -735,15 +731,18 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("412 m"), "{message}");
-        assert!(message.contains("30 m"), "{message}");
+        assert!(
+            message.contains(&format!("{JOIN_TOLERANCE_METERS:.0} m a join may bridge")),
+            "{message}"
+        );
     }
 
     /// A pair `meets` accepts at the edge of the tolerance composes: both
     /// measure the pair on one projection. Here the 55 km trail sets the
     /// pair's frame near latitude 46.25 while the join sits at 46.0, so the
-    /// 30.1 great-circle metres to the spur measure under 30 on it — and a
-    /// compose that judged the join by the great circle refused a pair
-    /// discovery had just listed as connected.
+    /// 30.1 great-circle metres to the spur measure under 30 on it. A compose
+    /// that judged the join by the great circle would refuse a pair discovery
+    /// lists as connected.
     #[test]
     fn a_pair_that_meets_at_the_edge_of_the_tolerance_composes() {
         let mut trail = northward(-72.0, 46.0, 55_000.0);
@@ -768,7 +767,6 @@ mod tests {
         let second = northward(-72.0, 46.0 + north(1_000.0), 500.0);
         let one_way = compose(&[stretch("A", &first), stretch("B", &second)], false).unwrap();
         let both = compose(&[stretch("A", &first), stretch("B", &second)], true).unwrap();
-        assert!(both.out_and_back);
         assert_eq!(both.coordinates.len(), one_way.coordinates.len() * 2 - 1);
         assert_eq!(both.coordinates.first(), both.coordinates.last());
         assert_near(both.length_meters, one_way.length_meters * 2.0, "length");
@@ -795,7 +793,9 @@ mod tests {
         let many: Vec<Stretch<'_>> = (0..=MAX_STRETCHES).map(|_| stretch("S", &line)).collect();
         let error = compose(&many, false).unwrap_err();
         assert_eq!(error, ComposeError::TooManyStretches { max: MAX_STRETCHES });
-        assert!(error.to_string().contains("at most 8 stretches"));
+        assert!(error
+            .to_string()
+            .contains(&format!("at most {MAX_STRETCHES} stretches")));
     }
 
     /// The points a composition takes in are bounded over all its stretches:

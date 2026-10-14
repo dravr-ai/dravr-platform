@@ -733,7 +733,6 @@ impl Athlete {
 
     /// Store a stretch the way `discover_routes` does, returning its ref.
     async fn store(&self, name: &str, coordinates: Vec<(f64, f64)>) -> String {
-        let length_meters = north_meters(&coordinates);
         route_store::store_route(
             self.runtime.cache(),
             self.tenant_id,
@@ -741,7 +740,6 @@ impl Athlete {
             &StoredRoute {
                 name: name.to_owned(),
                 coordinates,
-                length_meters,
                 out_and_back: false,
             },
         )
@@ -791,13 +789,6 @@ fn north_line(longitude: f64, south: f64, meters: f64) -> Vec<(f64, f64)> {
             )
         })
         .collect()
-}
-
-/// Length of a line that runs due north, which is all the latitude it gains.
-fn north_meters(line: &[(f64, f64)]) -> f64 {
-    line.windows(2)
-        .map(|pair| (pair[1].0 - pair[0].0).abs() * METERS_PER_DEGREE_OF_LATITUDE)
-        .sum()
 }
 
 fn assert_route_ref(value: &Value) -> &str {
@@ -853,7 +844,6 @@ async fn test_compose_route_joins_two_stretches_that_meet() {
     assert_eq!(stored.name, "Sentier de la Rivière → Ancienne voie ferrée");
     assert!(!stored.out_and_back);
     assert_eq!(stored.coordinates.first(), Some(&(46.0, -72.0)));
-    assert!((stored.length_meters - 1_500.0).abs() < 1.0);
 }
 
 /// Out and back returns along the line: twice the distance, and a route of
@@ -924,7 +914,7 @@ async fn test_compose_route_refuses_an_unknown_ref_by_name() {
 }
 
 /// Stretches that do not meet are refused with the sentence the composer
-/// gives — both names and the width of the gap — and nothing is stored.
+/// gives: both names, the width of the gap and the join tolerance.
 #[tokio::test]
 async fn test_compose_route_refuses_a_gap_naming_both_stretches() {
     let athlete = Athlete::new().await;
@@ -945,7 +935,10 @@ async fn test_compose_route_refuses_a_gap_naming_both_stretches() {
     assert!(
         error.contains("\"Sentier de la Rivière\" and \"Piste du canal\" do not meet")
             && error.contains("412 m")
-            && error.contains("30 m"),
+            && error.contains(&format!(
+                "{:.0} m a join may bridge",
+                route_compose::JOIN_TOLERANCE_METERS
+            )),
         "{error}"
     );
 }
@@ -958,7 +951,8 @@ async fn test_compose_route_refuses_arguments_it_cannot_compose() {
     let riverside = athlete
         .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
         .await;
-    let nine = vec![riverside.clone(); route_compose::MAX_STRETCHES + 1];
+    let too_many = vec![riverside.clone(); route_compose::MAX_STRETCHES + 1];
+    let at_most = format!("at most {} stretches", route_compose::MAX_STRETCHES);
 
     for (args, expected) in [
         (json!({}), "route_refs is required"),
@@ -967,7 +961,7 @@ async fn test_compose_route_refuses_arguments_it_cannot_compose() {
             "route_refs must be an array",
         ),
         (json!({ "route_refs": [] }), "no stretches were given"),
-        (json!({ "route_refs": nine }), "at most 8 stretches"),
+        (json!({ "route_refs": too_many }), at_most.as_str()),
         (json!({ "route_refs": [42] }), "is a route_ref string"),
         (
             json!({ "route_refs": [riverside], "out_and_back": "yes" }),
@@ -1013,7 +1007,6 @@ async fn test_compose_route_over_a_real_capture_keeps_the_discovered_line() {
         &StoredRoute {
             name: route.name.clone(),
             coordinates: line.clone(),
-            length_meters: measured,
             out_and_back: false,
         },
     )
@@ -1083,7 +1076,6 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
         ("Sentier de la Rivière", riverside_line.clone()),
         ("Ancienne voie ferrée", rail_trail_line.clone()),
     ] {
-        let length_meters = north_meters(&coordinates);
         refs.push(
             route_store::store_route(
                 runtime.cache(),
@@ -1092,7 +1084,6 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
                 &StoredRoute {
                     name: name.to_owned(),
                     coordinates,
-                    length_meters,
                     out_and_back: false,
                 },
             )

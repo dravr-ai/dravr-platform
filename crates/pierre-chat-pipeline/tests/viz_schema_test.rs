@@ -283,10 +283,10 @@ fn generated_contract_states_the_points_minimum() {
 }
 
 /// The route arm's top-level `required` is only `type` and `source_tool`: the
-/// id that names the line sits in the arm's own `oneOf`. A contract that read
-/// only the top level told the agent `required: type, source_tool` and never
-/// that a route needs an `activity_id` or a `route_ref`, nor that `highlight`
-/// belongs to the first alone.
+/// id that names the line sits in the arm's own `oneOf`. A contract reading
+/// only the top level would tell the agent `required: type, source_tool` and
+/// never that a route needs an `activity_id` or a `route_ref`, nor that
+/// `highlight` belongs to the first alone.
 #[test]
 fn generated_contract_states_the_route_alternatives() {
     let mut schemas = SchemaTexts::new();
@@ -315,7 +315,7 @@ fn generated_contract_states_the_route_alternatives() {
         "the enum line still stands: {route}"
     );
 
-    // An arm with no alternation of its own reads exactly as it did.
+    // An arm with no alternation or pattern of its own states neither.
     for kind in ["chart", "table"] {
         let arm = contract
             .split(&format!("**`{kind}`**"))

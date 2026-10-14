@@ -220,8 +220,8 @@ pub async fn repair_refused_blocks(
 ///
 /// The top-level `required` is only half of what a block must carry when an
 /// arm says "one of these, never both": a route names an `activity_id` or a
-/// `route_ref`, and a contract that printed `required: type, source_tool`
-/// alone told the agent neither existed. So the alternation is stated as one
+/// `route_ref`, and a contract printing `required: type, source_tool` alone
+/// would tell the agent neither exists. So the alternation is stated as one
 /// line, and a property some alternatives forbid is tied to the ones that
 /// allow it (`highlight` belongs to a recorded activity only). Generic: any
 /// arm whose `oneOf` is all required-sets reads the same way, and an arm whose

@@ -39,8 +39,6 @@ pub struct StoredRoute {
     /// `(latitude, longitude)` in degrees, in walking order, the way back
     /// included for an out-and-back.
     pub coordinates: Vec<(f64, f64)>,
-    /// Length of `coordinates` in metres.
-    pub length_meters: f64,
     /// Whether the line returns along itself to its start. Part of the
     /// reference, so a route and its out-and-back are stored apart.
     pub out_and_back: bool,
@@ -130,7 +128,6 @@ mod tests {
                 (45.871, -74.081),
                 (45.872, -74.08),
             ],
-            length_meters: 236.4,
             out_and_back: false,
         }
     }

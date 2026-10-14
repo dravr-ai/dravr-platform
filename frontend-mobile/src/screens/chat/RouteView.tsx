@@ -368,9 +368,10 @@ function MapControlBar({
  * or a proposed route's `route_ref`, and the platform read the line itself —
  * so everything here is presentation: a basemap in the athlete's scheme, the
  * line over it, and the numbers underneath in words a screen reader can read,
- * which the canvas itself can never be. The one difference between the two is
- * what the map is called ({@link routeLabel}): a proposed line has no climbs
- * and no recording behind it.
+ * which the canvas itself can never be. What differs between the two is what
+ * the map is called ({@link routeLabel}) and what it says when there is no
+ * line ({@link routeMissingText}): a proposed line has no climbs and no
+ * recording behind it.
  */
 export default function RouteView({
   route,

@@ -408,8 +408,8 @@ fn decode_streams(response: UniversalResponse) -> Result<TimeSeriesData, String>
 /// does not declare: `coordinates`, `distances_meters` when the line is
 /// measured, `elevation_meters` when it carries a vertical, and `climbs`. The
 /// extent is not among them — photograveur frames the line itself, checking
-/// every point as it does; a block that carried `bounds` was dropped at
-/// resolution and the athlete got the prose alone.
+/// every point as it does; a block carrying `bounds` would be dropped at
+/// resolution, leaving the athlete the prose alone.
 ///
 /// `climbs` is empty unless the block asked for them, and always empty on a
 /// proposed route, whose public line has no vertical to find a climb in. The
@@ -438,42 +438,47 @@ pub fn hydrate_route(block: &mut Value, tracks: &RouteTracks) -> Result<(), Stri
         }
     };
     let marks_climbs = fields.get("highlight").and_then(Value::as_str) == Some(HIGHLIGHT_CLIMBS);
-    let Some(geometry) = route_geometry(track, marks_climbs) else {
-        return Err(format!(
-            "{subject}'s line could not be encoded for the renderer"
-        ));
-    };
+    let geometry = route_geometry(track, marks_climbs).map_err(|e| {
+        warn!(error = %e, %subject, "viz-blocks: a read line did not encode for the renderer");
+        format!("{subject}'s line could not be encoded for the renderer")
+    })?;
     fields.extend(geometry);
     Ok(())
 }
 
-/// The geometry fields a hydrated route block carries, or `None` when one of
-/// them does not encode.
-fn route_geometry(track: &RouteTrack, marks_climbs: bool) -> Option<Map<String, Value>> {
+/// The geometry fields a hydrated route block carries.
+///
+/// # Errors
+///
+/// Returns the encoding error of the first field that does not encode.
+fn route_geometry(
+    track: &RouteTrack,
+    marks_climbs: bool,
+) -> Result<Map<String, Value>, serde_json::Error> {
     let mut geometry = Map::new();
     geometry.insert(
         "coordinates".to_owned(),
-        serde_json::to_value(&track.coordinates).ok()?,
+        serde_json::to_value(&track.coordinates)?,
     );
     if let Some(elevations) = &track.elevation_meters {
         geometry.insert(
             "elevation_meters".to_owned(),
-            serde_json::to_value(elevations).ok()?,
+            serde_json::to_value(elevations)?,
         );
     }
     if let Some(distances) = &track.distances_meters {
         geometry.insert(
             "distances_meters".to_owned(),
-            serde_json::to_value(distances).ok()?,
+            serde_json::to_value(distances)?,
         );
     }
     let climbs = if marks_climbs {
-        serde_json::to_value(&track.climbs).ok()?
+        serde_json::to_value(&track.climbs)?
     } else {
         Value::Array(Vec::new())
     };
     geometry.insert("climbs".to_owned(), climbs);
-    Some(geometry)
+    Ok(geometry)
 }
 
 #[cfg(test)]
@@ -503,7 +508,6 @@ mod tests {
                 (45.495_9, -73.563_8),
                 (45.494_1, -73.569_9),
             ],
-            length_meters: 1_330.0,
             out_and_back: false,
         }
     }

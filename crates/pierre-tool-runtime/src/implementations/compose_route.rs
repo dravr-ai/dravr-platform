@@ -213,7 +213,6 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
                         .collect::<Vec<_>>()
                         .join(STRETCH_NAME_SEPARATOR),
                     coordinates: composed.coordinates,
-                    length_meters: composed.length_meters,
                     out_and_back,
                 },
             )

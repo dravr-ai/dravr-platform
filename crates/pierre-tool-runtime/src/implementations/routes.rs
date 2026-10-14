@@ -579,13 +579,10 @@ async fn store_line(
     user_id: Uuid,
     route: &DiscoveredRoute,
 ) -> Option<String> {
-    let (Some(line), Some(length_meters)) = (route.geometry.as_ref(), route.distance_meters) else {
-        return None;
-    };
+    let line = route.geometry.as_ref()?;
     let stored = StoredRoute {
         name: route.name.clone(),
         coordinates: line.clone(),
-        length_meters,
         out_and_back: false,
     };
     match route_store::store_route(cache, tenant_id, user_id, &stored).await {
@@ -814,7 +811,6 @@ mod tests {
                 StoredRoute {
                     name: route.name.clone(),
                     coordinates: line.clone(),
-                    length_meters: route.distance_meters.unwrap(),
                     out_and_back: false,
                 }
             );
