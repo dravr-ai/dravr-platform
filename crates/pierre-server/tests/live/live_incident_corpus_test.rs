@@ -118,15 +118,16 @@ mod live_incident_corpus;
 use crate::common::{create_test_server_resources_with_real_chat_provider, PLACEHOLDER_LLM_MODEL};
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::live_incident_corpus::{
-    athlete_run_metres, classify_findings, days_since_sunday, ground_truth, seed_fixture,
-    turn_timeout, Classified, Expect, Finding, Fixture, ATHLETE_RUN_DAYS, CORPUS, FIXTURE_WEEKS,
-    SIGNING_SECRET, SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
+    athlete_runs, classify_findings, days_since_sunday, ground_truth, seed_fixture, turn_timeout,
+    Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
+    SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use hmac::{Hmac, Mac};
+use pierre_chat_pipeline::stages::introduction::reply_names_agent;
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_llm::config::LlmChain;
@@ -280,24 +281,17 @@ async fn spawn_eval_scraper() -> String {
         "provider": "strava",
         "distance_meters": SUNDAY_RIDE_KM * 1_000.0,
     })];
-    let sunday_offset = days_since_sunday();
-    for week in 0..FIXTURE_WEEKS {
-        for day in ATHLETE_RUN_DAYS {
-            let offset = week * 7 + day;
-            if offset % 7 == sunday_offset % 7 {
-                continue;
-            }
-            activities.push(json!({
-                "id": format!("eval-run-{week}-{day}"),
-                "name": "Course",
-                "sport_type": "run",
-                "start_date": (Utc::now() - ChronoDuration::days(offset))
-                    .format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-                "duration_seconds": 3_600 + (day as u64 * 600),
-                "provider": "strava",
-                "distance_meters": athlete_run_metres(day),
-            }));
-        }
+    for run in athlete_runs() {
+        activities.push(json!({
+            "id": run.id,
+            "name": SEEDED_RUN_NAME,
+            "sport_type": "run",
+            "start_date": (Utc::now() - ChronoDuration::days(run.days_ago))
+                .format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "duration_seconds": run.seconds,
+            "provider": "strava",
+            "distance_meters": run.metres,
+        }));
     }
     let count = activities.len();
     let payload = json!({ "count": count, "activities": activities, "head_complete": true });
@@ -636,6 +630,10 @@ async fn check(
             .iter()
             .any(|needle| lower.contains(&needle.to_lowercase())))
         .then(|| format!("delivered body contains none of {wanted:?}")),
+        Expect::NamesAgent(title) => (!reply_names_agent(&delivered.body, title))
+            .then(|| format!("the reply's opening does not name the agent «{title}»")),
+        Expect::DoesNotNameAgent(title) => reply_names_agent(&delivered.body, title)
+            .then(|| format!("the reply's opening names the agent «{title}» again")),
         Expect::ChartDelivered => {
             let has_chart = delivered
                 .blocks

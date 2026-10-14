@@ -846,6 +846,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // platform baseline rather than "no visuals". A group chat binds no agent —
     // the platform is answering — and treating that as an empty grant withheld
     // the contract entirely, leaving the model to report it had no way to draw.
+    //
+    // LIMITATION(registre#1008): `visual_contract_active` is false while an onboarding interview owns the turn, so a chart asked for mid-interview is answered in prose.
     let visual_contract_active = !interview_owns_turn
         && (profile.render.blocks.scene_inline || profile.render.blocks.scene_raster)
         && !viz_blocks::granted_visuals(agent_ctx.map(|c| c.visuals.as_slice())).is_empty();

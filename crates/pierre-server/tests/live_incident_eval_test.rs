@@ -37,10 +37,10 @@ mod live_incident_corpus;
 mod live_incident_eval {
     use crate::common::create_test_server_resources;
     use crate::live_incident_corpus::{
-        athlete_run_metres, classify_findings, ground_truth, km_range, peer_run_metres,
-        seed_fixture, turn_timeout, Expect, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS,
-        PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
+        athlete_runs, classify_findings, ground_truth, peer_runs, seed_fixture, turn_timeout,
+        Expect, Finding, CORPUS, PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
+    use chrono::{Duration as ChronoDuration, Utc};
     use dravr_canot::channels::slack::transport::SlackTransport;
     use dravr_canot::transport::TransportAdapter;
     use http::HeaderMap;
@@ -80,35 +80,68 @@ mod live_incident_eval {
         );
     }
 
-    /// The ground truth's stated distance ranges must be the ones the fixture
-    /// seeds — endpoints a day actually produces, not a formula's intercept.
+    /// The ground truth must date every run the fixture seeds, with the
+    /// distance it carries.
     ///
-    /// The same class as the pace guard and for the same reason: a range stated
-    /// wider than the data widens the band the judge accepts, so a figure the
-    /// agent invented lands inside it and is graded honest. The peer's runs are
-    /// `day * 1.5 km + 7 km` over days 2 and 4 — 10 km and 13 km. "7 km" is the
-    /// intercept, a value no seeded day carries.
+    /// The same class as the pace guard and for the same reason: evidence that
+    /// is vaguer than the data makes the judge wrong in one direction or the
+    /// other. Shown ranges with no dates, it graded the agent's correct
+    /// «12 km en 1h10 hier» for JF as invented, because nothing it was shown
+    /// put a run of JF's on yesterday — a finding about the evidence, filed
+    /// against the model.
     #[test]
-    fn the_stated_run_distances_match_the_seeded_activities() {
-        let athlete = km_range(&ATHLETE_RUN_DAYS, athlete_run_metres);
-        let peer = km_range(&PEER_RUN_DAYS, peer_run_metres);
-        assert_eq!(
-            athlete, "12-20",
-            "the athlete's seeded runs span {athlete} km, not 12-20"
-        );
-        assert_eq!(
-            peer, "10-13",
-            "the peer's seeded runs span {peer} km, not 10-13"
-        );
-
+    fn the_ground_truth_dates_every_seeded_run() {
         let evidence = ground_truth();
+        for (who, runs) in [
+            ("Athlete JF", athlete_runs()),
+            ("Peer Philippe Tremblay", peer_runs()),
+        ] {
+            for run in runs {
+                let date = (Utc::now() - ChronoDuration::days(run.days_ago))
+                    .format("%Y-%m-%d")
+                    .to_string();
+                let km = run.metres / 1_000.0;
+                assert!(
+                    evidence.lines().any(|line| line.starts_with(who)
+                        && line.contains(&date)
+                        && line.contains(&format!(" {km} km in "))),
+                    "the ground truth has no line for {who}'s {km} km run on {date} \
+                     ({}):\n{evidence}",
+                    run.id
+                );
+            }
+        }
+    }
+
+    /// The facts the judge got wrong are stated in its evidence: JF's run
+    /// yesterday (12 km in 1h10, on every day but a Monday, whose yesterday
+    /// is the Sunday the fixture keeps for the ride twin), and Philippe's run
+    /// yesterday, 6.1 km at [`PEER_RUN_PACE`].
+    #[test]
+    fn the_ground_truth_states_yesterdays_runs() {
+        let evidence = ground_truth();
+        let yesterday: Vec<&str> = evidence
+            .lines()
+            .filter(|line| line.contains(", yesterday, "))
+            .collect();
+        let jf_yesterday = athlete_runs().into_iter().find(|run| run.days_ago == 1);
+        if let Some(run) = jf_yesterday {
+            assert_eq!((run.metres, run.seconds), (12_000.0, 4_200));
+            assert!(
+                yesterday
+                    .iter()
+                    .any(|line| line.starts_with("Athlete JF") && line.contains(" 12 km in 1h10 ")),
+                "JF's seeded run yesterday (12 km, 4200 s) is not in the evidence: {yesterday:?}"
+            );
+        }
         assert!(
-            evidence.contains(&format!("runs of {athlete} km on")),
-            "the ground truth does not state the athlete's seeded {athlete} km range:\n{evidence}"
-        );
-        assert!(
-            evidence.contains(&format!("runs of {peer} km")),
-            "the ground truth does not state the peer's seeded {peer} km range:\n{evidence}"
+            yesterday
+                .iter()
+                .any(|line| line.starts_with("Peer Philippe Tremblay")
+                    && line.contains(" 6.1 km in 0h53 ")
+                    && line.contains(PEER_RUN_PACE)),
+            "Philippe's seeded run yesterday (6.1 km, {PEER_RUN_SECONDS} s, {PEER_RUN_PACE}) \
+             is not in the evidence: {yesterday:?}"
         );
     }
 
@@ -117,7 +150,7 @@ mod live_incident_eval {
     /// Every direct-message episode in a pass shares one conversation, and the
     /// agent introduces itself only until a reply there has named it. An
     /// episode moved above this one would take the introduction, and this
-    /// episode's gating `AnyOf(["eval coach"])` would then red the nightly lane
+    /// episode's gating `NamesAgent(EVAL_COACH_TITLE)` would then red the nightly lane
     /// on a correct pipeline.
     #[test]
     fn the_introduction_episode_opens_the_direct_message() {
@@ -236,15 +269,14 @@ mod live_incident_eval {
             .and_then(|episode| episode.turns.first())
             .and_then(|turn| {
                 turn.expect.iter().find_map(|expect| match expect {
-                    Expect::AnyOf(names) => Some(*names),
+                    Expect::NamesAgent(title) => Some(*title),
                     _ => None,
                 })
             })
             .expect("the introduction episode names the coach it must hear");
-        assert_eq!(agent.title, "Eval Coach");
-        assert!(
-            required.contains(&agent.title.to_lowercase().as_str()),
-            "the DM's agent «{}» is not a name {required:?} accepts",
+        assert_eq!(
+            agent.title, required,
+            "the DM is bound to «{}» but the introduction episode listens for «{required}»",
             agent.title
         );
     }

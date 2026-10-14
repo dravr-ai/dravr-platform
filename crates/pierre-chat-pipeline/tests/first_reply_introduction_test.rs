@@ -219,6 +219,40 @@ fn a_reply_opening_on_the_agents_name_introduced_it() {
         ),
         "case and punctuation are not what makes a name"
     );
+    assert!(
+        reply_names_agent(
+            "Je suis le Coach Eval de Dravr, là pour t'aider à lire ton entraînement.",
+            "Eval Coach"
+        ),
+        "a French reply puts the qualifier after the noun (live lane, 2026-10-14); the \
+         ledger that misses it asks for the introduction again on every turn"
+    );
+}
+
+#[test]
+fn every_word_of_the_title_must_be_spoken() {
+    assert!(
+        !reply_names_agent(
+            "Je suis ton coach de Dravr, là pour t'aider à lire ton entraînement.",
+            "Eval Coach"
+        ),
+        "half a name is not the name: «coach» alone does not introduce «Eval Coach»"
+    );
+    assert!(
+        !reply_names_agent(
+            "Je suis le coach d'évaluation de Dravr, là pour t'aider.",
+            "Eval Coach"
+        ),
+        "a translated name is not the name the athlete will see on the agent"
+    );
+    assert!(
+        !reply_names_agent(
+            "Ton coach ici, parlons de ta nutrition cette semaine.",
+            "Nutrition Coach"
+        ),
+        "the title's words scattered through the opening never named the agent; recorded as \
+         an introduction, it would never be asked for again"
+    );
 }
 
 #[test]

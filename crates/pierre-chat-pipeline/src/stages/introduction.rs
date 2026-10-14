@@ -154,7 +154,13 @@ pub fn introduction_directive(title: &str) -> String {
 /// Whether the opening of `reply` names the agent titled `title`.
 ///
 /// Compared on letters and digits alone, case-folded, so « l'Agent
-/// Semi Marathon » names « Agent Semi-Marathon ».
+/// Semi Marathon » names « Agent Semi-Marathon ». The title's words may
+/// also come in any order, side by side: a French reply puts the qualifier
+/// after the noun, and « le Coach Eval de Dravr » names « Eval Coach »
+/// exactly as the athlete reads it. Words scattered through the opening do
+/// not — « ton coach… ta nutrition » never named « Nutrition Coach » — and
+/// a false introduction is the costlier miss, because it is recorded for
+/// good and the agent is never introduced at all.
 #[must_use]
 pub fn reply_names_agent(reply: &str, title: &str) -> bool {
     let wanted = fold(title);
@@ -162,7 +168,26 @@ pub fn reply_names_agent(reply: &str, title: &str) -> bool {
         return false;
     }
     let opening: String = reply.chars().take(OPENING_WINDOW_CHARS).collect();
-    fold(&opening).contains(&wanted)
+    if fold(&opening).contains(&wanted) {
+        return true;
+    }
+    let mut wanted_words = folded_words(title);
+    wanted_words.sort_unstable();
+    folded_words(&opening)
+        .windows(wanted_words.len())
+        .any(|window| {
+            let mut spoken = window.to_vec();
+            spoken.sort_unstable();
+            spoken == wanted_words
+        })
+}
+
+/// `text`'s words, case-folded, split on anything not a letter or a digit.
+fn folded_words(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect()
 }
 
 /// The introduction this turn's reply is asked to open with, or `None`.

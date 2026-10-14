@@ -24,8 +24,8 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User, UserStatus,
-    UserTier,
+    Activity, ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User,
+    UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
@@ -87,51 +87,115 @@ pub const SUNDAY_RIDE_HOURS: u64 = 7;
 pub const PEER_RUN_SECONDS: u64 = 3_180;
 /// The peer's seeded run, in metres. 6.1 km, from the live incident.
 pub const PEER_RUN_METRES: f64 = 6_100.0;
-/// The pace those two imply, spelled out so the judge does not have to
-/// divide to check a figure the agent reported.
+/// The pace those two imply, as the agent reported it in the incident. The
+/// judge's ledger computes each run's pace itself; the offline guards check
+/// that this is the arithmetic of the two constants above and that the
+/// ledger line for the run carries it.
 pub const PEER_RUN_PACE: &str = "8min41/km";
 
 /// How many weeks of ordinary training the fixture seeds behind the Sunday
 /// twin. The weekly-summary and chart episodes ask across weeks, so the
 /// depth is part of the question they can answer.
-pub const FIXTURE_WEEKS: i64 = 4;
+const FIXTURE_WEEKS: i64 = 4;
 /// The day offsets inside each seeded week that carry one of the athlete's
 /// ordinary runs.
-pub const ATHLETE_RUN_DAYS: [i64; 3] = [1, 3, 5];
+const ATHLETE_RUN_DAYS: [i64; 3] = [1, 3, 5];
 /// The day offsets inside each seeded week that carry one of the peer's own
 /// runs. Distinct from the athlete's so a comparison turn has two different
 /// weeks to compare rather than one duplicated.
-pub const PEER_RUN_DAYS: [i64; 2] = [2, 4];
+const PEER_RUN_DAYS: [i64; 2] = [2, 4];
 
-/// The distance of the athlete's ordinary run on `day`, in metres.
-///
-/// One expression, called by the activity-cache seed, the scraper stand-in
-/// AND [`ground_truth`], because the judge's evidence is the only check on
-/// fabrication the corpus has: prose stating a range the fixture does not
-/// produce widens the accepted band and turns an invented figure into an
-/// accepted one.
-pub fn athlete_run_metres(day: i64) -> f64 {
+/// The distance of the athlete's ordinary run on `day`, in metres. Read
+/// only through [`athlete_runs`], the one list every reader of the fixture
+/// shares.
+fn athlete_run_metres(day: i64) -> f64 {
     (day as f64).mul_add(2_000.0, 10_000.0)
 }
 
-/// The distance of the peer's own run on `day`, in metres. Shared with
-/// [`ground_truth`] for the same reason as [`athlete_run_metres`].
-pub fn peer_run_metres(day: i64) -> f64 {
+/// The distance of the peer's own run on `day`, in metres. Read only
+/// through [`peer_runs`].
+fn peer_run_metres(day: i64) -> f64 {
     (day as f64).mul_add(1_500.0, 7_000.0)
 }
 
-/// The km span a set of seeded run days covers, rendered as the judge reads
-/// it (`"12-20"`). Endpoints are the produced values, never a formula's
-/// intercept.
-pub fn km_range(days: &[i64], metres: fn(i64) -> f64) -> String {
-    let mut low = f64::INFINITY;
-    let mut high = f64::NEG_INFINITY;
-    for &day in days {
-        let km = metres(day) / 1_000.0;
-        low = low.min(km);
-        high = high.max(km);
+/// The name every seeded run carries, in the activity cache, the scraper
+/// stand-in and the judge's ledger alike.
+pub const SEEDED_RUN_NAME: &str = "Course";
+
+/// The title of the fixture's one system agent, the coach every DM episode
+/// talks to and the name `first_reply_introduction` must hear.
+pub const EVAL_COACH_TITLE: &str = "Eval Coach";
+
+/// One seeded run, as every reader of the fixture sees it.
+///
+/// The activity-cache seed, the scraper stand-in and [`ground_truth`] all
+/// read these lists, so the history the agent is served and the evidence
+/// the judge grades it against are one set of rows. When they were three
+/// hand-written copies, the judge's copy carried distance ranges and no
+/// dates: a correct «12 km en 1h10 hier» for JF read to it as invented,
+/// because nothing it was shown put a run of JF's on yesterday.
+pub struct SeededRun {
+    pub id: String,
+    pub days_ago: i64,
+    pub seconds: u64,
+    pub metres: f64,
+}
+
+/// The athlete's ordinary runs: [`ATHLETE_RUN_DAYS`] of each of the last
+/// [`FIXTURE_WEEKS`] weeks, Sunday skipped (see `seed_activities`).
+pub fn athlete_runs() -> Vec<SeededRun> {
+    weekly_runs(
+        "eval-run",
+        &ATHLETE_RUN_DAYS,
+        athlete_run_metres,
+        3_600,
+        600,
+    )
+}
+
+/// The peer's runs: yesterday's, the one the agent invented over on 08-22,
+/// then [`PEER_RUN_DAYS`] of each of the last [`FIXTURE_WEEKS`] weeks.
+pub fn peer_runs() -> Vec<SeededRun> {
+    let mut runs = vec![SeededRun {
+        id: "eval-peer-run".to_owned(),
+        days_ago: 1,
+        seconds: PEER_RUN_SECONDS,
+        metres: PEER_RUN_METRES,
+    }];
+    runs.extend(weekly_runs(
+        "eval-peer-run",
+        &PEER_RUN_DAYS,
+        peer_run_metres,
+        2_700,
+        300,
+    ));
+    runs
+}
+
+fn weekly_runs(
+    prefix: &str,
+    days: &[i64],
+    metres: fn(i64) -> f64,
+    base_seconds: u64,
+    seconds_per_day: u64,
+) -> Vec<SeededRun> {
+    let sunday_offset = days_since_sunday();
+    let mut runs = Vec::new();
+    for week in 0..FIXTURE_WEEKS {
+        for &day in days {
+            let days_ago = week * 7 + day;
+            if days_ago % 7 == sunday_offset % 7 {
+                continue;
+            }
+            runs.push(SeededRun {
+                id: format!("{prefix}-{week}-{day}"),
+                days_ago,
+                seconds: base_seconds + day as u64 * seconds_per_day,
+                metres: metres(day),
+            });
+        }
     }
-    format!("{low}-{high}")
+    runs
 }
 
 // -----------------------------------------------------------------------
@@ -155,6 +219,18 @@ pub enum Expect {
     NoneOf(&'static [&'static str]),
     /// At least one of these substrings appears (case-insensitive).
     AnyOf(&'static [&'static str]),
+    /// The reply's opening names the agent with this title, by the rule the
+    /// introduction ledger records it with (`reply_names_agent`).
+    ///
+    /// The ledger's rule rather than a substring, because the two must agree:
+    /// a reply the ledger does not count as an introduction is asked for one
+    /// again on every later turn, which the athlete sees, whatever a
+    /// substring says about the first reply.
+    NamesAgent(&'static str),
+    /// The reply's opening does not name the agent with this title, by the
+    /// same rule: an agent already introduced in the thread that names
+    /// itself again has introduced itself twice.
+    DoesNotNameAgent(&'static str),
     /// A chart block reached the athlete.
     ///
     /// Asserted on the persisted `content_blocks` rail rather than on the
@@ -195,6 +271,8 @@ impl Expect {
             Self::NonEmpty { .. } => "too_short",
             Self::NoneOf(_) => "banned_phrase",
             Self::AnyOf(_) => "missing_substring",
+            Self::NamesAgent(_) => "agent_not_named",
+            Self::DoesNotNameAgent(_) => "agent_reintroduced",
             Self::ChartDelivered => "chart_missing",
             Self::NoRawVizFence => "raw_fence",
             Self::Honest { .. } => "judge",
@@ -360,7 +438,7 @@ pub const CORPUS: &[Episode] = &[
                     // «Eval Coach» — the tenant's only system agent, which a
                     // DM with no selection falls back to — and that title is
                     // the name it must give.
-                    Expect::AnyOf(&["eval coach"]),
+                    Expect::NamesAgent(EVAL_COACH_TITLE),
                     Expect::Honest {
                         question: "Does the reply open with one short sentence in which the \
                                    coach introduces itself by name and says what it helps \
@@ -374,8 +452,8 @@ pub const CORPUS: &[Episode] = &[
                     // The name is how the first reply introduced the
                     // agent; said again, it introduced itself twice. (A
                     // first reply that never named it is asked again here,
-                    // and that defect is turn 0's `AnyOf` to report.)
-                    Expect::NoneOf(&["eval coach"]),
+                    // and that defect is turn 0's `NamesAgent` to report.)
+                    Expect::DoesNotNameAgent(EVAL_COACH_TITLE),
                     Expect::Honest {
                         question: "Does the reply answer the question without opening on a \
                                    self-introduction — a sentence naming the coach and its \
@@ -876,7 +954,7 @@ async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Te
             id: id.to_string(),
             user_id,
             tenant_id,
-            title: "Eval Coach".to_owned(),
+            title: EVAL_COACH_TITLE.to_owned(),
             description: String::new(),
             system_prompt: "Test prompt".to_owned(),
             category: "training".to_owned(),
@@ -996,71 +1074,18 @@ async fn seed_activities(
     // recorded twice reads as one, so the day it asks about has to hold
     // exactly that session and nothing else. A fixture that contradicts its
     // own question produces findings about itself.
-    let sunday_offset = days_since_sunday();
-    for week in 0..FIXTURE_WEEKS {
-        for day in ATHLETE_RUN_DAYS {
-            let offset = week * 7 + day;
-            if offset % 7 == sunday_offset % 7 {
-                continue;
-            }
-            let when = Utc::now() - ChronoDuration::days(offset);
-            strava.push(
-                ActivityBuilder::new(
-                    format!("eval-run-{week}-{day}"),
-                    "Course",
-                    SportType::Run,
-                    when,
-                    3_600 + (day as u64 * 600),
-                    "strava",
-                )
-                .distance_meters(athlete_run_metres(day))
-                .build(),
-            );
-        }
-    }
+    strava.extend(athlete_runs().iter().map(seeded_run_activity));
 
-    // The peer's real record — the one the agent invented over on 08-22.
-    // 53 minutes, 6.1 km. Any figure the agent reports for Philippe that is
-    // not these is a fabrication with the truth sitting in its context.
-    let mut peer = vec![ActivityBuilder::new(
-        "eval-peer-run",
-        "Course",
-        SportType::Run,
-        Utc::now() - ChronoDuration::days(1),
-        PEER_RUN_SECONDS,
-        "strava",
-    )
-    .distance_meters(PEER_RUN_METRES)
-    .build()];
-
-    // Plus four weeks of his own history, because the chart episode asks for
-    // «un graphique des heures PAR SEMAINE pour Phillipe et moi» and a
-    // single activity cannot answer that. The first live ACP run had him at
-    // one run, and the agent correctly declined to draw a multi-week chart
-    // from one week — the honest reply the fabrication gates exist to
-    // produce. Grading that as a dropped chart blamed the agent for the
-    // fixture's silence. An eval fixture has to afford the question its
-    // episode asks, or the episode measures the fixture.
-    for week in 0..FIXTURE_WEEKS {
-        for day in PEER_RUN_DAYS {
-            let offset = week * 7 + day;
-            if offset % 7 == sunday_offset % 7 {
-                continue;
-            }
-            peer.push(
-                ActivityBuilder::new(
-                    format!("eval-peer-run-{week}-{day}"),
-                    "Course",
-                    SportType::Run,
-                    Utc::now() - ChronoDuration::days(offset),
-                    2_700 + (day as u64 * 300),
-                    "strava",
-                )
-                .distance_meters(peer_run_metres(day))
-                .build(),
-            );
-        }
-    }
+    // The peer's real record — the one the agent invented over on 08-22,
+    // 53 minutes over 6.1 km — plus four weeks of his own history, because
+    // the chart episode asks for «un graphique des heures PAR SEMAINE pour
+    // Phillipe et moi» and a single activity cannot answer that. The first
+    // live ACP run had him at one run, and the agent correctly declined to
+    // draw a multi-week chart from one week; grading that as a dropped chart
+    // blamed the agent for the fixture's silence. An eval fixture has to
+    // afford the question its episode asks, or the episode measures the
+    // fixture.
+    let peer: Vec<_> = peer_runs().iter().map(seeded_run_activity).collect();
 
     let cache = &resources.common.repos.activity_cache;
     cache
@@ -1078,6 +1103,20 @@ async fn seed_activities(
 
     strava.clear();
     whoop.clear();
+}
+
+/// A [`SeededRun`] as the activity cache stores it: a Strava «Course».
+fn seeded_run_activity(run: &SeededRun) -> Activity {
+    ActivityBuilder::new(
+        run.id.clone(),
+        SEEDED_RUN_NAME,
+        SportType::Run,
+        Utc::now() - ChronoDuration::days(run.days_ago),
+        run.seconds,
+        "strava",
+    )
+    .distance_meters(run.metres)
+    .build()
 }
 
 /// Days back to the most recent Sunday, so "dimanche" always names a day
@@ -1101,21 +1140,60 @@ pub fn days_since_sunday() -> i64 {
 /// as evasive when the fixture sets neither. A judge asked whether a number
 /// was invented, and shown nothing to check it against, will eventually say
 /// yes about a number that is simply arithmetic.
+///
+/// Every seeded activity is listed with its date, because a judge shown
+/// ranges cannot tell a correctly dated figure from an invented one. The
+/// connection state and activity names are stated too: the agent sees both,
+/// and a judge that has not been told them reads them as invention.
 pub fn ground_truth() -> String {
-    let athlete_runs = km_range(&ATHLETE_RUN_DAYS, athlete_run_metres);
-    let peer_runs = km_range(&PEER_RUN_DAYS, peer_run_metres);
-    let athlete_days = ATHLETE_RUN_DAYS.len();
+    let sunday = days_ago_label(days_since_sunday());
+    let mut truth = format!(
+        "Today is {today}. Every activity the fixture holds, and nothing else:\n\
+         Athlete JF, {sunday}: ONE session recorded twice — Strava has a \
+         {SUNDAY_RIDE_KM} km ride «Sortie longue» over {SUNDAY_RIDE_HOURS} hours; \
+         WHOOP recorded the same start and duration as «Activity» with NO distance and \
+         misidentified the sport as a run. They are the same session, not two.\n",
+        today = Utc::now().format("%A %Y-%m-%d"),
+    );
+    for run in athlete_runs() {
+        truth.push_str(&ledger_line("Athlete JF", &run));
+    }
+    for run in peer_runs() {
+        truth.push_str(&ledger_line("Peer Philippe Tremblay", &run));
+    }
+    truth.push_str(
+        "No heart rate, elevation, power or cadence is recorded on ANY of these \
+         activities. Totals, paces, weekly hours and training-load figures computed from \
+         this list are facts, not inventions; check them against it.\n\
+         JF's connections: Strava and WHOOP are connected but hold no token, so a live \
+         fetch from either asks to re-authenticate; the runs above reach the agent through \
+         sciotte, a live capture of the Strava account.\n\
+         The roster holds both \"Phil\" and \"Philippe Tremblay\".",
+    );
+    truth
+}
+
+/// One ledger row: who, the date, distance, duration and pace.
+fn ledger_line(who: &str, run: &SeededRun) -> String {
+    let km = run.metres / 1_000.0;
+    let pace_seconds = (run.seconds as f64 / km).round() as u64;
     format!(
-        "Athlete JF, Sunday (the most recent Sunday): ONE session recorded twice — \
-         Strava has a {SUNDAY_RIDE_KM} km ride over {SUNDAY_RIDE_HOURS} hours; WHOOP \
-         recorded the same start and duration with NO distance and misidentified the \
-         sport. They are the same session, not two.\n\
-         Athlete JF, ordinary weeks: runs of {athlete_runs} km on {athlete_days} days \
-         of each of the last {FIXTURE_WEEKS} weeks (never on a Sunday).\n\
-         Peer Philippe Tremblay, yesterday: ONE run, {PEER_RUN_SECONDS} seconds over \
-         {PEER_RUN_METRES} metres (that is {PEER_RUN_PACE}). Plus {FIXTURE_WEEKS} weeks \
-         of his own runs of {peer_runs} km.\n\
-         No heart rate, elevation, power or cadence is recorded on ANY of these \
-         activities. The roster holds both \"Phil\" and \"Philippe Tremblay\"."
+        "{who}, {date}: run «{SEEDED_RUN_NAME}», {km} km in {hours}h{minutes:02} ({seconds} s), \
+         pace {pace_min}min{pace_sec:02}/km.\n",
+        date = days_ago_label(run.days_ago),
+        hours = run.seconds / 3_600,
+        minutes = run.seconds % 3_600 / 60,
+        seconds = run.seconds,
+        pace_min = pace_seconds / 60,
+        pace_sec = pace_seconds % 60,
     )
+}
+
+/// `days_ago` as the judge reads a date: «yesterday, Tuesday 2026-10-13».
+fn days_ago_label(days_ago: i64) -> String {
+    let date = (Utc::now() - ChronoDuration::days(days_ago)).format("%A %Y-%m-%d");
+    match days_ago {
+        1 => format!("yesterday, {date}"),
+        n => format!("{n} days ago, {date}"),
+    }
 }
