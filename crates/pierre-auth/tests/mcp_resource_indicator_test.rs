@@ -16,7 +16,7 @@
 use pierre_auth::config::{
     resolve_mcp_resource_aliases, resolve_mcp_resource_url, OAuth2ServerConfig,
 };
-use pierre_auth::oauth2_server::resource::{bound_audience, token_audience};
+use pierre_auth::oauth2_server::resource::{bound_audience, token_audience, ResourceServers};
 
 const BASE: &str = "https://app.example.test";
 const MCP: &str = "https://mcp.example.test";
@@ -182,11 +182,106 @@ fn a_served_resource_with_a_path_binds_only_at_or_below_it() {
     assert!(bound_audience(&[served], "https://api.example.test/mcpx").is_err());
 }
 
+/// The platform's MCP resource server known by `identifiers`, and no satellite.
+fn platform<'a>(identifiers: &'a [&'a str]) -> ResourceServers<'a> {
+    ResourceServers {
+        platform: identifiers,
+        satellites: &[],
+    }
+}
+
+const SATELLITE: &str = "https://commere.example.test/mcp";
+const OTHER_SATELLITE: &str = "https://enforme.example.test/mcp";
+
+/// The platform known by `MCP` and `BASE`, and two satellites.
+fn with_satellites() -> ResourceServers<'static> {
+    ResourceServers {
+        platform: &[MCP, BASE],
+        satellites: &[SATELLITE, OTHER_SATELLITE],
+    }
+}
+
+#[test]
+fn a_satellite_bound_grant_never_mints_for_the_platform_or_another_satellite() {
+    let servers = with_satellites();
+    for requested in [MCP, BASE, "https://mcp.example.test/mcp", OTHER_SATELLITE] {
+        assert_eq!(
+            token_audience(&servers, Some(requested), Some(SATELLITE))
+                .unwrap_err()
+                .error,
+            "invalid_target",
+            "a commere grant asking for {requested}"
+        );
+    }
+    assert_eq!(
+        token_audience(&servers, Some(SATELLITE), Some(SATELLITE))
+            .unwrap()
+            .as_deref(),
+        Some(SATELLITE)
+    );
+    assert_eq!(
+        token_audience(&servers, None, Some(SATELLITE))
+            .unwrap()
+            .as_deref(),
+        Some(SATELLITE)
+    );
+}
+
+#[test]
+fn a_platform_bound_grant_never_mints_for_a_satellite_but_moves_between_its_hosts() {
+    let servers = with_satellites();
+    for granted in [MCP, BASE] {
+        for requested in [SATELLITE, OTHER_SATELLITE] {
+            assert_eq!(
+                token_audience(&servers, Some(requested), Some(granted))
+                    .unwrap_err()
+                    .error,
+                "invalid_target",
+                "a grant bound to {granted} asking for {requested}"
+            );
+        }
+    }
+    // The platform's identifiers are one resource server: a grant made on one
+    // host keeps minting once the other is published.
+    assert_eq!(
+        token_audience(&servers, Some(BASE), Some(MCP))
+            .unwrap()
+            .as_deref(),
+        Some(BASE)
+    );
+    assert_eq!(
+        token_audience(&servers, Some(MCP), Some(BASE))
+            .unwrap()
+            .as_deref(),
+        Some(MCP)
+    );
+}
+
+#[test]
+fn an_unbound_grant_narrows_to_the_platform_and_never_to_a_satellite() {
+    let servers = with_satellites();
+    assert_eq!(
+        token_audience(&servers, Some(SATELLITE), None)
+            .unwrap_err()
+            .error,
+        "invalid_target",
+        "the athlete never consented to the satellite"
+    );
+    assert_eq!(
+        token_audience(&servers, Some(BASE), None)
+            .unwrap()
+            .as_deref(),
+        Some(BASE)
+    );
+}
+
 #[test]
 fn a_token_request_without_resource_gets_the_grants() {
-    assert_eq!(token_audience(&[MCP], None, None).unwrap(), None);
+    assert_eq!(token_audience(&platform(&[MCP]), None, None).unwrap(), None);
     assert_eq!(
-        token_audience(&[MCP], None, Some(MCP)).unwrap().as_deref(),
+        token_audience(&platform(&[MCP]), None, Some(MCP))
+            .unwrap()
+            .as_deref(),
         Some(MCP)
     );
 }
@@ -194,13 +289,13 @@ fn a_token_request_without_resource_gets_the_grants() {
 #[test]
 fn a_token_request_narrows_an_unbound_grant_and_repeats_a_bound_one() {
     assert_eq!(
-        token_audience(&[MCP], Some("https://mcp.example.test/"), None)
+        token_audience(&platform(&[MCP]), Some("https://mcp.example.test/"), None)
             .unwrap()
             .as_deref(),
         Some(MCP)
     );
     assert_eq!(
-        token_audience(&[MCP], Some(MCP), Some(MCP))
+        token_audience(&platform(&[MCP]), Some(MCP), Some(MCP))
             .unwrap()
             .as_deref(),
         Some(MCP)
@@ -210,13 +305,15 @@ fn a_token_request_narrows_an_unbound_grant_and_repeats_a_bound_one() {
 #[test]
 fn a_token_request_for_another_resource_is_invalid_target() {
     assert_eq!(
-        token_audience(&[MCP], Some(BASE), Some(MCP))
+        token_audience(&platform(&[MCP]), Some(BASE), Some(MCP))
             .unwrap_err()
             .error,
         "invalid_target"
     );
     assert_eq!(
-        token_audience(&[MCP], Some(BASE), None).unwrap_err().error,
+        token_audience(&platform(&[MCP]), Some(BASE), None)
+            .unwrap_err()
+            .error,
         "invalid_target"
     );
 }
@@ -226,7 +323,9 @@ fn a_grant_bound_to_a_resource_no_longer_served_is_invalid_grant() {
     // MCP_RESOURCE_URL moved after the grant was made: minting would hand the
     // client a token no resource server accepts, so it re-authorizes instead.
     assert_eq!(
-        token_audience(&[MCP], None, Some(BASE)).unwrap_err().error,
+        token_audience(&platform(&[MCP]), None, Some(BASE))
+            .unwrap_err()
+            .error,
         "invalid_grant"
     );
 }
@@ -322,16 +421,38 @@ fn each_host_binds_its_own_identifier() {
 fn a_grant_bound_to_either_host_still_mints() {
     let served = [MCP, BASE];
     assert_eq!(
-        token_audience(&served, None, Some(BASE))
+        token_audience(&platform(&served), None, Some(BASE))
             .unwrap()
             .as_deref(),
         Some(BASE),
         "a grant made on app.example.test keeps working once mcp.example.test is published"
     );
     assert_eq!(
-        token_audience(&served, None, Some("https://gone.example.test"))
+        token_audience(&platform(&served), None, Some("https://gone.example.test"))
             .unwrap_err()
             .error,
         "invalid_grant"
     );
+}
+
+#[test]
+fn a_satellite_under_the_platforms_origin_binds_its_own_identifier() {
+    // A satellite MCP server published under a path of the platform's own
+    // origin: the most specific identifier wins, whichever order they come in.
+    let satellite = "https://mcp.example.test/commere/mcp";
+    for served in [[MCP, satellite], [satellite, MCP]] {
+        assert_eq!(
+            bound_audience(&served, "https://mcp.example.test/commere/mcp").unwrap(),
+            satellite
+        );
+        assert_eq!(
+            bound_audience(&served, "https://mcp.example.test/commere/mcp/").unwrap(),
+            satellite
+        );
+        assert_eq!(
+            bound_audience(&served, "https://mcp.example.test/mcp").unwrap(),
+            MCP,
+            "the platform's own endpoint is still the platform"
+        );
+    }
 }

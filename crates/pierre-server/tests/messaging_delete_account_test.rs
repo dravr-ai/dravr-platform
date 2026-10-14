@@ -63,8 +63,11 @@ mod delete_account {
         env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let firebase = IdentityToolkitStub::answering(answer);
+        // Served before the config is built: a ServerConfig held across an
+        // await puts this future past clippy's large_futures limit.
+        let firebase_config = firebase.serve().await;
         let mut config = test_server_config();
-        config.firebase = firebase.serve().await;
+        config.firebase = firebase_config;
         let resources = create_test_server_resources_with_chat_provider_and_config(
             Arc::clone(&llm) as _,
             config,

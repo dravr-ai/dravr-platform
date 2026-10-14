@@ -96,7 +96,7 @@ fn parse_command_file(content: &str) -> Option<ParsedCommand> {
     let end_idx = after_first.find("---")?;
     let frontmatter_str = &after_first[..end_idx];
 
-    let fm: CommandFrontmatter = serde_yaml::from_str(frontmatter_str).ok()?;
+    let fm: CommandFrontmatter = serde_saphyr::from_str(frontmatter_str).ok()?;
 
     let arguments = fm
         .arguments

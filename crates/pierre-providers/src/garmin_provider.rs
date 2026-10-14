@@ -51,6 +51,42 @@ struct GarminActivityType {
     parent_type_id: Option<u32>,
     #[serde(rename = "typeId")]
     type_id: Option<u32>,
+    /// The broader family (`cycling` for `road_biking`); list rows fall back to it
+    /// when `typeKey` is absent.
+    #[serde(rename = "parentTypeKey")]
+    parent_type_key: Option<String>,
+}
+
+/// One row of `activitylist-service/activities/search/activities`.
+///
+/// List rows are FLAT: the type is `activityType` (not `activityTypeDTO`), the
+/// metrics sit at the top level (not under `summaryDTO`), and the start time is
+/// `startTimeGMT`. The key set is the one dravr-sciotte's `providers/garmin.toml`
+/// list extractor reads against live Garmin Connect traffic, so a key listed here
+/// is one a real response was seen to carry.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminListRow {
+    activity_id: u64,
+    activity_name: Option<String>,
+    activity_type: GarminActivityType,
+    #[serde(rename = "startTimeGMT")]
+    start_time_gmt: Option<String>,
+    distance: Option<f64>,
+    duration: Option<f64>,
+    elevation_gain: Option<f64>,
+    average_speed: Option<f64>,
+    max_speed: Option<f64>,
+    #[serde(rename = "averageHR")]
+    average_hr: Option<f32>,
+    #[serde(rename = "maxHR")]
+    max_hr: Option<f32>,
+    calories: Option<f64>,
+    average_running_cadence_in_steps_per_minute: Option<f32>,
+    average_biking_cadence_in_rev_per_minute: Option<f32>,
+    /// Garmin has sent the average power under both names.
+    avg_power: Option<f32>,
+    average_power: Option<f32>,
 }
 
 /// Garmin's `summaryDTO` — top-level summary fields nested inside the
@@ -79,9 +115,9 @@ struct GarminSummary {
     average_biking_cadence: Option<f32>,
     average_power: Option<f32>,
     max_power: Option<f32>,
-    /// LIMITATION(registre#105): `normalized_power` is deserialized here but never mapped onto
-    /// the canonical `Activity`, so Garmin rides reach the agent with no NP and a `None`
-    /// intensity factor. Settling Garmin's real list/detail payload shapes gates the mapping.
+    /// LIMITATION(registre#105): the `normalizedPower` key name, and the list-row NP and max-power
+    /// key names (`GarminListRow` maps neither), are unconfirmed: no live Garmin Connect capture
+    /// with a power-meter ride exists, and the live `sciotte_garmin` path still drops NP.
     normalized_power: Option<f32>,
     calories: Option<f64>,
     bmr_calories: Option<f64>,
@@ -95,6 +131,7 @@ struct GarminSummary {
     start_longitude: Option<f64>,
     end_latitude: Option<f64>,
     end_longitude: Option<f64>,
+    #[serde(rename = "startTimeGMT")]
     start_time_gmt: Option<String>,
     start_time_local: Option<String>,
     training_effect: Option<f32>,
@@ -434,14 +471,8 @@ impl GarminProvider {
             .as_deref()
             .unwrap_or("unknown");
 
-        // Garmin returns timestamps as SQL-style "YYYY-MM-DD HH:MM:SS.f" or
-        // RFC3339 depending on the field. Normalize both shapes.
-        let start_time_str = summary
-            .start_time_gmt
-            .as_deref()
-            .ok_or_else(|| AppError::internal("Garmin activity missing summaryDTO.startTimeGMT"))?;
-        let start_date = parse_garmin_timestamp(start_time_str)
-            .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?;
+        let start_date =
+            garmin_start_date(summary.start_time_gmt.as_deref(), "summaryDTO.startTimeGMT")?;
 
         Ok(ActivityBuilder::new(
             activity.activity_id.to_string(),
@@ -467,6 +498,7 @@ impl GarminProvider {
         )
         .average_power_opt(summary.average_power.map(utils::conversions::f32_to_u32))
         .max_power_opt(summary.max_power.map(utils::conversions::f32_to_u32))
+        .normalized_power_opt(summary.normalized_power.map(utils::conversions::f32_to_u32))
         .calories_opt(summary.calories.map(utils::conversions::f64_to_u32))
         .temperature_opt(
             summary
@@ -478,6 +510,53 @@ impl GarminProvider {
     fn convert_garmin_activity(activity: GarminActivityResponse) -> AppResult<Activity> {
         Ok(Self::garmin_activity_builder(activity)?.build())
     }
+
+    /// Convert one flat list row into the canonical `Activity`.
+    fn convert_garmin_list_row(row: GarminListRow) -> AppResult<Activity> {
+        let type_key = row
+            .activity_type
+            .type_key
+            .as_deref()
+            .or(row.activity_type.parent_type_key.as_deref())
+            .unwrap_or("unknown");
+        let start_date = garmin_start_date(row.start_time_gmt.as_deref(), "startTimeGMT")?;
+
+        Ok(ActivityBuilder::new(
+            row.activity_id.to_string(),
+            row.activity_name.unwrap_or_else(|| "Untitled".to_owned()),
+            Self::parse_sport_type(type_key),
+            start_date,
+            row.duration.map_or(0, utils::conversions::f64_to_u64),
+            oauth_providers::GARMIN,
+        )
+        .distance_meters_opt(row.distance)
+        .elevation_gain_opt(row.elevation_gain)
+        .average_speed_opt(row.average_speed)
+        .max_speed_opt(row.max_speed)
+        .average_heart_rate_opt(row.average_hr.map(utils::conversions::f32_to_u32))
+        .max_heart_rate_opt(row.max_hr.map(utils::conversions::f32_to_u32))
+        .average_cadence_opt(
+            row.average_running_cadence_in_steps_per_minute
+                .or(row.average_biking_cadence_in_rev_per_minute)
+                .map(utils::conversions::f32_to_u32),
+        )
+        .average_power_opt(
+            row.avg_power
+                .or(row.average_power)
+                .map(utils::conversions::f32_to_u32),
+        )
+        .calories_opt(row.calories.map(utils::conversions::f64_to_u32))
+        .build())
+    }
+}
+
+/// The activity start from Garmin's `startTimeGMT`, which arrives as SQL-style
+/// "YYYY-MM-DD HH:MM:SS.f" or RFC3339 depending on the surface. `field` names
+/// the key in the error so a response missing it is diagnosable.
+fn garmin_start_date(raw: Option<&str>, field: &str) -> AppResult<DateTime<Utc>> {
+    let raw = raw.ok_or_else(|| AppError::internal(format!("Garmin activity missing {field}")))?;
+    parse_garmin_timestamp(raw)
+        .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))
 }
 
 /// Parse a Garmin timestamp string. Garmin emits two formats across their
@@ -833,7 +912,7 @@ impl GarminProvider {
 
         info!("Single page request - endpoint: {}", endpoint);
 
-        let garmin_activities: Vec<GarminActivityResponse> = self.api_request(&endpoint).await?;
+        let garmin_activities: Vec<GarminListRow> = self.api_request(&endpoint).await?;
         info!(
             "Received {} activities from single page",
             garmin_activities.len()
@@ -841,7 +920,7 @@ impl GarminProvider {
 
         let mut activities = Vec::new();
         for activity in garmin_activities {
-            activities.push(Self::convert_garmin_activity(activity)?);
+            activities.push(Self::convert_garmin_list_row(activity)?);
         }
 
         Ok(activities)
@@ -856,14 +935,14 @@ impl GarminProvider {
     /// Convert and add Garmin activities to the collection
     fn add_converted_activities(
         activities: &mut Vec<Activity>,
-        garmin_activities: Vec<GarminActivityResponse>,
+        garmin_activities: Vec<GarminListRow>,
         limit: usize,
     ) -> AppResult<()> {
         for activity in garmin_activities {
             if activities.len() >= limit {
                 break;
             }
-            activities.push(Self::convert_garmin_activity(activity)?);
+            activities.push(Self::convert_garmin_list_row(activity)?);
         }
         Ok(())
     }
@@ -913,9 +992,7 @@ impl GarminProvider {
             endpoint
         );
 
-        let garmin_activities = self
-            .api_request::<Vec<GarminActivityResponse>>(&endpoint)
-            .await?;
+        let garmin_activities = self.api_request::<Vec<GarminListRow>>(&endpoint).await?;
 
         info!(
             "Page {} returned {} activities",
@@ -992,5 +1069,127 @@ impl ProviderFactory for GarminProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::GARMIN]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A list row in the flat shape Garmin Connect serves and dravr-sciotte's
+    /// `providers/garmin.toml` list extractor reads from live traffic: the type
+    /// under `activityType`, the metrics at the top level, `startTimeGMT` in
+    /// Garmin's SQL-style spelling, and the average power as `avgPower`.
+    fn list_row() -> serde_json::Value {
+        json!({
+            "activityId": 20_260_427_001_u64,
+            "activityName": "Tempo ride",
+            "activityType": { "typeKey": "cycling", "parentTypeKey": "cycling" },
+            "startTimeGMT": "2026-04-27 14:25:46.0",
+            "startTimeLocal": "2026-04-27 10:25:46",
+            "distance": 42_000.0,
+            "duration": 5_400.0,
+            "elevationGain": 310.0,
+            "averageSpeed": 7.8,
+            "maxSpeed": 14.2,
+            "averageHR": 148.0,
+            "maxHR": 176.0,
+            "calories": 980.0,
+            "averageBikingCadenceInRevPerMinute": 88.0,
+            "avgPower": 214.0
+        })
+    }
+
+    #[test]
+    fn a_flat_list_row_converts_with_its_type_start_and_power() {
+        let row: GarminListRow = serde_json::from_value(list_row()).unwrap();
+        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
+
+        assert_eq!(activity.id(), "20260427001");
+        assert_eq!(activity.name(), "Tempo ride");
+        assert_eq!(*activity.sport_type(), SportType::Ride);
+        assert_eq!(
+            activity.start_date().to_rfc3339(),
+            "2026-04-27T14:25:46+00:00"
+        );
+        assert_eq!(activity.duration_seconds(), 5_400);
+        assert_eq!(activity.average_heart_rate(), Some(148));
+        assert_eq!(activity.average_cadence(), Some(88));
+        assert_eq!(activity.average_power(), Some(214));
+    }
+
+    #[test]
+    fn a_list_row_falls_back_to_the_parent_type_and_the_averagepower_spelling() {
+        let mut value = list_row();
+        value["activityType"] = json!({ "parentTypeKey": "running" });
+        value["avgPower"] = serde_json::Value::Null;
+        value["averagePower"] = json!(230.0);
+        let row: GarminListRow = serde_json::from_value(value).unwrap();
+        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
+
+        assert_eq!(*activity.sport_type(), SportType::Run);
+        assert_eq!(activity.average_power(), Some(230));
+    }
+
+    #[test]
+    fn a_list_row_without_a_start_time_is_refused_naming_the_key() {
+        let mut value = list_row();
+        value.as_object_mut().unwrap().remove("startTimeGMT");
+        let row: GarminListRow = serde_json::from_value(value).unwrap();
+        let err = GarminProvider::convert_garmin_list_row(row).unwrap_err();
+        assert!(err.to_string().contains("startTimeGMT"), "{err}");
+    }
+
+    /// The detail response nests the type as `activityTypeDTO` and the metrics
+    /// under `summaryDTO`, where `startTimeGMT` is spelled with a capital GMT:
+    /// `rename_all = "camelCase"` alone expects `startTimeGmt`, which Garmin
+    /// never sends, so every detail conversion used to fail.
+    ///
+    /// `normalizedPower` is the key `GarminSummary` reads; it is unconfirmed
+    /// against a live capture (see the LIMITATION on the field), so this pins the
+    /// mapping from that key, not Garmin's spelling of it.
+    fn detail() -> serde_json::Value {
+        json!({
+            "activityId": 20_260_427_001_u64,
+            "activityName": "Tempo ride",
+            "activityTypeDTO": { "typeKey": "cycling" },
+            "summaryDTO": {
+                "startTimeGMT": "2026-04-27 14:25:46.0",
+                "duration": 5_400.0,
+                "averageHR": 148.0,
+                "averagePower": 214.0,
+                "maxPower": 640.0,
+                "normalizedPower": 231.0
+            }
+        })
+    }
+
+    #[test]
+    fn a_detail_response_reads_its_start_time_and_keeps_every_power_figure() {
+        let response: GarminActivityResponse = serde_json::from_value(detail()).unwrap();
+        let activity = GarminProvider::convert_garmin_activity(response).unwrap();
+
+        assert_eq!(
+            activity.start_date().to_rfc3339(),
+            "2026-04-27T14:25:46+00:00"
+        );
+        assert_eq!(activity.average_power(), Some(214));
+        assert_eq!(activity.max_power(), Some(640));
+        assert_eq!(activity.normalized_power(), Some(231));
+    }
+
+    #[test]
+    fn a_detail_without_normalized_power_leaves_it_unset() {
+        let mut value = detail();
+        value["summaryDTO"]
+            .as_object_mut()
+            .unwrap()
+            .remove("normalizedPower");
+        let response: GarminActivityResponse = serde_json::from_value(value).unwrap();
+        let activity = GarminProvider::convert_garmin_activity(response).unwrap();
+
+        assert_eq!(activity.normalized_power(), None);
+        assert_eq!(activity.average_power(), Some(214));
     }
 }

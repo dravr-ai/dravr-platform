@@ -13,9 +13,9 @@ use uuid::Uuid;
 use super::OAuth2AuthorizationServer;
 use crate::auth::{Claims, JwtValidationError};
 use crate::oauth2_server::models::{
-    OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse, ValidationStatus,
+    OAuth2Error, OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse,
+    ValidationStatus,
 };
-use crate::oauth2_server::resource::token_audience;
 
 impl OAuth2AuthorizationServer {
     /// Validate and optionally refresh an access token
@@ -32,7 +32,7 @@ impl OAuth2AuthorizationServer {
         request: ValidateRefreshRequest,
     ) -> AppResult<ValidateRefreshResponse> {
         // Validate the JWT token: the platform audience, or a token bound to
-        // the resource this server mints for
+        // any resource this server mints for, a satellite's included
         match self.auth_manager.validate_resource_token_detailed(
             access_token,
             &self.jwks_manager,
@@ -102,14 +102,14 @@ impl OAuth2AuthorizationServer {
             .await?;
 
         // Checked before the refresh token is rotated away: a grant bound to a
-        // resource this server no longer serves cannot mint a usable token.
-        let audience = token_audience(&self.served(), None, refresh_token_data.resource.as_deref())
-            .map_err(|refusal| {
-                AppError::new(
-                    ErrorCode::AuthInvalid,
-                    refusal.error_description.unwrap_or(refusal.error),
-                )
-            })?;
+        // resource this server no longer serves cannot mint a usable token,
+        // and a grant whose tenant the user left is revoked.
+        self.check_refresh_grant(refresh_token_value, None)
+            .await
+            .map_err(refusal_error)?;
+        let audience = self
+            .audience(None, refresh_token_data.resource.as_deref())
+            .map_err(refusal_error)?;
 
         let (_, new_refresh_token_value) = self
             .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
@@ -124,7 +124,10 @@ impl OAuth2AuthorizationServer {
         let new_access_token = self
             .generate_access_token(
                 &refresh_token_data.client_id,
-                Some(refresh_token_data.user_id),
+                Some((
+                    refresh_token_data.user_id,
+                    refresh_token_data.tenant_id.as_str(),
+                )),
                 &Self::delegated_grant(refresh_token_data.scope.as_deref()),
                 audience.as_deref(),
             )
@@ -299,5 +302,19 @@ impl OAuth2AuthorizationServer {
         }
 
         Ok(refresh_token)
+    }
+}
+
+/// A token-endpoint refusal as the error `validate_and_refresh` answers with:
+/// the server failing stays an internal error, anything else refuses the
+/// token.
+fn refusal_error(refusal: OAuth2Error) -> AppError {
+    let message = refusal
+        .error_description
+        .unwrap_or_else(|| refusal.error.clone());
+    if refusal.error == "server_error" {
+        AppError::internal(message)
+    } else {
+        AppError::new(ErrorCode::AuthInvalid, message)
     }
 }

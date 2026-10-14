@@ -285,8 +285,11 @@ impl UseCaseCatalogue {
     /// `snake_case`, a postback would exceed 64 bytes, `run` and `command`
     /// disagree, or a predicate or domain is unknown.
     pub fn parse(yaml: &str) -> Result<Self, ContremaitreError> {
-        let raw: Vec<RawUseCase> = serde_yaml::from_str(yaml)
-            .map_err(|e| ContremaitreError::ManifestParse(format!("use-case catalogue: {e}")))?;
+        let raw: Vec<RawUseCase> = serde_saphyr::from_str_with_options(
+            yaml,
+            serde_saphyr::options! { with_snippet: false },
+        )
+        .map_err(|e| ContremaitreError::ManifestParse(format!("use-case catalogue: {e}")))?;
         let mut seen = HashSet::new();
         let entries = raw
             .into_iter()

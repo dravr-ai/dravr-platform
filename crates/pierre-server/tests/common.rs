@@ -47,6 +47,8 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
+use std::future::Future;
+use std::pin::Pin;
 use std::{
     env,
     net::TcpListener,
@@ -523,11 +525,20 @@ pub async fn create_test_server_resources_with_llm_and_tools(
 /// For tests that assert config-driven wiring — for example the MCP `Origin`
 /// allowlist, which is empty under [`ServerConfig::default`] and so cannot
 /// distinguish a wired server from an unwired one.
-pub async fn create_test_server_resources_with_config(
-    config: ServerConfig,
-) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(None, Vec::new(), Some(config)).await
+///
+/// Returns a boxed future: a `ServerConfig` is about 16 KB, so an `async fn`
+/// holding one by value sits past clippy's `large_futures` limit in every
+/// caller.
+pub fn create_test_server_resources_with_config(config: ServerConfig) -> BoxedServerContext {
+    Box::pin(create_test_server_resources_inner(
+        None,
+        Vec::new(),
+        Some(config),
+    ))
 }
+
+/// The future a config-taking helper returns, boxed so callers stay small.
+pub type BoxedServerContext = Pin<Box<dyn Future<Output = Result<Arc<ServerContext>>> + Send>>;
 
 /// The config every test server runs with unless the test supplies its own.
 #[must_use]
@@ -545,11 +556,19 @@ pub fn test_server_config() -> ServerConfig {
 
 /// [`create_test_server_resources_with_chat_provider`] over a caller-supplied
 /// config, for a chat-driven test that points an outbound API at a stub.
-pub async fn create_test_server_resources_with_chat_provider_and_config(
+///
+/// Returns a boxed future for the same reason as
+/// [`create_test_server_resources_with_config`].
+pub fn create_test_server_resources_with_chat_provider_and_config(
     provider: Arc<dyn LlmProvider + 'static>,
     config: ServerConfig,
-) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner_full(None, Vec::new(), Some(config), Some(provider)).await
+) -> BoxedServerContext {
+    Box::pin(create_test_server_resources_inner_full(
+        None,
+        Vec::new(),
+        Some(config),
+        Some(provider),
+    ))
 }
 
 /// Wire the mock the way PRODUCTION wires a provider: `chat_provider` set,

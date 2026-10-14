@@ -66,7 +66,7 @@ pub struct DemoConfig {
 }
 
 pub fn parse(text: &str) -> Option<DemoConfig> {
-    serde_yaml::from_str(text).ok()
+    serde_saphyr::from_str(text).ok()
 }
 RS
     cat > "$root/packages/api-client/src/domains/demo.ts" <<'TS'

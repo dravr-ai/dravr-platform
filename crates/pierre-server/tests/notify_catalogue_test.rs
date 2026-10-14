@@ -73,8 +73,8 @@ struct Catalogue {
 }
 
 impl Catalogue {
-    fn from_yaml(text: &str) -> serde_yaml::Result<Self> {
-        let raw: RawCatalogue = serde_yaml::from_str(text)?;
+    fn from_yaml(text: &str) -> Result<Self, serde_saphyr::Error> {
+        let raw: RawCatalogue = serde_saphyr::from_str(text)?;
         let events = raw
             .events
             .into_iter()

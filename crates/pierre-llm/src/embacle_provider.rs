@@ -35,6 +35,7 @@ use crate::config::{HttpProvider, LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::http_env;
 use crate::provider::ChatProvider;
+use crate::router_store;
 use crate::served_tier::{observe_served_tier, record_served_tier};
 use crate::stage::{LlmStage, StageModels};
 
@@ -115,7 +116,7 @@ impl EmbacleProvider {
             }
             ProviderConstruction::CopilotHeadless => Ok(Self::build_headless(model_override)),
             ProviderConstruction::CopilotSdk => Ok(Self::build_sdk(model_override)),
-            ProviderConstruction::Router => Self::build_router(model_override),
+            ProviderConstruction::Router => Self::build_router(model_override).await,
             ProviderConstruction::OpenAiApi => Ok(Self::build_openai_api(model_override).await),
         };
         built.map(|provider| provider.of_kind(kind))
@@ -561,11 +562,16 @@ impl EmbacleProvider {
     ///
     /// `model_override` (the chain entry's model) is set on both backends.
     ///
+    /// The readings and penalties live in the store [`router_store`] picks:
+    /// shared through the deployment's Redis when it has one, so every
+    /// instance spending this account's budget routes on one view, and in
+    /// this process otherwise.
+    ///
     /// # Errors
     ///
     /// Returns `AppError` when the Claude Code binary cannot be resolved or the
     /// router rejects the backend set.
-    fn build_router(model_override: Option<&str>) -> Result<Self, AppError> {
+    async fn build_router(model_override: Option<&str>) -> Result<Self, AppError> {
         let claude_config = cli_runner_config(CliRunnerType::ClaudeCode, model_override)?;
         let claude: Box<dyn EmbacleLlmProvider> = Box::new(ClaudeCodeRunner::new(claude_config));
 
@@ -600,7 +606,14 @@ impl EmbacleProvider {
             .with_headless(Arc::clone(&headless));
 
         let mut router = RouterProvider::new(vec![lead, fallback], Box::new(PreferInOrder))
-            .map_err(|e| AppError::config(format!("router: {}", e.message)))?;
+            .map_err(|e| AppError::config(format!("router: {}", e.message)))?
+            .with_store(
+                router_store::quota_store_from_env(&[
+                    CliRunnerType::ClaudeCode,
+                    CliRunnerType::CopilotHeadless,
+                ])
+                .await,
+            );
         if let Some(threshold) = threshold_from_env() {
             router = router.with_threshold(threshold);
         }

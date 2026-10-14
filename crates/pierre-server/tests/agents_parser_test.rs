@@ -433,9 +433,9 @@ Route visual grant test.
 
     // The stored column and the frontmatter share one vocabulary, so the wire
     // names an agent author writes must deserialize back to the same variants.
-    let yaml = serde_yaml::to_string(&frontmatter.startup.visuals).unwrap(); // Safe: a sequence of unit variants is always representable
+    let yaml = serde_saphyr::to_string(&frontmatter.startup.visuals).unwrap(); // Safe: a sequence of unit variants is always representable
     assert_eq!(yaml, "- chart\n- table\n- route\n");
-    let parsed: Vec<VisualKind> = serde_yaml::from_str(&yaml).unwrap(); // Safe: the string was just produced by the matching serializer
+    let parsed: Vec<VisualKind> = serde_saphyr::from_str(&yaml).unwrap(); // Safe: the string was just produced by the matching serializer
     assert_eq!(parsed, frontmatter.startup.visuals);
 }
 

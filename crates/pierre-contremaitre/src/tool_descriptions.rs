@@ -154,6 +154,6 @@ impl Default for ToolDescriptionRegistry {
 ///
 /// Returns `ContremaitreError::ManifestParse` if the YAML is invalid.
 pub fn parse_tool_yaml(yaml: &str) -> Result<ToolDescriptionOverlay, ContremaitreError> {
-    serde_yaml::from_str(yaml)
+    serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { with_snippet: false })
         .map_err(|e| ContremaitreError::ManifestParse(format!("tool description YAML: {e}")))
 }

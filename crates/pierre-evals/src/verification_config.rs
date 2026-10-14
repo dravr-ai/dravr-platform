@@ -154,7 +154,7 @@ struct FrontmatterShape {
 }
 
 fn parse_verification_config_yaml(frontmatter: &str) -> Option<VerificationConfig> {
-    let parsed: FrontmatterShape = serde_yaml::from_str(frontmatter).ok()?;
+    let parsed: FrontmatterShape = serde_saphyr::from_str(frontmatter).ok()?;
     parsed.verification_config
 }
 

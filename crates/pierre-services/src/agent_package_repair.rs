@@ -38,7 +38,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{Flavour, ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{sha256_hex, ArtefactKind};
 use pierre_database::RepositoryRegistry;
-use serde_yaml::Value;
+use serde_json::Value;
 use tracing::{info, warn};
 
 /// The top-level key a flavour's readiness ladder sits under.
@@ -65,15 +65,15 @@ pub struct ClosedLadder {
 /// broken for some other reason is not this repair's to fix.
 #[must_use]
 pub fn close_quality_at_cap_zero(text: &str) -> Option<ClosedLadder> {
-    let mut doc: Value = serde_yaml::from_str(text).ok()?;
+    let mut doc: Value = serde_saphyr::from_str(text).ok()?;
     let removed = close_levels(&mut doc)?;
     let in_place = rewrite_flow_lists(text, &removed);
     let edited_as_intended =
-        serde_yaml::from_str::<Value>(&in_place).is_ok_and(|read_back| read_back == doc);
+        serde_saphyr::from_str::<Value>(&in_place).is_ok_and(|read_back| read_back == doc);
     let (content, layout_kept) = if edited_as_intended {
         (in_place, true)
     } else {
-        (serde_yaml::to_string(&doc).ok()?, false)
+        (serde_saphyr::to_string(&doc).ok()?, false)
     };
     Flavour::from_yaml(&content).ok()?;
     Some(ClosedLadder {
@@ -160,10 +160,10 @@ pub async fn repair_stored_flavours(repos: &RepositoryRegistry) -> AppResult<Rep
 /// Take the quality purposes out of every closed level of `doc`'s ladder,
 /// returning what each level lost; `None` when no level lost anything.
 fn close_levels(doc: &mut Value) -> Option<BTreeMap<ReadinessLevel, Vec<WorkoutPurpose>>> {
-    let ladder = doc.get_mut(LADDER_KEY)?.as_mapping_mut()?;
+    let ladder = doc.get_mut(LADDER_KEY)?.as_object_mut()?;
     let mut removed = BTreeMap::new();
     for (key, rule) in ladder.iter_mut() {
-        let Some(level) = key.as_str().and_then(level_named) else {
+        let Some(level) = level_named(key) else {
             continue;
         };
         let cap_zero = rule
@@ -173,7 +173,7 @@ fn close_levels(doc: &mut Value) -> Option<BTreeMap<ReadinessLevel, Vec<WorkoutP
         if level != ReadinessLevel::P0 && !cap_zero {
             continue;
         }
-        let Some(purposes) = rule.get_mut("purposes").and_then(Value::as_sequence_mut) else {
+        let Some(purposes) = rule.get_mut("purposes").and_then(Value::as_array_mut) else {
             continue;
         };
         let mut dropped = Vec::new();

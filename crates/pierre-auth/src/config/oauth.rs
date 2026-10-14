@@ -17,6 +17,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use super::google_sign_in::GoogleSignInConfig;
+use super::satellites::resolve_satellite_resources;
 use crate::oauth2_server::first_party::FirstPartyRedirects;
 
 /// OAuth provider configuration for fitness platforms
@@ -174,9 +175,10 @@ pub struct OAuth2ServerConfig {
     /// The origin MCP clients dial, `scheme://host[:port]` with no path.
     ///
     /// Published as `resource` in `/.well-known/oauth-protected-resource`, the
-    /// origin of the `resource_metadata` URL in every `/mcp` 401 challenge, the
-    /// one value a `resource` parameter on `/oauth2/authorize` and
-    /// `/oauth2/token` may name, and the audience of the tokens minted for it.
+    /// origin of the `resource_metadata` URL in every `/mcp` 401 challenge, a
+    /// value a `resource` parameter on `/oauth2/authorize` and `/oauth2/token`
+    /// may name (beside [`Self::satellite_resources`]), and the audience of
+    /// the tokens minted for it.
     /// `MCP_RESOURCE_URL`, defaulting to `BASE_URL`, so a deployment that
     /// answers to one hostname needs no setting.
     pub mcp_resource_url: String,
@@ -189,6 +191,18 @@ pub struct OAuth2ServerConfig {
     /// RFC 8707 `resource`, and presents tokens bound to it — so moving the
     /// published MCP host leaves every client of the previous one working.
     pub mcp_resource_aliases: Vec<String>,
+    /// Resource identifiers of the satellite MCP servers this authorization
+    /// server also mints audience-bound tokens for (RFC 8707), from
+    /// `OAUTH2_SATELLITE_RESOURCES` (comma-separated).
+    ///
+    /// A `dravr-*` satellite server (commere, say) verifies the platform's
+    /// tokens itself, against `/.well-known/jwks.json`, and accepts only a
+    /// token whose audience is its own identifier. Naming it here lets a
+    /// client request `resource=<its identifier>` and receive such a token.
+    /// The platform's own `/mcp` never accepts one: it answers to
+    /// [`Self::mcp_resources`] only, so a token minted for a satellite cannot
+    /// be replayed against the platform, nor the reverse.
+    pub satellite_resources: Vec<String>,
     /// Default email for OAuth login page (dev/test only - do not use in production)
     pub default_login_email: Option<String>,
     /// Default password for OAuth login page (dev/test only - NEVER use in production!)
@@ -217,6 +231,7 @@ impl Default for OAuth2ServerConfig {
             issuer_url: "http://localhost:8081".to_owned(),
             mcp_resource_url: "http://localhost:8081".to_owned(),
             mcp_resource_aliases: Vec::new(),
+            satellite_resources: Vec::new(),
             default_login_email: None,
             default_login_password: None,
             client_retention: ClientRetentionConfig::default(),
@@ -462,6 +477,9 @@ impl OAuth2ServerConfig {
                 &mcp_resource_url,
                 base_url.as_deref(),
             ),
+            satellite_resources: resolve_satellite_resources(
+                env::var("OAUTH2_SATELLITE_RESOURCES").ok().as_deref(),
+            ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
             client_retention: ClientRetentionConfig::from_env(),
@@ -527,9 +545,11 @@ impl OAuth2ServerConfig {
             .unwrap_or(&self.mcp_resource_url)
     }
 
-    /// Refuse a resource identifier that is not an `http`/`https` origin.
-    fn validate_resource_origin(value: &str, require_https: bool) -> AppResult<()> {
-        let url = Url::parse(value).map_err(|e| {
+    /// Refuse a resource identifier that is not an `http`/`https` origin. The
+    /// refusal names the value redacted, as every URL a log carries is.
+    fn validate_resource_origin(raw: &str, require_https: bool) -> AppResult<()> {
+        let value = redact_url(raw);
+        let url = Url::parse(raw).map_err(|e| {
             AppError::invalid_input(format!(
                 "MCP_RESOURCE_URL must be an absolute URL ({e}): {value}"
             ))

@@ -629,7 +629,7 @@ fn house_downhill_flavour() -> String {
             .purposes
             .push(WorkoutPurpose::Downhill);
     }
-    serde_yaml::to_string(&flavour).expect("a flavour serialises")
+    serde_saphyr::to_string(&flavour).expect("a flavour serialises")
 }
 
 #[tokio::test]

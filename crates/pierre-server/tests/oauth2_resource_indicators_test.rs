@@ -1,5 +1,5 @@
 // ABOUTME: The protected-resource metadata, the /mcp 401 challenge and RFC 8707 resource indicators all name MCP_RESOURCE_URL
-// ABOUTME: A resource on authorize and token binds the token's audience, kept through validate-and-refresh and login; another is refused
+// ABOUTME: A resource on authorize and token binds the token's audience, a satellite's included; another is refused
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -40,13 +40,16 @@ use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::constants::service_names::MCP;
-use pierre_core::models::User;
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::mcp::McpRoutes;
+use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use url::Url;
+use uuid::Uuid;
 
 /// The authorization server's host.
 const ISSUER: &str = "https://app.example.test";
@@ -54,6 +57,9 @@ const ISSUER: &str = "https://app.example.test";
 const MCP_RESOURCE: &str = "https://mcp.example.test";
 /// A resource server this deployment does not serve.
 const OTHER_RESOURCE: &str = "https://elsewhere.example.test";
+/// A satellite MCP server this authorization server also mints for
+/// (`OAUTH2_SATELLITE_RESOURCES`), served under a path.
+const SATELLITE_RESOURCE: &str = "https://commere.example.test/mcp";
 const REDIRECT: &str = "https://client.example.test/callback";
 const STATE: &str = "resource-indicator-state";
 const VERIFIER: &str = "resource-indicator-pkce-verifier-0123456789-abcdefghijklmnop";
@@ -567,6 +573,365 @@ async fn a_token_bound_to_another_resource_is_refused_at_mcp() {
     // audience, nothing else about the token.
     let here = tools_list(&resources, Some(&mint(MCP_RESOURCE))).await;
     assert_eq!(here.status(), 200);
+}
+
+// ── Satellite resources (carnet#540) ─────────────────────────────────────────
+
+/// The split-host deployment, also minting for [`SATELLITE_RESOURCE`].
+fn with_satellite() -> OAuth2ServerConfig {
+    OAuth2ServerConfig {
+        satellite_resources: vec![SATELLITE_RESOURCE.to_owned()],
+        ..split_hosts()
+    }
+}
+
+/// The claims of `token`, read without checking its audience: a satellite
+/// checks the signature itself, and these tests ask only what was minted.
+fn minted_claims(token: &str) -> Claims {
+    insecure_decode::<Claims>(token).unwrap().claims
+}
+
+/// Remove `user`'s membership of `tenant`, as leaving a tenant does.
+async fn leave_tenant(resources: &Arc<ServerContext>, user: &User, tenant: TenantId) {
+    const LEAVE: &str = "DELETE FROM tenant_users WHERE user_id = $1 AND tenant_id = $2";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(LEAVE)
+                .bind(user.id.to_string())
+                .bind(tenant.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(LEAVE)
+                .bind(user.id)
+                .bind(tenant.as_uuid())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// The first tenant `user` belongs to.
+async fn first_tenant(resources: &Arc<ServerContext>, user: &User) -> TenantId {
+    resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .first()
+        .map(|tenant| tenant.id)
+        .unwrap()
+}
+
+/// Exchange `code` for `client_id`, naming `resource` when given.
+async fn exchange(
+    resources: &Arc<ServerContext>,
+    (client_id, client_secret): (&str, &str),
+    code: &str,
+    resource: Option<&str>,
+) -> AxumTestResponse {
+    let mut fields = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", REDIRECT),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("code_verifier", VERIFIER),
+    ];
+    if let Some(resource) = resource {
+        fields.push(("resource", resource));
+    }
+    token_request(resources, &fields).await
+}
+
+/// Refresh `refresh_token` for `client_id`, naming `resource` when given.
+async fn refresh(
+    resources: &Arc<ServerContext>,
+    (client_id, client_secret): (&str, &str),
+    refresh_token: &str,
+    resource: Option<&str>,
+) -> AxumTestResponse {
+    let mut fields = vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+    ];
+    if let Some(resource) = resource {
+        fields.push(("resource", resource));
+    }
+    token_request(resources, &fields).await
+}
+
+/// The OAuth error a refused token request answers with.
+fn token_error(response: AxumTestResponse) -> String {
+    let status = response.status();
+    let body = response.text();
+    assert_eq!(status, 400, "{body}");
+    let body: Value = serde_json::from_str(&body).unwrap();
+    body["error"].as_str().unwrap().to_owned()
+}
+
+/// `(access_token, refresh_token)` of a 200 token response.
+fn issued(response: AxumTestResponse) -> (String, String) {
+    let status = response.status();
+    let body = response.text();
+    assert_eq!(status, 200, "{body}");
+    let tokens: Value = serde_json::from_str(&body).unwrap();
+    (
+        tokens["access_token"].as_str().unwrap().to_owned(),
+        tokens["refresh_token"].as_str().unwrap().to_owned(),
+    )
+}
+
+#[tokio::test]
+async fn a_satellite_resource_mints_a_tenant_bound_token_the_platform_refuses() {
+    let resources = resources_with(with_satellite()).await;
+    let (client_id, client_secret) = register(&resources).await;
+    let client = (client_id.as_str(), client_secret.as_str());
+    let (user, session) = athlete(&resources, "satellite@example.test").await;
+    let tenant = first_tenant(&resources, &user).await;
+
+    let code = authorization_code(&resources, &client_id, &session, Some(SATELLITE_RESOURCE)).await;
+    let (access_token, refresh_token) = issued(exchange(&resources, client, &code, None).await);
+
+    let claims = minted_claims(&access_token);
+    assert_eq!(claims.aud, SATELLITE_RESOURCE, "bound to the satellite");
+    assert_eq!(claims.sub, user.id.to_string());
+    assert_eq!(
+        claims.active_tenant_id,
+        Some(tenant.to_string()),
+        "the satellite reads the tenant off the token, so the token names it"
+    );
+    assert_eq!(claims.client_id.as_deref(), Some(client_id.as_str()));
+
+    let refused = tools_list(&resources, Some(&access_token)).await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a token minted for a satellite is never the platform's"
+    );
+
+    // A refresh keeps the binding and the tenant.
+    let (refreshed_access, refreshed_refresh) =
+        issued(refresh(&resources, client, &refresh_token, None).await);
+    let refreshed_claims = minted_claims(&refreshed_access);
+    assert_eq!(refreshed_claims.aud, SATELLITE_RESOURCE);
+    assert_eq!(refreshed_claims.active_tenant_id, Some(tenant.to_string()));
+
+    // Once the athlete has left the tenant the grant is over: no token is
+    // minted, since there is no tenant the athlete consented to act in, and
+    // the whole refresh family is revoked so it cannot be retried.
+    leave_tenant(&resources, &user, tenant).await;
+    let after_leaving = refresh(&resources, client, &refreshed_refresh, None).await;
+    assert_eq!(token_error(after_leaving), "invalid_grant");
+    let stored = resources
+        .common
+        .repos
+        .oauth2_server
+        .get_refresh_token_by_value(&refreshed_refresh)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(stored.revoked, "the grant's refresh family is revoked");
+}
+
+/// One authorization in a fresh deployment minting for the satellite: the
+/// deployment, the client and the code the athlete approved for `resource`.
+/// Fresh each time because the flow's `state` is single-use.
+async fn authorized(resource: Option<&str>) -> (Arc<ServerContext>, (String, String), String) {
+    let resources = resources_with(with_satellite()).await;
+    let client = register(&resources).await;
+    let (_user, session) = athlete(&resources, "crossing@example.test").await;
+    let code = authorization_code(&resources, &client.0, &session, resource).await;
+    (resources, client, code)
+}
+
+#[tokio::test]
+async fn a_grant_never_crosses_between_the_platform_and_a_satellite() {
+    // Code exchange: a grant bound to one resource server never mints for the
+    // other, and an unbound grant never narrows to the satellite.
+    for (bound, asked) in [
+        (Some(SATELLITE_RESOURCE), MCP_RESOURCE),
+        (Some(MCP_RESOURCE), SATELLITE_RESOURCE),
+        (None, SATELLITE_RESOURCE),
+    ] {
+        let (resources, (id, secret), code) = authorized(bound).await;
+        let crossed = exchange(&resources, (&id, &secret), &code, Some(asked)).await;
+        assert_eq!(
+            token_error(crossed),
+            "invalid_target",
+            "a code bound to {bound:?} exchanged for {asked}"
+        );
+    }
+
+    // Refresh: the same, refused before the refresh token is rotated away.
+    for (bound, asked) in [
+        (SATELLITE_RESOURCE, MCP_RESOURCE),
+        (MCP_RESOURCE, SATELLITE_RESOURCE),
+    ] {
+        let (resources, (id, secret), code) = authorized(Some(bound)).await;
+        let client = (id.as_str(), secret.as_str());
+        let (_, refresh_token) = issued(exchange(&resources, client, &code, None).await);
+        let crossed = refresh(&resources, client, &refresh_token, Some(asked)).await;
+        assert_eq!(
+            token_error(crossed),
+            "invalid_target",
+            "a refresh bound to {bound} asking for {asked}"
+        );
+        let (still_bound, _) = issued(refresh(&resources, client, &refresh_token, None).await);
+        assert_eq!(
+            minted_claims(&still_bound).aud,
+            bound,
+            "the refused refresh token still exchanges, for its own resource server"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_platform_grant_ends_when_the_athlete_leaves_its_tenant() {
+    let resources = resources_with(split_hosts()).await;
+    let (client_id, client_secret) = register(&resources).await;
+    let client = (client_id.as_str(), client_secret.as_str());
+    let (user, session) = athlete(&resources, "leaving@example.test").await;
+    let tenant = first_tenant(&resources, &user).await;
+
+    let code = authorization_code(&resources, &client_id, &session, Some(MCP_RESOURCE)).await;
+    let (access_token, refresh_token) = issued(exchange(&resources, client, &code, None).await);
+    assert_eq!(
+        tools_list(&resources, Some(&access_token)).await.status(),
+        200
+    );
+
+    leave_tenant(&resources, &user, tenant).await;
+
+    // The access token still in its hour names the tenant, and `/mcp` checks
+    // the membership on every request: it is refused, never re-pointed at
+    // another of the athlete's tenants.
+    let live = tools_list(&resources, Some(&access_token)).await.status();
+    assert_ne!(live, 200, "a token naming a tenant left is refused");
+    assert_eq!(
+        token_error(refresh(&resources, client, &refresh_token, None).await),
+        "invalid_grant"
+    );
+}
+
+#[tokio::test]
+async fn a_grant_acts_in_the_tenant_it_was_authorized_in() {
+    let resources = resources_with(split_hosts()).await;
+    let (client_id, client_secret) = register(&resources).await;
+    let client = (client_id.as_str(), client_secret.as_str());
+    let (user, _first_session) = athlete(&resources, "two-tenants@example.test").await;
+    let first = first_tenant(&resources, &user).await;
+
+    let second = TenantId::from_uuid(Uuid::new_v4());
+    resources
+        .common
+        .repos
+        .tenants
+        .create(&Tenant {
+            id: second,
+            name: "Second club".to_owned(),
+            slug: format!("second-{second}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: user.id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(first_tenant(&resources, &user).await, first);
+    assert_ne!(first, second);
+
+    // The athlete signs in to the authorization server acting in the second.
+    let session = resources
+        .auth
+        .auth_manager
+        .generate_authorization_session_token(
+            &user,
+            &resources.auth.jwks_manager,
+            Some(second.to_string()),
+        )
+        .unwrap();
+    let code = authorization_code(&resources, &client_id, &session, Some(MCP_RESOURCE)).await;
+    let (access_token, _) = issued(exchange(&resources, client, &code, None).await);
+    assert_eq!(
+        minted_claims(&access_token).active_tenant_id,
+        Some(second.to_string())
+    );
+
+    // `/mcp` resolves the call's tenant from the token exactly so: the
+    // scoped authentication its auth hook runs, then the tenant isolation it
+    // hands the result to.
+    let admitted = resources
+        .auth
+        .auth_middleware
+        .authenticate_scoped_request(
+            Some(&format!("Bearer {access_token}")),
+            &resources.common.config.oauth2_server.mcp_resources(),
+        )
+        .await
+        .unwrap();
+    let context = extract_tenant_context_internal(
+        &resources.common.repos,
+        admitted.user_id,
+        admitted.active_tenant_id.map(TenantId::from_uuid),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        context.tenant_id, second,
+        "the authorized tenant, not the first"
+    );
+    assert_eq!(
+        tools_list(&resources, Some(&access_token)).await.status(),
+        200
+    );
+}
+
+#[tokio::test]
+async fn validate_and_refresh_keeps_a_satellite_grant_on_its_satellite() {
+    let resources = resources_with(with_satellite()).await;
+    let (client_id, client_secret) = register(&resources).await;
+    let client = (client_id.as_str(), client_secret.as_str());
+    let (user, session) = athlete(&resources, "satellite-refresh@example.test").await;
+    let tenant = first_tenant(&resources, &user).await;
+    let code = authorization_code(&resources, &client_id, &session, Some(SATELLITE_RESOURCE)).await;
+    let (access_token, refresh_token) = issued(exchange(&resources, client, &code, None).await);
+
+    let stale = expired(&resources, &access_token);
+    let refreshed = validate_and_refresh(&resources, &stale, Some(&refresh_token)).await;
+    assert_eq!(refreshed["status"], "refreshed", "{refreshed}");
+    let claims = minted_claims(refreshed["access_token"].as_str().unwrap());
+    assert_eq!(claims.aud, SATELLITE_RESOURCE);
+    assert_eq!(claims.active_tenant_id, Some(tenant.to_string()));
+
+    // After leaving the tenant, validate-and-refresh mints nothing either.
+    leave_tenant(&resources, &user, tenant).await;
+    let rotated = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    let refused = validate_and_refresh(&resources, &stale, Some(&rotated)).await;
+    assert_eq!(refused["status"], "invalid", "{refused}");
+}
+
+#[tokio::test]
+async fn a_satellite_resource_is_refused_where_none_is_configured() {
+    let resources = resources_with(split_hosts()).await;
+    let (client_id, _secret) = register(&resources).await;
+    let (_user, session) = athlete(&resources, "no-satellite@example.test").await;
+    let answer = AxumTestRequest::get(&authorize_uri(&client_id, Some(SATELLITE_RESOURCE)))
+        .header("cookie", &format!("__Host-pierre_session={session}"))
+        .send(oauth2_routes(&resources))
+        .await;
+    let query = redirect_query(&answer);
+    assert_eq!(param(&query, "error"), Some("invalid_target"));
 }
 
 // ── Both hosts serve /mcp (carnet#639) ───────────────────────────────────────

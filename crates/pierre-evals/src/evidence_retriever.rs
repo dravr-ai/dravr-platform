@@ -304,7 +304,11 @@ fn parse_markdown_record(contents: &str, filename: &str) -> AppResult<EvidenceRe
         )));
     }
 
-    let fm: Frontmatter = serde_yaml::from_str(frontmatter_str).map_err(|e| {
+    let fm: Frontmatter = serde_saphyr::from_str_with_options(
+        frontmatter_str,
+        serde_saphyr::options! { with_snippet: false },
+    )
+    .map_err(|e| {
         AppError::internal(format!(
             "Evidence file {filename} frontmatter parse failed: {e}"
         ))

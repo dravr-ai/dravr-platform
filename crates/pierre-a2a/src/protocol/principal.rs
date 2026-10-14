@@ -23,9 +23,29 @@ use serde_json::{Number, Value};
 use tracing::error;
 use uuid::Uuid;
 
-use super::{A2AResources, A2AServer, A2ATask, AuthPrincipal};
+use super::{A2AResources, A2AServer, A2ATask};
 use crate::protocol_types::{rate_limit_details, A2ASpecError, A2A_VERSION};
 use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
+
+/// The authenticated caller of a protocol method.
+///
+/// `user_id` is always the acting human user (token subject for user JWTs;
+/// the registering owner for client-credentials tokens) — it drives tenant
+/// resolution and tool execution. `client_id` is set when the caller
+/// authenticated with client credentials; tasks are then keyed to and
+/// scoped by that client.
+#[derive(Clone)]
+pub(super) struct AuthPrincipal {
+    pub(super) user_id: Uuid,
+    pub(super) client_id: Option<String>,
+    /// The token's own grant; see `OAuthScope::parse_granted`.
+    pub(super) scopes: Vec<OAuthScope>,
+    /// The tenant a user token's grant was authorized in, which tool
+    /// execution acts in (membership is verified there). `None` for a
+    /// client-credentials token, which acts as its registering user in that
+    /// user's own tenant.
+    pub(super) active_tenant_id: Option<Uuid>,
+}
 
 impl A2AServer {
     /// Authenticate the A2A request and resolve the acting principal.
@@ -109,11 +129,20 @@ impl A2AServer {
                 .auth_middleware
                 .authenticate_scoped_request(Some(&format!("Bearer {auth_token}")), &[])
                 .await
-                .map_err(|e| Box::new(Self::auth_refusal(&e, request_id)))?;
+                .map_err(|e| Box::new(Self::auth_refusal(&e, request_id.clone())))?;
+            // A delegated grant acts in the tenant it was authorized in; a
+            // user token naming none has no tenant the athlete consented to.
+            let Some(active_tenant_id) = admitted.active_tenant_id else {
+                return Err(Box::new(Self::auth_error(
+                    "The authentication token names no tenant",
+                    Some(request_id),
+                )));
+            };
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
                 client_id: None,
                 scopes: admitted.scopes,
+                active_tenant_id: Some(active_tenant_id),
             });
         }
 
@@ -171,6 +200,7 @@ impl A2AServer {
             user_id: client.user_id,
             client_id: Some(client.id),
             scopes,
+            active_tenant_id: None,
         })
     }
 

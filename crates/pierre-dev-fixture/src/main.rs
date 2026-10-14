@@ -311,8 +311,8 @@ fn strava_stats_json(row: Option<&SqliteRow>) -> Value {
 }
 
 /// `GET /activitylist-service/activities/search/activities` — returns the
-/// bearer user's seeded activities in Garmin Connect summary JSON shape (the
-/// flat array of `GarminActivityResponse` the Garmin provider deserializes).
+/// bearer user's seeded activities as Garmin Connect list rows (the flat array
+/// of `GarminListRow` the Garmin provider deserializes).
 async fn garmin_activities(
     State(pool): State<SqlitePool>,
     Query(params): Query<HashMap<String, String>>,
@@ -352,33 +352,44 @@ async fn garmin_activities(
     }
 }
 
-/// Map a `synthetic_activities` row to a Garmin Connect summary-activity JSON
-/// object. Garmin's parser keys on `activityTypeDTO.typeKey` and `summaryDTO`
-/// (camelCase, with explicit `averageHR`/`maxHR`); `startTimeGMT` is emitted in
-/// both `RFC3339` casings the provider may deserialize.
+/// Map a `synthetic_activities` row to a Garmin Connect activity-list row.
+///
+/// List rows are flat, unlike the detail response: the type is
+/// `activityType.typeKey` and the metrics sit at the top level with Garmin's own
+/// spellings (`averageHR`, `maxHR`, `elevationGain`). `startTimeGMT` is
+/// Garmin's SQL-style timestamp, the one casing it sends. This is the shape
+/// dravr-sciotte's `garmin.toml` list extractor reads from live traffic, so a
+/// provider that parses it parses what Garmin serves.
 fn row_to_garmin_activity(row: &SqliteRow) -> Value {
     let id: String = row.try_get("id").unwrap_or_default();
     let sport: String = row
         .try_get("sport_type")
         .unwrap_or_else(|_| "other".to_owned());
-    let start = rfc3339_z(&row.try_get::<String, _>("start_date").unwrap_or_default());
+    let start = garmin_start_time_gmt(&row.try_get::<String, _>("start_date").unwrap_or_default());
 
     json!({
         "activityId": stable_id(&id),
         "activityName": row.try_get::<String, _>("name").unwrap_or_default(),
-        "activityTypeDTO": { "typeKey": garmin_type_key(&sport) },
-        "summaryDTO": {
-            "startTimeGMT": start,
-            "startTimeGmt": start,
-            "distance": row.try_get::<Option<f64>, _>("distance_meters").ok().flatten(),
-            "duration": row.try_get::<Option<i64>, _>("duration_seconds").ok().flatten(),
-            "elevationGain": row.try_get::<Option<f64>, _>("elevation_gain").ok().flatten(),
-            "averageSpeed": row.try_get::<Option<f64>, _>("average_speed").ok().flatten(),
-            "maxSpeed": row.try_get::<Option<f64>, _>("max_speed").ok().flatten(),
-            "averageHR": row.try_get::<Option<f64>, _>("average_heart_rate").ok().flatten(),
-            "maxHR": row.try_get::<Option<f64>, _>("max_heart_rate").ok().flatten(),
-        }
+        "activityType": { "typeKey": garmin_type_key(&sport) },
+        "startTimeGMT": start,
+        "distance": row.try_get::<Option<f64>, _>("distance_meters").ok().flatten(),
+        "duration": row.try_get::<Option<i64>, _>("duration_seconds").ok().flatten(),
+        "elevationGain": row.try_get::<Option<f64>, _>("elevation_gain").ok().flatten(),
+        "averageSpeed": row.try_get::<Option<f64>, _>("average_speed").ok().flatten(),
+        "maxSpeed": row.try_get::<Option<f64>, _>("max_speed").ok().flatten(),
+        "averageHR": row.try_get::<Option<f64>, _>("average_heart_rate").ok().flatten(),
+        "maxHR": row.try_get::<Option<f64>, _>("max_heart_rate").ok().flatten(),
     })
+}
+
+/// A stored start date in Garmin's `startTimeGMT` spelling,
+/// `"2026-04-27 14:25:46.0"`: UTC, a space for the `T`, one fractional digit.
+fn garmin_start_time_gmt(start_date: &str) -> String {
+    let rfc = rfc3339_z(start_date);
+    rfc.get(..19).map_or_else(
+        || rfc.clone(),
+        |head| format!("{}.0", head.replace('T', " ")),
+    )
 }
 
 /// Translate a stored `sport_type` to a Garmin `typeKey` the Garmin provider's
@@ -512,6 +523,8 @@ mod tests {
     use pierre_providers::core::{
         CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     };
+    use pierre_providers::garmin_provider::GarminProvider;
+    use pierre_providers::models::SportType;
     use pierre_providers::strava_provider::StravaProvider;
     use std::sync::Once;
 
@@ -593,6 +606,71 @@ mod tests {
             .await
             .expect("credentials");
         provider
+    }
+
+    /// The real Garmin provider, its base URL on a fixture serving `pool`.
+    async fn garmin_on_fixture(pool: SqlitePool, user: &str) -> GarminProvider {
+        HTTP_CLIENTS.call_once(|| initialize_http_clients(HttpClientConfig::default()));
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move { serve(listener, app(pool)).await });
+
+        let provider = GarminProvider::with_config(ProviderConfig {
+            name: "garmin".to_owned(),
+            auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+            token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+            api_base_url: format!("http://{addr}"),
+            revoke_url: None,
+            default_scopes: Vec::new(),
+        });
+        provider
+            .set_credentials(OAuth2Credentials {
+                client_id: "dev".to_owned(),
+                client_secret: "dev".to_owned(),
+                access_token: Some(format!("{BEARER_PREFIX}{user}")),
+                refresh_token: Some("dev".to_owned()),
+                expires_at: Some(Utc::now() + Duration::days(1)),
+                scopes: Vec::new(),
+                kind: CredentialKind::OAuthBearer,
+                request_budget: None,
+            })
+            .await
+            .expect("credentials");
+        provider
+    }
+
+    /// The fixture's list rows are the flat shape Garmin Connect serves, in
+    /// Garmin's single `startTimeGMT` casing. The fixture used to emit the
+    /// detail shape with both casings, so the provider read it while it failed
+    /// every row of a real list.
+    #[tokio::test]
+    async fn the_garmin_list_is_readable_in_the_shape_garmin_serves() {
+        let provider = garmin_on_fixture(seeded_pool().await, ATHLETE).await;
+        let activities = provider
+            .get_activities(Some(10), None)
+            .await
+            .expect("the list read succeeds");
+
+        assert_eq!(activities.len(), 2);
+        let ride = activities
+            .iter()
+            .find(|a| a.name() == "Morning ride")
+            .expect("the ride is listed");
+        assert_eq!(ride.duration_seconds(), 3600);
+        assert_eq!(ride.start_date().to_rfc3339(), "2026-09-28T10:00:00+00:00");
+        assert_eq!(*ride.sport_type(), SportType::Ride);
+    }
+
+    #[test]
+    fn a_stored_start_date_is_spelled_the_way_garmin_spells_it() {
+        assert_eq!(
+            garmin_start_time_gmt("2026-09-28T10:00:00"),
+            "2026-09-28 10:00:00.0"
+        );
+        assert_eq!(
+            garmin_start_time_gmt("2026-09-28T10:00:00.123Z"),
+            "2026-09-28 10:00:00.0"
+        );
     }
 
     #[tokio::test]

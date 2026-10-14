@@ -229,7 +229,7 @@ mod tests {
         let scenario = project(trace);
         // No way to look up assistant_reply_seen from a ChatScenario
         // by design — verify by serializing and checking absence.
-        let yaml = serde_yaml::to_string(&scenario).expect("yaml round-trip");
+        let yaml = serde_saphyr::to_string(&scenario).expect("yaml round-trip");
         assert!(!yaml.contains("assistant_reply_seen"));
         assert!(!yaml.contains("this exact string should not leak"));
     }

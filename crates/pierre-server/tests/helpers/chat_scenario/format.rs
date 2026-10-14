@@ -313,9 +313,9 @@ pub fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
         source: e,
     })?;
     let scenario: ChatScenario =
-        serde_yaml::from_str(&raw).map_err(|e| ScenarioLoadError::Parse {
+        serde_saphyr::from_str(&raw).map_err(|e| ScenarioLoadError::Parse {
             path: path.to_owned(),
-            source: e,
+            source: Box::new(e),
         })?;
     // Reject a malformed anchor here rather than interpolating the raw
     // string into the system prompt, where a typo would reach the model as
@@ -341,7 +341,7 @@ pub enum ScenarioLoadError {
     },
     Parse {
         path: PathBuf,
-        source: serde_yaml::Error,
+        source: Box<serde_saphyr::Error>,
     },
     InvalidCurrentDate {
         path: PathBuf,
@@ -372,7 +372,7 @@ impl Error for ScenarioLoadError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::Parse { source, .. } => Some(source),
+            Self::Parse { source, .. } => Some(source.as_ref()),
             Self::InvalidCurrentDate { source, .. } => Some(source),
         }
     }
@@ -392,7 +392,7 @@ locales: ["en"]
 turns:
   - user: "Hello"
 "#;
-        let s: ChatScenario = serde_yaml::from_str(yaml).expect("parse");
+        let s: ChatScenario = serde_saphyr::from_str(yaml).expect("parse");
         assert_eq!(s.name, "Smoke test");
         assert_eq!(s.locales, vec!["en"]);
         assert_eq!(s.turns.len(), 1);
@@ -499,7 +499,7 @@ turns:
       - { kind: vocabulary_contract, agent_id: strength }
       - { kind: any_of, values: ["aujourd'hui", "today"] }
 "#;
-        let s: ChatScenario = serde_yaml::from_str(yaml).expect("parse");
+        let s: ChatScenario = serde_saphyr::from_str(yaml).expect("parse");
         assert_eq!(s.turns[0].assertions.len(), 7);
         assert!(matches!(
             s.turns[0].assertions[0],
@@ -527,7 +527,7 @@ turns:
   - user: "Combien de km?"
     trigger_sync_before_turn: true
 "#;
-        let s: ChatScenario = serde_yaml::from_str(yaml).expect("parse");
+        let s: ChatScenario = serde_saphyr::from_str(yaml).expect("parse");
         let strava = s.provider_state.providers.get("strava").unwrap();
         assert_eq!(strava.initial_activities.len(), 1);
         assert_eq!(strava.appears_after_sync.len(), 1);

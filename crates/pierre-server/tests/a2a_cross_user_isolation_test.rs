@@ -455,6 +455,32 @@ async fn test_client_management_paths_deny_a_second_user() {
 }
 
 #[tokio::test]
+async fn test_a_user_grant_naming_no_tenant_is_refused() {
+    // A delegated grant acts in the tenant it was authorized in. One naming
+    // no tenant has none the athlete consented to, so the protocol surface
+    // refuses it rather than acting in the user's first tenant.
+    let resources = create_a2a_test_resources().await;
+    let routes = a2a_router_from(&resources);
+    let (user, _jwt) = common::create_test_tenant(&resources, "a2a-tenantless@example.com")
+        .await
+        .expect("seed user + tenant");
+    let tenantless = common::delegated_test_token_for_tenant(&resources, user.id, None);
+    let body = json!({ "jsonrpc": "2.0", "method": "ListTasks", "params": {}, "id": 1 });
+    let response = AxumTestRequest::post("/a2a/jsonrpc")
+        .header("A2A-Version", "1.0")
+        .header("Authorization", &format!("Bearer {tenantless}"))
+        .json(&body)
+        .send(routes.clone())
+        .await;
+    let status = response.status();
+    assert_eq!(status, 401, "{}", response.text());
+
+    let granted = common::generate_delegated_test_token(&resources, &user).await;
+    let envelope = rpc(&routes, &granted, "ListTasks", json!({})).await;
+    assert!(envelope["error"].is_null(), "{envelope:?}");
+}
+
+#[tokio::test]
 async fn test_extended_agent_card_requires_authentication() {
     // The extended card is a per-server document, not per-user data, so the
     // gate on it is authentication rather than ownership: anonymous callers

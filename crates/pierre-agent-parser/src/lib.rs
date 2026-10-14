@@ -293,7 +293,11 @@ pub fn parse_frontmatter(content: &str) -> AppResult<AgentFrontmatter> {
 
     let yaml_content = &after_first[..end_pos].trim();
 
-    let frontmatter: AgentFrontmatter = serde_yaml::from_str(yaml_content).map_err(|e| {
+    let frontmatter: AgentFrontmatter = serde_saphyr::from_str_with_options(
+        yaml_content,
+        serde_saphyr::options! { with_snippet: false },
+    )
+    .map_err(|e| {
         AppError::new(
             ErrorCode::InvalidFormat,
             format!("Invalid YAML frontmatter: {e}"),

@@ -159,8 +159,11 @@ impl ContremaitreRoutingProvider {
     }
 
     fn reload_inner(&self, yaml_text: &str, sha256: Option<String>) -> AppResult<()> {
-        let document: RoutingDocument = serde_yaml::from_str(yaml_text)
-            .map_err(|e| AppError::invalid_input(format!("notify-routing YAML: {e}")))?;
+        let document: RoutingDocument = serde_saphyr::from_str_with_options(
+            yaml_text,
+            serde_saphyr::options! { with_snippet: false },
+        )
+        .map_err(|e| AppError::invalid_input(format!("notify-routing YAML: {e}")))?;
 
         if document.version != ROUTING_SCHEMA_VERSION {
             return Err(AppError::invalid_input(format!(

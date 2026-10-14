@@ -10,6 +10,9 @@ pub mod google_sign_in;
 /// OAuth provider configuration for fitness platforms
 pub mod oauth;
 
+/// The satellite MCP servers the authorization server mints for
+mod satellites;
+
 /// Rate limiting configuration
 pub mod rate_limit;
 

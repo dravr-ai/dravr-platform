@@ -55,16 +55,18 @@ struct RawCatalogue {
 /// A malformed catalogue would already fail `notify_catalogue_test` at CI; if
 /// it somehow fails to parse here the map is empty and every event resolves to
 /// `None` — the privacy-safe default, where the sink captures nothing.
-static EVENT_TIERS: LazyLock<HashMap<String, EventTier>> =
-    LazyLock::new(
-        || match serde_yaml::from_str::<RawCatalogue>(NOTIFY_EVENTS_YAML) {
-            Ok(raw) => raw.events.into_iter().map(|e| (e.name, e.tier)).collect(),
-            Err(e) => {
-                error!(error = %e, "notify-events.yaml failed to parse; PostHog capture disabled");
-                HashMap::new()
-            }
-        },
-    );
+static EVENT_TIERS: LazyLock<HashMap<String, EventTier>> = LazyLock::new(|| {
+    match serde_saphyr::from_str_with_options::<RawCatalogue>(
+        NOTIFY_EVENTS_YAML,
+        serde_saphyr::options! { with_snippet: false },
+    ) {
+        Ok(raw) => raw.events.into_iter().map(|e| (e.name, e.tier)).collect(),
+        Err(e) => {
+            error!(error = %e, "notify-events.yaml failed to parse; PostHog capture disabled");
+            HashMap::new()
+        }
+    }
+});
 
 /// Look up the consent tier for a catalogued notify event, or `None` when the
 /// event name is not in the catalogue.

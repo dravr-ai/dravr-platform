@@ -297,6 +297,7 @@ fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationSer
             .map(str::to_owned)
             .collect(),
     )
+    .with_satellite_resources(oauth2.satellite_resources.clone())
     .with_first_party_redirects(oauth2.first_party_redirects.clone())
 }
 

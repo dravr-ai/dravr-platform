@@ -90,8 +90,8 @@ fn a_stale_one_line_ladder_comes_back_as_the_current_file_byte_for_byte() {
 
 #[test]
 fn a_ladder_written_as_block_lists_is_reserialised_and_still_parses() {
-    let doc: serde_yaml::Value = serde_yaml::from_str(&stale_polarized()).unwrap();
-    let block_style = serde_yaml::to_string(&doc).unwrap();
+    let doc: serde_json::Value = serde_saphyr::from_str(&stale_polarized()).unwrap();
+    let block_style = serde_saphyr::to_string(&doc).unwrap();
     assert!(
         Flavour::from_yaml(&block_style).is_err(),
         "the block-style copy carries the same stale rule"

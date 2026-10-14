@@ -16,7 +16,7 @@ use super::models::{
 };
 use super::pkce::{check_code_challenge, check_pkce};
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
-use super::resource::{bound_audience, token_audience};
+use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, DelegatedGrant};
 use crate::refresh_rotation::{
@@ -34,6 +34,7 @@ use uuid::Uuid;
 
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
+mod grant_checks;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
 
@@ -80,6 +81,9 @@ pub struct OAuth2AuthorizationServer {
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
     resources: Vec<String>,
+    /// Identifiers of the satellite MCP servers this authorization server also
+    /// mints for, one each; empty until [`Self::with_satellite_resources`]
+    satellites: Vec<String>,
     /// Where Dravr's own apps may receive a code; empty until
     /// [`Self::with_first_party_redirects`] names it, which refuses them
     first_party: FirstPartyRedirects,
@@ -115,8 +119,18 @@ impl OAuth2AuthorizationServer {
             users,
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
             resources,
+            satellites: Vec::new(),
             first_party: FirstPartyRedirects::default(),
         }
+    }
+
+    /// Also mint for the satellite MCP servers `satellites` names
+    /// (`OAuth2ServerConfig::satellite_resources`), each its own resource
+    /// server: a grant bound to one never mints for the platform or another.
+    #[must_use]
+    pub fn with_satellite_resources(mut self, satellites: Vec<String>) -> Self {
+        self.satellites = satellites;
+        self
     }
 
     /// Serve Dravr's own web and mobile apps, sending their codes only where
@@ -127,9 +141,14 @@ impl OAuth2AuthorizationServer {
         self
     }
 
-    /// The MCP resource identifiers, as the resource checks take them.
+    /// Every identifier this server mints for, the platform's then the
+    /// satellites', as the resource checks take them.
     fn served(&self) -> Vec<&str> {
-        self.resources.iter().map(String::as_str).collect()
+        self.resources
+            .iter()
+            .chain(&self.satellites)
+            .map(String::as_str)
+            .collect()
     }
 
     /// Check an authorization request and resolve the scope and resource it
@@ -398,18 +417,16 @@ impl OAuth2AuthorizationServer {
 
         // The audience: the resource the authorization was bound to, or the
         // one this request narrows an unbound authorization to (RFC 8707 §2.2).
-        let audience = token_audience(
-            &self.served(),
-            request.resource.as_deref(),
-            auth_code.resource.as_deref(),
-        )?;
+        let audience = self.audience(request.resource.as_deref(), auth_code.resource.as_deref())?;
+        self.require_grant_tenant(auth_code.user_id, &auth_code.tenant_id)
+            .await?;
 
         // Generate JWT access token
         let granted = Self::delegated_grant(auth_code.scope.as_deref());
         let access_token = self
             .generate_access_token(
                 &request.client_id,
-                Some(auth_code.user_id),
+                Some((auth_code.user_id, auth_code.tenant_id.as_str())),
                 &granted,
                 audience.as_deref(),
             )
@@ -475,7 +492,7 @@ impl OAuth2AuthorizationServer {
         client: &OAuth2Client,
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
-        let audience = token_audience(&self.served(), request.resource.as_deref(), None)?;
+        let audience = self.audience(request.resource.as_deref(), None)?;
 
         let scope = Self::authorized_scope(client, request.scope.as_deref())?;
         let granted = OAuthScope::parse_granted(&scope);
@@ -513,9 +530,12 @@ impl OAuth2AuthorizationServer {
             .refresh_token
             .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
-        // A resource this server does not serve is refused before the refresh
-        // token is rotated away.
+        // A resource this server does not serve, or not the grant's resource
+        // server, is refused before the refresh token is rotated away, and a
+        // grant whose tenant the user left is revoked.
         self.check_requested_resource(request.resource.as_deref())?;
+        self.check_refresh_grant(&refresh_token_value, request.resource.as_deref())
+            .await?;
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
@@ -540,8 +560,7 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::invalid_grant("Invalid or expired refresh token")
             })?;
 
-        let audience = token_audience(
-            &self.served(),
+        let audience = self.audience(
             request.resource.as_deref(),
             old_refresh_token.resource.as_deref(),
         )?;
@@ -551,7 +570,10 @@ impl OAuth2AuthorizationServer {
         let access_token = self
             .generate_access_token(
                 &request.client_id,
-                Some(old_refresh_token.user_id),
+                Some((
+                    old_refresh_token.user_id,
+                    old_refresh_token.tenant_id.as_str(),
+                )),
                 &granted,
                 audience.as_deref(),
             )
@@ -859,18 +881,21 @@ impl OAuth2AuthorizationServer {
     /// claim and `providers` means what it means everywhere else.
     ///
     /// `audience` is the RFC 8707 resource the token is bound to, `None` for
-    /// the platform audience.
+    /// the platform audience. `subject` is the user the grant acts for and the
+    /// tenant it was authorized in, which the caller confirmed the user still
+    /// belongs to ([`Self::require_grant_tenant`]); the token carries it as
+    /// `active_tenant_id`. A user token is never minted without one.
     async fn generate_access_token(
         &self,
         client_id: &str,
-        user_id: Option<Uuid>,
+        subject: Option<(Uuid, &str)>,
         granted: &[OAuthScope],
         audience: Option<&str>,
     ) -> AppResult<String> {
         if granted.is_empty() {
             debug!(
                 client_id = %client_id,
-                user_id = ?user_id,
+                user_id = ?subject.map(|(user_id, _)| user_id),
                 "Minting an access token with an empty grant"
             );
         }
@@ -879,7 +904,7 @@ impl OAuth2AuthorizationServer {
             .map(|scope| scope.as_str().to_owned())
             .collect();
 
-        let Some(uid) = user_id else {
+        let Some((uid, tenant_id)) = subject else {
             return self
                 .auth_manager
                 .generate_client_credentials_token(
@@ -906,7 +931,6 @@ impl OAuth2AuthorizationServer {
             .flatten()
             .map(|user| user.available_providers())
             .unwrap_or_default();
-
         self.auth_manager
             .generate_oauth_access_token(
                 &self.jwks_manager,
@@ -917,7 +941,7 @@ impl OAuth2AuthorizationServer {
                 },
                 &uid,
                 &providers,
-                None,
+                Some(tenant_id.to_owned()),
             )
             .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }

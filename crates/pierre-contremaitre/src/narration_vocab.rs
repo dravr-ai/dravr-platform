@@ -90,7 +90,8 @@ pub fn reload_narration_vocab(
     sha256: String,
 ) -> Result<NarrationOverlayCounts, String> {
     let parsed: NarrationYaml =
-        serde_yaml::from_str(yaml).map_err(|e| format!("narration overlay parse: {e}"))?;
+        serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { with_snippet: false })
+            .map_err(|e| format!("narration overlay parse: {e}"))?;
     if parsed.version != NARRATION_OVERLAY_VERSION {
         return Err(format!(
             "unsupported narration overlay version {} (expected {NARRATION_OVERLAY_VERSION})",

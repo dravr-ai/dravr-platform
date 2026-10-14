@@ -55,6 +55,8 @@ pub mod prompts;
 mod provider;
 /// Why a provider stopped generating: complete, truncated or filtered
 pub mod provider_stop;
+/// Where the quota router keeps its state: shared Redis, or this process
+mod router_store;
 /// Which tier of a fallback chain answered the current call
 pub mod served_tier;
 /// Which model each background LLM stage runs on

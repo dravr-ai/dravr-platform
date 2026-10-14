@@ -340,8 +340,11 @@ impl PersonaContractRegistry {
     /// the registry's role is to surface authoring mistakes early, not
     /// to police every taste choice.
     pub fn apply_overlay(&self, yaml: &str) -> AppResult<()> {
-        let doc: PersonaContractsDocument = serde_yaml::from_str(yaml)
-            .map_err(|e| AppError::config(format!("persona_contracts.yaml parse failed: {e}")))?;
+        let doc: PersonaContractsDocument = serde_saphyr::from_str_with_options(
+            yaml,
+            serde_saphyr::options! { with_snippet: false },
+        )
+        .map_err(|e| AppError::config(format!("persona_contracts.yaml parse failed: {e}")))?;
         let PersonaContractsDocument {
             version,
             personas,

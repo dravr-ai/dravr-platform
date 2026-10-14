@@ -195,8 +195,10 @@ impl ServerConfig {
     pub fn validate(&self) -> AppResult<()> {
         self.validate_oauth_providers();
         self.validate_oauth2_issuer_url()?;
+        let production = self.security.headers.environment.is_production();
+        self.oauth2_server.validate_mcp_resource_url(production)?;
         self.oauth2_server
-            .validate_mcp_resource_url(self.security.headers.environment.is_production())?;
+            .validate_satellite_resources(production)?;
         self.security.validate_tls()?;
         Ok(())
     }

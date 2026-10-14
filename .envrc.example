@@ -288,6 +288,15 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # when MCP is served under its own hostname (e.g. https://mcp.dravr.ai).
 # export MCP_RESOURCE_URL="http://localhost:8081"
 
+# Satellite MCP servers this authorization server also mints audience-bound
+# tokens for (RFC 8707), comma-separated: each is the satellite's own resource
+# identifier, e.g. https://commere.dravr.ai/mcp. A client names one as
+# `resource` and gets a token for it, carrying the grant's tenant as
+# active_tenant_id while the athlete still belongs to it; the satellite checks
+# it against /.well-known/jwks.json. The platform's own /mcp refuses such a
+# token. Unset: no satellite resource is minted for.
+# export OAUTH2_SATELLITE_RESOURCES="http://127.0.0.1:3200/mcp"
+
 # ============================================================================
 # LLM PROVIDER CONFIGURATION
 # ============================================================================
@@ -466,6 +475,8 @@ export CACHE_MAX_ENTRIES="10000"
 export CACHE_CLEANUP_INTERVAL_SECS="300"      # 5 minutes
 
 # Redis Connection Configuration (when using Redis cache)
+# REDIS_URL also shares the LLM quota router's readings and penalties across
+# instances; unset, the router keeps them per-process.
 # export REDIS_URL="redis://localhost:6379"
 export REDIS_CONNECTION_TIMEOUT_SECS="10"
 export REDIS_RESPONSE_TIMEOUT_SECS="5"

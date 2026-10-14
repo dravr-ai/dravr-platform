@@ -333,7 +333,7 @@ fi
 # wire DTOs also derive Deserialize, but an unread field there mirrors an
 # upstream payload we don't control and is not a lie about our own config
 # surface; including them buried the real signal under ~500 entries.
-grep -rl 'serde_yaml\|serde_yml\|toml::from_str' crates/*/src --include='*.rs' 2>/dev/null \
+grep -rl 'serde_saphyr\|toml::from_str' crates/*/src --include='*.rs' 2>/dev/null \
     | while IFS= read -r file; do
         awk -v f="$file" '
             /^#\[derive\(/            { derive_line = $0; derive_at = NR }

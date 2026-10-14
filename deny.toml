@@ -36,23 +36,6 @@ ignore = [
     "RUSTSEC-2023-0071",
 
     # -------------------------------------------------------------------------
-    # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained
-    # -------------------------------------------------------------------------
-    # Kind: unmaintained (no known vulnerability)
-    # Crate: unsafe-libyaml 0.2.11, only through serde_yaml 0.9.34+deprecated
-    # Advisory: https://rustsec.org/advisories/RUSTSEC-2024-0449
-    #
-    # The advisory database started flagging it on 2026-10-12 with no lockfile
-    # change, turning main red for every session. serde_yaml parses only
-    # repo-owned YAML here (agent definitions, commands, contremaitre catalogue,
-    # eval fixtures, cageux periodization config), never athlete input.
-    #
-    # Mitigation: migrate the six platform crates and dravr-cageux off
-    # serde_yaml — dravr-ai/dravr-carnet#880. Remove this entry with it.
-    # Next Review: 2026-11-12
-    "RUSTSEC-2024-0449",
-
-    # -------------------------------------------------------------------------
     # RUSTSEC-2026-0097: rand unsound with a custom `log` logger using rand::rng()
     # -------------------------------------------------------------------------
     # Severity: Unsound (UB only under very specific conditions)

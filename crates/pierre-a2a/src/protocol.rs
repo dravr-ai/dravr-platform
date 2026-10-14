@@ -30,7 +30,7 @@ use crate::{push, A2AErrorResponse, A2ARequest, A2AResponse};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
-use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
@@ -49,6 +49,7 @@ use uuid::Uuid;
 
 mod params;
 mod principal;
+use principal::AuthPrincipal;
 
 use params::{
     CancelParams, CreatePushConfigParams, PushConfigListParams, PushConfigRefParams,
@@ -91,20 +92,6 @@ pub struct A2AResources {
 pub struct A2AServer {
     /// Optional server resources for tool execution and persistence
     pub resources: Option<A2AResources>,
-}
-
-/// The authenticated caller of a protocol method.
-///
-/// `user_id` is always the acting human user (token subject for user JWTs;
-/// the registering owner for client-credentials tokens) — it drives tenant
-/// resolution and tool execution. `client_id` is set when the caller
-/// authenticated with client credentials; tasks are then keyed to and
-/// scoped by that client.
-#[derive(Clone)]
-struct AuthPrincipal {
-    user_id: Uuid,
-    client_id: Option<String>,
-    scopes: Vec<OAuthScope>, // the token's own grant; see OAuthScope::parse_granted
 }
 
 /// Resolved state shared by the blocking, non-blocking, and streaming
@@ -936,15 +923,16 @@ impl A2AServer {
     ) -> Result<Value, String> {
         let user_id = principal.user_id;
         // Resolve tenant context — required for all A2A tool execution.
-        let tenant_context = match extract_tenant_context_internal(ctx.repos(), user_id, None).await
-        {
-            Ok(Some(context)) => context,
-            Ok(None) => return Err("User does not belong to any tenant".into()),
-            Err(e) => {
-                log_tenant_failure(user_id, &e);
-                return Err("Failed to resolve tenant context".into());
-            }
-        };
+        let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
+        let tenant_context =
+            match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
+                Ok(Some(context)) => context,
+                Ok(None) => return Err("User does not belong to any tenant".into()),
+                Err(e) => {
+                    log_tenant_failure(user_id, &e);
+                    return Err("Failed to resolve tenant context".into());
+                }
+            };
 
         if !tool_runtime.tool_registry().contains(tool_name) {
             return Err(format!("Unknown tool: {tool_name}"));
