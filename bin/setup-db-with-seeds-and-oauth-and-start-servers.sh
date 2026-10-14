@@ -147,6 +147,13 @@ FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
 # the resolved port has to reach them and not just this script's own variable.
 export HTTP_PORT="$SERVER_PORT"
 export EXPO_PORT
+
+# Refuse a sciotte that would share this server's port before anything is
+# stopped, deleted or built: Pierre takes its port by killing what holds it
+# (carnet#898).
+if ! "$PROJECT_ROOT/scripts/sciotte-local.sh" check-port "$SERVER_PORT"; then
+    exit 1
+fi
 # The mobile app run in Expo Go returns from the hosted sign-in to
 # exp://<host>:<port>/--/auth/callback, which the server accepts only with this
 # opt-in (carnet#787). It is for this local stack alone: on a deployed server an
@@ -317,7 +324,8 @@ export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
 # must be up; unset => the in-process path and this block is skipped entirely
 # (dev loop unchanged). Delegates to sciotte-local.sh so the serve invocation
 # has a single source of truth. Never fatal: a missing ../dravr-sciotte checkout
-# or a failed build warns and skips so the core stack always comes up. The
+# or a failed build warns and skips so the core stack always comes up (a port
+# clash with SERVER_PORT was refused by the preflight check-port above). The
 # service is spawned through the same pid-file machinery as the rest of this
 # stack, so stop-all.sh stops it by its `sciotte` record, and only this
 # checkout's.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: Drives the platform's sciotte login flow end-to-end for the ADR-021 remote path.
-# ABOUTME: Reads GARMIN_USER/GARMIN_PASSWORD from .envrc; hits Pierre (:8081), which routes to :8091.
+# ABOUTME: Reads GARMIN_USER/GARMIN_PASSWORD from .envrc; hits Pierre (:8081), which routes to the local sciotte (scripts/sciotte-local.sh port).
 
 # With DRAVR_SCIOTTE_REMOTE_URL set, Pierre forwards sciotte login/otp/2fa to the
 # dedicated dravr-sciotte-server. This script exercises that from the platform edge:

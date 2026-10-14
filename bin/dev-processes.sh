@@ -134,6 +134,20 @@ dev_pid_is_ours() { # pid
     return 1
 }
 
+# True when `pid` is a sciotte service some checkout recorded: run from that
+# checkout, whose logs/sciotte.pid names it or its group with the same start
+# stamp. Identity by record, never by command name.
+dev_pid_is_recorded_sciotte() { # pid
+    local pid="$1" dir file rpid rpgid rstamp pgid
+    dir="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+    file="$dir/logs/sciotte.pid"
+    [ -n "$dir" ] && [ -r "$file" ] || return 1
+    { read -r rpid; read -r rpgid; read -r rstamp; } <"$file" || return 1
+    pgid="$(ps -p "$pid" -o pgid= 2>/dev/null | tr -d ' ')"
+    if [ "$pid" != "$rpid" ] && [ "$pgid" != "$rpgid" ]; then return 1; fi
+    [ -n "$rstamp" ] && [ "$(dev_process_stamp "$rpid")" = "$rstamp" ]
+}
+
 dev_describe_pid() { # pid
     echo "pid $1  dir=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)  cmd=$(ps -p "$1" -o command= 2>/dev/null)"
 }
@@ -225,6 +239,16 @@ dev_take_port() { # port label
     local listener remaining
     remaining="$(dev_port_listeners "$1")"
     [ -n "$remaining" ] || return 0
+    # A recorded sciotte on the port is a checkout whose Pierre calls it there;
+    # killing it would leave that Pierre calling ours (carnet#898).
+    while IFS= read -r listener; do
+        [ -n "$listener" ] || continue
+        if dev_pid_is_recorded_sciotte "$listener"; then
+            echo "  Port $1 is held by a sciotte service; not taking it: $(dev_describe_pid "$listener")"
+            echo "  Its checkout's DRAVR_SCIOTTE_REMOTE_URL names this port; start the $2 on another."
+            return 1
+        fi
+    done <<<"$remaining"
     while IFS= read -r listener; do
         [ -n "$listener" ] || continue
         if dev_pid_is_ours "$listener"; then

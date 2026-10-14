@@ -41,7 +41,7 @@ METRO_PORT="${EXPO_PORT:-$(tunnel_env_declared_port "$PROJECT_ROOT/.envrc" EXPO_
 # alone when it belongs to another.
 foreign=0
 dev_reclaim_port "$SERVER_PORT" "Pierre MCP Server" || foreign=1
-dev_reclaim_port 8091 "Sciotte scraper service" || foreign=1
+dev_reclaim_port "$("$PROJECT_ROOT/scripts/sciotte-local.sh" port)" "Sciotte scraper service" || foreign=1
 dev_reclaim_port 5173 "Vite dev server" || foreign=1
 dev_reclaim_port "$METRO_PORT" "Expo / Metro" || foreign=1
 dev_reclaim_port 9555 "Dev Fixture API" || foreign=1

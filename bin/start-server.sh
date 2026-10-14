@@ -158,6 +158,10 @@ fi
 # directory, command) and then that one pid is signalled. Never a name pattern:
 # "pierre-mcp-server" matches every worktree on the machine.
 dev_stop pierre-server "Pierre MCP Server"
+# A sciotte this server would call must not live on the port it is about to take.
+if ! "$PROJECT_ROOT/scripts/sciotte-local.sh" check-port "$HTTP_PORT"; then
+    exit 1
+fi
 if ! dev_take_port "$HTTP_PORT" "Pierre MCP Server"; then
     echo -e "${RED}Port $HTTP_PORT is still held. Start on a free port instead: HTTP_PORT=8091 ./bin/start-server.sh${NC}"
     exit 1

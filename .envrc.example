@@ -141,6 +141,13 @@ export PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS=15    # watchdog tick interval
 export PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS=5      # Retry-After on 503
 export PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS=60   # Retry-After on shutdown
 
+# Dedicated sciotte scraper service (ADR-021), optional. Set => the server sends
+# sciotte logins and scrapes here instead of to in-pod Chrome, and the one-shot
+# setup starts the service on this URL's port (scripts/sciotte-local.sh port).
+# Never 8091: that is the isolated Pierre server's port, and setup refuses a
+# sciotte port equal to HTTP_PORT.
+# export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8096"
+
 # ----------------------------------------------------------------------------
 # Strava Provider Configuration
 # ----------------------------------------------------------------------------

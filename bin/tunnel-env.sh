@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: The one place BASE_URL and EXPO_PUBLIC_API_URL are armed for a tunnel and reset to local
-# ABOUTME: Sourced by start-tunnel.sh, stop-tunnel.sh, start-server.sh, stop-all.sh and the setup script
+# ABOUTME: Sourced by start-tunnel.sh, stop-tunnel.sh, start-server.sh, stop-all.sh, the setup script and sciotte-local.sh
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai

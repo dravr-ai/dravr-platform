@@ -53,6 +53,11 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 stub_bin="$root/bin"
 stub_dir="$root/calls"
+# The port resolves from the environment and from .envrc; neither may be the
+# developer's own, or this test reads their port instead of the default.
+unset SCIOTTE_LOCAL_PORT DRAVR_SCIOTTE_REMOTE_URL
+export SCIOTTE_LOCAL_ENVRC="$root/envrc"
+: >"$SCIOTTE_LOCAL_ENVRC"
 run_dir="$root/logs"
 mkdir -p "$stub_bin" "$stub_dir"
 
@@ -87,7 +92,7 @@ sent_body() { jq -c . "$stub_dir/stdin"; }
 sent_stdin() { cat "$stub_dir/stdin"; }
 argv_has() { grep -qF -- "$1" "$stub_dir/argv"; }
 
-BASE="http://127.0.0.1:8091"
+BASE="http://127.0.0.1:8096"
 
 echo "Per-athlete reads with no session known"
 run '{}' 0 status
@@ -193,7 +198,45 @@ rc=0
 out="$(SCIOTTE_REPO="$repo" DEV_RUN_DIR="$run_dir" "$UNDER_TEST" serve garmin </dev/null 2>&1)" || rc=$?
 expect "serve garmin exits 0" "$rc" "0"
 expect_contains "serve garmin serves only the garmin config" "$out" \
-    "--provider $repo/providers/garmin.toml serve --host 127.0.0.1 --port 8091"
+    "--provider $repo/providers/garmin.toml serve --host 127.0.0.1 --port 8096"
+
+echo "The port: one source, never the isolated Pierre server's (carnet#898)"
+expect "no URL anywhere: the default" "$("$UNDER_TEST" port)" "8096"
+expect "the URL Pierre calls decides the port" \
+    "$(DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8123 "$UNDER_TEST" port)" "8123"
+printf 'export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8124"\n' >"$SCIOTTE_LOCAL_ENVRC"
+expect "without direnv, the URL .envrc declares decides it" "$("$UNDER_TEST" port)" "8124"
+printf "export DRAVR_SCIOTTE_REMOTE_URL='http://127.0.0.1:8125'\n" >"$SCIOTTE_LOCAL_ENVRC"
+expect "a single-quoted .envrc URL decides it too" "$("$UNDER_TEST" port)" "8125"
+expect "SCIOTTE_LOCAL_PORT overrides the URL" \
+    "$(SCIOTTE_LOCAL_PORT=9001 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8123 "$UNDER_TEST" port)" "9001"
+expect "a URL with no port falls back to the default" \
+    "$(DRAVR_SCIOTTE_REMOTE_URL=http://sciotte.internal "$UNDER_TEST" port)" "8096"
+: >"$SCIOTTE_LOCAL_ENVRC"
+expect "userinfo in the URL does not hide its port" \
+    "$(DRAVR_SCIOTTE_REMOTE_URL=http://u:p@127.0.0.1:8127/x "$UNDER_TEST" port)" "8127"
+expect "an IPv6 literal's port is read past its brackets" \
+    "$(DRAVR_SCIOTTE_REMOTE_URL='http://[::1]:8128' "$UNDER_TEST" port)" "8128"
+
+echo "check-port: refuse a Pierre port that collides with the sciotte it calls"
+check() { # expected_rc label server_port [VAR=value...]
+    local want="$1" label="$2" server="$3"
+    shift 3
+    rc=0
+    out="$(env "$@" "$UNDER_TEST" check-port "$server" 2>&1)" || rc=$?
+    expect "$label" "$rc" "$want"
+}
+check 0 "no remote sciotte configured: nothing to refuse" 8091
+check 1 "the URL's port is the server's own" 8091 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8091
+expect_contains "the refusal names both sides" "$out" "both use port 8091"
+check 0 "distinct ports pass" 8091 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8096
+check 1 "SCIOTTE_LOCAL_PORT disagreeing with the URL is refused" 8081 \
+    SCIOTTE_LOCAL_PORT=9001 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8091
+check 1 "a URL with no port is refused" 8081 DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1
+printf 'export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8091"\n' >"$SCIOTTE_LOCAL_ENVRC"
+check 1 "without direnv, the URL .envrc declares is checked" 8091
+: >"$SCIOTTE_LOCAL_ENVRC"
+check 2 "check-port needs the server's port" ""
 
 echo ""
 if [ "$failures" -ne 0 ]; then

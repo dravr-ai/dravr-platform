@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: Local-first harness for the ADR-021 dedicated sciotte scraper service.
-# ABOUTME: Runs dravr-sciotte-server on 127.0.0.1:8091 and drives its login/scrape flow via curl.
+# ABOUTME: Runs dravr-sciotte-server on the port DRAVR_SCIOTTE_REMOTE_URL names (default 8096) and drives it via curl.
 
 # Lets you exercise the isolated scraper on localhost before any Cloud Run deploy:
 # start the server, drive a real Strava/Garmin credential login (password read from
@@ -14,7 +14,40 @@ set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
 # --- Config (override via env) ---------------------------------------------
-PORT="${SCIOTTE_LOCAL_PORT:-8091}"
+# The port Pierre calls is the port the service listens on. One source, in this
+# order: SCIOTTE_LOCAL_PORT, then the port of DRAVR_SCIOTTE_REMOTE_URL (the
+# environment's, else the one this checkout's .envrc declares, for a run without
+# direnv), then 8096. Never 8091: that is the isolated Pierre server's port, and
+# a sciotte there is killed by the server that takes it (carnet#898).
+SCIOTTE_DEFAULT_PORT=8096
+# shellcheck source=../bin/tunnel-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/tunnel-env.sh"
+url_port() { # url -> its explicit port, or nothing (userinfo and [IPv6] aware)
+  local rest="${1#*://}" auth port=""
+  [ "${rest}" != "$1" ] || return 0
+  auth="${rest%%/*}"
+  auth="${auth##*@}"
+  case "${auth}" in
+    \[*\]:*) port="${auth##*\]:}" ;;
+    \[*) ;;
+    *:*) port="${auth##*:}" ;;
+  esac
+  case "${port}" in '' | *[!0-9]*) return 0 ;; esac
+  echo "${port}"
+}
+remote_url() { # the URL Pierre calls: the environment's, else this checkout's .envrc
+  local envrc
+  if [ -n "${DRAVR_SCIOTTE_REMOTE_URL:-}" ]; then echo "${DRAVR_SCIOTTE_REMOTE_URL}"; return; fi
+  envrc="${SCIOTTE_LOCAL_ENVRC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.envrc}"
+  tunnel_env_get_export "${envrc}" DRAVR_SCIOTTE_REMOTE_URL
+}
+resolve_port() {
+  local port
+  if [ -n "${SCIOTTE_LOCAL_PORT:-}" ]; then echo "${SCIOTTE_LOCAL_PORT}"; return; fi
+  port="$(url_port "$(remote_url)")"
+  echo "${port:-${SCIOTTE_DEFAULT_PORT}}"
+}
+PORT="$(resolve_port)"
 HOST="${SCIOTTE_LOCAL_HOST:-127.0.0.1}"
 SCIOTTE_REPO="${SCIOTTE_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../dravr-sciotte" 2>/dev/null && pwd || echo ../dravr-sciotte)}"
 BASE="http://${HOST}:${PORT}"
@@ -126,6 +159,10 @@ $(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated sciot
 Usage: scripts/sciotte-local.sh <command> [args]
 
   build              Build dravr-sciotte-server (debug)
+  port               Print the port the service listens on (and Pierre calls)
+  check-port <port>  Exit 1, saying why, when a Pierre server on <port> would
+                       collide with the sciotte Pierre calls (setup and
+                       start-server run it before taking their port)
   serve [provider]   Run the server in the foreground (Ctrl-C to stop)
                        no arg = ONE instance serving garmin+strava (ADR-021);
                        an explicit provider serves only that config
@@ -156,6 +193,31 @@ EOF
 
 require_bin() {
   [ -x "${BIN}" ] || { err "server binary not built at ${BIN}"; warn "run: scripts/sciotte-local.sh build"; exit 1; }
+}
+
+# Refuse a Pierre port that would collide with the sciotte it calls. Pierre
+# takes its port by killing what holds it, so a sciotte there comes up only to
+# be killed, and Pierre then calls itself (carnet#898). Nothing to check when no
+# remote sciotte is configured.
+cmd_check_port() { # server_port
+  local server="${1:-}" url port
+  [ -n "${server}" ] || { err "check-port needs the Pierre server's port"; return 2; }
+  url="$(remote_url)"
+  [ -n "${url}" ] || return 0
+  port="$(url_port "${url}")"
+  if [ -z "${port}" ]; then
+    err "DRAVR_SCIOTTE_REMOTE_URL (${url}) names no port; the local service needs one (default ${SCIOTTE_DEFAULT_PORT})"
+    return 1
+  fi
+  if [ -n "${SCIOTTE_LOCAL_PORT:-}" ] && [ "${SCIOTTE_LOCAL_PORT}" != "${port}" ]; then
+    err "SCIOTTE_LOCAL_PORT (${SCIOTTE_LOCAL_PORT}) differs from the port Pierre calls (${url}); unset it or make them match"
+    return 1
+  fi
+  if [ "${port}" = "${server}" ]; then
+    err "DRAVR_SCIOTTE_REMOTE_URL (${url}) and the Pierre server both use port ${server}"
+    err "Point DRAVR_SCIOTTE_REMOTE_URL at another port in .envrc (${SCIOTTE_DEFAULT_PORT} is the default)"
+    return 1
+  fi
 }
 
 cmd_build() {
@@ -196,7 +258,7 @@ cmd_serve_bg() {
   while IFS= read -r line; do args+=("${line}"); done < <(provider_args "${1:-}")
   local owned pid logdir logf
   # A 200 on this port says the port answered, not whose service answered it:
-  # every worktree runs its own sciotte on 8091. The skip needs both halves — a
+  # every worktree runs its own sciotte on the same port. The skip needs both halves — a
   # live record of ours, and that recorded process behind the port.
   if owned="$(dev_owned sciotte)"; then
     read -r pid _ <<<"${owned}"
@@ -278,6 +340,8 @@ cmd_2fa() {
 
 case "${1:-help}" in
   build)      cmd_build ;;
+  port)       echo "${PORT}" ;;
+  check-port) shift; cmd_check_port "$@" ;;
   serve)      shift; cmd_serve "$@" ;;
   serve-bg)   shift; cmd_serve_bg "$@" ;;
   health)     cmd_health ;;

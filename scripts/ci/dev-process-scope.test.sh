@@ -343,6 +343,26 @@ esac
 if alive "$peer"; then fail "the listener the start took is gone"; else pass "the listener the start took is gone"; fi
 expect "the port is free afterwards" "$(as "$a" dev_port_listener "$port")" ""
 
+# --- 8b: a start never takes a port off a recorded sciotte (carnet#898) ---
+# Its checkout's Pierre calls it on that port; killing it would leave that
+# Pierre calling the server that took the port.
+port="$(free_port)"
+sciotte="$(as_eval "$b" 'dev_spawn sciotte "$DEV_RUN_DIR/sciotte.log" python3 -m http.server "$port" --bind 127.0.0.1; echo "$DEV_SPAWNED_PID"')"
+started+=("$sciotte")
+if ! wait_for_listener "$port"; then fail "the peer's sciotte came up on $port"; fi
+rc=0
+out="$(as "$a" dev_take_port "$port" "Pierre MCP Server" 2>&1)" || rc=$?
+expect "a start refuses a port a recorded sciotte holds" "$rc" "1"
+if alive "$sciotte"; then pass "the peer's sciotte keeps running"; else fail "the peer's sciotte keeps running"; fi
+case "$out" in
+    *"held by a sciotte service"*"$sciotte"*) pass "the refusal names the sciotte and its pid" ;;
+    *)
+        fail "the refusal names the sciotte and its pid"
+        echo "      got: $out"
+        ;;
+esac
+kill "$sciotte" 2>/dev/null || true
+
 
 # --- 9: a port with two listeners is resolved to both, not to an arbitrary one ---
 # A port normally carries an IPv4 socket and an IPv6 one, and when it is
