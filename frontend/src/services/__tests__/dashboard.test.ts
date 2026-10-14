@@ -40,24 +40,4 @@ describe('dashboardApi', () => {
       expect(mockAxios.get).toHaveBeenCalledWith('/api/dashboard/analytics?days=7')
     })
   })
-
-  describe('getToolUsageBreakdown', () => {
-    it('should fetch tool usage with defaults', async () => {
-      mockAxios.get.mockResolvedValue({ data: { tools: [] } })
-
-      await dashboardApi.getToolUsageBreakdown()
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/api/dashboard/tool-usage?time_range=7d')
-    })
-
-    it('should fetch tool usage with custom params', async () => {
-      mockAxios.get.mockResolvedValue({ data: { tools: [] } })
-
-      await dashboardApi.getToolUsageBreakdown('key-1', '30d')
-
-      expect(mockAxios.get).toHaveBeenCalledWith(
-        '/api/dashboard/tool-usage?api_key_id=key-1&time_range=30d'
-      )
-    })
-  })
 })

@@ -6,6 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initI18n } from '../src/config';
+import { embeddedCatalogue } from '../src/catalogue/embedded';
 
 describe('initI18n', () => {
   afterEach(() => {
@@ -19,7 +20,7 @@ describe('initI18n', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await initI18n({ persistLocale: () => Promise.resolve() });
+    await initI18n({ persistLocale: () => Promise.resolve(), catalogue: embeddedCatalogue });
 
     const printed = [...info.mock.calls, ...log.mock.calls].map((call) => call.map(String).join(' '));
     expect(printed.filter((line) => /i18next|locize/i.test(line))).toEqual([]);

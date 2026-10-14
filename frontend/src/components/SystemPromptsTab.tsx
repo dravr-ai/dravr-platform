@@ -117,7 +117,7 @@ export default function SystemPromptsTab() {
       <Card variant="dark" className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h3 className="text-lg font-semibold text-on-surface">System Prompts</h3>
+            <h2 className="text-lg font-semibold text-on-surface">System Prompts</h2>
             {status && (
               <div className="flex items-center gap-2 text-sm text-on-surface-variant">
                 <span
@@ -172,9 +172,9 @@ export default function SystemPromptsTab() {
         {/* Prompt list */}
         <Card variant="dark" className="p-0 lg:col-span-1">
           <div className="p-4 border-b border-outline-variant">
-            <h4 className="text-sm font-medium text-on-surface-variant">
+            <h3 className="text-sm font-medium text-on-surface-variant">
               {prompts.length} System Prompt{prompts.length !== 1 ? 's' : ''}
-            </h4>
+            </h3>
             {status && status.agent_prompt_count > 0 && (
               <p className="mt-1 text-xs text-on-surface-variant/70">
                 {status.agent_prompt_count} per-agent prompt
@@ -221,109 +221,113 @@ export default function SystemPromptsTab() {
           )}
         </Card>
 
-        {/* Prompt detail / editor */}
-        <Card variant="dark" className="p-0 lg:col-span-2">
-          {!selectedPrompt ? (
-            <div className="flex items-center justify-center h-64 text-on-surface-variant">
-              Select a prompt to view or edit
-            </div>
-          ) : detailLoading ? (
-            <div className="flex justify-center py-8">
-              <div className="pierre-spinner" />
-            </div>
-          ) : promptDetail ? (
-            <div className="flex flex-col h-full">
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b border-outline-variant">
-                <div>
-                  <h4 className="text-base font-semibold text-on-surface">
-                    {formatPromptKey(promptDetail.key)}
-                  </h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span
-                      className={clsx(
-                        'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium',
-                        promptDetail.source === 'contremaitre'
-                          ? 'bg-activity/10 text-on-activity-container'
-                          : 'bg-on-surface-variant/10 text-on-surface-variant',
-                      )}
-                    >
-                      {promptDetail.source === 'contremaitre' ? 'git' : 'built-in'}
-                    </span>
-                    <span className="text-xs text-on-surface-variant font-mono">
-                      {promptDetail.sha256.slice(0, 12)}
-                    </span>
+        {/* Prompt detail / editor. Drawn once the list has loaded: on a
+            narrow screen it sits below the list, and painted first it would
+            be pushed off screen when the list lands above it. */}
+        {!isLoading && (
+          <Card variant="dark" className="p-0 lg:col-span-2">
+            {!selectedPrompt ? (
+              <div className="flex items-center justify-center h-64 text-on-surface-variant">
+                Select a prompt to view or edit
+              </div>
+            ) : detailLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="pierre-spinner" />
+              </div>
+            ) : promptDetail ? (
+              <div className="flex flex-col h-full">
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-outline-variant">
+                  <div>
+                    <h3 className="text-base font-semibold text-on-surface">
+                      {formatPromptKey(promptDetail.key)}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span
+                        className={clsx(
+                          'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium',
+                          promptDetail.source === 'contremaitre'
+                            ? 'bg-activity/10 text-on-activity-container'
+                            : 'bg-on-surface-variant/10 text-on-surface-variant',
+                        )}
+                      >
+                        {promptDetail.source === 'contremaitre' ? 'git' : 'built-in'}
+                      </span>
+                      <span className="text-xs text-on-surface-variant font-mono">
+                        {promptDetail.sha256.slice(0, 12)}
+                      </span>
+                    </div>
                   </div>
+                  {!isEditing ? (
+                    <Button variant="primary" size="sm" onClick={handleStartEditing}>
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button variant="secondary" size="sm" onClick={handleCancelEdit}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={handleSave}
+                        disabled={updateMutation.isPending}
+                      >
+                        {updateMutation.isPending ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                {!isEditing ? (
-                  <Button variant="primary" size="sm" onClick={handleStartEditing}>
-                    Edit
-                  </Button>
+
+                {/* Content */}
+                {isEditing ? (
+                  <div className="flex flex-col flex-1 p-4 gap-3">
+                    <Textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      className="flex-1 min-h-[400px] font-mono resize-y"
+                      spellCheck={false}
+                    />
+                    {status?.configured && (
+                      <div>
+                        <label
+                          htmlFor="commit-message"
+                          className="block text-xs font-medium text-on-surface-variant mb-1"
+                        >
+                          Commit message (optional)
+                        </label>
+                        <input
+                          id="commit-message"
+                          type="text"
+                          value={commitMessage}
+                          onChange={(e) => setCommitMessage(e.target.value)}
+                          placeholder={`Update system prompt: ${selectedPrompt}`}
+                          className="w-full px-3 py-2 rounded-lg bg-surface border border-outline-variant text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
+                      </div>
+                    )}
+                    {updateMutation.isError && (
+                      <div className="text-sm text-error">
+                        Failed to save: {(updateMutation.error as Error).message}
+                      </div>
+                    )}
+                    {updateMutation.isSuccess && updateMutation.data?.commit_sha && (
+                      <div className="text-sm text-activity">
+                        Committed to GitHub: {updateMutation.data.commit_sha.slice(0, 8)}
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" size="sm" onClick={handleCancelEdit}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={handleSave}
-                      disabled={updateMutation.isPending}
-                    >
-                      {updateMutation.isPending ? 'Saving...' : 'Save'}
-                    </Button>
+                  <div className="p-4 overflow-auto">
+                    <pre className="text-sm text-on-surface font-mono whitespace-pre-wrap break-words leading-relaxed">
+                      {promptDetail.content}
+                    </pre>
                   </div>
                 )}
               </div>
-
-              {/* Content */}
-              {isEditing ? (
-                <div className="flex flex-col flex-1 p-4 gap-3">
-                  <Textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="flex-1 min-h-[400px] font-mono resize-y"
-                    spellCheck={false}
-                  />
-                  {status?.configured && (
-                    <div>
-                      <label
-                        htmlFor="commit-message"
-                        className="block text-xs font-medium text-on-surface-variant mb-1"
-                      >
-                        Commit message (optional)
-                      </label>
-                      <input
-                        id="commit-message"
-                        type="text"
-                        value={commitMessage}
-                        onChange={(e) => setCommitMessage(e.target.value)}
-                        placeholder={`Update system prompt: ${selectedPrompt}`}
-                        className="w-full px-3 py-2 rounded-lg bg-surface border border-outline-variant text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      />
-                    </div>
-                  )}
-                  {updateMutation.isError && (
-                    <div className="text-sm text-error">
-                      Failed to save: {(updateMutation.error as Error).message}
-                    </div>
-                  )}
-                  {updateMutation.isSuccess && updateMutation.data?.commit_sha && (
-                    <div className="text-sm text-activity">
-                      Committed to GitHub: {updateMutation.data.commit_sha.slice(0, 8)}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="p-4 overflow-auto">
-                  <pre className="text-sm text-on-surface font-mono whitespace-pre-wrap break-words leading-relaxed">
-                    {promptDetail.content}
-                  </pre>
-                </div>
-              )}
-            </div>
-          ) : null}
-        </Card>
+            ) : null}
+          </Card>
+        )}
       </div>
     </div>
   );

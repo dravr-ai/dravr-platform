@@ -144,7 +144,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Agent Leaderboard — 2/3 width */}
         <div className="lg:col-span-2 card-dark">
-          <h3 className="text-lg font-medium mb-4 text-on-surface">Agent Leaderboard</h3>
+          <h2 className="text-lg font-medium mb-4 text-on-surface">Agent Leaderboard</h2>
           {sortedCoaches.length === 0 ? (
             <div className="text-center py-6 text-outline">
               <p>No agents created yet.</p>
@@ -188,7 +188,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
         {/* Platform Stats — 1/3 width */}
         <div className="space-y-4">
           <Card variant="dark">
-            <h3 className="text-lg font-medium mb-4 text-on-surface">Platform Stats</h3>
+            <h2 className="text-lg font-medium mb-4 text-on-surface">Platform Stats</h2>
             <div className="space-y-4">
               <StatRow label="Total Users" value={users.length} />
               <StatRow label="Total Agents" value={totalCoaches} />

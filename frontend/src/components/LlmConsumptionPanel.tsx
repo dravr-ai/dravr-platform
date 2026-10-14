@@ -6,11 +6,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
-import { adminUsageApi } from '../services/api';
+import '../utils/registerChartJs';
+import { llmConsumptionQuery } from './analyticsQueries';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import type { LlmConsumptionResponse, ConsumptionBreakdownItem } from '../services/api/usage';
-import { QUERY_KEYS } from '../constants/queryKeys';
+import type { ConsumptionBreakdownItem } from '../services/api/usage';
 import { formatCost } from '../utils/formatCost';
 
 // Pierre brand colors for charts
@@ -73,10 +73,7 @@ export default function LlmConsumptionPanel() {
 
   const days = timeRange;
 
-  const { data, isLoading, error } = useQuery<LlmConsumptionResponse>({
-    queryKey: [...QUERY_KEYS.usage.llmConsumption(days), 'admin-panel'],
-    queryFn: () => adminUsageApi.getAdminLlmConsumption(days),
-  });
+  const { data, isLoading, error } = useQuery(llmConsumptionQuery(days));
 
   if (isLoading) {
     return (

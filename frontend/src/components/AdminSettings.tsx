@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { AutoApprovalSetting } from '../services/api/admin';
@@ -12,6 +13,7 @@ import { useGroupPermissions } from '../hooks/useGroups';
 import { Card, Select } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
+import { featureFlagsQuery } from './featureFlagsQuery';
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
@@ -46,11 +48,32 @@ export default function AdminSettings() {
     },
   });
 
+  // Hold the page for its first load until the flags, the auto-approval
+  // setting and the group policy are all in: drawn as each landed, the flags
+  // panel at the top could arrive last and push both cards below it off
+  // screen (layout shift 0.50 on a phone).
+  const flagsQuery = useQuery({
+    ...featureFlagsQuery({ kind: 'tenant', id: adminTenantId ?? '' }),
+    enabled: Boolean(adminTenantId),
+  });
+  const [revealed, setRevealed] = useState(false);
+  if (!revealed && !isLoading && !groupPolicyLoading && !flagsQuery.isLoading) {
+    setRevealed(true);
+  }
+
   const handleToggleAutoApproval = () => {
     if (autoApprovalData && !autoApprovalLockedByEnv) {
       updateAutoApprovalMutation.mutate(!autoApprovalData.enabled);
     }
   };
+
+  if (!revealed) {
+    return (
+      <div className="flex justify-center py-8" role="status" aria-label="Loading platform settings">
+        <div className="pierre-spinner" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -109,6 +132,7 @@ export default function AdminSettings() {
                   } ${updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={autoApprovalData?.enabled}
+                  aria-label="Auto-Approve Registrations"
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -174,6 +198,7 @@ export default function AdminSettings() {
             ) : (
               <div className="w-48">
                 <Select
+                  aria-label="Group Creation Policy"
                   value={groupCreationPolicy}
                   onChange={(e) => updateGroupPolicyMutation.mutate(e.target.value)}
                   disabled={updateGroupPolicyMutation.isPending}

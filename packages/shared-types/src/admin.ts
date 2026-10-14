@@ -1,5 +1,5 @@
-// ABOUTME: Shared TypeScript types for admin panel and dashboard
-// ABOUTME: Admin tokens, A2A client registration and usage, and tool-usage analytics types
+// ABOUTME: Shared TypeScript types for the admin panel
+// ABOUTME: Admin tokens, and A2A client registration and usage types
 
 // ========== ADMIN TOKEN TYPES ==========
 
@@ -70,18 +70,6 @@ export interface CreateAdminTokenResponse {
 export interface RotateAdminTokenResponse extends CreateAdminTokenResponse {
   /** The token the rotation retired */
   old_token_id: string;
-}
-
-// ========== DASHBOARD TYPES ==========
-
-/** Breakdown of tool usage */
-export interface ToolUsageBreakdown {
-  tool_name: string;
-  request_count: number;
-  success_rate: number;
-  average_response_time: number;
-  error_count?: number;
-  percentage_of_total?: number;
 }
 
 // ========== A2A (AGENT-TO-AGENT) PROTOCOL TYPES ==========

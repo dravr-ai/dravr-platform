@@ -5,46 +5,17 @@
 // ABOUTME: Reads shared admin time range from localStorage for consistent cross-tab state
 
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi } from '../services/api';
+import { usageAnalyticsQuery } from './analyticsQueries';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import type { ChartData, ChartOptions, AnalyticsData, TimeSeriesPoint, TopTool } from '../types/chart';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-  Filler,
-} from 'chart.js';
+import type { ChartData, ChartOptions, TimeSeriesPoint, TopTool } from '../types/chart';
+import '../utils/registerChartJs';
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
-import { QUERY_KEYS } from '../constants/queryKeys';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-  Filler
-);
 
 export default function UsageAnalytics() {
   const { timeRange, setTimeRange } = useAdminTimeRange();
 
-  const { data: analytics, isLoading } = useQuery<AnalyticsData>({
-    queryKey: QUERY_KEYS.dashboard.usageAnalytics(timeRange),
-    queryFn: () => dashboardApi.getUsageAnalytics(timeRange),
-  });
+  const { data: analytics, isLoading } = useQuery(usageAnalyticsQuery(timeRange));
 
   // Pierre Design System colors for charts
   const pierreColors = {

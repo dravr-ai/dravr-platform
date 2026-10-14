@@ -263,7 +263,7 @@ export type {
   ListNotificationsParams,
 } from './notifications.js';
 
-// Admin types (admin tokens, A2A protocol, dashboard)
+// Admin types (admin tokens, A2A protocol)
 export type {
   AdminPermission,
   AdminToken,
@@ -271,7 +271,6 @@ export type {
   CreateAdminTokenRequest,
   CreateAdminTokenResponse,
   RotateAdminTokenResponse,
-  ToolUsageBreakdown,
   A2AClient,
   A2AClientRegistrationRequest,
   A2AClientCredentials,

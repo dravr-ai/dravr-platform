@@ -5,10 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
-import { adminUsageApi } from '../services/api';
+import { toolUsageQuery } from './analyticsQueries';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
-import type { ToolUsageResponse } from '../services/api/usage';
 
 /** Format an average latency (ms) for display, or a dash when unknown. */
 function formatLatency(ms: number | null): string {
@@ -21,14 +20,7 @@ export default function ToolUsagePanel() {
   const { timeRange, setTimeRange } = useAdminTimeRange();
   const days = timeRange;
 
-  const { data, isLoading, error } = useQuery<ToolUsageResponse>({
-    queryKey: ['admin', 'tool-usage', days],
-    queryFn: () => adminUsageApi.getAdminToolUsage(days),
-    // Degrade gracefully — never propagate to the error boundary (which would
-    // blank the whole Analytics tab if this endpoint is unavailable).
-    throwOnError: false,
-    retry: false,
-  });
+  const { data, isLoading, error } = useQuery(toolUsageQuery(days));
 
   if (isLoading) {
     return (

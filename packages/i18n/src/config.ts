@@ -4,13 +4,9 @@
 // ABOUTME: i18next configuration for unified web and mobile internationalization
 // ABOUTME: Declares the five locales the backend answers in and makes French the default
 
-import i18n from 'i18next';
+import i18n, { type BackendModule } from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import deTranslation from './locales/de/translation.json';
-import enTranslation from './locales/en/translation.json';
-import esTranslation from './locales/es/translation.json';
-import frTranslation from './locales/fr/translation.json';
-import ptTranslation from './locales/pt/translation.json';
+import type { Catalogue, LocaleLoader } from './catalogue/types';
 import { registerLocalePersister, type LocalePersister } from './localeSync';
 import { installLiveOverlay, type BundleFetcher } from './liveBundle';
 
@@ -52,21 +48,19 @@ export function isSupportedLanguage(value: unknown): value is SupportedLanguage 
   return typeof value === 'string' && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
 }
 
-/** Resource bundles keyed by locale, one `translation` namespace each. */
+/**
+ * The i18next options both clients share. The resources are not here: each
+ * client hands `initI18n` its own [`Catalogue`], so the web bundle never
+ * carries the locales the phone embeds.
+ */
 export const defaultI18nConfig = {
-  resources: {
-    fr: { translation: frTranslation },
-    en: { translation: enTranslation },
-    es: { translation: esTranslation },
-    de: { translation: deTranslation },
-    pt: { translation: ptTranslation },
-  },
   lng: DEFAULT_LANGUAGE,
   fallbackLng: DEFAULT_LANGUAGE,
-  // Resources are compiled in, so there is nothing to wait for: initialize on
-  // the spot rather than deferring to a timer. Without this the first paint can
-  // render raw keys, and a test process is left holding i18next's timeout. The
-  // live catalogue arrives later, as an overlay (see `installLiveOverlay`).
+  // The default locale is compiled in, so there is nothing to wait for:
+  // initialize on the spot rather than deferring to a timer. Without this the
+  // first paint can render raw keys, and a test process is left holding
+  // i18next's timeout. The live catalogue arrives later, as an overlay (see
+  // `installLiveOverlay`).
   initImmediate: false,
   // i18next prints a vendor advert to the console on init, and hushes it only
   // where `process.env.NODE_ENV` reads production — which a browser bundle
@@ -97,6 +91,11 @@ export interface I18nInitOptions {
    */
   persistLocale: LocalePersister;
   /**
+   * The strings compiled into this client: `embeddedCatalogue` on the phone,
+   * `lazyCatalogue` on the web. Required, so no app starts with none.
+   */
+  catalogue: Catalogue;
+  /**
    * Reads the live catalogue from the server (`GET /api/i18n/{locale}`).
    *
    * Optional: an app passes its api-client's `i18n.bundle`, so a string fixed
@@ -116,14 +115,41 @@ export interface I18nInitOptions {
  */
 export function initI18n(options: I18nInitOptions) {
   registerLocalePersister(options.persistLocale);
-  const ready = i18n.use(initReactI18next).init({
+  const { resources, load } = options.catalogue;
+  let instance = i18n.use(initReactI18next);
+  if (load !== undefined) {
+    instance = instance.use(localeBackend(load));
+  }
+  const ready = instance.init({
     ...defaultI18nConfig,
+    resources,
+    // Keep the embedded locales and ask the backend only for the others.
+    partialBundledLanguages: load !== undefined,
     ...options.config,
   });
   if (options.fetchBundle !== undefined) {
     installLiveOverlay(i18n, options.fetchBundle);
   }
   return ready;
+}
+
+/**
+ * An i18next backend over a [`LocaleLoader`]. i18next reads a locale through
+ * it before `changeLanguage` resolves and before `languageChanged` fires, so
+ * the chrome switches language with its strings already present and the live
+ * overlay lands on top of the loaded file, never under it.
+ */
+function localeBackend(load: LocaleLoader): BackendModule {
+  return {
+    type: 'backend',
+    init: () => undefined,
+    read: (language, _namespace, callback) => {
+      load(language).then(
+        (translation) => callback(null, translation),
+        (error: unknown) => callback(error instanceof Error ? error : new Error(String(error)), null),
+      );
+    },
+  };
 }
 
 export { i18n };

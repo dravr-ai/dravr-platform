@@ -14,19 +14,6 @@ async function setupFullDashboardMocks(page: Page, options: { isAdmin?: boolean 
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: isAdmin ? 'admin' : 'user' });
 
-  // Mock tool usage breakdown - must match format expected by Tools component
-  await page.route('**/api/dashboard/tool-usage*', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { tool_name: 'get_activities', request_count: 4500, success_rate: 98.9, average_response_time: 120 },
-        { tool_name: 'get_athlete', request_count: 450, success_rate: 96.7, average_response_time: 85 },
-        { tool_name: 'get_zones', request_count: 200, success_rate: 95.0, average_response_time: 200 },
-      ]),
-    });
-  });
-
   // Mock API keys for connections tab
   await page.route('**/api/keys', async (route) => {
     await route.fulfill({

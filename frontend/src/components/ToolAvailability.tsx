@@ -440,6 +440,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
+                    aria-label="Select all tools"
                     className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-primary"
                   />
                 </th>
@@ -465,6 +466,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         type="checkbox"
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
+                        aria-label={`Select ${tool.display_name}`}
                         disabled={globallyDisabled}
                         className="rounded border-outline-variant bg-surface-container text-primary focus:ring-primary accent-primary disabled:opacity-50"
                       />
@@ -518,6 +520,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                           } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                           role="switch"
                           aria-checked={tool.is_enabled}
+                          aria-label={`Toggle ${tool.display_name}`}
                           title={globallyDisabled ? 'Cannot toggle globally disabled tools' : undefined}
                         >
                           <span

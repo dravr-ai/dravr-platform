@@ -8,7 +8,7 @@ import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { Text, View } from 'react-native';
-import { initI18n, useTranslation, LANGUAGE_STORAGE_KEY } from '@pierre/i18n';
+import { embeddedCatalogue, initI18n, useTranslation, LANGUAGE_STORAGE_KEY } from '@pierre/i18n';
 
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { persistLocale } from '../../i18n/localePersister';
@@ -44,7 +44,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   // The production persister, not a stand-in: the test asserts the request it
   // actually issues.
-  await initI18n({ persistLocale, config: { lng: 'fr' } });
+  await initI18n({ persistLocale, catalogue: embeddedCatalogue, config: { lng: 'fr' } });
 });
 
 afterEach(() => {

@@ -96,9 +96,9 @@ export default function PendingUsersList() {
     <>
       <div>
         <div className="flex items-center justify-between pb-2">
-          <h3 className="font-sans text-sm font-semibold tracking-normal text-on-surface">
+          <h2 className="font-sans text-sm font-semibold tracking-normal text-on-surface">
             Pending Users ({pendingUsers.length})
-          </h3>
+          </h2>
           <Button
             onClick={() => refetch()}
             variant="outline"
@@ -117,9 +117,9 @@ export default function PendingUsersList() {
             <div className="flex justify-between items-start w-full">
               <div className="flex-1">
                 <div className="flex items-center space-x-2 mb-0.5">
-                  <h4 className="font-sans text-sm font-medium tracking-normal text-on-surface">
+                  <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">
                     {user.display_name || 'Unnamed User'}
-                  </h4>
+                  </h3>
                   <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                     <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
                     {user.user_status || 'pending'}

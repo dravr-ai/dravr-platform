@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Web app entry point — mounts React, Chart.js and the i18n runtime
+// ABOUTME: Web app entry point — mounts React and the i18n runtime
 // ABOUTME: Registers the locale writer that keeps chrome and reply language equal
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { initI18n } from '@pierre/i18n'
+import { initI18n, lazyCatalogue } from '@pierre/i18n'
 import './index.css'
 import App from './App.tsx'
 import { persistLocale } from './i18n/localePersister'
@@ -18,35 +18,7 @@ import { i18nApi } from './services/api'
 // anywhere in the app reaches the server, instead of stopping at localStorage.
 // The fetcher is the other direction: the live catalogue overlays the embedded
 // copy, so a string fixed upstream reaches the app without a deploy.
-initI18n({ persistLocale, fetchBundle: i18nApi.bundle })
-
-// Register Chart.js components globally
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-} from 'chart.js';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler,
-);
+initI18n({ persistLocale, catalogue: lazyCatalogue, fetchBundle: i18nApi.bundle })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

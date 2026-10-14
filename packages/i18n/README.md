@@ -17,10 +17,13 @@ out of them, on every surface:
   `crates/pierre-contremaitre/src/messaging_strings.rs`) and seeds the
   messaging-strings registry from them — the registry renders every Telegram,
   WhatsApp, Slack and `/help` reply, and contremaitre overlays it at runtime;
-- the **clients** embed the same files (this package's `defaultI18nConfig`) and
-  overlay the registry's live copy through `GET /api/i18n/{locale}` at start-up
+- the **clients** embed the same files and overlay the registry's live copy through `GET /api/i18n/{locale}` at start-up
   and on every language change, so a string fixed upstream reaches a phone on
-  its next open without a store release.
+  its next open without a store release. The phone embeds all five
+  (`embeddedCatalogue`: it may have no network on first launch); the web
+  embeds French, the default and fallback, and fetches any other locale as its
+  own chunk the first time it is chosen (`lazyCatalogue`) — embedding all five
+  would add ~1 MB of strings to the bundle every visitor downloads before first paint.
 
 The same catalogue used to exist twice — a Rust table of 213 messaging keys and a
 JSON corpus of ~2000 chrome keys, each with its own five-locale gate — and a
@@ -77,10 +80,11 @@ Each app registers its own writer once, at the root, before the first render.
 
 ```tsx
 // frontend/src/main.tsx
-import { initI18n } from '@pierre/i18n';
+import { initI18n, lazyCatalogue } from '@pierre/i18n';
 import { persistLocale } from './i18n/localePersister';
 
-initI18n({ persistLocale, fetchBundle: i18nApi.bundle });
+// The phone passes `embeddedCatalogue` instead.
+initI18n({ persistLocale, catalogue: lazyCatalogue, fetchBundle: i18nApi.bundle });
 ```
 
 ```ts
@@ -169,7 +173,8 @@ answer in. The order is:
 2. add `strings/<tag>.json` with **every** key translated to dravr-contremaitre, bump
    the pin, create `src/locales/<tag>/` so the sync script copies it (it refuses a
    locale on one side only), and embed it in `messaging_strings.rs` next to the other five;
-3. add it to `SUPPORTED_LANGUAGES`, `LANGUAGE_NAMES` and `defaultI18nConfig.resources`;
+3. add it to `SUPPORTED_LANGUAGES`, `LANGUAGE_NAMES`, `EMBEDDED_RESOURCES` in
+   `src/catalogue/embedded.ts` and the `loadLocale` switch in `src/catalogue/lazy.ts`;
 4. add its flag to both `LanguageSwitcher` components.
 
 `packages/i18n/__tests__/locale-corpus.test.ts` fails on a locale that is declared

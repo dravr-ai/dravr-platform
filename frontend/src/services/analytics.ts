@@ -4,10 +4,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import posthog from 'posthog-js';
+import type { PostHog } from 'posthog-js';
 import { analyticsDistinctId, type Sha256Digest } from '@pierre/domain-utils';
 
-let initialized = false;
+/**
+ * The started PostHog client, or `null` while analytics are off.
+ *
+ * posthog-js is imported only once a consenting user boots it: imported
+ * statically it would add ~185 KB to the entry bundle every visitor downloads
+ * before first paint, though consent is opt-in and off by default.
+ */
+let client: PostHog | null = null;
 
 /**
  * Counts every boot and shutdown. A boot hashes the user id before it starts
@@ -29,7 +36,7 @@ const webSha256: Sha256Digest = (data) => crypto.subtle.digest('SHA-256', data);
  * the same step, so no event is ever sent under an anonymous id.
  */
 export async function bootAnalytics(userId: string, consent: boolean): Promise<void> {
-  if (!consent || initialized) {
+  if (!consent || client !== null) {
     return;
   }
   const token = import.meta.env.VITE_POSTHOG_API_KEY as string | undefined;
@@ -50,6 +57,11 @@ export async function bootAnalytics(userId: string, consent: boolean): Promise<v
   if (booting !== generation) {
     return;
   }
+  const { default: posthog } = await import('posthog-js');
+  // Loading the library is a second gap a revoke or a newer boot can land in.
+  if (booting !== generation) {
+    return;
+  }
   posthog.init(token, {
     api_host: host,
     capture_pageview: false,
@@ -58,18 +70,18 @@ export async function bootAnalytics(userId: string, consent: boolean): Promise<v
     disable_session_recording: true,
   });
   posthog.identify(distinctId);
-  initialized = true;
+  client = posthog;
 }
 
 /** Force-stop and clear PostHog state — called when consent is revoked. */
 export function shutdownAnalytics(): void {
   generation += 1;
-  if (!initialized) {
+  if (client === null) {
     return;
   }
-  posthog.opt_out_capturing();
-  posthog.reset();
-  initialized = false;
+  client.opt_out_capturing();
+  client.reset();
+  client = null;
 }
 
 export type AnalyticsEvent =
@@ -81,8 +93,8 @@ export type AnalyticsEvent =
 
 /** Send a typed event to PostHog. No-op when analytics aren't booted. */
 export function track(event: AnalyticsEvent): void {
-  if (!initialized) {
+  if (client === null) {
     return;
   }
-  posthog.capture(event.name, event.props as Record<string, unknown>);
+  client.capture(event.name, event.props as Record<string, unknown>);
 }

@@ -9,6 +9,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { SUPPORTED_LANGUAGES, defaultI18nConfig, DEFAULT_LANGUAGE } from '../src/config';
+import { EMBEDDED_RESOURCES } from '../src/catalogue/embedded';
+import { lazyCatalogue } from '../src/catalogue/lazy';
 
 // The files under src/locales are a byte-identical copy of the pinned
 // dravr-contremaitre strings/<locale>.json, where every string is authored;
@@ -17,9 +19,8 @@ import { SUPPORTED_LANGUAGES, defaultI18nConfig, DEFAULT_LANGUAGE } from '../src
 // the platform's own is which file each offered locale reads — pinned here.
 const LOCALES_DIR = join(dirname(fileURLToPath(import.meta.url)), '../src/locales');
 
-function bundleFor(language: string): unknown {
-  const resources = defaultI18nConfig.resources as Record<string, { translation: unknown }>;
-  return resources[language].translation;
+function fileFor(language: string): unknown {
+  return JSON.parse(readFileSync(join(LOCALES_DIR, language, 'translation.json'), 'utf8'));
 }
 
 describe('client locale corpus', () => {
@@ -30,15 +31,24 @@ describe('client locale corpus', () => {
     expect(defaultI18nConfig.fallbackLng).toBe('fr');
   });
 
-  it('binds every offered locale to its own catalogue file', () => {
+  // Why these read a file: a parity check between two artefacts — the
+  // catalogue file on disk and the bundle a catalogue binds to that locale.
+  // Both sides are read and compared whole; importing the JSON here would
+  // compare the catalogue with the same import it makes.
+  it('binds every offered locale to its own catalogue file in the embedded catalogue', () => {
     for (const language of SUPPORTED_LANGUAGES) {
-      // Why this reads a file: a parity check between two artefacts — the
-      // catalogue file on disk and the bundle the config binds to that locale.
-      // Both sides are read and compared whole; importing the JSON here would
-      // compare the config with the same import it makes.
-      const file = JSON.parse(readFileSync(join(LOCALES_DIR, language, 'translation.json'), 'utf8'));
-      expect({ language, bundle: bundleFor(language) }).toEqual({ language, bundle: file });
+      expect({ language, bundle: EMBEDDED_RESOURCES[language].translation }).toEqual({ language, bundle: fileFor(language) });
     }
-    expect(Object.keys(defaultI18nConfig.resources).sort()).toEqual([...SUPPORTED_LANGUAGES].sort());
+    expect(Object.keys(EMBEDDED_RESOURCES).sort()).toEqual([...SUPPORTED_LANGUAGES].sort());
+  });
+
+  it('embeds only the default locale in the lazy catalogue and loads every other from its own file', async () => {
+    expect(Object.keys(lazyCatalogue.resources)).toEqual([DEFAULT_LANGUAGE]);
+    expect(lazyCatalogue.resources[DEFAULT_LANGUAGE].translation).toEqual(fileFor(DEFAULT_LANGUAGE));
+    const load = lazyCatalogue.load;
+    expect(load).toBeDefined();
+    for (const language of SUPPORTED_LANGUAGES) {
+      expect({ language, bundle: await load?.(language) }).toEqual({ language, bundle: fileFor(language) });
+    }
   });
 });

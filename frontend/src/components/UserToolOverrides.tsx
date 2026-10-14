@@ -182,7 +182,7 @@ export default function UserToolOverrides() {
           </div>
         ) : (
           <div className="space-y-3">
-            <h3 className="font-medium text-on-surface">Select a user</h3>
+            <h2 className="font-medium text-on-surface">Select a user</h2>
             <Input
               type="search"
               placeholder="Search users by email or name..."
@@ -256,7 +256,7 @@ export default function UserToolOverrides() {
             <>
               {toolsByCategory.map(([category, tools]) => (
                 <Card key={category} variant="dark">
-                  <h3 className="font-medium text-on-surface capitalize mb-3">{category}</h3>
+                  <h2 className="font-medium text-on-surface capitalize mb-3">{category}</h2>
                   <ul className="divide-y ghost-border">
                     {tools.map((tool) => {
                       const globallyDisabled = tool.source === 'global_disabled';

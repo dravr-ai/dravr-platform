@@ -42,32 +42,6 @@ export const VISUAL_TEST_CONFIG = {
  * Complements the base dashboard mocks with endpoints needed for visual tests.
  */
 async function setupAdditionalMocks(page: Page): Promise<void> {
-  // Mock tool usage breakdown (Tools tab) - this is what ToolUsageBreakdown component uses
-  await page.route('**/api/dashboard/tool-usage**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          tool_name: 'get_activities',
-          display_name: 'Get Activities',
-          request_count: 150,
-          success_rate: 98.5,
-          average_response_time: 120,
-          error_count: 2,
-        },
-        {
-          tool_name: 'get_athlete',
-          display_name: 'Get Athlete Profile',
-          request_count: 85,
-          success_rate: 100.0,
-          average_response_time: 45,
-          error_count: 0,
-        },
-      ]),
-    });
-  });
-
   // Mock global disabled tools (ToolAvailability component)
   await page.route('**/api/admin/tools/global-disabled', async (route) => {
     await route.fulfill({

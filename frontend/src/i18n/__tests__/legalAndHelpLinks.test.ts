@@ -7,7 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { SUPPORTED_LANGUAGES, defaultI18nConfig } from '@pierre/i18n';
+import { SUPPORTED_LANGUAGES, EMBEDDED_RESOURCES } from '@pierre/i18n';
 import { HELP_URL, LEGAL_URL } from '@pierre/shared-constants';
 
 /** Every athlete-facing source tree either client ships. */
@@ -43,8 +43,7 @@ function sourceFiles(root: string): string[] {
 }
 
 function bundleFor(language: string): Record<string, Record<string, string>> {
-  const resources = defaultI18nConfig.resources as Record<string, { translation: unknown }>;
-  return resources[language].translation as Record<string, Record<string, string>>;
+  return EMBEDDED_RESOURCES[language].translation as Record<string, Record<string, string>>;
 }
 
 /** Lowercased words, punctuation dropped — "Privacy & Data" -> [privacy, data]. */

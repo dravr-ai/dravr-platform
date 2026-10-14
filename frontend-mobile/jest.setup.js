@@ -402,11 +402,12 @@ jest.mock('expo-router/unstable-native-tabs', () =>
 // undefined i18n. The persister rejects rather than no-opping: a test that
 // changes language must register the writer it means to assert, so a missing
 // client→server wire fails loudly instead of passing quietly.
-const { initI18n } = require('@pierre/i18n');
+const { initI18n, embeddedCatalogue } = require('@pierre/i18n');
 // Unit tests assert English copy, so they pin the locale rather than inherit
 // the product default (French). A test that means to exercise another locale
 // calls initI18n with its own `lng`, as LanguageSwitcher.test.tsx does.
 initI18n({
+  catalogue: embeddedCatalogue,
   config: { lng: 'en' },
   persistLocale: () =>
     Promise.reject(

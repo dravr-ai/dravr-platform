@@ -183,6 +183,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                 type="checkbox"
                 checked={selectedTokens.size === tokens.length && tokens.length > 0}
                 onChange={handleSelectAll}
+                aria-label={`Select All (${tokens.length})`}
                 className="rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
               />
               <span className="text-sm font-medium text-on-surface">
@@ -198,6 +199,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                     type="checkbox"
                     checked={selectedTokens.has(token.id)}
                     onChange={() => handleSelectToken(token.id)}
+                    aria-label={`Select ${token.service_name}`}
                     className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                   />
 

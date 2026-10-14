@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SUPPORTED_LANGUAGES, defaultI18nConfig, i18n } from '@pierre/i18n';
+import { SUPPORTED_LANGUAGES, EMBEDDED_RESOURCES, i18n } from '@pierre/i18n';
 import { SETTINGS_PANES } from '@pierre/shared-constants';
 import MemoryPanel from '../../components/memory/MemoryPanel';
 
@@ -65,8 +65,7 @@ const RETIRED_KEYS = [
 ];
 
 function bundleFor(language: string): Record<string, unknown> {
-  const resources = defaultI18nConfig.resources as Record<string, { translation: Record<string, unknown> }>;
-  return resources[language].translation;
+  return EMBEDDED_RESOURCES[language].translation;
 }
 
 function leaf(bundle: Record<string, unknown>, key: string): unknown {

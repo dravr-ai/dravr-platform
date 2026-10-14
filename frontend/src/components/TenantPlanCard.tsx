@@ -67,7 +67,7 @@ export default function TenantPlanCard({ tenantId }: TenantPlanCardProps) {
     <Card variant="dark">
       <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h3 className="font-medium text-on-surface">Tenant Plan</h3>
+          <h2 className="font-medium text-on-surface">Tenant Plan</h2>
           <p className="text-sm text-on-surface-variant mt-1">
             Sets this tenant&apos;s plan; plan-restricted tools update immediately.
           </p>

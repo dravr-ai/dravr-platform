@@ -62,16 +62,25 @@ const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
  */
 const SUPER_ADMIN_ONLY_TABS = new Set(['admin-tokens', 'impersonation-log']);
 
-/** Whether `tab` is outside what the caller's role may open, or retired. */
+/**
+ * Tabs behind a feature gate this build has off. The render switch draws
+ * `billing` and `usage` only when `BILLING_ENABLED`, so with the gate off a
+ * typed or bookmarked `#billing` would select a tab nothing draws: a blank
+ * pane under an empty page heading.
+ */
+const GATED_TABS: ReadonlySet<string> = new Set(BILLING_ENABLED ? [] : ['billing', 'usage']);
+
+/** Whether `tab` is outside what the caller's role may open, gated off, or retired. */
 function isUnservedTab(tab: string, isAdminUser: boolean, isSuperAdmin: boolean): boolean {
   return (
     (!isAdminUser && ADMIN_ONLY_TABS.has(tab)) ||
     (!isSuperAdmin && SUPER_ADMIN_ONLY_TABS.has(tab)) ||
+    GATED_TABS.has(tab) ||
     RETIRED_TABS.has(tab)
   );
 }
 
-const UsageAnalytics = lazy(() => import('./UsageAnalytics'));
+const AnalyticsTab = lazy(() => import('./AnalyticsTab'));
 const ActivityTab = lazy(() => import('./ActivityTab'));
 const EngagementTab = lazy(() => import('./EngagementTab'));
 const UnifiedConnections = lazy(() => import('./UnifiedConnections'));
@@ -103,8 +112,6 @@ const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
 const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
 const CoachStoreManagement = lazy(() => import('./CoachStoreManagement'));
 const StoreScreen = lazy(() => import('./StoreScreen'));
-const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
-const ToolUsagePanel = lazy(() => import('./ToolUsagePanel'));
 const BillingTab = lazy(() => import('./BillingTab'));
 const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
@@ -827,10 +834,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                 sidebarCollapsed ? 'p-1 flex-col' : 'flex-1 min-w-0 p-1.5'
               )}
               title={t('shell.navOpenSettings')}
-              aria-label={t('shell.navOpenSettings')}
+              // Expanded, the button is named by the user's name it shows, so a
+              // voice user can say what they see (WCAG 2.5.3); "Open Settings"
+              // stays its tooltip. Collapsed, only the avatar letter shows.
+              aria-label={sidebarCollapsed ? t('shell.navOpenSettings') : undefined}
             >
               {/* User Avatar with online indicator */}
-              <div className="relative flex-shrink-0">
+              <div className="relative flex-shrink-0" aria-hidden="true">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-container">
                   <span className="text-xs font-semibold text-on-primary-container">
                     {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
@@ -980,17 +990,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           </Suspense>
         )}
         {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <UsageAnalytics />
-            </Suspense>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <LlmConsumptionPanel />
-            </Suspense>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <ToolUsagePanel />
-            </Suspense>
-          </div>
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <AnalyticsTab />
+          </Suspense>
         )}
         {BILLING_ENABLED && activeTab === 'billing' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>

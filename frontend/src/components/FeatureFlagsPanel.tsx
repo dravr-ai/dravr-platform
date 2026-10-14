@@ -12,13 +12,10 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { Card } from './ui';
 import { describeApiError } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
-
-type Scope =
-  | { kind: 'tenant'; id: string }
-  | { kind: 'user'; id: string };
+import { featureFlagsQuery, type FeatureFlagScope } from './featureFlagsQuery';
 
 interface FeatureFlagsPanelProps {
-  scope: Scope;
+  scope: FeatureFlagScope;
 }
 
 interface FlagState {
@@ -42,19 +39,9 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
-  const queryKey =
-    scope.kind === 'tenant'
-      ? QUERY_KEYS.featureFlags.tenantDefaults(scope.id)
-      : QUERY_KEYS.featureFlags.userOverrides(scope.id);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey,
-    queryFn: () =>
-      scope.kind === 'tenant'
-        ? adminApi.getTenantFeatureFlags(scope.id)
-        : adminApi.getUserFeatureOverrides(scope.id),
-    retry: 1,
-  });
+  const flagsQuery = featureFlagsQuery(scope);
+  const { queryKey } = flagsQuery;
+  const { data, isLoading, error } = useQuery(flagsQuery);
 
   // After a write, also invalidate the calling admin's own
   // `/api/me/features` so toggling a flag while sitting on their own user

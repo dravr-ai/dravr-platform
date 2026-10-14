@@ -26,7 +26,7 @@ import { useOnboardingContext } from '../src/hooks/useOnboardingContext';
 import { currentOnboardingStep, type OnboardingStepId } from '@pierre/shared-constants';
 import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../src/services/analytics';
 import { HOME_ROUTE } from '../src/navigation/routes';
-import { initI18n } from '@pierre/i18n';
+import { embeddedCatalogue, initI18n } from '@pierre/i18n';
 import { useLanguageSwitcherNative } from '@pierre/i18n/native';
 import { persistLocale } from '../src/i18n/localePersister';
 import { i18nApi } from '../src/services/api';
@@ -52,7 +52,7 @@ SplashScreen.preventAutoHideAsync();
 // reaches the server instead of stopping at AsyncStorage. The fetcher is the
 // other direction: the live catalogue overlays the embedded copy, so a string
 // fixed upstream reaches the app on its next open without a store release.
-initI18n({ persistLocale, fetchBundle: i18nApi.bundle });
+initI18n({ persistLocale, catalogue: embeddedCatalogue, fetchBundle: i18nApi.bundle });
 
 /** Map an onboarding step id to its `(onboarding)` route (literals for typed routes). */
 function routeForStep(id: OnboardingStepId) {

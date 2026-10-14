@@ -29,6 +29,11 @@ function markAssetEdge(size: number): (typeof ASSET_EDGES)[number] {
  * no gradient — a single ink, forest on the paper surfaces and mint on the dark
  * canvas, swapped by the `.dark` class like every other token.
  *
+ * Both inks are `loading="lazy"`: the browser never fetches a lazy image
+ * that is `display: none`, so only the ink the theme shows is downloaded —
+ * eager, the sign-in page would pay ~200 KB for two 512px marks it draws one of.
+ * The mark is never the largest paint, so deferring it costs nothing.
+ *
  * Rendered as decorative (aria-hidden): every placement sits beside the visible
  * DRAVR wordmark or inside chrome that already names the app, so the mark must
  * not be announced a second time.
@@ -38,8 +43,8 @@ export function DravrLogo({ size = 40, className }: DravrLogoProps) {
   const box = { width: size, height: size };
   return (
     <span className={clsx('inline-block shrink-0', className)} style={box} aria-hidden="true">
-      <img src={`/brand/mark-ink-${edge}.png`} alt="" width={size} height={size} draggable={false} className="block dark:hidden" />
-      <img src={`/brand/mark-mint-${edge}.png`} alt="" width={size} height={size} draggable={false} className="hidden dark:block" />
+      <img src={`/brand/mark-ink-${edge}.png`} alt="" width={size} height={size} loading="lazy" decoding="async" draggable={false} className="block dark:hidden" />
+      <img src={`/brand/mark-mint-${edge}.png`} alt="" width={size} height={size} loading="lazy" decoding="async" draggable={false} className="hidden dark:block" />
     </span>
   );
 }

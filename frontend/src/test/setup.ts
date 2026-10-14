@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import '@testing-library/jest-dom'
-import { initI18n } from '@pierre/i18n'
+import { embeddedCatalogue, initI18n } from '@pierre/i18n'
 
 // Mock fetch for API calls
 global.fetch = vi.fn()
@@ -113,6 +113,7 @@ vi.mock('chart.js', () => ({
   Tooltip: vi.fn(),
   Legend: vi.fn(),
   ArcElement: vi.fn(),
+  Filler: vi.fn(),
 }))
 
 vi.mock('react-chartjs-2', () => ({
@@ -130,6 +131,7 @@ vi.mock('react-chartjs-2', () => ({
 // the product default (French). A test that means to exercise another locale
 // calls `i18n.changeLanguage` itself.
 await initI18n({
+  catalogue: embeddedCatalogue,
   persistLocale: () =>
     Promise.reject(
       new Error('No locale persister registered for this test — call initI18n({ persistLocale }).'),

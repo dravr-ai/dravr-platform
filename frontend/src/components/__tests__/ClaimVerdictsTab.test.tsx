@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ClaimVerdictsTab from '../ClaimVerdictsTab';
 import type { ClaimVerdict } from '@pierre/shared-types';
@@ -212,7 +212,7 @@ describe('ClaimVerdictsTab', () => {
     await waitFor(() => {
       expect(adminApi.listClaimVerdicts).toHaveBeenCalled();
     });
-    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'unsupported' } });
+    fireEvent.change(await screen.findByLabelText('Status'), { target: { value: 'unsupported' } });
     await waitFor(() => {
       expect(adminApi.listClaimVerdicts).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: 'unsupported' }),
@@ -229,7 +229,7 @@ describe('ClaimVerdictsTab', () => {
     await waitFor(() => {
       expect(adminApi.listClaimVerdicts).toHaveBeenCalled();
     });
-    fireEvent.change(screen.getByLabelText('Layer'), { target: { value: 'deterministic' } });
+    fireEvent.change(await screen.findByLabelText('Layer'), { target: { value: 'deterministic' } });
     await waitFor(() => {
       expect(adminApi.listClaimVerdicts).toHaveBeenLastCalledWith(
         expect.objectContaining({ layer_fired: 'deterministic' }),
@@ -241,6 +241,31 @@ describe('ClaimVerdictsTab', () => {
         expect.objectContaining({ layer_fired: 'deterministic', disposition: 'undisposed' }),
       );
     });
+  });
+
+  it('holds the page until the health stats and the verdicts are both in', async () => {
+    let resolveHealth: (value: ReturnType<typeof sampleHealth>) => void = () => undefined;
+    vi.mocked(adminApi.getClaimVerdictHealth).mockReturnValue(
+      new Promise((resolve) => {
+        resolveHealth = resolve;
+      }),
+    );
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({ verdicts: [], total: 0 });
+    renderTab();
+    await waitFor(() => {
+      expect(adminApi.listClaimVerdicts).toHaveBeenCalled();
+    });
+    await act(async () => {});
+
+    // The verdicts are in; drawn now, the health grid would land above them.
+    expect(screen.getByRole('status', { name: 'Loading claim verdicts' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Status')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveHealth(sampleHealth());
+    });
+    expect(await screen.findByLabelText('Status')).toBeInTheDocument();
+    expect(screen.getByTestId('verdict-health')).toBeInTheDocument();
   });
 
   it('renders the health card from the aggregate read', async () => {
@@ -296,7 +321,7 @@ describe('ClaimVerdictsTab', () => {
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({ verdicts: [], total: 0 });
     vi.mocked(adminApi.listVerdictsForMessage).mockResolvedValue({ verdicts: [], total: 0 });
     renderTab();
-    fireEvent.change(screen.getByLabelText('Message id'), { target: { value: 'msg-0' } });
+    fireEvent.change(await screen.findByLabelText('Message id'), { target: { value: 'msg-0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
     await waitFor(() => {
       expect(screen.getByTestId('verdict-lookup-empty')).toHaveTextContent('msg-0');

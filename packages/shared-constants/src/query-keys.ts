@@ -200,8 +200,6 @@ export const QUERY_KEYS = {
   dashboard: {
     all: ['dashboard'] as const,
     usageAnalytics: (days?: number) => ['usage-analytics', days] as const,
-    toolUsage: (apiKeyId?: string, timeRange?: string) =>
-      ['tool-usage-breakdown', apiKeyId, timeRange] as const,
     recentActivity: () => ['admin-recent-activity'] as const,
   },
 

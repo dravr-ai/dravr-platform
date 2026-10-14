@@ -86,7 +86,7 @@ export default function CoachReviewQueue() {
   if (error) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Review Queue</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Review Queue</h2>
         <p className="mt-0.5 text-xs text-outline">Unable to fetch pending agent submissions. Please try again.</p>
       </div>
     );
@@ -97,7 +97,7 @@ export default function CoachReviewQueue() {
   if (coaches.length === 0) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">All Caught Up!</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">All Caught Up!</h2>
         <p className="mt-0.5 text-xs text-outline">There are no agents pending review at this time.</p>
       </div>
     );
@@ -119,9 +119,9 @@ export default function CoachReviewQueue() {
                   <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center">
                     {index + 1}
                   </span>
-                  <h3 className="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
+                  <h2 className="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
                     {coach.title}
-                  </h3>
+                  </h2>
                   <span className={clsx(
                     'flex-shrink-0 px-2 py-0.5 text-xs font-medium rounded-full border',
                     getCategoryColorClass(coach.category)

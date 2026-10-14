@@ -8,7 +8,7 @@ import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { initI18n, useTranslation, LANGUAGE_STORAGE_KEY } from '@pierre/i18n';
+import { embeddedCatalogue, initI18n, useTranslation, LANGUAGE_STORAGE_KEY } from '@pierre/i18n';
 
 import { LanguageSwitcher } from '../LanguageSwitcher';
 import { persistLocale } from '../../i18n/localePersister';
@@ -29,7 +29,7 @@ beforeEach(async () => {
   localStorage.clear();
   // The production persister, not a stand-in: the test asserts the request it
   // actually issues.
-  await initI18n({ persistLocale, config: { lng: 'fr' } });
+  await initI18n({ persistLocale, catalogue: embeddedCatalogue, config: { lng: 'fr' } });
 });
 
 afterEach(() => {

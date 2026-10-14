@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Dashboard API methods - usage analytics, tool-usage breakdown, admin recent activity
+// ABOUTME: Dashboard API methods - usage analytics, admin recent activity
 // ABOUTME: Provides data for the main dashboard views and analytics charts
 
 import { axios } from './client';
@@ -9,15 +9,6 @@ import { axios } from './client';
 export const dashboardApi = {
   async getUsageAnalytics(days: number = 30) {
     const response = await axios.get(`/api/dashboard/analytics?days=${days}`);
-    return response.data;
-  },
-
-  async getToolUsageBreakdown(apiKeyId?: string, timeRange: string = '7d') {
-    const params = new URLSearchParams();
-    if (apiKeyId) params.append('api_key_id', apiKeyId);
-    params.append('time_range', timeRange);
-
-    const response = await axios.get(`/api/dashboard/tool-usage?${params}`);
     return response.data;
   },
 

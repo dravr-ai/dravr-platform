@@ -14,6 +14,11 @@ export {
   DEFAULT_LANGUAGE,
 } from './config';
 export type { SupportedLanguage, I18nInitOptions } from './config';
+// The web imports only `lazyCatalogue`; the bundler drops the embedded set it
+// never references (the entry-chunk budget in frontend/scripts holds that).
+export { EMBEDDED_RESOURCES, embeddedCatalogue } from './catalogue/embedded';
+export { lazyCatalogue } from './catalogue/lazy';
+export type { Catalogue, CatalogueResources, LocaleLoader, LocaleResources } from './catalogue/types';
 export { registerLocalePersister, persistLocaleToServer, LocalePersisterMissingError } from './localeSync';
 export type { LocalePersister } from './localeSync';
 export { applyLiveBundle, installLiveOverlay, nestDotted } from './liveBundle';

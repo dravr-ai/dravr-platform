@@ -82,7 +82,7 @@ export default function PublishedCoachesList() {
   if (error) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Published Agents</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Published Agents</h2>
         <p className="mt-0.5 text-xs text-outline">Unable to fetch published agents. Please try again.</p>
       </div>
     );
@@ -93,7 +93,7 @@ export default function PublishedCoachesList() {
   if (coaches.length === 0) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Published Agents</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Published Agents</h2>
         <p className="mt-0.5 text-xs text-outline">Agents will appear here once they are approved and published.</p>
       </div>
     );
@@ -143,7 +143,7 @@ export default function PublishedCoachesList() {
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-on-surface truncate">{coach.title}</h3>
+                <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                 <span className={clsx(
                   'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
                   getCategoryColorClass(coach.category)

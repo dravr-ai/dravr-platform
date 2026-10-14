@@ -6,6 +6,7 @@ import { View, TouchableOpacity, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Bell } from 'lucide-react-native';
 import { badgeLabel } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 import { useUnreadCount } from '../../hooks/useNotifications';
 import { useThemeColors } from '../../constants/theme';
 
@@ -25,6 +26,7 @@ export function NotificationBellButton({
   color,
 }: NotificationBellButtonProps) {
   const router = useRouter();
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const { unreadCount } = useUnreadCount();
   const iconColor = color ?? colors.text.secondary;
@@ -35,10 +37,18 @@ export function NotificationBellButton({
       onPress={() => router.push('/(app)/notifications' as never)}
       testID="notification-bell"
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      // Unlabeled, VoiceOver would read the badge alone ("1"); the label
+      // matches the web bell's.
+      accessibilityRole="button"
+      accessibilityLabel={
+        unreadCount > 0 ? t('shell.notificationsBellUnread', { count: unreadCount }) : t('nav.notifications')
+      }
     >
       <Bell size={size} color={iconColor} />
       {unreadCount > 0 && (
         <View
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden
           className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full items-center justify-center px-1"
           style={{ backgroundColor: colors.pierre.violet }}
         >

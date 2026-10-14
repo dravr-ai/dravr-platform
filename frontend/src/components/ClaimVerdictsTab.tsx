@@ -276,6 +276,16 @@ export default function ClaimVerdictsTab() {
     enabled: Boolean(tenantId),
   });
 
+  // Hold the page for its first load until the health stats and the first
+  // page of verdicts are both in: drawn as each lands, the health grid grows
+  // ~300px above the verdicts card and pushes it down (layout shift 0.27).
+  // A later filter or window change is the admin's own action, and each
+  // section shows its own spinner for it.
+  const [revealed, setRevealed] = useState(false);
+  if (!revealed && !isLoading && !healthQuery.isLoading) {
+    setRevealed(true);
+  }
+
   const lookupQuery = useQuery({
     queryKey: ['admin', 'claim-verdicts-message', tenantId, lookupMessageId] as const,
     queryFn: () => adminApi.listVerdictsForMessage(lookupMessageId, tenantId),
@@ -374,6 +384,14 @@ export default function ClaimVerdictsTab() {
           Tenant id not available on your session. Reload the page and try again.
         </p>
       </Card>
+    );
+  }
+
+  if (!revealed) {
+    return (
+      <div className="flex justify-center py-8" role="status" aria-label="Loading claim verdicts">
+        <div className="pierre-spinner" />
+      </div>
     );
   }
 

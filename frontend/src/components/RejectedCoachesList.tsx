@@ -58,7 +58,7 @@ export default function RejectedCoachesList() {
   if (error) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Rejected Agents</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">Failed to Load Rejected Agents</h2>
         <p className="mt-0.5 text-xs text-outline">Unable to fetch rejected agents. Please try again.</p>
       </div>
     );
@@ -69,7 +69,7 @@ export default function RejectedCoachesList() {
   if (coaches.length === 0) {
     return (
       <div className="py-3">
-        <h3 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Rejected Agents</h3>
+        <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">No Rejected Agents</h2>
         <p className="mt-0.5 text-xs text-outline">Rejected agent submissions will appear here.</p>
       </div>
     );
@@ -107,7 +107,7 @@ export default function RejectedCoachesList() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-on-surface truncate">{coach.title}</h3>
+                    <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={clsx(
                         'px-2 py-0.5 text-xs font-medium rounded-full border',

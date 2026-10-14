@@ -308,6 +308,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                     type="checkbox"
                     checked={formData.capabilities.includes(capability.id)}
                     onChange={() => handleCapabilityToggle(capability.id)}
+                    aria-label={t(capability.nameKey)}
                     className="mr-3 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                     onClick={(e) => e.stopPropagation()}
                   />

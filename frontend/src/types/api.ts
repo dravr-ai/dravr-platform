@@ -5,7 +5,7 @@
 // ABOUTME: All types are now centralized in @pierre/shared-types
 
 // ========== ADMIN TYPES ==========
-// Admin tokens, A2A protocol, dashboard analytics
+// Admin tokens, A2A protocol
 
 export type {
   AdminPermission,
@@ -14,7 +14,6 @@ export type {
   CreateAdminTokenRequest,
   CreateAdminTokenResponse,
   RotateAdminTokenResponse,
-  ToolUsageBreakdown,
   A2AClient,
   A2AClientRegistrationRequest,
   A2AClientCredentials,

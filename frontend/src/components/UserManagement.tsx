@@ -301,9 +301,9 @@ export default function UserManagement() {
               <div className="flex justify-between items-start w-full">
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-0.5">
-                    <h4 className="font-sans text-sm font-medium tracking-normal text-on-surface">
+                    <h2 className="font-sans text-sm font-medium tracking-normal text-on-surface">
                       {user.display_name || 'Unnamed User'}
-                    </h4>
+                    </h2>
                     <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                       <span
                         aria-hidden="true"

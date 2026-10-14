@@ -250,7 +250,7 @@ export default function SystemCoachesTab() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-on-surface mb-2">No system agents</h3>
+            <h2 className="text-lg font-medium text-on-surface mb-2">No system agents</h2>
             <p className="text-on-surface-variant mb-4">
               Create your first system agent to provide AI personas to your users.
             </p>
@@ -266,7 +266,7 @@ export default function SystemCoachesTab() {
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-on-surface truncate">{coach.title}</h3>
+                    <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                     <div className="flex items-center gap-1.5 mt-1">
                       <span className={clsx(
                         'inline-block px-2 py-0.5 text-xs font-medium rounded-full border',

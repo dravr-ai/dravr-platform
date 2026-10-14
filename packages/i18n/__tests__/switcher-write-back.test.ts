@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import { initI18n, type SupportedLanguage } from '../src/config';
+import { embeddedCatalogue } from '../src/catalogue/embedded';
 import { registerLocalePersister } from '../src/localeSync';
 import { LANGUAGE_STORAGE_KEY, useSwitcherCore, type LocaleStorage } from '../src/switcherCore';
 
@@ -36,7 +37,7 @@ const persist = vi.fn<(language: SupportedLanguage) => Promise<void>>();
 beforeEach(async () => {
   persist.mockReset();
   persist.mockResolvedValue(undefined);
-  await initI18n({ persistLocale: persist, config: { lng: 'fr' } });
+  await initI18n({ persistLocale: persist, catalogue: embeddedCatalogue, config: { lng: 'fr' } });
   registerLocalePersister(persist);
 });
 

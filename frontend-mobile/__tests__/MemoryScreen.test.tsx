@@ -7,7 +7,7 @@ import React from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { defaultI18nConfig, i18n } from '@pierre/i18n';
+import { EMBEDDED_RESOURCES, i18n } from '@pierre/i18n';
 
 const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
@@ -361,10 +361,9 @@ const WEB_ONLY_KEYS = ['shell.memoryEmptyHint', 'shell.memoryEmptyFilteredHint']
  * which a screen reading the same missing key would match.
  */
 function french(key: string): string {
-  const resources = defaultI18nConfig.resources as Record<string, { translation: Record<string, unknown> }>;
   const text = key
     .split('.')
-    .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], resources.fr.translation);
+    .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], EMBEDDED_RESOURCES.fr.translation);
   expect({ key, type: typeof text }).toEqual({ key, type: 'string' });
   return text as string;
 }
