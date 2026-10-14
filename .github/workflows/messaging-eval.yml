@@ -102,6 +102,9 @@ jobs:
         with:
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).
+          # Saved whatever the tests conclude, so a red night still re-seeds the
+          # build it paid for and the next night does not start cold.
+          cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Run messaging-eval tests
@@ -131,12 +134,15 @@ jobs:
     # the smoke and the tempo control reach Haiku.
     runs-on: ubuntu-latest
     needs: rust-asserters
-    # The build is ~28 min (run 37610566362); two model turns and three rail
-    # turns take minutes on a hosted model. 60 leaves room for the build plus
-    # one turn that runs to the test's reply wait (REPLY_WAIT_SECS, 1080 s),
-    # so a stalled turn fails its test with a message instead of the job
-    # being cancelled.
-    timeout-minutes: 60
+    # Sized for a COLD build. The repo's Actions cache sits past GitHub's 10 GB
+    # limit and LRU eviction drops this lane's entry, so a night can start cold:
+    # the build is ~52 min cold against ~20 min warm, and the seed step's
+    # `cargo run --release --bin pierre-cli` recompiles for ~8 min cold against
+    # ~3 min warm (runs 38541793435, 38390866398; carnet#1007). 90 holds the cold
+    # build, the seed step and one turn that runs to the test's reply wait
+    # (REPLY_WAIT_SECS, 1080 s), so a stalled turn fails its test with a message
+    # instead of the job being cancelled.
+    timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
@@ -176,6 +182,9 @@ jobs:
         with:
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).
+          # Saved whatever the tests conclude, so a red night still re-seeds the
+          # build it paid for and the next night does not start cold.
+          cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
 
       - name: Read the pinned Copilot CLI version
