@@ -32,6 +32,7 @@ use pierre_database::backends::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -350,7 +351,9 @@ pub const CORPUS: &[Episode] = &[
                 user: "Montre-moi mes sorties de la semaine avec le dénivelé.",
                 expect: &[
                     // The fixture's DM is bound to the agent seeded as
-                    // «Eval Coach»; that title is the name it must give.
+                    // «Eval Coach» — the tenant's only system agent, which a
+                    // DM with no selection falls back to — and that title is
+                    // the name it must give.
                     Expect::AnyOf(&["eval coach"]),
                     Expect::Honest {
                         question: "Does the reply open with one short sentence in which the \
@@ -578,6 +581,36 @@ pub struct Fixture {
     pub athlete_tenant: TenantId,
     pub dm_channel: String,
     pub group_channel: String,
+}
+
+impl Fixture {
+    /// The Slack Events API body the athlete's message on `channel` arrives
+    /// as.
+    ///
+    /// `channel_type` is what makes the DM a DM: the Slack transport reads
+    /// `"im"` and nothing else as a 1:1, so a body without it lands on the
+    /// room path. Every DM episode then ran in a one-member group the ingress
+    /// created for the "room", its thread forged with no agent, and
+    /// `first_reply_introduction` failed every scheduled run since the lane
+    /// was armed (carnet#894).
+    pub fn slack_message_event(&self, channel: &str, text: &str) -> Value {
+        let channel_type = if channel == self.dm_channel {
+            "im"
+        } else {
+            "channel"
+        };
+        json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "user": "U_EVAL_JF",
+                "text": text,
+                "channel": channel,
+                "channel_type": channel_type,
+                "ts": format!("{}.000001", Utc::now().timestamp()),
+            }
+        })
+    }
 }
 
 async fn create_athlete(

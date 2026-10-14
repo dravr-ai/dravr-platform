@@ -41,9 +41,13 @@ mod live_incident_eval {
         seed_fixture, turn_timeout, Finding, ATHLETE_RUN_DAYS, CORPUS, PEER_RUN_DAYS,
         PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
+    use dravr_canot::channels::slack::transport::SlackTransport;
+    use dravr_canot::transport::TransportAdapter;
+    use http::HeaderMap;
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
     use pierre_providers::registry::global_registry;
+    use pierre_services::conversation_forge::selected_or_system_agent;
     use serial_test::serial;
     use std::env;
 
@@ -173,6 +177,56 @@ mod live_incident_eval {
              the reconnect sentence instead of the coach",
             primary.provider
         );
+    }
+
+    /// The fixture's DM must reach the ingress as a DM, bound to «Eval Coach».
+    ///
+    /// The Slack transport reads `channel_type: "im"` and nothing else as a
+    /// 1:1. A DM body without it lands on the room path: the ingress creates
+    /// a one-member group for the "room", forges the thread with no agent,
+    /// and `first_reply_introduction` asks a coach-less thread to give a
+    /// coach's name. Every scheduled run failed it that way until carnet#894.
+    /// The transport is the production one, so the classification asserted
+    /// here is the one the live lane gets; the agent a DM with no selection
+    /// falls back to is the name that episode requires.
+    #[tokio::test]
+    #[serial]
+    async fn the_fixtures_dm_is_a_direct_message_bound_to_the_eval_coach() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = seed_fixture(&resources).await;
+        let transport = SlackTransport::new("secret".to_owned());
+
+        for (channel, expect_dm) in [(&fixture.dm_channel, true), (&fixture.group_channel, false)] {
+            let body = fixture.slack_message_event(channel, "bonjour").to_string();
+            let messages = transport
+                .parse_inbound(&HeaderMap::new(), body.as_bytes())
+                .await
+                .unwrap();
+            assert_eq!(messages.len(), 1, "{channel}: one inbound message");
+            assert_eq!(
+                messages[0].is_direct_message,
+                expect_dm,
+                "{channel}: the transport must read this body as {}",
+                if expect_dm { "a DM" } else { "a room message" }
+            );
+        }
+
+        let bound = selected_or_system_agent(
+            &resources.common.repos,
+            fixture.athlete_tenant,
+            fixture.athlete,
+        )
+        .await
+        .expect("a DM with no selection falls back to the tenant's system agent");
+        let agent = resources
+            .common
+            .repos
+            .agents
+            .get_by_id(&bound, fixture.athlete, fixture.athlete_tenant)
+            .await
+            .unwrap()
+            .expect("the bound agent exists");
+        assert_eq!(agent.title, "Eval Coach");
     }
 
     /// The lane must wait out the server's turn watchdog before it moves on,

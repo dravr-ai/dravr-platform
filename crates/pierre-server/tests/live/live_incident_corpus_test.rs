@@ -476,17 +476,7 @@ async fn drive_turn(
     baseline: i64,
     assistant_baseline: i64,
 ) -> Result<Answered, String> {
-    let body = json!({
-        "type": "event_callback",
-        "event": {
-            "type": "message",
-            "user": "U_EVAL_JF",
-            "text": text,
-            "channel": channel,
-            "ts": format!("{}.000001", Utc::now().timestamp()),
-        }
-    })
-    .to_string();
+    let body = fixture.slack_message_event(channel, text).to_string();
     let timestamp = Utc::now().timestamp().to_string();
     let sig = slack_sig(SIGNING_SECRET, &timestamp, &body);
 
