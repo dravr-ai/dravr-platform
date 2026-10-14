@@ -3,10 +3,11 @@ import type { RouteBounds } from "./RouteBounds";
 import type { RouteClimb } from "./RouteClimb";
 
 /**
- * A recorded track, ready for a map renderer to draw over a basemap.
+ * A route's line, ready for a map renderer to draw over a basemap.
  *
  * The geometry is the athlete's own GPS trace, read out of the activity's time
- * series by the platform and handed over hydrated — this crate has no I/O, and
+ * series by the platform, or the OpenStreetMap line of a route the agent
+ * proposed, and handed over hydrated — this crate has no I/O, and
  * an agent could not transcribe a thousand points into a reply anyway. What is
  * resolved here are the relations every renderer would otherwise redo or get
  * wrong: the extent that frames the map before a tile loads, and the guarantee
@@ -24,12 +25,14 @@ coordinates: Array<[number, number]>,
 bounds: RouteBounds, 
 /**
  * Altitude in metres, one value per coordinate, or absent when the
- * activity recorded no altitude.
+ * line carries none — an activity that recorded no altitude, or a
+ * proposed route.
  */
 elevation_meters: Array<number> | null, 
 /**
  * Cumulative distance in metres, one value per coordinate, or absent when
- * the activity recorded no distance stream.
+ * the activity recorded no distance stream. A proposed route's starts at
+ * zero.
  */
 distances_meters: Array<number> | null, 
 /**
