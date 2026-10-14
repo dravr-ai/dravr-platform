@@ -11,6 +11,16 @@
             "command": "if echo \"$TOOL_INPUT\" | grep -q 'frontend/src/components'; then echo '💡 Frontend component modified - consider running /design-review'; fi"
           }
         ]
+      },
+      {
+        "matcher": "Artifact",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "h=\"${CLAUDE_PROJECT_DIR:-.}/.claude/skills/slack-artifact/hooks/post-publish.sh\"; [ -f \"$h\" ] || exit 0; bash \"$h\""
+          }
+        ]
       }
     ],
     "SessionStart": [
