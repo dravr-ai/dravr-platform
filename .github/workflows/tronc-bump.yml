@@ -85,7 +85,11 @@ jobs:
     with:
       version: ${{ github.event.client_payload.version || inputs.version || '' }}
       ci_workflows: "ci-backend.yml ci-postgres.yml integration-tests.yml"
-      gate_timeout_minutes: 45
+      # Run time once every gate has started, and a dispatched ci-backend's jobs
+      # still queue inside it: on a busy fleet it ran 67 min wall-clock and went
+      # green 88 s after a 45-min budget expired (run 38598939512, carnet#1016).
+      # 120 is satellite-bump.yml's default, sized for the same gates.
+      gate_timeout_minutes: 120
       lockstep_crates: "embacle embacle-tool-host"
       dry_run: ${{ inputs.dry_run || false }}
     # Named, never `inherit`. The callee floats on tronc's main (satellites.toml
