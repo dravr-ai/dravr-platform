@@ -28,13 +28,12 @@
 use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
-use pierre_core::narration::is_degenerate_reply;
 use pierre_core::tokens::join_prompt_text;
 use tracing::{info, warn};
 
-use crate::cli_loop::cli_loop_request;
+use crate::cli_loop::cli_loop_call;
 use crate::function_dispatch::{execute_function_calls, ExecutedFunctionCalls};
-use crate::guardian::{HeadlessBlock, PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
+use crate::guardian::{PlanDenial, StepOutput, TurnKey, Workflow, WorkflowExecutor};
 use crate::headless_stream;
 use crate::protocol::UniversalResponse;
 use crate::tool_iteration::{iteration_response, LoopSpend};
@@ -43,7 +42,7 @@ use crate::tool_loop_io::{
     observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
     ToolLoopTally, ToolRoundRecord,
 };
-use crate::tool_loop_telemetry::{log_wire_shape, millis_elapsed, served_provider_name};
+use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
@@ -52,10 +51,9 @@ use crate::tool_results::{
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::served_tier::observe_served_tier;
 use pierre_llm::{
-    ChatMessage, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, MessageRole,
-    TokenUsage, Tool,
+    ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionDeclaration, FunctionResponse,
+    MessageRole, Tool,
 };
 
 // ============================================================================
@@ -316,6 +314,11 @@ const CLI_MAX_TOOL_ITERATIONS: usize = 5;
 /// 3. If tool calls found: execute via MCP, format results (via embacle), iterate
 /// 4. Repeat until text response or max iterations
 ///
+/// `first_reply` is a reply its caller already asked for and recorded as call
+/// 1 — a Copilot headless turn that wrote `<tool_call>` blocks instead of
+/// calling its tools natively. The first iteration runs that reply's blocks
+/// rather than asking again, and the calls this loop makes number on from it.
+///
 /// # Errors
 ///
 /// Returns error if the LLM call or tool execution fails.
@@ -331,6 +334,7 @@ const CLI_MAX_TOOL_ITERATIONS: usize = 5;
 pub async fn run_cli_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
+    first_reply: Option<ChatResponse>,
 ) -> Result<ToolLoopResult, AppError> {
     // The text catalog goes in ONLY when the runner has no MCP servers to
     // reach the same tools through. Handing a model both is handing it the
@@ -347,111 +351,48 @@ pub async fn run_cli_tool_loop(
 
     let mut tally = ToolLoopTally::default();
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
+    let mut first_reply = first_reply;
+    let sequence_base = i64::from(first_reply.is_some());
 
     for iteration in 0..max_iterations {
-        let llm_request = {
-            log_wire_shape("cli_tool_loop", llm_messages);
-            cli_loop_request(
-                llm_messages.clone(),
-                params.model,
-                params.temperature,
-                params.mcp_servers.clone(),
-            )
+        let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1 + sequence_base);
+        let (response, asked) = if let Some(reply) = first_reply.take() {
+            (reply, None)
+        } else {
+            let (reply, asked) = cli_loop_call(params, llm_messages, call_seq).await?;
+            (reply, Some(asked))
         };
-
-        // notify: CLI/embacle provider call about to start. Same event as
-        // the API loop so routing can hide both behind one rule.
-        info!(
-            target: "notify",
-            event = "embacle.call_started",
-            model = %params.model,
-            "LLM call dispatching"
-        );
-
-        let call_start = Instant::now();
-        let (response_result, served) =
-            observe_served_tier(params.provider.complete(&llm_request)).await;
-        let latency_ms = millis_elapsed(call_start);
-        // After a fallback the chain's own name is still its head, so the call
-        // is attributed to the tier that answered: those tokens are that
-        // provider's bill, and the log line keeps the configured tier beside it
-        // so a fallback reads as a difference between the two.
-        let served_provider = served_provider_name(served, params.provider.name());
-        let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
-        let response = match response_result {
-            Ok(r) => {
-                tally.note_provider_warnings(r.warnings.as_deref());
-                // notify: CLI call succeeded.
-                info!(
-                    target: "notify",
-                    event = "embacle.call_completed",
-                    provider = served_provider,
-                    model = %r.model,
-                    configured_provider = params.provider.name(),
-                    configured_model = %params.model,
-                    latency_ms = latency_ms,
-                    ok = true,
-                    "LLM call completed"
-                );
-                r
-            }
-            Err(e) => {
-                // The prompt reached the provider before it failed, so the
-                // abandoned leg is charged for what it actually sent.
-                let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
-                emit_call_record_with_text(
-                    CallRecordInputs {
-                        recorder: params.call_recorder.as_ref(),
-                        provider: params.provider.name(),
-                        model: params.model,
-                        usage: None,
-                        latency_ms,
-                        success: false,
-                        call_sequence: call_seq,
-                        tools_called: Vec::new(),
-                    },
-                    Some(&prompt_text),
-                    None,
-                );
-                // notify: CLI call failed.
-                info!(
-                    target: "notify",
-                    event = "embacle.call_completed",
-                    model = %params.model,
-                    latency_ms = latency_ms,
-                    ok = false,
-                    "LLM call failed"
-                );
-                return Err(e);
-            }
-        };
+        tally.note_provider_warnings(response.warnings.as_deref());
 
         // Parse <tool_call> blocks from the response text (via embacle).
         // Done before `emit_call_record_with_text` so the per-call usage row
         // carries the parsed tool names — the structured `function_calls`
         // field is absent on this provider's `complete()` return type.
         let parsed_tool_calls = tool_simulation::parse_tool_call_blocks(&response.content);
-        let tools_in_response: Vec<String> =
-            parsed_tool_calls.iter().map(|c| c.name.clone()).collect();
-        // The assembled prompt feeds the character-based token estimator when
-        // the provider returns `usage: None` (e.g. Copilot ACP, which
-        // doesn't expose token counts). Without this fallback the per-call
-        // row would land with zeros and no `_estimated` suffix.
-        let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
-        emit_call_record_with_text(
-            CallRecordInputs {
-                recorder: params.call_recorder.as_ref(),
-                provider: served_provider,
-                model: &response.model,
-                usage: response.usage.as_ref(),
-                latency_ms,
-                success: true,
-                call_sequence: call_seq,
-                tools_called: tools_in_response,
-            },
-            Some(&prompt_text),
-            Some(&response.content),
-        );
+        // A reply handed in was recorded by the caller that asked for it.
+        if let Some(asked) = asked {
+            let tools_in_response: Vec<String> =
+                parsed_tool_calls.iter().map(|c| c.name.clone()).collect();
+            // The assembled prompt feeds the character-based token estimator when
+            // the provider returns `usage: None` (e.g. Copilot ACP, which
+            // doesn't expose token counts). Without this fallback the per-call
+            // row would land with zeros and no `_estimated` suffix.
+            let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
+            emit_call_record_with_text(
+                CallRecordInputs {
+                    recorder: params.call_recorder.as_ref(),
+                    provider: asked.served_provider,
+                    model: &response.model,
+                    usage: response.usage.as_ref(),
+                    latency_ms: asked.latency_ms,
+                    success: true,
+                    call_sequence: call_seq,
+                    tools_called: tools_in_response,
+                },
+                Some(&prompt_text),
+                Some(&response.content),
+            );
+        }
 
         if parsed_tool_calls.is_empty() {
             // No tool calls — this is the final text response. Strip both the
@@ -551,9 +492,16 @@ pub async fn run_cli_tool_loop(
     Ok(tally.max_iterations(None))
 }
 
+pub use crate::headless_finalize::finalize_headless_turn;
+
 // Re-export embacle's pure functions for direct use (no type conversion needed)
 pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
 pub use tool_simulation::strip_simulation_artifacts;
+
+/// The tag that opens a text tool call in a reply.
+pub(crate) const TOOL_CALL_OPEN: &str = "<tool_call>";
+/// The tag that closes one.
+pub(crate) const TOOL_CALL_CLOSE: &str = "</tool_call>";
 
 /// Parse `<tool_call>` blocks tolerantly into pierre-llm function calls.
 ///
@@ -563,21 +511,20 @@ pub use tool_simulation::strip_simulation_artifacts;
 /// payload. The canonical [`tool_simulation::parse_tool_call_blocks`] drops the flat args (it
 /// only reads a nested `arguments` field), which would run the tool with no
 /// parameters. Used as the API-loop fallback so such a call still executes
-/// correctly instead of leaking the raw block to the user.
+/// correctly instead of leaking the raw block to the user, and by
+/// [`finalize_headless_turn`] to recognise a headless reply that asked for
+/// tools this way.
 #[must_use]
 pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
-    const OPEN: &str = "<tool_call>";
-    const CLOSE: &str = "</tool_call>";
-
     let mut calls = Vec::new();
     let mut rest = content;
-    while let Some(open) = rest.find(OPEN) {
-        let after_open = &rest[open + OPEN.len()..];
-        let Some(close) = after_open.find(CLOSE) else {
+    while let Some(open) = rest.find(TOOL_CALL_OPEN) {
+        let after_open = &rest[open + TOOL_CALL_OPEN.len()..];
+        let Some(close) = after_open.find(TOOL_CALL_CLOSE) else {
             break;
         };
         let json_str = after_open[..close].trim();
-        rest = &after_open[close + CLOSE.len()..];
+        rest = &after_open[close + TOOL_CALL_CLOSE.len()..];
 
         if let Ok(serde_json::Value::Object(mut obj)) =
             serde_json::from_str::<serde_json::Value>(json_str)
@@ -751,7 +698,7 @@ async fn run_react_tool_loop(
     } else if capabilities.supports_sdk_tool_calling() {
         run_headless_turn(params, llm_messages).await
     } else {
-        run_cli_tool_loop(params, llm_messages).await
+        run_cli_tool_loop(params, llm_messages, None).await
     }
 }
 
@@ -976,7 +923,9 @@ pub async fn run_planned_tool_loop(
 ///
 /// Copilot Headless manages its own tool execution loop internally via ACP.
 /// Tool calls are observed and reported via [`HeadlessToolResponse`], but the
-/// caller does not execute tools — Copilot handles that autonomously.
+/// caller does not execute them — Copilot handles that autonomously. A reply
+/// that asks for tools as text `<tool_call>` blocks instead is the exception:
+/// [`finalize_headless_turn`] runs it through [`run_cli_tool_loop`].
 ///
 /// # Errors
 ///
@@ -1118,201 +1067,10 @@ pub(crate) async fn run_headless_tool_loop(
 /// served-without-a-provider offer a `get_activities` payload carries. One user
 /// runs one headless turn at a time, so `(tenant, user)` identifies it;
 /// [`run_headless_tool_loop`] clears both stores before the subprocess and
-/// [`finalize_headless_turn`] takes from both after, bounding them to this turn.
-fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
+/// [`finalize_headless_turn`] takes from both after — after the text loop too,
+/// when it hands the turn there — bounding them to this turn.
+pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
     TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
-}
-
-/// Strip the headless reply, retry once if the turn was degenerate, and
-/// assemble the [`ToolLoopResult`].
-///
-/// Copilot ACP intermittently ends a turn without synthesizing an answer:
-/// it returns empty content, parrots the injected tool-result turn
-/// verbatim (the `format_tool_results_as_text` preamble + `<tool_result>`
-/// blocks) instead of reasoning over it, or emits a dangling fragment («by
-/// Dravr.», delivered to a live Telegram group on 2026-08-22). The
-/// scaffolding is stripped unconditionally so a parroted echo never leaks to
-/// the user; when what remains fails [`is_degenerate_reply`] the turn is
-/// degenerate, so [`retry_headless_turn`] runs once — the failure is
-/// intermittent (~5% per call) and the next turn recovers in practice.
-///
-/// Also drains what the ACP subprocess's `/mcp` loopback left under this turn's
-/// [`headless_turn_key`]: the Guardian block, and the served-without-a-provider
-/// offer. Both are the platform's own record of what happened inside the
-/// subprocess, which is the only way this path learns of either.
-///
-/// `pub` so the integration suite can drive the production assembly — a stamped
-/// store and an ACP reply in, the `ToolLoopResult` the chat pipeline reads out —
-/// rather than restate it against a hand-built result and pin nothing.
-///
-/// # Errors
-///
-/// Returns an error when a degenerate first turn's single retry `converse()`
-/// call fails.
-pub async fn finalize_headless_turn(
-    headless_response: pierre_llm::HeadlessToolResponse,
-    headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
-    request: &ChatRequest,
-    params: &ToolLoopParams<'_>,
-    prompt_text: &str,
-) -> Result<ToolLoopResult, AppError> {
-    let mut tool_calls_count =
-        u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
-    let mut tools_called: Vec<String> = headless_response
-        .tool_calls
-        .iter()
-        .map(observed_tool_name)
-        .collect();
-    let mut content = tool_simulation::strip_simulation_artifacts(&headless_response.content);
-    let mut usage = headless_response.usage;
-    let mut finish_reason = headless_response.finish_reason;
-
-    if is_degenerate_reply(&content) {
-        warn!(
-            provider = %params.provider.name(),
-            model = %params.model,
-            content_len = content.len(),
-            "Headless turn produced no synthesized answer (empty, parroted tool-result echo, or a dangling fragment); retrying converse once"
-        );
-        let retry = retry_headless_turn(headless_runner, request, params, prompt_text).await?;
-        content = retry.content;
-        usage = retry.usage;
-        finish_reason = retry.finish_reason;
-        tool_calls_count = tool_calls_count
-            .saturating_add(u32::try_from(retry.tool_calls.len()).unwrap_or(u32::MAX));
-        tools_called.extend(retry.tool_calls);
-    }
-
-    // Both out-of-band signals the ACP subprocess's `/mcp` loopback left under
-    // this turn's key are consumed once, here at the end of the turn — after any
-    // degenerate-turn retry, so a retried turn keeps what its first pass raised.
-    let turn_key = headless_turn_key(params);
-
-    // The backend key of a provider a loopback `get_activities` served the
-    // window WITHOUT. `auth_recovery` mints a reconnect URL from it and appends
-    // the offer to the agent's answer, so an ACP turn a sibling connection
-    // served hands the athlete the same control every other transport does.
-    let served_without_provider = params
-        .executor
-        .resources
-        .reconnect_offers()
-        .take_offer(&turn_key);
-
-    // #10: surface a Guardian block that fired inside the ACP subprocess's `/mcp`
-    // loopback as a deterministic reply (the chat pipeline renders the localized
-    // KEY_GUARDIAN_DENIED or KEY_GUARDIAN_CONFIRM_PROMPT) instead of the model's
-    // paraphrase.
-    let (guardian_denied, guardian_confirm) = match params
-        .executor
-        .resources
-        .guardian_turns()
-        .take_block(&turn_key)
-    {
-        Some(HeadlessBlock::Denied(reason)) => (
-            Some(GuardianDenial {
-                tool_name: "(headless)".to_owned(),
-                reason: reason.as_str().to_owned(),
-            }),
-            None,
-        ),
-        Some(HeadlessBlock::ConfirmRequired {
-            tool_name,
-            pending_id,
-        }) => (
-            None,
-            Some(GuardianConfirmRequest {
-                tool_name,
-                pending_id,
-            }),
-        ),
-        None => (None, None),
-    };
-
-    Ok(ToolLoopResult {
-        content,
-        usage,
-        finish_reason,
-        // Copilot Headless manages tools autonomously via ACP — the platform
-        // never sees individual tool responses, so activity_list extraction
-        // (which requires inspecting get_activities results) is not possible.
-        activity_list: None,
-        tool_calls_count,
-        tools_called,
-        // The hard auth trip stays None on this path: a loopback dispatch that
-        // raises ProviderAuthRequired leaves the chokepoint as a JSON-RPC error
-        // addressed to the ACP subprocess, which hands it to the model, so no
-        // headless turn arrives here blanked. Which keeps the standing order
-        // intact where it matters — the soft offer below is only ever read when
-        // nothing harder is set.
-        pending_provider_auth_required: None,
-        // The soft offer is a SUCCESSFUL payload instead, so the chokepoint
-        // reads it on the way past and stamps it under this turn's key; taken
-        // from the shared store above.
-        served_without_provider,
-        // #10: a block that fired at the platform chokepoint during the ACP
-        // subprocess's loopback calls is recovered from the shared Guardian store
-        // above (keyed by this turn's (tenant, user)), so the headless path now
-        // surfaces the same deterministic refusal every other transport does.
-        guardian_denied,
-        guardian_confirm,
-        // Set downstream by the capability-recovery stage, which runs after
-        // every loop variant returns.
-        capability_claim_unverified: false,
-        // The ACP session reports no parameter warnings: the subprocess owns
-        // the request, so there is no platform-built request to check.
-        provider_warnings: Vec::new(),
-    })
-}
-
-/// Outcome of a single degenerate-turn retry: the stripped reply plus the
-/// accounting [`run_headless_tool_loop`] folds into its `ToolLoopResult`.
-struct HeadlessRetry {
-    content: String,
-    usage: Option<TokenUsage>,
-    finish_reason: Option<String>,
-    tool_calls: Vec<String>,
-}
-
-/// Retry a degenerate headless turn once via non-streaming `converse()`.
-///
-/// Called only when the first turn produced no synthesized answer (empty or
-/// a parroted tool-result echo). Records the retry as its own per-call usage
-/// row and returns the stripped reply so the caller can decide whether the
-/// model recovered. Non-streaming on purpose: a re-parroted echo must never
-/// reach the user's stream a second time.
-async fn retry_headless_turn(
-    headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
-    request: &ChatRequest,
-    params: &ToolLoopParams<'_>,
-    prompt_text: &str,
-) -> Result<HeadlessRetry, AppError> {
-    let retry_start = Instant::now();
-    let retry = headless_runner
-        .converse(request)
-        .await
-        .map_err(AppError::from)?;
-    let retry_latency_ms = millis_elapsed(retry_start);
-    let tool_calls: Vec<String> = retry.tool_calls.iter().map(observed_tool_name).collect();
-    emit_call_record_with_text(
-        CallRecordInputs {
-            recorder: params.call_recorder.as_ref(),
-            provider: params.provider.name(),
-            model: &retry.model,
-            usage: retry.usage.as_ref(),
-            latency_ms: retry_latency_ms,
-            success: true,
-            call_sequence: Some(2),
-            tools_called: tool_calls.clone(),
-        },
-        Some(prompt_text),
-        Some(&retry.content),
-    );
-    Ok(HeadlessRetry {
-        content: tool_simulation::strip_simulation_artifacts(&retry.content),
-        usage: retry.usage,
-        finish_reason: retry.finish_reason,
-        tool_calls,
-    })
 }
 
 // ============================================================================

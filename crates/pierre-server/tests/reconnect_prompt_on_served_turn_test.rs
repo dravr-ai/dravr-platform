@@ -76,8 +76,8 @@ use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution::finalize_headless_turn;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult};
-use pierre_tool_runtime::tool_results::reconnect_offer_in_responses;
 use pierre_tool_runtime::tool_results::render_tool_payload_for_prompt;
+use pierre_tool_runtime::tool_results::{extract_activity_list, reconnect_offer_in_responses};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -958,6 +958,28 @@ async fn finish_headless_turn(
     tenant: TenantId,
     acp_turn_token: &str,
 ) -> ToolLoopResult {
+    finish_headless_turn_with(
+        resources,
+        user_id,
+        tenant,
+        acp_turn_token,
+        acp_reply(),
+        Arc::new(ActivitiesThenAnswer::new()),
+    )
+    .await
+}
+
+/// [`finish_headless_turn`] for a given ACP `reply`, with `provider` as the
+/// chain the turn runs on — the one the text loop asks when the reply hands the
+/// turn to it.
+async fn finish_headless_turn_with(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    acp_turn_token: &str,
+    reply: HeadlessToolResponse,
+    provider: Arc<dyn LlmProvider>,
+) -> ToolLoopResult {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = Arc::new(
         UniversalExecutor::new(runtime)
@@ -965,9 +987,9 @@ async fn finish_headless_turn(
             .with_transport(Transport::WebApp)
             .with_turn_token(acp_turn_token.to_owned()),
     );
-    // The assembly reads the provider for its name alone; the ACP runner below
-    // is the one that served the turn.
-    let provider = ChatProvider::Custom(Arc::new(ActivitiesThenAnswer::new()));
+    // The assembly reads the provider for its name alone unless the reply hands
+    // the turn to the text loop; the ACP runner below is the one that served it.
+    let provider = ChatProvider::Custom(provider);
     let runner = CopilotHeadlessRunner::with_config(CopilotHeadlessConfig::default());
     let tools = Tool {
         function_declarations: Vec::new(),
@@ -981,16 +1003,158 @@ async fn finish_headless_turn(
         model: HEADLESS_MODEL,
         user_id: &user,
         tenant_id: tenant,
-        max_iterations: 1,
+        // Two rounds: the reply's own blocks, then the ask carrying their results.
+        max_iterations: 2,
         call_recorder: None,
         tool_message_recorder: None,
         temperature: None,
         stream_sink: None,
         mcp_servers: Vec::new(),
     };
-    finalize_headless_turn(acp_reply(), &runner, &request, &params, "prompt")
+    finalize_headless_turn(reply, &runner, &request, &params, "prompt")
         .await
         .expect("a non-degenerate ACP reply finishes without a retry")
+}
+
+/// A chain that answers every ask with the agent's reply.
+///
+/// Mock is test-only: what is under test is where the turn's loopback signals
+/// go once the text loop has taken the turn, not what the model says.
+struct AnswersFromResults {
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl LlmProvider for AnswersFromResults {
+    fn name(&self) -> &'static str {
+        "answers_from_results"
+    }
+    fn display_name(&self) -> &'static str {
+        "Answers-from-results mock (text-loop hand-off pin)"
+    }
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::SDK_TOOL_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+    }
+    fn default_model(&self) -> &'static str {
+        HEADLESS_MODEL
+    }
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        Ok(ChatResponse {
+            content: AGENT_ANSWER.to_owned(),
+            model: HEADLESS_MODEL.to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+        let response = self.complete(request).await?;
+        let chunk = StreamChunk {
+            delta: response.content,
+            is_final: true,
+            finish_reason: response.finish_reason,
+        };
+        Ok(Box::pin(stream::once(async move { Ok(chunk) })))
+    }
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// A Copilot SDK reply that asks for a tool as a text `<tool_call>` block hands
+/// the turn to the text loop (carnet#1032) — and the loopback signal the turn
+/// raised still reaches the athlete, though the headless assembly never ran.
+///
+/// The block calls a tool whose payload carries no offer, so the only way the
+/// slug reaches the result is the shared store the loopback stamped.
+#[tokio::test]
+async fn a_headless_turn_handed_to_the_text_loop_keeps_its_loopback_offer() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    let acp_turn = Uuid::new_v4().to_string();
+    loopback_get_activities(&resources, user_id, tenant, &acp_turn).await;
+
+    let reply = HeadlessToolResponse {
+        content:
+            "<tool_call>\n{\"name\": \"get_connection_status\", \"arguments\": {}}\n</tool_call>"
+                .to_owned(),
+        model: HEADLESS_MODEL.to_owned(),
+        tool_calls: Vec::new(),
+        usage: None,
+        finish_reason: Some("stop".to_owned()),
+    };
+    let provider = Arc::new(AnswersFromResults {
+        models: vec![HEADLESS_MODEL.to_owned()],
+    });
+    let result =
+        finish_headless_turn_with(&resources, user_id, tenant, &acp_turn, reply, provider).await;
+
+    assert_eq!(
+        result.content, AGENT_ANSWER,
+        "the text loop answered the turn from the block's result"
+    );
+    assert_eq!(
+        result.tools_called,
+        vec!["get_connection_status".to_owned()],
+        "the reply's own block ran through the executor"
+    );
+    assert_eq!(
+        result.served_without_provider.as_deref(),
+        Some("sciotte_garmin"),
+        "the offer the loopback raised survives the hand-off"
+    );
+}
+
+/// A headless reply handed to the text loop keeps the headless contract and
+/// carries no activity list, though its block fetched the athlete's
+/// activities: a surface without a list card would fold the list ahead of the
+/// reply (carnet#1032).
+#[tokio::test]
+async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    let acp_turn = Uuid::new_v4().to_string();
+
+    // The same call the block makes carries a list the text loop's extractor
+    // captures, so an absent list below is the hand-off dropping it.
+    let payload = loopback_get_activities(&resources, user_id, tenant, &acp_turn).await;
+    assert!(
+        extract_activity_list(&[FunctionResponse {
+            name: "get_activities".to_owned(),
+            response: payload,
+        }])
+        .is_some(),
+        "get_activities serves a list the text loop would capture"
+    );
+
+    let reply = HeadlessToolResponse {
+        content: "<tool_call>\n{\"name\": \"get_activities\", \"arguments\": {\"limit\": 10, \"mode\": \"summary\"}}\n</tool_call>"
+            .to_owned(),
+        model: HEADLESS_MODEL.to_owned(),
+        tool_calls: Vec::new(),
+        usage: None,
+        finish_reason: Some("stop".to_owned()),
+    };
+    let provider = Arc::new(AnswersFromResults {
+        models: vec![HEADLESS_MODEL.to_owned()],
+    });
+    let result =
+        finish_headless_turn_with(&resources, user_id, tenant, &acp_turn, reply, provider).await;
+
+    assert_eq!(result.content, AGENT_ANSWER);
+    assert_eq!(
+        result.tools_called,
+        vec!["get_activities".to_owned()],
+        "the reply's own block fetched the activities"
+    );
+    assert!(
+        result.activity_list.is_none(),
+        "a handed-off headless turn folds no list ahead of its reply"
+    );
 }
 
 fn stored_message(id: &str, role: &str, content: &str) -> MessageRecord {

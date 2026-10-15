@@ -118,7 +118,7 @@ pub mod task_cancellation;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
 
-/// Request construction for the text-simulation CLI tool loop
+/// Request construction and the provider call for the text-simulation CLI tool loop
 #[cfg(feature = "client-chat")]
 pub mod cli_loop;
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes).
@@ -126,9 +126,14 @@ pub mod cli_loop;
 /// Three strategies share the same MCP executor infrastructure:
 /// - `run_api_tool_loop`: native function calling (Gemini, Groq)
 /// - `run_headless_tool_loop`: ACP-managed tool calling (Copilot Headless)
-/// - `run_cli_tool_loop`: text-based `<tool_call>` blocks (CLI providers)
+/// - `run_cli_tool_loop`: text-based `<tool_call>` blocks (CLI providers, and a
+///   headless reply that wrote them instead of calling its tools natively)
 #[cfg(feature = "client-chat")]
 pub mod function_dispatch;
+/// How a Copilot headless turn ends: a text tool call handed to the text
+/// loop, a degenerate reply retried once, the loopback's signals drained
+#[cfg(feature = "client-chat")]
+mod headless_finalize;
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
 /// One API tool-loop iteration's call to the chain head, routed per iteration

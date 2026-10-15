@@ -1067,3 +1067,148 @@ async fn a_headless_head_fault_that_is_not_quota_starts_no_cooldown() {
     assert_eq!(second.content, TAIL_ANSWER, "the head served turn 2 itself");
     assert_eq!(tail.calls.load(Ordering::SeqCst), 1);
 }
+
+/// A Copilot-SDK-shaped tier that asks for its tool the way the shared system
+/// prompt teaches every tier: a text `<tool_call>` block, with no native call.
+///
+/// What `copilot_sdk` did on nearly every data question in the live incident
+/// lane (carnet#1032): the block was stripped to nothing, the identical retry
+/// asked the same way, and the turn fell through to the next tier. `complete()`
+/// answers from the tool result once one is in the conversation, and asks again
+/// until then.
+struct TextCallingSdk {
+    conversed: AtomicUsize,
+    completes: Mutex<Vec<ChatRequest>>,
+    models: Vec<String>,
+}
+
+const TEXT_TOOL_CALL: &str =
+    "<tool_call>\n{\"name\": \"get_connection_status\", \"arguments\": {}}\n</tool_call>";
+
+impl TextCallingSdk {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            conversed: AtomicUsize::new(0),
+            completes: Mutex::new(Vec::new()),
+            models: vec!["claude-sonnet-5.5".to_owned()],
+        })
+    }
+}
+
+#[async_trait]
+impl EmbacleLlmProvider for TextCallingSdk {
+    fn name(&self) -> &'static str {
+        "copilot_sdk"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Copilot SDK (text tool calls)"
+    }
+
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::STREAMING
+            | LlmCapabilities::SYSTEM_MESSAGES
+            | LlmCapabilities::SDK_TOOL_CALLING
+    }
+
+    fn default_model(&self) -> &str {
+        &self.models[0]
+    }
+
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+        let answered = request.messages.iter().any(|m| {
+            m.content
+                .contains("<tool_result name=\"get_connection_status\">")
+        });
+        self.completes.lock().unwrap().push(request.clone());
+        Ok(ChatResponse {
+            content: if answered {
+                TAIL_ANSWER
+            } else {
+                TEXT_TOOL_CALL
+            }
+            .to_owned(),
+            model: self.models[0].clone(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, RunnerError> {
+        Err(RunnerError::internal("not asked in this test"))
+    }
+
+    async fn health_check(&self) -> Result<bool, RunnerError> {
+        Ok(true)
+    }
+}
+
+#[async_trait]
+impl HeadlessTurnProvider for TextCallingSdk {
+    async fn converse(&self, _request: &ChatRequest) -> Result<HeadlessToolResponse, RunnerError> {
+        self.conversed.fetch_add(1, Ordering::SeqCst);
+        Ok(HeadlessToolResponse {
+            content: TEXT_TOOL_CALL.to_owned(),
+            model: self.models[0].clone(),
+            tool_calls: Vec::new(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+        })
+    }
+
+    async fn converse_stream(
+        &self,
+        _request: &ChatRequest,
+    ) -> Result<HeadlessEventStream, RunnerError> {
+        Err(RunnerError::internal("the test turn does not stream"))
+    }
+}
+
+/// A Copilot SDK turn that asks for a tool as a text `<tool_call>` block runs
+/// that tool and answers from its result, on the same tier.
+#[tokio::test]
+async fn a_text_tool_call_from_the_copilot_sdk_runs_the_tool_instead_of_falling_through() {
+    let sdk = TextCallingSdk::new();
+    let turn_provider: Arc<dyn HeadlessTurnProvider> = Arc::clone(&sdk) as _;
+    let chain = ChatProvider::Embacle(EmbacleProvider::from_turn_provider(
+        turn_provider,
+        "GitHub Copilot (SDK)",
+    ));
+
+    let (result, _) = run_turn(&chain).await;
+
+    assert_eq!(
+        result.content, TAIL_ANSWER,
+        "the turn is answered from the tool's result, not stripped to empty"
+    );
+    assert!(
+        result.tools_called.iter().any(|t| t == ROUND_TRIP_TOOL),
+        "the text block ran {ROUND_TRIP_TOOL} through the executor: {:?}",
+        result.tools_called
+    );
+    assert_eq!(
+        sdk.conversed.load(Ordering::SeqCst),
+        1,
+        "no identical retry"
+    );
+    let completes = sdk.completes.lock().unwrap();
+    assert_eq!(
+        completes.len(),
+        1,
+        "the reply's own blocks ran: the model is asked once more, with their results, and never re-asked for the call it already made"
+    );
+    assert!(
+        completes
+            .last()
+            .is_some_and(|req| req.messages.iter().any(|m| m
+                .content
+                .contains("<tool_result name=\"get_connection_status\">"))),
+        "the final ask carries the tool's result"
+    );
+}

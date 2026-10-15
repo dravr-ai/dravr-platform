@@ -502,9 +502,9 @@ pub fn reroutes_to_tail(error: &AppError) -> bool {
 /// where both are re-created, from [`ToolLoopResult::is_lost_turn`] and
 /// [`reroutes_to_tail`]; the loop only acts on the route it is handed.
 pub(crate) enum HeadlessRoute {
-    /// The head answered, or left a deliberate empty reply the chat pipeline
-    /// is about to replace: serve it. Boxed so a route is the size of an
-    /// error, not of a whole result.
+    /// The head answered, left a deliberate empty reply the chat pipeline is
+    /// about to replace, or spent its iteration budget calling tools: serve
+    /// it. Boxed so a route is the size of an error, not of a whole result.
     Serve(Box<ToolLoopResult>),
     /// The head lost the turn or failed with a provider fault: re-run the turn
     /// against the chain's tail, logging this as the reason it moved.
@@ -518,7 +518,13 @@ impl HeadlessRoute {
     /// error, which is what the fallback logs.
     pub(crate) fn of(outcome: Result<ToolLoopResult, AppError>, provider: &str) -> Self {
         match outcome {
-            Ok(result) if result.is_lost_turn() => Self::Reroute(result.lost_turn_error(provider)),
+            // A turn that spent its iteration budget kept calling tools: the
+            // text loop a headless reply can be handed to runs them, and a
+            // re-run on the tail would run them again. Served, like the API
+            // loop's own exhausted turn.
+            Ok(result) if result.is_lost_turn() && !result.ran_out_of_iterations() => {
+                Self::Reroute(result.lost_turn_error(provider))
+            }
             Ok(result) => Self::Serve(Box::new(result)),
             Err(err) if reroutes_to_tail(&err) => Self::Reroute(err),
             Err(err) => Self::Fail(err),
@@ -724,6 +730,23 @@ mod tests {
         let empty = ToolLoopTally::default().answered(String::new(), None, None);
         assert!(empty.is_lost_turn());
         assert!(!empty.ran_out_of_iterations());
+    }
+
+    #[test]
+    fn a_headless_turn_that_spent_its_budget_is_served_not_rerouted() {
+        let exhausted = ToolLoopTally::default().max_iterations(None);
+        assert!(
+            matches!(
+                HeadlessRoute::of(Ok(exhausted), "copilot_sdk"),
+                HeadlessRoute::Serve(_)
+            ),
+            "a re-run on the tail would run the same tools a second time"
+        );
+        let empty = ToolLoopTally::default().answered(String::new(), None, None);
+        assert!(matches!(
+            HeadlessRoute::of(Ok(empty), "copilot_sdk"),
+            HeadlessRoute::Reroute(_)
+        ));
     }
 
     #[test]

@@ -166,3 +166,37 @@ async fn the_turn_canary_is_recovered_from_the_prompt_it_hardened() {
         "an unhardened prompt arms nothing rather than an empty token"
     );
 }
+
+/// A Copilot SDK turn that asks for a tool as a text `<tool_call>` block
+/// (carnet#1032) streams it like prose; the athlete's live bubble must never
+/// show it, even split across deltas, while the prose around it still arrives.
+#[tokio::test]
+async fn a_text_tool_call_never_reaches_the_live_bubble() {
+    let canary = conversation_canary(
+        &CanaryKey::from_jwt_secret("test-secret"),
+        "tenant:coach:conversation",
+    );
+    let parts = [
+        "Je regarde tes sorties. <tool",
+        "_call>\n{\"name\": \"get_activities\", ",
+        "\"arguments\": {}}\n</tool_",
+        "call> Voici ta semaine.",
+    ];
+    let mut events: Vec<HeadlessStreamEvent> = parts
+        .iter()
+        .map(|p| HeadlessStreamEvent::TextDelta((*p).to_owned()))
+        .collect();
+    events.push(done(&parts.concat()));
+
+    let (tx, mut rx): (TurnEventSink, _) = mpsc::unbounded_channel();
+    forward_headless_stream(stream_of(events), &canary, &tx)
+        .await
+        .expect("the stream completes");
+
+    let seen = drain_prose(&mut rx);
+    assert!(
+        !seen.contains("tool_call") && !seen.contains("get_activities"),
+        "the block reached the live bubble: {seen:?}"
+    );
+    assert_eq!(seen, "Je regarde tes sorties.  Voici ta semaine.");
+}
