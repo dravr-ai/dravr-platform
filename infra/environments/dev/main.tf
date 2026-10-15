@@ -498,6 +498,13 @@ module "backend" {
       # Sciotte JS scripts override directory (GCS-mounted bucket)
       DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
 
+      # Seats the env Strava app (STRAVA_CLIENT_ID) fills before the pool takes
+      # over. 9, not Strava's 10: Strava counted the app full on 2026-10-15 while
+      # only 9 athletes held a token we know of — one grant we no longer hold
+      # still occupies a seat there — and the router sent a new athlete into
+      # Strava's "limit of connected athletes exceeded" page.
+      STRAVA_OAUTH_SEAT_CAP = "9"
+
       # WhatsApp non-secret config (phone number ID is not sensitive)
       META_WHATSAPP_PHONE_NUMBER_ID = "1323997520799051"
       META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
