@@ -2103,15 +2103,22 @@ async fn a_detail_read_that_never_answers_is_given_up_and_stored_unavailable() {
 // ---------------------------------------------------------------------------
 
 /// The route reads a first Home visit over [`five_rides`] makes, the oldest
-/// ride's (`f1`) reaching the server first and the newest's last, each a few
-/// tens of milliseconds after the one before — the worst order the network
-/// can deliver a page's burst in. Answers are returned newest first.
+/// ride's (`f1`) reaching the server first and the newest's last, each a tenth
+/// of [`ROUTE_TURN_GATHER_MS`] after the one before — the worst order the
+/// network can deliver a page's burst in, every read still inside the window
+/// the burst is gathered over. A fixed 35 ms step put the newest read 60 ms
+/// from the window's end, which a loaded CI runner overshot and handed the
+/// turn to `f4` (canot 0.8.1 bump, 2026-10-15). Answers are returned newest
+/// first.
 async fn a_first_visits_route_reads(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
 ) -> Vec<(String, Value)> {
     let reads = (1..=5).map(|n| async move {
-        sleep(StdDuration::from_millis(35 * (n - 1))).await;
+        sleep(StdDuration::from_millis(
+            ROUTE_TURN_GATHER_MS / 10 * (n - 1),
+        ))
+        .await;
         let id = format!("f{n}");
         let body = route_in_burst(resources, athlete, &id).await;
         (id, body)
