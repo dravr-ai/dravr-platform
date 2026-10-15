@@ -9,6 +9,10 @@
 # Terraform directory
 .terraform/
 
+# Provider locks are committed for the root configurations (environments/*,
+# artifacts) only; a reusable module never pins its caller's providers.
+modules/**/.terraform.lock.hcl
+
 # Terraform variables files (may contain secrets)
 *.auto.tfvars
 
