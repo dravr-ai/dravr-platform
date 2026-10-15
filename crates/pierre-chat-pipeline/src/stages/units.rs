@@ -1,5 +1,5 @@
 // ABOUTME: Prompt stage 7b.1 — the unit system the reader writes in, so the agent's distances match Home's
-// ABOUTME: Resolved by pierre_services::units (Settings, then the provider's setting, then the device locale), carnet#835
+// ABOUTME: Read by pierre_services::units: the athlete's Settings choice, metric when none (carnet#835, carnet#1044)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 //! Every tool reports metric — that is what the platform stores and computes
 //! in — so without this section the agent writes kilometres to an athlete
 //! whose Home, activity view and route marks read miles. The section names
-//! the reader's resolved system and, for imperial, tells the agent to convert
+//! the reader's system and, for imperial, tells the agent to convert
 //! what the tools report.
 //!
 //! The reader is the turn's sender. A group-scoped conversation is read by
@@ -56,15 +56,7 @@ pub async fn append_units_context(
     let system = if group_scoped {
         UnitSystem::Metric
     } else {
-        resolve_user_units(
-            repos.users.as_ref(),
-            repos.unit_preferences.as_ref(),
-            user_id,
-            None,
-        )
-        .await
-        .resolved
-        .system
+        resolve_user_units(repos.unit_preferences.as_ref(), user_id).await
     };
     format!("{base_prompt}{}", units_context(system))
 }

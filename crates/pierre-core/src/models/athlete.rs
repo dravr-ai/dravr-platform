@@ -6,8 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::units::UnitSystem;
-
 /// Represents an athlete/user profile from any provider
 ///
 /// Contains the essential profile information that's commonly available
@@ -25,7 +23,6 @@ use super::units::UnitSystem;
 ///     lastname: Some("Doe".into()),
 ///     profile_picture: Some("https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg".into()),
 ///     provider: "strava".into(),
-///     preferred_units: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -45,13 +42,6 @@ pub struct Athlete {
     pub profile_picture: Option<String>,
     /// Source provider of this athlete data
     pub provider: String,
-    /// The unit system the athlete set on the provider itself, when the
-    /// provider exposes one (Strava's `measurement_preference`). Not part of
-    /// any payload: it feeds the athlete's unit preference
-    /// ([`crate::models::units`]), which decides how Dravr writes distances.
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub preferred_units: Option<UnitSystem>,
 }
 
 /// Aggregated fitness statistics for an athlete

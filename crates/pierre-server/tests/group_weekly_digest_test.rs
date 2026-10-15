@@ -21,7 +21,7 @@ mod group_weekly_digest_tests {
     use pierre_core::models::groups::{
         GroupAggregateStats, GroupTrend, MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
-    use pierre_core::models::{UnitPreference, UnitSystem};
+    use pierre_core::models::UnitSystem;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_groups::GroupService;
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -326,7 +326,7 @@ En forme :
             .common
             .repos
             .unit_preferences
-            .set_unit_preference(user.id, UnitPreference::Imperial)
+            .set_units(user.id, UnitSystem::Imperial)
             .await
             .unwrap();
         let rows = feed(&router, &token).await;

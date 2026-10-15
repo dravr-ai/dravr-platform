@@ -91,14 +91,12 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // How often the coach checks in on its own: the onboarding step and Settings write it (carnet#831).
 export { type UseCheckInResult, CHECK_IN_OPTIONS, createCheckInHook } from './checkInHook';
-// The athlete's units: the Settings hook, and the context every distance a surface prints reads (carnet#835).
+// The athlete's units, metric unless Settings chose imperial, and the context every distance a surface prints reads (carnet#835).
 export {
-  type UnitsAutomaticHint,
   type UseUnitPreferencesResult,
-  UNIT_PREFERENCE_OPTIONS,
+  UNIT_SYSTEM_OPTIONS,
   UnitsContext,
   createUnitPreferencesHook,
-  unitsAutomaticHint,
   useDistanceUnit,
 } from './unitsHook';
 export {

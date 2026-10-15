@@ -209,7 +209,7 @@ pub struct RepositoryRegistry {
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
-    /// Per-user inputs that decide the unit system an athlete reads (carnet#835)
+    /// The unit system each athlete chose in Settings; metric when none (carnet#835, carnet#1044)
     pub unit_preferences: Arc<dyn UnitPreferencesRepository>,
     /// The athlete's gear ledger: declared shoes and per-activity attribution
     pub athlete_gear: Arc<dyn AthleteGearRepository>,

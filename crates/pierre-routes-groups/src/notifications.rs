@@ -515,18 +515,12 @@ impl NotificationRoutes {
         // the one the athlete reads rather than the representative row's.
         let locale = Self::reader_locale(&resources, auth.user_id).await;
         let repos = resources.repos();
-        let units = resolve_user_units(
-            repos.users.as_ref(),
-            repos.unit_preferences.as_ref(),
-            auth.user_id,
-            None,
-        )
-        .await;
+        let units = resolve_user_units(repos.unit_preferences.as_ref(), auth.user_id).await;
         let renderer = NotificationTextRenderer::new(
             GroupsCtx::messaging_strings_registry(resources.as_ref()),
             &locale,
         )
-        .with_units(units.resolved.system);
+        .with_units(units);
         for item in &mut collapsed_items {
             localize_item(item, renderer);
         }

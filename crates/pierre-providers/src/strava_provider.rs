@@ -676,7 +676,15 @@ impl FitnessProvider for StravaProvider {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
-        Ok(strava_athlete.into_athlete())
+
+        Ok(Athlete {
+            id: strava_athlete.id.to_string(),
+            username: strava_athlete.username.unwrap_or_default(),
+            firstname: strava_athlete.firstname,
+            lastname: strava_athlete.lastname,
+            profile_picture: strava_athlete.profile_medium,
+            provider: oauth_providers::STRAVA.to_owned(),
+        })
     }
 
     async fn get_activities_with_params(

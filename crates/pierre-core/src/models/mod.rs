@@ -145,7 +145,7 @@ pub use athlete::{Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
 };
-pub use units::{resolve_units, ResolvedUnits, UnitPreference, UnitSource, UnitSystem};
+pub use units::UnitSystem;
 
 pub use check_in::CheckInCadence;
 

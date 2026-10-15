@@ -401,26 +401,18 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByText('Days Active')).toBeVisible({ timeout: 5000 });
   });
 
-  test('profile tab stores a units choice and says what Automatic follows (carnet#835)', async ({ page }) => {
+  test('profile tab reads metric by default and stores a units choice (carnet#835, carnet#1044)', async ({ page }) => {
     const puts: unknown[] = [];
     // Registered after the shared stubs, so this answer is the one served.
     await setupAuthenticatedMocks(page);
     await page.route('**/api/me/units**', async (route) => {
       const request = route.request();
-      const update = request.method() === 'PUT' ? (request.postDataJSON() as { preference: string }) : null;
+      const update = request.method() === 'PUT' ? (request.postDataJSON() as { units: string }) : null;
       if (update !== null) puts.push(update);
-      const preference = update?.preference ?? 'automatic';
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          preference,
-          units: preference === 'metric' ? 'metric' : 'imperial',
-          source: preference === 'automatic' ? 'provider' : 'override',
-          provider: 'strava',
-          provider_units: 'imperial',
-          device_locale: new URL(request.url()).searchParams.get('device_locale') ?? 'en-US',
-        }),
+        body: JSON.stringify({ units: update?.units ?? 'metric' }),
       });
     });
     await page.goto('/');
@@ -431,13 +423,12 @@ test.describe('Settings Page - User Mode', () => {
     const units = page.getByTestId('units-settings');
     const select = units.getByRole('combobox', { name: 'Select units' });
     await expect(select).toBeEnabled();
-    await expect(select).toHaveValue('automatic');
-    await expect(units.getByTestId('units-settings-hint')).toHaveText('Automatic follows your Strava setting: imperial.');
-
-    await select.selectOption('metric');
-    await expect.poll(() => puts).toContainEqual(expect.objectContaining({ preference: 'metric' }));
     await expect(select).toHaveValue('metric');
-    await expect(units.getByTestId('units-settings-hint')).toHaveCount(0);
+    await expect(select.locator('option')).toHaveText(['Metric (km, m)', 'Imperial (mi, ft)']);
+
+    await select.selectOption('imperial');
+    await expect.poll(() => puts).toContainEqual({ units: 'imperial' });
+    await expect(select).toHaveValue('imperial');
   });
 
   test('about tab shows version and links', async ({ page }) => {

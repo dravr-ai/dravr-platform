@@ -201,7 +201,6 @@ impl FitnessProvider for OpenRunner {
             lastname: Some("Runner".to_owned()),
             profile_picture: None,
             provider: OPEN.to_owned(),
-            preferred_units: None,
         })
     }
 

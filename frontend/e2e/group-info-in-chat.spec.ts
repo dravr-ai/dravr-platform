@@ -652,14 +652,7 @@ test.describe('Group info — settings and consent', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            preference: 'imperial',
-            units: 'imperial',
-            source: 'override',
-            provider: null,
-            provider_units: null,
-            device_locale: 'en-US',
-          }),
+          body: JSON.stringify({ units: 'imperial' }),
         }),
       );
     });

@@ -89,7 +89,7 @@
 //!   Home offers, stored per user so web and mobile agree (see
 //!   [`home_preferences`]).
 //! - `GET`/`PUT /api/me/units` — the unit system the athlete reads distances
-//!   in, and the Settings choice behind it (see [`units`]).
+//!   in, chosen in Settings (see [`units`]).
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -99,7 +99,7 @@ pub mod calendar;
 pub mod home_preferences;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
-/// The athlete's units: the Settings choice and the system it resolves to.
+/// The athlete's units: metric unless they chose imperial in Settings.
 pub mod units;
 /// The upload of a completed workout's `.fit` file.
 pub mod upload;

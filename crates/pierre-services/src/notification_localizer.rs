@@ -71,15 +71,9 @@ impl NotificationLocalizer for UserLocaleNotificationLocalizer {
                 default_locale()
             }
         };
-        let units = resolve_user_units(
-            self.repos.users.as_ref(),
-            self.repos.unit_preferences.as_ref(),
-            dispatch.user_id,
-            None,
-        )
-        .await;
-        let renderer =
-            NotificationTextRenderer::new(&self.strings, &locale).with_units(units.resolved.system);
+        let units =
+            resolve_user_units(self.repos.unit_preferences.as_ref(), dispatch.user_id).await;
+        let renderer = NotificationTextRenderer::new(&self.strings, &locale).with_units(units);
         let empty = Map::new();
         let params = dispatch.params.as_object().unwrap_or(&empty);
         NotificationText {

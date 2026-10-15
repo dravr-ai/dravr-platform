@@ -289,7 +289,7 @@ pub use user_references::{
 };
 pub use user_tier_overrides::*;
 pub use user_tool_overrides::*;
-pub use user_unit_preferences::{StoredUnitPreferences, UnitPreferencesRepository};
+pub use user_unit_preferences::UnitPreferencesRepository;
 pub use users::*;
 pub use weather::*;
 pub use website_sign_in_tokens::WebsiteSignInTokenRepository;

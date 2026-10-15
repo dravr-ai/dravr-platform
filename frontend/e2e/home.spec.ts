@@ -680,19 +680,12 @@ test.describe('Athlete Home', () => {
     await signInAthlete(page);
     await mockHome(page);
     await mockActivityView(page);
-    // Strava's own setting says feet: Automatic resolves to imperial.
+    // The athlete chose imperial in Settings.
     await page.route('**/api/me/units**', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          preference: 'automatic',
-          units: 'imperial',
-          source: 'provider',
-          provider: 'strava',
-          provider_units: 'imperial',
-          device_locale: 'en-US',
-        }),
+        body: JSON.stringify({ units: 'imperial' }),
       }),
     );
     await login(page);

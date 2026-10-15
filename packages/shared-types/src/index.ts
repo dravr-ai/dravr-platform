@@ -241,8 +241,8 @@ export { parseTrainingVolumeResponse } from './training-volume.js';
 export type { CheckInCadence, CheckInPreference } from './check-in.js';
 export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './check-in.js';
 
-// The athlete's units: the Settings choice and the system it resolves to (carnet#835)
-export type { UnitPreference, UnitPreferences, UnitPreferencesUpdate, UnitSource, UnitSystem } from './units.js';
+// The athlete's units: metric unless they chose imperial in Settings (carnet#835, carnet#1044)
+export type { UnitPreferences, UnitSystem } from './units.js';
 export { parseUnitPreferences } from './units.js';
 
 // Notification types (push notifications, device tokens, preferences)

@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins the Settings units choice — it reads and writes the server preference and says what Automatic resolved to
-// ABOUTME: Red if the choice is not stored, the device locale is never reported, or a refused save goes unsaid (carnet#835)
+// ABOUTME: Pins the Settings units choice — Metric or Imperial, read from and written to the server preference
+// ABOUTME: Red if Automatic comes back, the choice is not stored, or a refused save goes unsaid (carnet#835, carnet#1044)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { UnitPreferences, UnitPreferencesUpdate } from '@pierre/shared-types';
+import type { UnitPreferences, UnitSystem } from '@pierre/shared-types';
 import UnitsSettings from '../UnitsSettings';
 
 const api = vi.hoisted(() => ({
-  getUnitPreferences: vi.fn<(deviceLocale: string) => Promise<UnitPreferences>>(),
-  updateUnitPreferences: vi.fn<(update: UnitPreferencesUpdate) => Promise<UnitPreferences>>(),
+  getUnitPreferences: vi.fn<() => Promise<UnitPreferences>>(),
+  updateUnitPreferences: vi.fn<(units: UnitSystem) => Promise<UnitPreferences>>(),
 }));
 
 vi.mock('../../../services/api', () => ({
@@ -22,17 +22,6 @@ vi.mock('../../../services/api', () => ({
     updateUnitPreferences: api.updateUnitPreferences,
   },
 }));
-
-const DEVICE = navigator.language;
-
-const FROM_STRAVA: UnitPreferences = {
-  preference: 'automatic',
-  units: 'imperial',
-  source: 'provider',
-  provider: 'strava',
-  provider_units: 'imperial',
-  device_locale: DEVICE,
-};
 
 function renderSettings() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -48,61 +37,44 @@ beforeEach(() => {
 });
 
 describe('UnitsSettings', () => {
-  it('says what Automatic follows, and sends the device locale with the read', async () => {
-    api.getUnitPreferences.mockResolvedValue(FROM_STRAVA);
+  it('offers Metric and Imperial only, showing what the server holds', async () => {
+    api.getUnitPreferences.mockResolvedValue({ units: 'metric' });
     renderSettings();
 
     const select = screen.getByRole('combobox', { name: 'Select units' });
     await waitFor(() => expect(select).toBeEnabled());
-    expect(select).toHaveValue('automatic');
-    expect(screen.getByTestId('units-settings-hint')).toHaveTextContent(
-      'Automatic follows your Strava setting: imperial.',
-    );
-    expect(api.getUnitPreferences).toHaveBeenCalledWith(DEVICE);
-    // The stored locale already matches this device: nothing to write.
+    expect(select).toHaveValue('metric');
+    expect(within(select).getAllByRole('option').map((option) => option.getAttribute('value'))).toEqual([
+      'metric',
+      'imperial',
+    ]);
+    expect(api.getUnitPreferences).toHaveBeenCalledWith();
     expect(api.updateUnitPreferences).not.toHaveBeenCalled();
   });
 
-  it('stores an explicit choice, which needs no hint', async () => {
-    api.getUnitPreferences.mockResolvedValue(FROM_STRAVA);
-    api.updateUnitPreferences.mockResolvedValue({ ...FROM_STRAVA, preference: 'metric', units: 'metric', source: 'override' });
+  it('stores a choice', async () => {
+    api.getUnitPreferences.mockResolvedValue({ units: 'metric' });
+    api.updateUnitPreferences.mockResolvedValue({ units: 'imperial' });
     renderSettings();
 
     const select = screen.getByRole('combobox', { name: 'Select units' });
     await waitFor(() => expect(select).toBeEnabled());
-    await userEvent.selectOptions(select, 'metric');
+    await userEvent.selectOptions(select, 'imperial');
 
-    expect(api.updateUnitPreferences).toHaveBeenCalledWith({ preference: 'metric', device_locale: DEVICE });
-    await waitFor(() => expect(select).toHaveValue('metric'));
-    expect(screen.queryByTestId('units-settings-hint')).not.toBeInTheDocument();
-  });
-
-  it('reports this device locale once when the server holds another', async () => {
-    api.getUnitPreferences.mockResolvedValue({ ...FROM_STRAVA, source: 'locale', provider: null, provider_units: null, units: 'metric', device_locale: null });
-    api.updateUnitPreferences.mockResolvedValue({ ...FROM_STRAVA, source: 'locale', provider: null, provider_units: null });
-    renderSettings();
-
-    await waitFor(() =>
-      expect(api.updateUnitPreferences).toHaveBeenCalledWith({ device_locale: DEVICE }),
-    );
-    expect(api.updateUnitPreferences).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(screen.getByTestId('units-settings-hint')).toHaveTextContent(
-        "Automatic follows your device's region: imperial.",
-      ),
-    );
+    expect(api.updateUnitPreferences).toHaveBeenCalledWith('imperial');
+    await waitFor(() => expect(select).toHaveValue('imperial'));
   });
 
   it('says so when a choice could not be saved, and keeps what the server holds', async () => {
-    api.getUnitPreferences.mockResolvedValue(FROM_STRAVA);
+    api.getUnitPreferences.mockResolvedValue({ units: 'metric' });
     api.updateUnitPreferences.mockRejectedValue(new Error('offline'));
     renderSettings();
 
     const select = screen.getByRole('combobox', { name: 'Select units' });
     await waitFor(() => expect(select).toBeEnabled());
-    await userEvent.selectOptions(select, 'metric');
+    await userEvent.selectOptions(select, 'imperial');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Your units could not be saved. Try again.');
-    await waitFor(() => expect(select).toHaveValue('automatic'));
+    await waitFor(() => expect(select).toHaveValue('metric'));
   });
 });

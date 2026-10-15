@@ -7,34 +7,17 @@
 import { describe, expect, it } from 'vitest';
 import { parseUnitPreferences } from '../src/units';
 
-const BODY = {
-  preference: 'automatic',
-  units: 'imperial',
-  source: 'provider',
-  provider: 'strava',
-  provider_units: 'imperial',
-  device_locale: 'en-US',
-};
-
 describe('parseUnitPreferences', () => {
-  it('reads a well-formed body through', () => {
-    expect(parseUnitPreferences(BODY)).toEqual(BODY);
-    expect(
-      parseUnitPreferences({ ...BODY, source: 'locale', provider: null, provider_units: null, device_locale: null }),
-    ).toEqual({ ...BODY, source: 'locale', provider: null, provider_units: null, device_locale: null });
+  it('reads either system', () => {
+    expect(parseUnitPreferences({ units: 'imperial' })).toEqual({ units: 'imperial' });
+    expect(parseUnitPreferences({ units: 'metric' })).toEqual({ units: 'metric' });
   });
 
-  it('rejects an unknown system, preference or source', () => {
-    expect(parseUnitPreferences({ ...BODY, units: 'nautical' })).toBeNull();
-    expect(parseUnitPreferences({ ...BODY, preference: 'km' })).toBeNull();
-    expect(parseUnitPreferences({ ...BODY, source: 'guess' })).toBeNull();
-    expect(parseUnitPreferences({ ...BODY, provider_units: 'feet' })).toBeNull();
-  });
-
-  it('rejects a body missing a key or that is not an object', () => {
-    const { device_locale: _dropped, ...partial } = BODY;
-    expect(parseUnitPreferences(partial)).toBeNull();
+  it('rejects an unknown system, a missing key or a non-object', () => {
+    expect(parseUnitPreferences({ units: 'nautical' })).toBeNull();
+    expect(parseUnitPreferences({ units: 'automatic' })).toBeNull();
+    expect(parseUnitPreferences({})).toBeNull();
     expect(parseUnitPreferences(null)).toBeNull();
-    expect(parseUnitPreferences([BODY])).toBeNull();
+    expect(parseUnitPreferences([{ units: 'metric' }])).toBeNull();
   });
 });

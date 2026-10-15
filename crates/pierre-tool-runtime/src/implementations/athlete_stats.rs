@@ -28,8 +28,6 @@ use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_database::repositories::UnitPreferencesRepository;
-use pierre_services::units::record_provider_units;
 use uuid::Uuid;
 
 use crate::capabilities::PROVIDER_READ;
@@ -214,7 +212,6 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                     provider.as_ref(),
                     cache,
                     &cache_key,
-                    context.resources.repos().unit_preferences.as_ref(),
                     context.user_id,
                     tenant_id_str,
                     output_format,
@@ -367,27 +364,18 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
                 }
             };
 
-            let fetched = fetch_and_cache_stats(
-                provider.as_ref(),
-                cache,
-                &athlete_cache_key,
-                tenant_id,
-                context.user_id,
-                &provider_name,
-                output_format,
-            )
-            .await;
-            if let Ok((_, Some(athlete))) = &fetched {
-                record_provider_units(
-                    context.resources.repos().unit_preferences.as_ref(),
-                    context.user_id,
-                    athlete,
-                )
-                .await;
-            }
             handler_bridge::map_universal_response(
                 "get_stats",
-                fetched.map(|(response, _)| response),
+                fetch_and_cache_stats(
+                    provider.as_ref(),
+                    cache,
+                    &athlete_cache_key,
+                    tenant_id,
+                    context.user_id,
+                    &provider_name,
+                    output_format,
+                )
+                .await,
             )
         }
         .await;
@@ -442,13 +430,11 @@ async fn cache_athlete_result(cache: &Arc<Cache>, cache_key: &CacheKey, athlete:
     }
 }
 
-/// Fetch athlete from API, cache it, and record the provider's own unit
-/// setting when the profile carries one (carnet#835).
+/// Fetch athlete from API and cache result
 async fn fetch_and_cache_athlete(
     provider: &dyn FitnessProvider,
     cache: &Arc<Cache>,
     cache_key: &CacheKey,
-    unit_preferences: &dyn UnitPreferencesRepository,
     user_uuid: Uuid,
     tenant_id: Option<String>,
     output_format: OutputFormat,
@@ -456,7 +442,6 @@ async fn fetch_and_cache_athlete(
     match provider.get_athlete().await {
         Ok(athlete) => {
             cache_athlete_result(cache, cache_key, &athlete).await;
-            record_provider_units(unit_preferences, user_uuid, &athlete).await;
 
             let mut metadata = HashMap::new();
             metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
@@ -586,10 +571,7 @@ async fn cache_athlete_and_stats(
     info!("Cached stats with TTL {:?}", stats_ttl);
 }
 
-/// Fetch stats from API and cache both athlete and stats.
-///
-/// Answers with the athlete profile it read alongside, when the read
-/// succeeded, so the caller can record the provider's unit setting.
+/// Fetch stats from API and cache both athlete and stats
 async fn fetch_and_cache_stats(
     provider: &dyn FitnessProvider,
     cache: &Arc<Cache>,
@@ -598,27 +580,25 @@ async fn fetch_and_cache_stats(
     user_uuid: Uuid,
     provider_name: &str,
     output_format: OutputFormat,
-) -> Result<(UniversalResponse, Option<Athlete>), ProtocolError> {
+) -> Result<UniversalResponse, ProtocolError> {
     let stats = match provider.get_stats().await {
         Ok(stats) => stats,
         Err(e) => {
-            let failed = UniversalResponse {
+            return Ok(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(format!("Failed to fetch stats: {e}")),
                 metadata: None,
-            };
-            return Ok((failed, None));
+            });
         }
     };
 
     // Get athlete to extract athlete_id for caching
-    let athlete = provider.get_athlete().await.ok();
-    if let Some(athlete) = &athlete {
+    if let Ok(athlete) = provider.get_athlete().await {
         cache_athlete_and_stats(
             cache,
             athlete_cache_key,
-            athlete,
+            &athlete,
             &stats,
             tenant_id,
             user_uuid,
@@ -628,6 +608,5 @@ async fn fetch_and_cache_stats(
     }
 
     let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    let response = formatted_response(&GetStatsResult { stats }, output_format, metadata)?;
-    Ok((response, athlete))
+    formatted_response(&GetStatsResult { stats }, output_format, metadata)
 }

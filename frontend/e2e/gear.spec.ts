@@ -164,14 +164,7 @@ test.describe('Gear ledger', () => {
     await signIn(page);
     // Registered after the shared stubs, so this answer is the one served.
     await page.route('**/api/me/units**', (route) =>
-      json(route, {
-        preference: 'imperial',
-        units: 'imperial',
-        source: 'override',
-        provider: null,
-        provider_units: null,
-        device_locale: 'en-US',
-      }),
+      json(route, { units: 'imperial' }),
     );
     const ledger = await mockLedger(page, [
       pair(ROAD, { name: 'Pegasus 41', distance_meters: 512_300, activity_count: 41, warn_reached: true }),

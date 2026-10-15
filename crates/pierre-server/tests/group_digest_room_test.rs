@@ -33,7 +33,7 @@ mod group_digest_room_tests {
         MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
-    use pierre_core::models::{Tenant, TenantId, UnitPreference, User, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, UnitSystem, User, UserStatus};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
     use pierre_database::RepositoryRegistry;
@@ -456,7 +456,7 @@ mod group_digest_room_tests {
             .common
             .repos
             .unit_preferences
-            .set_unit_preference(alice, UnitPreference::Imperial)
+            .set_units(alice, UnitSystem::Imperial)
             .await
             .unwrap();
         let tenant = h.tenant(alice).await;

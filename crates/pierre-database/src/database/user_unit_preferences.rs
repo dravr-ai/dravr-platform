@@ -6,15 +6,14 @@
 
 use chrono::Utc;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{UnitPreference, UnitSystem};
+use pierre_core::models::UnitSystem;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::user_unit_preferences::{
-    decode_unit_preferences, impl_unit_preferences_repository, unit_preferences_error,
-    StoredUnitPreferences, UnitPreferencesRepository, GET_UNIT_PREFERENCES_SQL,
-    UPSERT_DEVICE_LOCALE_SQL, UPSERT_PROVIDER_UNITS_SQL, UPSERT_UNIT_PREFERENCE_SQL,
+    decode_units, impl_unit_preferences_repository, unit_preferences_error,
+    UnitPreferencesRepository, GET_UNITS_SQL, UPSERT_UNITS_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 

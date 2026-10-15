@@ -446,7 +446,6 @@ impl FitnessProvider for WhoopProvider {
             lastname: profile.last_name,
             profile_picture: None, // WHOOP doesn't provide profile pictures via API
             provider: oauth_providers::WHOOP.to_owned(),
-            preferred_units: None,
         })
     }
 
