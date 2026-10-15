@@ -88,7 +88,8 @@ pub async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
     Ok(())
 }
 
-async fn lookup_user(repos: &RepositoryRegistry, email: &str) -> Result<Uuid> {
+/// The id of the user with `email`, or not-found naming the email.
+pub async fn lookup_user(repos: &RepositoryRegistry, email: &str) -> Result<Uuid> {
     repos
         .users
         .get_by_email(email)

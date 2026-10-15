@@ -48,6 +48,16 @@ export interface ApiKeyDeactivateResponse {
   deactivated_at: string;
 }
 
+/** One tool's calls on a key over a window. */
+export interface ApiKeyToolUsage {
+  tool_name: string;
+  request_count: number;
+  /** Percent of calls that succeeded, 0-100. */
+  success_rate: number;
+  /** Milliseconds. */
+  average_response_time: number;
+}
+
 /** One key's calls over a window. */
 export interface ApiKeyUsageStats {
   api_key_id: string;
@@ -57,7 +67,8 @@ export interface ApiKeyUsageStats {
   successful_requests: number;
   failed_requests: number;
   total_response_time_ms: number;
-  tool_usage: Record<string, number>;
+  /** Every tool the key called in the window, most-called first. */
+  tools: ApiKeyToolUsage[];
 }
 
 /** `GET /api/keys/{id}/usage`. */

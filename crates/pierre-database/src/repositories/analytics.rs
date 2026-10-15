@@ -93,7 +93,7 @@ pub(crate) const API_KEY_STATS_SQL: &str = "SELECT COUNT(*) AS total_requests, \
      FROM api_key_usage \
      WHERE api_key_id = $4 AND timestamp >= $5 AND timestamp <= $6";
 
-/// A key's calls per tool over `[$4, $5]`, most called first, with the
+/// A key's calls per tool over `[$4, $5]`, most called first (ties by name), with the
 /// success band `$1..=$2`.
 pub(crate) const API_KEY_TOOL_USAGE_SQL: &str = "SELECT endpoint, COUNT(*) AS tool_count, \
             CAST(AVG(response_time_ms) AS DOUBLE PRECISION) AS avg_response_time, \
@@ -101,7 +101,7 @@ pub(crate) const API_KEY_TOOL_USAGE_SQL: &str = "SELECT endpoint, COUNT(*) AS to
      FROM api_key_usage \
      WHERE api_key_id = $3 AND timestamp >= $4 AND timestamp <= $5 \
      GROUP BY endpoint \
-     ORDER BY tool_count DESC";
+     ORDER BY tool_count DESC, endpoint";
 
 /// A user's JWT requests since `$2`, the first instant of the UTC month, and
 /// the admin's override row for them: everything the monthly request budget
@@ -120,17 +120,18 @@ pub(crate) const JWT_CURRENT_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
                 AS override_monthly_limit \
      FROM jwt_usage WHERE user_id = $1 AND timestamp >= $2";
 
-/// A user's calls per tool over `[$2, $3]`, most called first, ten at most;
-/// `$4` is the failure floor.
+/// A user's calls per tool over `[$2, $3]`, most called first (ties by name),
+/// ten at most. `$4..=$5` is the success band and `$6` the failure floor, the
+/// same bands a single key's stats use: a 2xx succeeded, 400 and up failed.
 pub(crate) const TOP_TOOLS_SQL: &str = "SELECT aku.endpoint, COUNT(*) AS usage_count, \
             CAST(AVG(aku.response_time_ms) AS DOUBLE PRECISION) AS avg_response_time, \
-            COUNT(CASE WHEN aku.status_code < $4 THEN 1 END) AS success_count, \
-            COUNT(CASE WHEN aku.status_code >= $4 THEN 1 END) AS error_count \
+            COUNT(CASE WHEN aku.status_code >= $4 AND aku.status_code <= $5 THEN 1 END) AS success_count, \
+            COUNT(CASE WHEN aku.status_code >= $6 THEN 1 END) AS error_count \
      FROM api_key_usage aku \
      JOIN api_keys ak ON aku.api_key_id = ak.id \
      WHERE ak.user_id = $1 AND aku.timestamp BETWEEN $2 AND $3 \
      GROUP BY aku.endpoint \
-     ORDER BY usage_count DESC \
+     ORDER BY usage_count DESC, aku.endpoint \
      LIMIT 10";
 
 /// The projection every request-log read starts from. `api_key_usage` is
@@ -429,7 +430,7 @@ macro_rules! impl_usage_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to get API key tool usage stats: {e}"))
                     })?;
-                let mut tool_usage = serde_json::Map::new();
+                let mut tools = Vec::with_capacity(per_tool.len());
                 for row in &per_tool {
                     let tool_name: String = row
                         .try_get("endpoint")
@@ -443,15 +444,12 @@ macro_rules! impl_usage_repository {
                     let avg_response_time: Option<f64> = row
                         .try_get("avg_response_time")
                         .map_err(|e| usage_column_error("avg_response_time", e))?;
-                    tool_usage.insert(
+                    tools.push(ToolUsage {
                         tool_name,
-                        serde_json::json!({
-                            "count": tool_count,
-                            "success_count": success_count,
-                            "avg_response_time_ms": avg_response_time.unwrap_or(0.0),
-                            "success_rate": success_ratio(success_count, tool_count),
-                        }),
-                    );
+                        request_count: u64_from_sum(tool_count, "tool_count")?,
+                        success_rate: success_ratio(success_count, tool_count) * 100.0,
+                        average_response_time: avg_response_time.unwrap_or(0.0),
+                    });
                 }
 
                 Ok(ApiKeyUsageStats {
@@ -463,7 +461,7 @@ macro_rules! impl_usage_repository {
                     failed_requests: count("failed_requests")?,
                     total_response_time_ms: total_response_time
                         .map_or(Ok(0), |t| u64_from_sum(t, "total_response_time"))?,
-                    tool_usage: serde_json::Value::Object(tool_usage),
+                    tools,
                 })
             }
 
@@ -567,6 +565,8 @@ macro_rules! impl_usage_repository {
                     .bind($ids::bind(user_id))
                     .bind(start_time)
                     .bind(end_time)
+                    .bind(i32::from(SUCCESS_MIN))
+                    .bind(i32::from(SUCCESS_MAX))
                     .bind(i32::from(BAD_REQUEST))
                     .fetch_all(self.pool())
                     .await

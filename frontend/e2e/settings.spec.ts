@@ -537,7 +537,7 @@ test.describe('Settings Page - User Mode', () => {
     await expect(page.getByText('Create New Token')).toBeVisible();
   });
 
-  test('API keys tab shows a created key once and a revoked key leaves', async ({ page }) => {
+  test('API keys tab shows each key\'s tools, a created key once, and a revoked key leaves', async ({ page }) => {
     await loginAndNavigateToSettings(page);
     let keys = [
       {
@@ -562,7 +562,7 @@ test.describe('Settings Page - User Mode', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ stats: { api_key_id: 'k1', total_requests: 3, successful_requests: 3, failed_requests: 0, total_response_time_ms: 10, tool_usage: {}, period_start: '', period_end: '' } }),
+        body: JSON.stringify({ stats: { api_key_id: 'k1', total_requests: 3, successful_requests: 3, failed_requests: 0, total_response_time_ms: 10, tools: [{ tool_name: 'get_activities', request_count: 3, success_rate: 100, average_response_time: 3 }], period_start: '', period_end: '' } }),
       })
     );
     await page.route('**/api/keys/k1', async (route) => {
@@ -573,6 +573,9 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'API keys' }).click();
     await expect(page.getByTestId('api-key-k1')).toContainText('Export script');
     await expect(page.getByTestId('api-key-usage-k1')).toHaveText('3 requests in the last 30 days');
+    await expect(
+      page.getByTestId('api-key-tools-k1').getByRole('list', { name: 'Tools called in the last 30 days' }),
+    ).toContainText('get_activities');
 
     await page.getByTestId('api-key-name').fill('Garmin sync');
     await page.getByTestId('api-key-create').click();

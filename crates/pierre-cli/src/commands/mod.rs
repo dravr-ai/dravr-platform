@@ -1,9 +1,10 @@
 // ABOUTME: Re-exports command modules for pierre-cli
-// ABOUTME: Provides access to token and user management commands
+// ABOUTME: Provides access to token, user, API key and tool management commands
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+pub mod api_key;
 pub mod auth;
 pub mod config;
 pub mod drift;

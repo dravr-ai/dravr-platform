@@ -633,113 +633,6 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
 // ============================================================================
 
 // ============================================================================
-// Tool Usage Breakdown Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_get_tool_usage_breakdown_success() -> Result<()> {
-    common::init_server_config();
-    let setup = DashboardTestSetup::new().await?;
-
-    let tool_usage = setup
-        .dashboard_routes
-        .get_tool_usage_breakdown(
-            setup.auth_result(),
-            None,       // All API keys
-            Some("7d"), // Last 7 days
-        )
-        .await?;
-
-    // Note: Tool usage might be empty in test environment - this is acceptable
-    // as we're testing the API interface and authentication
-
-    // Verify tool usage structure
-    for usage in &tool_usage {
-        assert!(!usage.tool_name.is_empty());
-        // Removed redundant >= 0 check for unsigned type
-        assert!(usage.success_rate >= 0.0 && usage.success_rate <= 100.0);
-        assert!(usage.average_response_time >= 0.0);
-    }
-
-    // Should be sorted by request count (descending)
-    for i in 1..tool_usage.len() {
-        assert!(tool_usage[i - 1].request_count >= tool_usage[i].request_count);
-    }
-
-    // Should not exceed 10 tools (top 10)
-    assert!(tool_usage.len() <= 10);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_tool_usage_breakdown_different_timeframes() -> Result<()> {
-    common::init_server_config();
-    let setup = DashboardTestSetup::new().await?;
-
-    let timeframes = vec!["1h", "24h", "7d", "30d"];
-
-    for timeframe in timeframes {
-        let tool_usage = setup
-            .dashboard_routes
-            .get_tool_usage_breakdown(setup.auth_result(), None, Some(timeframe))
-            .await?;
-
-        // Each timeframe should return valid data
-        for usage in &tool_usage {
-            assert!(!usage.tool_name.is_empty());
-            // Removed redundant >= 0 check for unsigned type
-        }
-    }
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
-    common::init_server_config();
-    let setup = DashboardTestSetup::new().await?;
-
-    let result = setup
-        .dashboard_routes
-        .get_tool_usage_breakdown(
-            AuthResult {
-                scopes: OAuthScope::self_grant(),
-                client_id: None,
-                user_id: uuid::Uuid::nil(),
-                auth_method: AuthMethod::JwtToken {
-                    tier: "premium".to_owned(),
-                },
-                active_tenant_id: None,
-            },
-            None,
-            Some("7d"),
-        )
-        .await;
-    assert!(result.is_err());
-
-    let result = setup
-        .dashboard_routes
-        .get_tool_usage_breakdown(
-            AuthResult {
-                scopes: OAuthScope::self_grant(),
-                client_id: None,
-                user_id: uuid::Uuid::nil(),
-                auth_method: AuthMethod::JwtToken {
-                    tier: "premium".to_owned(),
-                },
-                active_tenant_id: None,
-            },
-            None,
-            Some("7d"),
-        )
-        .await;
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-// ============================================================================
 // Edge Cases and Error Handling Tests
 // ============================================================================
 
@@ -751,21 +644,24 @@ async fn test_dashboard_boundary_conditions() -> Result<()> {
     common::init_server_config();
     let setup = DashboardTestSetup::new().await?;
 
-    // Test edge case: analytics for 0 days (should default to something reasonable)
-    let analytics = setup
-        .dashboard_routes
-        .get_usage_analytics(setup.auth_result(), 0)
-        .await?;
+    // The window is one point per day, bounded to a year: an empty window
+    // and one past a year are refused, not answered.
+    for days in [0, 366, 1000] {
+        let refused = setup
+            .dashboard_routes
+            .get_usage_analytics(setup.auth_result(), days)
+            .await;
+        assert!(refused.is_err(), "days={days} must be refused");
+    }
 
-    assert_eq!(analytics.time_series.len(), 0);
-
-    // Test large number of days
-    let analytics = setup
-        .dashboard_routes
-        .get_usage_analytics(setup.auth_result(), 1000)
-        .await?;
-
-    assert_eq!(analytics.time_series.len(), 1000);
+    // Both edges of the range answer one point per day.
+    for (days, points) in [(1, 1), (365, 365)] {
+        let analytics = setup
+            .dashboard_routes
+            .get_usage_analytics(setup.auth_result(), days)
+            .await?;
+        assert_eq!(analytics.time_series.len(), points, "days={days}");
+    }
 
     Ok(())
 }

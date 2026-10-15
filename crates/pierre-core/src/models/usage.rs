@@ -188,7 +188,7 @@ pub struct RequestLog {
 }
 
 /// Usage statistics for a specific tool
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ToolUsage {
     /// Name of the tool
     pub tool_name: String,

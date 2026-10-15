@@ -16,12 +16,13 @@
 mod common;
 mod helpers;
 
+use chrono::{Duration, SecondsFormat, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_core::models::{ApiKeyTier, UserTier};
+use pierre_core::models::{ApiKey, ApiKeyTier, ApiKeyUsage, UserTier};
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::api_keys::ApiKeyRoutes,
@@ -455,6 +456,123 @@ async fn test_get_api_key_usage_success() {
 
     // Should return 200 with usage stats
     assert_eq!(response.status(), 200);
+}
+
+/// Record one call of `tool_name` on `key`, answered with `status_code`.
+async fn record_call(
+    setup: &ApiKeyTestSetup,
+    key: &ApiKey,
+    tool_name: &str,
+    status_code: u16,
+    response_time_ms: u32,
+) {
+    setup
+        .resources
+        .agent
+        .database
+        .repositories()
+        .usage
+        .record_api_key(&ApiKeyUsage {
+            id: None,
+            api_key_id: key.id.clone(),
+            timestamp: Utc::now(),
+            tool_name: tool_name.to_owned(),
+            response_time_ms: Some(response_time_ms),
+            status_code,
+            error_message: None,
+            request_size_bytes: None,
+            response_size_bytes: None,
+            ip_address: None,
+            user_agent: None,
+        })
+        .await
+        .expect("record usage");
+}
+
+/// A usage window around now, as the query string the route reads.
+fn window_around_now() -> String {
+    let now = Utc::now();
+    format!(
+        "start_date={}&end_date={}",
+        (now - Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
+        (now + Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
+    )
+}
+
+#[tokio::test]
+async fn test_get_api_key_usage_ranks_the_tools_the_key_called() {
+    let setup = ApiKeyTestSetup::new().await.expect("Setup failed");
+    let key = common::create_and_store_test_api_key(
+        setup.resources.agent.database.as_ref(),
+        setup.user_id,
+        "Tools Key",
+    )
+    .await
+    .expect("create key");
+    record_call(&setup, &key, "get_athlete", 200, 10).await;
+    record_call(&setup, &key, "get_athlete", 200, 30).await;
+    record_call(&setup, &key, "get_athlete", 500, 20).await;
+    record_call(&setup, &key, "get_activities", 200, 50).await;
+
+    let response = AxumTestRequest::get(&format!(
+        "/api/keys/{}/usage?{}",
+        key.id,
+        window_around_now()
+    ))
+    .header("authorization", &setup.auth_header())
+    .send(setup.routes())
+    .await;
+
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    let tools = body["stats"]["tools"].as_array().expect("tools is a list");
+    let ranked: Vec<(&str, u64)> = tools
+        .iter()
+        .map(|t| {
+            (
+                t["tool_name"].as_str().unwrap(),
+                t["request_count"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(ranked, [("get_athlete", 3), ("get_activities", 1)]);
+    let athlete_success = tools[0]["success_rate"].as_f64().unwrap();
+    assert!(
+        (athlete_success - 200.0 / 3.0).abs() < 0.01,
+        "2 of 3 succeeded, got {athlete_success}"
+    );
+}
+
+#[tokio::test]
+async fn test_get_api_key_usage_of_another_users_key_is_not_found() {
+    let owner = ApiKeyTestSetup::new()
+        .await
+        .expect("Setup failed for owner");
+    let other = ApiKeyTestSetup::new()
+        .await
+        .expect("Setup failed for other user");
+    let key = common::create_and_store_test_api_key(
+        owner.resources.agent.database.as_ref(),
+        owner.user_id,
+        "Owner Key",
+    )
+    .await
+    .expect("create key");
+
+    let response = AxumTestRequest::get(&format!(
+        "/api/keys/{}/usage?{}",
+        key.id,
+        window_around_now()
+    ))
+    .header("authorization", &other.auth_header())
+    .send(other.routes())
+    .await;
+
+    assert_eq!(
+        response.status(),
+        404,
+        "another user's key reads as absent, not as a server fault"
+    );
 }
 
 #[tokio::test]

@@ -159,12 +159,15 @@ async fn test_end_to_end_api_key_workflow() {
     assert_eq!(stats.successful_requests, 1);
     assert_eq!(stats.failed_requests, 0);
     assert_eq!(stats.total_response_time_ms, 150);
-    assert_eq!(stats.tool_usage["get_activities"]["count"], 1);
+    let per_tool: Vec<(&str, u64)> = stats
+        .tools
+        .iter()
+        .map(|t| (t.tool_name.as_str(), t.request_count))
+        .collect();
     assert_eq!(
-        stats.tool_usage.as_object().map(serde_json::Map::len),
-        Some(1),
-        "only the recorded call, no row invented by authentication: {}",
-        stats.tool_usage
+        per_tool,
+        [("get_activities", 1)],
+        "only the recorded call, no row invented by authentication"
     );
 }
 
@@ -528,8 +531,20 @@ async fn test_usage_analytics() {
     assert_eq!(stats.failed_requests, 2); // 400 and 500 status codes
     assert_eq!(stats.total_response_time_ms, 100 + 150 + 200 + 250 + 300); // Sum of response times
 
-    // Verify tool usage breakdown is captured
-    assert!(stats.tool_usage.is_object());
+    // Verify the per-tool breakdown: most-called first, ties by name
+    let per_tool: Vec<(&str, u64)> = stats
+        .tools
+        .iter()
+        .map(|t| (t.tool_name.as_str(), t.request_count))
+        .collect();
+    assert_eq!(
+        per_tool,
+        [
+            ("get_activities", 2),
+            ("get_athlete", 2),
+            ("analyze_activity", 1)
+        ]
+    );
 }
 
 #[tokio::test]

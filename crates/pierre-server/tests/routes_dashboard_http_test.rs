@@ -16,19 +16,23 @@
 mod common;
 mod helpers;
 
+use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::models::{ApiKey, ApiKeyUsage};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_dashboard::DashboardRoutes;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Test setup helper for dashboard route testing
 struct DashboardTestSetup {
     resources: Arc<ServerContext>,
     jwt_token: String,
+    user_id: Uuid,
 }
 
 impl DashboardTestSetup {
@@ -101,6 +105,7 @@ impl DashboardTestSetup {
         Ok(Self {
             resources,
             jwt_token,
+            user_id,
         })
     }
 
@@ -116,6 +121,71 @@ impl DashboardTestSetup {
 // ============================================================================
 // GET /api/dashboard/analytics - Usage Analytics Tests (with query params)
 // ============================================================================
+
+/// Record one call of `tool_name` on `key`, a minute ago.
+async fn record_call(setup: &DashboardTestSetup, key: &ApiKey, tool_name: &str) {
+    setup
+        .resources
+        .agent
+        .database
+        .repositories()
+        .usage
+        .record_api_key(&ApiKeyUsage {
+            id: None,
+            api_key_id: key.id.clone(),
+            timestamp: Utc::now() - Duration::minutes(1),
+            tool_name: tool_name.to_owned(),
+            response_time_ms: Some(20),
+            status_code: 200,
+            error_message: None,
+            request_size_bytes: None,
+            response_size_bytes: None,
+            ip_address: None,
+            user_agent: None,
+        })
+        .await
+        .expect("record usage");
+}
+
+#[tokio::test]
+async fn test_dashboard_top_tools_ranks_calls_across_all_the_users_keys() {
+    let setup = DashboardTestSetup::new().await.expect("Setup failed");
+    let database = setup.resources.agent.database.as_ref();
+    let first = common::create_and_store_test_api_key(database, setup.user_id, "First Key")
+        .await
+        .expect("create first key");
+    let second = common::create_and_store_test_api_key(database, setup.user_id, "Second Key")
+        .await
+        .expect("create second key");
+    record_call(&setup, &first, "get_athlete").await;
+    record_call(&setup, &first, "get_athlete").await;
+    record_call(&setup, &second, "get_athlete").await;
+    record_call(&setup, &second, "get_activities").await;
+
+    let response = AxumTestRequest::get("/api/dashboard/analytics?days=1")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    let ranked: Vec<(&str, u64)> = body["top_tools"]
+        .as_array()
+        .expect("top_tools is a list")
+        .iter()
+        .map(|t| {
+            (
+                t["tool_name"].as_str().unwrap(),
+                t["request_count"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        ranked,
+        [("get_athlete", 3), ("get_activities", 1)],
+        "get_athlete's calls on both keys are summed"
+    );
+}
 
 #[tokio::test]
 async fn test_dashboard_usage_default_days() {
@@ -194,11 +264,31 @@ async fn test_dashboard_usage_missing_auth() {
 // ============================================================================
 
 #[tokio::test]
+async fn test_dashboard_analytics_refuses_a_window_outside_a_year() {
+    let setup = DashboardTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    for (days, expected) in [
+        (0, 400),
+        (366, 400),
+        (4_294_967_295_u32, 400),
+        (1, 200),
+        (365, 200),
+    ] {
+        let response = AxumTestRequest::get(&format!("/api/dashboard/analytics?days={days}"))
+            .header("authorization", &setup.auth_header())
+            .send(routes.clone())
+            .await;
+        assert_eq!(response.status(), expected, "days={days}");
+    }
+}
+
+#[tokio::test]
 async fn test_dashboard_all_endpoints_authenticated() {
     let setup = DashboardTestSetup::new().await.expect("Setup failed");
     let routes = setup.routes();
 
-    let endpoints = vec!["/api/dashboard/analytics", "/api/dashboard/tool-usage"];
+    let endpoints = vec!["/api/dashboard/analytics"];
 
     for endpoint in endpoints {
         let response = AxumTestRequest::get(endpoint)

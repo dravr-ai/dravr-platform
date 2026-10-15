@@ -85,16 +85,15 @@ pub trait IdentityCtx: Send + Sync + 'static {
 
 /// Slice of runtime state the dashboard route layer needs.
 ///
-/// Covers `/api/dashboard/{overview,analytics,rate-limits,request-logs,request-stats,tool-usage}`
-/// and the alternative `/dashboard/*` aliases. Every handler reads from the
-/// repository registry only (`api_keys`, `usage`, `llm_usage` repos) — no
+/// Covers `/api/dashboard/analytics`. Its handler reads from the
+/// repository registry only (`usage`, `llm_usage` repos) — no
 /// auth manager, no providers, no cache. The composition root in
 /// `pierre-server` implements this trait on its `ServerContext`; the route
 /// handlers also require [`MiddlewareCtx`] to satisfy the
 /// `AuthenticatedUser` extractor.
 pub trait DashboardCtx: Send + Sync + 'static {
-    /// Repository registry — backs api-key, usage-stats, and LLM-usage
-    /// daily-series lookups the dashboard endpoints perform.
+    /// Repository registry — backs the top-tools and LLM-usage
+    /// daily-series lookups the dashboard endpoint performs.
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 }
 

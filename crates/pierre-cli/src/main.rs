@@ -193,6 +193,12 @@ enum Command {
         action: ToolCommand,
     },
 
+    /// A user's API keys, and the tools one key called
+    ApiKey {
+        #[command(subcommand)]
+        action: ApiKeyCommand,
+    },
+
     /// Provider-wide operations on a remote server (the termination purge)
     Provider {
         #[command(subcommand)]
@@ -600,6 +606,31 @@ enum UserCommand {
 
 #[non_exhaustive]
 #[derive(Subcommand)]
+enum ApiKeyCommand {
+    /// List a user's API keys, revoked ones marked
+    List {
+        /// Email of the key owner
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Show one key's requests and the tools it called, most-called first
+    Usage {
+        /// Email of the key owner; the key must be theirs
+        #[arg(long)]
+        email: String,
+
+        /// API key id (from `api-key list`)
+        key_id: String,
+
+        /// Window in days, ending now
+        #[arg(long, default_value_t = 30)]
+        days: u32,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Subcommand)]
 enum ToolCommand {
     /// Force-enable an MCP tool for a user (overrides plan + tenant gating)
     Enable {
@@ -972,6 +1003,14 @@ async fn main() -> Result<()> {
             }
         },
         Command::Tenant { action } => commands::tenant::dispatch(&repos, action).await?,
+        Command::ApiKey { action } => match action {
+            ApiKeyCommand::List { email } => commands::api_key::list(&repos, email).await?,
+            ApiKeyCommand::Usage {
+                email,
+                key_id,
+                days,
+            } => commands::api_key::usage(&repos, email, key_id, days).await?,
+        },
         Command::Tool { action } => match action {
             ToolCommand::Enable {
                 email,

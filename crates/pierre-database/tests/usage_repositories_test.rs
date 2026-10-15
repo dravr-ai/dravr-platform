@@ -243,18 +243,25 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     assert_eq!(stats.successful_requests, 2);
     assert_eq!(stats.failed_requests, 1);
     assert_eq!(stats.total_response_time_ms, 150);
-    assert_eq!(stats.tool_usage["get_activities"]["count"], 2);
-    assert_eq!(stats.tool_usage["get_activities"]["success_count"], 2);
-    assert_eq!(stats.tool_usage["get_athlete"]["count"], 1);
-    assert_eq!(stats.tool_usage["get_athlete"]["success_count"], 0);
-    assert!(
-        (stats.tool_usage["get_athlete"]["avg_response_time_ms"]
-            .as_f64()
-            .unwrap()
-            - 50.0)
-            .abs()
-            < 1e-9
+    let per_tool: Vec<(&str, u64)> = stats
+        .tools
+        .iter()
+        .map(|t| (t.tool_name.as_str(), t.request_count))
+        .collect();
+    assert_eq!(
+        per_tool,
+        [("get_activities", 2), ("get_athlete", 1)],
+        "most-called first"
     );
+    assert!(
+        (stats.tools[0].success_rate - 100.0).abs() < 1e-9,
+        "both get_activities calls succeeded"
+    );
+    assert!(
+        stats.tools[1].success_rate.abs() < 1e-9,
+        "the one get_athlete call failed"
+    );
+    assert!((stats.tools[1].average_response_time - 50.0).abs() < 1e-9);
 
     let tools = repo
         .get_top_tools_analysis(
@@ -274,6 +281,47 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     assert!(
         (tools[1].success_rate).abs() < 1e-9,
         "a 500 is not a success"
+    );
+}
+
+#[tokio::test]
+async fn a_redirect_is_no_success_in_a_keys_tools_nor_in_the_users_top_tools() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(repos).await;
+    let api_key = fresh_api_key(repos, user_id).await;
+    let repo = &repos.usage;
+
+    let now = Utc::now();
+    for status in [200, 302, 500, 200] {
+        repo.record_api_key(&api_call(&api_key.id, "get_activities", status, now))
+            .await
+            .unwrap();
+    }
+    let (start, end) = (now - Duration::hours(1), now + Duration::hours(1));
+
+    // The two reads answer for the same calls, so they must agree on what
+    // succeeded: 2 of 4, the redirect counted as neither success nor failure.
+    let stats = repo
+        .get_api_key_stats(&api_key.id, start, end)
+        .await
+        .unwrap();
+    assert_eq!(stats.tools[0].request_count, 4);
+    assert!(
+        (stats.tools[0].success_rate - 50.0).abs() < 1e-9,
+        "key: {}",
+        stats.tools[0].success_rate
+    );
+
+    let top = repo
+        .get_top_tools_analysis(user_id, start, end)
+        .await
+        .unwrap();
+    assert_eq!(top[0].request_count, 4);
+    assert!(
+        (top[0].success_rate - 50.0).abs() < 1e-9,
+        "user: {}",
+        top[0].success_rate
     );
 }
 

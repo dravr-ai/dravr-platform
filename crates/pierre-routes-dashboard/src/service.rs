@@ -1,26 +1,25 @@
 // ABOUTME: Service layer for dashboard data visualization and analytics
-// ABOUTME: Provides business logic for dashboard overview, usage analytics, and request log queries
+// ABOUTME: Provides business logic for usage analytics: the daily series, latency, and top tools
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Dashboard routes for the API Key Management System frontend
-//!
-// NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
-// - HashMap key ownership for statistics aggregation (tool_name.clone())
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{LlmUsageDailyRow, ToolUsage};
 use pierre_runtime_context::DashboardCtx;
 use serde::Serialize;
-use serde_json::Value;
-use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
-use uuid::Uuid;
+
+/// Shortest analytics window, in days.
+const MIN_ANALYTICS_DAYS: u32 = 1;
+/// Longest analytics window, in days: a year of daily points.
+const MAX_ANALYTICS_DAYS: u32 = 365;
 
 /// Detailed usage analytics with time series data
 #[derive(Debug, Serialize)]
@@ -81,6 +80,13 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         if user_id.is_nil() {
             return Err(AppError::invalid_input("Invalid user ID"));
         }
+        // The series draws one point per day, so the window is bounded: the
+        // same 1..=365 the admin LLM-consumption read on this tab accepts.
+        if !(MIN_ANALYTICS_DAYS..=MAX_ANALYTICS_DAYS).contains(&days) {
+            return Err(AppError::invalid_input(format!(
+                "days must be between {MIN_ANALYTICS_DAYS} and {MAX_ANALYTICS_DAYS}, got {days}"
+            )));
+        }
 
         info!(
             "Dashboard analytics data access granted for user: {} (timeframe: {} days)",
@@ -128,8 +134,11 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
             });
         }
 
-        // Top tools analysis
+        // The caller's ten most-called tools across all of their API keys.
         let top_tools = self
+            .resources
+            .repos()
+            .usage
             .get_top_tools_analysis(user_id, start_date, Utc::now())
             .await?;
 
@@ -167,141 +176,5 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
             top_tools,
             average_response_time,
         })
-    }
-
-    /// Get top tools analysis
-    async fn get_top_tools_analysis(
-        &self,
-        user_id: Uuid,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> AppResult<Vec<ToolUsage>> {
-        let api_keys = self
-            .resources
-            .repos()
-            .api_keys
-            .get_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
-        let mut tool_stats: HashMap<String, (u64, u64, u64)> = HashMap::new();
-
-        // Aggregate tool usage across all user's API keys
-        for api_key in api_keys {
-            let stats = self
-                .resources
-                .repos()
-                .usage
-                .get_api_key_stats(&api_key.id, start_date, end_date)
-                .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to get API key usage stats for tool analysis: {e}"
-                    ))
-                })?;
-
-            // Extract tool usage from the JSON (structure: {"tool_name": {"count": N, "success_count": N, "avg_response_time_ms": F}})
-            if let Some(tool_usage_obj) = stats.tool_usage.as_object() {
-                for (tool_name, tool_data) in tool_usage_obj {
-                    // Parse nested tool data object
-                    if let Some(tool_obj) = tool_data.as_object() {
-                        let count = tool_obj.get("count").and_then(Value::as_u64).unwrap_or(0);
-                        let success_count = tool_obj
-                            .get("success_count")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0);
-                        let avg_response_time = tool_obj
-                            .get("avg_response_time_ms")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0);
-
-                        let entry = tool_stats.entry(tool_name.clone()).or_insert((0, 0, 0));
-                        entry.0 += count; // total requests
-                        entry.1 += success_count; // successful requests from tool-specific data
-                        #[allow(
-                            clippy::cast_possible_truncation,
-                            clippy::cast_sign_loss,
-                            clippy::cast_precision_loss
-                        )]
-                        {
-                            entry.2 += (avg_response_time * count as f64) as u64;
-                            // weighted response time
-                        }
-                    }
-                }
-            }
-        }
-
-        // Convert to ToolUsage structs
-        let mut tool_usage: Vec<ToolUsage> = tool_stats
-            .into_iter()
-            .map(
-                |(tool_name, (total_requests, successful_requests, total_response_time))| {
-                    let success_rate = if total_requests > 0 {
-                        (f64::from(u32::try_from(successful_requests).unwrap_or(u32::MAX))
-                            / f64::from(u32::try_from(total_requests).unwrap_or(u32::MAX)))
-                            * 100.0
-                    } else {
-                        0.0
-                    };
-
-                    let average_response_time = if total_requests > 0 {
-                        f64::from(u32::try_from(total_response_time).unwrap_or(u32::MAX))
-                            / f64::from(u32::try_from(total_requests).unwrap_or(u32::MAX))
-                    } else {
-                        0.0
-                    };
-
-                    ToolUsage {
-                        tool_name,
-                        request_count: total_requests,
-                        success_rate,
-                        average_response_time,
-                    }
-                },
-            )
-            .collect();
-
-        // Sort by request count (descending) and take top 10
-        tool_usage.sort_by_key(|b| Reverse(b.request_count));
-        tool_usage.truncate(10);
-
-        Ok(tool_usage)
-    }
-
-    /// Get tool usage breakdown for analytics
-    ///
-    /// # Errors
-    /// Returns an error if authentication fails or database queries fail
-    pub async fn get_tool_usage_breakdown(
-        &self,
-        auth: AuthResult,
-        _api_key_id: Option<&str>,
-        time_range: Option<&str>,
-    ) -> AppResult<Vec<ToolUsage>> {
-        debug!("Dashboard tool usage breakdown request received");
-
-        let user_id = auth.user_id;
-
-        // Validate user_id is not nil
-        if user_id.is_nil() {
-            return Err(AppError::invalid_input("Invalid user ID"));
-        }
-
-        info!(
-            "Dashboard tool usage breakdown access granted for user: {}",
-            user_id
-        );
-
-        // Parse time range
-        let start_time = match time_range {
-            Some("1h") => Utc::now() - Duration::hours(1),
-            Some("24h") => Utc::now() - Duration::hours(24),
-            Some("30d") => Utc::now() - Duration::days(30),
-            _ => Utc::now() - Duration::days(7), // Default to 7 days (includes "7d")
-        };
-
-        // Get tool usage analysis
-        self.get_top_tools_analysis(user_id, start_time, Utc::now())
-            .await
     }
 }

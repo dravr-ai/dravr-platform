@@ -16,7 +16,7 @@ use crate::constants::{
     tiers,
 };
 use crate::errors::AppError;
-use crate::models::UserTier;
+use crate::models::{ToolUsage, UserTier};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -247,8 +247,8 @@ pub struct ApiKeyUsageStats {
     pub failed_requests: u32,
     /// Total response time in milliseconds
     pub total_response_time_ms: u64,
-    /// JSON object mapping tool names to usage counts
-    pub tool_usage: serde_json::Value,
+    /// Every tool the key called in the period, most-called first
+    pub tools: Vec<ToolUsage>,
 }
 
 /// Generated API key data

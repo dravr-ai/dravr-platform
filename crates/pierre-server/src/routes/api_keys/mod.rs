@@ -120,8 +120,7 @@ impl ApiKeyRoutes {
         let service = ApiKeyService::new(resources);
         let response = service
             .get_api_key_usage(&auth, &key_id, query.start_date, query.end_date)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to get API key usage: {e}")))?;
+            .await?;
 
         Ok((StatusCode::OK, Json(response)).into_response())
     }

@@ -1321,12 +1321,15 @@ async fn test_parity_api_key_stats() {
             "{backend}: total_response_time_ms"
         );
 
-        let avg = stats.tool_usage["get_activities"]["avg_response_time_ms"]
-            .as_f64()
-            .unwrap_or_else(|| panic!("{backend}: avg_response_time_ms must be a number"));
+        let tool = stats
+            .tools
+            .iter()
+            .find(|t| t.tool_name == "get_activities")
+            .unwrap_or_else(|| panic!("{backend}: get_activities must be listed"));
+        let avg = tool.average_response_time;
         assert!(
             (avg - 100.0).abs() < 1e-6,
-            "{backend}: avg_response_time_ms must be the real mean, got {avg}"
+            "{backend}: average_response_time must be the real mean, got {avg}"
         );
     }
 }

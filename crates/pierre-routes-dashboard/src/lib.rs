@@ -1,13 +1,14 @@
 // ABOUTME: Dashboard route handlers for monitoring and analytics
-// ABOUTME: Provides REST endpoints for usage analytics and the tool-usage breakdown
+// ABOUTME: Provides the REST endpoint for usage analytics (time series, latency, top tools)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Dashboard routes for monitoring and analytics
 //!
-//! This module provides endpoints for viewing usage analytics and the per-tool
-//! usage breakdown. All handlers require valid JWT authentication.
+//! This module provides the usage analytics endpoint. A single key's tool
+//! usage is `GET /api/keys/{id}/usage`. All handlers require valid JWT
+//! authentication.
 //!
 //! The route group is generic over [`pierre_runtime_context::DashboardCtx`] (for
 //! repository registry access) and [`pierre_runtime_context::MiddlewareCtx`] (for
@@ -44,19 +45,6 @@ const fn default_days() -> u32 {
     30
 }
 
-/// Query parameters for tool usage
-#[derive(Deserialize)]
-struct ToolUsageQuery {
-    #[serde(default)]
-    api_key_id: Option<String>,
-    #[serde(default = "default_time_range")]
-    time_range: String,
-}
-
-fn default_time_range() -> String {
-    "7d".to_owned()
-}
-
 /// Dashboard routes
 pub struct DashboardRoutes;
 
@@ -68,14 +56,11 @@ impl DashboardRoutes {
     ///
     /// Routes are prefixed with /api to match frontend API conventions:
     /// - /api/dashboard/analytics - Usage analytics with configurable time range
-    /// - /api/dashboard/tool-usage - Tool usage breakdown
     pub fn routes<C>() -> Router<Arc<C>>
     where
         C: DashboardCtx + MiddlewareCtx,
     {
-        Router::new()
-            .route("/api/dashboard/analytics", get(handle_usage_analytics::<C>))
-            .route("/api/dashboard/tool-usage", get(handle_tool_usage::<C>))
+        Router::new().route("/api/dashboard/analytics", get(handle_usage_analytics::<C>))
     }
 }
 
@@ -89,26 +74,6 @@ async fn handle_usage_analytics<C: DashboardCtx + MiddlewareCtx>(
 
     let service = DashboardService::new(resources);
     let response = service.get_usage_analytics(auth, params.days).await?;
-
-    Ok((StatusCode::OK, Json(response)).into_response())
-}
-
-/// Handle tool usage breakdown request
-async fn handle_tool_usage<C: DashboardCtx + MiddlewareCtx>(
-    State(resources): State<Arc<C>>,
-    auth: AuthenticatedUser,
-    Query(params): Query<ToolUsageQuery>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-
-    let service = DashboardService::new(resources);
-    let response = service
-        .get_tool_usage_breakdown(
-            auth,
-            params.api_key_id.as_deref(),
-            Some(params.time_range.as_str()),
-        )
-        .await?;
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

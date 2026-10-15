@@ -352,6 +352,7 @@ export type {
   CreateApiKeyRequest,
   ApiKeyCreateResponse,
   ApiKeyDeactivateResponse,
+  ApiKeyToolUsage,
   ApiKeyUsageStats,
   ApiKeyUsageResponse,
 } from './api-keys';

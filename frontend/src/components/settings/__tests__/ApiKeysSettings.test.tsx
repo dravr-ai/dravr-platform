@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for Settings › API keys — the key shown once after creation, and a revoked key leaving the list
+// ABOUTME: Tests for Settings › API keys — each key's use and tools, the key shown once after creation, a revoked key leaving the list
 // ABOUTME: The apiKeys API is mocked at the services barrel; assertions read the rendered rows, the secret and the calls
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -67,7 +67,7 @@ describe('ApiKeysSettings', () => {
         successful_requests: 40,
         failed_requests: 2,
         total_response_time_ms: 1000,
-        tool_usage: {},
+        tools: [],
       },
     });
   });
@@ -79,6 +79,38 @@ describe('ApiKeysSettings', () => {
     expect(row).toHaveTextContent('Export script');
     expect(await within(row).findByText('42 requests in the last 30 days')).toBeInTheDocument();
     expect(screen.queryByTestId('api-key-k0')).not.toBeInTheDocument();
+  });
+
+  it("lists the tools a key called, most-called first, with each one's count", async () => {
+    usage.mockResolvedValue({
+      stats: {
+        api_key_id: 'k1',
+        period_start: '2026-08-29T00:00:00Z',
+        period_end: '2026-09-28T00:00:00Z',
+        total_requests: 1250,
+        successful_requests: 1250,
+        failed_requests: 0,
+        total_response_time_ms: 5000,
+        tools: [
+          { tool_name: 'get_activities', request_count: 1200, success_rate: 100, average_response_time: 4 },
+          { tool_name: 'get_athlete', request_count: 50, success_rate: 100, average_response_time: 3 },
+        ],
+      },
+    });
+    renderPane();
+
+    const tools = await screen.findByTestId('api-key-tools-k1');
+    const list = within(tools).getByRole('list', { name: 'Tools called in the last 30 days' });
+    const rows = within(list).getAllByRole('listitem').map((row) => row.textContent);
+    expect(rows).toEqual(['get_activities1,200', 'get_athlete50']);
+  });
+
+  it('says so when a key called no tool in the window', async () => {
+    renderPane();
+
+    const tools = await screen.findByTestId('api-key-tools-k1');
+    expect(tools).toHaveTextContent('No tool calls in the last 30 days.');
+    expect(within(tools).queryByRole('list')).not.toBeInTheDocument();
   });
 
   it('shows a created key once, then only its prefix', async () => {

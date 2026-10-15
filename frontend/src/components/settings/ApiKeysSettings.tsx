@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Settings › API keys — the athlete's own keys: create one (its secret shown once), see each key's use, revoke it
+// ABOUTME: Settings › API keys — the athlete's own keys: create one (its secret shown once), see each key's use and tools, revoke it
 // ABOUTME: Server state through React Query over @pierre/api-client's apiKeys domain; revoked keys leave the list
 
 import { useState } from 'react';
@@ -18,10 +18,9 @@ const API_KEYS_KEY = ['api-keys'] as const;
 const usageKey = (keyId: string) => [...API_KEYS_KEY, 'usage', keyId] as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The "N requests in the last 30 days" line under one key. */
-function KeyUsage({ keyId }: { keyId: string }) {
-  const { t } = useTranslation();
-  const usage = useQuery({
+/** One key's usage over the last 30 days; the request count and the tool list share the read. */
+function useKeyUsage(keyId: string) {
+  return useQuery({
     queryKey: usageKey(keyId),
     queryFn: () => {
       const end = new Date();
@@ -29,11 +28,47 @@ function KeyUsage({ keyId }: { keyId: string }) {
       return apiKeysApi.usage(keyId, start.toISOString(), end.toISOString());
     },
   });
+}
+
+/** The "N requests in the last 30 days" line under one key. */
+function KeyUsage({ keyId }: { keyId: string }) {
+  const { t } = useTranslation();
+  const usage = useKeyUsage(keyId);
   if (!usage.data) return null;
   return (
     <span data-testid={`api-key-usage-${keyId}`}>
       {t('apiKeys.requests30d', { count: usage.data.stats.total_requests })}
     </span>
+  );
+}
+
+/** The tools one key called in the last 30 days, most-called first, with each one's call count. */
+function KeyTools({ keyId }: { keyId: string }) {
+  const { t, i18n } = useTranslation();
+  const usage = useKeyUsage(keyId);
+  if (!usage.data) return null;
+  const { tools } = usage.data.stats;
+  const headingId = `api-key-tools-heading-${keyId}`;
+  return (
+    <div className="mt-2" data-testid={`api-key-tools-${keyId}`}>
+      <h3 id={headingId} className="text-xs font-medium text-on-surface-variant">
+        {t('apiKeys.toolsHeading')}
+      </h3>
+      {tools.length === 0 ? (
+        <p className="mt-0.5 text-xs text-on-surface-variant">{t('apiKeys.toolsEmpty')}</p>
+      ) : (
+        <ul aria-labelledby={headingId} className="mt-1 space-y-0.5">
+          {tools.map((tool) => (
+            <li key={tool.tool_name} className="flex justify-between gap-3 text-xs">
+              <span className="font-mono text-on-surface break-all">{tool.tool_name}</span>
+              <span className="font-mono tabular-nums text-on-surface-variant">
+                {tool.request_count.toLocaleString(i18n.language)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -55,6 +90,7 @@ function KeyRow({ apiKey, onRevoke }: { apiKey: ApiKeyInfo; onRevoke: (key: ApiK
           {apiKey.expires_at && <span>{t('apiKeys.expiresOn', { date: date(apiKey.expires_at) })}</span>}
           <KeyUsage keyId={apiKey.id} />
         </p>
+        <KeyTools keyId={apiKey.id} />
       </div>
       <Button
         type="button"
