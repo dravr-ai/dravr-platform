@@ -1,4 +1,4 @@
-// ABOUTME: A route block carries the platform's reading of a recorded track, never the agent's
+// ABOUTME: A route block carries the platform's reading of a recorded track or a proposed line, never the agent's
 // ABOUTME: Asserts the hydrated block's real coordinates, its trimmed endpoints, its climb marks and its resolution
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 use photograveur::{resolve, Locale, RenderBlock, RouteView};
-use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteTracks};
+use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteSubject, RouteTracks};
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use serde_json::{json, Value};
@@ -86,7 +86,7 @@ fn route_block(highlight: Option<&str>) -> Value {
 /// The read of one activity, as the extraction stage receives it.
 fn tracks_for(activity_id: &str, outcome: Result<RouteTrack, String>) -> RouteTracks {
     let mut tracks = RouteTracks::new();
-    tracks.insert(activity_id.to_owned(), outcome);
+    tracks.insert(RouteSubject::Activity(activity_id.to_owned()), outcome);
     tracks
 }
 
@@ -244,10 +244,9 @@ fn a_hydrated_block_carries_the_read_geometry() {
 /// framed extent is the drawn line's, and the climb asked for reaches the
 /// view the clients draw.
 ///
-/// The hydrator once carried the track's `bounds` and consumed the
-/// `highlight`; photograveur's route spec refuses an undeclared field, so
-/// every chat map was dropped at resolution and the athlete got the prose
-/// alone, with nothing here to say so.
+/// photograveur's route spec refuses an undeclared field, so a hydrator that
+/// carried the track's `bounds`, or consumed the `highlight`, would have every
+/// chat map dropped at resolution and the athlete left with the prose alone.
 #[test]
 fn a_hydrated_block_resolves_to_the_view_the_clients_draw() {
     let track = RouteTrack::from_streams(&hill_streams()).expect("the hill is a drawable track");
@@ -274,6 +273,59 @@ fn a_hydrated_block_resolves_to_the_view_the_clients_draw() {
         resolved(&plain).climbs.is_empty(),
         "a block that did not ask for climbs draws none"
     );
+}
+
+/// A proposed route's block resolves the same way: the line stored under its
+/// `route_ref` is drawn end to end, measured from its start, with no vertical
+/// and so no climbs, and the view keeps the caption and the tool the clients
+/// label a proposed map by.
+///
+/// The spec photograveur resolves against must declare `route_ref` beside
+/// `activity_id`: one declaring the activity alone refuses the field, and
+/// every map the coach proposes is dropped at resolution.
+#[test]
+fn a_hydrated_route_ref_block_resolves_to_the_view_the_clients_draw() {
+    let line = [
+        (45.498_7, -73.553_1),
+        (45.497_2, -73.558_4),
+        (45.495_9, -73.563_8),
+        (45.494_1, -73.569_9),
+    ];
+    let route_ref = "rt_3f9a0c41d27b8e65";
+    let mut tracks = RouteTracks::new();
+    tracks.insert(
+        RouteSubject::Proposed(route_ref.to_owned()),
+        RouteTrack::from_public_path(&line).map_err(|e| e.to_string()),
+    );
+    let mut block = json!({
+        "type": "route",
+        "source_tool": "compose_route",
+        "route_ref": route_ref,
+        "title": "Lachine – Vieux-Port",
+    });
+    hydrate_route(&mut block, &tracks).expect("a read line hydrates its block");
+
+    let view = resolved(&block);
+    assert_eq!(
+        view.coordinates,
+        line.to_vec(),
+        "a public line is drawn end to end"
+    );
+    assert!((view.bounds.max_latitude - 45.498_7).abs() < 1e-12);
+    assert!((view.bounds.min_longitude + 73.569_9).abs() < 1e-12);
+    let distances = view
+        .distances_meters
+        .as_deref()
+        .expect("a public line is measured");
+    assert_eq!(distances.len(), line.len());
+    assert!(
+        distances[0].abs() < f64::EPSILON,
+        "measured from the route's start"
+    );
+    assert!(view.elevation_meters.is_none());
+    assert!(view.climbs.is_empty());
+    assert_eq!(view.title.as_deref(), Some("Lachine – Vieux-Port"));
+    assert_eq!(view.source_tool, "compose_route");
 }
 
 #[test]

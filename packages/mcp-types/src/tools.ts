@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 115
+// Tool count: 116
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -507,6 +507,19 @@ export interface CompareActivitiesParams {
 
 
 /**
+ * Join stretches found by discover_routes into one itinerary, drawn as a single line and measured along it. Call it when the session you propose runs along more than one discovered route — the riverside path out, the rail trail on — or comes back the way it went. Pass `route_refs` in running order and `out_and_back: true` for an aller-retour. Stretches are joined only where they meet on the ground, within 30 m: each must meet the next, which is what a route's `connects_to` lists. A wider gap is refused rather than bridged, because a straight line across it may cross water, a fence or a road; the refusal names the two stretches that do not meet, so drop one, reorder them, or put a stretch that connects them in between — never propose a refused itinerary anyway. Returns one `route_ref` for the whole line and `distance_meters`: that is the distance to quote, never a sum you work out from the stretches. To show the itinerary, name that `route_ref` in a `dravr-viz` route block with `source_tool` "compose_route" — never write coordinates. A route_ref is kept for 24 hours: an unknown or expired one means calling discover_routes again. Elevation and surface are not known here either: never describe the itinerary as flat or hilly on the strength of this tool.
+ */
+export interface ComposeRouteParams {
+
+  /** True to come back the same way to the start (an aller-retour): the line is drawn out and back, and the distance returned covers both ways. Defaults to false. */
+  out_and_back?: boolean;
+
+  /** The route_ref of each stretch, in running order, from 1 to 8: each one a route_ref that discover_routes (or an earlier compose_route) returned in this conversation. Each stretch must physically meet the next — a route's connects_to lists the ones it meets. */
+  route_refs: string[];
+}
+
+
+/**
  * Compute and persist Endurance daily training-state rollups for the authenticated user across the requested window — CTL, ATL, TSB (Coggan), acute:chronic load balance, monotony + strain (Foster), ramp rate, and daily TSS load. Use this to seed the `training_history` table on first use, after a long gap in syncs, or when the user asks for a specific historical window. Default window is the last 90 days.
  */
 export interface ComputeTrainingHistoryParams {
@@ -623,7 +636,7 @@ export interface DisconnectProviderParams {
 
 
 /**
- * Discover real named running, cycling, hiking, or ski routes near a location, grounded in OpenStreetMap data via the Overpass API. Pass either a place name via `place` (preferred — e.g. "Prévost, QC" or "Saint-Alexis-des-Monts") or explicit `latitude`/`longitude` coordinates. Place names are forward-geocoded via Nominatim before the Overpass query so the LLM never has to guess coordinates. Use this whenever the user asks you to propose, suggest, or find a route, trail, or outdoor session in a specific area. Never invent street names, trail names, or terrain you have not verified via this tool. Returns up to 20 named routes, nearest first, each with coordinates and a measured `distance_from_center_meters` — quote that distance rather than estimating one from the coordinates. Signed itineraries and trails are listed ahead of paved connectors. `distance_meters` says what it measures in `distance_source`: `mapped_geometry` is the longest connected run of fetched ways carrying the name — a lower bound, since the trail can continue past it; `osm_tag` is the length declared for the whole route, of which only part may lie inside the radius. A signed route with no declared length has none. When the session has a distance, pass it as `target_distance_meters`: routes within a tenth of it, in one pass or one out-and-back, are listed first, and each carries `target_fit` (`single_pass`, `out_and_back` or `repeats`) and `passes_for_target` — tell the athlete plainly when a route needs an out-and-back or repeats. Elevation, surface and how flat or uninterrupted a route is are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. For ski queries this reads OSM piste:type data (same source as OpenSkiMap).
+ * Discover real named running, cycling, hiking, or ski routes near a location, grounded in OpenStreetMap data via the Overpass API. Pass either a place name via `place` (preferred — e.g. "Prévost, QC" or "Saint-Alexis-des-Monts") or explicit `latitude`/`longitude` coordinates. Place names are forward-geocoded via Nominatim before the Overpass query so the LLM never has to guess coordinates. Use this whenever the user asks you to propose, suggest, or find a route, trail, or outdoor session in a specific area. Never invent street names, trail names, or terrain you have not verified via this tool. Returns up to 20 named routes, nearest first, each with coordinates and a measured `distance_from_center_meters` — quote that distance rather than estimating one from the coordinates. Signed itineraries and trails are listed ahead of paved connectors. `distance_meters` says what it measures in `distance_source`: `mapped_geometry` is the longest connected run of fetched ways carrying the name — a lower bound, since the trail can continue past it; `osm_tag` is the length declared for the whole route, of which only part may lie inside the radius. A signed route with no declared length has none. When the session has a distance, pass it as `target_distance_meters`: routes within a tenth of it, in one pass or one out-and-back, are listed first, and each carries `target_fit` (`single_pass`, `out_and_back` or `repeats`) and `passes_for_target` — tell the athlete plainly when a route needs an out-and-back or repeats. Elevation, surface and how flat or uninterrupted a route is are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. For ski queries this reads OSM piste:type data (same source as OpenSkiMap). A route whose line is mapped carries a `route_ref`: to show the athlete that stretch, name it in a `dravr-viz` route block with `source_tool` "discover_routes" — never write coordinates. It also carries `connects_to`, the `route_ref`s of the other routes here that it physically meets. To propose an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next, and quote the distance it returns.
  */
 export interface DiscoverRoutesParams {
 
@@ -2327,6 +2340,7 @@ export const TOOL_NAMES = [
   "commitment_cancel",
   "commitment_create",
   "compare_activities",
+  "compose_route",
   "compute_training_history",
   "connect_provider",
   "create_agent",
@@ -2453,6 +2467,7 @@ export interface ToolParamsMap {
   "commitment_cancel": CommitmentCancelParams;
   "commitment_create": CommitmentCreateParams;
   "compare_activities": CompareActivitiesParams;
+  "compose_route": ComposeRouteParams;
   "compute_training_history": ComputeTrainingHistoryParams;
   "connect_provider": ConnectProviderParams;
   "create_agent": CreateAgentParams;

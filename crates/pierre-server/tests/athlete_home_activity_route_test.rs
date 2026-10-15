@@ -45,14 +45,13 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
+use pierre_fitness_compute::route_track::MAP_MAX_POINTS;
 use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_fitness_compute::{encode_polyline, DEFAULT_PRIVACY_RADIUS_METERS};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_detail::EMPTY_DETAIL_RECHECK_MINUTES;
-use pierre_mcp_server::services::activity_route::{
-    HOME_ROUTE_MAX_POINTS, UNREAD_ROUTE_RECHECK_MINUTES,
-};
+use pierre_mcp_server::services::activity_route::UNREAD_ROUTE_RECHECK_MINUTES;
 use pierre_routes_auth::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde_json::{json, Value};
@@ -836,7 +835,7 @@ async fn without_an_overview_the_streams_draw_it_once_and_the_next_read_is_store
     assert_eq!(hits.counts(), (1, 1), "one detail read, one streams read");
     let route = &first["route"];
     let drawn = coordinates(route);
-    assert!(drawn.len() <= HOME_ROUTE_MAX_POINTS);
+    assert!(drawn.len() <= MAP_MAX_POINTS);
     assert!(drawn.len() > 2, "a weaving ride keeps its corners");
     assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     let elevations = route["elevation_meters"].as_array().unwrap();
@@ -1301,7 +1300,7 @@ async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_i
     assert_eq!(reads.load(Ordering::SeqCst), 2, "the route is read again");
     assert!(body["reason"].is_null(), "{body}");
     let drawn = coordinates(&body["route"]);
-    assert!(drawn.len() > 2 && drawn.len() <= HOME_ROUTE_MAX_POINTS);
+    assert!(drawn.len() > 2 && drawn.len() <= MAP_MAX_POINTS);
     assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     assert!(matches!(
         stored(&resources, &athlete, "sciotte", "m2").await,
@@ -1415,7 +1414,7 @@ async fn a_row_with_no_start_and_no_overview_is_drawn_from_its_streams() {
     assert!(body["reason"].is_null());
     let route = &body["route"];
     let drawn = coordinates(route);
-    assert!(drawn.len() > 2 && drawn.len() <= HOME_ROUTE_MAX_POINTS);
+    assert!(drawn.len() > 2 && drawn.len() <= MAP_MAX_POINTS);
     assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     assert!(
         metres(*drawn.last().unwrap(), *recorded.last().unwrap()) >= DEFAULT_PRIVACY_RADIUS_METERS

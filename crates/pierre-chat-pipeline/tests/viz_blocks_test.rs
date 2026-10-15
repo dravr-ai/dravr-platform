@@ -647,3 +647,26 @@ fn the_same_comparison_as_one_series_is_accepted() {
         extraction.refusals
     );
 }
+
+/// A route names its line by `activity_id` or by `route_ref`, never both, and
+/// asks for climbs only on a recorded activity. Breaking that fails the route
+/// arm's own `oneOf`, whose bare message — "not valid under any of the
+/// schemas listed" — names no field; the refusal the repair re-ask reads
+/// states the rule instead.
+#[test]
+fn a_route_breaking_its_one_of_is_refused_with_the_rule() {
+    let granted = vec!["route".to_owned()];
+    let tools = vec!["discover_routes".to_owned(), "get_activities".to_owned()];
+    let rule = "a route block must hold to: exactly one of: `activity_id` | `route_ref`; \
+                `highlight` only with `activity_id`";
+    for body in [
+        r#"{"type":"route","source_tool":"discover_routes","route_ref":"rt_3f9a0c41d27b8e65","activity_id":"14523911087"}"#,
+        r#"{"type":"route","source_tool":"get_activities"}"#,
+        r#"{"type":"route","source_tool":"discover_routes","route_ref":"rt_3f9a0c41d27b8e65","highlight":"climbs"}"#,
+    ] {
+        let out = extract_viz_blocks(&schemas(), &granted, &tools, &no_tracks(), &fenced(body))
+            .expect("a reply containing a fence is processed");
+        assert!(out.blocks.is_empty(), "{body}");
+        assert_eq!(out.refusals, vec![rule.to_owned()], "{body}");
+    }
+}

@@ -13,8 +13,10 @@ use std::sync::{LazyLock, RwLock};
 use std::time::{Duration, SystemTime};
 use tracing::debug;
 
+mod chain;
 mod overpass;
 
+use chain::{longest_chain, way_segment, WaySegment};
 use overpass::{OverpassClient, OVERPASS_SERVER_TIMEOUT_SECS};
 
 /// Cache duration for route queries (24 hours)
@@ -38,7 +40,21 @@ const OVERPASS_ELEMENT_BUDGET: usize = 300;
 /// Keys are rounded to three decimal degrees (~110 m), so a busy tenant base
 /// spread across a country still lands in the low hundreds. The cap keeps a
 /// pathological caller from growing the map without bound.
+///
+/// It bounds the entries, not what they weigh: the lines they carry are held
+/// to [`MAX_CACHED_ROUTE_POINTS`].
 const MAX_CACHE_ENTRIES: usize = 512;
+
+/// Upper bound on the mapped points [`ROUTE_CACHE`] holds over all its entries.
+///
+/// Each entry keeps the drawable line of every measured route, so what it
+/// weighs follows the ways one response carried rather than how many routes
+/// it named: about 10,000 points for a dense suburb, some 160 kB, but up to
+/// [`OVERPASS_ELEMENT_BUDGET`] long ways of up to 2,000 nodes each. Bounded
+/// by entry count alone, 512 such areas would hold gigabytes, where a
+/// production instance has one. A million points is 16 MB of coordinates,
+/// room for a hundred dense areas at once.
+const MAX_CACHED_ROUTE_POINTS: usize = 1_000_000;
 
 /// Default search radius in meters for Overpass queries
 const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
@@ -57,17 +73,6 @@ const DISTANCE_TAG_UNITS: &[(&str, f64)] = &[
     ("mi", METERS_PER_MILE),
     ("m", 1.0),
 ];
-
-/// OSM stores a coordinate to seven decimal places; multiplying by this
-/// turns one into the whole number two ways meeting at a node share.
-const OSM_COORDINATE_SCALE: f64 = 1e7;
-
-/// Walk steps one name's chain search may take before it settles for the
-/// longest chain found. A name rarely has more than a few dozen fetched
-/// segments, which an exhaustive search covers in hundreds of steps; the cap
-/// is for a densely braided network, where the search grows exponentially
-/// and a tool call cannot wait for it.
-const MAX_CHAIN_SEARCH_STEPS: usize = 20_000;
 
 /// How far from a target distance a route's usable distance may land, as a
 /// share of the target, and still count as matching it. A tenth: a session
@@ -124,6 +129,15 @@ pub struct DiscoveredRoute {
     /// How the route serves the target distance the caller asked for. Absent
     /// when no target was given, or when the route's length is unknown.
     pub target_use: Option<TargetUse>,
+    /// The line `distance_meters` was measured along, as `(latitude,
+    /// longitude)` points in walking order: the longest chain's ways, each
+    /// oriented to start where the one before it ended, with the node two
+    /// ways share drawn once. Present exactly when `distance_source` is
+    /// [`DistanceSource::MappedGeometry`] — a relation, and a way the response
+    /// carried no line for, have nothing to draw — so a map of the route
+    /// shows the same stretch its length describes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<Vec<(f64, f64)>>,
 }
 
 /// What a route's `distance_meters` measures.
@@ -561,130 +575,6 @@ fn candidates_from_overpass_json(
     ))
 }
 
-/// Length in metres along a line of points, summed great-circle leg by leg.
-///
-/// A gap in the line (Overpass writes `null` for a node it clipped away)
-/// ends one run of legs and starts the next, so no leg is drawn across it.
-fn polyline_length_meters(points: &[Option<OverpassPoint>]) -> f64 {
-    points
-        .windows(2)
-        .filter_map(|pair| match (&pair[0], &pair[1]) {
-            (Some(from), Some(to)) => {
-                Some(haversine_meters_between(from.lat, from.lon, to.lat, to.lon))
-            }
-            _ => None,
-        })
-        .sum()
-}
-
-/// Where a way's line starts and ends, as a comparable key.
-///
-/// Two ways that meet share a node, and a node has one pair of coordinates,
-/// so equal keys mean the ways connect end to end.
-type EndPoint = (i64, i64);
-
-/// One fetched way as a link in a chain: its two ends and its length.
-#[derive(Debug, Clone, Copy)]
-struct WaySegment {
-    start: EndPoint,
-    end: EndPoint,
-    meters: f64,
-}
-
-/// A point as an [`EndPoint`], at the precision OSM stores coordinates in.
-fn end_point(point: &OverpassPoint) -> EndPoint {
-    // A coordinate times 1e7 is at most 1.8e9 in magnitude: it fits.
-    #[allow(clippy::cast_possible_truncation)]
-    let key = |degrees: f64| (degrees * OSM_COORDINATE_SCALE).round() as i64;
-    (key(point.lat), key(point.lon))
-}
-
-/// A way's geometry as a chain link, or `None` when the response carried no
-/// line for it or the line has no length.
-fn way_segment(geometry: Option<&[Option<OverpassPoint>]>) -> Option<WaySegment> {
-    let points = geometry?;
-    let start = points.iter().flatten().next()?;
-    let end = points.iter().flatten().next_back()?;
-    let meters = polyline_length_meters(points);
-    (meters > 0.0).then(|| WaySegment {
-        start: end_point(start),
-        end: end_point(end),
-        meters,
-    })
-}
-
-/// Length of the longest chain among ways that share a name.
-///
-/// A chain is a run of ways joined end to end that passes through no end
-/// point twice. Ways that merely share a name — a second trail of the same
-/// name across town, the opposite carriageway of a divided path — are not
-/// joined to it, so they are never added in; of two ways between the same
-/// pair of ends only one is taken. Every chain is a stretch that exists on
-/// the ground, which is what makes the result a lower bound on the trail.
-///
-/// The search is exhaustive up to [`MAX_CHAIN_SEARCH_STEPS`]; past that it
-/// returns the longest chain it has found, which is still a real one.
-fn longest_chain_meters(segments: &[WaySegment]) -> Option<f64> {
-    let mut search = ChainSearch {
-        segments,
-        steps_left: MAX_CHAIN_SEARCH_STEPS,
-        best: 0.0,
-    };
-    // Start from ends that only one way touches first: on an unbranched trail
-    // those are its two extremities, and the first walk is already the answer.
-    let mut touches: HashMap<EndPoint, usize> = HashMap::new();
-    for segment in segments {
-        *touches.entry(segment.start).or_insert(0) += 1;
-        *touches.entry(segment.end).or_insert(0) += 1;
-    }
-    let mut starts: Vec<EndPoint> = touches.keys().copied().collect();
-    starts.sort_by_key(|point| (touches.get(point).copied().unwrap_or(0), *point));
-    for start in starts {
-        let mut visited = vec![start];
-        search.extend(start, 0.0, &mut visited);
-    }
-    (search.best > 0.0).then_some(search.best)
-}
-
-/// The state of one [`longest_chain_meters`] search.
-struct ChainSearch<'a> {
-    segments: &'a [WaySegment],
-    steps_left: usize,
-    best: f64,
-}
-
-impl ChainSearch<'_> {
-    /// Walk on from `at`, having covered `meters` through `visited`.
-    fn extend(&mut self, at: EndPoint, meters: f64, visited: &mut Vec<EndPoint>) {
-        self.best = self.best.max(meters);
-        for index in 0..self.segments.len() {
-            let segment = self.segments[index];
-            let next = if segment.start == at {
-                segment.end
-            } else if segment.end == at {
-                segment.start
-            } else {
-                continue;
-            };
-            if next == at {
-                // A way that closes on itself is a chain of its own.
-                self.best = self.best.max(meters + segment.meters);
-                continue;
-            }
-            if visited.contains(&next) {
-                continue;
-            }
-            if self.steps_left == 0 {
-                return;
-            }
-            self.steps_left -= 1;
-            visited.push(next);
-            self.extend(next, meters + segment.meters, visited);
-            visited.pop();
-        }
-    }
-}
-
 /// Read OSM's `distance` tag into metres.
 ///
 /// The tag is kilometres unless it names a unit (`"12"`, `"12.5 km"`,
@@ -764,6 +654,7 @@ fn rank_elements(
                     longitude: lon,
                     distance_from_center_meters: distance,
                     target_use: None,
+                    geometry: None,
                 },
             })
         })
@@ -780,8 +671,8 @@ fn rank_elements(
     // OSM splits a long trail into many ways that all share one name, so
     // gather the links by name before the duplicates are dropped.
     let mut segments_by_name: HashMap<String, Vec<WaySegment>> = HashMap::new();
-    for element in &scored {
-        if let Some(segment) = element.segment {
+    for element in &mut scored {
+        if let Some(segment) = element.segment.take() {
             segments_by_name
                 .entry(element.route.name.to_lowercase())
                 .or_default()
@@ -802,18 +693,21 @@ fn rank_elements(
         // response carries no geometry for it, and the same-named ways that
         // happened to fall inside the search are a fragment of it, not it.
         // A way is measured along its longest chain, and falls back to its
-        // own tag only when there is no geometry to measure.
+        // own tag only when there is no geometry to measure. The chain's line
+        // travels with its length, so a map of the route shows the stretch
+        // the figure measures.
         let measured = if element.is_relation {
             None
         } else {
             segments_by_name
                 .get(&key)
-                .and_then(|segments| longest_chain_meters(segments))
+                .and_then(|segments| longest_chain(segments))
         };
         let mut route = element.route;
-        if let Some(meters) = measured {
-            route.distance_meters = Some(meters);
+        if let Some(chain) = measured {
+            route.distance_meters = Some(chain.meters);
             route.distance_source = Some(DistanceSource::MappedGeometry);
+            route.geometry = Some(chain.coordinates);
         } else if let Some(meters) = element.tagged_meters {
             route.distance_meters = Some(meters);
             route.distance_source = Some(DistanceSource::OsmTag);
@@ -958,13 +852,34 @@ fn set_cached(key: String, routes: Vec<DiscoveredRoute>) {
     let Ok(mut cache) = ROUTE_CACHE.write() else {
         return;
     };
-    if cache.len() >= MAX_CACHE_ENTRIES {
+    insert_bounded(&mut cache, key, routes);
+}
+
+/// Insert one entry, first making room under both caps: the entry count and
+/// the points the entries' lines hold between them.
+///
+/// Expired entries go first. When every entry is still live, the whole map is
+/// dropped rather than grown past a cap: route lookups are cheap to rebuild;
+/// unbounded residency in a long-lived server process is not. An entry that
+/// replaces one under the same key is measured without it.
+fn insert_bounded(
+    cache: &mut HashMap<String, CachedRoutes>,
+    key: String,
+    routes: Vec<DiscoveredRoute>,
+) {
+    cache.remove(&key);
+    let incoming = mapped_points(&routes);
+    let over = |cache: &HashMap<String, CachedRoutes>| {
+        let held: usize = cache
+            .values()
+            .map(|entry| mapped_points(&entry.routes))
+            .sum();
+        cache.len() >= MAX_CACHE_ENTRIES || held + incoming > MAX_CACHED_ROUTE_POINTS
+    };
+    if over(cache) {
         let ttl = Duration::from_secs(ROUTE_CACHE_DURATION_SECS);
         cache.retain(|_, entry| entry.cached_at.elapsed().is_ok_and(|elapsed| elapsed < ttl));
-        // Every entry is still live — drop the whole map rather than grow
-        // past the cap. Route lookups are cheap to rebuild; unbounded
-        // residency in a long-lived server process is not.
-        if cache.len() >= MAX_CACHE_ENTRIES {
+        if over(cache) {
             cache.clear();
         }
     }
@@ -975,6 +890,15 @@ fn set_cached(key: String, routes: Vec<DiscoveredRoute>) {
             cached_at: SystemTime::now(),
         },
     );
+}
+
+/// How many mapped points the routes' drawable lines hold between them.
+fn mapped_points(routes: &[DiscoveredRoute]) -> usize {
+    routes
+        .iter()
+        .filter_map(|route| route.geometry.as_ref())
+        .map(Vec::len)
+        .sum()
 }
 
 // ============================================================================
@@ -1036,4 +960,158 @@ struct OverpassPoint {
 struct OverpassCenter {
     lat: f64,
     lon: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A named way through `points`, as Overpass writes it under `out tags geom`.
+    fn way(id: u64, name: &str, points: &[(f64, f64)]) -> String {
+        let geometry: Vec<String> = points
+            .iter()
+            .map(|(lat, lon)| format!(r#"{{"lat":{lat},"lon":{lon}}}"#))
+            .collect();
+        let (lats, lons): (Vec<f64>, Vec<f64>) = points.iter().copied().unzip();
+        let bound = |values: &[f64], pick: fn(f64, f64) -> f64| {
+            values.iter().copied().fold(values[0], pick)
+        };
+        format!(
+            r#"{{"type":"way","id":{id},"bounds":{{"minlat":{},"minlon":{},"maxlat":{},"maxlon":{}}},"geometry":[{}],"tags":{{"highway":"path","name":"{name}"}}}}"#,
+            bound(&lats, f64::min),
+            bound(&lons, f64::min),
+            bound(&lats, f64::max),
+            bound(&lons, f64::max),
+            geometry.join(",")
+        )
+    }
+
+    fn routes(elements: &[String]) -> Vec<DiscoveredRoute> {
+        let body = format!(r#"{{"elements":[{}]}}"#, elements.join(","));
+        routes_from_overpass_json(&body, &SportType::Run, 46.0, -72.0, None)
+            .expect("fixture is a valid Overpass payload")
+    }
+
+    fn line_meters(line: &[(f64, f64)]) -> f64 {
+        line.windows(2)
+            .map(|pair| haversine_meters_between(pair[0].0, pair[0].1, pair[1].0, pair[1].1))
+            .sum()
+    }
+
+    /// Two ways of one trail, the second mapped against the walking direction:
+    /// the line runs end to end through both, the second reversed so it starts
+    /// on the node the first ends on, and that node is drawn once.
+    #[test]
+    fn a_chain_draws_its_ways_end_to_end_with_the_shared_node_once() {
+        let found = routes(&[
+            way(
+                1,
+                "Sentier",
+                &[(46.0, -72.0), (46.001, -72.0), (46.002, -72.0)],
+            ),
+            way(
+                2,
+                "Sentier",
+                &[(46.004, -72.0), (46.003, -72.0), (46.002, -72.0)],
+            ),
+        ]);
+        let trail = &found[0];
+        assert_eq!(trail.distance_source, Some(DistanceSource::MappedGeometry));
+        assert_eq!(
+            trail.geometry.as_deref(),
+            Some(
+                &[
+                    (46.0, -72.0),
+                    (46.001, -72.0),
+                    (46.002, -72.0),
+                    (46.003, -72.0),
+                    (46.004, -72.0),
+                ][..]
+            )
+        );
+        let measured = trail.distance_meters.expect("a chain has a length");
+        let drawn = line_meters(trail.geometry.as_deref().unwrap_or_default());
+        assert!(
+            (measured - drawn).abs() < 1e-6,
+            "the line is the stretch the length measures: {measured} vs {drawn}"
+        );
+    }
+
+    /// Where the network branches, the line is the longest chain's and nothing
+    /// else: the short spur off the junction is neither measured nor drawn.
+    #[test]
+    fn a_branching_trail_draws_only_its_longest_chain() {
+        let junction = (46.002, -72.0);
+        let found = routes(&[
+            way(1, "Boucle", &[(46.0, -72.0), junction]),
+            way(2, "Boucle", &[junction, (46.002, -71.999)]),
+            way(3, "Boucle", &[junction, (46.006, -72.0)]),
+        ]);
+        let line = found[0].geometry.as_deref().expect("a chain is drawn");
+        assert_eq!(line, &[(46.0, -72.0), junction, (46.006, -72.0)][..]);
+        let measured = found[0].distance_meters.expect("a chain has a length");
+        assert!((measured - line_meters(line)).abs() < 1e-6);
+    }
+
+    /// A route carrying a line of `points` mapped points.
+    fn mapped(points: usize) -> DiscoveredRoute {
+        DiscoveredRoute {
+            name: "Sentier".to_owned(),
+            route_type: RouteType::Running,
+            distance_meters: Some(1_000.0),
+            distance_source: Some(DistanceSource::MappedGeometry),
+            difficulty: None,
+            source: RouteSource::Overpass,
+            latitude: 46.0,
+            longitude: -72.0,
+            distance_from_center_meters: 0.0,
+            target_use: None,
+            geometry: Some(vec![(46.0, -72.0); points]),
+        }
+    }
+
+    /// The cache is bounded by the points its lines hold, not only by its
+    /// entries: entries that fit stay, and one that would take the total past
+    /// the budget drops the live ones rather than grow past it.
+    #[test]
+    fn the_route_cache_is_bounded_by_the_points_its_lines_hold() {
+        let half = MAX_CACHED_ROUTE_POINTS / 2;
+        let mut cache = HashMap::new();
+        insert_bounded(&mut cache, "a".to_owned(), vec![mapped(half)]);
+        insert_bounded(&mut cache, "b".to_owned(), vec![mapped(half)]);
+        assert_eq!(cache.len(), 2, "two halves fit the budget exactly");
+
+        // Replacing an entry is measured without the one it replaces.
+        insert_bounded(&mut cache, "b".to_owned(), vec![mapped(half)]);
+        assert_eq!(cache.len(), 2);
+
+        insert_bounded(&mut cache, "c".to_owned(), vec![mapped(1)]);
+        assert_eq!(
+            cache.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["c"],
+            "one point past the budget clears the live entries"
+        );
+    }
+
+    /// Only a measured line is drawn: a relation and a way known only by its
+    /// `distance` tag carry no geometry, whatever their length.
+    #[test]
+    fn geometry_is_present_exactly_when_the_length_was_measured() {
+        let relation = r#"{"type":"relation","id":9,"bounds":{"minlat":46.0,"minlon":-72.0,"maxlat":46.1,"maxlon":-71.9},"tags":{"route":"hiking","name":"Grande Boucle","distance":"12"}}"#;
+        let tagged = r#"{"type":"way","id":8,"center":{"lat":46.01,"lon":-72.0},"tags":{"highway":"path","name":"Sans Ligne","distance":"3 km"}}"#;
+        let found = routes(&[
+            relation.to_owned(),
+            tagged.to_owned(),
+            way(1, "Tracé", &[(46.0, -72.0), (46.001, -72.0)]),
+        ]);
+        for route in &found {
+            assert_eq!(
+                route.geometry.is_some(),
+                route.distance_source == Some(DistanceSource::MappedGeometry),
+                "{route:?}"
+            );
+        }
+        assert_eq!(found.len(), 3);
+        assert!(found.iter().any(|route| route.geometry.is_some()));
+    }
 }

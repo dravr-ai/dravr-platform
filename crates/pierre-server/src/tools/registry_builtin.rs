@@ -67,7 +67,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-analytics")]
     register_analytics_tools(registry);
 
-    // Route discovery tools (discover_routes — Overpass API / OSM piste data)
+    // Route tools (discover_routes — Overpass API / OSM piste data; compose_route
+    // — discovered stretches joined into one itinerary)
     #[cfg(feature = "tools-analytics")]
     register_route_tools(registry);
 
@@ -629,7 +630,8 @@ fn register_sync_tools(registry: &mut ToolRegistry) {
     );
 }
 
-/// Register route-discovery tools (`discover_routes` — Overpass + OSM piste data)
+/// Register the route tools: `discover_routes` (Overpass + OSM piste data) and
+/// `compose_route` (discovered stretches joined into one drawable itinerary)
 #[cfg(feature = "tools-analytics")]
 fn register_route_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::routes::create_route_tools;

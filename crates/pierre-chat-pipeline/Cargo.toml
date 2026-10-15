@@ -43,6 +43,8 @@ language-detection = ["dep:lingua"]
 embacle = { version = "0.36.1" }
 embacle-tool-host = "0.36.1"
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
+# The shared cache a proposed route's line is read back from by its route_ref.
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-commands = { version = "0.3.0", path = "../pierre-commands" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }

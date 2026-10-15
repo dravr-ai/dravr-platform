@@ -16,7 +16,9 @@ import {
   climbGrade,
   climbRange,
   routeFrame,
+  routeLabel,
   routeMarkers,
+  routeMissingText,
   trackGeometry,
   type DistanceUnit,
 } from '@pierre/chat-utils';
@@ -38,12 +40,14 @@ import { addRouteMarkers } from './routeMarkers';
  * athlete's locale. Only the controls this card docks are listed: the zoom
  * stack, the credit toggle, the canvas label and the cooperative-gesture hint
  * the inline map shows over a bare wheel or one-finger drag. The full-screen
- * toggle is this component's own button, labelled where it is drawn.
+ * toggle is this component's own button, labelled where it is drawn. The
+ * canvas label is `mapTitle`, which says whether the line was recorded or is
+ * proposed.
  */
-function mapLocale(t: TFunction): Record<string, string> {
+function mapLocale(t: TFunction, mapTitle: string): Record<string, string> {
   return {
     'AttributionControl.ToggleAttribution': t('chat.routeMapCredits'),
-    'Map.Title': t('chat.routeAlt'),
+    'Map.Title': mapTitle,
     'NavigationControl.ZoomIn': t('chat.routeMapZoomIn'),
     'NavigationControl.ZoomOut': t('chat.routeMapZoomOut'),
     'CooperativeGesturesHandler.MacHelpText': t('chat.routeMapScrollMac'),
@@ -124,13 +128,16 @@ function ClimbSwatch() {
 }
 
 /**
- * One recorded track, drawn.
+ * One route, drawn: a track the athlete recorded, or a line the coach proposes.
  *
- * The geometry arrives hydrated — the agent emitted an activity reference and
- * the platform read the GPS trace out of the time series — so everything here
- * is presentation: a basemap in the athlete's scheme, the track over it, and
- * the numbers underneath in words a screen reader can read, which the canvas
- * itself can never be.
+ * The geometry arrives hydrated — the agent emitted a reference, an activity
+ * or a proposed route's `route_ref`, and the platform read the line itself —
+ * so everything here is presentation: a basemap in the athlete's scheme, the
+ * line over it, and the numbers underneath in words a screen reader can read,
+ * which the canvas itself can never be. What differs between the two is what
+ * the map is called ({@link routeLabel}) and what it says when there is no
+ * line ({@link routeMissingText}): a proposed line has no climbs and no
+ * recording behind it.
  */
 export default function RouteView({
   view,
@@ -182,17 +189,19 @@ export default function RouteView({
   // is looking at now, not the one current when the effect was registered.
   // Declared before the effects that read it so the sync lands first.
   const initialStyle = useRef(style);
+  // The canvas's own label: the untitled one, since the caption sits beside it.
+  const mapTitle = routeLabel({ source_tool: view.source_tool, title: null }, t);
   // MapLibre reads its control text once, at construction; the map is built
   // once per track, so it speaks the athlete's language as of that build.
-  const locale = useRef(mapLocale(t));
+  const locale = useRef(mapLocale(t, mapTitle));
   // The language each style load labels the basemap in, read when it loads.
   const labelLanguage = useRef(language);
   useEffect(() => {
     initialStyle.current = style;
     currentLayer.current = layer;
-    locale.current = mapLocale(t);
+    locale.current = mapLocale(t, mapTitle);
     labelLanguage.current = language;
-  }, [style, layer, t, language]);
+  }, [style, layer, t, mapTitle, language]);
 
   useEffect(() => {
     const node = container.current;
@@ -370,18 +379,18 @@ export default function RouteView({
 
   // A track with no positions is not a map. Both clients say why rather than
   // dropping the block silently: the athlete asked to see a route and is owed
-  // the reason there is none.
+  // the reason there is none — and a proposed route is never told it recorded
+  // no GPS.
   if (view.coordinates.length === 0) {
-    return <p className="my-4 text-sm text-on-surface-variant">{t('chat.routeNoTrack')}</p>;
+    return <p className="my-4 text-sm text-on-surface-variant">{routeMissingText(view, t)}</p>;
   }
 
-  // Read for the climbs' ranges only. The series is measured along the drawn
-  // GPS line and ends where the privacy trim cuts it, so its last value is not
-  // the activity's distance and is never printed as one.
+  // Read for the climbs' ranges only. On a recorded track the series is
+  // measured along the drawn GPS line and ends where the privacy trim cuts it;
+  // on a proposed route it counts from the trailhead. Either way its last value
+  // is not a distance anyone asked for and is never printed as one.
   const distances = alignedSeries(view.distances_meters, view.coordinates.length);
-  const label = view.title
-    ? t('chat.routeAltTitled', { title: view.title })
-    : t('chat.routeAlt');
+  const label = routeLabel(view, t);
 
   return (
     <figure ref={figure} className="my-4" aria-label={label}>

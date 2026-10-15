@@ -1,5 +1,5 @@
 // ABOUTME: MCP tool for discovering real running, cycling, hiking, and ski routes from OSM data
-// ABOUTME: Wraps RouteDiscoveryService to expose Overpass-backed route search to the LLM
+// ABOUTME: Wraps RouteDiscoveryService and stores each mapped line under a route_ref a map or compose_route reads
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,23 +8,30 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures_util::future::join_all;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
+use uuid::Uuid;
 
+use pierre_cache::Cache;
 use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
 use pierre_fitness_compute::osm_routes::{
     DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
 };
+use pierre_fitness_compute::route_compose;
 
+use super::compose_route::ComposeRouteTool;
+use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
+use crate::route_store::{self, StoredRoute};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::ErrorCode;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{resolve_sport_type, SportType};
+use pierre_core::models::{resolve_sport_type, SportType, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -105,6 +112,22 @@ pub struct DiscoveredRouteEntry {
     pub longitude: f64,
     /// How far the route is from the search centre, in metres, rounded.
     pub distance_from_center_meters: f64,
+    /// The handle this route's mapped line is kept under for 24 hours: `rt_`
+    /// and 16 hex digits. Present when the line is mapped and stored, which
+    /// is what lets the route be drawn: name it as `route_ref` in a
+    /// `dravr-viz` route block whose `source_tool` is `discover_routes`, or
+    /// pass it to `compose_route` to join this stretch with others into one
+    /// itinerary. Absent for a route with no mapped line (`osm_tag` or no
+    /// length), which no map can draw.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_ref: Option<String>,
+    /// The `route_ref`s of the other routes in this answer whose mapped line
+    /// physically meets this one's: an end of either within 30 m of the
+    /// other. A `compose_route` itinerary joins only stretches that meet, so
+    /// chain stretches along these links, in running order. Absent when the
+    /// route meets none of the others.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connects_to: Vec<String>,
 }
 
 /// Upper bound on the Overpass `around:` radius to keep response sizes and
@@ -278,7 +301,12 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              this tool. An empty list means OSM has no named route in that radius: widen \
              `radius_meters` or say so plainly, never substitute a name you did not read \
              here. For ski queries this reads OSM piste:type data (same source as \
-             OpenSkiMap).",
+             OpenSkiMap). A route whose line is mapped carries a `route_ref`: to show the \
+             athlete that stretch, name it in a `dravr-viz` route block with `source_tool` \
+             \"discover_routes\" — never write coordinates. It also carries `connects_to`, the \
+             `route_ref`s of the other routes here that it physically meets. To propose an \
+             itinerary over several stretches, pass their refs in running order to \
+             `compose_route`, each meeting the next, and quote the distance it returns.",
             schema,
             Some(discover_annotations()),
         ))
@@ -290,10 +318,11 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 
     async fn execute(
         &self,
-        _state: &Arc<dyn ToolRuntime>,
-        _ctx: &ToolContext,
+        state: &Arc<dyn ToolRuntime>,
+        ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
+        let (tenant_id, user_id) = route_owner(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let resolved = match resolve_center(&args).await {
                 Ok(center) => center,
@@ -348,6 +377,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 )
                 .await?;
 
+            let drawable = store_drawable_routes(state.cache(), tenant_id, user_id, &routes).await;
             let count = routes.len();
             let response = DiscoverRoutesResult {
                 sport_type: sport_label(&sport).to_owned(),
@@ -359,7 +389,11 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 radius_meters: radius,
                 target_distance_meters,
                 count,
-                routes: routes.iter().map(discovered_route_to_json).collect(),
+                routes: routes
+                    .iter()
+                    .zip(drawable)
+                    .map(|(route, drawable)| discovered_route_to_json(route, drawable))
+                    .collect(),
             };
 
             info!(count, "discover_routes: returning OSM-grounded routes");
@@ -452,11 +486,127 @@ async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
     })
 }
 
-/// Serialize a [`DiscoveredRoute`] into the LLM-facing JSON shape.
+/// Whose route store a call writes and reads: the caller's tenant and
+/// athlete, keyed the way every cache-backed tool keys them. A call that
+/// carries no tenant files under the nil tenant, which is still the caller's
+/// own slot, since the athlete is part of the key.
+pub(super) fn route_owner(state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> (TenantId, Uuid) {
+    let context = ToolExecutionContext::from_tronc(state, ctx);
+    (
+        TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil)),
+        context.user_id,
+    )
+}
+
+/// A stored route's reference and the line it names.
+type MappedLine<'a> = (&'a str, &'a [(f64, f64)]);
+
+/// How one route of an answer can be drawn and joined.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DrawableRoute {
+    /// The reference its mapped line is stored under; `None` when it has no
+    /// line, or the line could not be stored.
+    route_ref: Option<String>,
+    /// The references of the other routes in the answer that it meets.
+    connects_to: Vec<String>,
+}
+
+/// Store the mapped line of every route that has one, and say which of them
+/// meet, one entry per route in the order given.
+///
+/// A line the store refuses is logged and left without a reference rather
+/// than failing the search: the athlete still gets the routes, only that one
+/// cannot be drawn or composed. A route without a reference is in no
+/// `connects_to`, since there would be nothing to compose it by.
+async fn store_drawable_routes(
+    cache: &Cache,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    routes: &[DiscoveredRoute],
+) -> Vec<DrawableRoute> {
+    let refs = join_all(
+        routes
+            .iter()
+            .map(|route| store_line(cache, tenant_id, user_id, route)),
+    )
+    .await;
+    let lines: Vec<Option<MappedLine<'_>>> = routes
+        .iter()
+        .zip(&refs)
+        .map(|(route, route_ref)| Some((route_ref.as_deref()?, route.geometry.as_deref()?)))
+        .collect();
+
+    let mut drawable: Vec<DrawableRoute> = refs
+        .iter()
+        .map(|route_ref| DrawableRoute {
+            route_ref: route_ref.clone(),
+            connects_to: Vec::new(),
+        })
+        .collect();
+    for (i, first) in lines.iter().enumerate() {
+        let Some((first_ref, first_line)) = *first else {
+            continue;
+        };
+        for (j, second) in lines.iter().enumerate().skip(i + 1) {
+            let Some((second_ref, second_line)) = *second else {
+                continue;
+            };
+            // One verdict per pair, written both ways, so the links are
+            // symmetric by construction. Two routes drawn along the same line
+            // share a reference, and a route does not connect to itself.
+            if first_ref == second_ref || !route_compose::meets(first_line, second_line) {
+                continue;
+            }
+            link(&mut drawable[i].connects_to, second_ref);
+            link(&mut drawable[j].connects_to, first_ref);
+        }
+    }
+    drawable
+}
+
+/// Add `route_ref` to a `connects_to` list once.
+fn link(connects_to: &mut Vec<String>, route_ref: &str) {
+    if !connects_to.iter().any(|known| known == route_ref) {
+        connects_to.push(route_ref.to_owned());
+    }
+}
+
+/// Store one route's mapped line, returning the reference it is read back by;
+/// `None` when it has no line, or when the store refuses it.
+async fn store_line(
+    cache: &Cache,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    route: &DiscoveredRoute,
+) -> Option<String> {
+    let line = route.geometry.as_ref()?;
+    let stored = StoredRoute {
+        name: route.name.clone(),
+        coordinates: line.clone(),
+        out_and_back: false,
+    };
+    match route_store::store_route(cache, tenant_id, user_id, &stored).await {
+        Ok(route_ref) => Some(route_ref),
+        Err(error) => {
+            warn!(
+                route = %route.name,
+                error = %error,
+                "discover_routes: the route's line could not be stored; it is listed without a route_ref"
+            );
+            None
+        }
+    }
+}
+
+/// Serialize a [`DiscoveredRoute`] into the LLM-facing JSON shape, with the
+/// handles its line is drawn and composed by.
 ///
 /// Kept tight — the LLM doesn't need the enum's `snake_case` wrapper and
 /// benefits from a flat structure when it wants to read a specific field.
-fn discovered_route_to_json(route: &DiscoveredRoute) -> DiscoveredRouteEntry {
+fn discovered_route_to_json(
+    route: &DiscoveredRoute,
+    drawable: DrawableRoute,
+) -> DiscoveredRouteEntry {
     DiscoveredRouteEntry {
         name: route.name.clone(),
         route_type: format!("{:?}", route.route_type).to_lowercase(),
@@ -482,6 +632,8 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> DiscoveredRouteEntry {
         latitude: route.latitude,
         longitude: route.longitude,
         distance_from_center_meters: route.distance_from_center_meters.round(),
+        route_ref: drawable.route_ref,
+        connects_to: drawable.connects_to,
     }
 }
 
@@ -546,13 +698,179 @@ fn sport_label(sport: &SportType) -> &'static str {
 // Factory
 // ============================================================================
 
-/// Create route-discovery tools for registration.
+/// Create the route tools for registration: discovery, and the composition
+/// that joins discovered stretches into one itinerary.
 #[must_use]
 pub fn create_route_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![Box::new(DiscoverRoutesTool)]
+    vec![Box::new(DiscoverRoutesTool), Box::new(ComposeRouteTool)]
 }
 
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(DiscoverRoutesTool => UNTRUSTED_OUTPUT);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_cache::CacheConfig;
+    use pierre_fitness_compute::osm_routes::{RouteSource, RouteType};
+
+    /// Degrees of latitude in a kilometre, near enough for test lines.
+    const DEGREES_PER_KM: f64 = 1.0 / 111.195;
+
+    async fn memory_cache() -> Cache {
+        Cache::new(CacheConfig {
+            enable_background_cleanup: false,
+            ..CacheConfig::default()
+        })
+        .await
+        .unwrap()
+    }
+
+    /// A route as discovery reports one: measured along `geometry` when it
+    /// has one, by its OSM tag otherwise.
+    fn route(name: &str, geometry: Option<Vec<(f64, f64)>>) -> DiscoveredRoute {
+        let (distance_meters, distance_source) =
+            geometry
+                .as_ref()
+                .map_or((Some(12_000.0), Some(DistanceSource::OsmTag)), |line| {
+                    let meters = line
+                        .windows(2)
+                        .map(|pair| (pair[1].0 - pair[0].0).abs() / DEGREES_PER_KM * 1_000.0)
+                        .sum();
+                    (Some(meters), Some(DistanceSource::MappedGeometry))
+                });
+        DiscoveredRoute {
+            name: name.to_owned(),
+            route_type: RouteType::Running,
+            distance_meters,
+            distance_source,
+            difficulty: None,
+            source: RouteSource::Overpass,
+            latitude: 46.0,
+            longitude: -72.0,
+            distance_from_center_meters: 500.0,
+            target_use: None,
+            geometry,
+        }
+    }
+
+    /// A line due north along `longitude` from `south`, `km` long, a node
+    /// every 100 m.
+    fn northward(longitude: f64, south: f64, km: f64) -> Vec<(f64, f64)> {
+        let nodes = (km * 10.0).round() as usize;
+        (0..=nodes)
+            .map(|index| {
+                (
+                    (index as f64 * 0.1).mul_add(DEGREES_PER_KM, south),
+                    longitude,
+                )
+            })
+            .collect()
+    }
+
+    /// Two trails end to end, one across town and a relation with no line.
+    fn answer() -> Vec<DiscoveredRoute> {
+        let riverside = northward(-72.0, 46.0, 1.0);
+        let rail_trail = northward(-72.0, 46.0 + DEGREES_PER_KM, 0.5);
+        vec![
+            route("Sentier de la Rivière", Some(riverside)),
+            route("Route Verte", None),
+            route("Piste du Parc", Some(northward(-72.5, 46.5, 2.0))),
+            route("Ancienne voie ferrée", Some(rail_trail)),
+        ]
+    }
+
+    /// Every mapped line is stored under the reference it is listed with and
+    /// reads back whole; a relation has no line and no reference.
+    #[tokio::test]
+    async fn a_mapped_route_is_stored_under_the_ref_it_is_listed_with() {
+        let cache = memory_cache().await;
+        let (tenant_id, user_id) = (TenantId::generate(), Uuid::new_v4());
+        let routes = answer();
+        let drawable = store_drawable_routes(&cache, tenant_id, user_id, &routes).await;
+
+        assert_eq!(drawable.len(), routes.len());
+        for (route, drawable) in routes.iter().zip(&drawable) {
+            let Some(line) = &route.geometry else {
+                assert_eq!(drawable, &DrawableRoute::default(), "{}", route.name);
+                continue;
+            };
+            let route_ref = drawable
+                .route_ref
+                .as_deref()
+                .expect("a mapped line is stored");
+            assert_eq!(route_ref, route_compose::route_ref(line, false));
+            let stored = route_store::load_route(&cache, tenant_id, user_id, route_ref)
+                .await
+                .unwrap()
+                .expect("the line reads back by its ref");
+            assert_eq!(
+                stored,
+                StoredRoute {
+                    name: route.name.clone(),
+                    coordinates: line.clone(),
+                    out_and_back: false,
+                }
+            );
+        }
+    }
+
+    /// Stretches that meet list each other, both ways; a stretch across town
+    /// and a relation with no line are in no list and list nothing.
+    #[tokio::test]
+    async fn connects_to_links_the_stretches_that_meet_both_ways() {
+        let cache = memory_cache().await;
+        let routes = answer();
+        let drawable =
+            store_drawable_routes(&cache, TenantId::generate(), Uuid::new_v4(), &routes).await;
+        let ref_of = |index: usize| drawable[index].route_ref.clone().unwrap();
+
+        assert_eq!(drawable[0].connects_to, vec![ref_of(3)]);
+        assert_eq!(drawable[3].connects_to, vec![ref_of(0)]);
+        assert!(drawable[1].connects_to.is_empty());
+        assert!(drawable[2].connects_to.is_empty());
+    }
+
+    /// A line the store refuses leaves that route without a reference, and
+    /// out of every `connects_to`, while the rest of the answer is stored.
+    #[tokio::test]
+    async fn a_line_the_store_refuses_does_not_fail_the_answer() {
+        let cache = memory_cache().await;
+        let mut routes = answer();
+        // One point is no line: the store refuses it.
+        routes[3].geometry = Some(vec![(46.0 + DEGREES_PER_KM, -72.0)]);
+        let drawable =
+            store_drawable_routes(&cache, TenantId::generate(), Uuid::new_v4(), &routes).await;
+
+        assert_eq!(drawable[3], DrawableRoute::default());
+        assert!(drawable[0].route_ref.is_some());
+        assert!(drawable[0].connects_to.is_empty());
+    }
+
+    /// The entry says nothing of a reference or links it does not have, and
+    /// carries both when it does.
+    #[test]
+    fn the_entry_carries_its_ref_and_links_only_when_it_has_them() {
+        let routes = answer();
+        let bare = serde_json::to_value(discovered_route_to_json(
+            &routes[1],
+            DrawableRoute::default(),
+        ))
+        .unwrap();
+        assert!(bare.get("route_ref").is_none(), "{bare:#}");
+        assert!(bare.get("connects_to").is_none(), "{bare:#}");
+
+        let linked = serde_json::to_value(discovered_route_to_json(
+            &routes[0],
+            DrawableRoute {
+                route_ref: Some("rt_3f9a0c41d27b8e65".to_owned()),
+                connects_to: vec!["rt_c07e5d2a9b146f38".to_owned()],
+            },
+        ))
+        .unwrap();
+        assert_eq!(linked["route_ref"], "rt_3f9a0c41d27b8e65");
+        assert_eq!(linked["connects_to"][0], "rt_c07e5d2a9b146f38");
+    }
+}

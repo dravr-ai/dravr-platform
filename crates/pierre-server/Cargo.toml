@@ -92,7 +92,7 @@ tools-all = [
 # disappears while the trait method stays.
 tools-connection = ["pierre-tool-runtime/tools-connection", "transport-sse"]      # connect_provider, get_connection_status, disconnect (+ refresh_provider_data, get_data_freshness)
 tools-data = ["pierre-tool-runtime/tools-data"]            # get_activities, get_athlete, get_stats (+ endurance workouts)
-tools-analytics = ["pierre-tool-runtime/tools-analytics"]       # analyze_activity, calculate_metrics, trends, discover_routes
+tools-analytics = ["pierre-tool-runtime/tools-analytics"]       # analyze_activity, calculate_metrics, trends, discover_routes, compose_route
 tools-goals = ["pierre-tool-runtime/tools-goals"]           # set_goal, track_progress, suggest_goals
 tools-config = ["pierre-tool-runtime/tools-config"]        # fitness config tools, user configuration
 tools-nutrition = ["pierre-tool-runtime/tools-nutrition"]       # daily_nutrition, nutrient_timing, food search

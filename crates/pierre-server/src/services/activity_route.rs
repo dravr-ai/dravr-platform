@@ -101,7 +101,7 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::polyline::decode_polyline;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
+use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::sync::oneshot;
@@ -111,13 +111,6 @@ use uuid::Uuid;
 
 use crate::services::activity_detail::store_detail;
 use crate::services::turn_lifecycle::InFlightTurns;
-
-/// Most coordinates a Home map carries.
-///
-/// A recorded ride runs to thousands of
-/// points; a card-sized map cannot show more than a few hundred, and every
-/// point past that is payload the phone downloads for nothing.
-pub const HOME_ROUTE_MAX_POINTS: usize = 200;
 
 /// Minutes an `unavailable` answer stands before the route is read again.
 ///
@@ -793,7 +786,7 @@ async fn settle(
     source: RouteGeometrySource,
     outcome: ActivityRouteOutcome,
 ) -> AppResult<ActivityRouteOutcome> {
-    let outcome = outcome.map(|track| track.simplified(HOME_ROUTE_MAX_POINTS));
+    let outcome = outcome.map(|track| track.simplified(MAP_MAX_POINTS));
     let read = StoredRead {
         source,
         outcome: &outcome,

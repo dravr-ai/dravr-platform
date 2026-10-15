@@ -104,6 +104,8 @@ pub mod registry;
 mod reply_check;
 /// Single-flight slots for background activity-cache revalidations.
 pub mod revalidation;
+/// The shared store a discovered or composed route's line is read back from by its `route_ref`.
+pub mod route_store;
 pub mod runtime;
 pub mod schema_canonical;
 /// The capability -> OAuth scope derivation and the check the chokepoint reads.

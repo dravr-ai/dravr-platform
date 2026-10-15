@@ -429,6 +429,59 @@ describe('RouteView chrome', () => {
   });
 });
 
+/**
+ * A route the coach proposes: a public line stitched from mapped trails. No
+ * vertical, so no climbs, and its distances count from the trailhead.
+ */
+function proposedBlock(overrides: Partial<RouteBlock> = {}): RouteBlock {
+  return routeBlock({
+    elevation_meters: null,
+    distances_meters: [0, 1300, 2600, 3900],
+    title: 'Lachine – Vieux-Port',
+    source_tool: 'compose_route',
+    ...overrides,
+  });
+}
+
+describe('RouteView proposed route', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+  });
+
+  it('calls the map a proposed route, inline and full screen', () => {
+    render(<RouteView route={proposedBlock()} />);
+
+    expect(screen.getByLabelText('Map of the proposed route: Lachine – Vieux-Port')).toBeTruthy();
+    // The line is drawn as a recorded one is, with no climb to mark on it.
+    expect(sourceData('route-track').coordinates).toHaveLength(TRACK.length);
+    expect(screen.queryByText('Climbs')).toBeNull();
+    expect(screen.queryByText(/compose_route/)).toBeNull();
+
+    fireEvent.press(screen.getByTestId('route-fullscreen-open'));
+    expect(
+      within(screen.getByTestId('route-fullscreen')).getByLabelText(
+        'Map of the proposed route: Lachine – Vieux-Port',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryAllByLabelText(/recorded route/)).toHaveLength(0);
+  });
+
+  it('names an untitled proposed route in the athlete’s language', async () => {
+    await i18n.changeLanguage('fr');
+    render(<RouteView route={proposedBlock({ title: null, source_tool: 'discover_routes' })} />);
+
+    expect(screen.getByLabelText('Carte du parcours proposé')).toBeTruthy();
+  });
+
+  it('never tells a proposed route it recorded no GPS track', () => {
+    render(<RouteView route={proposedBlock({ coordinates: [], distances_meters: null })} />);
+
+    expect(screen.queryByTestId('route-map')).toBeNull();
+    expect(screen.getByText("The map couldn't be loaded.")).toBeTruthy();
+    expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
+  });
+});
+
 describe('RouteView layer switcher', () => {
   function layer(id: string) {
     const found = MAP_LAYERS.find((candidate) => candidate.id === id);

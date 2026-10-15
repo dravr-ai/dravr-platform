@@ -2,7 +2,7 @@
 // ABOUTME: Both clients draw the same ride from here, so the framed box, a kilometre mark or a climb grade cannot differ on the phone
 
 import type { LineString, MultiLineString, Position } from 'geojson';
-import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
+import type { RouteBounds, RouteClimb, RouteView } from '@pierre/scene-types';
 
 import { formatDecimal } from './number-format';
 import type { Translate } from './text';
@@ -114,6 +114,47 @@ export function climbGrade(climb: RouteClimb, t: Translate): string | null {
   if (climb.category === null) return null;
   if (climb.category === HORS_CATEGORIE) return climb.category;
   return t('chat.routeClimbCategory', { category: climb.category });
+}
+
+/**
+ * The tools that store the line of a route the coach proposes: one trail
+ * found on the open map, or an itinerary joined from several. A route block
+ * citing one of them draws a suggestion, never a track the athlete recorded —
+ * the platform refuses a proposed route that cites any other tool.
+ */
+export const PROPOSED_ROUTE_TOOLS: readonly string[] = ['discover_routes', 'compose_route'];
+
+/** Whether a route block draws a route the coach proposes rather than one the athlete recorded. */
+export function isProposedRoute(route: Pick<RouteView, 'source_tool'>): boolean {
+  return PROPOSED_ROUTE_TOOLS.includes(route.source_tool);
+}
+
+/**
+ * What a route map is called to a screen reader, which reads the map as one
+ * image: a recorded route or a proposed one, with the block's caption when it
+ * carries one. "Map of the recorded route" over a trail the athlete has never
+ * set foot on would tell them they had.
+ */
+export function routeLabel(route: Pick<RouteView, 'source_tool' | 'title'>, t: Translate): string {
+  const proposed = isProposedRoute(route);
+  if (route.title) {
+    return t(proposed ? 'chat.routeProposedAltTitled' : 'chat.routeAltTitled', {
+      title: route.title,
+    });
+  }
+  return t(proposed ? 'chat.routeProposedAlt' : 'chat.routeAlt');
+}
+
+/**
+ * Why a route block draws no map, for a line with no positions.
+ *
+ * A recorded activity that carries none recorded no GPS. A proposed route has
+ * no recording to have missed — the platform refuses to send one without a
+ * line — so if one arrives empty all that is true to say is that the map did
+ * not load.
+ */
+export function routeMissingText(route: Pick<RouteView, 'source_tool'>, t: Translate): string {
+  return t(isProposedRoute(route) ? 'home.activities.routeFailed' : 'chat.routeNoTrack');
 }
 
 /**
