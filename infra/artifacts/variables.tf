@@ -102,8 +102,8 @@ variable "release_tag_prefixes" {
   type        = list(string)
   # `latest` and `buildcache` are here because the live repository has them and
   # dropping them is not free: the server buildcache holds the runtime layers
-  # (apt with chromium, node, the Copilot and Claude CLIs), so reaping its
-  # manifest rebuilds them on the next CI run — minutes of apt and npm, ~1 GB of
-  # new layers, and a Trivy layer-cache miss that re-downloads them as egress.
+  # (apt, node, the Copilot and Claude CLIs), so reaping its manifest rebuilds
+  # them on the next CI run — minutes of apt and npm, the large layers pushed
+  # anew, and a Trivy layer-cache miss that re-downloads them as egress.
   default = ["v", "deployed-", "latest", "buildcache"]
 }

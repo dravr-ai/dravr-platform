@@ -563,9 +563,9 @@ module "backend" {
       COPILOT_HEADLESS_MODEL   = "claude-sonnet-5.5"
 
       # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
-      # logins/scrapes route to the dedicated scraper service instead of
-      # in-pod Chrome. Empty string = toggle off (the client treats it as
-      # unset); the in-process path above stays live until Phase 4 deletes it.
+      # logins/scrapes route to the dedicated scraper service. Empty string =
+      # toggle off (the client treats it as unset), and sciotte is then
+      # disabled: this pod runs no Chrome and has no in-process scraper.
       DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? module.sciotte[0].service_url : ""
 
       # Audience the API addresses its identity token to. Must equal what the

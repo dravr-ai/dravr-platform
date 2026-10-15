@@ -94,7 +94,7 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # after the large layers below may read the filesystem under it: a RUN mounts
 # it, COPY --chmod mounts it too (even with --link), and WORKDIR runs as a mkdir
 # on the full rootfs. Any of them forces BuildKit to download and unpack every
-# cached layer under it (~1 GB of chromium, node and the CLIs) from the registry
+# cached layer under it (the apt packages, node and the CLIs) from the registry
 # cache on each warm build, which is billed Artifact Registry egress. The COPYs
 # further down are --link with --chown only (see there); only metadata (USER,
 # ENV, ARG, EXPOSE, HEALTHCHECK, ENTRYPOINT, CMD) may follow them.
@@ -107,19 +107,13 @@ WORKDIR /app
 # Cache-bust token for the apt layer below. The build uses a registry-backed
 # buildx cache, so the `apt-get upgrade` layer is otherwise reused verbatim
 # across builds even after Debian ships a security update — leaving patched
-# packages (notably chromium, which renders untrusted web content during
-# sciotte scraping) stale in the image. Bump this date whenever Trivy flags a
-# fixed base-package CVE to force a fresh `apt-get update && upgrade` that pulls
-# the patched version (e.g. chromium 150.0.7871.46-1~deb13u1 closes the
-# CVE-2026-13774..13785 / 14090..14120 batch).
-# Also bump it when a pulled package is itself broken: 150.0.7871.46-1~deb13u1
-# SIGTRAPs on every headless launch (Debian packaging bug), killing sciotte
-# credential login; 150.0.7871.100-1~deb13u1 fixes it.
-# chromium 151.0.7922.108-1~deb13u1 closes CVE-2026-19155, a sandbox escape via
-# use-after-free in Payments that gated the dev deploy on 2026-08-10.
-# chromium 151.0.7922.137-1~deb13u1 closes CVE-2026-19556..19560 — four
-# arbitrary-code-execution use-after-frees (V8, Blink, HTML, extensions) plus a
-# TabStrip sandbox escape — which gated the dev deploy on 2026-08-13.
+# packages stale in the image. Bump this date whenever Trivy flags a fixed
+# base-package CVE to force a fresh `apt-get update && upgrade` that pulls the
+# patched version, and when a pulled package is itself broken.
+#
+# The image installed chromium for in-process sciotte scraping until
+# 2026-10-15 (carnet#978); scraping runs in the separate sciotte service since
+# the Phase 4 cutover, and the entries for chromium CVE batches went with it.
 # util-linux 2.41.5-0+deb13u1 closes CVE-2026-53615, an integer overflow in
 # libblkid's DOS partition parser (libblkid/src/partitions/dos.c). Trivy reports
 # it once per binary package the source ships — bsdutils, libblkid1,
@@ -128,29 +122,11 @@ WORKDIR /app
 # the vulnerable 1:2.41-5 and only trixie-security has the fix, which is why the
 # upgrade below is what pulls it rather than a newer base-image tag. Gated the
 # dev deploy on 2026-08-17.
-# chromium 151.0.7922.169-1~deb13u1 closes CVE-2026-76033..76052 — 22 HIGH
-# findings in one source package, among them a site-isolation bypass, arbitrary
-# code execution in Dawn and V8, and information disclosure. Gated the dev
-# deploy on 2026-08-21, on a commit that touched no Docker and no dependency:
-# the buildx registry cache was still serving the 137 layer.
 # openssl 3.5.7-1~deb13u2 closes CVE-2026-14456, unbounded memory growth in the
 # QUIC server reachable as a denial of service. One defect, four binary packages
 # -- libssl-dev, libssl3t64, openssl, openssl-provider-legacy -- so it reads as
 # four HIGH findings. Gated the dev deploy on 2026-08-26, the same day and the
 # same CVE that gated the frontend image against alpine.
-# chromium 151.0.7922.173-1~deb13u1 closes CVE-2026-76018, arbitrary code
-# execution via a crafted file in the Import component. Two HIGH findings from
-# one source package (chromium, chromium-common). Gated the dev deploy on
-# 2026-08-31 on a commit that touched no Docker and no dependency — the cached
-# apt layer was still serving 151.0.7922.169.
-# chromium 152.0.7977.75-1~deb13u1 closes CVE-2026-84349 (use after free),
-# CVE-2026-84351 (buffer overflow in GPU) and CVE-2026-84357 (improper input
-# validation). SIX HIGH findings, the same three CVEs counted once per source
-# package (chromium, chromium-common). Gated the dev deploy on 2026-09-03 on a
-# chat-pipeline commit that touched no Docker and no dependency — the cached
-# apt layer was still serving 151.0.7922.173, exactly the shape of the
-# 2026-08-31 entry above. The nightly trivy DB refresh is what changes; the
-# image does not, until this line does.
 #
 # Bumping this line is the remedy, but the bump has to actually be BUILT, and a
 # deploy run reports a SHA it did not necessarily build. On 2026-09-03 run
@@ -170,10 +146,6 @@ WORKDIR /app
 # 49 fixed HIGH/CRITICAL findings from one Debian batch gated the dev deploy
 # on 2026-09-14, on a commit that touched no Docker file; the failed run
 # echoes "apt security epoch: 2026-09-06".
-# chromium 153.0.8010.47-2~deb13u1 (CVE-2026-87534 and 43 more, four
-# CRITICAL) gated two consecutive dev deploys on 2026-09-18 — 104403e56 and
-# b3ff27888, the first touching no Docker file; both runs echo "apt security
-# epoch: 2026-09-14" and report 152.0.7977.82-1~deb13u1 installed.
 # nodejs 20.19.2+dfsg-1+deb13u3 closes CVE-2026-48930 (CRITICAL, authority
 # rebinding through embedded-NUL hostnames in TLS) and six HIGH CVEs — 21
 # findings, since Trivy reports each once for nodejs, libnode115 and
@@ -185,17 +157,6 @@ WORKDIR /app
 # openssl-provider-legacy. Gated two consecutive dev deploys on 2026-09-30
 # (01f236f2f and 1d9673d3a, neither touching a Docker file); the 1d9673d3a run
 # echoes "apt security epoch: 2026-09-27" with deb13u2 installed.
-# chromium 154.0.8037.92-1~deb13u1 closes 22 HIGH findings (CVE-2026-102299
-# through CVE-2026-102329: V8 type confusion, use-after-free and out-of-bounds
-# reads/writes); the 2026-10-01 deploy of 9ba210b0f, which touched no Docker
-# file, was gated with 154.0.8037.57-1~deb13u1 installed.
-# chromium 155.0.8059.39-1~deb13u1 closes 74 CVEs (CVE-2026-102322 through
-# CVE-2026-106426; two CRITICAL: CVE-2026-106195, incorrect authorization in
-# Chromoting, and CVE-2026-106237, an information leak in Permissions), 148
-# findings counted once per source package (chromium, chromium-common). The
-# 2026-10-12 deploy of a4840b475, which touched no Docker file, was gated with
-# 154.0.8037.92-1~deb13u1 served from the cached apt layer (step logged CACHED
-# under "apt security epoch: 2026-10-01").
 # curl 8.14.1-2+deb13u7 closes CVE-2026-8286 (insecure connection through a TLS
 # configuration mismatch) and CVE-2026-8927 (proxy authentication state left
 # uncleared): six HIGH findings, each CVE once for curl, libcurl3t64-gnutls and
@@ -206,7 +167,8 @@ ARG APT_SECURITY_EPOCH=2026-10-14
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
-# chromium + libs: required by dravr-sciotte (headless Chrome scraping via chromiumoxide)
+# No browser: the platform reaches sciotte over HTTP (SciotteClient) and runs
+# no Chrome, so the layer ends by proving none was pulled in.
 RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
     && apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
@@ -217,8 +179,9 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
     git \
     nodejs \
     npm \
-    chromium \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && if [ -e /usr/lib/chromium ] || command -v chromium >/dev/null 2>&1; then \
+        echo "chromium is in the server image; nothing in it launches a browser (carnet#978)" >&2; exit 1; fi
 
 # Install GitHub Copilot CLI and Anthropic Claude Code CLI in one layer so the
 # npm strip below covers both. Pinned versions for reproducible builds; bump
@@ -311,7 +274,6 @@ COPY --link --chown=1001:1001 commands /app/commands
 COPY --link --chown=1001:1001 crates/pierre-evals/fixtures /app/fixtures
 COPY --link --chown=1001:1001 docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY --link --chown=1001:1001 docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
-COPY --link docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
 # Switch to non-root user. The working directory, /app, is set above the apt
 # layer: a WORKDIR here would pull the cached layers (see the useradd RUN).
@@ -331,9 +293,6 @@ ENV HTTP_PORT=8081
 # this env var first; absent or pointing at a missing dir falls back to
 # the workspace-relative default and logs a single warn (no Slack page).
 ENV PIERRE_EVALS_FIXTURES_DIR=/app/fixtures
-# chromiumoxide auto-detection uses CHROME env var; point to our headless wrapper
-# which injects --ozone-platform=headless before delegating to the real binary
-ENV CHROME=/usr/local/bin/chromium-headless
 
 # Expose ports
 EXPOSE 8080 8081

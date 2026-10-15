@@ -469,7 +469,7 @@ jobs:
           version: v0.70.0
 
       # Trivy scans by registry digest, so with an empty cache it downloads every
-      # layer of the image it just pushed — ~1 GiB of chromium, node and CLIs,
+      # layer of the image it just pushed — the apt, node and CLI layers,
       # billed Artifact Registry egress on every build. Its layer-analysis cache
       # (fanal) is keyed by layer digest, and it fetches only layers missing from
       # it. The large layers change only when this Dockerfile does (apt epoch,
@@ -520,6 +520,37 @@ jobs:
             --ignorefile "${GITHUB_WORKSPACE}/.trivyignore" \
             --scanners vuln --exit-code 1 \
             "${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}"
+
+      - name: Server image carries no browser
+        # carnet#978: nothing in the server launches a browser (sciotte runs in
+        # its own service, reached over HTTP), and chromium alone drove most of
+        # this image's Trivy gate failures. The Dockerfile's apt layer refuses
+        # chromium at build time; this checks the pushed digest's package list.
+        # Trivy reads it from the layer cache the passes above filled, so it
+        # pulls no layer. It fails closed: trivy's exit status is gated on its
+        # own, and a list without nodejs (installed in the same apt layer)
+        # means the listing verified nothing.
+        env:
+          IMAGE: ${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if ! PKGS="$(trivy image --list-all-pkgs --format json --scanners vuln --exit-code 0 --quiet "$IMAGE")"; then
+            echo "::error::trivy could not list the server image's packages"
+            exit 1
+          fi
+          if ! NAMES="$(jq -r '.Results[]?.Packages[]?.Name' <<< "$PKGS")"; then
+            echo "::error::trivy's package list is not the JSON this step reads"
+            exit 1
+          fi
+          if ! grep -qx nodejs <<< "$NAMES"; then
+            echo "::error::the server image's package list has no nodejs; the browser check verified nothing"
+            exit 1
+          fi
+          if BROWSERS="$(grep -E '^chromium' <<< "$NAMES")"; then
+            echo "::error::the server image installs a browser it never launches: ${BROWSERS//$'\n'/, }"
+            exit 1
+          fi
+          echo "No browser in $(wc -l <<< "$NAMES" | tr -d ' ') packages"
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4

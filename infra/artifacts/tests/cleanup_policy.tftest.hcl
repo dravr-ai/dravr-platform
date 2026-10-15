@@ -123,7 +123,7 @@ run "deployed_digest_tags_are_kept" {
 # buildcache; the cache manifests carry a buildcache tag and are otherwise
 # ordinary tagged images, so without this prefix the delete-superseded rule reaps
 # them on the same 6-hour window as a stale CI build and the next run rebuilds
-# every cached layer — for the server, the apt/chromium/node/CLI runtime layers.
+# every cached layer — for the server, the apt/node/CLI runtime layers.
 # `latest` rides along for the same reason on the deploy side: it is the
 # reference the Cloud Run services actually hold.
 run "buildcache_and_latest_tags_are_kept" {
