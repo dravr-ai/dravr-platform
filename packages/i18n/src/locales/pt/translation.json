@@ -142,7 +142,9 @@
     "revoke": "Revogar",
     "revokeFailed": "Não foi possível revogar a chave.",
     "revokeMessage": "Tudo o que usa esta chave deixa de funcionar de imediato. Não é possível anular.",
-    "revokeTitle": "Revogar {{name}}?"
+    "revokeTitle": "Revogar {{name}}?",
+    "toolsEmpty": "Nenhuma chamada de ferramentas nos últimos 30 dias.",
+    "toolsHeading": "Ferramentas chamadas nos últimos 30 dias"
   },
   "app": {
     "account": "Conta",

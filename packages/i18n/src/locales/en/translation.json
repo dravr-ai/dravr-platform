@@ -142,7 +142,9 @@
     "revoke": "Revoke",
     "revokeFailed": "Couldn't revoke the key.",
     "revokeMessage": "Anything using this key stops working at once. This cannot be undone.",
-    "revokeTitle": "Revoke {{name}}?"
+    "revokeTitle": "Revoke {{name}}?",
+    "toolsEmpty": "No tool calls in the last 30 days.",
+    "toolsHeading": "Tools called in the last 30 days"
   },
   "app": {
     "account": "Account",

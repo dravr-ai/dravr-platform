@@ -142,7 +142,9 @@
     "revoke": "Widerrufen",
     "revokeFailed": "Der Schlüssel konnte nicht widerrufen werden.",
     "revokeMessage": "Alles, was diesen Schlüssel nutzt, funktioniert sofort nicht mehr. Das lässt sich nicht rückgängig machen.",
-    "revokeTitle": "{{name}} widerrufen?"
+    "revokeTitle": "{{name}} widerrufen?",
+    "toolsEmpty": "Keine Tool-Aufrufe in den letzten 30 Tagen.",
+    "toolsHeading": "In den letzten 30 Tagen aufgerufene Tools"
   },
   "app": {
     "account": "Konto",

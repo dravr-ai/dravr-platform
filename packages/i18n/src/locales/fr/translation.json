@@ -142,7 +142,9 @@
     "revoke": "Révoquer",
     "revokeFailed": "Impossible de révoquer la clé.",
     "revokeMessage": "Tout ce qui utilise cette clé cesse aussitôt de fonctionner. C'est irréversible.",
-    "revokeTitle": "Révoquer {{name}} ?"
+    "revokeTitle": "Révoquer {{name}} ?",
+    "toolsEmpty": "Aucun appel d'outil ces 30 derniers jours.",
+    "toolsHeading": "Outils appelés ces 30 derniers jours"
   },
   "app": {
     "account": "Compte",
