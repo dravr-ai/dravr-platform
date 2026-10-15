@@ -208,6 +208,9 @@ pub async fn handle_public_register(
             // attribute the user.signed_up event without re-passing the id. The
             // personal tenant is created inside register() and not exposed on the
             // response, so tenant_id is recorded at the login/session span instead.
+            //
+            // LIMITATION(registre#1056): `user.signed_up` carries no `UserStatus` and has no
+            // routing rule, so a sign-up awaiting approval reaches no admin as one.
             Span::current().record("user_id", field::display(&response.user_id));
             info!(
                 target: "notify",
