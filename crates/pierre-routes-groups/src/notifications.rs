@@ -32,7 +32,7 @@ use pierre_core::models::default_locale;
 use pierre_core::transport::Transport;
 use pierre_middleware::AuthenticatedUser;
 use pierre_notifications::constants as notif_constants;
-use pierre_notifications::events::{data_transport_policy, event_params};
+use pierre_notifications::events::event_params;
 use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
     DeviceRegistrar, ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
@@ -48,19 +48,6 @@ use pierre_notifications::{
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::notification_text::NotificationTextRenderer;
 use pierre_services::units::resolve_user_units;
-
-/// The rows an external caller's feed read scans per request to the upstream
-/// store.
-const FEED_SCAN_PAGE: u32 = 100;
-
-/// What a feed request selects, beside its page.
-#[derive(Debug, Clone, Copy)]
-struct FeedFilter<'a> {
-    /// Only this category, when given.
-    category: Option<&'a str>,
-    /// Only rows nobody has read.
-    unread_only: bool,
-}
 
 /// Rewrite one feed row's title, body and action labels in the reader's
 /// locale, with every distance in the reader's units.
@@ -248,28 +235,41 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Validate expo push token format
-        if !request.expo_push_token.starts_with("ExponentPushToken[")
-            && !request.expo_push_token.starts_with("ExpoPushToken[")
-        {
-            return Err(AppError::invalid_input(
-                "Invalid Expo push token format. Expected ExponentPushToken[...] or ExpoPushToken[...]",
-            ));
-        }
-
         let service = Self::get_service(&resources)?;
-        let token = notif(
-            service
-                .upsert_device_token(
-                    auth.user_id,
-                    tenant_id,
-                    &request.expo_push_token,
-                    request.platform.as_str(),
-                    request.device_name.as_deref(),
-                    device_registrar(),
-                )
-                .await,
-        )?;
+        let token = notif(match device_registrar() {
+            // An external caller's device is registered under commere's rules,
+            // its token shape included.
+            DeviceRegistrar::External => {
+                service
+                    .register_external_device(
+                        auth.user_id,
+                        tenant_id,
+                        &request.expo_push_token,
+                        request.platform.as_str(),
+                        request.device_name.as_deref(),
+                    )
+                    .await
+            }
+            DeviceRegistrar::FirstParty => {
+                if !request.expo_push_token.starts_with("ExponentPushToken[")
+                    && !request.expo_push_token.starts_with("ExpoPushToken[")
+                {
+                    return Err(AppError::invalid_input(
+                        "Invalid Expo push token format. Expected ExponentPushToken[...] or ExpoPushToken[...]",
+                    ));
+                }
+                service
+                    .upsert_device_token(
+                        auth.user_id,
+                        tenant_id,
+                        &request.expo_push_token,
+                        request.platform.as_str(),
+                        request.device_name.as_deref(),
+                        DeviceRegistrar::FirstParty,
+                    )
+                    .await
+            }
+        })?;
 
         info!(
             user_id = %auth.user_id,
@@ -306,12 +306,15 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let tokens = notif(service.get_device_tokens(auth.user_id, tenant_id).await)?;
-        let caller = device_registrar();
+        let tokens = notif(match device_registrar() {
+            DeviceRegistrar::FirstParty => service.get_device_tokens(auth.user_id, tenant_id).await,
+            DeviceRegistrar::External => {
+                service.list_external_devices(auth.user_id, tenant_id).await
+            }
+        })?;
 
         let response: Vec<DeviceTokenResponse> = tokens
             .into_iter()
-            .filter(|t| caller == DeviceRegistrar::FirstParty || t.registrar == caller)
             .map(|t| DeviceTokenResponse {
                 id: t.id,
                 user_id: t.user_id,
@@ -341,20 +344,18 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        if device_registrar() == DeviceRegistrar::External {
-            let tokens = notif(service.get_device_tokens(auth.user_id, tenant_id).await)?;
-            if !tokens
-                .iter()
-                .any(|t| t.id == id && t.registrar == DeviceRegistrar::External)
-            {
-                return Err(AppError::not_found("Device token"));
+        let deactivated = notif(match device_registrar() {
+            DeviceRegistrar::FirstParty => {
+                service
+                    .deactivate_device_token(auth.user_id, tenant_id, id)
+                    .await
             }
-        }
-        let deactivated = notif(
-            service
-                .deactivate_device_token(auth.user_id, tenant_id, id)
-                .await,
-        )?;
+            DeviceRegistrar::External => {
+                service
+                    .deactivate_external_device(auth.user_id, tenant_id, id)
+                    .await
+            }
+        })?;
 
         if !deactivated {
             return Err(AppError::not_found("Device token"));
@@ -402,9 +403,10 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let enabled = request.enabled.unwrap_or(true);
+        let external = ai_scope::serving_external();
 
-        // Validate max_per_day range if provided
-        if let Some(max) = request.max_per_day {
+        // An external caller's preference is checked by commere below.
+        if let Some(max) = request.max_per_day.filter(|_| !external) {
             if !(0..=1000).contains(&max) {
                 return Err(AppError::invalid_input(
                     "max_per_day must be between 0 and 1000",
@@ -425,7 +427,12 @@ impl NotificationRoutes {
         };
 
         let service = Self::get_service(&resources)?;
-        let pref = notif(service.upsert_notification_preference(&params).await)?;
+        let pref = notif(if external {
+            // Category, daily cap, quiet hours and timezone, under commere's rules.
+            service.set_notification_preference(&params).await
+        } else {
+            service.upsert_notification_preference(&params).await
+        })?;
 
         info!(
             user_id = %auth.user_id,
@@ -450,9 +457,10 @@ impl NotificationRoutes {
         let limit = query.limit.unwrap_or(20).clamp(1, 100);
         let offset = query.offset.unwrap_or(0);
         let unread_only = query.unread_only.unwrap_or(false);
+        let external = ai_scope::serving_external();
 
-        // Validate category if provided
-        if let Some(ref cat) = query.category {
+        // An external caller's category is checked by commere below.
+        if let Some(cat) = query.category.as_ref().filter(|_| !external) {
             if NotificationCategory::from_str_opt(cat).is_none() {
                 let valid = NotificationCategory::all()
                     .iter()
@@ -466,32 +474,39 @@ impl NotificationRoutes {
         }
 
         let service = Self::get_service(&resources)?;
-        let filter = FeedFilter {
-            category: query.category.as_deref(),
-            unread_only,
-        };
-        let (items, total, unread_count) = if ai_scope::serving_external() {
-            Self::readable_feed_page(service, auth.user_id, tenant_id, filter, limit, offset)
-                .await?
+        let category = query.category.as_deref();
+        let (notifications, total, unread_count) = if external {
+            let page = notif(
+                service
+                    .list_readable_notifications(
+                        auth.user_id,
+                        tenant_id,
+                        limit,
+                        offset,
+                        category,
+                        unread_only,
+                    )
+                    .await,
+            )?;
+            (page.notifications, page.total, page.unread_count)
         } else {
-            let (notifications, total, unread_count) = notif(
+            notif(
                 service
                     .list_notifications(
                         auth.user_id,
                         tenant_id,
                         limit,
                         offset,
-                        filter.category,
-                        filter.unread_only,
+                        category,
+                        unread_only,
                     )
                     .await,
-            )?;
-            let items: Vec<NotificationItem> = notifications
-                .into_iter()
-                .map(NotificationItem::from)
-                .collect();
-            (items, total, unread_count)
+            )?
         };
+        let items: Vec<NotificationItem> = notifications
+            .into_iter()
+            .map(NotificationItem::from)
+            .collect();
 
         // Collapse consecutive notifications of the same collapsible type
         let mut collapsed_items = collapse_notifications(items);
@@ -525,78 +540,6 @@ impl NotificationRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Every notification of the reader's that `filter` selects and an
-    /// external caller may read, newest first.
-    ///
-    /// The rows live in `dravr-commere`, whose statements take no stamp
-    /// predicate, so the feed is read in full pages and the stamped rows are
-    /// left out here — the only way a page, its total and its unread count
-    /// all describe readable rows alone (carnet#769).
-    async fn readable_feed(
-        service: &NotificationService,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        filter: FeedFilter<'_>,
-    ) -> Result<Vec<NotificationItem>, AppError> {
-        let mut readable = Vec::new();
-        let mut offset = 0;
-        loop {
-            let (rows, _, _) = notif(
-                service
-                    .list_notifications(
-                        user_id,
-                        tenant_id,
-                        FEED_SCAN_PAGE,
-                        offset,
-                        filter.category,
-                        filter.unread_only,
-                    )
-                    .await,
-            )?;
-            let scanned = rows.len();
-            readable.extend(
-                rows.into_iter().map(NotificationItem::from).filter(|item| {
-                    ai_scope::admit_derived(data_transport_policy(item.data.as_ref()))
-                }),
-            );
-            if scanned < usize::try_from(FEED_SCAN_PAGE).unwrap_or(usize::MAX) {
-                return Ok(readable);
-            }
-            offset += FEED_SCAN_PAGE;
-        }
-    }
-
-    /// One page of the feed as an external caller reads it, with the total
-    /// and unread count of readable rows only.
-    async fn readable_feed_page(
-        service: &NotificationService,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        filter: FeedFilter<'_>,
-        limit: u32,
-        offset: u32,
-    ) -> Result<(Vec<NotificationItem>, i64, i64), AppError> {
-        let selected = Self::readable_feed(service, user_id, tenant_id, filter).await?;
-        let unread = Self::readable_feed(
-            service,
-            user_id,
-            tenant_id,
-            FeedFilter {
-                category: None,
-                unread_only: true,
-            },
-        )
-        .await?;
-        let total = i64::try_from(selected.len()).unwrap_or(i64::MAX);
-        let unread_count = i64::try_from(unread.len()).unwrap_or(i64::MAX);
-        let page = selected
-            .into_iter()
-            .skip(usize::try_from(offset).unwrap_or(usize::MAX))
-            .take(usize::try_from(limit).unwrap_or(0))
-            .collect();
-        Ok((page, total, unread_count))
-    }
-
     /// The locale the feed renders in: the reader's own stored language.
     ///
     /// A user row that cannot be read falls back to the default locale — the
@@ -622,7 +565,13 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let count = notif(service.get_unread_count(auth.user_id, tenant_id).await)?;
+        // An external caller's count leaves out first-party-only rows, as its
+        // feed does.
+        let count = notif(if ai_scope::serving_external() {
+            service.readable_unread_count(auth.user_id, tenant_id).await
+        } else {
+            service.get_unread_count(auth.user_id, tenant_id).await
+        })?;
 
         Ok((
             StatusCode::OK,
@@ -824,11 +773,21 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Enforce per-user schedule cap
+        // The per-user schedule cap, for every caller
         let max_schedules = env::var("NOTIFICATION_MAX_SCHEDULES_PER_USER")
             .ok()
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(notif_constants::MAX_SCHEDULES_PER_USER);
+        if ai_scope::serving_external() {
+            return Self::create_external_schedule(
+                &resources,
+                &auth,
+                tenant_id,
+                &request,
+                max_schedules,
+            )
+            .await;
+        }
         let service = Self::get_service(&resources)?;
         let schedule_count = notif(
             service
@@ -879,6 +838,39 @@ impl NotificationRoutes {
         Ok((StatusCode::CREATED, Json(item)).into_response())
     }
 
+    /// Create an external caller's schedule under commere's rules: the type,
+    /// the cron, the timezone and then the per-user cap of `max_schedules`,
+    /// with commere's refusals.
+    async fn create_external_schedule<C: GroupsCtx>(
+        resources: &Arc<C>,
+        auth: &AuthResult,
+        tenant_id: TenantId,
+        request: &CreateScheduledNotificationRequest,
+        max_schedules: i64,
+    ) -> Result<Response, AppError> {
+        let service = Self::get_service(resources)?;
+        let scheduled = notif(
+            service
+                .schedule_notification(
+                    auth.user_id,
+                    tenant_id,
+                    &request.notification_type,
+                    &request.schedule_cron,
+                    request.timezone.as_deref().unwrap_or("UTC"),
+                    max_schedules,
+                )
+                .await,
+        )?;
+        info!(
+            user_id = %auth.user_id,
+            notification_type = %scheduled.notification_type,
+            schedule_cron = %scheduled.schedule_cron,
+            "Scheduled notification created"
+        );
+        let item = ScheduledNotificationItem::from(scheduled);
+        Ok((StatusCode::CREATED, Json(item)).into_response())
+    }
+
     /// Handle PUT /api/notifications/scheduled/:id - Update a scheduled notification
     async fn handle_update_scheduled<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
@@ -888,6 +880,27 @@ impl NotificationRoutes {
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
+        if ai_scope::serving_external() {
+            // Commere checks the cron and timezone, recomputes the next fire
+            // and refuses a schedule that would never fire.
+            let service = Self::get_service(&resources)?;
+            let updated = notif(
+                service
+                    .reschedule_notification(
+                        id,
+                        auth.user_id,
+                        tenant_id,
+                        request.enabled,
+                        request.schedule_cron.as_deref(),
+                        request.timezone.as_deref(),
+                    )
+                    .await,
+            )?;
+            if !updated {
+                return Err(AppError::not_found("Scheduled notification"));
+            }
+            return Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response());
+        }
 
         // Validate cron expression if provided
         if let Some(ref cron) = request.schedule_cron {

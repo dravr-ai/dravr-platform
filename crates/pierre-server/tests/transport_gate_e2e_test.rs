@@ -1730,6 +1730,246 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
     );
 }
 
+/// The external feed's page, total and unread count describe readable rows
+/// alone across more than one store page: the read dravr-commere's
+/// `list_readable_notifications` owns, served through the route.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+async fn the_external_feed_pages_readable_rows_past_one_store_page() {
+    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::models::NotificationCategory;
+    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
+
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let key = api_key(&resources, rider.user_id).await;
+    let service = resources
+        .common
+        .notification_service
+        .clone()
+        .expect("the test server wires notifications");
+
+    // 105 open rows and 3 stamped ones, the stamped written first so they sit
+    // at the end of a newest-first read.
+    let rows = (0..3)
+        .map(|n| {
+            (
+                format!("Relay record {n} on Garmin Hills"),
+                TransportPolicy::FirstPartyOnly,
+            )
+        })
+        .chain((0..105).map(|n| (format!("Open reminder {n}"), TransportPolicy::AnyTransport)));
+    for (title, policy) in rows {
+        service
+            .dispatch_with_tier(
+                &DispatchRequest {
+                    user_id: rider.user_id,
+                    tenant_id: CommTenantId(rider.tenant.as_uuid()),
+                    category: NotificationCategory::System,
+                    notification_type: "system_notice".to_owned(),
+                    title: title.clone(),
+                    body: title,
+                    data: stamp_data(None, policy),
+                    image_url: None,
+                    actions: None,
+                    bypass_frequency_cap: true,
+                },
+                PushTier::P0,
+            )
+            .await
+            .unwrap();
+    }
+
+    let (status, page) = get(&app, "/api/notifications?limit=100&offset=100", &key).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["total"], 105, "{page}");
+    assert_eq!(page["unread_count"], 105, "{page}");
+    let text = page.to_string();
+    assert!(!text.contains("Garmin Hills"), "{text}");
+    assert_eq!(page["data"].as_array().map(Vec::len), Some(5), "{page}");
+}
+
+/// An external caller's notification writes run under dravr-commere's rules
+/// (the product decision on carnet#540), while Dravr's own surfaces keep
+/// theirs: each refusal below is the external path's, and the same request
+/// over the app's session shows the first-party path unchanged.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+async fn an_external_callers_notification_writes_run_under_commeres_rules() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    // A device token must be an Expo push token, closing bracket included.
+    let unclosed = serde_json::json!({
+        "expo_push_token": "ExponentPushToken[unclosed",
+        "platform": "ios",
+    });
+    let (status, body) =
+        send_json(&app, "POST", "/api/notifications/device", &key, &unclosed).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("expo_push_token"), "{body}");
+    let (status, body) = send_json(
+        &app,
+        "POST",
+        "/api/notifications/device",
+        &session,
+        &unclosed,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    // Quiet hours must read HH:MM, and the timezone must be an IANA name.
+    for (field, preference) in [
+        (
+            "quiet_hours_start",
+            serde_json::json!({ "category": "training", "quiet_hours_start": "25:00" }),
+        ),
+        (
+            "timezone",
+            serde_json::json!({ "category": "training", "timezone": "Mars/Olympus" }),
+        ),
+    ] {
+        let (status, body) = send_json(
+            &app,
+            "PUT",
+            "/api/notifications/preferences",
+            &key,
+            &preference,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{field}: {body}");
+        assert!(body.to_string().contains(field), "{field}: {body}");
+        let (status, body) = send_json(
+            &app,
+            "PUT",
+            "/api/notifications/preferences",
+            &session,
+            &preference,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{field} over the session: {body}");
+    }
+
+    // The feed's category is refused with commere's text, the app's with its own.
+    let (status, body) = get(&app, "/api/notifications?category=nope", &key).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("unknown category"), "{body}");
+    let (status, body) = get(&app, "/api/notifications?category=nope", &session).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "over the session: {body}");
+    assert!(
+        body.to_string().contains("Invalid category"),
+        "over the session: {body}"
+    );
+
+    // A schedule's type must be one the scheduler composes.
+    let unknown = serde_json::json!({
+        "notification_type": "anything at all",
+        "schedule_cron": "0 7 * * *",
+    });
+    let (status, body) =
+        send_json(&app, "POST", "/api/notifications/scheduled", &key, &unknown).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("cannot be scheduled"), "{body}");
+    let (status, created) = send_json(
+        &app,
+        "POST",
+        "/api/notifications/scheduled",
+        &session,
+        &unknown,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    // A schedule moved to a cron that never fires is refused.
+    let reminder = serde_json::json!({
+        "notification_type": "workout_reminder",
+        "schedule_cron": "0 7 * * *",
+    });
+    let (status, scheduled) = send_json(
+        &app,
+        "POST",
+        "/api/notifications/scheduled",
+        &key,
+        &reminder,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{scheduled}");
+    let never = serde_json::json!({ "schedule_cron": "0 0 30 2 *" });
+    let uri = format!(
+        "/api/notifications/scheduled/{}",
+        scheduled["id"].as_str().expect("schedule id")
+    );
+    let (status, body) = send_json(&app, "PUT", &uri, &key, &never).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.to_string().contains("never fires"), "{body}");
+    let (status, body) = send_json(&app, "PUT", &uri, &session, &never).await;
+    assert_eq!(status, StatusCode::OK, "over the session: {body}");
+}
+
+/// An external caller's unread count leaves out first-party-only rows, as
+/// its feed does (the product decision on carnet#540); the app's count keeps
+/// every row.
+#[cfg(feature = "client-notifications")]
+#[tokio::test]
+async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
+    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::models::NotificationCategory;
+    use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
+
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+    let service = resources
+        .common
+        .notification_service
+        .clone()
+        .expect("the test server wires notifications");
+    for (title, policy) in [
+        ("Open reminder", TransportPolicy::AnyTransport),
+        (
+            "Relay record on Garmin Hills",
+            TransportPolicy::FirstPartyOnly,
+        ),
+    ] {
+        service
+            .dispatch_with_tier(
+                &DispatchRequest {
+                    user_id: rider.user_id,
+                    tenant_id: CommTenantId(rider.tenant.as_uuid()),
+                    category: NotificationCategory::System,
+                    notification_type: "system_notice".to_owned(),
+                    title: title.to_owned(),
+                    body: title.to_owned(),
+                    data: stamp_data(None, policy),
+                    image_url: None,
+                    actions: None,
+                    bypass_frequency_cap: true,
+                },
+                PushTier::P0,
+            )
+            .await
+            .unwrap();
+    }
+
+    let (status, external) = get(&app, "/api/notifications/unread-count", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    assert_eq!(external["unread_count"], 1, "{external}");
+    let (_, own) = get(&app, "/api/notifications/unread-count", &session).await;
+    assert_eq!(own["unread_count"], 2, "{own}");
+}
+
 #[tokio::test]
 async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access() {
     let resources = server_with_relay().await;
