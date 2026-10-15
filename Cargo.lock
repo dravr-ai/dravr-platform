@@ -1589,8 +1589,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.6.0"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.6.0#385c90574b19697bb875009d05f60f713944943c"
+version = "0.7.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.7.0#2caa853d117b6e7505cdd1669924b36e9b0ef1e6"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -2573,7 +2573,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5045,7 +5045,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5083,7 +5083,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7377,7 +7377,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
