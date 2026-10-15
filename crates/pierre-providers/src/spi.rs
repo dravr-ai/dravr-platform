@@ -1099,6 +1099,10 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // each at their own path (`IntervalsIcuProviderFactory::delegated_reads`).
         // It also writes its training calendar: it implements the four
         // calendar methods on `FitnessProvider`.
+        //
+        // LIMITATION(registre#1020): `PLANNED_WORKOUTS` is not declared: the calendar is read
+        // only to reconcile Dravr's own pushes, so workouts a coach plans in intervals.icu and
+        // planned-vs-done (`paired_event_id`, `compliance`) never reach the agent.
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::RECORDED_ACTIVITIES)

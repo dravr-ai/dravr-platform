@@ -448,6 +448,10 @@ async fn build_overview(
 }
 
 /// Review every athlete the caller coaches, consent-gated, in one call.
+///
+/// LIMITATION(registre#1018): `GetRosterOverviewTool` sees the members of the caller's Dravr
+/// groups only: the coach's provider roster (intervals.icu, `TrainingPeaks`) and proposing a
+/// delegated link are reachable through REST and the web/mobile UI, never from chat.
 pub struct GetRosterOverviewTool;
 
 #[async_trait]

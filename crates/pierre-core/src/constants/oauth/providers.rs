@@ -46,6 +46,10 @@ pub const INTERVALS_ICU: &str = "intervals_icu";
 /// Completed activities and wellness to read, the calendar to write planned
 /// sessions into, and the athlete's settings (zones, thresholds) to read.
 /// Intervals.icu joins them with commas.
+///
+/// LIMITATION(registre#1021): `INTERVALS_ICU_DEFAULT_SCOPES` requests `SETTINGS:READ` that
+/// nothing consumes: no read of `GET /api/v1/athlete/{id}/sport-settings` exists, so the FTP,
+/// thresholds and zones set in intervals.icu never reach physiology.
 pub const INTERVALS_ICU_DEFAULT_SCOPES: &[&str] = &[
     "ACTIVITY:READ",
     "WELLNESS:READ",

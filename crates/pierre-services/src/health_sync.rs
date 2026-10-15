@@ -614,6 +614,9 @@ pub const fn enforme_credential_kind(kind: CredentialKind) -> EnformeCredentialK
 
 #[async_trait]
 impl CredentialStore for PierreSyncStorage {
+    /// LIMITATION(registre#1019): `get_credentials` resolves the athlete's own token row only,
+    /// so an athlete reached through a coach's delegated link never syncs wellness (HRV,
+    /// resting HR, sleep, weight) although the coach's key could read it at the athlete's path.
     async fn get_credentials(
         &self,
         user_id: &str,

@@ -210,6 +210,10 @@ impl CoachPlatform for TrainingPeaksPlatform {
 /// key only, and serves a coach each athlete who shares with them at that
 /// athlete's own path. A coach account there trains too, so its own calendar
 /// reads as any athlete's.
+///
+/// LIMITATION(registre#1022): `IntervalsIcuPlatform` earns no `manages_roster` grant, unlike a
+/// bound `TrainingPeaks` coach account: an intervals.icu coach waits on an operator grant
+/// before they can coach a group.
 struct IntervalsIcuPlatform;
 
 #[async_trait]

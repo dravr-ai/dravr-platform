@@ -376,6 +376,11 @@ impl IntervalsIcuProvider {
 
     /// Refuse a calendar write on a delegated provider before anything is
     /// sent.
+    ///
+    /// LIMITATION(registre#1017): `refuse_delegated_write` refuses every coach write, though
+    /// intervals.icu lets a coach's key write the calendar of an athlete who granted Coach
+    /// access: no per-link write consent exists yet, and the roster does not read
+    /// `icu_permission` to tell a coached athlete from a followed one.
     fn refuse_delegated_write(&self) -> AppResult<()> {
         if self.subject.is_some() {
             return Err(AppError::invalid_input(
