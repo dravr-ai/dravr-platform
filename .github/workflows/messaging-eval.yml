@@ -277,9 +277,14 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: ${{ steps.pierre-key.outputs.key }}
         run: |
           mkdir -p /tmp
+          # The QA driver writes in English. Without --locale the account takes
+          # the platform default (fr), and every status text the bridge renders
+          # from the stored locale reads French beside English replies
+          # (carnet#1024).
           cargo run --release --bin pierre-cli -- user create \
             --email "$ADMIN_EMAIL" \
-            --password "$ADMIN_PASSWORD"
+            --password "$ADMIN_PASSWORD" \
+            --locale en
 
       - name: Pre-link QA driver Slack user to admin
         env:
