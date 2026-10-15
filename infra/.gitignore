@@ -8,7 +8,6 @@
 
 # Terraform directory
 .terraform/
-.terraform.lock.hcl
 
 # Terraform variables files (may contain secrets)
 *.auto.tfvars

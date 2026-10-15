@@ -9,3 +9,16 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "fix(deps):"
+
+  # Move the committed Terraform provider locks (dev, prod, artifacts)
+  - package-ecosystem: "terraform"
+    directories:
+      - "/infra/environments/dev"
+      - "/infra/environments/prod"
+      - "/infra/artifacts"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "fix(deps):"
