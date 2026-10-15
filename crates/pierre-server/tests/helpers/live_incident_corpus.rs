@@ -18,7 +18,7 @@
 //! hence the module-level `dead_code` allowance.
 
 use crate::helpers::sciotte_mock::seed_sciotte_session;
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -40,7 +40,7 @@ use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::intake::{record_steps, STATUS_COMPLETE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
@@ -125,6 +125,25 @@ pub const SEEDED_RUN_NAME: &str = "Course";
 /// The title of the fixture's one system agent, the coach every DM episode
 /// talks to and the name `first_reply_introduction` must hear.
 pub const EVAL_COACH_TITLE: &str = "Eval Coach";
+
+/// The instant the fixture's activity history is measured back from.
+///
+/// One per process, so the activity cache, the scraper stand-in and the
+/// judge's ledger give every activity the same start, to the second. Each
+/// read `Utc::now()` on its own, so the ledger could only give dates: the
+/// agent quoted a run's real 09:52 start and the judge, shown no times,
+/// graded it invented. Per process rather than per pass because the lane
+/// builds the scraper's payload once, before its first pass, and every
+/// later pass's cache seed has to match it.
+fn fixture_clock() -> DateTime<Utc> {
+    static ANCHOR: OnceLock<DateTime<Utc>> = OnceLock::new();
+    *ANCHOR.get_or_init(Utc::now)
+}
+
+/// When a seeded activity `days_ago` started, on [`fixture_clock`].
+pub fn seeded_start(days_ago: i64) -> DateTime<Utc> {
+    fixture_clock() - ChronoDuration::days(days_ago)
+}
 
 /// One seeded run, as every reader of the fixture sees it.
 ///
@@ -1036,7 +1055,7 @@ async fn seed_activities(
     tenant: TenantId,
     peer_id: Uuid,
 ) {
-    let sunday = Utc::now() - ChronoDuration::days(days_since_sunday());
+    let sunday = seeded_start(days_since_sunday());
 
     let strava_twin = ActivityBuilder::new(
         "eval-sunday-strava",
@@ -1111,7 +1130,7 @@ fn seeded_run_activity(run: &SeededRun) -> Activity {
         run.id.clone(),
         SEEDED_RUN_NAME,
         SportType::Run,
-        Utc::now() - ChronoDuration::days(run.days_ago),
+        seeded_start(run.days_ago),
         run.seconds,
         "strava",
     )
@@ -1123,7 +1142,7 @@ fn seeded_run_activity(run: &SeededRun) -> Activity {
 /// the fixture actually holds regardless of when the lane runs.
 pub fn days_since_sunday() -> i64 {
     use chrono::Datelike;
-    let weekday = Utc::now().weekday().num_days_from_sunday();
+    let weekday = fixture_clock().weekday().num_days_from_sunday();
     if weekday == 0 {
         7
     } else {
@@ -1141,8 +1160,8 @@ pub fn days_since_sunday() -> i64 {
 /// was invented, and shown nothing to check it against, will eventually say
 /// yes about a number that is simply arithmetic.
 ///
-/// Every seeded activity is listed with its date, because a judge shown
-/// ranges cannot tell a correctly dated figure from an invented one. The
+/// Every seeded activity is listed with its date and start, because a judge
+/// shown ranges cannot tell a correctly dated figure from an invented one. The
 /// connection state and activity names are stated too: the agent sees both,
 /// and a judge that has not been told them reads them as invention.
 pub fn ground_truth() -> String {
@@ -1153,7 +1172,7 @@ pub fn ground_truth() -> String {
          {SUNDAY_RIDE_KM} km ride «Sortie longue» over {SUNDAY_RIDE_HOURS} hours; \
          WHOOP recorded the same start and duration as «Activity» with NO distance and \
          misidentified the sport as a run. They are the same session, not two.\n",
-        today = Utc::now().format("%A %Y-%m-%d"),
+        today = fixture_clock().format("%A %Y-%m-%d"),
     );
     for run in athlete_runs() {
         truth.push_str(&ledger_line("Athlete JF", &run));
@@ -1173,7 +1192,7 @@ pub fn ground_truth() -> String {
     truth
 }
 
-/// One ledger row: who, the date, distance, duration and pace.
+/// One ledger row: who, the date and start, distance, duration and pace.
 fn ledger_line(who: &str, run: &SeededRun) -> String {
     let km = run.metres / 1_000.0;
     let pace_seconds = (run.seconds as f64 / km).round() as u64;
@@ -1189,9 +1208,10 @@ fn ledger_line(who: &str, run: &SeededRun) -> String {
     )
 }
 
-/// `days_ago` as the judge reads a date: «yesterday, Tuesday 2026-10-13».
+/// `days_ago` as the judge reads a date and start: «yesterday, Tuesday
+/// 2026-10-13, started 09:52 UTC».
 fn days_ago_label(days_ago: i64) -> String {
-    let date = (Utc::now() - ChronoDuration::days(days_ago)).format("%A %Y-%m-%d");
+    let date = seeded_start(days_ago).format("%A %Y-%m-%d, started %H:%M UTC");
     match days_ago {
         1 => format!("yesterday, {date}"),
         n => format!("{n} days ago, {date}"),

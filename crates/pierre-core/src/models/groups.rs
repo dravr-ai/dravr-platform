@@ -636,7 +636,7 @@ pub struct MemberFitnessSnapshot {
     /// indoor trainers, treadmill sessions) that report no GPS distance
     /// — without this the group card renders such weeks as `0.0 km`
     /// and the LLM has no visibility into the athlete's actual workload.
-    pub weekly_duration_seconds: i64,
+    pub weekly_duration_seconds: u64,
     /// Primary sport type
     pub primary_sport: Option<String>,
     /// VDOT (running fitness estimator)
@@ -721,8 +721,10 @@ pub struct RosterActivity {
     /// Optional kilometers when the source carries GPS distance.
     /// `None` for HR/duration-only sources like WHOOP.
     pub distance_km: Option<f64>,
-    /// Activity duration in minutes — always available.
-    pub duration_minutes: i64,
+    /// Activity duration in seconds, exact — always available. Rendered
+    /// through `duration_text::clock`, never rounded: the model quotes it and
+    /// derives pace from it (carnet#1015).
+    pub duration_seconds: u64,
     /// User-facing name when the provider supplies one
     /// (e.g. `"🤭"`, `"Peanut butter 🤤"`). Empty when missing.
     pub name: String,

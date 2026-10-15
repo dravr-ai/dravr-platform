@@ -78,6 +78,9 @@ pub mod markdown;
 /// Sentence-boundary chunking of an over-limit reply into ordered messages
 pub mod chunking;
 
+/// An activity duration as the model reads it, exact to the second
+pub mod duration_text;
+
 /// HTML escaping for server-rendered templates, and the Boreal stylesheet every hosted page embeds
 pub mod html;
 pub mod json_value;

@@ -294,7 +294,7 @@ fn project_activity(a: &Activity) -> GroupMemberActivity {
         sport: format!("{:?}", a.sport_type()),
         start_date: a.start_date().to_rfc3339(),
         distance_km: a.distance_meters().map(|m| m / 1000.0),
-        duration_minutes: a.duration_seconds() / 60,
+        duration_seconds: a.duration_seconds(),
         elevation_gain_m: a.elevation_gain(),
         average_heart_rate: a.average_heart_rate(),
         max_heart_rate: a.max_heart_rate(),
@@ -324,8 +324,9 @@ pub struct GroupMemberActivity {
     pub start_date: String,
     /// Distance in kilometres; absent for an activity with no distance.
     pub distance_km: Option<f64>,
-    /// Moving time in whole minutes.
-    pub duration_minutes: u64,
+    /// Moving time in seconds, exact: the agent quotes it and derives pace
+    /// from it.
+    pub duration_seconds: u64,
     /// Elevation gained in metres; absent when the device recorded none.
     pub elevation_gain_m: Option<f64>,
     /// Mean heart rate; absent without a strap.
@@ -611,3 +612,20 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(GetGroupMemberActivitiesTool => UNTRUSTED_OUTPUT);
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    use super::*;
+
+    #[test]
+    fn a_peer_activity_carries_its_exact_duration() {
+        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let run = ActivityBuilder::new("r1", "Course", SportType::Run, start, 3_239, "strava")
+            .distance_meters(6_100.0)
+            .build();
+        assert_eq!(project_activity(&run).duration_seconds, 3_239);
+    }
+}

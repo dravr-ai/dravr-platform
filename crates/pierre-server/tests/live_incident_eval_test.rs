@@ -37,8 +37,8 @@ mod live_incident_corpus;
 mod live_incident_eval {
     use crate::common::create_test_server_resources;
     use crate::live_incident_corpus::{
-        athlete_runs, classify_findings, ground_truth, peer_runs, seed_fixture, turn_timeout,
-        Expect, Finding, CORPUS, PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
+        athlete_runs, classify_findings, ground_truth, peer_runs, seed_fixture, seeded_start,
+        turn_timeout, Expect, Finding, CORPUS, PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
     };
     use chrono::{Duration as ChronoDuration, Utc};
     use dravr_canot::channels::slack::transport::SlackTransport;
@@ -97,8 +97,8 @@ mod live_incident_eval {
             ("Peer Philippe Tremblay", peer_runs()),
         ] {
             for run in runs {
-                let date = (Utc::now() - ChronoDuration::days(run.days_ago))
-                    .format("%Y-%m-%d")
+                let date = seeded_start(run.days_ago)
+                    .format("%Y-%m-%d, started %H:%M UTC")
                     .to_string();
                 let km = run.metres / 1_000.0;
                 assert!(
@@ -110,6 +110,54 @@ mod live_incident_eval {
                     run.id
                 );
             }
+        }
+    }
+
+    /// Every activity the athlete is served starts when the judge's ledger
+    /// says it does.
+    ///
+    /// Read back from the activity cache, the store the agent's tools serve,
+    /// so this holds only while the seed and the ledger measure from one
+    /// clock. When each read `Utc::now()` on its own, the ledger could carry
+    /// no start at all, and the agent quoting a run's real 09:52 start was
+    /// graded as inventing it.
+    #[tokio::test]
+    #[serial]
+    async fn every_cached_activity_starts_where_the_ledger_says() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = seed_fixture(&resources).await;
+        let evidence = ground_truth();
+        let cached = resources
+            .common
+            .repos
+            .activity_cache
+            .get_cached_activities(
+                fixture.athlete,
+                &fixture.athlete_tenant,
+                None,
+                Utc::now() - ChronoDuration::days(60),
+                Utc::now(),
+                500,
+            )
+            .await
+            .unwrap();
+        assert!(
+            cached.len() > athlete_runs().len(),
+            "expected every seeded run plus the Sunday twins, got {} rows",
+            cached.len()
+        );
+        for activity in &cached {
+            let start = activity
+                .start_date()
+                .format("%Y-%m-%d, started %H:%M UTC")
+                .to_string();
+            assert!(
+                evidence
+                    .lines()
+                    .any(|line| line.starts_with("Athlete JF") && line.contains(&start)),
+                "{} is served as starting {start}, which no ledger line states:\n{evidence}",
+                activity.id()
+            );
         }
     }
 

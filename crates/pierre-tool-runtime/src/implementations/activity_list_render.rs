@@ -44,6 +44,7 @@ use pierre_core::civil_time::{
     resolve_zone,
 };
 use pierre_core::constants::oauth_providers::activity_attribution;
+use pierre_core::duration_text::clock;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_providers::deduplication::{FilledField, FragmentReport};
@@ -184,16 +185,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
         // locales fall back to English.
         let sport = localized_sport_name(activity.sport_type(), locale);
         let distance_km = activity.distance_meters().unwrap_or(0.0) / 1000.0;
-        let duration_secs = activity.duration_seconds();
-        let hours = duration_secs / 3600;
-        let minutes = (duration_secs % 3600) / 60;
-        let seconds = duration_secs % 60;
-
-        let duration_str = if hours > 0 {
-            format!("{hours}:{minutes:02}:{seconds:02}")
-        } else {
-            format!("{minutes}:{seconds:02}")
-        };
+        let duration_str = clock(activity.duration_seconds());
 
         // Append scalar sensor fields when the provider returned them.
         // Small models that skip the JSON tool result still see the

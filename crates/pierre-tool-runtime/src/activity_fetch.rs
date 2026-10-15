@@ -1100,22 +1100,23 @@ pub struct WindowTotals {
     pub count: usize,
     /// Summed distance in kilometres, over the activities that report one.
     pub distance_km: f64,
-    /// Summed duration in hours.
-    pub duration_hours: f64,
+    /// Summed duration in seconds, exact: the agent quotes it and derives
+    /// pace from it, so it is never rounded (carnet#1015).
+    pub duration_seconds: u64,
     /// Summed elevation gain in metres, over the activities that report one.
     pub elevation_gain_m: f64,
 }
 
 impl WindowTotals {
-    /// The totals as the `window_totals` object of the `coverage` sidecar,
-    /// rounded to one decimal.
+    /// The totals as the `window_totals` object of the `coverage` sidecar:
+    /// distance and elevation to one decimal, duration exact in seconds.
     #[must_use]
     pub fn to_json(&self) -> Value {
         let round = |v: f64| (v * 10.0).round() / 10.0;
         json!({
             "count": self.count,
             "distance_km": round(self.distance_km),
-            "duration_hours": round(self.duration_hours),
+            "duration_seconds": self.duration_seconds,
             "elevation_gain_m": round(self.elevation_gain_m),
         })
     }
@@ -1123,7 +1124,6 @@ impl WindowTotals {
 
 /// Sum a window's count, distance, duration and elevation gain.
 #[must_use]
-#[allow(clippy::cast_precision_loss)] // seconds summed over a window stay far below f64's exact range
 pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
     let distance_m: f64 = activities
         .iter()
@@ -1134,7 +1134,7 @@ pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
     WindowTotals {
         count: activities.len(),
         distance_km: distance_m / 1000.0,
-        duration_hours: seconds as f64 / 3600.0,
+        duration_seconds: seconds,
         elevation_gain_m: elevation_m,
     }
 }

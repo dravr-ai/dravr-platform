@@ -118,14 +118,14 @@ mod live_incident_corpus;
 use crate::common::{create_test_server_resources_with_real_chat_provider, PLACEHOLDER_LLM_MODEL};
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::live_incident_corpus::{
-    athlete_runs, classify_findings, days_since_sunday, ground_truth, seed_fixture, turn_timeout,
-    Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
+    athlete_runs, classify_findings, days_since_sunday, ground_truth, seed_fixture, seeded_start,
+    turn_timeout, Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
     SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Utc;
 use hmac::{Hmac, Mac};
 use pierre_chat_pipeline::stages::introduction::reply_names_agent;
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
@@ -269,7 +269,7 @@ fn slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
 /// anything other than what the fixture seeds gives the agent two
 /// disagreeing accounts of one athlete and then grades it for noticing.
 async fn spawn_eval_scraper() -> String {
-    let sunday = (Utc::now() - ChronoDuration::days(days_since_sunday()))
+    let sunday = seeded_start(days_since_sunday())
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
     let mut activities = vec![json!({
@@ -286,7 +286,7 @@ async fn spawn_eval_scraper() -> String {
             "id": run.id,
             "name": SEEDED_RUN_NAME,
             "sport_type": "run",
-            "start_date": (Utc::now() - ChronoDuration::days(run.days_ago))
+            "start_date": seeded_start(run.days_ago)
                 .format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "duration_seconds": run.seconds,
             "provider": "strava",

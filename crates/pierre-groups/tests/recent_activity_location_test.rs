@@ -52,7 +52,7 @@ fn ride_with_location(city: Option<&str>, lat: Option<f64>, lng: Option<f64>) ->
         start: Utc::now() - ChronoDuration::days(2),
         sport: "Ride".to_owned(),
         distance_km: Some(42.0),
-        duration_minutes: 90,
+        duration_seconds: 90 * 60,
         name: "Saturday loop".to_owned(),
         city: city.map(str::to_owned),
         start_latitude: lat,

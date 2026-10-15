@@ -331,7 +331,7 @@ pub struct WeeklyMetrics {
     /// Distance (km) summed across the trailing 7-day window.
     pub volume_km: f64,
     /// Total active duration (seconds) across the trailing 7-day window.
-    pub duration_seconds: i64,
+    pub duration_seconds: u64,
     /// Distance (km) for the 7-to-14-day window, or `None` when that window
     /// holds no activities. Feeds the group-level weekly trend.
     pub previous_week_volume_km: Option<f64>,
@@ -364,10 +364,7 @@ pub fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> We
         .sum::<f64>()
         / 1000.0;
 
-    let weekly_duration_seconds: i64 = weekly_activities
-        .iter()
-        .map(|a| i64::try_from(a.duration_seconds()).unwrap_or(i64::MAX))
-        .sum();
+    let weekly_duration_seconds: u64 = weekly_activities.iter().map(|a| a.duration_seconds()).sum();
 
     let previous_week: Vec<_> = activities
         .iter()
@@ -686,7 +683,7 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
             start: a.start_date(),
             sport: format!("{:?}", a.sport_type()),
             distance_km: a.distance_meters().map(|m| m / 1000.0),
-            duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
+            duration_seconds: a.duration_seconds(),
             name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
             city: a.city().map(str::to_owned),
             start_latitude: a.start_latitude(),
@@ -796,5 +793,42 @@ fn assess_overtraining_risk(load: Option<&TrainingLoad>) -> OvertrainingRiskLeve
         FormBand::DeepFatigue => OvertrainingRiskLevel::High,
         FormBand::HeavyBlock => OvertrainingRiskLevel::Moderate,
         _ => OvertrainingRiskLevel::Low,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    use super::*;
+
+    /// A run `days` before `now` lasting `seconds`.
+    fn run(id: &str, now: DateTime<Utc>, days: i64, seconds: u64) -> Activity {
+        ActivityBuilder::new(
+            id,
+            "Course",
+            SportType::Run,
+            now - Duration::days(days),
+            seconds,
+            "strava",
+        )
+        .distance_meters(6_100.0)
+        .build()
+    }
+
+    #[test]
+    fn roster_durations_keep_the_seconds() {
+        // 53:59 truncated to whole minutes reads as 53, about 10 s/km slow on
+        // 6.1 km (carnet#1015).
+        let now = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+        let activities = [run("a", now, 1, 3_239), run("b", now, 2, 1_801)];
+
+        let recent = compute_recent_activities(&activities, now);
+        let durations: Vec<u64> = recent.iter().map(|a| a.duration_seconds).collect();
+        assert_eq!(durations, [3_239, 1_801]);
+
+        let weekly = compute_weekly_metrics(&activities, now);
+        assert_eq!(weekly.duration_seconds, 5_040);
     }
 }

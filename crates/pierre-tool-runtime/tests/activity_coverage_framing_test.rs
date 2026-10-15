@@ -227,14 +227,14 @@ fn window_totals_sum_the_whole_window() {
     let totals = activity_window_totals(&window);
     assert_eq!(totals.count, 13);
     assert!((totals.distance_km - 120.0).abs() < f64::EPSILON);
-    assert!((totals.duration_hours - 13.0).abs() < f64::EPSILON);
+    assert_eq!(totals.duration_seconds, 13 * 3_600);
     assert!((totals.elevation_gain_m - 1500.0).abs() < f64::EPSILON);
     assert_eq!(
         totals.to_json(),
         serde_json::json!({
             "count": 13,
             "distance_km": 120.0,
-            "duration_hours": 13.0,
+            "duration_seconds": 46_800,
             "elevation_gain_m": 1500.0,
         })
     );

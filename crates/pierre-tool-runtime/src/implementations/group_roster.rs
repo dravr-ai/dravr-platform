@@ -108,8 +108,9 @@ pub struct RosterOverviewActivity {
     pub sport: String,
     /// The session's title, when the provider gave one.
     pub name: String,
-    /// Moving time in whole minutes.
-    pub duration_minutes: i64,
+    /// Moving time in seconds, exact: the agent quotes it and derives pace
+    /// from it.
+    pub duration_seconds: u64,
     /// Distance in kilometres; absent for a session with no distance.
     pub distance_km: Option<f64>,
 }
@@ -121,8 +122,8 @@ pub struct RosterTraining {
     pub days_since_last_activity: Option<i32>,
     /// Sessions this week.
     pub sessions_this_week: i32,
-    /// Active minutes this week, which covers sources with no distance.
-    pub minutes_this_week: i64,
+    /// Active seconds this week, which covers sources with no distance.
+    pub seconds_this_week: u64,
     /// Kilometres this week.
     pub km_this_week: f64,
     /// Kilometres the week before, for the trend.
@@ -322,7 +323,7 @@ fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
                 weekday: day.format("%A").to_string(),
                 sport: a.sport.clone(),
                 name: display_line(&a.name, ACTIVITY_NAME_MAX_CHARS),
-                duration_minutes: a.duration_minutes,
+                duration_seconds: a.duration_seconds,
                 distance_km: a.distance_km,
             }
         })
@@ -330,7 +331,7 @@ fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
     RosterTraining {
         days_since_last_activity: snapshot.days_since_last_activity,
         sessions_this_week: snapshot.weekly_activity_count,
-        minutes_this_week: snapshot.weekly_duration_seconds / 60,
+        seconds_this_week: snapshot.weekly_duration_seconds,
         km_this_week: snapshot.weekly_volume_km,
         km_previous_week: snapshot.previous_week_volume_km,
         primary_sport: snapshot.primary_sport.clone(),
@@ -527,6 +528,9 @@ crate::declare_security!(GetRosterOverviewTool => UNTRUSTED_OUTPUT);
 
 #[cfg(test)]
 mod tests {
+    use chrono::{TimeZone, Utc};
+    use pierre_core::models::groups::{OvertrainingRiskLevel, RosterActivity};
+
     use super::*;
 
     /// A shared athlete; `has_snapshot` false models one with no `training`
@@ -539,7 +543,7 @@ mod tests {
             training: has_snapshot.then(|| RosterTraining {
                 days_since_last_activity: days,
                 sessions_this_week: 0,
-                minutes_this_week: 0,
+                seconds_this_week: 0,
                 km_this_week: 0.0,
                 km_previous_week: None,
                 primary_sport: None,
@@ -551,6 +555,53 @@ mod tests {
                 stale: false,
             }),
         }
+    }
+
+    #[test]
+    fn the_overview_keeps_durations_to_the_second() {
+        // 53:59 truncated to whole minutes reads as 53, about 10 s/km slow on
+        // 6.1 km (carnet#1015).
+        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let snapshot = MemberFitnessSnapshot {
+            user_id: Uuid::nil(),
+            display_name: "Philippe".to_owned(),
+            ctl: None,
+            atl: None,
+            tsb: None,
+            form_ctl: None,
+            weekly_volume_km: 6.1,
+            previous_week_volume_km: None,
+            weekly_activity_count: 1,
+            weekly_duration_seconds: 3_239,
+            primary_sport: None,
+            vdot: None,
+            overtraining_risk: OvertrainingRiskLevel::Low,
+            days_since_last_activity: Some(1),
+            last_activity_per_provider: HashMap::new(),
+            recent_activities: vec![RosterActivity {
+                start,
+                sport: "Run".to_owned(),
+                distance_km: Some(6.1),
+                duration_seconds: 3_239,
+                name: "Course".to_owned(),
+                city: None,
+                start_latitude: None,
+                start_longitude: None,
+                elevation_gain_m: None,
+            }],
+            needs_reauth_providers: Vec::new(),
+            served_stale: false,
+            timezone: None,
+            computed_at: start,
+        };
+        let training = project_training(&snapshot);
+        assert_eq!(training.seconds_this_week, 3_239);
+        let durations: Vec<u64> = training
+            .recent_activities
+            .iter()
+            .map(|a| a.duration_seconds)
+            .collect();
+        assert_eq!(durations, [3_239]);
     }
 
     #[test]

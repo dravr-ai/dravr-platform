@@ -10,6 +10,7 @@ use std::fmt::Write;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::civil_time::{format_local_day, resolve_zone};
+use pierre_core::duration_text::clock;
 use pierre_core::models::FormBand;
 
 use pierre_core::models::groups::{
@@ -20,13 +21,10 @@ use pierre_core::models::groups::{
 /// Locale the roster card's weekday names render in.
 ///
 /// The card is an internal English context block end to end — `activities`,
-/// `h active`, `Sources:`, `{sport:?}` — and the model renders the athlete's
+/// `active`, `Sources:`, `{sport:?}` — and the model renders the athlete's
 /// own locale from it. Naming the weekday at all is the fix (registre#200);
 /// which language names it is not what the athlete was correcting.
 const ROSTER_LOCALE: &str = "en";
-
-/// Number of seconds in one hour, used by the weekly-duration formatter.
-const SECONDS_PER_HOUR: f64 = 3_600.0;
 
 /// Format the per-provider freshness map as a stable comma-separated string
 /// (e.g. `"strava 33d, whoop 0d"`). Providers appear sorted by name so the
@@ -52,28 +50,6 @@ fn format_provider_freshness(
         let _ = write!(out, "{provider} {days}d");
     }
     out
-}
-
-/// Format weekly active duration as a fixed-precision hour string for prompt rendering.
-///
-/// Returns one decimal place (e.g. `0.0`, `1.5`, `12.3`) so the LLM sees
-/// stable shape even when the value is zero, and so very short weeks
-/// (~6 minutes) still render as `0.1h` rather than disappearing into `0`.
-fn format_weekly_duration_hours(weekly_duration_seconds: i64) -> String {
-    #[allow(clippy::cast_precision_loss)]
-    // weekly_duration_seconds is capped at one week of activity time; far below f64 precision limits
-    let hours = weekly_duration_seconds.max(0) as f64 / SECONDS_PER_HOUR;
-    format!("{hours:.1}")
-}
-
-/// Format per-activity duration (minutes) as a one-decimal hour string.
-/// Mirrors the precision of the weekly aggregate so a short walk still
-/// renders as `0.1h` rather than collapsing to `0`.
-fn format_recent_duration_hours(duration_minutes: i64) -> String {
-    #[allow(clippy::cast_precision_loss)]
-    // duration_minutes is the minutes of a single activity; far below f64 precision limits
-    let hours = duration_minutes.max(0) as f64 / 60.0;
-    format!("{hours:.1}")
 }
 
 /// Strategy for compressing member fitness data into LLM-consumable summaries.
@@ -153,8 +129,8 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
         // (WHOOP, indoor trainers) don't collapse to a misleading "0km/wk".
         let _ = write!(
             text,
-            " | {}h / {:.0}km/wk",
-            format_weekly_duration_hours(snapshot.weekly_duration_seconds),
+            " | {} / {:.0}km/wk",
+            clock(snapshot.weekly_duration_seconds),
             snapshot.weekly_volume_km
         );
         if let Some(sport) = &snapshot.primary_sport {
@@ -221,9 +197,9 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
         // like the athlete trained 0 km despite hours of work.
         let _ = writeln!(
             text,
-            "  {} activities, {}h active, {:.1}km total",
+            "  {} activities, {} active, {:.1}km total",
             snapshot.weekly_activity_count,
-            format_weekly_duration_hours(snapshot.weekly_duration_seconds),
+            clock(snapshot.weekly_duration_seconds),
             snapshot.weekly_volume_km
         );
         // Per-provider freshness so the LLM can see "strava 33d, whoop 0d"
@@ -262,12 +238,12 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
             let zone = resolve_zone(snapshot.timezone.as_deref());
             for act in &snapshot.recent_activities {
                 // English weekday: this card is an internal English context
-                // block end to end ("activities", "h active", "Sources:",
+                // block end to end ("activities", "active", "Sources:",
                 // `{sport:?}`), and the model renders the athlete's locale from
                 // it. What matters here is that the weekday is stated and
                 // correct, not which language states it.
                 let date = format_local_day(act.start, zone, ROSTER_LOCALE);
-                let dur_h = format_recent_duration_hours(act.duration_minutes);
+                let duration = clock(act.duration_seconds);
                 let dist = match act.distance_km {
                     Some(km) if km > 0.0 => format!(" {km:.1}km"),
                     _ => String::new(),
@@ -300,7 +276,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                 };
                 let _ = writeln!(
                     text,
-                    "    {date} {sport} {dur_h}h{dist}{elev_seg}{name_seg}{loc_seg}",
+                    "    {date} {sport} {duration}{dist}{elev_seg}{name_seg}{loc_seg}",
                     sport = act.sport,
                 );
             }
