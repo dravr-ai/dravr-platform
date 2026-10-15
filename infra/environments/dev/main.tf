@@ -1109,6 +1109,12 @@ module "sciotte" {
     # path sends the screenshot as an inline base64 PNG (`analyze_screenshot`),
     # so the model never needs a tool to read one.
     COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
+
+    # The launch UA. Unset, dravr-browser falls back to a fixed Chrome/147 Mac
+    # string on a Linux Chromium 155, a mismatch Garmin's SSO may score as a
+    # bot (carnet#1035). Keep the major version in step with the image's
+    # Chromium when it moves.
+    DRAVR_BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
   }
 
   secret_env_vars = {
