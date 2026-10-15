@@ -892,6 +892,10 @@ async fn agent_add_in_a_group_thread_by_a_member_is_refused() {
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = group_conversation(&resources, router.clone(), &auth, tenant_id, group_id).await;
+    // The fixture opens the thread as the member's own before filing it under
+    // the group, so it carries whatever the thread opened on; the refusal
+    // must leave that as it was.
+    let bound_before = conversation_agent(&resources, &conv_id, user_id, tenant_id).await;
     let body = send_command(router, &auth, &conv_id, "/coach add @recovery-coach").await;
 
     assert_eq!(
@@ -905,7 +909,7 @@ async fn agent_add_in_a_group_thread_by_a_member_is_refused() {
     );
     assert_eq!(
         conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
-        None,
+        bound_before,
         "nothing was bound"
     );
 }

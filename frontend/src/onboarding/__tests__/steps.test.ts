@@ -164,9 +164,10 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
   it('returning user with cleared localStorage never re-sees profile_type (needs=false)', () => {
     // Regression guard: profile_type is gated on needs===true, so a
     // long-connected user with no local flags must NOT be pulled back into it.
+    // Their agent step is done by the server record, which survives the clear.
     expect(
       currentOnboardingStep(
-        ctx({ needsProviderConnection: false, profileTypeChosen: false, coachProposalDone: false }),
+        ctx({ needsProviderConnection: false, profileTypeChosen: false, coachProposalDone: true }),
       ),
     ).toBeNull();
   });
@@ -187,13 +188,37 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     ).toBeNull();
   });
 
-  it('coach_proposal does not fire without the in-session justOnboarded transition', () => {
-    // needs=false but justOnboarded=false (plain login) → straight to dashboard.
+  it('fresh tab, provider already connected, coach step unrecorded → coach_proposal (carnet#1042)', () => {
+    // The OAuth return landed in a tab that never saw needs true→false, so
+    // justOnboarded is false; the server still says a provider is connected
+    // and the step is not done, so the proposal is shown.
     expect(
       currentOnboardingStep(
         ctx({ needsProviderConnection: false, justOnboarded: false, coachProposalDone: false }),
-      ),
+      )?.id,
+    ).toBe('coach_proposal');
+  });
+
+  it('coach step recorded done or declined → not shown, with or without the flip', () => {
+    for (const justOnboarded of [false, true]) {
+      expect(
+        currentOnboardingStep(
+          ctx({ needsProviderConnection: false, justOnboarded, coachProposalDone: true }),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it('coach_proposal waits for the server to report a connected provider', () => {
+    // Status still loading (undefined) or no provider yet: the agent step is not current.
+    expect(
+      currentOnboardingStep(ctx({ needsProviderConnection: undefined, coachProposalDone: false })),
     ).toBeNull();
+    expect(
+      currentOnboardingStep(
+        ctx({ needsProviderConnection: true, coachProposalDone: false }),
+      )?.id,
+    ).toBe('connect_provider');
   });
 });
 

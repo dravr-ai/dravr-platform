@@ -1,5 +1,5 @@
 // ABOUTME: Encapsulates onboarding flow state — server status query + per-step localStorage/session flags + transitions
-// ABOUTME: Called from AppContent (mounted across the OAuth-callback screen) so the needs→false transition is never missed
+// ABOUTME: Called from AppContent (mounted across the OAuth-callback screen); the agent step reads server state, not that transition
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -56,11 +56,13 @@ export interface OnboardingState {
 /**
  * Owns the onboarding gate state that previously lived inline in `AppContent`.
  *
- * Must be called from a component that stays mounted across the OAuth-callback
- * screen (i.e. `AppContent`, above its `oauthCallback` early return): the
- * `justOnboarded` transition is detected by observing `needs_provider_connection`
- * flip true→false while the OAuth round-trip completes, so the query and the
- * `prevNeedsProvider` ref must keep running the whole time.
+ * Called from a component that stays mounted across the OAuth-callback screen
+ * (i.e. `AppContent`, above its `oauthCallback` early return), so the tab that
+ * started the connection observes `needs_provider_connection` flip true→false
+ * (`justOnboarded`) and keeps the connect step up for a second service. The
+ * coach-proposal step does not depend on that flip: it is derived from the
+ * server status, so a fresh tab after the OAuth return meets it too
+ * (carnet#1042).
  */
 export function useOnboardingState(): OnboardingState {
   const { user, isAuthenticated } = useAuth();
@@ -100,7 +102,11 @@ export function useOnboardingState(): OnboardingState {
   // Coach-proposal completion, persisted per-user in localStorage as a fast,
   // offline-capable flag alongside the durable server-side step record.
   const coachProposalKey = user?.user_id ? `dravr.coach_proposal_done.${user.user_id}` : null;
-  const [coachProposalDoneLocal, setCoachProposalDoneLocal] = useState(false);
+  // Read on the first render too: the step is gated on server state alone, so
+  // a cached status must not flash it for one frame before the effect runs.
+  const [coachProposalDoneLocal, setCoachProposalDoneLocal] = useState(() =>
+    coachProposalKey ? localStorage.getItem(coachProposalKey) === '1' : true,
+  );
   useEffect(() => {
     setCoachProposalDoneLocal(
       coachProposalKey ? localStorage.getItem(coachProposalKey) === '1' : true,
@@ -202,9 +208,9 @@ export function useOnboardingState(): OnboardingState {
     skippedMessaging ||
     isServerStepComplete(serverSteps, 'messaging_configure');
 
-  // Detect the first-in-session provider connection (needs true→false) so the
-  // coach-proposal step fires only right after the user connects, never on a
-  // plain login by an already-onboarded user.
+  // Detect the first-in-session provider connection (needs true→false), which
+  // keeps the connect step on screen until Continue. The coach-proposal step is
+  // gated on server state instead (see the shared registry).
   const [justOnboarded, setJustOnboarded] = useState(false);
   const prevNeedsProvider = useRef<boolean | undefined>(undefined);
   useEffect(() => {

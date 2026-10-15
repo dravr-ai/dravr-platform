@@ -12,7 +12,7 @@ import type { ProposedAgent } from '@pierre/shared-types';
 import type { OnboardingProgressItem } from '@pierre/shared-constants';
 import { Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
-import { coachesApi } from '../../services/api';
+import { coachesApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
@@ -35,7 +35,15 @@ import { threadHref } from '../../navigation/routes';
 export function OnboardingCoachProposalScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const { markSeen } = useCoachProposalSeen(user?.id);
+  const { markSeen: markSeenLocal } = useCoachProposalSeen(user?.id);
+  // The step is done on this device at once, and on the server for every other
+  // surface: the gate reads the server's step row (carnet#1042), so a step
+  // finished only here would be asked again on the web or a new install. The
+  // server write is best-effort, like the other steps' writes.
+  const markSeen = async () => {
+    userApi.setOnboardingStep('coach_proposal', 'complete').catch(() => {});
+    await markSeenLocal();
+  };
   const progress = useOnboardingProgress('coach_proposal');
   const [selecting, setSelecting] = useState<string | null>(null);
   const router = useRouter();

@@ -25,6 +25,7 @@ use crate::first_sync::spawn_on_demand_first_read;
 #[cfg(feature = "health-sync")]
 use crate::first_sync::{
     backfill_verdict, health_sync_backfills, spawn_prefetch_landing, BackfillVerdict,
+    CONNECT_RECENT_DAYS,
 };
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
@@ -1101,8 +1102,8 @@ pub async fn handle_sync_provider(
 
 /// Spawn background health data backfill after a provider connects.
 ///
-/// Triggers a 30-day backfill via the sync orchestrator so the user gets
-/// historical data immediately after connecting a wearable provider, whether
+/// Triggers a [`CONNECT_RECENT_DAYS`] backfill via the sync orchestrator so
+/// the user gets recent data immediately after connecting a wearable provider, whether
 /// through OAuth, a pasted API key (intervals.icu) or a scrape login (Garmin,
 /// COROS). `provider` is the name the sync knows it under; a provider the
 /// sync does not manage (Strava's activities, read on demand) has nothing to
@@ -1126,8 +1127,6 @@ pub fn spawn_health_backfill(
     provider: &str,
     after: Option<PrefetchWait>,
 ) {
-    const BACKFILL_DAYS: u32 = 30;
-
     if !health_sync_backfills(resources, provider) {
         tracing::debug!(
             provider,
@@ -1155,11 +1154,11 @@ pub fn spawn_health_backfill(
         info!(
             user_id = %user_id,
             provider = %provider,
-            days = BACKFILL_DAYS,
+            days = CONNECT_RECENT_DAYS,
             "Triggering initial health data backfill after OAuth connection"
         );
         let outcome = orchestrator
-            .backfill(&user_id, &provider, BACKFILL_DAYS)
+            .backfill(&user_id, &provider, CONNECT_RECENT_DAYS)
             .await;
         if let Err(e) = &outcome {
             tracing::error!(

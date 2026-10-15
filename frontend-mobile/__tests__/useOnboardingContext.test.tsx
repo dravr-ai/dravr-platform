@@ -207,7 +207,9 @@ describe('useOnboardingContext', () => {
     );
   });
 
-  it('never intercepts a user whose record was already connected when the session began', async () => {
+  // carnet#1042: the OAuth return can land on a mount that never saw the
+  // provider flip. The agent step is derived from the server record instead.
+  it('fresh mount, provider already connected, agent step unrecorded → the coach proposal', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(false));
     const { wrapper } = setup();
 
@@ -218,6 +220,41 @@ describe('useOnboardingContext', () => {
       expect(result.current.settled).toBe(true);
     });
     expect(result.current.context.justOnboarded).toBe(false);
+    expect(result.current.context.coachProposalDone).toBe(false);
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_proposal');
+  });
+
+  it.each(['complete', 'skipped'])(
+    'agent step recorded %s on the server (another device, the web) → never intercepted',
+    async (stepStatus) => {
+      mockGetOnboardingStatus.mockResolvedValue({
+        ...status(false),
+        steps: [{ step_id: 'coach_proposal', status: stepStatus }],
+      });
+      const { wrapper } = setup();
+
+      const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.context.needsProviderConnection).toBe(false);
+        expect(result.current.settled).toBe(true);
+      });
+      expect(result.current.context.coachProposalDone).toBe(true);
+      expect(currentOnboardingStep(result.current.context)).toBeNull();
+    },
+  );
+
+  it('agent step done on this device only → never intercepted', async () => {
+    mockGetOnboardingStatus.mockResolvedValue(status(false));
+    await markDone('dravr.coach_proposal_done.');
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.needsProviderConnection).toBe(false);
+      expect(result.current.settled).toBe(true);
+    });
     expect(currentOnboardingStep(result.current.context)).toBeNull();
   });
 
@@ -338,7 +375,10 @@ describe('useOnboardingProgress', () => {
     mockGetOnboardingStatus.mockResolvedValue({
       ...status(false),
       coaches_others: true,
-      steps: [{ step_id: 'coach_group', status: 'skipped' }],
+      steps: [
+        { step_id: 'coach_proposal', status: 'complete' },
+        { step_id: 'coach_group', status: 'skipped' },
+      ],
     });
     const { wrapper } = setup();
 

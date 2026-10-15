@@ -12,7 +12,9 @@ mod helpers;
 
 use axum::http::StatusCode;
 use common::{create_test_server_resources, generate_test_token};
-use helpers::agent_fixtures::{publish_catalogue_agent, publish_catalogue_agent_in};
+use helpers::agent_fixtures::{
+    publish_catalogue_agent, publish_catalogue_agent_in, select_own_agent,
+};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
@@ -523,6 +525,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_agent_add() {
         seed_user_tenant(&resources, "install-author@test.com", "professional").await;
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "install-user@test.com", "professional").await;
+    select_own_agent(&resources.common.repos, user_id, tenant_id).await;
     let origin = publish_catalogue_agent(
         &resources.common.repos,
         author_id,

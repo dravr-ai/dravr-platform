@@ -9,7 +9,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Agent, AgentProposalResponse } from '@pierre/shared-types';
 import { OnboardingCoachProposalScreen } from '../OnboardingCoachProposalScreen';
-import { coachesApi } from '../../../services/api';
+import { coachesApi, userApi } from '../../../services/api';
 import { useCoachProposalSeen } from '../../../hooks/useCoachProposalSeen';
 import { useOpenPersonalTopic } from '../../chat/usePersonalThread';
 
@@ -30,10 +30,12 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
 jest.mock('../../chat/usePersonalThread');
 jest.mock('../../../services/api', () => ({
   coachesApi: { getProposal: jest.fn(), recordUsage: jest.fn() },
+  userApi: { setOnboardingStep: jest.fn() },
 }));
 
 const getProposal = coachesApi.getProposal as jest.Mock;
 const recordUsage = coachesApi.recordUsage as jest.Mock;
+const setOnboardingStep = userApi.setOnboardingStep as jest.Mock;
 const markSeen = jest.fn();
 const openPersonalTopic = jest.fn();
 
@@ -84,6 +86,7 @@ describe('OnboardingCoachProposalScreen', () => {
     getProposal.mockReset().mockImplementation(() => new Promise(() => {}));
     recordUsage.mockReset().mockResolvedValue(undefined);
     markSeen.mockReset().mockResolvedValue(undefined);
+    setOnboardingStep.mockReset().mockResolvedValue(undefined);
     // The hook answers the personal thread's id once the topic is open.
     openPersonalTopic.mockReset().mockResolvedValue('conv-1');
     (useCoachProposalSeen as jest.Mock).mockReturnValue({ seen: false, markSeen });
@@ -114,6 +117,8 @@ describe('OnboardingCoachProposalScreen', () => {
 
     await waitFor(() => expect(recordUsage).toHaveBeenCalledWith('agent-1'));
     await waitFor(() => expect(markSeen).toHaveBeenCalled());
+    // Recorded on the server too: the gate reads it on every surface (carnet#1042).
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
     // The coach is bound to a topic of the athlete's one thread, never a second thread.
     await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'agent-1' }));
     await waitFor(() =>
@@ -148,6 +153,7 @@ describe('OnboardingCoachProposalScreen', () => {
     ).toBeTruthy();
     fireEvent.press(screen.getByText('Continue'));
     expect(markSeen).toHaveBeenCalled();
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
   }, 10000);
 
   it('"Skip for now" marks the step seen without starting a coach', async () => {
@@ -156,6 +162,7 @@ describe('OnboardingCoachProposalScreen', () => {
 
     fireEvent.press(await screen.findByText('Skip for now'));
     expect(markSeen).toHaveBeenCalled();
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
     expect(recordUsage).not.toHaveBeenCalled();
   });
 });

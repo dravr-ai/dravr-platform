@@ -659,6 +659,9 @@ fn start_point(
     (Some(latitude), Some(longitude))
 }
 
+/// The onboarding step a connected athlete meets next: the agent proposal.
+const AGENT_PROPOSAL_STEP: &str = "coach_proposal";
+
 /// Register the seeded user as a connected `provider` (strava/garmin) athlete:
 /// a `provider_connection` row (so onboarding + the recommender gate see a real
 /// provider) and a long-lived `oauth_token` whose access token is
@@ -706,7 +709,24 @@ async fn register_provider_connection(
     };
     repos.oauth_tokens.upsert_token(&token).await?;
 
-    info!("Registered {provider} provider connection + dev-fixture token");
+    // A seeded athlete is a returning one: connected and past the agent
+    // proposal. That step is derived from server state — a provider connected
+    // and no step row (carnet#1042) — so without the row every sign-in of a
+    // seeded account on a fresh browser or simulator would land on the
+    // proposal instead of Home. `skipped` is what a returning athlete who put
+    // it off would carry; the row is per user, the tenant an audit column.
+    repos
+        .user_onboarding
+        .set_onboarding_step(
+            &user_id.to_string(),
+            AGENT_PROPOSAL_STEP,
+            "skipped",
+            None,
+            Some(&tenant_id.to_string()),
+        )
+        .await?;
+
+    info!("Registered {provider} provider connection + dev-fixture token, agent step answered");
     Ok(())
 }
 

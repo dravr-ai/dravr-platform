@@ -5,7 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 import { test, expect } from '@playwright/test';
-import { applyTestStubs, signInThroughHostedPage, SIGN_IN_BUTTON } from './test-helpers';
+import {
+  applyTestStubs,
+  ONBOARDED_STATUS,
+  signInThroughHostedPage,
+  SIGN_IN_BUTTON,
+} from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
 interface MockOptions {
@@ -342,7 +347,9 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
   // steps would otherwise intercept (the chat-app step reads the same channel
   // list the Messaging pane does). Registered last so it wins over the stub.
   if (options.onboardingSteps) {
-    const steps = options.onboardingSteps;
+    // Over the onboarded baseline, whose answered agent step keeps the
+    // proposal from intercepting the sign-in (carnet#1042).
+    const steps = [...ONBOARDED_STATUS.steps, ...options.onboardingSteps];
     await page.route('**/api/me/onboarding-status', async (route) => {
       await route.fulfill({
         status: 200,

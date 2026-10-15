@@ -529,7 +529,9 @@ impl AuthService {
     /// lets them choose; this only ensures the floor is a working conversation
     /// rather than an empty one.
     ///
-    /// Picks the first system agent deterministically. Not a recommendation —
+    /// Picks the first system agent of the catalogue deterministically. The
+    /// catalogue is seeded in the seed admin's tenant, never in this new one,
+    /// so it is read catalogue-wide (carnet#1041). Not a recommendation —
     /// the proposal does that once there is data to reason about — just a
     /// sensible default that any later selection replaces.
     ///
@@ -541,7 +543,13 @@ impl AuthService {
     /// they answer (see [`crate::intake::release_coach_only_agent`]), and
     /// their thread resolves the roster agent from then on.
     async fn select_starter_agent(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
-        let agents = match self.data.repos().agents.list_system_agents(tenant_id).await {
+        let agents = match self
+            .data
+            .repos()
+            .agents
+            .list_catalogue_system_agents()
+            .await
+        {
             Ok(c) => c,
             Err(e) => {
                 warn!(error = %e, "could not list system agents for the starter selection");
@@ -550,8 +558,15 @@ impl AuthService {
         };
 
         let Some(first) = first_athlete_facing(&agents) else {
-            // A deployment with no system agents seeded yet. The proposal will
-            // still offer whatever exists by the time the user gets there.
+            // A deployment with no athlete-facing system agent seeded yet. The
+            // proposal will still offer whatever exists by the time the user
+            // gets there, but the account starts with nothing selected.
+            warn!(
+                %tenant_id,
+                %user_id,
+                catalogue_size = agents.len(),
+                "no athlete-facing system agent to select as the starter"
+            );
             return;
         };
 

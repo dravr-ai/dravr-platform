@@ -158,6 +158,14 @@ pub trait AgentsRepository: Send + Sync {
     ) -> AppResult<Agent>;
     /// List all system agents for a tenant
     async fn list_system_agents(&self, tenant_id: TenantId) -> AppResult<Vec<Agent>>;
+    /// The system-agent catalogue every tenant reaches, newest first.
+    ///
+    /// Not filtered by tenant: system agents are pinned to the seed tenant
+    /// and exposed to every tenant (see `AGENT_REACHABLE_SQL`), so a surface
+    /// that picks a default agent for a tenant other than the seed one reads
+    /// the catalogue here rather than [`Self::list_system_agents`], which
+    /// answers only the tenant that owns the rows.
+    async fn list_catalogue_system_agents(&self) -> AppResult<Vec<Agent>>;
     /// Get a system agent by ID within a tenant
     async fn get_system_agent(
         &self,
@@ -820,6 +828,18 @@ pub(crate) const LIST_SYSTEM_AGENTS_SQL: &str = concat!(
     "SELECT ",
     agent_columns!(""),
     " FROM agents WHERE tenant_id = $1 AND is_system = TRUE ORDER BY created_at DESC"
+);
+
+/// Every system agent, newest first, whatever tenant holds the row.
+///
+/// The documented catalogue-wide exception to tenant scoping: system agents
+/// are pinned to the seed tenant but exposed to every tenant through the
+/// catalogue (`AGENT_REACHABLE_SQL`), so a brand-new tenant, which holds no
+/// agent rows of its own, still has a catalogue to pick a default from.
+pub(crate) const LIST_CATALOGUE_SYSTEM_AGENTS_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE is_system = TRUE ORDER BY created_at DESC"
 );
 
 /// One system agent of the tenant.

@@ -25,8 +25,8 @@ import {
  * happened and only ever sees false→false. This hook exists purely to feed a
  * progress hairline — never to gate navigation, which stays `_layout.tsx`'s
  * job — so it reads the field from `currentStepId` instead: true exactly when
- * the caller IS the coach-proposal screen, which only renders once the gate
- * decided the same thing. The same screen is also proof the connect step's
+ * the caller IS the coach-proposal screen, so the connect step it passed reads
+ * as part of the journey. The same screen is also proof the connect step's
  * Continue was pressed, so the bar never shows that step as still open there.
  */
 export function useOnboardingProgress(currentStepId: OnboardingStepId): OnboardingProgressItem[] {

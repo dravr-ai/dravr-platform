@@ -30,6 +30,10 @@
 //!    — the transition the isolation tests punt on.
 //! 4. `GET /api/me/onboarding-status` with that JWT is reachable (200),
 //!    proving the approved user can enter the onboarding flow.
+//!
+//! Signup also gives the new personal tenant a starter agent from the system
+//! catalogue, which lives in the seed admin's tenant, not the new one
+//! (carnet#1041).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -43,7 +47,10 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_core::models::UserStatus;
+use pierre_core::models::agents::{
+    AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
+};
+use pierre_core::models::{TenantId, UserStatus};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 use pierre_routes_auth::AuthRoutes;
@@ -221,5 +228,124 @@ async fn register_pending_then_approve_then_login_then_onboarding() {
         onboarding_body["needs_provider_connection"].as_bool(),
         Some(true),
         "a fresh approved user with no provider must be gated into onboarding"
+    );
+}
+
+/// POST the real registration handler and return the new account's id and
+/// the personal tenant signup created for it.
+async fn register_account(resources: &Arc<ServerContext>, email: &str) -> (Uuid, TenantId) {
+    let resp = AxumTestRequest::post("/api/auth/register")
+        .json(&json!({
+            "email": email,
+            "password": "securePassword123",
+            "display_name": "Starter Tester"
+        }))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 201, "registration must succeed");
+    let body: Value = resp.json();
+    let user_id = Uuid::parse_str(body["user_id"].as_str().expect("user_id"))
+        .expect("user_id must be a UUID");
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants of the new account");
+    assert_eq!(
+        tenants.len(),
+        1,
+        "signup creates exactly one personal tenant"
+    );
+    (user_id, tenants[0].id)
+}
+
+/// The system catalogue is seeded once, in the seed admin's tenant. A user
+/// who signs up afterwards lands in a brand-new personal tenant holding no
+/// agent rows at all, and must still start with a catalogue agent selected
+/// rather than an empty conversation.
+#[tokio::test]
+async fn signup_in_a_new_tenant_selects_a_catalogue_starter_agent() {
+    let resources = setup().await.expect("server context setup failed");
+
+    // The seed admin's tenant owns the catalogue.
+    let (admin_id, admin_tenant) =
+        register_account(&resources, "catalogue-admin@example.com").await;
+    let catalogue_agent = resources
+        .common
+        .repos
+        .agents
+        .create_system_agent(
+            admin_id,
+            admin_tenant,
+            &CreateSystemAgentRequest {
+                title: "Endurance Coach".to_owned(),
+                description: None,
+                system_prompt: "Test.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec!["run".to_owned()],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Global,
+            },
+        )
+        .await
+        .expect("seed a catalogue agent");
+    // A tenant-private agent of the same tenant, created after the catalogue
+    // one so it would sort first: the catalogue-wide read must never reach it.
+    let private_request: CreateAgentRequest = serde_json::from_value(json!({
+        "title": "Admin's Private Agent",
+        "system_prompt": "Private.",
+        "category": "training",
+        "tags": ["private"],
+    }))
+    .expect("private agent request");
+    let private_agent = resources
+        .common
+        .repos
+        .agents
+        .create(admin_id, admin_tenant, &private_request)
+        .await
+        .expect("create a tenant-private agent");
+
+    let catalogue: Vec<String> = resources
+        .common
+        .repos
+        .agents
+        .list_catalogue_system_agents()
+        .await
+        .expect("read the catalogue")
+        .into_iter()
+        .map(|agent| agent.id.to_string())
+        .collect();
+    assert_eq!(
+        catalogue,
+        vec![catalogue_agent.id.to_string()],
+        "the catalogue holds system agents only, never a tenant's private one"
+    );
+
+    let (athlete_id, athlete_tenant) =
+        register_account(&resources, "new-athlete@example.com").await;
+    assert_ne!(
+        athlete_tenant, admin_tenant,
+        "fixture precondition: the athlete lands in a tenant of their own"
+    );
+
+    let selected = resources
+        .common
+        .repos
+        .tenants
+        .get_selected_agent(athlete_tenant, athlete_id)
+        .await
+        .expect("read the selection");
+    assert_eq!(
+        selected,
+        Some(catalogue_agent.id.to_string()),
+        "a new tenant's first user must start on the catalogue agent seeded in another tenant"
+    );
+    assert_ne!(
+        selected,
+        Some(private_agent.id.to_string()),
+        "another tenant's private agent never becomes a starter"
     );
 }

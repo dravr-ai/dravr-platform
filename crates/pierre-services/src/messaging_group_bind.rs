@@ -160,7 +160,7 @@ pub async fn resolve_or_create_channel_group(
     };
     let system = agent
         .agents
-        .list_system_agents(binding.tenant_id)
+        .list_catalogue_system_agents()
         .await
         .unwrap_or_default();
     let Some(agent_id) = group_default(&system, selected.as_ref()) else {

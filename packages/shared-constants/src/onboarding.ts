@@ -26,9 +26,11 @@ export type OnboardingStepId =
  *     in flight or disabled (e.g. admins).
  *   - `skippedProvider` — session-only "continue without connecting".
  *   - `justOnboarded` — a `needs_provider_connection` true→false transition
- *     observed *this session*, so coach-proposal never intercepts a returning
- *     already-onboarded user simply logging in.
- *   - `profileTypeChosen` / `coachProposalDone` — per-user local flags.
+ *     observed *this tab*, which keeps the connect step up (connect another
+ *     service) until Continue. It gates nothing else: a tab that opens after
+ *     the OAuth return never observes the flip (carnet#1042).
+ *   - `profileTypeChosen` / `coachProposalDone` — the per-user local flag OR
+ *     the server's step record, so a step done on any surface stays done.
  */
 export interface OnboardingContext {
   onboardingActive: boolean;
@@ -206,21 +208,26 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // An agent for the athlete's own training, ranked on their own activities.
     // A coach who does not train has no such agent: their group's agent is
     // chosen while creating the group, in the coach_group step.
+    //
+    // Derived from server state — a provider connected and the step not yet
+    // recorded done or declined — never from the tab-local `justOnboarded`
+    // flip: the OAuth return often lands in a fresh tab that never sees the
+    // flip, and that tab must still meet the proposal (carnet#1042). The
+    // tab that did see it still meets the connect step first, which stays up
+    // until Continue. `coachProposalDone` reads the server record, so a user
+    // who finished it on any surface is not asked again.
     id: 'coach_proposal',
     labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
-      c.onboardingActive &&
-      c.justOnboarded &&
-      c.needsProviderConnection === false &&
-      !c.athleteStepsWaived,
+      c.onboardingActive && c.needsProviderConnection === false && !c.athleteStepsWaived,
     isComplete: (c) => c.coachProposalDone,
   },
   {
     // A coach leaves onboarding with a group and an athlete invite link instead
     // of discovering /group create in chat. Post-connect like the agent step;
     // the group's agent is picked inside this step, never inherited from the
-    // coach's own. Not gated on `justOnboarded`, so a coach who onboarded
-    // before this step existed is offered it once. A coach who does not train
+    // coach's own. Like the agent step it reads server state, so a coach who
+    // onboarded before this step existed is offered it once. A coach who does not train
     // reaches it without a provider (`pastProviderGate`).
     id: 'coach_group',
     labelKey: 'onboarding.stepGroup',
@@ -231,9 +238,9 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // Pick which messaging app to connect. Shown post-connect when the tenant has
     // MORE than one channel configured — a single channel is auto-selected, so we
     // never ask the user to "pick" from a list of one (isComplete short-circuits).
-    // Unlike coach-proposal this is NOT gated on the in-session `justOnboarded`
-    // transition: an already-connected user who hasn't set up messaging is
-    // prompted once, and the done/skip flags stop re-prompts.
+    // Like coach-proposal it reads server state, not the in-session
+    // `justOnboarded` transition: an already-connected user who hasn't set up
+    // messaging is prompted once, and the done/skip flags stop re-prompts.
     id: 'messaging_channel',
     labelKey: 'onboarding.stepChatApp',
     isApplicable: (c) =>

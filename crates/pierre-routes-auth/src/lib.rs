@@ -140,7 +140,7 @@ pub use pierre_auth::dto::auth::{
     UserStatsResponse,
 };
 
-pub use first_sync::{FirstSyncHook, FirstSyncSlot};
+pub use first_sync::{FirstSyncHook, FirstSyncSlot, CONNECT_RECENT_DAYS};
 pub use pierre_mcp_transport::OAuthCallbackResponse;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;

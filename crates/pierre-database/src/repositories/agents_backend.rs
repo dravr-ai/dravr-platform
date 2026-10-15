@@ -702,6 +702,16 @@ macro_rules! impl_agents_repository {
                 rows.iter().map(row_to_agent).collect()
             }
 
+            async fn list_catalogue_system_agents(&self) -> AppResult<Vec<Agent>> {
+                let rows = sqlx::query(LIST_CATALOGUE_SYSTEM_AGENTS_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list catalogue system agents: {e}"))
+                    })?;
+                rows.iter().map(row_to_agent).collect()
+            }
+
             async fn get_system_agent(
                 &self,
                 agent_id: &str,

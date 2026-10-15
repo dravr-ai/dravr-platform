@@ -46,7 +46,9 @@ export interface OnboardingContextState {
  * `justOnboarded` is the `needs_provider_connection` true→false transition as
  * THIS mount observed it. The root layout mounts for the whole session and
  * above the OAuth callback, so its value is the session's; a screen that
- * mounts after the transition only ever sees false→false.
+ * mounts after the transition only ever sees false→false. It keeps the connect
+ * step up for a second service; the agent step does not read it — that one is
+ * derived from server state (carnet#1042).
  */
 export function useOnboardingContext(): OnboardingContextState {
   const { user, isAuthenticated } = useAuth();
@@ -54,7 +56,15 @@ export function useOnboardingContext(): OnboardingContextState {
   const onboardingActive = isAuthenticated && user?.user_status === 'active' && !isAdminRole;
 
   const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
-  const { seen: coachProposalSeen } = useCoachProposalSeen(user?.id);
+  const { seen: coachProposalSeenLocal } = useCoachProposalSeen(user?.id);
+  // The agent step is gated on server state alone (carnet#1042), so its done
+  // flag reads the server's step row too: one answered on the web or on
+  // another device is not asked again on a fresh install.
+  const coachProposalSeen =
+    coachProposalSeenLocal === undefined
+      ? undefined
+      : coachProposalSeenLocal ||
+        isServerStepComplete(onboardingStatus?.steps, 'coach_proposal');
   const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
   // The two pre-connect steps added alongside profile-type; same fail-open flag.
   const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
@@ -94,8 +104,8 @@ export function useOnboardingContext(): OnboardingContextState {
     onboardingActive && pastProviderGate({ needsProviderConnection, athleteStepsWaived });
   const messaging = useMessagingOnboarding(user?.id, postConnect);
 
-  // First-connect transition (needs true→false) — gates coach-proposal only, so
-  // an already-onboarded user simply opening the app is never intercepted by it.
+  // First-connect transition (needs true→false) — keeps the connect step up
+  // until Continue, so a second service is one tap away.
   const [justOnboarded, setJustOnboarded] = useState(false);
   const prevNeedsProvider = useRef<boolean | undefined>(undefined);
   useEffect(() => {

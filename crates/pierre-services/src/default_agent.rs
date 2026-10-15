@@ -8,7 +8,9 @@
 //!
 //! Every surface that binds an agent without anyone choosing one — signup's
 //! starter selection, the DM forge and per-turn rebind, a channel group's
-//! bootstrap, `/group create` — answers from the tenant's system agents. Two
+//! bootstrap, `/group create` — answers from the system-agent catalogue.
+//! The catalogue is seeded in one tenant and reached by every tenant, so it
+//! is read catalogue-wide, never filtered to the caller's tenant. Two
 //! audiences read those answers:
 //!
 //! - **A person's own thread.** A coach who does not train gets the
@@ -35,7 +37,7 @@ pub fn first_athlete_facing(system: &[Agent]) -> Option<&Agent> {
     system.iter().find(|agent| !agent.is_coach_facing())
 }
 
-/// The roster agent, when this tenant has it.
+/// The roster agent, when the catalogue has it.
 #[must_use]
 pub fn roster_agent(system: &[Agent]) -> Option<&Agent> {
     system
@@ -100,7 +102,7 @@ mod tests {
     const TAPER: &str = "00000000-0000-0000-0000-00000000000b";
     const ENDURANCE: &str = "00000000-0000-0000-0000-00000000000c";
 
-    /// Newest first, as `list_system_agents` returns them: both coach tools
+    /// Newest first, as `list_catalogue_system_agents` returns them: both coach tools
     /// were seeded after the athlete agent.
     fn catalogue() -> Vec<Agent> {
         vec![

@@ -181,9 +181,12 @@ export default function ProviderConnectionCards({
         const fresh = result?.timestamp && Date.now() - result.timestamp < 30_000;
         // A grant that landed in the OAuth tab: the poll stops once any
         // provider is connected, so a second connection is picked up here.
+        // The onboarding status is refetched too, so this tab leaves the
+        // connect gate and reaches the coach proposal (carnet#1042).
         // The entry is left for the success handlers in ChatTab and UserSettings.
         if (fresh && result.success === true) {
           void refetch();
+          void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           return;
         }
         if (fresh && result.provider === 'strava' && result.success === false) {
@@ -206,7 +209,7 @@ export default function ProviderConnectionCards({
       window.removeEventListener('focus', consumeFailedStrava);
       document.removeEventListener('visibilitychange', consumeFailedStrava);
     };
-  }, [refetch]);
+  }, [refetch, queryClient]);
 
   // Launch the OAuth authorization flow for a provider. Prefers the parent's
   // callback (onboarding shows an "awaiting consent" overlay); otherwise opens

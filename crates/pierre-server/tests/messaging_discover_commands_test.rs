@@ -13,7 +13,7 @@ mod helpers;
 #[cfg(feature = "client-messaging")]
 mod discover_over_messaging {
     use crate::common::create_test_server_resources;
-    use crate::helpers::agent_fixtures::publish_catalogue_agent;
+    use crate::helpers::agent_fixtures::{publish_catalogue_agent, select_own_agent};
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::messaging_webhooks::{telegram_webhook, ChannelSecrets};
     use crate::helpers::notify_capture::{capture_notify, named, only};
@@ -386,6 +386,7 @@ mod discover_over_messaging {
         let (author_id, author_tenant) =
             seed_user_tenant(&resources, "tg-install-author@test.com").await;
         let repos = &resources.common.repos;
+        select_own_agent(repos, athlete.user_id, athlete.tenant_id).await;
         let recovery = publish_catalogue_agent(
             repos,
             author_id,

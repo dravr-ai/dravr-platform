@@ -125,9 +125,23 @@ export async function freshOnboardingCoach(server: CoachServer): Promise<Onboard
     'sciotte login (is the server started with DRAVR_SCIOTTE_REMOTE_URL naming the double?)',
   );
 
+  // This coach trains too, so the agent proposal would come before the group
+  // step: it is derived from server state, a provider connected and no step
+  // record (carnet#1042). The flow is about the group step, so the agent step
+  // is answered here, as the coach would have on the way.
+  await expectOk(
+    await call(
+      server,
+      '/api/me/onboarding/steps/coach_proposal',
+      { method: 'PUT', body: JSON.stringify({ status: 'skipped' }) },
+      token,
+    ),
+    'onboarding step coach_proposal',
+  );
+
   // The flow's premise, checked where it is decided: the server says this
-  // coach is past the provider gate and coaches others, with no group step
-  // recorded. Anything else would land the app on another screen and the
+  // coach is past the provider gate and coaches others, with the agent step
+  // answered and no group step recorded. Anything else would land the app on another screen and the
   // flow would fail on the wrong question.
   const onboarding = (await (
     await expectOk(await call(server, '/api/me/onboarding-status', {}, token), 'onboarding-status')
@@ -135,6 +149,7 @@ export async function freshOnboardingCoach(server: CoachServer): Promise<Onboard
   if (
     onboarding.needs_provider_connection ||
     !onboarding.coaches_others ||
+    !onboarding.steps.some((step) => step.step_id === 'coach_proposal') ||
     onboarding.steps.some((step) => step.step_id === 'coach_group')
   ) {
     throw new Error(`the coach is not waiting on the group step: ${JSON.stringify(onboarding)}`);

@@ -40,10 +40,14 @@ jest.mock('../src/screens/chat/usePersonalThread', () => ({
 
 const mockGetProposal = jest.fn();
 const mockRecordUsage = jest.fn();
+const mockSetOnboardingStep = jest.fn();
 jest.mock('../src/services/api', () => ({
   coachesApi: {
     getProposal: (...args: unknown[]) => mockGetProposal(...args),
     recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
+  },
+  userApi: {
+    setOnboardingStep: (...args: unknown[]) => mockSetOnboardingStep(...args),
   },
 }));
 
@@ -106,6 +110,7 @@ describe('OnboardingCoachProposalScreen', () => {
     jest.clearAllMocks();
     mockGetProposal.mockResolvedValue(PROPOSAL);
     mockRecordUsage.mockResolvedValue(undefined);
+    mockSetOnboardingStep.mockResolvedValue(undefined);
     mockMarkSeen.mockResolvedValue(undefined);
     // The hook answers the personal thread's id once the topic is open.
     mockOpenPersonalTopic.mockResolvedValue('conv-9');
@@ -137,6 +142,8 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRecordUsage).toHaveBeenCalledTimes(1);
     expect(mockRecordUsage).toHaveBeenCalledWith('coach-trail');
     expect(mockMarkSeen).toHaveBeenCalledTimes(1);
+    // The server row too, which every surface's gate reads (carnet#1042).
+    expect(mockSetOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
     expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
     expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(mockRouter.push).toHaveBeenCalledWith({

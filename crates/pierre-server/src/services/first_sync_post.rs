@@ -33,6 +33,18 @@
 //! Its activity list is read once ([`fetch_provider_head`], which writes the
 //! read through to the cache the post's turn then answers from), and the post
 //! follows only when that read lands activities.
+//!
+//! ## The history Home needs
+//!
+//! What a connect reads at once is recent ([`CONNECT_RECENT_DAYS`]). Home's
+//! training status needs one chronic window plus its warm-up — 114 days at
+//! the defaults — and never reaches a provider itself, so the recent read
+//! alone would leave a new athlete's panel empty while the chat answers from
+//! their last month (carnet#1043). Every connect therefore asks for that depth
+//! ([`request_status_depth`]) once its recent data is in and the post is
+//! done, on every provider alike: the capture rail pages each connection
+//! back to the status's warm-up floor, deduplicated per provider and bounded
+//! by the rail's own limits.
 
 use std::sync::{Arc, Weak};
 
@@ -43,7 +55,7 @@ use pierre_core::models::TenantId;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::global_registry;
-use pierre_routes_auth::FirstSyncHook;
+use pierre_routes_auth::{FirstSyncHook, CONNECT_RECENT_DAYS};
 use pierre_services::provider_refresh::token_tenant;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -54,10 +66,7 @@ use crate::mcp::resources::ServerContext;
 use crate::services::backfill_notifier::{config_adapter_resolver, AdapterResolver};
 use crate::services::platform_post::{PlatformPost, PostPurpose, PostSurface};
 use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
-
-/// How far back the first read of an on-demand provider reaches: the window
-/// a connect's health backfill lands for every other provider.
-const FIRST_READ_DAYS: i64 = 30;
+use crate::services::training_status::request_status_depth;
 
 /// How many activities the first read of an on-demand provider asks for —
 /// one provider page, enough to tell whether anything landed and to warm the
@@ -163,9 +172,12 @@ impl FirstSyncPoster {
             );
             return;
         };
-        if first_read_landed(resources, user_id, tenant_id, provider).await {
+        if first_read_landed(Arc::clone(&resources), user_id, tenant_id, provider).await {
             self.post_first_sync(user_id, tenant_id, provider).await;
         }
+        // Asked whether or not the recent read landed anything: an athlete
+        // with no activity in the last month may still have a season behind it.
+        request_history_depth(resources, user_id, tenant_id).await;
     }
 }
 
@@ -173,6 +185,11 @@ impl FirstSyncPoster {
 impl FirstSyncHook for FirstSyncPoster {
     async fn data_landed(&self, user_id: Uuid, tenant_id: TenantId, provider: &str) {
         self.post_first_sync(user_id, tenant_id, provider).await;
+        // After the post, not beside it: on a scrape provider the capture and
+        // the post's turn would read the one browser session at once.
+        if let Some(resources) = self.ctx.upgrade() {
+            request_history_depth(resources, user_id, tenant_id).await;
+        }
     }
 
     async fn connected_on_demand(&self, user_id: Uuid, provider: &str) {
@@ -237,7 +254,7 @@ async fn first_read_landed(
 ) -> bool {
     let runtime: Arc<dyn ToolRuntime> = resources;
     let params = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(FIRST_READ_DAYS)).timestamp()),
+        after: Some((Utc::now() - Duration::days(i64::from(CONNECT_RECENT_DAYS))).timestamp()),
         before: None,
         limit: Some(FIRST_READ_LIMIT),
         offset: None,
@@ -255,6 +272,26 @@ async fn first_read_landed(
             warn!(provider, error = %e, "First read of the provider just connected failed");
             false
         }
+    }
+}
+
+/// Ask for the stored history Home's training status needs, logging the
+/// outcome: a connect that cannot ask is told nothing, and the next read that
+/// computes the history asks again.
+async fn request_history_depth(resources: Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
+    let runtime: Arc<dyn ToolRuntime> = resources;
+    match request_status_depth(&runtime, tenant_id, user_id).await {
+        Ok(computed) => info!(
+            user_id = %user_id,
+            complete = computed.is_complete(),
+            capture_requested = computed.capture_requested,
+            "Connect: training-status history depth checked"
+        ),
+        Err(e) => warn!(
+            user_id = %user_id,
+            error = %e,
+            "Connect: asking for the training-status history depth failed"
+        ),
     }
 }
 

@@ -1045,6 +1045,10 @@ mod agent_alias {
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
         let conv_id = create_conversation(router.clone(), &auth).await;
+        // The thread opens on the catalogue default; a typo must leave that,
+        // and the selection, exactly as they were.
+        let bound_before = conversation_agent(&resources, &conv_id, user_id, tenant_id).await;
+        let selected_before = selected_agent(&resources, user_id, tenant_id).await;
         let shelf = send_command(router.clone(), &auth, &conv_id, "/agent").await;
 
         let unknown = rendered(&resources, KEY_UNKNOWN_COMMAND, &[]);
@@ -1067,10 +1071,14 @@ mod agent_alias {
         }
         assert_eq!(
             conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
-            None,
+            bound_before,
             "a typo bound nothing"
         );
-        assert_eq!(selected_agent(&resources, user_id, tenant_id).await, None);
+        assert_eq!(
+            selected_agent(&resources, user_id, tenant_id).await,
+            selected_before,
+            "a typo selected nothing"
+        );
     }
 
     // ================================================================

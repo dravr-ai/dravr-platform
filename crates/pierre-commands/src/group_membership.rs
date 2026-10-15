@@ -94,7 +94,7 @@ impl GroupCreateHandler {
         };
         // The group's athletes talk to it: never a coach-facing agent, such as
         // the roster agent a coach who does not train runs their practice with.
-        let system = repos.agents.list_system_agents(ctx.tenant_id).await?;
+        let system = repos.agents.list_catalogue_system_agents().await?;
         let Some(agent_id) = group_default(&system, preferred.as_ref()) else {
             return Ok(None);
         };

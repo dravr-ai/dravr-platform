@@ -466,7 +466,7 @@ pub async fn selected_or_system_agent(
     if let Ok(Some(selected)) = repos.tenants.get_selected_agent(tenant_id, user_id).await {
         return Some(selected);
     }
-    let system = repos.agents.list_system_agents(tenant_id).await.ok()?;
+    let system = repos.agents.list_catalogue_system_agents().await.ok()?;
     let coach_only = repos
         .user_onboarding
         .get_onboarding_steps(&user_id.to_string())

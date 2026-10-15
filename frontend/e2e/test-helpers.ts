@@ -37,6 +37,16 @@ interface UserOptions {
 }
 
 /**
+ * The onboarding status of a fully onboarded user: a provider connected and the
+ * agent step answered. The agent step is derived from server state (carnet#1042),
+ * so a status with no step record would route every spec to the proposal.
+ */
+export const ONBOARDED_STATUS = {
+  needs_provider_connection: false,
+  steps: [{ step_id: 'coach_proposal', status: 'complete' }],
+};
+
+/**
  * Stubs that EVERY E2E test needs but many spec-local login helpers
  * never added — pin the theme to light + return sane defaults for the
  * feature-flag endpoints introduced in e25417e6. Call from any spec-local
@@ -171,7 +181,7 @@ export async function applyTestStubs(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ needs_provider_connection: false }),
+      body: JSON.stringify(ONBOARDED_STATUS),
     });
   });
 }
@@ -585,7 +595,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ needs_provider_connection: false }),
+      body: JSON.stringify(ONBOARDED_STATUS),
     });
   });
 

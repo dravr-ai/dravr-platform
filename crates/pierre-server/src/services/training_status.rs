@@ -21,6 +21,18 @@
 //!
 //! A day the stored history cannot warm carries no row, so an athlete with too
 //! little history gets `form: null` and an empty trend, not a zeroed reading.
+//!
+//! ## How deep the stored history must be
+//!
+//! The page reads `status_window`: one chronic window (`ctl_days`, 42 by
+//! default) ending on today. Each day of it is computed only with
+//! `warmup_days(ctl_days)` (`ctl_days + CTL_WARMUP_MARGIN_DAYS`, 72 by
+//! default) of stored activities behind it, so form today needs history
+//! reaching 72 days back and the whole trend needs `2 * ctl_days + 30` — 114
+//! days. The page itself never reaches a provider; a connect asks the capture
+//! rail for exactly that depth through [`request_status_depth`], so what a
+//! connect lands is what this page needs (carnet#1043). The recent window a
+//! connect reads at once vouches for no day of it.
 
 use std::sync::Arc;
 
@@ -30,7 +42,9 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_fitness_compute::{ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::training_history_compute::read_history_from_cache;
+use pierre_tool_runtime::training_history_compute::{
+    compute_and_persist_history, default_window, read_history_from_cache, TrainingHistoryComputed,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -103,22 +117,55 @@ pub async fn training_status(
     user_id: Uuid,
     today: NaiveDate,
 ) -> AppResult<TrainingStatus> {
-    // The trend spans one chronic window: the configured one, never a figure
-    // of this page's own.
-    let trend_days = runtime
+    let (from, to) = status_window(today, configured_ctl_days(runtime));
+    let read = read_history_from_cache(runtime, tenant_id, user_id, from, to).await?;
+    Ok(status_from_rows(today, &read.states))
+}
+
+/// The span of the athlete's days the status reads: one chronic window of
+/// `ctl_days` ending on `today`, inclusive.
+///
+/// The one definition of the page's window, read by the page and by the
+/// connect that lands its history ([`request_status_depth`]).
+#[must_use]
+fn status_window(today: NaiveDate, ctl_days: i64) -> (NaiveDate, NaiveDate) {
+    (today - Duration::days(ctl_days), today)
+}
+
+/// The configured chronic window: the trend spans it, never a figure of this
+/// page's own.
+fn configured_ctl_days(runtime: &Arc<dyn ToolRuntime>) -> i64 {
+    runtime
         .cageux_config()
         .algorithms
         .params
-        .training_load_ctl_days;
-    let read = read_history_from_cache(
-        runtime,
-        tenant_id,
-        user_id,
-        today - Duration::days(trend_days),
-        today,
-    )
-    .await?;
-    Ok(status_from_rows(today, &read.states))
+        .training_load_ctl_days
+}
+
+/// Make sure the stored history reaches as deep as the status needs, asking
+/// the capture rail for what is missing.
+///
+/// Called when an athlete connects a provider. It computes `status_window`
+/// on the athlete's own today through the training-history rail, which asks
+/// every capturable connection to page back to the window's warm-up floor
+/// when the stored history stops short of it — deduplicated per
+/// `(user, provider)` against a capture already in flight, and bounded by
+/// the rail's own fetch limit and per-provider page ceiling. With the depth
+/// already stored it captures nothing and only refreshes the rollup.
+///
+/// # Errors
+///
+/// Returns [`AppError`](pierre_core::errors::AppError) when the athlete's
+/// timezone cannot be read, they have no connection, or a repository read or
+/// write fails.
+pub async fn request_status_depth(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<TrainingHistoryComputed> {
+    let (_, today) = default_window(runtime, user_id).await?;
+    let (from, to) = status_window(today, configured_ctl_days(runtime));
+    compute_and_persist_history(runtime, tenant_id, user_id, from, to).await
 }
 
 /// Assemble the status from the daily rows the stored history stands behind.
@@ -170,5 +217,57 @@ pub fn status_from_rows(today: NaiveDate, rows: &[DailyTrainingState]) -> Traini
             chronic_days: ACWR_CHRONIC_DAYS,
         }),
         recovery_days,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Duration, NaiveDate};
+    use pierre_fitness_compute::training_history_compute::warmup_days;
+    use pierre_services::training_history_read::first_vouched_day;
+
+    use super::status_window;
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).expect("valid date")
+    }
+
+    /// The history depth the whole page needs, derived from the same
+    /// functions the read uses: its window plus that window's warm-up.
+    fn depth_needed(ctl_days: i64) -> i64 {
+        let today = day(2026, 10, 15);
+        let (from, _) = status_window(today, ctl_days);
+        (today - from).num_days() + warmup_days(ctl_days)
+    }
+
+    #[test]
+    fn the_window_is_one_chronic_window_ending_today() {
+        let today = day(2026, 10, 15);
+        assert_eq!(status_window(today, 42), (day(2026, 9, 3), today));
+    }
+
+    /// History reaching exactly the depth vouches for the whole window, and a
+    /// day less leaves its first day unvouched: the depth is the minimum, not
+    /// a guess.
+    #[test]
+    fn the_depth_is_exactly_what_vouches_the_first_day() {
+        let today = day(2026, 10, 15);
+        let ctl_days = 42;
+        let (from, _) = status_window(today, ctl_days);
+        let warmup = warmup_days(ctl_days);
+        let deep_enough = today - Duration::days(depth_needed(ctl_days));
+        assert_eq!(first_vouched_day(from, deep_enough, warmup), from);
+        let one_short = deep_enough + Duration::days(1);
+        assert!(first_vouched_day(from, one_short, warmup) > from);
+    }
+
+    /// Thirty days of history, the recent window a connect reads at once,
+    /// vouch for no day of the window: alone, it leaves the page empty.
+    #[test]
+    fn thirty_days_of_history_vouch_for_nothing() {
+        let today = day(2026, 10, 15);
+        let (from, to) = status_window(today, 42);
+        let oldest = today - Duration::days(30);
+        assert!(first_vouched_day(from, oldest, warmup_days(42)) > to);
     }
 }

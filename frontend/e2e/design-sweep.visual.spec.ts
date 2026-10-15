@@ -6,7 +6,12 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { webNavLabels } from '@pierre/shared-constants';
-import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
+import {
+  setupDashboardMocks,
+  loginToDashboard,
+  navigateToTab,
+  ONBOARDED_STATUS,
+} from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
@@ -125,6 +130,7 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
       body: JSON.stringify({
         needs_provider_connection: false,
         steps: [
+          ...ONBOARDED_STATUS.steps,
           { step_id: 'messaging_channel', status: 'skipped' },
           { step_id: 'messaging_configure', status: 'skipped' },
         ],

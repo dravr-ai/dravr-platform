@@ -346,14 +346,19 @@ mod strava {
     //! Strava over OAuth has no backfill: its first data is the first read of
     //! its activity list, which the poster makes at connect.
 
+    use std::collections::HashMap;
     use std::env;
+    use std::sync::Mutex;
+    use std::time::Duration as StdDuration;
 
+    use axum::extract::Query;
     use axum::routing::get;
     use axum::{Json, Router};
-    use pierre_core::models::UserOAuthToken;
+    use pierre_core::models::{ConnectionType, UserOAuthToken};
     use serde_json::{json, Value};
     use serial_test::serial;
     use tokio::net::TcpListener;
+    use tokio::time::sleep;
 
     use super::*;
 
@@ -479,6 +484,91 @@ mod strava {
         assert!(
             fx.post.asked().is_empty(),
             "no activity landed, so there is no first post"
+        );
+    }
+
+    /// A Strava-shaped `/athlete/activities` answering `activities` and
+    /// recording the `after` bound of every request it serves.
+    async fn recording_strava(activities: Value) -> (String, Arc<Mutex<Vec<i64>>>) {
+        let afters = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&afters);
+        let app = Router::new().route(
+            "/athlete/activities",
+            get(move |Query(query): Query<HashMap<String, String>>| {
+                let activities = activities.clone();
+                if let Some(after) = query.get("after").and_then(|a| a.parse().ok()) {
+                    seen.lock().unwrap().push(after);
+                }
+                async move { Json(activities) }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve");
+        });
+        (format!("http://{addr}"), afters)
+    }
+
+    /// A connect asks Strava for the depth Home's training status needs —
+    /// one 42-day chronic window plus its 72-day warm-up — not only the
+    /// recent month its first read covers (carnet#1043).
+    #[tokio::test]
+    #[serial]
+    async fn a_strava_connect_asks_for_the_history_home_needs() {
+        let (api, afters) = recording_strava(json!([{
+            "id": 9_002,
+            "name": "Morning Run",
+            "type": "Run",
+            "sport_type": "Run",
+            "start_date": (Utc::now() - Duration::days(3)).to_rfc3339(),
+            "distance": 10_000.0,
+            "elapsed_time": 3_000,
+            "total_elevation_gain": 40.0
+        }]))
+        .await;
+        let (fx, _guard) = strava_fixture(&api).await;
+        fx.resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(
+                fx.user_id,
+                fx.tenant_id,
+                "strava",
+                &ConnectionType::OAuth,
+                None,
+            )
+            .await
+            .unwrap();
+
+        fx.poster.connected_on_demand(fx.user_id, "strava").await;
+
+        // 113 rather than 114: the floor is the athlete's civil day at
+        // midnight UTC, up to a day short of `now - 114 days`.
+        let deep_floor = (Utc::now() - Duration::days(113)).timestamp();
+        let recent_floor = (Utc::now() - Duration::days(31)).timestamp();
+        let mut reached = false;
+        for _ in 0..100 {
+            if afters
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|after| *after <= deep_floor)
+            {
+                reached = true;
+                break;
+            }
+            sleep(StdDuration::from_millis(100)).await;
+        }
+        let afters = afters.lock().unwrap().clone();
+        assert!(
+            afters.iter().any(|after| *after >= recent_floor),
+            "the first read covers the recent month: {afters:?}"
+        );
+        assert!(
+            reached,
+            "the connect asked Strava back to the status's warm-up floor: {afters:?}"
         );
     }
 }

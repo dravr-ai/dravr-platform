@@ -8,7 +8,7 @@
 #![allow(missing_docs, dead_code)]
 
 use pierre_core::models::agents::{
-    Agent, AgentCategory, AgentVisibility, CreateSystemAgentRequest,
+    Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
@@ -114,4 +114,32 @@ pub async fn install_catalogue_agent(
         .install_from_store(&origin.to_string(), user_id, tenant_id)
         .await
         .unwrap()
+}
+
+/// Give `user_id` an agent of their own and select it, so the threads they
+/// open bind that agent rather than the catalogue default.
+///
+/// Signup leaves every account holding a selection; without one, a thread
+/// falls back to the newest athlete-facing catalogue agent, and opening it
+/// records usage on that agent — which reads as "installed" to
+/// `find_installed_by_handle`. Tests about installing a catalogue agent pin
+/// the thread here so that fallback never chooses the agent under test.
+pub async fn select_own_agent(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) {
+    let request: CreateAgentRequest = serde_json::from_value(serde_json::json!({
+        "title": "Own Agent",
+        "system_prompt": "You are the athlete's own agent.",
+        "category": "training",
+        "tags": ["own"],
+    }))
+    .unwrap();
+    let agent = repos
+        .agents
+        .create(user_id, tenant_id, &request)
+        .await
+        .unwrap();
+    repos
+        .tenants
+        .set_selected_agent(tenant_id, user_id, Some(&agent.id.to_string()))
+        .await
+        .unwrap();
 }

@@ -33,11 +33,29 @@ use uuid::Uuid;
 
 use crate::AuthRoutesContext;
 
+/// Days of recent history a connect reads at once, for every provider: the
+/// window the health backfill is asked for, and the reach of an on-demand
+/// provider's first activity read.
+///
+/// Recent only, on purpose: it is what the coach's first post reads, and a
+/// connect answers quickly. It is not the depth Home's training status needs —
+/// one chronic window plus its CTL warm-up, 114 days at the default 42-day
+/// window. The [`FirstSyncHook`] implementation asks the capture rail for that
+/// depth from the status's own window once the recent data is in
+/// (carnet#1043), so the two cannot drift apart.
+///
+/// The health backfill's `days` is a label only today: `dravr-enforme` 0.9.3
+/// `SyncOrchestrator::backfill` logs it and runs a cursorless `sync_user`,
+/// whose reach is the provider's own. The health sync lands sleep, recovery
+/// and daily health records, never the activities the status is computed from.
+pub const CONNECT_RECENT_DAYS: u32 = 30;
+
 /// Told when a provider connect has landed, or can land, the athlete's data.
 #[async_trait]
 pub trait FirstSyncHook: Send + Sync {
     /// The backfill or pre-fetch a connect started landed `provider`'s data
-    /// for the athlete, whose token lives in `tenant_id`.
+    /// for the athlete, whose token lives in `tenant_id`. The implementation
+    /// also asks for the history depth the athlete's training status needs.
     async fn data_landed(&self, user_id: Uuid, tenant_id: TenantId, provider: &str);
 
     /// The athlete connected `provider` over OAuth, which the platform reads

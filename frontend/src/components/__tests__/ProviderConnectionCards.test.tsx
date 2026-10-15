@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
+import { QUERY_KEYS } from '../../constants/queryKeys';
 
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
@@ -87,8 +88,10 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
-function renderCards(props: { onOAuthLaunched?: (providerName: string) => void } = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderCards(
+  props: { onOAuthLaunched?: (providerName: string) => void } = {},
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -305,6 +308,29 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     expect(localStorage.getItem('pierre_oauth_result')).toBe(ok);
+  });
+
+  it('refetches the onboarding status when a grant lands in the OAuth tab (carnet#1042)', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    renderCards({}, queryClient);
+    await screen.findByLabelText('Connect to Strava');
+
+    const ok = JSON.stringify({
+      type: 'oauth_completed',
+      provider: 'strava',
+      success: true,
+      timestamp: Date.now(),
+    });
+    await act(async () => {
+      localStorage.setItem('pierre_oauth_result', ok);
+      window.dispatchEvent(new StorageEvent('storage', { key: 'pierre_oauth_result', newValue: ok }));
+    });
+
+    // Without it this tab keeps its stale "needs a provider" status and never
+    // leaves the connect gate for the coach proposal.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.user.onboardingStatus() });
   });
 
   describe('the OAuth-callback poll is transient', () => {

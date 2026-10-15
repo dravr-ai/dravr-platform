@@ -128,7 +128,7 @@ function AppContent() {
   // Onboarding flow state (server status + per-step flags + transitions). Kept
   // here — above the `oauthCallback` early return — so the status query stays
   // mounted across the OAuth-callback screen and the needs→false transition
-  // that fires the coach-proposal step is never missed.
+  // that keeps the connect step up for a second service is observed.
   const onboarding = useOnboardingState();
 
   // Boot/teardown PostHog analytics in lockstep with the user's

@@ -42,8 +42,8 @@ const welcome = {
 
 /**
  * A first-run athlete who has just connected a provider: the onboarding status
- * reads "needs a provider" until `connect()`, then not — the in-session
- * transition the proposal step waits for.
+ * reads "needs a provider" until `connect()`, then not, with no agent step
+ * recorded — so the proposal step is next once the connect step is passed.
  */
 async function installMocks(page: Page) {
   const state = { needsProvider: true, created: false, sentTurns: [] as string[] };
