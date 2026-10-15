@@ -27,7 +27,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use dravr_sciotte::client::SciotteClient;
-use dravr_sciotte::wire::LoginOutcome;
+use dravr_sciotte::wire::{LoginMethod, LoginOutcome};
 use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
 
 #[cfg(feature = "health-sync")]
@@ -254,8 +254,11 @@ pub async fn forget_remote_flow(cache: &Cache, tenant_id: Uuid, user_id: Uuid) {
 pub struct SciotteLoginRequest {
     pub email: String,
     pub password: String,
-    #[serde(default = "default_method")]
-    pub method: String,
+    /// How to sign in: the provider's own form (`email`, the default when the
+    /// body names none), `google` or `apple`. Any other value is refused when
+    /// the body is read, before a browser is ever started.
+    #[serde(default)]
+    pub method: LoginMethod,
     /// Target platform: "strava" (default), "garmin", "trainingpeaks" or "coros"
     #[serde(default = "default_target")]
     pub target: String,
@@ -264,10 +267,6 @@ pub struct SciotteLoginRequest {
     /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
-}
-
-fn default_method() -> String {
-    "email".to_owned()
 }
 
 fn default_target() -> String {
@@ -864,7 +863,7 @@ pub async fn handle_sciotte_login(
         .login_with_credentials(
             &request.email,
             &request.password,
-            &request.method,
+            request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
         )
         .await
