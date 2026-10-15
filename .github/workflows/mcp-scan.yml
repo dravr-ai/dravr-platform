@@ -50,5 +50,9 @@ jobs:
 
       - name: Scan MCP server configuration
         if: ${{ env.SNYK_TOKEN != '' }}
-        run: uvx snyk-agent-scan@latest .mcp.json
+        env:
+          # An exact release, bumped on purpose after reading its notes (carnet#951): the tool
+          # runs with SNYK_TOKEN, so an unpinned "latest" would hand it to whatever PyPI serves.
+          SNYK_AGENT_SCAN_VERSION: "0.6.8"
+        run: uvx "snyk-agent-scan@${SNYK_AGENT_SCAN_VERSION}" .mcp.json
 
