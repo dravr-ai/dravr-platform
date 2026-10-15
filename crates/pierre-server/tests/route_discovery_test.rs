@@ -1,5 +1,5 @@
 // ABOUTME: Offline tests for RouteDiscoveryService ranking, Overpass queries, geocode input checks and compose_route
-// ABOUTME: Live Overpass/Nominatim tests live in tests/live/route_discovery_live_test.rs (live-e2e)
+// ABOUTME: Live Overpass and Open-Meteo geocoding tests live in tests/live/route_discovery_live_test.rs (live-e2e)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,8 +10,8 @@
 //! Route discovery tests that run without the network: Overpass query
 //! construction, ranking over captured fixtures, input rejection that
 //! happens before any HTTP call, and `compose_route` joining stored stretches
-//! through the tool itself. The tests that hit the live Overpass and
-//! Nominatim APIs are in `tests/live/route_discovery_live_test.rs`, built only
+//! through the tool itself. The tests that hit the live Overpass API and
+//! Open-Meteo's gazetteer are in `tests/live/route_discovery_live_test.rs`, built only
 //! with `--features live-e2e`.
 
 mod common;
@@ -37,8 +37,8 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-/// Prévost, Québec — reference point for the dispatch tests. Nominatim
-/// resolves this to roughly 45.87, -74.08.
+/// Prévost, Québec — reference point for the dispatch tests. The place
+/// geocoder resolves it to roughly 45.87, -74.08.
 const PREVOST_QC_LAT: f64 = 45.87;
 const PREVOST_QC_LON: f64 = -74.08;
 
