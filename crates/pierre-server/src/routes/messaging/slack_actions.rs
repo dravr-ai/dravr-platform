@@ -87,7 +87,9 @@ impl ActionRoute {
 ///   reaches the athlete's turn under the tenant whose Slack config verifies
 ///   it — the same session, gates and turn a typed message gets.
 /// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
-///   notifications. Requires Pierre admin role.
+///   notifications, authorized by the ops channel they are tapped in.
+///   LIMITATION(registre#1056): `ActionRoute::Ops` approve/reject has no producer —
+///   nothing posts these buttons.
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
@@ -534,6 +536,9 @@ fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
 /// Reads `SLACK_OPS_USERS_CHANNEL` — the channel the approve/reject buttons are
 /// posted to — and honors the action only when it originates there. Fails
 /// closed (rejects) when the channel is unset or does not match.
+///
+/// LIMITATION(registre#1056): `verify_ops_channel` reads `SLACK_OPS_USERS_CHANNEL`,
+/// which no deployment sets, so every ops action is refused.
 fn verify_ops_channel(action: &SlackAction) -> AppResult<()> {
     let configured = env::var("SLACK_OPS_USERS_CHANNEL")
         .map_err(|_| AppError::internal("SLACK_OPS_USERS_CHANNEL not configured"))?;

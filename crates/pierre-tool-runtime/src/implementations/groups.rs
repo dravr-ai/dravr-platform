@@ -49,7 +49,9 @@ use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
+use super::athlete_link::ProposeAthleteLinkTool;
 use super::group_roster::GetRosterOverviewTool;
+use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::fetch_provider_activities;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
@@ -80,6 +82,8 @@ pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(GetGroupMemberActivitiesTool),
         Box::new(GetRosterOverviewTool),
+        Box::new(GetProviderRosterTool),
+        Box::new(ProposeAthleteLinkTool),
     ]
 }
 

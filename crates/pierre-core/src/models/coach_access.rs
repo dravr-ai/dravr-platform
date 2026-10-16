@@ -46,8 +46,11 @@ impl CoachAccessStatus {
 /// A coach's request for coach access (carnet#738).
 ///
 /// Made in one tap from the onboarding group step when the coach's group came
-/// back coachless. The request grants nothing (ADR-018): a super-admin grants
-/// or declines it. A grant gives the requester `manages_roster` and, when
+/// back coachless, or filed for the coach, naming no group, when a live read
+/// of their Intervals.icu key's roster lists an active athlete they coach; such
+/// a request names the group they later make to coach. The request grants
+/// nothing (ADR-018): a super-admin grants or declines it. A grant gives the
+/// requester `manages_roster` and, when
 /// [`Self::group_id`] names a group they own that still has no coach, attaches
 /// them as its coach so no coach invite is needed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

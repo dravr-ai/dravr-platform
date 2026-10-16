@@ -32,7 +32,8 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AddMessageParams, Athlete, ConnectionType, ConversationTurnId,
-    SportType, Stats, TenantId, User, UserOAuthToken, UserPhysiologicalProfile,
+    SportType, Stats, TenantId, ThresholdProvenance, User, UserOAuthToken,
+    UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -792,6 +793,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 w_prime_joules: None,
                 critical_speed_mps: None,
                 d_prime_meters: None,
+                threshold_provenance: ThresholdProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
             },
         )

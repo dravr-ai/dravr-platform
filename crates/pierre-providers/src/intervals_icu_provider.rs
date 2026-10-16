@@ -1,4 +1,4 @@
-// ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + the training-calendar write surface
+// ABOUTME: Intervals.icu provider — FitnessProvider for athlete profile + activities + streams + sport settings + the training calendar's plan and writes
 // ABOUTME: Authenticates by dravr-enforme's intervals.icu auth rule (OAuth bearer or HTTP Basic API key); calendar writes are keyed by Dravr's external_id
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,8 +17,13 @@
 //! # Intervals.icu Provider Module
 //!
 //! [`FitnessProvider`] for Intervals.icu (athlete profile, activities, streams,
-//! wellness, and the training-calendar write surface), authenticated with the
-//! athlete's OAuth grant or their personal API key.
+//! wellness, sport settings, the workouts the training calendar plans, and
+//! its write surface), authenticated with the athlete's OAuth grant or their
+//! personal API key.
+//!
+//! The planned-workout read lives in the `planned` submodule, and the
+//! mapping, with what it leaves out, in `intervals_icu_planned`. Which sport
+//! settings each threshold comes from is `intervals_icu_settings`'s rule.
 //!
 //! ## Calendar writes
 //!
@@ -30,6 +35,11 @@
 //! [`render_description`]) so the calendar parses them into targets and
 //! computes planned load. The DSL is parsed on every write and cannot be
 //! disabled, which is why agent prose is escaped before it is sent.
+//!
+//! A coach's API key writes the calendar of an athlete who made them their
+//! coach, at that athlete's path, through a provider built for the write
+//! ([`DelegatedReads::create_delegated_calendar_writer`]); one built to read
+//! a coached athlete refuses every write before it is sent.
 //!
 //! ## Authentication
 //!
@@ -58,11 +68,12 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use dravr_enforme::providers::intervals_icu::auth as intervals_auth;
 use reqwest::header::AUTHORIZATION;
 use reqwest::{Response, StatusCode};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::core::{
     no_recorded_samples, ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
@@ -72,7 +83,8 @@ use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
 use crate::constants::oauth::INTERVALS_ICU;
 use crate::delegation::{
-    athlete_off_roster, coach_credential_expired, CoachRoster, DelegatedReads,
+    athlete_off_roster, coach_credential_expired, coach_write_refused, settings_not_shared,
+    CoachRoster, DelegatedReads,
 };
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
@@ -83,10 +95,12 @@ use crate::intervals_icu_roster::{check_athlete_id, coach_roster, IntervalsIcuRo
 use crate::intervals_icu_self_report::{
     comments_from_messages, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
 };
+use crate::intervals_icu_settings::thresholds_from_settings;
 use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
 use crate::models::StatsCoverage;
 use crate::models::{
-    Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, Stats, TimeSeriesData,
+    Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout,
+    ProviderThresholds, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -95,6 +109,8 @@ use crate::utils::auth_error_for_status;
 
 /// The activity payload and its mapping onto [`Activity`].
 mod activity;
+/// The planned-workout read: the events request, then the pairing request.
+mod planned;
 
 pub(crate) use activity::parse_local_dt;
 use activity::{map_activity, IntervalsIcuActivity};
@@ -246,12 +262,19 @@ fn status_error(op: &str, status: StatusCode) -> AppError {
     })
 }
 
-/// What a call names: the athlete a URL path addresses, or one activity by
-/// id. A delegated provider reads a refusal of each differently.
+/// What a call names: the athlete a URL path addresses, the athlete's
+/// settings, or one activity by id. A delegated provider reads a refusal of
+/// each differently.
 #[derive(Clone, Copy)]
 enum Target {
     /// `/api/v1/athlete/{id}/...`
     Athlete,
+    /// `/api/v1/athlete/{id}/sport-settings`: refused to a coach the athlete
+    /// still shares their training with.
+    Settings,
+    /// A write to `/api/v1/athlete/{id}/events`: refused to a coach who reads
+    /// the athlete but may not write their calendar.
+    Calendar,
     /// `/api/v1/activity/{id}/...`
     Activity,
 }
@@ -287,6 +310,15 @@ struct IntervalsIcuAthlete {
     profile_medium: Option<String>,
 }
 
+/// What a provider built for a coached athlete writes of theirs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SubjectWrites {
+    /// Nothing: every calendar write is refused before it is sent.
+    Nothing,
+    /// The athlete's training calendar, through the coach's API key.
+    Calendar,
+}
+
 /// Provider implementation for Intervals.icu.
 pub struct IntervalsIcuProvider {
     config: ProviderConfig,
@@ -300,6 +332,9 @@ pub struct IntervalsIcuProvider {
     /// credential, by Intervals.icu athlete id; `None` reads the credential's
     /// own athlete.
     subject: Option<String>,
+    /// What a delegated provider writes of its subject's: only one built by
+    /// [`Self::delegated_calendar_writer`] writes their calendar.
+    subject_writes: SubjectWrites,
 }
 
 impl IntervalsIcuProvider {
@@ -317,6 +352,7 @@ impl IntervalsIcuProvider {
             credentials: Arc::new(RwLock::new(None)),
             http: shared_client().clone(),
             subject: None,
+            subject_writes: SubjectWrites::Nothing,
         }
     }
 
@@ -326,8 +362,8 @@ impl IntervalsIcuProvider {
     ///
     /// Every athlete-scoped call addresses `athlete_id`, a detail read of an
     /// activity that is not that athlete's is refused as not found, and the
-    /// calendar writes are refused: the athlete consented to having their
-    /// training read, not written.
+    /// calendar writes are refused: a coach's write goes through a provider
+    /// built for it ([`Self::delegated_calendar_writer`]).
     ///
     /// # Errors
     ///
@@ -342,14 +378,36 @@ impl IntervalsIcuProvider {
         })
     }
 
+    /// A [`Self::delegated`] provider that also writes `athlete_id`'s
+    /// training calendar through the coach's API key: Intervals.icu lets a
+    /// coach create, update and delete events at the path of an athlete who
+    /// made them their coach. Whether this coach may write this athlete's
+    /// calendar is decided before the provider is built.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for an id Intervals.icu could not have
+    /// issued.
+    fn delegated_calendar_writer(config: ProviderConfig, athlete_id: &str) -> AppResult<Self> {
+        Ok(Self {
+            subject_writes: SubjectWrites::Calendar,
+            ..Self::delegated(config, athlete_id)?
+        })
+    }
+
     /// The error a call naming `target` that Intervals.icu answered with a
     /// non-success `status` is.
     ///
     /// On a delegated provider the credential is the coach's, so a 401 is
     /// [`coach_credential_expired`] rather than the reader's reconnect, and a
     /// 403 on the athlete's path means the athlete no longer shares with the
-    /// coach ([`athlete_off_roster`]). A 403 or 404 on an activity id names
-    /// nothing this reader may see. Otherwise [`status_error`].
+    /// coach ([`athlete_off_roster`]). A 403 on the athlete's settings is
+    /// [`settings_not_shared`], which ends nothing: the coach may be kept from
+    /// the settings of an athlete who still shares their training. A 403 on a
+    /// calendar write is [`coach_write_refused`], which ends nothing either:
+    /// the coach reads the athlete without writing for them. A 403 or 404 on
+    /// an activity id names nothing this reader may see. Otherwise
+    /// [`status_error`].
     fn refusal(&self, op: &str, status: StatusCode, target: Target) -> AppError {
         if self.subject.is_some() {
             match (status, target) {
@@ -357,6 +415,8 @@ impl IntervalsIcuProvider {
                     return coach_credential_expired(INTERVALS_ICU, brand());
                 }
                 (StatusCode::FORBIDDEN, Target::Athlete) => return athlete_off_roster(brand()),
+                (StatusCode::FORBIDDEN, Target::Settings) => return settings_not_shared(brand()),
+                (StatusCode::FORBIDDEN, Target::Calendar) => return coach_write_refused(brand()),
                 (StatusCode::FORBIDDEN | StatusCode::NOT_FOUND, Target::Activity) => {
                     return AppError::not_found("Activity");
                 }
@@ -366,18 +426,14 @@ impl IntervalsIcuProvider {
         status_error(op, status)
     }
 
-    /// Refuse a calendar write on a delegated provider before anything is
-    /// sent.
-    ///
-    /// LIMITATION(registre#1017): `refuse_delegated_write` refuses every coach write, though
-    /// intervals.icu lets a coach's key write the calendar of an athlete who granted Coach
-    /// access: no per-link write consent exists yet, and the roster does not read
-    /// `icu_permission` to tell a coached athlete from a followed one.
+    /// Refuse a calendar write, before anything is sent, on a provider built
+    /// to read a coached athlete: only one built for a coach's write
+    /// ([`Self::delegated_calendar_writer`]) writes their calendar.
     fn refuse_delegated_write(&self) -> AppResult<()> {
-        if self.subject.is_some() {
+        if self.subject.is_some() && self.subject_writes == SubjectWrites::Nothing {
             return Err(AppError::invalid_input(
-                "A coached athlete's Intervals.icu calendar is read through the coach's \
-                 connection, never written",
+                "This Intervals.icu calendar is read through the athlete's human coach's \
+                 connection: only that coach writes to it, from Dravr, once the athlete allows it",
             ));
         }
         Ok(())
@@ -722,36 +778,59 @@ impl IntervalsIcuProvider {
         }
     }
 
-    /// Fetch the calendar events (planned workouts + races) for the date range.
+    /// `GET` the athlete-scoped `suffix` with `query`, decoded as `T`, a
+    /// refusal read as one naming `target` ([`Self::refusal`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError`] when credentials are missing, the upstream HTTP
+    /// call fails or is refused, or the response cannot be deserialised.
+    async fn get_athlete_json<T: DeserializeOwned>(
+        &self,
+        op: &'static str,
+        suffix: &str,
+        query: &[(&str, String)],
+        target: Target,
+    ) -> AppResult<T> {
+        let auth = self.require_credentials().await?;
+        let url = self.athlete_url(&auth, suffix);
+        let req = auth
+            .authorize(self.http.get(&url))?
+            .header("Accept", "application/json")
+            .query(query);
+        self.admit_request().await?;
+        let response = send_traced(req, op, &url)
+            .await
+            .map_err(|e| AppError::external_service("intervals_icu", format!("{op}: {e}")))?;
+        if !response.status().is_success() {
+            return Err(self.refusal(op, response.status(), target));
+        }
+        response
+            .json()
+            .await
+            .map_err(|e| AppError::external_service("intervals_icu", format!("{op} decode: {e}")))
+    }
+
+    /// Fetch the calendar events for the date range, every category unless
+    /// `categories` (comma-separated) names the ones to read.
     ///
     /// # Errors
     ///
     /// Returns [`AppError`] when credentials are missing or the upstream
     /// HTTP call fails.
-    async fn get_events(
+    async fn get_events<T: DeserializeOwned>(
         &self,
         oldest: NaiveDate,
         newest: NaiveDate,
-    ) -> AppResult<Vec<IntervalsIcuEvent>> {
-        let auth = self.require_credentials().await?;
-        let url = self.athlete_url(&auth, "/events");
-        let req = auth
-            .authorize(self.http.get(&url))?
-            .header("Accept", "application/json")
-            .query(&[
-                ("oldest", oldest.format("%Y-%m-%d").to_string()),
-                ("newest", newest.format("%Y-%m-%d").to_string()),
-            ]);
-        self.admit_request().await?;
-        let response = send_traced(req, "get_events", &url)
+        categories: Option<&str>,
+    ) -> AppResult<Vec<T>> {
+        let mut query = vec![
+            ("oldest", oldest.format("%Y-%m-%d").to_string()),
+            ("newest", newest.format("%Y-%m-%d").to_string()),
+        ];
+        query.extend(categories.map(|categories| ("category", categories.to_owned())));
+        self.get_athlete_json("get_events", "/events", &query, Target::Athlete)
             .await
-            .map_err(|e| AppError::external_service("intervals_icu", format!("get_events: {e}")))?;
-        if !response.status().is_success() {
-            return Err(self.refusal("get_events", response.status(), Target::Athlete));
-        }
-        response.json().await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_events decode: {e}"))
-        })
     }
 }
 
@@ -890,6 +969,18 @@ impl FitnessProvider for IntervalsIcuProvider {
         self.fetch_coach_roster().await
     }
 
+    // The settings array decodes entry by entry; which entry each threshold
+    // comes from is `intervals_icu_settings`'s rule.
+    async fn read_thresholds(
+        &self,
+        primary_sport: Option<&SportType>,
+    ) -> AppResult<ProviderThresholds> {
+        let entries: Vec<Value> = self
+            .get_athlete_json("read_thresholds", "/sport-settings", &[], Target::Settings)
+            .await?;
+        Ok(thresholds_from_settings(entries, primary_sport))
+    }
+
     // The streams endpoint is a further round trip, so only this tier pays
     // it. Best-effort: a streams failure degrades to the plain activity —
     // stale-less summary beats a dead export.
@@ -942,16 +1033,26 @@ impl FitnessProvider for IntervalsIcuProvider {
         })
     }
 
+    // Every category: this is the reconcile's view of the calendar, and the
+    // week notes Dravr pushes are NOTE events.
     async fn list_calendar_events(
         &self,
         from: NaiveDate,
         to: NaiveDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
-        self.get_events(from, to)
+        self.get_events::<IntervalsIcuEvent>(from, to, None)
             .await?
             .into_iter()
             .map(IntervalsIcuEvent::calendar_event_ref)
             .collect()
+    }
+
+    async fn list_planned_workouts(
+        &self,
+        after: NaiveDate,
+        before: NaiveDate,
+    ) -> AppResult<Vec<PlannedWorkout>> {
+        self.planned_workouts(after, before).await
     }
 
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
@@ -969,7 +1070,7 @@ impl FitnessProvider for IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("push_planned_session: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(status_error("push_planned_session", response.status()));
+            return Err(self.refusal("push_planned_session", response.status(), Target::Calendar));
         }
         let created: CreatedEvent = response.json().await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("push_planned_session decode: {e}"))
@@ -996,10 +1097,13 @@ impl FitnessProvider for IntervalsIcuProvider {
             .map_err(|e| {
                 AppError::external_service("intervals_icu", format!("update_planned_session: {e}"))
             })?;
-        response
-            .status()
-            .is_success()
-            .ok_or_else(|| status_error("update_planned_session", response.status()))
+        response.status().is_success().ok_or_else(|| {
+            self.refusal(
+                "update_planned_session",
+                response.status(),
+                Target::Calendar,
+            )
+        })
     }
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
@@ -1028,7 +1132,11 @@ impl FitnessProvider for IntervalsIcuProvider {
                 AppError::external_service("intervals_icu", format!("delete_planned_sessions: {e}"))
             })?;
         if !response.status().is_success() {
-            return Err(status_error("delete_planned_sessions", response.status()));
+            return Err(self.refusal(
+                "delete_planned_sessions",
+                response.status(),
+                Target::Calendar,
+            ));
         }
         let deleted: DeleteEventsResponse = response.json().await.map_err(|e| {
             AppError::external_service(
@@ -1070,6 +1178,18 @@ impl DelegatedReads for IntervalsIcuProviderFactory {
         athlete_id: &str,
     ) -> AppResult<Box<dyn FitnessProvider>> {
         Ok(Box::new(IntervalsIcuProvider::delegated(
+            config, athlete_id,
+        )?))
+    }
+
+    // A coach's API key writes the calendar of an athlete who made them
+    // their coach.
+    fn create_delegated_calendar_writer(
+        &self,
+        config: ProviderConfig,
+        athlete_id: &str,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(IntervalsIcuProvider::delegated_calendar_writer(
             config, athlete_id,
         )?))
     }

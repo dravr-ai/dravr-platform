@@ -1610,7 +1610,7 @@
     "unlinkTitle": "Dissocier {{platform}} ?",
     "unlinked": "Lien {{platform}} terminé",
     "waitingFor": "En attente de la confirmation de {{member}}",
-    "wellnessReadGranted": "Partage sommeil, VFC et poids",
+    "wellnessReadGranted": "Partage sommeil, VFC, fréquence cardiaque au repos, poids et notes",
     "wellnessReadHint": "Dravr les lit via le compte de {{coach}} : {{coach}} voit ta forme du jour et ton agent peut s'en servir. Désactiver retire ce que Dravr a déjà lu.",
     "wellnessReadLabel": "Partager aussi ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids et tes notes du jour {{platform}}",
     "wellnessReadOwnSource": "Les données de bien-être viennent de sa propre connexion Garmin ou WHOOP",
@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Ton groupe est prêt, mais tu n'en es pas encore le coach. L'accès coach vient avec un compte coach TrainingPeaks, ou l'équipe Dravr l'active pour toi.",
+    "accessPendingBody": "Ton groupe est prêt, mais tu n'en es pas encore le coach. L'accès coach vient avec un compte coach TrainingPeaks, ou l'équipe Dravr l'active pour toi. Connecter un compte intervals.icu qui entraîne des athlètes en fait la demande à l'équipe pour toi.",
     "accessPendingHeading": "Accès coach en attente",
     "attached": "Coach humain rattaché",
     "attachedBadge": "Coach rattaché",

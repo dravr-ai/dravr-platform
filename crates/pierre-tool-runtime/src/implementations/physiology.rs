@@ -1,4 +1,4 @@
-// ABOUTME: set_physiology, the only production writer of user_physiological_profiles, and the physiology tool set
+// ABOUTME: set_physiology, the athlete's own write of user_physiological_profiles, and the physiology tool set
 // ABOUTME: Read-modify-write so saving one measurement never nulls the rest of the athlete's profile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -27,6 +27,11 @@
 //! `power_zones`, and supplying both resting and max HR populates `hr_zones`.
 //! `calculate_personalized_zones` derives the identical boundaries for display
 //! from the same functions in [`super::configuration`].
+//!
+//! Every value this tool writes is the athlete's own: saving FTP, threshold
+//! HR, max HR or threshold pace clears any provenance a provider import
+//! recorded for it ([`super::physiology_import`]), so a later import keeps the
+//! athlete's number instead of replacing it.
 
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
@@ -37,6 +42,7 @@ use chrono::{NaiveDate, Utc};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
@@ -45,6 +51,7 @@ use crate::implementations::configuration::{
     validate_parameter_relationships,
 };
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
+use crate::implementations::physiology_import::ImportProviderThresholdsTool;
 use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::implementations::vo2max_estimate::EstimateVo2maxTool;
 use crate::runtime::ToolRuntime;
@@ -56,7 +63,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     HrZoneSet, MeasurementKind, MetricProvenance, PowerZoneSet, ProvenancedValue, SportType,
-    TenantId, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
+    TenantId, ThresholdProvenance, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -471,22 +478,28 @@ impl PhysiologyUpdate {
     }
 
     /// Overlay the supplied fields onto the stored profile, leaving every
-    /// field this call did not mention exactly as it was.
+    /// field this call did not mention exactly as it was. A threshold the
+    /// call sets becomes the athlete's own: its provider provenance, if any,
+    /// is cleared; one it does not set keeps its own.
     fn apply_to(&self, profile: &mut UserPhysiologicalProfile) {
         if let Some(v) = self.ftp_watts {
             profile.ftp_watts = Some(v);
+            profile.threshold_provenance.ftp_watts = None;
         }
         if let Some(v) = self.threshold_pace_sec_per_km {
             profile.threshold_pace_sec_per_km = Some(v);
+            profile.threshold_provenance.threshold_pace_sec_per_km = None;
         }
         if let Some(v) = self.max_hr {
             profile.max_hr = Some(v);
+            profile.threshold_provenance.max_hr = None;
         }
         if let Some(v) = self.resting_hr {
             profile.resting_hr = Some(v);
         }
         if let Some(v) = self.threshold_hr {
             profile.threshold_hr = Some(v);
+            profile.threshold_provenance.threshold_hr = None;
         }
         if let Some(v) = self.lactate_threshold_percentage {
             profile.lactate_threshold_percentage = Some(v);
@@ -630,7 +643,7 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
 /// catches a contradiction spread across two calls — saving `resting_hr: 60`
 /// on Monday and `max_hr: 55` on Tuesday is just as wrong as sending both at
 /// once, and only the merged view sees it.
-fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
+pub(crate) fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
     let mut ranges = Map::new();
     if let Some(v) = profile.max_hr {
         ranges.insert("max_hr".to_owned(), json!(v));
@@ -682,8 +695,98 @@ fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
         .ok_or_else(|| AppError::invalid_input(errors.join("; ")))
 }
 
+/// The athlete's stored profile, for a write that merges into it.
+///
+/// # Errors
+///
+/// Returns the repository error, or an unavailable-over-transport refusal
+/// when the profile was written from first-party-only data and the caller is
+/// external: such a profile is neither read nor merged into (carnet#769).
+pub(crate) async fn profile_for_write(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<UserPhysiologicalProfile>> {
+    let existing = context
+        .resources
+        .repos()
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant_id, user_id)
+        .await?;
+    if existing
+        .as_ref()
+        .is_some_and(|profile| !ai_scope::admit_derived(profile.transport_policy))
+    {
+        return Err(AppError::unavailable_over_transport(
+            "this athlete's physiology is not available over this interface",
+        ));
+    }
+    Ok(existing)
+}
+
+/// Store a merged, validated `profile` as its athlete's in `tenant_id`, and
+/// return it as re-read from storage with what the save did to the stored
+/// training history.
+///
+/// The profile is stamped with what this turn served (carnet#769): a value the
+/// agent read off first-party-only data keeps the profile there. Its zones are
+/// derived here rather than at read time, so the stored row carries the
+/// boundaries every reader expects in `hr_zones_json` / `power_zones_json`.
+/// The response describes the stored row, not the intent, so an agent cannot
+/// confirm a save that did not land. The stored daily rollup was scored
+/// against the thresholds it was computed with, so a save that moved one from
+/// `load_inputs_before` recomputes it, and `get_training_history` agrees with
+/// every tool computing load live.
+///
+/// # Errors
+///
+/// Returns the repository error of the write or the re-read, or a database
+/// error when the row cannot be read back.
+pub(crate) async fn store_profile(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    mut profile: UserPhysiologicalProfile,
+    load_inputs_before: &AthleteInputs,
+) -> AppResult<(UserPhysiologicalProfile, HistoryRefresh)> {
+    let user_id = profile.user_id;
+    profile.transport_policy = profile
+        .transport_policy
+        .strictest(ai_scope::derived_policy());
+    let zones_config = &context.resources.config().training_zones;
+    if let Some(ftp) = profile.ftp_watts {
+        if let Some(zones) = derive_power_zone_set(ftp, zones_config) {
+            profile.power_zones = Some(zones);
+        }
+    }
+    if let (Some(resting_hr), Some(max_hr)) = (profile.resting_hr, profile.max_hr) {
+        if let Some(zones) = derive_hr_zone_set(resting_hr, max_hr) {
+            profile.hr_zones = Some(zones);
+        }
+    }
+
+    let repos = context.resources.repos();
+    repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(tenant_id, user_id, &profile)
+        .await?;
+    let stored = repos
+        .user_physiological_profile
+        .get_user_physiological_profile(tenant_id, user_id)
+        .await?
+        .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
+        .ok_or_else(|| {
+            AppError::database("physiological profile was not readable immediately after its write")
+        })?;
+    let training_history = if AthleteInputs::from_profile(Some(&stored)) == *load_inputs_before {
+        HistoryRefresh::Unaffected
+    } else {
+        recompute_stored_history(&context.resources, tenant_id, user_id).await
+    };
+    Ok((stored, training_history))
+}
+
 /// Render a profile for the tool response.
-fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
+pub(crate) fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
     PhysiologyProfile {
         ftp_watts: profile.ftp_watts,
         threshold_pace_sec_per_km: profile.threshold_pace_sec_per_km,
@@ -703,6 +806,7 @@ fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
         w_prime_joules: profile.w_prime_joules.clone(),
         critical_speed_mps: profile.critical_speed_mps.clone(),
         d_prime_meters: profile.d_prime_meters.clone(),
+        threshold_provenance: profile.threshold_provenance.clone(),
     }
 }
 
@@ -764,6 +868,14 @@ pub struct PhysiologyProfile {
     /// D′, in metres, with its provenance. Quoted the same way as
     /// `critical_power_watts`.
     pub d_prime_meters: Option<ProvenancedValue<f64>>,
+    /// Where `ftp_watts`, `threshold_hr`, `max_hr` and
+    /// `threshold_pace_sec_per_km` came from, for the ones a provider supplied
+    /// (`import_provider_thresholds`). Each listed value is that provider's
+    /// estimate: quote it with its origin ("intervals.icu has your FTP at
+    /// 285 W"), never as a measurement. A threshold not listed is the
+    /// athlete's own, and the field is absent when all of them are.
+    #[serde(skip_serializing_if = "ThresholdProvenance::is_empty")]
+    pub threshold_provenance: ThresholdProvenance,
 }
 
 /// What `set_physiology` answers with.
@@ -950,21 +1062,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 ));
             }
 
-            let repos = context.resources.repos();
-            let existing = repos
-                .user_physiological_profile
-                .get_user_physiological_profile(tenant_id, user_id)
-                .await?;
-            // A profile written from first-party-only data is neither read nor
-            // merged into by an external caller (carnet#769).
-            if existing
-                .as_ref()
-                .is_some_and(|profile| !ai_scope::admit_derived(profile.transport_policy))
-            {
-                return Err(AppError::unavailable_over_transport(
-                    "this athlete's physiology is not available over this interface",
-                ));
-            }
+            let existing = profile_for_write(&context, tenant_id, user_id).await?;
             let created = existing.is_none();
             let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
             // A first save has no stored sport to keep. `Run` matches the
@@ -976,45 +1074,8 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             profile.user_id = user_id;
             update.apply_to(&mut profile);
             validate_merged(&profile)?;
-            // Stamped with what this turn served (carnet#769): a value the
-            // agent read off first-party-only data keeps the profile there.
-            profile.transport_policy = profile
-                .transport_policy
-                .strictest(ai_scope::derived_policy());
-
-            // Zones are derived here rather than at read time so the stored
-            // profile carries the boundaries every reader already expects to
-            // find in `hr_zones_json` / `power_zones_json`.
-            let zones_config = &context.resources.config().training_zones;
-            if let Some(ftp) = profile.ftp_watts {
-                if let Some(zones) = derive_power_zone_set(ftp, zones_config) {
-                    profile.power_zones = Some(zones);
-                }
-            }
-            if let (Some(resting_hr), Some(max_hr)) = (profile.resting_hr, profile.max_hr) {
-                if let Some(zones) = derive_hr_zone_set(resting_hr, max_hr) {
-                    profile.hr_zones = Some(zones);
-                }
-            }
-
-            repos
-                .user_physiological_profile
-                .upsert_user_physiological_profile(tenant_id, user_id, &profile)
-                .await?;
-
-            // Re-read rather than echo the merged struct: the response is what
-            // the agent will repeat to the athlete, and it should describe the
-            // stored row, not the intent.
-            let stored = repos
-                .user_physiological_profile
-                .get_user_physiological_profile(tenant_id, user_id)
-                .await?
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
-                .ok_or_else(|| {
-                    AppError::database(
-                        "physiological profile was not readable immediately after its write",
-                    )
-                })?;
+            let (stored, training_history) =
+                store_profile(&context, tenant_id, profile, &load_inputs_before).await?;
 
             info!(
                 user_id = %user_id,
@@ -1024,16 +1085,6 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 fields = %updated_fields.join(","),
                 "saved athlete physiology"
             );
-
-            // The stored daily rollup was scored against the thresholds it
-            // was computed with; a save that moved one recomputes it, so
-            // get_training_history agrees with every tool computing load live.
-            let training_history =
-                if AthleteInputs::from_profile(Some(&stored)) == load_inputs_before {
-                    HistoryRefresh::Unaffected
-                } else {
-                    recompute_stored_history(&context.resources, tenant_id, user_id).await
-                };
 
             ok_typed(
                 "set_physiology",
@@ -1056,6 +1107,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
 pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(SetPhysiologyTool),
+        Box::new(ImportProviderThresholdsTool),
         Box::new(EstimateVo2maxTool),
         Box::new(EstimateLactateThresholdsTool),
         Box::new(RecommendPlanFlavourTool),

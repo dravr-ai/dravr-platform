@@ -16,7 +16,11 @@ use pierre_core::models::{
     DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus,
     SmartScheduleWeights, TenantId,
 };
+#[cfg(feature = "health-sync")]
+use pierre_core::models::{DelegatedConnection, DelegationStatus};
 use pierre_database::repositories::ActivityCacheRepository;
+#[cfg(feature = "health-sync")]
+use pierre_database::repositories::ProviderConnectionRepository;
 use pierre_database::AuthRepos;
 #[cfg(feature = "health-sync")]
 use pierre_providers::backend_resolver::sync_backend;
@@ -25,6 +29,13 @@ use pierre_providers::registry::global_registry;
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
+
+#[cfg(feature = "health-sync")]
+use crate::coach_platform::coach_platform;
+#[cfg(feature = "health-sync")]
+use crate::delegated_link_consents::{wellness_read_skipped, WellnessReadSkip};
+#[cfg(feature = "health-sync")]
+use crate::delegated_read::{holds_own_session, OwnLogins};
 
 /// Push interface used by the refresh service to inform connected clients.
 ///
@@ -62,6 +73,12 @@ pub struct RefreshService {
     /// scrape. Read for on-demand providers so the agent hint reflects honest
     /// staleness instead of unconditionally reporting them Fresh.
     activity_cache: Arc<dyn ActivityCacheRepository>,
+    /// The user's provider connections: whether a wellness source of their
+    /// own keeps their human coach's link from syncing any wellness. Shared
+    /// with the repository registry it is cloned from, whose pools every
+    /// request reads through.
+    #[cfg(feature = "health-sync")]
+    provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -79,6 +96,7 @@ impl RefreshService {
     pub fn new(
         repos: &AuthRepos,
         activity_cache: Arc<dyn ActivityCacheRepository>,
+        #[cfg(feature = "health-sync")] provider_connections: Arc<dyn ProviderConnectionRepository>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
             Arc<dravr_enforme::SyncOrchestrator>,
         >,
@@ -87,6 +105,8 @@ impl RefreshService {
         Self {
             repos: repos.clone(),
             activity_cache,
+            #[cfg(feature = "health-sync")]
+            provider_connections,
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
             #[cfg(feature = "health-sync")]
@@ -328,6 +348,12 @@ impl RefreshService {
     ///
     /// When `wait` is true, blocks until the sync finishes and returns the result.
     /// When `wait` is false, spawns a background task and returns immediately.
+    ///
+    /// A user who reads the provider only through their human coach's link,
+    /// on a platform whose linked members' wellness the scheduler syncs, is
+    /// answered without a sync: that wellness syncs on the scheduler's own
+    /// cadence through the coach's key once the member granted it, and never
+    /// on demand (`Self::coach_link_serving`).
     #[instrument(skip(self), fields(%user_id, %tenant_id, %provider))]
     pub async fn refresh_provider(
         &self,
@@ -338,6 +364,19 @@ impl RefreshService {
     ) -> RefreshResult {
         #[cfg(feature = "health-sync")]
         {
+            if let Some(link) = self.coach_link_serving(user_id, provider).await {
+                let skipped = if link.wellness_read {
+                    self.wellness_skip(&link).await
+                } else {
+                    None
+                };
+                return RefreshResult {
+                    provider: provider.to_owned(),
+                    success: false,
+                    message: coach_link_refresh_message(provider, link.wellness_read, skipped),
+                    records_synced: 0,
+                };
+            }
             if wait {
                 // Same budget as the provider=="all" path above — this branch
                 // ran unbounded, so a wedged single-provider sync could hold a
@@ -419,6 +458,67 @@ impl RefreshService {
         );
 
         Some(hint)
+    }
+
+    /// The human coach's confirmed link `user_id` reads `provider` through,
+    /// when no token of their own serves its sync, a confirmed link the group
+    /// relation backs does, and the provider's coaching platform is one whose
+    /// linked members' wellness the scheduler syncs through the coach's key.
+    ///
+    /// A coaching platform that syncs nothing for a linked member keeps the
+    /// answer it had (an on-demand platform has no sync to run), so a refresh
+    /// never claims a schedule that does not exist. A lookup that fails reads
+    /// as `None`, and the sync then runs: with no credential of the user's own
+    /// and outside the scheduler's delegated pass, it reads nothing.
+    #[cfg(feature = "health-sync")]
+    async fn coach_link_serving(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> Option<DelegatedConnection> {
+        let backend = sync_backend(provider);
+        coach_platform(&global_registry(), &backend)
+            .filter(|platform| platform.reads_member_wellness())?;
+        match holds_own_session(self.repos.oauth_tokens.as_ref(), user_id, None, &[&backend]).await
+        {
+            Ok(true) => return None,
+            Ok(false) => {}
+            Err(e) => {
+                warn!(%user_id, error = %e, "Could not read the user's tokens before a refresh");
+                return None;
+            }
+        }
+        match self
+            .repos
+            .delegated_connections
+            .list_backed_for_member(user_id, &backend)
+            .await
+        {
+            Ok(links) => links
+                .into_iter()
+                .find(|link| link.status == DelegationStatus::Confirmed),
+            Err(e) => {
+                warn!(%user_id, error = %e, "Could not read the user's coach links before a refresh");
+                None
+            }
+        }
+    }
+
+    /// Why `link` syncs none of its member's wellness although they granted
+    /// it ([`wellness_read_skipped`]); a lookup that fails is logged and
+    /// reads as `None`.
+    #[cfg(feature = "health-sync")]
+    async fn wellness_skip(&self, link: &DelegatedConnection) -> Option<WellnessReadSkip> {
+        let logins = OwnLogins {
+            tokens: self.repos.oauth_tokens.as_ref(),
+            connections: self.provider_connections.as_ref(),
+        };
+        wellness_read_skipped(logins, link)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(link_id = %link.id, error = %e, "Could not read the member's own wellness sources before a refresh");
+                None
+            })
     }
 
     /// Spawn a non-blocking background sync for a single provider.
@@ -666,6 +766,41 @@ where
     }
 }
 
+/// What an on-demand refresh answers a member who reads `provider` only
+/// through their human coach's link: the scheduler syncs the link's wellness
+/// every few hours once the member granted it `wellness_read`, unless a
+/// source of their own already gives Dravr it (`skipped`), and syncs nothing
+/// through it otherwise.
+#[cfg(feature = "health-sync")]
+fn coach_link_refresh_message(
+    provider: &str,
+    wellness_read: bool,
+    skipped: Option<WellnessReadSkip>,
+) -> String {
+    match (wellness_read, skipped) {
+        (false, _) => format!(
+            "This athlete's {provider} data is read through their human coach's link when it is \
+             asked for; the athlete has not let that link sync their wellness, so there is \
+             nothing to refresh."
+        ),
+        (true, Some(WellnessReadSkip::OwnWellnessSource)) => format!(
+            "This athlete's {provider} data is read through their human coach's link, which \
+             syncs none of their wellness: their own Garmin or WHOOP connection already gives \
+             Dravr their wellness, and refreshing that provider refreshes it. There is nothing \
+             to refresh through the link."
+        ),
+        (true, Some(WellnessReadSkip::OwnConnection)) => format!(
+            "This athlete's own {provider} connection is what Dravr syncs, not their human \
+             coach's link; refresh it by its provider name."
+        ),
+        (true, None) => format!(
+            "This athlete's {provider} data is read through their human coach's link, which \
+             syncs their wellness on its own schedule every few hours; it cannot be refreshed \
+             on demand."
+        ),
+    }
+}
+
 /// Whether the registry describes `provider` as serving activities and
 /// nothing else (no sleep/recovery/health/continuous capabilities).
 ///
@@ -738,7 +873,9 @@ mod scheduled;
 #[cfg(feature = "health-sync")]
 pub use scheduled::token_tenant;
 #[cfg(feature = "health-sync")]
-pub use scheduled::{scrape_sync_not_due, start_scheduled_sync, SCRAPE_SYNC_MIN_INTERVAL};
+pub use scheduled::{
+    scrape_sync_not_due, start_scheduled_sync, sync_delegated_members, SCRAPE_SYNC_MIN_INTERVAL,
+};
 
 // ============================================================================
 // Observability: sync metrics

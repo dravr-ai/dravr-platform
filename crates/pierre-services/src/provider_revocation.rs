@@ -401,9 +401,11 @@ pub async fn revoke_upstream_grant(
 ///
 /// The session id is the key to those cookies on the service, so no log line
 /// here carries it. A backend that is not a scrape mirror, or a user holding
-/// no row for it, has nothing to drop.
+/// no row for it, has nothing to drop, and neither has a server started with
+/// no service configured (`remote` is `None`).
 pub async fn drop_scrape_session(
     repos: &RepositoryRegistry,
+    remote: Option<&SciotteClient>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
@@ -414,37 +416,16 @@ pub async fn drop_scrape_session(
     let Some(session_id) = stored_session_id(repos, user_id, tenant_id, backend).await else {
         return;
     };
-    let Some(remote) = sciotte_client(user_id, backend) else {
+    let Some(remote) = remote else {
+        debug!(
+            user_id = %user_id,
+            backend = %backend,
+            "Sciotte service not configured; no scrape session held there to drop"
+        );
         return;
     };
     let removal = remote.delete_session(&session_id).await;
     log_session_removal(&removal, user_id, tenant_id, backend);
-}
-
-/// The sciotte client a session drop goes through, or `None` — logged — when
-/// the service is not configured (so holds no session to drop) or the client
-/// cannot be built.
-fn sciotte_client(user_id: Uuid, backend: &str) -> Option<SciotteClient> {
-    match SciotteClient::from_env() {
-        Ok(Some(remote)) => Some(remote),
-        Ok(None) => {
-            debug!(
-                user_id = %user_id,
-                backend = %backend,
-                "Sciotte service not configured; no scrape session held there to drop"
-            );
-            None
-        }
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                backend = %backend,
-                error = %e,
-                "Could not build the sciotte client to drop the scrape session; its idle lifetime drops it"
-            );
-            None
-        }
-    }
 }
 
 /// Log what the sciotte service said about a session drop: a removal at INFO,
@@ -805,7 +786,14 @@ pub async fn clear_backend(
     } else {
         revoke_for_disconnect(service, user_id, tenant_id, backend).await
     };
-    drop_scrape_session(data.repos(), user_id, tenant_id, backend).await;
+    drop_scrape_session(
+        data.repos(),
+        data.provider_registry().sciotte_client(),
+        user_id,
+        tenant_id,
+        backend,
+    )
+    .await;
 
     data.repos()
         .oauth_tokens

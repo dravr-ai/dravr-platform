@@ -20,13 +20,11 @@
 //! index-aligned as `f32`, and an elevation series whose length disagrees with
 //! the track is dropped rather than passed on misaligned.
 //!
-//! Both scenarios live in one test because they share the process-wide
-//! `DRAVR_SCIOTTE_REMOTE_URL`; separate `#[test]`s in this binary would race.
-
-use std::env;
+//! Both scenarios share one stub, which the provider reaches through a client
+//! built for it rather than through the environment.
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -109,7 +107,7 @@ fn activity_json(id: &str, elevations: &[f64]) -> String {
 
 /// A provider holding a live session, so every fetch reaches the stub instead
 /// of short-circuiting on `provider_auth_required`.
-async fn connected_provider() -> Box<dyn FitnessProvider> {
+async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let config = ProviderConfig {
         name: "sciotte_garmin".to_owned(),
         auth_url: String::new(),
@@ -118,7 +116,8 @@ async fn connected_provider() -> Box<dyn FitnessProvider> {
         revoke_url: None,
         default_scopes: vec![],
     };
-    let provider = SciotteProviderFactory
+    let client = SciotteClient::new(base_url, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let provider = SciotteProviderFactory::new(Some(client))
         .create(config)
         .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
@@ -153,10 +152,7 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
         .expect("bound listener has an address"); // Safe: listener is bound
     spawn_scraper_stub(listener);
 
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
-
-    let provider = connected_provider().await;
+    let provider = connected_provider(&format!("http://{addr}")).await;
 
     // 1. The well-formed track survives the conversion whole.
     let activity = provider
@@ -225,6 +221,4 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
         series.altitude.is_none(),
         "a 3-sample elevation series over a 4-point track cannot be index-aligned, so it is dropped"
     );
-
-    env::remove_var(ENV_REMOTE_URL);
 }

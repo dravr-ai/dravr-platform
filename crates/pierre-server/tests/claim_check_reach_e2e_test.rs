@@ -21,8 +21,8 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, Stats, TenantId, User,
-    UserOAuthToken, UserPhysiologicalProfile,
+    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, Stats, TenantId,
+    ThresholdProvenance, User, UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -650,6 +650,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }

@@ -47,8 +47,6 @@ use pierre_services::provider_notice::{
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::token_tenant;
 use pierre_services::provider_refresh::RefreshService;
-#[cfg(feature = "health-sync")]
-use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_revocation::DisconnectReason;
 
 use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
@@ -1075,16 +1073,16 @@ pub async fn handle_sync_provider(
         "user-triggered provider sync starting"
     );
 
-    #[cfg(feature = "health-sync")]
-    let notifier: Arc<dyn SyncNotifier> = resources.sync_notifier.clone();
     let auth_repos = resources.repos.auth_repos();
     let refresh_service = RefreshService::new(
         &auth_repos,
         resources.repos.activity_cache.clone(),
         #[cfg(feature = "health-sync")]
+        resources.repos.provider_connections.clone(),
+        #[cfg(feature = "health-sync")]
         resources.sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]
-        notifier,
+        resources.sync_notifier.clone(),
     );
 
     let result = refresh_service

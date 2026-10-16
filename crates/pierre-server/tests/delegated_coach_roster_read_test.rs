@@ -232,16 +232,16 @@ impl FitnessProvider for CoachHub {
         Ok(CoachRoster {
             account_email: Some(COACH_EMAIL.to_owned()),
             athletes: vec![
-                RosterAthlete {
-                    id: M1_ATHLETE.to_owned(),
-                    name: Some("Alex Athlete".to_owned()),
-                    email: Some(M1_EMAIL.to_owned()),
-                },
-                RosterAthlete {
-                    id: M2_ATHLETE.to_owned(),
-                    name: Some("Sam Swimmer".to_owned()),
-                    email: Some(M2_EMAIL.to_owned()),
-                },
+                RosterAthlete::new(
+                    M1_ATHLETE,
+                    Some("Alex Athlete".to_owned()),
+                    Some(M1_EMAIL.to_owned()),
+                ),
+                RosterAthlete::new(
+                    M2_ATHLETE,
+                    Some("Sam Swimmer".to_owned()),
+                    Some(M2_EMAIL.to_owned()),
+                ),
             ],
         })
     }

@@ -141,7 +141,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     // A real orchestrator, as the server builds it: Strava has no health
     // sync in it, and its freshness must come from the activity cache.
     let storage = Arc::new(PierreSyncStorage::new(repos));
-    let orchestrator = storage.build_orchestrator().unwrap();
+    let orchestrator = storage.build_orchestrator(None).unwrap();
     assert!(
         !orchestrator.provider_names().contains(&"strava"),
         "test premise: strava has no health sync"
@@ -150,6 +150,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         Some(orchestrator),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );
@@ -217,11 +218,12 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
     assert_eq!(written, 1, "one strava activity should be cached");
 
     let storage = Arc::new(PierreSyncStorage::new(repos));
-    let orchestrator = storage.build_orchestrator().unwrap();
+    let orchestrator = storage.build_orchestrator(None).unwrap();
 
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         Some(orchestrator),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );

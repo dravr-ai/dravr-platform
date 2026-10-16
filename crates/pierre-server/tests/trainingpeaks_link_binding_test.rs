@@ -399,11 +399,7 @@ impl World {
                 self.coach.id,
                 self.coach.tenant,
                 member.id,
-                RosterAthlete {
-                    id: athlete.to_owned(),
-                    name: None,
-                    email: email.map(str::to_owned),
-                },
+                RosterAthlete::new(athlete, None, email.map(str::to_owned)),
             ))
             .await
             .unwrap()

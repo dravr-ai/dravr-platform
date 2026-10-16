@@ -25,10 +25,11 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::calendar::{
-    calendar_provider, calendar_target, destructive_annotations, entry_provider_property,
-    provider_arg, provider_property, required_text, step_schema, validate_step, TargetRule,
-    MAX_SESSION_STEPS,
+    destructive_annotations, entry_provider_property, provider_arg, provider_property,
+    required_text, step_schema, validate_step, TargetRule, MAX_SESSION_STEPS,
 };
+use super::coach_scope::{athlete_property, resolve_calendar_scope};
+use super::plan_scope::PlanWriter;
 use super::training_plan_authorship::{load_conversation, resolve_turn_agent};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use crate::context::ToolExecutionContext;
@@ -165,12 +166,12 @@ fn slugify(name: &str) -> String {
     slug.trim_end_matches('_').to_owned()
 }
 
-/// Persist an inline session as a user-authored template and return it.
+/// An inline session as the user-authored template [`keep_session`] stores.
 ///
 /// The slug is unique per (`tenant_id`, `user_id`), so an existing row's id is
 /// reused when one matches — minting a fresh id would collide with that unique
 /// index on the second prescription of the same session.
-async fn store_session(
+async fn authored_template(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -195,7 +196,7 @@ async fn store_session(
     let (default_purpose, readiness_min) =
         WorkoutTemplate::inline_defaults(session.intensity_distribution);
     let purpose = session.purpose.unwrap_or(default_purpose);
-    let template = WorkoutTemplate {
+    Ok(WorkoutTemplate {
         id: existing.map_or_else(Uuid::new_v4, |t| t.id),
         tenant_id: Some(tenant_id.as_uuid()),
         user_id: Some(user_id),
@@ -224,12 +225,17 @@ async fn store_session(
         evidence_refs: Vec::new(),
         is_compiled_in: false,
         updated_at: Utc::now(),
-    };
-    repos
+    })
+}
+
+/// Keep an authored session's `template` as one of the athlete's saved sessions.
+async fn keep_session(context: &ToolExecutionContext, template: &WorkoutTemplate) -> AppResult<()> {
+    context
+        .resources
+        .repos()
         .workout_templates
-        .upsert_workout_template(&template)
-        .await?;
-    Ok(template)
+        .upsert_workout_template(template)
+        .await
 }
 
 /// The agent this call runs under: the turn's, else the conversation's, else
@@ -269,13 +275,16 @@ async fn packaged_catalogue<'a>(
     ))
 }
 
-/// Resolve the workout this call prescribes: a named template or an inline
-/// session, never both and never neither.
+/// Resolve the workout this call prescribes the athlete `user_id` in
+/// `tenant_id`: a named template or an inline session, never both and never
+/// neither. A named template resolves through the package of `writer`'s
+/// agent, as the writer sees it; the athlete's own sessions are theirs. An
+/// inline session is not stored here: the caller keeps it ([`keep_session`]).
 async fn resolve_template(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
-    agent: Option<&str>,
+    writer: &PlanWriter,
     args: &Value,
 ) -> AppResult<WorkoutTemplate> {
     let slug = args.get("template_slug").and_then(Value::as_str);
@@ -296,10 +305,12 @@ async fn resolve_template(
                      lowercase enums."
                 ))
             })?;
-            store_session(context, tenant_id, user_id, session).await
+            authored_template(context, tenant_id, user_id, session).await
         }
         (Some(slug), None) => {
-            let catalogue = packaged_catalogue(context, tenant_id, user_id, agent).await?;
+            let agent = writer.agent_id.as_deref();
+            let catalogue =
+                packaged_catalogue(context, writer.tenant, writer.user_id, agent).await?;
             if let Some((template, _)) = catalogue.workout(slug) {
                 return Ok(template);
             }
@@ -786,6 +797,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             },
         );
         properties.insert("provider".to_owned(), provider_property());
+        properties.insert("athlete".to_owned(), athlete_property());
         let schema = object_schema(properties, Some(vec!["date".to_owned()]));
         answers_with::<PrescribeWorkoutResult>(tool_definition(
             "prescribe_workout",
@@ -803,7 +815,10 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              its own provider). Without replaces every call \
              adds a new calendar entry; with replaces = a prescription_id (from an \
              earlier call, or from get_training_plan's calendar block) that entry \
-             is changed in place instead. withdraw_prescribed_workout removes one.",
+             is changed in place instead. withdraw_prescribed_workout removes one. A \
+             group's human coach prescribes for a consenting athlete by passing athlete \
+             from their own direct chat in Dravr, through the athlete's Intervals.icu link \
+             once the athlete allows calendar writes on it.",
             schema,
             Some(write_safe_annotations()),
         ))
@@ -824,8 +839,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = require_tenant(&context)?;
-            let user_id = context.user_id;
+            require_tenant(&context)?;
             let date_str = args
                 .get("date")
                 .and_then(Value::as_str)
@@ -839,14 +853,26 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
 
             let replaces = optional_prescription_id(&args, "replaces")?;
 
-            // The agent this prescription runs under — the turn's, else the
-            // conversation's, else the argument on a direct call. It picks the
-            // package the template resolves through and is the agent the
-            // ledger row names, the way a pushed plan day names its week's
-            // author.
-            let agent = turn_agent(&context, tenant_id, arg_agent).await?;
+            // Whose calendar, and the agent this prescription runs under: the
+            // turn's, else the conversation's, else the argument on a direct
+            // call. The agent picks the package the template resolves through,
+            // as the writer, and is the agent the ledger row names.
+            let mut scope =
+                match resolve_calendar_scope(&context, &args, arg_agent, PRESCRIBE_TOOL).await? {
+                    Ok(scope) => scope,
+                    Err(refused) => return Ok(refused),
+                };
+            let (tenant_id, user_id) = (scope.tenant, scope.user_id);
+            let agent = scope.writer.agent_id.clone();
             let template =
-                resolve_template(&context, tenant_id, user_id, agent.as_deref(), &args).await?;
+                resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
+            // An authored session becomes one of the athlete's saved sessions:
+            // their own even when no calendar takes it, a coach's only once the
+            // coach's writer is built, so a refused write saves nothing of theirs.
+            let authored = args.get("session").is_some_and(|session| !session.is_null());
+            if authored && !scope.acts_for_athlete() {
+                keep_session(&context, &template).await?;
+            }
             // The previous entry is resolved before the provider is built, so a
             // bad id is refused without a credential lookup.
             let previous = match replaces {
@@ -866,9 +892,15 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     }
                     prev.provider.clone()
                 }
-                None => calendar_target(&context, tenant_id, user_id, named).await?,
+                None => scope.target(&context, named).await?,
             };
-            let provider = calendar_provider(&context, tenant_id, user_id, &target).await?;
+            let provider = match scope.calendar_writer(&context, &target).await? {
+                Ok(provider) => provider,
+                Err(refused) => return Ok(refused),
+            };
+            if authored && scope.acts_for_athlete() {
+                keep_session(&context, &template).await?;
+            }
 
             let prescription_id = Uuid::new_v4();
             let session = PlannedSession::from_template(
@@ -901,6 +933,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     .map(|()| event_id.clone()),
                 None => provider.push_planned_session(&session).await,
             };
+            let push = scope.reacting(&context, provider.as_ref(), push).await;
             let (status, provider_event_id) = push.as_ref().map_or_else(
                 |_| (PrescribedWorkout::STATUS_FAILED, None),
                 |id| (PrescribedWorkout::STATUS_PUSHED, Some(id.clone())),
@@ -973,8 +1006,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     .upsert_prescribed_workout(&prescribed)
                     .await
             };
-            if let Err(e) = &audit {
-                warn!(error = %e, "prescribe_workout: ledger row not saved");
+            match &audit {
+                Ok(()) => scope.record_coach_write(PRESCRIBE_TOOL, 1),
+                Err(e) => warn!(error = %e, "prescribe_workout: ledger row not saved"),
             }
 
             // A push failure is the root cause and outranks a failed ledger
@@ -1033,6 +1067,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
             },
         );
         properties.insert("provider".to_owned(), entry_provider_property());
+        properties.insert("athlete".to_owned(), athlete_property());
         let schema = object_schema(properties, Some(vec!["prescription_id".to_owned()]));
         answers_with::<WithdrawWorkoutResult>(tool_definition(
             "withdraw_prescribed_workout",
@@ -1040,8 +1075,10 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              provider: deletes the calendar entry and marks the prescription withdrawn. \
              Only for single prescriptions — an entry the training plan put there is \
              removed by adjusting the plan (save_training_plan) and pushing it \
-             (push_training_plan). Args: prescription_id, optional provider (the entry's own \
-             provider is used; naming a different one is refused).",
+             (push_training_plan). A group's human coach removes one from a consenting \
+             athlete's calendar by passing athlete, as prescribe_workout takes it. Args: \
+             prescription_id, optional provider (the entry's own provider is used; naming a \
+             different one is refused), optional athlete.",
             schema,
             Some(destructive_annotations()),
         ))
@@ -1062,10 +1099,15 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = require_tenant(&context)?;
-            let user_id = context.user_id;
+            require_tenant(&context)?;
             let prescription_id = optional_prescription_id(&args, "prescription_id")?
                 .ok_or_else(|| AppError::invalid_input("prescription_id is required"))?;
+            let mut scope =
+                match resolve_calendar_scope(&context, &args, None, WITHDRAW_TOOL).await? {
+                    Ok(scope) => scope,
+                    Err(refused) => return Ok(refused),
+                };
+            let (tenant_id, user_id) = (scope.tenant, scope.user_id);
             let (row, event_id) =
                 live_prescription(&context, tenant_id, user_id, prescription_id).await?;
             if let Some(named) = provider_arg(&args).filter(|name| *name != row.provider) {
@@ -1074,11 +1116,15 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                     row.provider
                 )));
             }
-            let provider = calendar_provider(&context, tenant_id, user_id, &row.provider).await?;
+            let provider = match scope.calendar_writer(&context, &row.provider).await? {
+                Ok(provider) => provider,
+                Err(refused) => return Ok(refused),
+            };
 
             let deleted = provider
                 .delete_planned_sessions(slice::from_ref(&event_id))
                 .await;
+            let deleted = scope.reacting(&context, provider.as_ref(), deleted).await;
             match &deleted {
                 Ok(_) => emit_calendar_sync_completed(
                     tenant_id,
@@ -1119,6 +1165,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                         provider_name = row.provider
                     ))
                 })?;
+            scope.record_coach_write(WITHDRAW_TOOL, 1);
 
             ok_typed(
                 "withdraw_prescribed_workout",

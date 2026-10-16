@@ -167,11 +167,11 @@ async fn seed_member_link(
         coach.id,
         coach.tenant,
         member.id,
-        RosterAthlete {
-            id: ATHLETE_ID.to_owned(),
-            name: Some(ATHLETE_NAME.to_owned()),
-            email: Some(member.email.clone()),
-        },
+        RosterAthlete::new(
+            ATHLETE_ID,
+            Some(ATHLETE_NAME.to_owned()),
+            Some(member.email.clone()),
+        ),
     );
     repos
         .delegated_connections

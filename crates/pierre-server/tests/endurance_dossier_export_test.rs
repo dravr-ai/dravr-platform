@@ -11,7 +11,7 @@ use chrono::NaiveDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
-    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
+    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId, ThresholdProvenance,
     UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
@@ -50,6 +50,7 @@ fn make_profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }

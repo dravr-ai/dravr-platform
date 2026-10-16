@@ -11,7 +11,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
     Dossier, MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
-    UserPhysiologicalProfile,
+    ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
@@ -106,11 +106,16 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
                 critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
                 d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of,
-                created_at, updated_at, first_party_only
+                created_at, updated_at, first_party_only,
+                ftp_watts_kind, ftp_watts_origin, ftp_watts_as_of,
+                threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
+                max_hr_kind, max_hr_origin, max_hr_as_of,
+                threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
-                    $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33)
+                    $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
+                    $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -143,7 +148,19 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 d_prime_meters_origin = EXCLUDED.d_prime_meters_origin,
                 d_prime_meters_as_of = EXCLUDED.d_prime_meters_as_of,
                 updated_at = CURRENT_TIMESTAMP,
-                first_party_only = EXCLUDED.first_party_only
+                first_party_only = EXCLUDED.first_party_only,
+                ftp_watts_kind = EXCLUDED.ftp_watts_kind,
+                ftp_watts_origin = EXCLUDED.ftp_watts_origin,
+                ftp_watts_as_of = EXCLUDED.ftp_watts_as_of,
+                threshold_hr_kind = EXCLUDED.threshold_hr_kind,
+                threshold_hr_origin = EXCLUDED.threshold_hr_origin,
+                threshold_hr_as_of = EXCLUDED.threshold_hr_as_of,
+                max_hr_kind = EXCLUDED.max_hr_kind,
+                max_hr_origin = EXCLUDED.max_hr_origin,
+                max_hr_as_of = EXCLUDED.max_hr_as_of,
+                threshold_pace_sec_per_km_kind = EXCLUDED.threshold_pace_sec_per_km_kind,
+                threshold_pace_sec_per_km_origin = EXCLUDED.threshold_pace_sec_per_km_origin,
+                threshold_pace_sec_per_km_as_of = EXCLUDED.threshold_pace_sec_per_km_as_of
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -157,7 +174,11 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    w_prime_joules, w_prime_joules_kind, w_prime_joules_origin, w_prime_joules_as_of,
                    critical_speed_mps, critical_speed_mps_kind, critical_speed_mps_origin, critical_speed_mps_as_of,
                    d_prime_meters, d_prime_meters_kind, d_prime_meters_origin, d_prime_meters_as_of,
-                   first_party_only
+                   first_party_only,
+                   ftp_watts_kind, ftp_watts_origin, ftp_watts_as_of,
+                   threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
+                   max_hr_kind, max_hr_origin, max_hr_as_of,
+                   threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -177,6 +198,10 @@ pub(crate) struct ProfileBinds {
     pub(crate) w_prime_joules: ProvenanceBinds<i32>,
     pub(crate) critical_speed_mps: ProvenanceBinds<f64>,
     pub(crate) d_prime_meters: ProvenanceBinds<f64>,
+    pub(crate) ftp_watts_provenance: ThresholdProvenanceBinds,
+    pub(crate) threshold_hr_provenance: ThresholdProvenanceBinds,
+    pub(crate) max_hr_provenance: ThresholdProvenanceBinds,
+    pub(crate) threshold_pace_provenance: ThresholdProvenanceBinds,
 }
 
 /// The four columns one [`ProvenancedValue`] is stored in: the value, its
@@ -187,6 +212,29 @@ pub(crate) struct ProvenanceBinds<V> {
     pub(crate) kind: Option<&'static str>,
     pub(crate) origin: Option<String>,
     pub(crate) as_of: Option<NaiveDate>,
+}
+
+/// The three provenance columns of one scalar threshold, whose value is bound
+/// in its own column: all `None` for the athlete's own value.
+pub(crate) struct ThresholdProvenanceBinds {
+    pub(crate) kind: Option<&'static str>,
+    pub(crate) origin: Option<String>,
+    pub(crate) as_of: Option<NaiveDate>,
+}
+
+/// The provenance columns of a scalar threshold: the provenance when the
+/// threshold has a value, nothing otherwise — a provenance with no value to
+/// describe is never stored.
+fn threshold_provenance_binds(
+    has_value: bool,
+    provenance: Option<&MetricProvenance>,
+) -> ThresholdProvenanceBinds {
+    let provenance = provenance.filter(|_| has_value);
+    ThresholdProvenanceBinds {
+        kind: provenance.map(|provenance| provenance.kind.as_str()),
+        origin: provenance.and_then(|provenance| provenance.origin.clone()),
+        as_of: provenance.and_then(|provenance| provenance.as_of),
+    }
 }
 
 /// Split a provenanced value into its four column binds, converting the value
@@ -269,6 +317,25 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
         )?,
         critical_speed_mps: provenance_binds(profile.critical_speed_mps.as_ref(), |v| Ok(*v))?,
         d_prime_meters: provenance_binds(profile.d_prime_meters.as_ref(), |v| Ok(*v))?,
+        ftp_watts_provenance: threshold_provenance_binds(
+            profile.ftp_watts.is_some(),
+            profile.threshold_provenance.ftp_watts.as_ref(),
+        ),
+        threshold_hr_provenance: threshold_provenance_binds(
+            profile.threshold_hr.is_some(),
+            profile.threshold_provenance.threshold_hr.as_ref(),
+        ),
+        max_hr_provenance: threshold_provenance_binds(
+            profile.max_hr.is_some(),
+            profile.threshold_provenance.max_hr.as_ref(),
+        ),
+        threshold_pace_provenance: threshold_provenance_binds(
+            profile.threshold_pace_sec_per_km.is_some(),
+            profile
+                .threshold_provenance
+                .threshold_pace_sec_per_km
+                .as_ref(),
+        ),
     })
 }
 
@@ -331,26 +398,41 @@ where
         .transpose()
         .map_err(|e| AppError::database(format!("parse power_zones_json: {e}")))?;
 
+    let max_hr = max_hr.and_then(|v| u16::try_from(v).ok());
+    let threshold_hr = threshold_hr.and_then(|v| u16::try_from(v).ok());
+    let ftp_watts = ftp_watts_db.and_then(|v| u32::try_from(v).ok());
+    let threshold_pace_sec_per_km = row
+        .try_get::<Option<f64>, _>("threshold_pace_sec_per_km")
+        .ok()
+        .flatten();
+    let threshold_provenance = ThresholdProvenance {
+        ftp_watts: threshold_provenance_from_row(row, "ftp_watts", ftp_watts.is_some())?,
+        threshold_hr: threshold_provenance_from_row(row, "threshold_hr", threshold_hr.is_some())?,
+        max_hr: threshold_provenance_from_row(row, "max_hr", max_hr.is_some())?,
+        threshold_pace_sec_per_km: threshold_provenance_from_row(
+            row,
+            "threshold_pace_sec_per_km",
+            threshold_pace_sec_per_km.is_some(),
+        )?,
+    };
+
     Ok(UserPhysiologicalProfile {
         user_id,
         vo2_max: row.try_get::<Option<f64>, _>("vo2_max").ok().flatten(),
         resting_hr: resting_hr.and_then(|v| u16::try_from(v).ok()),
-        max_hr: max_hr.and_then(|v| u16::try_from(v).ok()),
+        max_hr,
         lactate_threshold_percentage: row
             .try_get::<Option<f64>, _>("lactate_threshold_percentage")
             .ok()
             .flatten(),
-        threshold_hr: threshold_hr.and_then(|v| u16::try_from(v).ok()),
+        threshold_hr,
         age: age.and_then(|v| u16::try_from(v).ok()),
         weight: row.try_get::<Option<f64>, _>("weight").ok().flatten(),
         fitness_level,
         primary_sport,
         training_experience_years: training_years.and_then(|v| u8::try_from(v).ok()),
-        ftp_watts: ftp_watts_db.and_then(|v| u32::try_from(v).ok()),
-        threshold_pace_sec_per_km: row
-            .try_get::<Option<f64>, _>("threshold_pace_sec_per_km")
-            .ok()
-            .flatten(),
+        ftp_watts,
+        threshold_pace_sec_per_km,
         hr_zones,
         power_zones,
         critical_power_watts: provenanced_from_row(row, "critical_power_watts", |v: i32| {
@@ -361,11 +443,56 @@ where
         })?,
         critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
         d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
+        threshold_provenance,
         transport_policy: TransportPolicy::from_first_party_only(
             row.try_get("first_party_only")
                 .map_err(|e| AppError::database(format!("read first_party_only: {e}")))?,
         ),
     })
+}
+
+/// Read the provenance of the scalar threshold stored in `column` from
+/// `<column>_kind`, `<column>_origin` and `<column>_as_of`.
+///
+/// No kind is the athlete's own value (`None`). A provenance on a threshold
+/// with no value describes nothing and reads as none: the binds never write
+/// one, and nothing a reader frames depends on it — unlike a value with no
+/// kind, which the critical-power family refuses.
+///
+/// # Errors
+/// Returns a database error when a column cannot be decoded.
+fn threshold_provenance_from_row<R>(
+    row: &R,
+    column: &str,
+    has_value: bool,
+) -> AppResult<Option<MetricProvenance>>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
+    let kind_column = format!("{column}_kind");
+    let kind: Option<String> = row
+        .try_get(kind_column.as_str())
+        .map_err(|e| read(e, &kind_column))?;
+    let Some(kind) = kind.filter(|_| has_value) else {
+        return Ok(None);
+    };
+    let origin_column = format!("{column}_origin");
+    let as_of_column = format!("{column}_as_of");
+    let origin: Option<String> = row
+        .try_get(origin_column.as_str())
+        .map_err(|e| read(e, &origin_column))?;
+    let as_of: Option<NaiveDate> = row
+        .try_get(as_of_column.as_str())
+        .map_err(|e| read(e, &as_of_column))?;
+    Ok(Some(MetricProvenance {
+        kind: MeasurementKind::parse_lenient(&kind),
+        origin,
+        as_of,
+    }))
 }
 
 /// Read one provenanced value from the four columns
@@ -485,6 +612,18 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.d_prime_meters.origin)
                     .bind(binds.d_prime_meters.as_of)
                     .bind(profile.transport_policy.is_first_party_only())
+                    .bind(binds.ftp_watts_provenance.kind)
+                    .bind(binds.ftp_watts_provenance.origin)
+                    .bind(binds.ftp_watts_provenance.as_of)
+                    .bind(binds.threshold_hr_provenance.kind)
+                    .bind(binds.threshold_hr_provenance.origin)
+                    .bind(binds.threshold_hr_provenance.as_of)
+                    .bind(binds.max_hr_provenance.kind)
+                    .bind(binds.max_hr_provenance.origin)
+                    .bind(binds.max_hr_provenance.as_of)
+                    .bind(binds.threshold_pace_provenance.kind)
+                    .bind(binds.threshold_pace_provenance.origin)
+                    .bind(binds.threshold_pace_provenance.as_of)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

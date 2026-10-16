@@ -1,5 +1,5 @@
-// ABOUTME: Tests for the coaching-platform link section — the coach's roster, picker and propose, and each refusal's words
-// ABOUTME: The member's decline and unlink, and the section never showing the server's English refusal text
+// ABOUTME: Tests for the coaching-platform link section — the coach's roster, picker, propose and each refusal's words
+// ABOUTME: The member's consents at confirm and after, decline and unlink; never the server's English refusal text
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,6 +19,7 @@ vi.mock('../../../services/api', () => ({
     getDelegationRoster: vi.fn(),
     proposeDelegatedConnection: vi.fn(),
     confirmDelegatedConnection: vi.fn(),
+    setDelegatedLinkConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
   },
   providersApi: {
@@ -56,8 +57,24 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
     read_refused: null,
+    calendar_write: false,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
     ...overrides,
   };
+}
+
+/** An Intervals.icu link, whose platform offers both consents. */
+function intervalsLink(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection {
+  return link({
+    provider: 'intervals_icu',
+    provider_athlete_id: 'i201',
+    calendar_write_supported: true,
+    wellness_read_supported: true,
+    ...overrides,
+  });
 }
 
 /** An axios-shaped refusal carrying `details.reason`. */
@@ -347,6 +364,133 @@ describe('DelegatedConnectionsSection — coach', () => {
     expect(screen.getByTestId('delegation-unlink-dc-1')).toBeInTheDocument();
   });
 
+  it('says the platform gives the coach no access to an athlete they tried to link', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        { provider_athlete_id: 'i201', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    vi.mocked(groupsApi.proposeDelegatedConnection).mockRejectedValue(
+      refusal(400, 'athlete_no_access', 'intervals_icu'),
+    );
+    const user = userEvent.setup();
+    renderSection();
+
+    const row = await screen.findByTestId('delegation-roster-row-i201');
+    await user.selectOptions(within(row).getByTestId('delegation-member-select-i201'), 'user-alex');
+    await user.click(within(row).getByTestId('delegation-propose-i201'));
+
+    expect(
+      await screen.findByText('Intervals.icu gives your account no access to this athlete, so they cannot be linked.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('English for an API caller')).toBeNull();
+  });
+
+  it('tells the coach what each confirmed member shares beyond their workouts', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: intervalsLink({ status: 'confirmed', calendar_write: true, wellness_read: true }),
+          suggested_member_user_id: null,
+        },
+        {
+          provider_athlete_id: 'i202',
+          display_name: 'Blair Biker',
+          connection: intervalsLink({
+            id: 'dc-2',
+            member_user_id: 'user-blair',
+            provider_athlete_id: 'i202',
+            status: 'confirmed',
+          }),
+          suggested_member_user_id: null,
+        },
+        {
+          provider_athlete_id: 'i203',
+          display_name: 'Cam Climber',
+          connection: intervalsLink({ id: 'dc-3', provider_athlete_id: 'i203' }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    renderSection();
+
+    const both = await screen.findByTestId('delegation-consents-dc-1');
+    expect(within(both).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Can put workouts on their calendar',
+      'Shares sleep, HRV, resting heart rate, weight and notes',
+    ]);
+    expect(screen.getByTestId('delegation-consents-dc-2')).toHaveTextContent('Workouts only');
+    // A proposal has granted nothing yet, so it carries no line.
+    expect(screen.getByTestId('delegation-waiting-dc-3')).toBeInTheDocument();
+    expect(screen.queryByTestId('delegation-consents-dc-3')).toBeNull();
+  });
+
+  it('says where a granted wellness comes from when a source of the member own skips the link', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: intervalsLink({
+            status: 'confirmed',
+            calendar_write: true,
+            wellness_read: true,
+            wellness_read_skipped: 'own_wellness_source',
+          }),
+          suggested_member_user_id: null,
+        },
+        {
+          provider_athlete_id: 'i202',
+          display_name: 'Blair Biker',
+          connection: intervalsLink({
+            id: 'dc-2',
+            member_user_id: 'user-blair',
+            provider_athlete_id: 'i202',
+            status: 'confirmed',
+            wellness_read: true,
+            wellness_read_skipped: 'own_connection',
+          }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    renderSection();
+
+    const skipped = await screen.findByTestId('delegation-consents-dc-1');
+    expect(within(skipped).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Can put workouts on their calendar',
+      'Wellness comes from their own Garmin or WHOOP connection',
+    ]);
+    // A member's own Intervals.icu connection has no coach line of its own, so
+    // nothing claims the link shares their wellness.
+    const own = screen.getByTestId('delegation-consents-dc-2');
+    expect(own).toHaveTextContent('Workouts only');
+    expect(own).not.toHaveTextContent('Shares sleep');
+  });
+
+  it('gives a TrainingPeaks link no consent line, since TrainingPeaks offers none', async () => {
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        {
+          provider_athlete_id: '900001',
+          display_name: 'Alex Athlete',
+          connection: link({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    renderSection();
+
+    expect(await screen.findByTestId('delegation-unlink-dc-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('delegation-consents-dc-1')).toBeNull();
+  });
+
   it('tells a coach whose account trains that it has no roster, with nowhere to send them', async () => {
     vi.mocked(groupsApi.getDelegationRoster).mockRejectedValue(
       refusal(400, 'coach_platform_not_coach_account'),
@@ -363,6 +507,190 @@ describe('DelegatedConnectionsSection — member', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(providersApi.getProvidersStatus).mockResolvedValue({ providers: [] });
+  });
+
+  it('asks for nothing beyond the read on a TrainingPeaks link, and confirms with no body', async () => {
+    vi.mocked(groupsApi.confirmDelegatedConnection).mockResolvedValue(link({ status: 'confirmed' }));
+    const user = userEvent.setup();
+    renderSection({ mode: 'member', connections: [link()] });
+
+    const request = await screen.findByTestId('delegation-request');
+    expect(within(request).queryByTestId('delegation-consents')).toBeNull();
+    await user.click(within(request).getByTestId('delegation-confirm'));
+
+    await waitFor(() =>
+      expect(groupsApi.confirmDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-1', undefined),
+    );
+  });
+
+  it('offers both consents on an Intervals.icu proposal, off until ticked, and confirms with what was ticked', async () => {
+    vi.mocked(groupsApi.confirmDelegatedConnection).mockResolvedValue(
+      intervalsLink({ status: 'confirmed', calendar_write: true }),
+    );
+    const user = userEvent.setup();
+    renderSection({ mode: 'member', connections: [intervalsLink()] });
+
+    const request = await screen.findByTestId('delegation-request');
+    const calendar = within(request).getByRole('checkbox', {
+      name: /Let Casey Coach put workouts on your Intervals\.icu calendar/,
+    });
+    const wellness = within(request).getByRole('checkbox', {
+      name: /Also share your Intervals\.icu sleep, HRV, resting heart rate, weight and daily notes/,
+    });
+    expect(calendar).not.toBeChecked();
+    expect(wellness).not.toBeChecked();
+    expect(request).toHaveTextContent(
+      'Workouts Casey Coach plans for you in Dravr go on your Intervals.icu calendar, and from there to your devices.',
+    );
+    expect(request).toHaveTextContent('Turning this off removes what Dravr already read.');
+
+    await user.click(calendar);
+    expect(calendar).toBeChecked();
+    await user.click(within(request).getByTestId('delegation-confirm'));
+
+    await waitFor(() =>
+      expect(groupsApi.confirmDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-1', {
+        calendar_write: true,
+        wellness_read: false,
+      }),
+    );
+    expect(await screen.findByText('Intervals.icu linked')).toBeInTheDocument();
+  });
+
+  it('shows what a confirmed link shares, and changes one consent at a time', async () => {
+    let answer: (link: DelegatedConnection) => void = () => undefined;
+    vi.mocked(groupsApi.setDelegatedLinkConsents).mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    renderSection({
+      mode: 'member',
+      connections: [
+        intervalsLink({
+          status: 'confirmed',
+          confirmed_at: '2026-09-24T09:00:00Z',
+          calendar_write: true,
+          wellness_read: true,
+        }),
+      ],
+    });
+
+    const linked = await screen.findByTestId('delegation-linked');
+    const calendar = within(linked).getByTestId('delegation-consent-calendar_write');
+    const wellness = within(linked).getByTestId('delegation-consent-wellness_read');
+    expect(calendar).toBeChecked();
+    expect(wellness).toBeChecked();
+
+    await user.click(calendar);
+
+    await waitFor(() =>
+      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { calendar_write: false }),
+    );
+    // The change shows as made while it is on its way, and nothing else moves.
+    expect(calendar).not.toBeChecked();
+    expect(calendar).toBeDisabled();
+    expect(wellness).toBeChecked();
+
+    answer(intervalsLink({ status: 'confirmed', calendar_write: false, wellness_read: true }));
+    expect(await screen.findByText('Sharing updated')).toBeInTheDocument();
+  });
+
+  it('asks before turning wellness off, and changes nothing when the member keeps sharing', async () => {
+    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue(
+      intervalsLink({ status: 'confirmed', wellness_read: false }),
+    );
+    const user = userEvent.setup();
+    renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', wellness_read: true })],
+    });
+
+    const wellness = await screen.findByTestId('delegation-consent-wellness_read');
+    await user.click(wellness);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Stop sharing wellness?');
+    expect(dialog).toHaveTextContent(
+      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(groupsApi.setDelegatedLinkConsents).not.toHaveBeenCalled();
+    expect(wellness).toBeChecked();
+
+    await user.click(wellness);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop sharing' }));
+    await waitFor(() =>
+      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: false }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('turns wellness on without asking', async () => {
+    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue(
+      intervalsLink({ status: 'confirmed', wellness_read: true }),
+    );
+    const user = userEvent.setup();
+    renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
+    });
+
+    await user.click(await screen.findByTestId('delegation-consent-wellness_read'));
+
+    await waitFor(() =>
+      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: true }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('notes under the wellness control when a source of the member own already gives Dravr it', async () => {
+    const note =
+      'Your own Garmin or WHOOP connection already gives Dravr this, so the link reads none of it while that connection stays.';
+    renderSection({
+      mode: 'member',
+      connections: [
+        intervalsLink({
+          id: 'dc-linked',
+          status: 'confirmed',
+          confirmed_at: '2026-09-24T09:00:00Z',
+          wellness_read: true,
+          wellness_read_skipped: 'own_wellness_source',
+        }),
+        intervalsLink({ id: 'dc-asked', wellness_read_skipped: 'own_wellness_source' }),
+        intervalsLink({ id: 'dc-plain', status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', wellness_read: true }),
+      ],
+    });
+
+    // The control stays, so the member can still revoke what they granted.
+    const linked = await screen.findByTestId('delegation-member-link-dc-linked');
+    expect(within(linked).getByTestId('delegation-consent-wellness_read')).toBeChecked();
+    expect(within(linked).getByTestId('delegation-consent-note-wellness_read')).toHaveTextContent(note);
+    // Before the confirm too, so the member knows what granting it does.
+    const asked = screen.getByTestId('delegation-member-link-dc-asked');
+    expect(within(asked).getByTestId('delegation-consent-note-wellness_read')).toHaveTextContent(note);
+    const plain = screen.getByTestId('delegation-member-link-dc-plain');
+    expect(within(plain).queryByTestId('delegation-consent-note-wellness_read')).toBeNull();
+    expect(within(linked).queryByTestId('delegation-consent-note-calendar_write')).toBeNull();
+  });
+
+  it('words a refused consent change from its reason, not the server message', async () => {
+    vi.mocked(groupsApi.setDelegatedLinkConsents).mockRejectedValue(
+      refusal(403, 'consent_grant_needs_app', 'intervals_icu'),
+    );
+    const user = userEvent.setup();
+    renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
+    });
+
+    await user.click(await screen.findByTestId('delegation-consent-calendar_write'));
+
+    expect(await screen.findByText('That did not go through. Try again.')).toBeInTheDocument();
+    expect(screen.queryByText('English for an API caller')).toBeNull();
+    // Refused, the consent reads as it stands on the server again.
+    expect(screen.getByTestId('delegation-consent-calendar_write')).not.toBeChecked();
   });
 
   it('declines a proposed link', async () => {

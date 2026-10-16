@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for group management after the Groups tab: the group row, its header, and Group info
-// ABOUTME: Who runs the group, roster, invites, settings, consent, the digest gate, the exits, TrainingPeaks links, /groups/join
+// ABOUTME: Who runs the group, roster, invites, settings, consent, the digest gate, the exits, coaching-platform links, /groups/join
 
 import { test, expect, type Page } from '@playwright/test';
 import type {
@@ -701,11 +701,16 @@ test.describe('Group info — exits', () => {
 });
 
 // ============================================================================
-// Group info — TrainingPeaks links through the group's coach
+// Group info — coaching-platform links through the group's coach
 // ============================================================================
 
-/** A link as the group's delegated-connection routes serialise it. */
-function delegatedLink(status: 'proposed' | 'confirmed', memberUserId: string, memberName: string) {
+/** A link as the group's delegated-connection routes serialise it: TrainingPeaks, which offers no consent, unless `overrides` says otherwise. */
+function delegatedLink(
+  status: 'proposed' | 'confirmed',
+  memberUserId: string,
+  memberName: string,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     id: 'dc-1',
     group_id: GROUP_ID,
@@ -720,13 +725,19 @@ function delegatedLink(status: 'proposed' | 'confirmed', memberUserId: string, m
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: status === 'confirmed' ? '2026-09-24T09:00:00Z' : null,
     read_refused: null,
+    calendar_write: false,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
     metadata: { timestamp: '2026-09-24T09:00:00Z', api_version: '1.0' },
+    ...overrides,
   };
 }
 
 const LIST_URL = `**/api/groups/${GROUP_ID}/delegated-connections`;
 
-test.describe('Group info — TrainingPeaks links', () => {
+test.describe('Group info — coaching-platform links', () => {
   test('the coach links a roster athlete to a member and waits for them', async ({ page }) => {
     const proposals: Array<Record<string, unknown>> = [];
     let linked = false;
@@ -882,6 +893,83 @@ test.describe('Group info — TrainingPeaks links', () => {
 
     await expect.poll(() => deletes).toEqual(['DELETE']);
     await expect(page.getByTestId('delegation-linked')).toHaveCount(0);
+  });
+
+  test('a member grants calendar writes as they confirm an Intervals.icu link, then shares wellness too', async ({
+    page,
+  }) => {
+    const INTERVALS = { provider: 'intervals_icu', calendar_write_supported: true, wellness_read_supported: true };
+    let link = delegatedLink('proposed', 'user-123', 'Test User', INTERVALS);
+    const confirmBodies: unknown[] = [];
+    const consentBodies: unknown[] = [];
+
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' }),
+        });
+      });
+      await p.route(LIST_URL, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ connections: [link], total: 1, viewer: 'member' }),
+        });
+      });
+      await p.route(`${LIST_URL}/dc-1/confirm`, async (route) => {
+        const body = route.request().postDataJSON() as Record<string, boolean>;
+        confirmBodies.push(body);
+        link = delegatedLink('confirmed', 'user-123', 'Test User', { ...INTERVALS, ...body });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(link) });
+      });
+      await p.route(`${LIST_URL}/dc-1/consents`, async (route) => {
+        const body = route.request().postDataJSON() as Record<string, boolean>;
+        consentBodies.push({ method: route.request().method(), body });
+        link = { ...link, ...body };
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(link) });
+      });
+    });
+
+    const request = page.getByTestId('delegation-request');
+    const calendar = request.getByRole('checkbox', { name: /Let Casey Coach put workouts on your Intervals\.icu calendar/ });
+    const wellness = request.getByRole('checkbox', { name: /Also share your Intervals\.icu sleep, HRV/ });
+    await expect(calendar).not.toBeChecked();
+    await expect(wellness).not.toBeChecked();
+    await calendar.check();
+    await request.getByTestId('delegation-confirm').click();
+
+    await expect.poll(() => confirmBodies).toEqual([{ calendar_write: true, wellness_read: false }]);
+    const linkedRow = page.getByTestId('delegation-linked');
+    await expect(linkedRow.getByTestId('delegation-consent-calendar_write')).toBeChecked();
+    await expect(linkedRow.getByTestId('delegation-consent-wellness_read')).not.toBeChecked();
+
+    await linkedRow.getByTestId('delegation-consent-wellness_read').check();
+    await expect.poll(() => consentBodies).toEqual([{ method: 'PUT', body: { wellness_read: true } }]);
+    await expect(page.getByText('Sharing updated')).toBeVisible();
+    await expect(linkedRow.getByTestId('delegation-consent-wellness_read')).toBeChecked();
+
+    // Turning it off asks first, since it deletes the wellness Dravr read.
+    await linkedRow.getByTestId('delegation-consent-wellness_read').click();
+    // The group info is a dialog of its own: the confirm is the one that asks.
+    const stop = page.getByRole('dialog').filter({ hasText: 'Stop sharing wellness?' });
+    await expect(stop).toContainText(
+      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
+    );
+    await stop.getByRole('button', { name: 'Stop sharing' }).click();
+    await expect
+      .poll(() => consentBodies)
+      .toEqual([
+        { method: 'PUT', body: { wellness_read: true } },
+        { method: 'PUT', body: { wellness_read: false } },
+      ]);
+    await expect(linkedRow.getByTestId('delegation-consent-wellness_read')).not.toBeChecked();
+
+    // The consents hold at phone width: nothing scrolls sideways.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const report = await measurePageLayout(page);
+    expect(report.documentOverflowPx).toBe(0);
   });
 });
 

@@ -31,7 +31,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId};
+use pierre_core::models::{
+    DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents, TenantId,
+};
 use uuid::Uuid;
 
 /// Delegated-connection persistence.
@@ -87,8 +89,10 @@ pub trait DelegatedConnectionRepository: Send + Sync {
     ) -> AppResult<Vec<DelegatedConnection>>;
 
     /// The member confirms a proposal, in the tenant their delegated provider
-    /// connection will live in. Returns the confirmed row, or `None` when no
-    /// proposal with that id names the member.
+    /// connection will live in, granting `consents` with it: each one granted
+    /// is stamped `now`, and each one not granted stays off. Returns the
+    /// confirmed row, or `None` when no proposal with that id names the
+    /// member.
     ///
     /// # Errors
     /// Returns an already-exists error with `details.reason` `already_linked`
@@ -99,6 +103,21 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         id: Uuid,
         member_user_id: Uuid,
         member_tenant_id: TenantId,
+        consents: LinkConsents,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<DelegatedConnection>>;
+
+    /// The member a confirmed link names grants or revokes its consents:
+    /// each `Some` sets that consent, each `None` leaves it as it stands, and
+    /// a consent whose value changes is stamped `now`. Scoped to the member,
+    /// so no coach can change it. Returns the row as it now stands, or `None`
+    /// when no confirmed link with that id names the member.
+    async fn set_link_consents(
+        &self,
+        id: Uuid,
+        member_user_id: Uuid,
+        calendar_write: Option<bool>,
+        wellness_read: Option<bool>,
         now: DateTime<Utc>,
     ) -> AppResult<Option<DelegatedConnection>>;
 
@@ -199,6 +218,19 @@ pub trait DelegatedConnectionRepository: Send + Sync {
         provider: &str,
         provider_athlete_id: &str,
     ) -> AppResult<Vec<DelegatedConnection>>;
+
+    /// Every confirmed link on one provider that the group relation still
+    /// backs, across tenants, oldest confirmation first.
+    ///
+    /// The roster a scheduled pass over the provider's linked members starts
+    /// from: the pass serves no one tenant, so the provider is the key and
+    /// each row carries the member, the member's tenant and the coach whose
+    /// session reads for them. Fails closed on the same relation as
+    /// [`Self::find_active_for_member`].
+    async fn list_confirmed_for_provider(
+        &self,
+        provider: &str,
+    ) -> AppResult<Vec<DelegatedConnection>>;
 }
 
 /// The columns every read decodes, each prefixed with `$p` (`""` for the bare
@@ -237,7 +269,15 @@ macro_rules! delegated_connection_columns {
             $p,
             "revoked_by, ",
             $p,
-            "revoke_reason"
+            "revoke_reason, ",
+            $p,
+            "calendar_write, ",
+            $p,
+            "calendar_write_at, ",
+            $p,
+            "wellness_read, ",
+            $p,
+            "wellness_read_at"
         )
     };
 }
@@ -257,14 +297,16 @@ macro_rules! end_links_sql {
     };
 }
 
-/// Insert a proposal. Any live-link index conflict inserts nothing and
-/// returns no row.
+/// Insert a proposal, holding no consent. Any live-link index conflict
+/// inserts nothing and returns no row.
 pub(crate) const PROPOSE_SQL: &str = concat!(
     "INSERT INTO delegated_connections
         (id, provider, group_id, coach_user_id, coach_tenant_id, member_user_id,
          member_tenant_id, provider_athlete_id, provider_athlete_name, provider_athlete_email,
-         status, proposed_at, confirmed_at, revoked_at, revoked_by, revoke_reason)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, 'proposed', $10, NULL, NULL, NULL, NULL)
+         status, proposed_at, confirmed_at, revoked_at, revoked_by, revoke_reason,
+         calendar_write, calendar_write_at, wellness_read, wellness_read_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, 'proposed', $10, NULL, NULL, NULL, NULL,
+             FALSE, NULL, FALSE, NULL)
      ON CONFLICT DO NOTHING
      RETURNING ",
     delegated_connection_columns!("")
@@ -315,11 +357,32 @@ pub(crate) const LIST_LIVE_FOR_MEMBER_SQL: &str = concat!(
      ORDER BY CASE WHEN status = 'confirmed' THEN 0 ELSE 1 END, proposed_at DESC, id"
 );
 
-/// The member confirms their own proposal.
+/// The member confirms their own proposal, with the consents they grant:
+/// `$5` and `$7` the values, `$6` and `$8` when each was granted (NULL when
+/// it was not).
 pub(crate) const CONFIRM_SQL: &str = concat!(
     "UPDATE delegated_connections
-        SET status = 'confirmed', confirmed_at = $1, member_tenant_id = $2
+        SET status = 'confirmed', confirmed_at = $1, member_tenant_id = $2,
+            calendar_write = $5, calendar_write_at = $6,
+            wellness_read = $7, wellness_read_at = $8
       WHERE id = $3 AND member_user_id = $4 AND status = 'proposed'
+      RETURNING ",
+    delegated_connection_columns!("")
+);
+
+/// The member a confirmed link names sets its consents: `$1` calendar write
+/// and `$2` wellness read, NULL to leave one as it stands; a consent whose
+/// value changes is stamped `$3`. Every SET expression reads the row as it
+/// stood before the update, on both engines.
+pub(crate) const SET_LINK_CONSENTS_SQL: &str = concat!(
+    "UPDATE delegated_connections
+        SET calendar_write = COALESCE($1, calendar_write),
+            calendar_write_at = CASE WHEN $1 IS NULL OR $1 = calendar_write
+                                     THEN calendar_write_at ELSE $3 END,
+            wellness_read = COALESCE($2, wellness_read),
+            wellness_read_at = CASE WHEN $2 IS NULL OR $2 = wellness_read
+                                    THEN wellness_read_at ELSE $3 END
+      WHERE id = $4 AND member_user_id = $5 AND status = 'confirmed'
       RETURNING ",
     delegated_connection_columns!("")
 );
@@ -398,6 +461,21 @@ pub(crate) const LIST_CONFIRMED_FOR_ATHLETE_SQL: &str = backed_links_sql!(
      ORDER BY d.confirmed_at, d.id"
 );
 
+/// Every confirmed link on one provider, only while the relation backs it.
+/// Keyed by the provider because a scheduled pass carries no tenant; the
+/// tenants are read from the row.
+///
+/// ISOLATION EXEMPTION: this read spans every tenant on purpose. It serves
+/// the scheduled delegated wellness pass, a system worker that no tenant- or
+/// user-facing path reaches; each row names one member and the member's and
+/// the coach's tenants, and the sync each row leads to runs for that member
+/// alone.
+pub(crate) const LIST_CONFIRMED_FOR_PROVIDER_SQL: &str = backed_links_sql!(
+    "d.provider = $1 AND d.status = 'confirmed'",
+    "
+     ORDER BY d.confirmed_at, d.id"
+);
+
 /// Read one column by name via `try_get`, never `Row::get`, so a corrupt row
 /// surfaces as a recoverable error naming the column rather than a panic.
 pub(crate) fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
@@ -435,7 +513,11 @@ pub(crate) fn require_fresh_proposal(link: &DelegatedConnection) -> AppResult<()
         && link.confirmed_at.is_none()
         && link.revoked_at.is_none()
         && link.revoked_by.is_none()
-        && link.revoke_reason.is_none();
+        && link.revoke_reason.is_none()
+        && !link.calendar_write
+        && link.calendar_write_at.is_none()
+        && !link.wellness_read
+        && link.wellness_read_at.is_none();
     fresh.ok_or_else(|| {
         AppError::invalid_input("Only a fresh proposal can be stored as a delegated connection")
     })
@@ -478,6 +560,10 @@ macro_rules! impl_delegated_connection_repository {
                             .ok_or_else(|| unknown_value("revoke_reason", &text))
                     })
                     .transpose()?,
+                calendar_write: column(r, "calendar_write")?,
+                calendar_write_at: column(r, "calendar_write_at")?,
+                wellness_read: column(r, "wellness_read")?,
+                wellness_read_at: column(r, "wellness_read_at")?,
             })
         }
 
@@ -627,6 +713,7 @@ macro_rules! impl_delegated_connection_repository {
                 id: Uuid,
                 member_user_id: Uuid,
                 member_tenant_id: TenantId,
+                consents: LinkConsents,
                 now: DateTime<Utc>,
             ) -> AppResult<Option<DelegatedConnection>> {
                 let row = sqlx::query(CONFIRM_SQL)
@@ -634,6 +721,10 @@ macro_rules! impl_delegated_connection_repository {
                     .bind($ids::bind(member_tenant_id.as_uuid()))
                     .bind($ids::bind(id))
                     .bind($ids::bind(member_user_id))
+                    .bind(consents.calendar_write)
+                    .bind(consents.calendar_write.then_some(now))
+                    .bind(consents.wellness_read)
+                    .bind(consents.wellness_read.then_some(now))
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
@@ -650,6 +741,31 @@ macro_rules! impl_delegated_connection_repository {
                                 "Failed to confirm delegated connection: {e}"
                             ))
                         }
+                    })?;
+
+                row.as_ref().map(row_to_delegated_connection).transpose()
+            }
+
+            async fn set_link_consents(
+                &self,
+                id: Uuid,
+                member_user_id: Uuid,
+                calendar_write: Option<bool>,
+                wellness_read: Option<bool>,
+                now: DateTime<Utc>,
+            ) -> AppResult<Option<DelegatedConnection>> {
+                let row = sqlx::query(SET_LINK_CONSENTS_SQL)
+                    .bind(calendar_write)
+                    .bind(wellness_read)
+                    .bind(now)
+                    .bind($ids::bind(id))
+                    .bind($ids::bind(member_user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to set a delegated connection's consents: {e}"
+                        ))
                     })?;
 
                 row.as_ref().map(row_to_delegated_connection).transpose()
@@ -814,6 +930,23 @@ macro_rules! impl_delegated_connection_repository {
                     .map_err(|e| {
                         AppError::database(format!(
                             "Failed to find an athlete's confirmed delegated connections: {e}"
+                        ))
+                    })?;
+
+                rows.iter().map(row_to_delegated_connection).collect()
+            }
+
+            async fn list_confirmed_for_provider(
+                &self,
+                provider: &str,
+            ) -> AppResult<Vec<DelegatedConnection>> {
+                let rows = sqlx::query(LIST_CONFIRMED_FOR_PROVIDER_SQL)
+                    .bind(provider)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to list a provider's confirmed delegated connections: {e}"
                         ))
                     })?;
 

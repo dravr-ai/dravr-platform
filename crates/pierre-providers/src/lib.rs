@@ -64,6 +64,9 @@ pub mod garmin_provider;
 /// Intervals.icu calendar rendering: a `PlannedSession` into the event body and the workout text DSL.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_calendar;
+/// Intervals.icu planned workouts: the calendar's workout and race events, and the activities that completed them.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_planned;
 /// Intervals.icu pull-only provider (Endurance Phase 4)
 #[cfg(feature = "provider-intervals-icu")]
 pub mod intervals_icu_provider;
@@ -73,6 +76,9 @@ mod intervals_icu_roster;
 /// Intervals.icu athlete self-report: the inverted `feel` scale, RPE, and the activity comment thread.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_self_report;
+/// Intervals.icu sport settings: the FTP, heart-rate thresholds and threshold pace kept per sport.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_settings;
 /// Intervals.icu activity provenance: the service that recorded a relayed activity.
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_source;

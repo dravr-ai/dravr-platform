@@ -10,6 +10,8 @@ use async_trait::async_trait;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ProviderCredentials;
 use dravr_enforme::RequestGateHandle;
+use pierre_services::delegated_connections::DelegationServices;
+use pierre_services::delegated_wellness::{delegated_wellness_credentials, DelegatedWellness};
 use pierre_services::health_sync::{request_gate, SyncCredentialRefresher};
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
@@ -135,6 +137,27 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
             )),
             None => Ok(None),
         }
+    }
+
+    async fn delegated_credentials(
+        &self,
+        member: Uuid,
+        provider: &str,
+    ) -> EnformeResult<Option<DelegatedWellness>> {
+        let ctx = self.runtime.upgrade().ok_or_else(|| {
+            EnformeError::store("server context dropped; cannot read delegated credentials")
+        })?;
+        #[cfg(feature = "client-notifications")]
+        let notifications = ctx.common.notification_service.as_ref();
+        #[cfg(not(feature = "client-notifications"))]
+        let notifications = None;
+        let services = DelegationServices {
+            repos: &ctx.common.repos,
+            registry: &ctx.fitness.provider_registry,
+            cache: &ctx.common.cache,
+            notifications,
+        };
+        Ok(delegated_wellness_credentials(services, member, provider).await)
     }
 }
 

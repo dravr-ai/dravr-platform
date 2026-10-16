@@ -41,6 +41,7 @@ const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
 
 const mockConfirmLink = jest.fn();
+const mockSetConsents = jest.fn();
 jest.mock('../src/services/api', () => ({
   coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   oauthApi: { getProvidersStatus: jest.fn().mockResolvedValue({ providers: [] }) },
@@ -50,6 +51,7 @@ jest.mock('../src/services/api', () => ({
     getDelegationRoster: jest.fn(),
     proposeDelegatedConnection: jest.fn(),
     confirmDelegatedConnection: (...args: unknown[]) => mockConfirmLink(...args),
+    setDelegatedLinkConsents: (...args: unknown[]) => mockSetConsents(...args),
     endDelegatedConnection: jest.fn(),
     listMembers: jest.fn(),
     getStats: jest.fn().mockResolvedValue({ stats: null }),
@@ -525,6 +527,11 @@ describe('GroupInfoSheet', () => {
           proposed_at: '2026-09-24T08:00:00Z',
           confirmed_at: null,
           read_refused: null,
+          calendar_write: false,
+          calendar_write_supported: false,
+          wellness_read: false,
+          wellness_read_supported: false,
+          wellness_read_skipped: null,
         },
       ],
       total: 1,
@@ -539,6 +546,91 @@ describe('GroupInfoSheet', () => {
     await act(async () => {
       fireEvent.press(getByTestId('delegation-confirm'));
     });
-    expect(mockConfirmLink).toHaveBeenCalledWith('group-1', 'dc-1');
+    // A TrainingPeaks link offers no consent, so the confirm carries no body.
+    expect(mockConfirmLink).toHaveBeenCalledWith('group-1', 'dc-1', undefined);
+  });
+
+  it('shows every live link of a member with its own platform and controls, a newer proposal hiding none', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const link = {
+      group_id: 'group-1',
+      coach_user_id: 'user-coach',
+      coach_display_name: 'Casey Coach',
+      member_user_id: 'user-phil',
+      member_display_name: 'Phil',
+      provider_athlete_name: 'Alex Athlete',
+      read_refused: null,
+      calendar_write: false,
+      calendar_write_supported: false,
+      wellness_read: false,
+      wellness_read_supported: false,
+      wellness_read_skipped: null,
+    };
+    // The server lists the newest proposal first: a TrainingPeaks link the
+    // coach just proposed, above the Intervals.icu link Phil confirmed
+    // earlier with his wellness shared.
+    const intervals = {
+      ...link,
+      id: 'dc-intervals',
+      provider: 'intervals_icu',
+      provider_athlete_id: 'i201',
+      status: 'confirmed',
+      proposed_at: '2026-09-20T08:00:00Z',
+      confirmed_at: '2026-09-20T09:00:00Z',
+      calendar_write_supported: true,
+      wellness_read: true,
+      wellness_read_supported: true,
+    };
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
+      connections: [
+        {
+          ...link,
+          id: 'dc-trainingpeaks',
+          provider: 'trainingpeaks',
+          provider_athlete_id: '900001',
+          status: 'proposed',
+          proposed_at: '2026-10-14T08:00:00Z',
+          confirmed_at: null,
+        },
+        intervals,
+      ],
+      total: 2,
+      viewer: 'member',
+    });
+    mockSetConsents.mockResolvedValue({ ...intervals, wellness_read: false });
+    const { findByTestId, getByTestId, getByText } = renderSheet();
+
+    const proposal = await findByTestId('delegation-member-link-dc-trainingpeaks');
+    expect(within(proposal).getByTestId('delegation-request')).toHaveTextContent(/TrainingPeaks link request/);
+    expect(getByText('TrainingPeaks through your human coach')).toBeTruthy();
+    expect(getByText('Intervals.icu through your human coach')).toBeTruthy();
+
+    const confirmed = getByTestId('delegation-member-link-dc-intervals');
+    expect(within(confirmed).getByTestId('delegation-linked')).toHaveTextContent(
+      /Your Intervals\.icu workouts are read through Casey Coach's account\./,
+    );
+    const wellness = within(confirmed).getByTestId('delegation-consent-wellness_read');
+    expect(wellness).toHaveProp('value', true);
+    await act(async () => {
+      fireEvent(wellness, 'valueChange', false);
+    });
+    // Turning wellness off asks first; the member says to stop.
+    const stop = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+      string,
+      string,
+      Array<{ text: string; onPress?: () => void }>,
+    ];
+    expect(stop[0]).toBe('Stop sharing wellness?');
+    await act(async () => {
+      await stop[2].find((button) => button.text === 'Stop sharing')?.onPress?.();
+    });
+    expect(mockSetConsents).toHaveBeenCalledWith('group-1', 'dc-intervals', { wellness_read: false });
+
+    // Leaving ends both, and the warning names both.
+    fireEvent.press(getByTestId('leave-group-button'));
+    const confirm = (Alert.alert as jest.Mock).mock.calls.at(-1) as [string, string];
+    expect(confirm[1]).toContain('Your TrainingPeaks link through this group ends too.');
+    expect(confirm[1]).toContain('Your Intervals.icu link through this group ends too.');
   });
 });

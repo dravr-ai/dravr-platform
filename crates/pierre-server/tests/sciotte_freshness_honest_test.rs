@@ -98,6 +98,7 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         None,
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );
@@ -177,6 +178,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         None,
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );

@@ -12,7 +12,8 @@ use chrono::NaiveDate;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
+    SportType, Stats, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 
@@ -154,6 +155,14 @@ impl FitnessProvider for AiGovernedProvider {
     async fn get_stats(&self) -> AppResult<Stats> {
         self.untagged_read()?;
         self.inner.get_stats().await
+    }
+
+    async fn read_thresholds(
+        &self,
+        primary_sport: Option<&SportType>,
+    ) -> AppResult<ProviderThresholds> {
+        self.untagged_read()?;
+        self.inner.read_thresholds(primary_sport).await
     }
 
     async fn list_planned_workouts(

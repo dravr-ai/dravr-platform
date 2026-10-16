@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the TrainingPeaks link section on the phone — the coach's picker, the propose payload, each refusal's words
-// ABOUTME: And the member's unlink behind a confirm, never the server's English refusal text
+// ABOUTME: Tests the coaching-platform link section on the phone — the coach's picker, the propose payload, each refusal's words
+// ABOUTME: The member's consent switches at confirm and after, and the unlink behind a confirm, never the server's English
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -13,6 +13,8 @@ import { DELEGATION_REFUSAL_KEY } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 
 const mockPropose = jest.fn();
+const mockConfirm = jest.fn();
+const mockSetConsents = jest.fn();
 const mockEnd = jest.fn();
 const mockRoster = jest.fn();
 jest.mock('../src/services/api', () => ({
@@ -20,7 +22,8 @@ jest.mock('../src/services/api', () => ({
   groupsApi: {
     getDelegationRoster: (...args: unknown[]) => mockRoster(...args),
     proposeDelegatedConnection: (...args: unknown[]) => mockPropose(...args),
-    confirmDelegatedConnection: jest.fn(),
+    confirmDelegatedConnection: (...args: unknown[]) => mockConfirm(...args),
+    setDelegatedLinkConsents: (...args: unknown[]) => mockSetConsents(...args),
     endDelegatedConnection: (...args: unknown[]) => mockEnd(...args),
   },
 }));
@@ -57,8 +60,24 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
     read_refused: null,
+    calendar_write: false,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
     ...overrides,
   };
+}
+
+/** An Intervals.icu link, whose platform offers both consents. */
+function intervalsLink(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection {
+  return link({
+    provider: 'intervals_icu',
+    provider_athlete_id: 'i201',
+    calendar_write_supported: true,
+    wellness_read_supported: true,
+    ...overrides,
+  });
 }
 
 /** An axios-shaped refusal carrying `details.reason`. */
@@ -271,6 +290,232 @@ describe('DelegatedConnectionsSection', () => {
     );
     expect(row).not.toHaveTextContent(/Linked to/);
     expect(getByTestId('delegation-unlink-dc-1')).toBeTruthy();
+  });
+
+  it('words a propose the platform refuses for want of access, naming the platform', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        { provider_athlete_id: 'i201', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    mockPropose.mockRejectedValue(refusal('athlete_no_access', 'intervals_icu'));
+    const { findByTestId, getByTestId } = renderSection();
+
+    fireEvent.press(await findByTestId('delegation-propose-i201'));
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-member-option-user-alex'));
+    });
+
+    await waitFor(() =>
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Error',
+        'Intervals.icu gives your account no access to this athlete, so they cannot be linked.',
+      ),
+    );
+  });
+
+  it('tells the coach what a confirmed member shares beyond their workouts', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: intervalsLink({ status: 'confirmed', calendar_write: true }),
+          suggested_member_user_id: null,
+        },
+        {
+          provider_athlete_id: 'i202',
+          display_name: 'Blair Biker',
+          connection: intervalsLink({ id: 'dc-2', member_user_id: 'user-blair', provider_athlete_id: 'i202', status: 'confirmed' }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    const { findByTestId, getByTestId } = renderSection();
+
+    const alex = await findByTestId('delegation-roster-row-i201');
+    expect(alex).toHaveTextContent(/Linked to Alex/);
+    expect(alex).toHaveTextContent(/Can put workouts on their calendar/);
+    expect(alex).not.toHaveTextContent(/Shares sleep/);
+    expect(getByTestId('delegation-roster-row-i202')).toHaveTextContent(/Workouts only/);
+  });
+
+  it('says where a granted wellness comes from when a source of the member own skips the link', async () => {
+    mockRoster.mockResolvedValue({
+      provider: 'intervals_icu',
+      athletes: [
+        {
+          provider_athlete_id: 'i201',
+          display_name: 'Alex Athlete',
+          connection: intervalsLink({
+            status: 'confirmed',
+            wellness_read: true,
+            wellness_read_skipped: 'own_wellness_source',
+          }),
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+    const { findByTestId } = renderSection();
+
+    const alex = await findByTestId('delegation-roster-row-i201');
+    expect(alex).toHaveTextContent(/Wellness comes from their own Garmin or WHOOP connection/);
+    expect(alex).not.toHaveTextContent(/Shares sleep/);
+  });
+
+  it('asks for nothing beyond the read on a TrainingPeaks link, and confirms with no body', async () => {
+    mockConfirm.mockResolvedValue(link({ status: 'confirmed' }));
+    const { findByTestId, queryByTestId, getByTestId } = renderSection({ mode: 'member', connections: [link()] });
+
+    await findByTestId('delegation-request');
+    expect(queryByTestId('delegation-consents')).toBeNull();
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-confirm'));
+    });
+    expect(mockConfirm).toHaveBeenCalledWith(GROUP_ID, 'dc-1', undefined);
+  });
+
+  it('offers both consents on an Intervals.icu proposal, off until switched on, and confirms with them', async () => {
+    mockConfirm.mockResolvedValue(intervalsLink({ status: 'confirmed', wellness_read: true }));
+    const { findByTestId, getByTestId } = renderSection({ mode: 'member', connections: [intervalsLink()] });
+
+    const request = await findByTestId('delegation-request');
+    expect(request).toHaveTextContent(/Let Casey Coach put workouts on your Intervals\.icu calendar/);
+    expect(request).toHaveTextContent(
+      /Also share your Intervals\.icu sleep, HRV, resting heart rate, weight and daily notes/,
+    );
+    expect(getByTestId('delegation-consent-calendar_write')).toHaveProp('value', false);
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', false);
+
+    fireEvent(getByTestId('delegation-consent-wellness_read'), 'valueChange', true);
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', true);
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-confirm'));
+    });
+
+    expect(mockConfirm).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { calendar_write: false, wellness_read: true });
+  });
+
+  it('switches one consent of a confirmed link at a time, shown as made while it is on its way', async () => {
+    let answer: (link: DelegatedConnection) => void = () => undefined;
+    mockSetConsents.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const { findByTestId, getByTestId } = renderSection({
+      mode: 'member',
+      connections: [
+        intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', calendar_write: true, wellness_read: true }),
+      ],
+    });
+
+    await findByTestId('delegation-linked');
+    expect(getByTestId('delegation-consent-calendar_write')).toHaveProp('value', true);
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', true);
+
+    await act(async () => {
+      fireEvent(getByTestId('delegation-consent-calendar_write'), 'valueChange', false);
+    });
+
+    expect(mockSetConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { calendar_write: false });
+    expect(getByTestId('delegation-consent-calendar_write')).toHaveProp('value', false);
+    expect(getByTestId('delegation-consent-calendar_write')).toHaveProp('disabled', true);
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', true);
+
+    await act(async () => {
+      answer(intervalsLink({ status: 'confirmed', calendar_write: false, wellness_read: true }));
+    });
+  });
+
+  it('asks before switching wellness off, and switches nothing until the member says so', async () => {
+    mockSetConsents.mockResolvedValue(intervalsLink({ status: 'confirmed', wellness_read: false }));
+    const { findByTestId, getByTestId } = renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', wellness_read: true })],
+    });
+
+    await findByTestId('delegation-linked');
+    await act(async () => {
+      fireEvent(getByTestId('delegation-consent-wellness_read'), 'valueChange', false);
+    });
+    const ask = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+      string,
+      string,
+      Array<{ text: string; style?: string; onPress?: () => void }>,
+    ];
+    expect(ask[0]).toBe('Stop sharing wellness?');
+    expect(ask[1]).toBe(
+      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
+    );
+    expect(ask[2].map((button) => [button.text, button.style])).toEqual([
+      ['Cancel', 'cancel'],
+      ['Stop sharing', 'destructive'],
+    ]);
+    expect(mockSetConsents).not.toHaveBeenCalled();
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', true);
+
+    await act(async () => {
+      await ask[2].find((button) => button.text === 'Stop sharing')?.onPress?.();
+    });
+    expect(mockSetConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: false });
+  });
+
+  it('switches wellness on without asking', async () => {
+    mockSetConsents.mockResolvedValue(intervalsLink({ status: 'confirmed', wellness_read: true }));
+    const { findByTestId, getByTestId } = renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
+    });
+
+    await findByTestId('delegation-linked');
+    await act(async () => {
+      fireEvent(getByTestId('delegation-consent-wellness_read'), 'valueChange', true);
+    });
+
+    expect(mockSetConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: true });
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('notes under the wellness switch when a source of the member own already gives Dravr it', async () => {
+    const { findByTestId, getByTestId } = renderSection({
+      mode: 'member',
+      connections: [
+        intervalsLink({
+          status: 'confirmed',
+          confirmed_at: '2026-09-24T09:00:00Z',
+          wellness_read: true,
+          wellness_read_skipped: 'own_wellness_source',
+        }),
+      ],
+    });
+
+    await findByTestId('delegation-linked');
+    // The switch stays, so the member can still revoke what they granted.
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', true);
+    expect(getByTestId('delegation-consent-row-wellness_read')).toHaveTextContent(
+      /Your own Garmin or WHOOP connection already gives Dravr this, so the link reads none of it while that connection stays\./,
+    );
+    expect(getByTestId('delegation-consent-row-calendar_write')).not.toHaveTextContent(/Garmin or WHOOP/);
+  });
+
+  it('words a refused consent change from its reason', async () => {
+    mockSetConsents.mockRejectedValue(refusal('consent_grant_needs_app', 'intervals_icu'));
+    const { findByTestId, getByTestId } = renderSection({
+      mode: 'member',
+      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
+    });
+
+    await findByTestId('delegation-linked');
+    await act(async () => {
+      fireEvent(getByTestId('delegation-consent-wellness_read'), 'valueChange', true);
+    });
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Error', 'That did not go through. Try again.'));
+    // Refused, the switch reads as the consent stands on the server again.
+    expect(getByTestId('delegation-consent-wellness_read')).toHaveProp('value', false);
   });
 
   it('tells the member why their confirmed link reads nothing', async () => {

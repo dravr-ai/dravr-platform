@@ -1,5 +1,5 @@
 // ABOUTME: Delegated-connection routes: a group's coach links coaching-platform roster athletes to members, who confirm
-// ABOUTME: List, roster, propose, confirm and end under /api/groups/{group_id}/delegated-connections
+// ABOUTME: List, roster, propose, confirm, consents and end under /api/groups/{group_id}/delegated-connections
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,12 @@
 //! platform (`TrainingPeaks`, Intervals.icu) through the coach's own account
 //! there. The coach lists their roster and proposes which athlete is which
 //! member; the member confirms, which is their consent to the read; either
-//! side ends a link. The rules of
-//! each step live in [`pierre_services::delegated_connections`]; this module
-//! decides who may take it.
+//! side ends a link. What a confirmed link shares beyond the read (the coach
+//! writing the member's calendar, the member's wellness syncing) the member
+//! alone grants, at confirm or later, and revokes. The rules of
+//! each step live in [`pierre_services::delegated_connections`] and
+//! [`pierre_services::delegated_link_consents`]; this module decides who may
+//! take it.
 //!
 //! Every handler reads the group without regard to tenant — groups span
 //! tenants — and refuses an archived one. Who may act is a user key: the
@@ -26,25 +29,30 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
-use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, User};
+use pierre_core::models::{DelegatedConnection, DelegationStatus, LinkConsents, TenantId, User};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
-use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
-use pierre_services::coach_platform::roster_platform;
+use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
     confirm, end, person_name, propose, roster_for_group, unbound_link_reason, DelegationServices,
     Proposal, RosterEntry,
 };
+use pierre_services::delegated_link_consents::{
+    consent_offer, set_link_consents, wellness_read_skipped, ConsentChange, ConsentOffer,
+    WellnessReadSkip,
+};
+use pierre_services::delegated_read::OwnLogins;
 use pierre_services::trainingpeaks_accounts::link_binding;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -94,6 +102,25 @@ pub struct DelegatedConnectionResponse {
     /// again: `athlete_email_missing`, `athlete_email_mismatch` or
     /// `member_email_unverified`. `None` while it reads, and for a proposal.
     pub read_refused: Option<String>,
+    /// Whether the member lets the link's coach write their training
+    /// calendar on the platform
+    pub calendar_write: bool,
+    /// Whether the platform takes a coach's calendar writes, so the link can
+    /// ask the member for them
+    pub calendar_write_supported: bool,
+    /// Whether the member lets their wellness sync through the coach's
+    /// account
+    pub wellness_read: bool,
+    /// Whether the coach's account reads wellness on the platform, so the
+    /// link can ask the member for it
+    pub wellness_read_supported: bool,
+    /// Why the link syncs none of the member's wellness: a source of their
+    /// own already gives Dravr it (`own_connection`, `own_wellness_source`).
+    /// The member reads it granted or not; the coach only once the member
+    /// shared their wellness, since which sources a member connects is
+    /// theirs until then. `None` when nothing of theirs keeps it from
+    /// syncing, and where the platform offers no wellness.
+    pub wellness_read_skipped: Option<String>,
 }
 
 /// Which side of the group's links the caller sees.
@@ -120,7 +147,7 @@ pub struct DelegatedConnectionsResponse {
 }
 
 /// One athlete on the coach's platform roster, with its link in this group
-/// and the member its name suggests
+/// and the member its roster email binds
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelegationRosterAthlete {
     /// The athlete's id on the roster
@@ -129,8 +156,9 @@ pub struct DelegationRosterAthlete {
     pub display_name: Option<String>,
     /// The live link that holds the athlete in this group
     pub connection: Option<DelegatedConnectionResponse>,
-    /// The unlinked member whose name reads as the athlete's, when exactly
-    /// one does
+    /// The unlinked member of this group whose verified email is the
+    /// athlete's roster email, when the platform gives the coach access to
+    /// the athlete
     pub suggested_member_user_id: Option<String>,
 }
 
@@ -156,6 +184,32 @@ pub struct ProposeDelegatedConnectionRequest {
     pub provider_athlete_id: String,
     /// The live member the athlete is
     pub member_user_id: Uuid,
+}
+
+/// What the member grants as they confirm a link. Each consent is off unless
+/// named, so a confirm with no body grants nothing; one the platform does not
+/// offer is ignored
+#[derive(Debug, Deserialize, Default)]
+pub struct ConfirmDelegatedConnectionRequest {
+    /// Let the link's coach write the member's training calendar
+    #[serde(default)]
+    pub calendar_write: bool,
+    /// Let the member's wellness sync through the coach's account
+    #[serde(default)]
+    pub wellness_read: bool,
+}
+
+/// The member grants or revokes what a confirmed link shares. A consent left
+/// out stays as it stands; one the platform does not offer is ignored
+#[derive(Debug, Deserialize, Default)]
+pub struct UpdateDelegatedConnectionConsentsRequest {
+    /// Grant (`true`) or revoke (`false`) the coach's calendar writes
+    #[serde(default)]
+    pub calendar_write: Option<bool>,
+    /// Grant (`true`) or revoke (`false`) the wellness sync; a revoke deletes
+    /// the wellness the link synced
+    #[serde(default)]
+    pub wellness_read: Option<bool>,
 }
 
 /// Query for the roster read
@@ -193,6 +247,10 @@ impl DelegatedConnectionRoutes {
             .route(
                 "/api/groups/{group_id}/delegated-connections/{connection_id}/confirm",
                 post(Self::handle_confirm::<C>),
+            )
+            .route(
+                "/api/groups/{group_id}/delegated-connections/{connection_id}/consents",
+                put(Self::handle_set_consents::<C>),
             )
             .route(
                 "/api/groups/{group_id}/delegated-connections/{connection_id}",
@@ -259,12 +317,36 @@ impl DelegatedConnectionRoutes {
         Uuid::parse_str(raw).map_err(|_| AppError::not_found("Delegated link"))
     }
 
-    /// Each link as the clients show it, naming its coach and its member, and
-    /// why a confirmed one reads nothing when its athlete is not its member
-    /// by email.
+    /// The link `connection_id` of `group`, when `caller` is the live member
+    /// it names; `None` for anyone else, its coach included.
+    async fn own_link(
+        repos: &RepositoryRegistry,
+        group: &CoachingGroup,
+        connection_id: Uuid,
+        caller: Uuid,
+    ) -> Result<Option<DelegatedConnection>, AppError> {
+        let link = repos
+            .delegated_connections
+            .get_for_participant(connection_id, group.id, caller)
+            .await?;
+        let is_member = repos
+            .groups
+            .get_member(&group.id.to_string(), caller)
+            .await?
+            .is_some();
+        Ok(link.filter(|l| is_member && l.member_user_id == caller))
+    }
+
+    /// Each link as `viewer` sees it, naming its coach and its member, why a
+    /// confirmed one reads nothing when its athlete is not its member by
+    /// email, the consents it carries and its platform offers, and why its
+    /// wellness syncs nothing when a source of the member's own wins: to the
+    /// coach only on a link whose member shared their wellness.
     async fn responses(
         repos: &RepositoryRegistry,
+        registry: &ProviderRegistry,
         links: &[DelegatedConnection],
+        viewer: DelegationViewer,
     ) -> Result<Vec<DelegatedConnectionResponse>, AppError> {
         let mut ids: Vec<Uuid> = links
             .iter()
@@ -280,7 +362,20 @@ impl DelegatedConnectionRoutes {
             } else {
                 None
             };
-            responses.push(Self::response(link, &users, read_refused)?);
+            let offer = consent_offer(registry, &link.provider);
+            let shown = viewer == DelegationViewer::Member || link.wellness_read;
+            let skipped = if offer.wellness_read && shown {
+                wellness_read_skipped(OwnLogins::of(repos), link).await?
+            } else {
+                None
+            };
+            responses.push(Self::response(
+                link,
+                &users,
+                offer,
+                read_refused,
+                skipped.map(WellnessReadSkip::as_str),
+            )?);
         }
         Ok(responses)
     }
@@ -288,7 +383,9 @@ impl DelegatedConnectionRoutes {
     fn response(
         link: &DelegatedConnection,
         users: &HashMap<Uuid, User>,
+        offer: ConsentOffer,
         read_refused: Option<&str>,
+        wellness_read_skipped: Option<&str>,
     ) -> Result<DelegatedConnectionResponse, AppError> {
         let (Some(coach), Some(member)) = (
             users.get(&link.coach_user_id),
@@ -313,6 +410,11 @@ impl DelegatedConnectionRoutes {
             proposed_at: link.proposed_at.to_rfc3339(),
             confirmed_at: link.confirmed_at.map(|at| at.to_rfc3339()),
             read_refused: read_refused.map(str::to_owned),
+            calendar_write: link.calendar_write,
+            calendar_write_supported: offer.calendar_write,
+            wellness_read: link.wellness_read,
+            wellness_read_supported: offer.wellness_read,
+            wellness_read_skipped: wellness_read_skipped.map(str::to_owned),
         })
     }
 
@@ -356,7 +458,8 @@ impl DelegatedConnectionRoutes {
             return Err(AppError::not_found("You are not a member of this group"));
         };
 
-        let connections = Self::responses(repos, &links).await?;
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let connections = Self::responses(repos, registry, &links, viewer).await?;
         let response = DelegatedConnectionsResponse {
             total: connections.len(),
             connections,
@@ -388,12 +491,7 @@ impl DelegatedConnectionRoutes {
         )
         .await?;
         let platform = platform.as_ref();
-        // The roster is the coach's platform data, with no provenance of its
-        // own per athlete: refused whole over an external transport when the
-        // platform's terms keep its data first-party (carnet#724).
-        for name in [platform.user_facing(), platform.backend()] {
-            ai_scope::first_party_only_read(registry.as_ref(), name, None)?;
-        }
+        check_roster_transport(registry, platform)?;
 
         let entries = roster_for_group(
             Self::services(&resources),
@@ -407,7 +505,7 @@ impl DelegatedConnectionRoutes {
         let links: Vec<DelegatedConnection> =
             entries.iter().filter_map(|e| e.link.clone()).collect();
         let mut linked: HashMap<String, DelegatedConnectionResponse> =
-            Self::responses(repos, &links)
+            Self::responses(repos, registry, &links, DelegationViewer::Coach)
                 .await?
                 .into_iter()
                 .map(|r| (r.provider_athlete_id.clone(), r))
@@ -463,7 +561,8 @@ impl DelegatedConnectionRoutes {
             },
         )
         .await?;
-        let response = Self::responses(repos, &[link])
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let response = Self::responses(repos, registry, &[link], DelegationViewer::Coach)
             .await?
             .pop()
             .ok_or_else(|| AppError::internal("Proposed link has no response"))?;
@@ -471,27 +570,20 @@ impl DelegatedConnectionRoutes {
     }
 
     /// POST `/api/groups/:group_id/delegated-connections/:connection_id/confirm`
-    /// — the member a proposal names confirms it.
+    /// — the member a proposal names confirms it, granting with it the
+    /// consents the body names; a confirm with no body grants none.
     async fn handle_confirm<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
         Path((group_id, connection_id)): Path<(String, String)>,
+        body: Option<Json<ConfirmDelegatedConnectionRequest>>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let (group, tenant) = Self::open_group(&resources, &auth, &group_id).await?;
         let connection_id = Self::connection_id(&connection_id)?;
         let repos = MiddlewareCtx::repos(resources.as_ref());
 
-        let link = repos
-            .delegated_connections
-            .get_for_participant(connection_id, group.id, auth.user_id)
-            .await?;
-        let is_member = repos
-            .groups
-            .get_member(&group_id, auth.user_id)
-            .await?
-            .is_some();
-        let Some(link) = link.filter(|l| is_member && l.member_user_id == auth.user_id) else {
+        let Some(link) = Self::own_link(repos, &group, connection_id, auth.user_id).await? else {
             return Err(AppError::new(
                 ErrorCode::PermissionDenied,
                 "Only the member a link names can confirm it",
@@ -501,17 +593,68 @@ impl DelegatedConnectionRoutes {
             return Err(AppError::not_found("Pending link"));
         }
 
-        let confirmed = confirm(Self::services(&resources), &group, &link, tenant).await?;
+        let body = body.map(|Json(body)| body).unwrap_or_default();
+        let requested = LinkConsents {
+            calendar_write: body.calendar_write,
+            wellness_read: body.wellness_read,
+        };
+        let confirmed =
+            confirm(Self::services(&resources), &group, &link, tenant, requested).await?;
         Self::spawn_warm_up(
             &resources,
             confirmed.provider.clone(),
             confirmed.member_user_id,
             tenant,
         );
-        let response = Self::responses(repos, &[confirmed])
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let response = Self::responses(repos, registry, &[confirmed], DelegationViewer::Member)
             .await?
             .pop()
             .ok_or_else(|| AppError::internal("Confirmed link has no response"))?;
+        Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// PUT `/api/groups/:group_id/delegated-connections/:connection_id/consents`
+    /// — the member a confirmed link names grants or revokes what it shares
+    /// beyond the read. A grant is taken only from Dravr's own app; a revoke
+    /// from anywhere.
+    async fn handle_set_consents<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path((group_id, connection_id)): Path<(String, String)>,
+        Json(body): Json<UpdateDelegatedConnectionConsentsRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let (group, _) = Self::open_group(&resources, &auth, &group_id).await?;
+        let connection_id = Self::connection_id(&connection_id)?;
+        let repos = MiddlewareCtx::repos(resources.as_ref());
+
+        let Some(link) = Self::own_link(repos, &group, connection_id, auth.user_id).await? else {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Only the member a link names can change what it shares",
+            ));
+        };
+        if link.status != DelegationStatus::Confirmed {
+            return Err(AppError::not_found("Confirmed link"));
+        }
+
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let updated = set_link_consents(
+            repos,
+            registry,
+            &group,
+            &link,
+            ConsentChange {
+                calendar_write: body.calendar_write,
+                wellness_read: body.wellness_read,
+            },
+        )
+        .await?;
+        let response = Self::responses(repos, registry, &[updated], DelegationViewer::Member)
+            .await?
+            .pop()
+            .ok_or_else(|| AppError::internal("Updated link has no response"))?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 

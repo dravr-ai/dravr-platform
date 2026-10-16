@@ -182,38 +182,7 @@ async fn unauthenticated_continuation_is_rejected_before_the_flow_gate() {
 async fn a_new_login_supersedes_the_previously_parked_flow() {
     let (resources, user_id, tenant_id) = test_setup().await;
     let token = sciotte_token(&resources, user_id, tenant_id);
-
-    // A still-valid sciotte session stored moments ago makes the login
-    // short-circuit.
-    let now = Utc::now();
-    let session = serde_json::json!({
-        "session_id": "stored-session-1",
-        "cookies": [],
-        "created_at": now.to_rfc3339(),
-        "expires_at": (now + ChronoDuration::hours(6)).to_rfc3339(),
-    })
-    .to_string();
-    resources
-        .common
-        .repos
-        .oauth_tokens
-        .upsert_token(&UserOAuthToken {
-            id: Uuid::new_v4().to_string(),
-            user_id,
-            tenant_id: tenant_id.as_uuid().to_string(),
-            provider: "sciotte".to_owned(),
-            access_token: session,
-            refresh_token: None,
-            token_type: "session".to_owned(),
-            expires_at: None,
-            scope: None,
-            provider_user_id: None,
-            oauth_app_client_id: None,
-            created_at: now,
-            updated_at: now,
-        })
-        .await
-        .expect("seed stored sciotte session");
+    seed_fresh_session(&resources, user_id, tenant_id).await;
 
     // An abandoned 2FA prompt from an earlier attempt, parked in the same cache
     // the handlers read.
@@ -269,6 +238,113 @@ async fn a_new_login_supersedes_the_previously_parked_flow() {
         body.contains(RESTART_HINT),
         "refusal must tell the user how to recover: {body}"
     );
+}
+
+/// The login method is a closed set (carnet#988): a name the scraper has no
+/// login for is refused when the body is read, before the handler runs, so
+/// nothing the user left parked is touched; each method the scraper knows is
+/// accepted. A body that names none is the login
+/// `a_new_login_supersedes_the_previously_parked_flow` sends.
+#[tokio::test]
+async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let token = sciotte_token(&resources, user_id, tenant_id);
+    seed_fresh_session(&resources, user_id, tenant_id).await;
+    remember_remote_flow(
+        &resources.common.cache,
+        tenant_id.as_uuid(),
+        user_id,
+        "parked-flow".to_owned(),
+        "sciotte",
+    )
+    .await;
+
+    // A miscased known method ("Google") is refused like a name the scraper
+    // has no login for ("gmail", "sms"): none is ever driven as the
+    // provider's own form.
+    for method in ["Google", "gmail", "sms"] {
+        let refused = AxumTestRequest::post("/api/providers/sciotte/login")
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&serde_json::json!({
+                "email": "athlete@example.com",
+                "password": "correct horse battery staple",
+                "method": method,
+                "target": "strava",
+            }))
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+        let status = refused.status();
+        let body = refused.text();
+        assert_eq!(
+            status, 422,
+            "the unknown login method {method} is refused: {body}"
+        );
+        assert_eq!(
+            require_remote_flow(&resources.common.cache, tenant_id.as_uuid(), user_id)
+                .await
+                .expect("a refused body never reaches the handler that supersedes the flow")
+                .0,
+            "parked-flow",
+            "method {method} reached the handler"
+        );
+    }
+
+    for method in ["email", "direct", "google", "apple"] {
+        let accepted = AxumTestRequest::post("/api/providers/sciotte/login")
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&serde_json::json!({
+                "email": "athlete@example.com",
+                "password": "correct horse battery staple",
+                "method": method,
+                "target": "strava",
+            }))
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+        let status = accepted.status();
+        let body = accepted.text();
+        assert_eq!(
+            status, 200,
+            "method {method} is a login the scraper runs: {body}"
+        );
+        assert!(
+            body.contains("\"short_circuit\":true"),
+            "method {method} reached the handler: {body}"
+        );
+    }
+}
+
+/// Store a sciotte session written moments ago, so a login inside the reuse
+/// window short-circuits instead of reaching the scraper service.
+async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
+    let now = Utc::now();
+    let session = serde_json::json!({
+        "session_id": "stored-session-1",
+        "cookies": [],
+        "created_at": now.to_rfc3339(),
+        "expires_at": (now + ChronoDuration::hours(6)).to_rfc3339(),
+    })
+    .to_string();
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant_id.as_uuid().to_string(),
+            provider: "sciotte".to_owned(),
+            access_token: session,
+            refresh_token: None,
+            token_type: "session".to_owned(),
+            expires_at: None,
+            scope: None,
+            provider_user_id: None,
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .expect("seed stored sciotte session");
 }
 
 // ── The gate itself: live vs expired vs absent vs another tenant's ──────────

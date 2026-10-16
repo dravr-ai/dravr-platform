@@ -152,11 +152,11 @@ impl FitnessProvider for CoachHub {
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         Ok(CoachRoster {
             account_email: Some("coach@coachhub.test".to_owned()),
-            athletes: vec![RosterAthlete {
-                id: ATHLETE.to_owned(),
-                name: Some("Alex".to_owned()),
-                email: Some("alex@coachhub.test".to_owned()),
-            }],
+            athletes: vec![RosterAthlete::new(
+                ATHLETE,
+                Some("Alex".to_owned()),
+                Some("alex@coachhub.test".to_owned()),
+            )],
         })
     }
 }

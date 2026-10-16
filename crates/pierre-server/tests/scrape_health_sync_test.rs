@@ -23,6 +23,7 @@
 mod db_fixtures;
 
 use std::env;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -36,7 +37,7 @@ use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::{SciotteClient, ENV_REMOTE_URL};
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId, UserOAuthToken,
@@ -435,7 +436,8 @@ async fn no_row_is_written_under_another_providers_tenant() {
     assert!(storage
         .get_credentials(&user_id.to_string(), "coros")
         .await
-        .is_err());
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -509,6 +511,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );
@@ -556,21 +559,30 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Seen, status: &'static str, b
     });
 }
 
-async fn stub_service(status: &'static str, body: &'static str) -> Seen {
+/// A reader whose client calls the stand-in at `addr`, built as the server
+/// builds its one client and never read from the environment.
+fn reader_for(addr: SocketAddr) -> SciotteServiceReader {
+    let client = SciotteClient::new(&format!("http://{addr}"), None)
+        .expect("a loopback client needs no audience");
+    SciotteServiceReader::new(Some(client))
+}
+
+async fn stub_service(status: &'static str, body: &'static str) -> (Seen, SciotteServiceReader) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&seen), status, body);
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
-    seen
+    (seen, reader_for(addr))
 }
 
 /// A scraper service of several instances: it imports any session, and
 /// answers the first `misses` daily-summary reads `401 session_not_found`, as
 /// an instance the import never reached does, and every later one with
 /// `body`.
-async fn stub_service_missing_the_session(misses: usize, body: &'static str) -> Seen {
+async fn stub_service_missing_the_session(
+    misses: usize,
+    body: &'static str,
+) -> (Seen, SciotteServiceReader) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
@@ -602,9 +614,7 @@ async fn stub_service_missing_the_session(misses: usize, body: &'static str) -> 
             let _ = stream.write_all(response.as_bytes()).await;
         }
     });
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
-    seen
+    (seen, reader_for(addr))
 }
 
 /// How many of `requests` are imports, and how many are daily-summary reads.
@@ -629,8 +639,8 @@ async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveD
     const MEASURED: &str = r#"{"date":"2026-09-22","provider":"coros","resting_heart_rate":47,"hrv_value":63,"vo2_max":52.5}"#;
 
     // One miss: the session is imported again and the day is read.
-    let seen = stub_service_missing_the_session(1, MEASURED).await;
-    let summary = SciotteServiceReader
+    let (seen, reader) = stub_service_missing_the_session(1, MEASURED).await;
+    let summary = reader
         .daily_summary("coros", &session(), day)
         .await
         .expect("a session one instance did not hold is not a dead session");
@@ -653,8 +663,8 @@ async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveD
     );
 
     // Two misses: the second answer stands, and nothing is sent a third time.
-    let seen = stub_service_missing_the_session(2, MEASURED).await;
-    let dead = SciotteServiceReader
+    let (seen, reader) = stub_service_missing_the_session(2, MEASURED).await;
+    let dead = reader
         .daily_summary("coros", &session(), day)
         .await
         .unwrap_err();
@@ -666,27 +676,37 @@ async fn an_instance_that_never_saw_the_import_is_imported_once_more(day: NaiveD
     assert_eq!(imports_and_reads(&requests), (2, 2), "{requests:?}");
 }
 
-/// One test drives every service answer in turn: the service URL is process
-/// state, so the cases must not run concurrently.
+/// One test drives every service answer in turn, each against its own
+/// stand-in reached through the reader's injected client. The service URL
+/// variable is cleared first, so a read that fell back to the environment
+/// could reach nothing (carnet#982).
 #[tokio::test]
 async fn the_service_reader_imports_the_session_and_maps_every_answer() {
+    env::remove_var(ENV_REMOTE_URL);
     let day = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap();
 
-    // A measured day.
-    let seen = stub_service(
+    // A measured day, read twice through the one client the reader holds.
+    let (seen, reader) = stub_service(
         "200 OK",
         r#"{"date":"2026-09-22","provider":"coros","resting_heart_rate":51,"hrv_value":41,"vo2_max":49.0}"#,
     )
     .await;
-    let summary = SciotteServiceReader
-        .daily_summary("coros", &session(), day)
-        .await
-        .unwrap();
-    assert_eq!(summary.date, day);
-    assert_eq!(summary.resting_heart_rate, Some(51));
-    assert_eq!(summary.hrv_value, Some(41));
-    assert_eq!(summary.vo2_max, Some(49.0));
+    for _ in 0..2 {
+        let summary = reader
+            .daily_summary("coros", &session(), day)
+            .await
+            .unwrap();
+        assert_eq!(summary.date, day);
+        assert_eq!(summary.resting_heart_rate, Some(51));
+        assert_eq!(summary.hrv_value, Some(41));
+        assert_eq!(summary.vo2_max, Some(49.0));
+    }
     let requests = seen.lock().unwrap().clone();
+    assert_eq!(
+        imports_and_reads(&requests),
+        (2, 2),
+        "each read imports its session and reads the day: {requests:?}"
+    );
     assert!(requests[0].contains("/auth/import-session"));
     assert!(
         requests[0].contains(r#""provider":"coros""#),
@@ -704,12 +724,12 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     );
 
     // A dead session is expired, not an empty day, and is not read twice.
-    let seen = stub_service(
+    let (seen, reader) = stub_service(
         "401 Unauthorized",
         r#"{"error":"session_expired","message":"access token is invalid"}"#,
     )
     .await;
-    let dead = SciotteServiceReader
+    let dead = reader
         .daily_summary("coros", &session(), day)
         .await
         .unwrap_err();
@@ -724,12 +744,12 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
     );
 
     // A load-shed carries the service's own wait.
-    stub_service(
+    let (_, reader) = stub_service(
         "503 Service Unavailable",
         r#"{"error":"scraper_busy","reason":"queue full","retry_after_secs":9}"#,
     )
     .await;
-    match SciotteServiceReader
+    match reader
         .daily_summary("coros", &session(), day)
         .await
         .unwrap_err()

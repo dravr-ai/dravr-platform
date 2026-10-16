@@ -25,7 +25,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
@@ -43,6 +43,7 @@ use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::coach_access::name_requested_group;
 use pierre_services::locale::resolve_user_locale;
 
 use crate::group_response::GroupResponse;
@@ -477,6 +478,10 @@ impl GroupRoutes {
     /// and the plan's per-group cap (zero refuses). The creator's group chat
     /// is opened by the client through `POST /api/chat/conversations` with
     /// the returned id, under the conversation quota every thread obeys.
+    ///
+    /// A creator who asks to coach the group without holding coach access
+    /// gets it coachless; when their waiting coach-access request names no
+    /// group, it names this one, so a grant attaches them to it.
     async fn handle_create_group<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -565,6 +570,20 @@ impl GroupRoutes {
                     .max(0),
                 "coach created their group during onboarding"
             );
+            // A coach-access request already waiting is the one this group's
+            // step shows as sent, so a grant must attach the coach to it.
+            if created.coach_user_id.is_none() {
+                if let Err(e) =
+                    name_requested_group(repos, auth.user_id, (created.id, tenant_id)).await
+                {
+                    warn!(
+                        user_id = %auth.user_id,
+                        group_id = %created.id,
+                        error = %e,
+                        "Could not name the new group on the coach's waiting coach access request"
+                    );
+                }
+            }
         }
 
         let response = Self::group_response(&resources, created, auth.user_id).await?;

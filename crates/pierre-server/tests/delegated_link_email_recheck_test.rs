@@ -46,7 +46,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationStatus,
-    RosterAthlete, TenantId, UserOAuthToken,
+    LinkConsents, RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
@@ -370,18 +370,20 @@ impl World {
                 self.coach.id,
                 self.coach.tenant,
                 member.id,
-                RosterAthlete {
-                    id: athlete.to_owned(),
-                    name: None,
-                    email: email.map(str::to_owned),
-                },
+                RosterAthlete::new(athlete, None, email.map(str::to_owned)),
             ))
             .await
             .unwrap()
             .expect("no live link holds this member or athlete yet");
         repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(
+                proposed.id,
+                member.id,
+                member.tenant,
+                LinkConsents::default(),
+                Utc::now(),
+            )
             .await
             .unwrap()
             .expect("the proposal names the member");

@@ -34,7 +34,9 @@ use anyhow::Result;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
-use pierre_core::models::{ConnectionType, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{
+    ConnectionType, SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
@@ -174,6 +176,7 @@ async fn seed_physiology(
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     let tenant_id = TenantId::parse_str(tenant).expect("valid tenant id");

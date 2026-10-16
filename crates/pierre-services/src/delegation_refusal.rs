@@ -12,6 +12,11 @@
 //! the refusal is about (`trainingpeaks`, `intervals_icu`) whenever one is
 //! known, so a client can name it. The message is English and addressed to
 //! an API caller.
+//!
+//! The chat tools on the coach's path answer the same conditions in-band,
+//! with these reasons ([`Refusal::as_str`]): one condition keeps one name
+//! wherever the coach meets it, the roster, a link proposal or a write to an
+//! athlete's calendar.
 
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::registry::global_registry;
@@ -47,6 +52,9 @@ pub enum Refusal {
     InvalidAthlete,
     /// The coach's roster does not list the athlete.
     AthleteNotOnRoster,
+    /// The coach's roster lists the athlete, but the platform gives the
+    /// coach's account no access to them.
+    AthleteNoAccess,
     /// The platform shares no email for the athlete.
     AthleteEmailMissing,
     /// The athlete's platform email is not the member's verified Dravr email.
@@ -65,6 +73,7 @@ pub enum Refusal {
 
 impl Refusal {
     /// The reason a client branches on.
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NotConnected => "coach_platform_not_connected",
@@ -78,6 +87,7 @@ impl Refusal {
             Self::UnsupportedProvider => "unsupported_provider",
             Self::InvalidAthlete => "invalid_athlete",
             Self::AthleteNotOnRoster => "athlete_not_on_roster",
+            Self::AthleteNoAccess => "athlete_no_access",
             Self::AthleteEmailMissing => "athlete_email_missing",
             Self::AthleteEmailMismatch => "athlete_email_mismatch",
             Self::MemberEmailUnverified => "member_email_unverified",
@@ -117,6 +127,9 @@ impl Refusal {
             }
             Self::InvalidAthlete => format!("That is not a {brand} athlete id"),
             Self::AthleteNotOnRoster => format!("That athlete is not on your {brand} roster"),
+            Self::AthleteNoAccess => format!(
+                "Your {brand} account has no access to this athlete, so a link would read nothing"
+            ),
             Self::AthleteEmailMissing => format!(
                 "{brand} shares no email for this athlete, so the link cannot be matched to \
                  the member"
@@ -148,6 +161,7 @@ impl Refusal {
     }
 
     /// The refusal as an error, about `platform` when one is known.
+    #[must_use]
     pub fn error(self, platform: Option<&dyn CoachPlatform>) -> AppError {
         let brand = platform.map_or("the coaching platform", |p| p.brand());
         let mut error = AppError::new(self.code(), self.message(brand));
@@ -161,6 +175,7 @@ impl Refusal {
     }
 
     /// The refusal of a coach account that is not the coach's own.
+    #[must_use]
     pub const fn coach_account(binding: EmailBinding) -> Option<Self> {
         match binding {
             EmailBinding::Bound => None,
@@ -172,6 +187,7 @@ impl Refusal {
 
     /// The refusal of a roster athlete that is not the member, told to the
     /// coach who proposes, and why a confirmed link naming one reads nothing.
+    #[must_use]
     pub const fn proposal(binding: EmailBinding) -> Option<Self> {
         match binding {
             EmailBinding::Bound => None,
@@ -183,6 +199,7 @@ impl Refusal {
 
     /// The refusal of a roster athlete that is not the member, told to the
     /// member who confirms.
+    #[must_use]
     pub const fn confirmation(binding: EmailBinding) -> Option<Self> {
         match binding {
             EmailBinding::Bound => None,

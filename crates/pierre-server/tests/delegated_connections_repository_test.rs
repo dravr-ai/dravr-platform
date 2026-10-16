@@ -17,7 +17,7 @@
 
 mod common;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use common::{create_test_database, create_test_user_with_plan};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::ErrorCode;
@@ -26,7 +26,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationEndReason,
-    DelegationStatus, RosterAthlete, TenantId,
+    DelegationStatus, LinkConsents, RosterAthlete, TenantId,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -173,11 +173,11 @@ impl Fixture {
             self.coach,
             self.coach_tenant,
             member,
-            RosterAthlete {
-                id: athlete.to_owned(),
-                name: Some(format!("Athlete {athlete}")),
-                email: Some(format!("athlete-{athlete}@delegation.test")),
-            },
+            RosterAthlete::new(
+                athlete,
+                Some(format!("Athlete {athlete}")),
+                Some(format!("athlete-{athlete}@delegation.test")),
+            ),
         )
     }
 
@@ -200,7 +200,13 @@ impl Fixture {
         let link = self.proposed(group, member, athlete).await;
         self.repos
             .delegated_connections
-            .confirm(link.id, member, member_tenant, Utc::now())
+            .confirm(
+                link.id,
+                member,
+                member_tenant,
+                LinkConsents::default(),
+                Utc::now(),
+            )
             .await
             .unwrap()
             .expect("the member confirms their own proposal")
@@ -244,6 +250,10 @@ async fn a_proposal_round_trips_every_column_to_both_participants() {
     assert_eq!(stored.revoked_at, None);
     assert_eq!(stored.revoked_by, None);
     assert_eq!(stored.revoke_reason, None);
+    assert!(!stored.calendar_write, "a proposal holds no consent");
+    assert_eq!(stored.calendar_write_at, None);
+    assert!(!stored.wellness_read);
+    assert_eq!(stored.wellness_read_at, None);
 
     for participant in [f.coach, member] {
         let read = repo
@@ -319,6 +329,20 @@ async fn one_live_link_per_member_in_a_group_and_per_coach_athlete() {
     not_fresh.status = DelegationStatus::Confirmed;
     let err = repo.propose(&not_fresh).await.unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidInput);
+    // A proposal carries no consent: only the member grants one, on a
+    // confirmed link.
+    let mut granted = f.proposal(group, m2, "900003");
+    granted.calendar_write = true;
+    assert_eq!(
+        repo.propose(&granted).await.unwrap_err().code,
+        ErrorCode::InvalidInput
+    );
+    let mut stamped = f.proposal(group, m2, "900003");
+    stamped.wellness_read_at = Some(Utc::now());
+    assert_eq!(
+        repo.propose(&stamped).await.unwrap_err().code,
+        ErrorCode::InvalidInput
+    );
 
     // Once ended, the pair is free again: the indexes cover live rows only.
     let live = repo.list_live_for_member_in_group(group, m1).await.unwrap();
@@ -368,14 +392,14 @@ async fn confirm_moves_only_the_members_own_proposal() {
     let link = f.proposed(group, member, "900001").await;
 
     assert!(
-        repo.confirm(link.id, other, other_tenant, now)
+        repo.confirm(link.id, other, other_tenant, LinkConsents::default(), now)
             .await
             .unwrap()
             .is_none(),
         "only the member the link names can confirm it"
     );
     let confirmed = repo
-        .confirm(link.id, member, member_tenant, now)
+        .confirm(link.id, member, member_tenant, LinkConsents::default(), now)
         .await
         .unwrap()
         .expect("the member confirms");
@@ -387,7 +411,13 @@ async fn confirm_moves_only_the_members_own_proposal() {
     );
     assert_eq!(confirmed.proposed_at, link.proposed_at);
     assert!(
-        repo.confirm(link.id, member, member_tenant, now)
+        !confirmed.calendar_write && !confirmed.wellness_read,
+        "a confirm that grants nothing leaves both consents off"
+    );
+    assert_eq!(confirmed.calendar_write_at, None);
+    assert_eq!(confirmed.wellness_read_at, None);
+    assert!(
+        repo.confirm(link.id, member, member_tenant, LinkConsents::default(), now)
             .await
             .unwrap()
             .is_none(),
@@ -396,7 +426,13 @@ async fn confirm_moves_only_the_members_own_proposal() {
 
     let second = f.proposed(other_group, member, "900002").await;
     let err = repo
-        .confirm(second.id, member, member_tenant, now)
+        .confirm(
+            second.id,
+            member,
+            member_tenant,
+            LinkConsents::default(),
+            now,
+        )
         .await
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::ResourceAlreadyExists);
@@ -416,6 +452,160 @@ async fn confirm_moves_only_the_members_own_proposal() {
         live.iter().map(|l| l.id).collect::<Vec<_>>(),
         vec![confirmed.id, second.id],
         "the confirmed link first, then proposals"
+    );
+}
+
+fn micros(at: Option<DateTime<Utc>>) -> Option<i64> {
+    at.map(|t| t.timestamp_micros())
+}
+
+#[tokio::test]
+async fn a_confirm_grants_only_the_consents_it_names_and_stamps_each() {
+    let f = fixture().await;
+    let group = f.group("Squad").await;
+    let (m1, m1_tenant) = f.member("m1@delegation.test", group).await;
+    let (m2, m2_tenant) = f.member("m2@delegation.test", group).await;
+    let repo = &f.repos.delegated_connections;
+    let now = Utc::now() - Duration::minutes(3);
+
+    let one = f.proposed(group, m1, "900001").await;
+    let calendar_only = LinkConsents {
+        calendar_write: true,
+        wellness_read: false,
+    };
+    let confirmed = repo
+        .confirm(one.id, m1, m1_tenant, calendar_only, now)
+        .await
+        .unwrap()
+        .expect("the member confirms");
+    assert!(confirmed.calendar_write);
+    assert_eq!(
+        micros(confirmed.calendar_write_at),
+        Some(now.timestamp_micros())
+    );
+    assert!(!confirmed.wellness_read);
+    assert_eq!(confirmed.wellness_read_at, None);
+    let read = repo
+        .get_for_participant(one.id, group, f.coach)
+        .await
+        .unwrap()
+        .expect("the coach reads the link");
+    assert_eq!(read, confirmed, "every consent column round-trips");
+
+    let two = f.proposed(group, m2, "900002").await;
+    let both = LinkConsents {
+        calendar_write: true,
+        wellness_read: true,
+    };
+    let confirmed = repo
+        .confirm(two.id, m2, m2_tenant, both, now)
+        .await
+        .unwrap()
+        .expect("the member confirms");
+    assert!(confirmed.calendar_write && confirmed.wellness_read);
+    assert_eq!(
+        micros(confirmed.wellness_read_at),
+        Some(now.timestamp_micros())
+    );
+}
+
+#[tokio::test]
+async fn only_the_member_sets_the_consents_of_a_confirmed_link() {
+    let f = fixture().await;
+    let group = f.group("Squad").await;
+    let (member, member_tenant) = f.member("m1@delegation.test", group).await;
+    let (other, _) = f.member("m2@delegation.test", group).await;
+    let repo = &f.repos.delegated_connections;
+    let link = f.confirmed(group, member, member_tenant, "900001").await;
+    let pending = f.proposed(group, other, "900002").await;
+    let t1 = Utc::now() - Duration::minutes(10);
+
+    for stranger in [f.coach, other] {
+        assert!(
+            repo.set_link_consents(link.id, stranger, Some(true), Some(true), t1)
+                .await
+                .unwrap()
+                .is_none(),
+            "only the member the link names sets its consents"
+        );
+    }
+    assert!(
+        repo.set_link_consents(pending.id, other, Some(true), None, t1)
+            .await
+            .unwrap()
+            .is_none(),
+        "a proposal carries no consent"
+    );
+    assert_eq!(
+        repo.get_for_participant(link.id, group, member)
+            .await
+            .unwrap()
+            .unwrap(),
+        link,
+        "a refused change wrote nothing"
+    );
+
+    let granted = repo
+        .set_link_consents(link.id, member, Some(true), None, t1)
+        .await
+        .unwrap()
+        .expect("the member grants");
+    assert!(granted.calendar_write);
+    assert_eq!(
+        micros(granted.calendar_write_at),
+        Some(t1.timestamp_micros())
+    );
+    assert!(!granted.wellness_read, "a consent left out stands");
+    assert_eq!(granted.wellness_read_at, None);
+
+    let t2 = t1 + Duration::minutes(1);
+    let again = repo
+        .set_link_consents(link.id, member, Some(true), Some(true), t2)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        micros(again.calendar_write_at),
+        Some(t1.timestamp_micros()),
+        "a consent set to what it already was keeps when it was granted"
+    );
+    assert!(again.wellness_read);
+    assert_eq!(micros(again.wellness_read_at), Some(t2.timestamp_micros()));
+
+    let t3 = t2 + Duration::minutes(1);
+    let revoked = repo
+        .set_link_consents(link.id, member, Some(false), None, t3)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!revoked.calendar_write);
+    assert_eq!(
+        micros(revoked.calendar_write_at),
+        Some(t3.timestamp_micros())
+    );
+    assert!(revoked.wellness_read);
+    assert_eq!(
+        micros(revoked.wellness_read_at),
+        Some(t2.timestamp_micros())
+    );
+    assert_eq!(revoked.status, DelegationStatus::Confirmed);
+
+    repo.end_one(
+        link.id,
+        member,
+        Some(member),
+        DelegationEndReason::RevokedByMember,
+        Utc::now(),
+    )
+    .await
+    .unwrap()
+    .expect("the member ends the link");
+    assert!(
+        repo.set_link_consents(link.id, member, None, Some(false), t3)
+            .await
+            .unwrap()
+            .is_none(),
+        "an ended link takes no change"
     );
 }
 
@@ -605,6 +795,55 @@ async fn a_member_is_shown_only_the_links_the_group_relation_backs() {
             .map(|link| link.id),
         Some(confirmed.id)
     );
+}
+
+/// A scheduled pass over a provider lists every confirmed link the group
+/// relation backs, across the members' tenants and the coach's groups, oldest
+/// confirmation first: never a proposal, an ended link, a link whose member
+/// left, or another provider's.
+#[tokio::test]
+async fn a_scheduled_pass_lists_every_confirmed_link_the_group_relation_backs() {
+    let f = fixture().await;
+    let repo = &f.repos.delegated_connections;
+    let squad = f.group("Squad").await;
+    let crew = f.group("Crew").await;
+    let (first, first_tenant) = f.member("first@delegation.test", squad).await;
+    let first = f.confirmed(squad, first, first_tenant, "900001").await;
+    let (second, second_tenant) = f.member("second@delegation.test", crew).await;
+    let second = f.confirmed(crew, second, second_tenant, "900002").await;
+
+    let (asked, _) = f.member("asked@delegation.test", squad).await;
+    f.proposed(squad, asked, "900003").await;
+    let (revoked, revoked_tenant) = f.member("revoked@delegation.test", squad).await;
+    let revoked_link = f.confirmed(squad, revoked, revoked_tenant, "900004").await;
+    repo.end_one(
+        revoked_link.id,
+        revoked,
+        Some(revoked),
+        DelegationEndReason::RevokedByMember,
+        Utc::now(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let (left, left_tenant) = f.member("left@delegation.test", crew).await;
+    f.confirmed(crew, left, left_tenant, "900005").await;
+    assert!(f
+        .repos
+        .groups
+        .remove_member(&crew.to_string(), left)
+        .await
+        .unwrap());
+
+    let listed = repo.list_confirmed_for_provider(PROVIDER).await.unwrap();
+    assert_eq!(listed, [first.clone(), second.clone()]);
+    assert_eq!(listed[0].member_tenant_id, Some(first_tenant));
+    assert_eq!(listed[1].member_tenant_id, Some(second_tenant));
+    assert!(repo
+        .list_confirmed_for_provider(oauth_providers::INTERVALS_ICU)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

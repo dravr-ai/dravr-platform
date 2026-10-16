@@ -33,6 +33,8 @@ pub mod api_key_cleanup;
 pub mod archetype_aggregation;
 /// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
 pub mod coach_access;
+/// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
+pub mod coach_access_evidence;
 /// A coach's after-the-fact review of the agent's group replies: flags, corrections, the weekly count (carnet#847)
 pub mod coach_replies;
 
@@ -407,11 +409,24 @@ pub mod trainingpeaks_accounts;
 /// A group's coach links coaching-platform roster athletes to members, who confirm; either side ends a link.
 pub mod delegated_connections;
 
+/// Where each athlete on a coach's coaching-platform roster stands with the coach's groups and links.
+pub mod delegated_link_states;
+
+/// What a member lets a confirmed coach link do beyond reading workouts: calendar writes, wellness reads.
+pub mod delegated_link_consents;
+
+/// Whether a member's coaching-platform read goes through their human coach's own credential, decided once.
+pub mod delegated_read;
+
+/// Whether a linked member's wellness syncs through their human coach's key, decided at each sync.
+#[cfg(feature = "health-sync")]
+pub mod delegated_wellness;
+
 /// The coaching platforms a coach's own account reads group athletes through: `TrainingPeaks`, Intervals.icu.
 pub mod coach_platform;
 
 /// Why a delegated-connection step was refused, as the reason a client branches on.
-mod delegation_refusal;
+pub mod delegation_refusal;
 
 /// Whose data a provider push event is about: the token's owner, or the member a coach's confirmed link names.
 pub mod webhook_owner;

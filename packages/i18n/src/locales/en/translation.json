@@ -1610,7 +1610,7 @@
     "unlinkTitle": "Unlink {{platform}}?",
     "unlinked": "{{platform}} link ended",
     "waitingFor": "Waiting for {{member}} to confirm",
-    "wellnessReadGranted": "Shares sleep, HRV and weight",
+    "wellnessReadGranted": "Shares sleep, HRV, resting heart rate, weight and notes",
     "wellnessReadHint": "Dravr reads them through {{coach}}'s account, so {{coach}} sees your readiness and your agent can use it. Turning this off removes what Dravr already read.",
     "wellnessReadLabel": "Also share your {{platform}} sleep, HRV, resting heart rate, weight and daily notes",
     "wellnessReadOwnSource": "Wellness comes from their own Garmin or WHOOP connection",
@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Your group is ready, but you aren't its coach yet. Coach access comes with a TrainingPeaks coach account, or the Dravr team turns it on for you.",
+    "accessPendingBody": "Your group is ready, but you aren't its coach yet. Coach access comes with a TrainingPeaks coach account, or the Dravr team turns it on for you. Connecting an intervals.icu account that coaches athletes asks the team for you.",
     "accessPendingHeading": "Coach access pending",
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",

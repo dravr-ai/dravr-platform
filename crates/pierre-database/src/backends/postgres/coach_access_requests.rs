@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::coach_access_requests::{
     impl_coach_access_request_repository, request_from_row, DECIDE_REQUEST_SQL, GET_REQUEST_SQL,
-    LATEST_FOR_USER_SQL, LIST_BY_STATUS_SQL, OPEN_REQUEST_SQL, REOPEN_REQUEST_SQL,
+    LATEST_FOR_USER_SQL, LIST_BY_STATUS_SQL, NAME_GROUP_SQL, OPEN_REQUEST_SQL,
+    REOPEN_REQUEST_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::CoachAccessRequestRepository;

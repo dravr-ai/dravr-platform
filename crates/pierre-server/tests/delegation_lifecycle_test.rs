@@ -34,8 +34,8 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DataSource,
-    DelegatedConnection, DelegationEndReason, DelegationStatus, DeviceType, RosterAthlete,
-    SportType, StoredSleepSession, TenantId, UserOAuthToken,
+    DelegatedConnection, DelegationEndReason, DelegationStatus, DeviceType, LinkConsents,
+    RosterAthlete, SportType, StoredSleepSession, TenantId, UserOAuthToken,
 };
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -184,11 +184,7 @@ impl World {
                 self.coach,
                 self.coach_tenant,
                 member,
-                RosterAthlete {
-                    id: athlete.to_owned(),
-                    name: Some(format!("Athlete {athlete}")),
-                    email: None,
-                },
+                RosterAthlete::new(athlete, Some(format!("Athlete {athlete}")), None),
             ))
             .await
             .unwrap()
@@ -208,7 +204,13 @@ impl World {
         let link = self.proposed(group, member, athlete).await;
         let link = repos
             .delegated_connections
-            .confirm(link.id, member, member_tenant, Utc::now())
+            .confirm(
+                link.id,
+                member,
+                member_tenant,
+                LinkConsents::default(),
+                Utc::now(),
+            )
             .await
             .unwrap()
             .expect("the member confirms their own proposal");
@@ -795,11 +797,11 @@ async fn a_coach_disconnecting_trainingpeaks_ends_every_link_their_session_serve
     let confirmed = w.confirmed(squad, m1, m1_tenant, "900001").await;
     let proposed = w.proposed(other, m2, "900002").await;
     let roster_key = roster_cache_key(w.coach, w.coach_tenant, PROVIDER);
-    let roster = vec![RosterAthlete {
-        id: "900001".to_owned(),
-        name: Some("Athlete 900001".to_owned()),
-        email: None,
-    }];
+    let roster = vec![RosterAthlete::new(
+        "900001",
+        Some("Athlete 900001".to_owned()),
+        None,
+    )];
     let cache = &w.res.common.cache;
     cache
         .set(&roster_key, &roster, StdDuration::from_mins(10))

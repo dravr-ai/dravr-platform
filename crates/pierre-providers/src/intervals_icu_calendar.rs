@@ -1,5 +1,5 @@
 // ABOUTME: Intervals.icu calendar rendering — a PlannedSession into the EventEx body, steps into the workout text DSL
-// ABOUTME: Pure functions and wire shapes; the provider's four calendar-write methods call event_body and read the responses
+// ABOUTME: Pure functions and wire shapes; the calendar-write methods call event_body, and event_sport reads an event type back
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -49,6 +49,34 @@ fn intervals_event_type(sport: &SportType) -> &'static str {
         SportType::CrossCountrySkiing => "NordicSki",
         SportType::AlpineSkiing => "AlpineSki",
         _ => "Workout",
+    }
+}
+
+/// The [`SportType`] an Intervals.icu event `type` names: the inverse of
+/// [`intervals_event_type`], so a session Dravr wrote reads back as the sport
+/// it was written for, then the shared activity-type vocabulary for any other
+/// type. An event that states no type is a generic workout, the type
+/// [`intervals_event_type`] writes for a sport it has no name for.
+pub fn event_sport(event_type: Option<&str>) -> SportType {
+    match event_type.map(str::trim).unwrap_or_default() {
+        "Ride" => SportType::Ride,
+        "VirtualRide" => SportType::VirtualRide,
+        "EBikeRide" => SportType::EbikeRide,
+        "MountainBikeRide" => SportType::MountainBike,
+        "GravelRide" => SportType::GravelRide,
+        "Run" => SportType::Run,
+        "VirtualRun" => SportType::VirtualRun,
+        "TrailRun" => SportType::TrailRunning,
+        "Swim" => SportType::Swim,
+        "Walk" => SportType::Walk,
+        "Hike" => SportType::Hike,
+        "Yoga" => SportType::Yoga,
+        "WeightTraining" => SportType::StrengthTraining,
+        "Rowing" => SportType::Rowing,
+        "NordicSki" => SportType::CrossCountrySkiing,
+        "AlpineSki" => SportType::AlpineSkiing,
+        "Workout" | "" => SportType::Workout,
+        other => SportType::from_provider_string(other, None),
     }
 }
 
@@ -361,5 +389,51 @@ impl IntervalsIcuEvent {
             date,
             updated_at: self.updated.as_deref().and_then(parse_local_dt),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_sport_dravr_writes_reads_back_as_itself() {
+        for sport in [
+            SportType::Ride,
+            SportType::VirtualRide,
+            SportType::EbikeRide,
+            SportType::MountainBike,
+            SportType::GravelRide,
+            SportType::Run,
+            SportType::VirtualRun,
+            SportType::TrailRunning,
+            SportType::Swim,
+            SportType::Walk,
+            SportType::Hike,
+            SportType::Yoga,
+            SportType::StrengthTraining,
+            SportType::Rowing,
+            SportType::CrossCountrySkiing,
+            SportType::AlpineSkiing,
+            SportType::Workout,
+        ] {
+            assert_eq!(
+                event_sport(Some(intervals_event_type(&sport))),
+                sport,
+                "{sport:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_type_dravr_never_writes_reads_through_the_activity_vocabulary() {
+        assert_eq!(event_sport(Some("Canoeing")), SportType::Canoeing);
+        assert_eq!(
+            event_sport(Some("Velomobile")),
+            SportType::Other("Velomobile".to_owned())
+        );
+        assert_eq!(event_sport(Some(" Ride ")), SportType::Ride);
+        assert_eq!(event_sport(None), SportType::Workout);
+        assert_eq!(event_sport(Some("")), SportType::Workout);
     }
 }

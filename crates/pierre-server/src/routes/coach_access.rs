@@ -15,8 +15,9 @@
 //!
 //! The decision is a super-admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
-//! [`pierre_services::coach_access`]; this module is the HTTP boundary plus
-//! the operator email, which needs the server's email service.
+//! [`pierre_services::coach_access`], the operator email included; this
+//! module is the HTTP boundary, handing that email the server's email
+//! service.
 
 use std::sync::Arc;
 
@@ -29,12 +30,10 @@ use axum::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{CoachAccessRequest, TenantId};
-use pierre_core::permissions::UserRole;
+use pierre_email::templates::CoachAccessOrigin;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_middleware::redaction::mask_email;
 use pierre_services::coach_access::{self, RequestOutcome};
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -104,7 +103,14 @@ pub async fn handle_post(
     let outcome = coach_access::request_access(repos, auth.user_id, group).await?;
     let status = match &outcome {
         RequestOutcome::Opened(request) => {
-            email_super_admins(&resources, request).await;
+            coach_access::email_super_admins(
+                repos,
+                resources.common.email_service.as_deref(),
+                resources.common.config.frontend_url.as_deref(),
+                request,
+                CoachAccessOrigin::Asked,
+            )
+            .await;
             StatusCode::CREATED
         }
         RequestOutcome::AlreadyPending(_) => StatusCode::OK,
@@ -119,92 +125,6 @@ pub async fn handle_post(
         }),
     )
         .into_response())
-}
-
-/// Email every active super-admin about a new request. Best-effort: a failed
-/// or unconfigured send is logged and never fails the request, which the
-/// notify channel and the console queue carry regardless.
-async fn email_super_admins(resources: &ServerContext, request: &CoachAccessRequest) {
-    let Some(email) = resources.common.email_service.as_ref() else {
-        warn!(request_id = %request.id, "Email service not configured — skipping coach access emails");
-        return;
-    };
-    let repos = &resources.common.repos;
-    let Some(recipients) = super_admin_emails(resources, request.id).await else {
-        return;
-    };
-    let Some(requester) = repos.users.get_global(request.user_id).await.ok().flatten() else {
-        warn!(request_id = %request.id, "Coach access requester vanished before the email");
-        return;
-    };
-    let group_name = requested_group_name(resources, request).await;
-    let review_url = resources
-        .common
-        .config
-        .frontend_url
-        .as_deref()
-        .map(|base| format!("{}/#users", base.trim_end_matches('/')));
-
-    for to in &recipients {
-        let sent = email
-            .send_coach_access_requested(
-                to,
-                &requester.email,
-                requester.display_name.as_deref(),
-                group_name.as_deref(),
-                review_url.as_deref(),
-            )
-            .await;
-        log_email_outcome(to, request.id, sent);
-    }
-}
-
-/// The addresses of every active super-admin; `None` (logged) when they
-/// cannot be read.
-async fn super_admin_emails(resources: &ServerContext, request_id: Uuid) -> Option<Vec<String>> {
-    match resources.common.repos.users.list_admins().await {
-        Ok(admins) => Some(
-            admins
-                .into_iter()
-                .filter(|a| a.is_active && matches!(a.role, UserRole::SuperAdmin))
-                .map(|a| a.email)
-                .collect(),
-        ),
-        Err(e) => {
-            warn!(%request_id, error = %e, "Could not list super-admins for a coach access request");
-            None
-        }
-    }
-}
-
-/// The name of the group a request names, for the email; `None` when it names
-/// none or the group is gone.
-async fn requested_group_name(
-    resources: &ServerContext,
-    request: &CoachAccessRequest,
-) -> Option<String> {
-    let group_id = request.group_id?;
-    let tenant = request.group_tenant_id.as_deref()?.parse::<Uuid>().ok()?;
-    resources
-        .common
-        .repos
-        .groups
-        .get_group(&group_id.to_string(), TenantId::from_uuid(tenant))
-        .await
-        .ok()
-        .flatten()
-        .map(|g| g.name)
-}
-
-/// Log one operator email's outcome against the masked recipient.
-fn log_email_outcome(to: &str, request_id: Uuid, sent: Result<(), AppError>) {
-    let recipient = mask_email(to);
-    match sent {
-        Ok(()) => info!(%recipient, %request_id, "Coach access request email sent"),
-        Err(e) => {
-            warn!(%recipient, %request_id, error = %e, "Failed to send coach access request email");
-        }
-    }
 }
 
 /// Mount-helper for the caller's coach-access routes.

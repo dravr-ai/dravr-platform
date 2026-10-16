@@ -44,12 +44,16 @@ pub const INTERVALS_ICU: &str = "intervals_icu";
 /// Intervals.icu default OAuth scopes.
 ///
 /// Completed activities and wellness to read, the calendar to write planned
-/// sessions into, and the athlete's settings (zones, thresholds) to read.
-/// Intervals.icu joins them with commas.
+/// sessions into, and the athlete's settings to read. Intervals.icu joins
+/// them with commas.
 ///
-/// LIMITATION(registre#1021): `INTERVALS_ICU_DEFAULT_SCOPES` requests `SETTINGS:READ` that
-/// nothing consumes: no read of `GET /api/v1/athlete/{id}/sport-settings` exists, so the FTP,
-/// thresholds and zones set in intervals.icu never reach physiology.
+/// `SETTINGS:READ` is what `import_provider_thresholds` reads
+/// `GET /api/v1/athlete/{id}/sport-settings` with: the FTP, threshold heart
+/// rate, max heart rate and threshold pace the athlete keeps there, imported
+/// into the physiological profile only where the athlete has not set their
+/// own. Intervals.icu's zones are not imported — Dravr derives its own from
+/// the thresholds. An API-key link carries no scopes and reads the same
+/// settings with the key.
 pub const INTERVALS_ICU_DEFAULT_SCOPES: &[&str] = &[
     "ACTIVITY:READ",
     "WELLNESS:READ",

@@ -18,7 +18,10 @@
 //! - which credential a delegated read is handed
 //!   ([`CoachPlatform::coach_credentials`]);
 //! - whether a coach account keeps a calendar of its own
-//!   ([`CoachPlatform::own_calendar_refusal`]).
+//!   ([`CoachPlatform::own_calendar_refusal`]);
+//! - whether the coach's credential reads a linked member's wellness, which
+//!   a link then asks the member's consent for
+//!   ([`CoachPlatform::reads_member_wellness`]).
 //!
 //! A provider is a coaching platform because its descriptor declares
 //! [`COACH_ROSTER`](pierre_providers::spi::ProviderCapabilities::COACH_ROSTER),
@@ -39,7 +42,9 @@ use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE_TRAININGPEA
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ProviderAccountRole, RosterAthlete, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::user_facing_name;
+use pierre_providers::delegation::CoachRoster;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 #[cfg(doc)]
@@ -47,9 +52,11 @@ use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::{credential_kind, CredentialKind, OAuth2Credentials};
 use uuid::Uuid;
 
+use crate::coach_access_evidence::file_request_after_live_read;
 use crate::delegation_refusal::Refusal;
 use crate::trainingpeaks_accounts::{
-    account_role, coach_binding, email_binding, record_trainingpeaks_profile, trainingpeaks_profile,
+    account_role, coach_binding, email_binding, record_trainingpeaks_profile,
+    trainingpeaks_profile, EmailBinding,
 };
 
 /// What a roster read is given: the coach, their stored credential, and the
@@ -111,6 +118,14 @@ pub trait CoachPlatform: Send + Sync {
     /// whose coach accounts keep none; `None` where a coach account is also
     /// an athlete's, whose own calendar reads as any other.
     fn own_calendar_refusal(&self) -> Option<String>;
+
+    /// Whether the coach's credential reads the wellness (sleep, HRV,
+    /// resting heart rate, weight, daily note) of an athlete who shares with
+    /// them, so a link can ask the member's consent to sync it. None does
+    /// unless it says so.
+    fn reads_member_wellness(&self) -> bool {
+        false
+    }
 }
 
 /// `TrainingPeaks`, read on the scraper service through the coach's session.
@@ -144,7 +159,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
     async fn read_roster(&self, read: RosterRead<'_>) -> AppResult<Vec<RosterAthlete>> {
         let session = serde_json::from_str::<AuthSession>(&read.token.access_token)
             .map_err(|_| Refusal::ReconnectNeeded.error(Some(self)))?;
-        let profile = match trainingpeaks_profile(&session).await {
+        let profile = match trainingpeaks_profile(read.registry, &session).await {
             Ok(profile) => profile,
             Err(e) if e.provider_auth_required_provider().is_some() => {
                 return Err(Refusal::ReconnectNeeded.error(Some(self)));
@@ -177,11 +192,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
         Ok(profile
             .coached_athletes
             .into_iter()
-            .map(|athlete| RosterAthlete {
-                id: athlete.id,
-                name: athlete.display_name,
-                email: athlete.email,
-            })
+            .map(|athlete| RosterAthlete::new(athlete.id, athlete.display_name, athlete.email))
             .collect())
     }
 
@@ -211,9 +222,12 @@ impl CoachPlatform for TrainingPeaksPlatform {
 /// athlete's own path. A coach account there trains too, so its own calendar
 /// reads as any athlete's.
 ///
-/// LIMITATION(registre#1022): `IntervalsIcuPlatform` earns no `manages_roster` grant, unlike a
-/// bound `TrainingPeaks` coach account: an intervals.icu coach waits on an operator grant
-/// before they can coach a group.
+/// A key earns no `manages_roster`: a second account of one person's can give
+/// their first edit access, so a roster proves no coaching and the grant
+/// stays a super-admin's (ADR-018). Instead, a live read of a bound key whose
+/// roster coaches an active athlete files the account's coach-access request,
+/// once ([`crate::coach_access_evidence`]), for a super-admin to grant in one
+/// tap.
 struct IntervalsIcuPlatform;
 
 #[async_trait]
@@ -234,11 +248,17 @@ impl CoachPlatform for IntervalsIcuPlatform {
 
     /// The roster the coach's API key lists, once the account the key
     /// belongs to shares an email that is the coach's verified Dravr email.
+    ///
+    /// The live roster also files the account's coach-access request when it
+    /// coaches an active athlete; a failure to file is logged and never fails
+    /// the read.
     async fn read_roster(&self, read: RosterRead<'_>) -> AppResult<Vec<RosterAthlete>> {
         let credentials = self
             .coach_credentials(read.token)
             .ok_or_else(|| Refusal::ApiKeyRequired.error(Some(self)))?;
-        api_roster(self, read, credentials).await
+        let (roster, binding) = live_api_roster(self, read, credentials).await?;
+        file_request_after_live_read(read.repos, read.coach_user_id, &roster, binding).await;
+        bound_athletes(self, roster, binding)
     }
 
     /// The coach's API key, with the coach's own athlete id: an OAuth grant
@@ -262,6 +282,12 @@ impl CoachPlatform for IntervalsIcuPlatform {
 
     fn own_calendar_refusal(&self) -> Option<String> {
         None
+    }
+
+    // A coach's API key reads each athlete's wellness at that athlete's own
+    // path, as it reads their activities.
+    fn reads_member_wellness(&self) -> bool {
+        true
     }
 }
 
@@ -363,6 +389,23 @@ async fn api_roster(
     read: RosterRead<'_>,
     credentials: OAuth2Credentials,
 ) -> AppResult<Vec<RosterAthlete>> {
+    let (roster, binding) = live_api_roster(platform, read, credentials).await?;
+    bound_athletes(platform, roster, binding)
+}
+
+/// The roster `platform`'s API lists live for the coach's `credentials`, and
+/// how the account they belong to binds to the coach's Dravr account.
+///
+/// # Errors
+///
+/// Returns the `ReconnectNeeded` refusal when the platform no longer honours
+/// the credentials, the provider error when the roster cannot be read, or a
+/// repository error.
+pub(crate) async fn live_api_roster(
+    platform: &dyn CoachPlatform,
+    read: RosterRead<'_>,
+    credentials: OAuth2Credentials,
+) -> AppResult<(CoachRoster, EmailBinding)> {
     let provider = read.registry.create_provider(platform.backend())?;
     provider
         .set_credentials(with_key_budget(read.registry, read.token, credentials))
@@ -380,6 +423,20 @@ async fn api_roster(
         roster.account_email.as_deref(),
     )
     .await?;
+    Ok((roster, binding))
+}
+
+/// `roster`'s athletes, once `binding` says its account is the coach's own.
+///
+/// # Errors
+///
+/// Returns a [`Refusal::coach_account`] refusal when the account is not the
+/// coach's own.
+fn bound_athletes(
+    platform: &dyn CoachPlatform,
+    roster: CoachRoster,
+    binding: EmailBinding,
+) -> AppResult<Vec<RosterAthlete>> {
     if let Some(refusal) = Refusal::coach_account(binding) {
         return Err(refusal.error(Some(platform)));
     }
@@ -452,26 +509,87 @@ pub async fn roster_platform(
     requested: Option<&str>,
 ) -> AppResult<Box<dyn CoachPlatform>> {
     match requested {
-        Some(name) => {
-            coach_platform(registry, name).ok_or_else(|| Refusal::UnsupportedProvider.error(None))
-        }
-        None => connected_coach_platform(repos, registry, coach_user_id, coach_tenant).await,
+        Some(name) => named_coach_platform(registry, name),
+        None => connected_coach_platforms(repos, registry, coach_user_id, coach_tenant)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Refusal::NotConnected.error(None)),
     }
 }
 
-/// The coaching platform `coach_user_id` holds a credential of their own for
-/// in `coach_tenant`, the first in [`coach_platforms`] order.
+/// Every coaching platform a coach's roster read covers: the one `requested`
+/// names, else each one the coach holds a credential of their own for, in
+/// [`coach_platforms`] order.
 ///
 /// # Errors
 ///
-/// Returns the `coach_platform_not_connected` refusal when they hold none,
-/// or the repository error when the credentials cannot be read.
-async fn connected_coach_platform(
+/// Returns the `unsupported_provider` refusal when `requested` names no
+/// coaching platform, the `coach_platform_not_connected` refusal when nothing
+/// was requested and nothing is connected, or a repository error.
+pub async fn roster_platforms(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
     coach_user_id: Uuid,
     coach_tenant: TenantId,
+    requested: Option<&str>,
+) -> AppResult<Vec<Box<dyn CoachPlatform>>> {
+    if let Some(name) = requested {
+        return Ok(vec![named_coach_platform(registry, name)?]);
+    }
+    let connected = connected_coach_platforms(repos, registry, coach_user_id, coach_tenant).await?;
+    if connected.is_empty() {
+        return Err(Refusal::NotConnected.error(None));
+    }
+    Ok(connected)
+}
+
+/// Whether the coach's `platform` roster may be read for the call running.
+///
+/// The roster is the coach's platform data, with no provenance of its own per
+/// athlete, so it is refused whole over an external transport when the
+/// platform's terms keep its data first-party (carnet#724). Anywhere else the
+/// read goes ahead, and a first-party-only platform stamps the turn, so what
+/// the turn derives from the roster carries the same terms (carnet#769). Run
+/// before the roster is read, from the cache as well as live, and before
+/// anything derived from it is answered.
+///
+/// # Errors
+///
+/// Returns an unavailable-over-transport error when the roster is not served
+/// over this transport.
+pub fn check_roster_transport(
+    registry: &ProviderRegistry,
+    platform: &dyn CoachPlatform,
+) -> AppResult<()> {
+    for name in [platform.user_facing(), platform.backend()] {
+        ai_scope::first_party_only_read(registry, name, None)?;
+    }
+    Ok(())
+}
+
+/// The coaching platform `name` names, or the `unsupported_provider` refusal.
+fn named_coach_platform(
+    registry: &ProviderRegistry,
+    name: &str,
 ) -> AppResult<Box<dyn CoachPlatform>> {
+    coach_platform(registry, name).ok_or_else(|| Refusal::UnsupportedProvider.error(None))
+}
+
+/// Every coaching platform `coach_user_id` holds a credential of their own
+/// for in `coach_tenant`, in [`coach_platforms`] order; empty when they hold
+/// none.
+///
+/// # Errors
+///
+/// Returns the repository error when the credentials cannot be read.
+async fn connected_coach_platforms(
+    repos: &RepositoryRegistry,
+    registry: &ProviderRegistry,
+    coach_user_id: Uuid,
+    coach_tenant: TenantId,
+) -> AppResult<Vec<Box<dyn CoachPlatform>>> {
+    let mut connected = Vec::new();
     for platform in coach_platforms(registry) {
         if repos
             .oauth_tokens
@@ -479,10 +597,10 @@ async fn connected_coach_platform(
             .await?
             .is_some()
         {
-            return Ok(platform);
+            connected.push(platform);
         }
     }
-    Err(Refusal::NotConnected.error(None))
+    Ok(connected)
 }
 
 #[cfg(test)]

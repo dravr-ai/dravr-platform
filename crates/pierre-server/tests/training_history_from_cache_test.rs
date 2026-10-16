@@ -39,7 +39,7 @@ use std::sync::Arc;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId,
+    ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId, ThresholdProvenance,
     UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::training_history_compute::{warmup_days, CTL_WINDOW_DAYS};
@@ -115,6 +115,7 @@ async fn fixture() -> Fixture {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     resources

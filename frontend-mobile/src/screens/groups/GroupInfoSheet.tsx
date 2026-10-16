@@ -118,13 +118,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     groupId,
     !!group?.coach_user_id,
   );
-  // A member sees only their own links, at most one live per group.
-  const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
-  // The coaching platform the links are on, which their titles name: the
-  // coach's roster names it (the section reads the same cached roster), a
-  // member's link names its own.
+  // A member sees only their own links: one live per coaching platform the
+  // group's coach links them on, each with its own controls.
+  const memberLinks = useMemo(
+    () => (delegationViewer === 'member' ? delegatedConnections : []),
+    [delegationViewer, delegatedConnections],
+  );
+  // The coaching platform the coach's links are on, which their title names:
+  // the coach's roster names it (the section reads the same cached roster).
+  // Each of a member's links names its own.
   const { provider: rosterProvider } = useDelegationRoster(groupId, delegationViewer === 'coach');
-  const linkPlatform = coachPlatformName(delegationViewer === 'coach' ? rosterProvider : liveLink?.provider);
+  const rosterPlatform = coachPlatformName(rosterProvider);
   const { weeklyDigest } = useGroupPermissions();
   const { createInvite, isPending: isCreatingInvite } = useCreateInvite(groupId);
   const { deactivateInvite } = useDeactivateInvite(groupId);
@@ -302,8 +306,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   }, [onClose, router]);
 
   const handleLeave = useCallback(() => {
-    const question = t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') });
-    Alert.alert(t('app.leaveGroup'), liveLink ? `${question} ${t('delegation.leaveEndsLink', { platform: linkPlatform })}` : question, [
+    // Leaving ends every link the member holds in the group.
+    const question = [
+      t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') }),
+      ...memberLinks.map((link) => t('delegation.leaveEndsLink', { platform: coachPlatformName(link.provider) })),
+    ].join(' ');
+    Alert.alert(t('app.leaveGroup'), question, [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.leave'),
@@ -319,7 +327,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         },
       },
     ]);
-  }, [group?.name, groupId, leaveGroup, linkPlatform, liveLink, onClose, onLeft, t]);
+  }, [group?.name, groupId, leaveGroup, memberLinks, onClose, onLeft, t]);
 
   const handleDelete = useCallback(() => {
     Alert.alert(
@@ -404,7 +412,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         {/* Which side of the links the caller is on is the server's answer:
             a coach who is also a member is still the group's coach. */}
         {delegationViewer === 'coach' ? (
-          <CollapsibleSection title={t('delegation.sectionTitle', { platform: linkPlatform })} defaultExpanded testID="group-info-delegation">
+          <CollapsibleSection title={t('delegation.sectionTitle', { platform: rosterPlatform })} defaultExpanded testID="group-info-delegation">
             <DelegatedConnectionsSection
               groupId={groupId}
               mode="coach"
@@ -413,16 +421,23 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onOpenConnections={openConnections}
             />
           </CollapsibleSection>
-        ) : liveLink ? (
-          <CollapsibleSection title={t('delegation.memberSectionTitle', { platform: linkPlatform })} defaultExpanded testID="group-info-delegation">
-            <DelegatedConnectionsSection
-              groupId={groupId}
-              mode="member"
-              connections={[liveLink]}
-              members={members}
-            />
-          </CollapsibleSection>
-        ) : null}
+        ) : (
+          memberLinks.map((link) => (
+            <CollapsibleSection
+              key={link.id}
+              title={t('delegation.memberSectionTitle', { platform: coachPlatformName(link.provider) })}
+              defaultExpanded
+              testID="group-info-delegation"
+            >
+              <DelegatedConnectionsSection
+                groupId={groupId}
+                mode="member"
+                connections={[link]}
+                members={members}
+              />
+            </CollapsibleSection>
+          ))
+        )}
 
         {isAdmin && (
           <CollapsibleSection title={t('groups.activeInvitesCount', { n: activeInvites.length })} testID="group-info-invites">

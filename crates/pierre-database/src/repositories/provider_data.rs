@@ -36,6 +36,14 @@
 //! The points and rollups go first because they reference `data_sources`, and
 //! the health rows go before `data_sources` for the same reason.
 //!
+//! A narrower purge deletes one provider's wellness alone for one user in one
+//! tenant ([`ProviderDataRepository::purge_user_provider_wellness`]): every
+//! row the health sync wrote (the measurements above, with the data sources
+//! they reference) and the sync's cursors over them, leaving the activities
+//! and the sync state describing those. It serves a member withdrawing a
+//! coach link's wellness consent while the link itself, and the workouts it
+//! reads, stand.
+//!
 //! Every id column compared here is `TEXT` on both engines except in
 //! `activity_gear`, `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
 //! `activity_fetch_freshness`, `activity_fetch_failures` and
@@ -119,10 +127,14 @@ macro_rules! provider_sources {
     };
 }
 
-/// The rows a user's purge deletes, in order: `(table, statement)`, each
-/// statement binding `$1` user id, `$2` tenant id and `$3` provider. The sync
-/// state describing them, [`USER_SYNC_STATE_SQL`], goes after.
-pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 13] = [
+/// A user's wellness rows for one provider, in order: `(table, statement)`,
+/// each binding `$1` user id, `$2` tenant id and `$3` provider. They are
+/// everything the health sync writes: the time-series points and their daily
+/// rollups, the sleep, recovery and health rows, then the data sources all of
+/// them reference. A user's purge runs them first, then
+/// [`USER_ACTIVITY_ROWS_SQL`]; a wellness purge runs them alone, with the
+/// sync's cursors ([`USER_SYNC_CURSORS_SQL`]).
+pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -150,6 +162,13 @@ pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 13] = [
         "data_sources",
         concat!("DELETE FROM data_sources WHERE ", user_rows!()),
     ),
+];
+
+/// A user's activity rows for one provider, which a user's purge deletes
+/// after [`USER_WELLNESS_ROWS_SQL`], in order: `(table, statement)`, each
+/// binding `$1` user id, `$2` tenant id and `$3` provider. The sync state
+/// describing them, [`USER_SYNC_STATE_SQL`], goes after.
+pub(crate) const USER_ACTIVITY_ROWS_SQL: [(&str, &str); 7] = [
     (
         "cached_activities",
         concat!("DELETE FROM cached_activities WHERE ", user_rows!()),
@@ -183,16 +202,23 @@ pub(crate) const USER_PROVIDER_ROWS_SQL: [(&str, &str); 13] = [
     ),
 ];
 
+/// The health sync's cursors over a user's provider rows, binding `$1` user
+/// id, `$2` tenant id and `$3` provider. Every `sync_state` row is one of
+/// them (the sync writes no other), whichever data type it walks. Left behind
+/// by a wellness purge, a cursor would tell a later sync that the emptied
+/// history was already read.
+pub(crate) const USER_SYNC_CURSORS_SQL: (&str, &str) = (
+    "sync_state",
+    concat!("DELETE FROM sync_state WHERE ", user_rows!()),
+);
+
 /// The sync state describing a user's provider rows, deleted after them by a
 /// purge and by a cache expiry, binding `$1` user id, `$2` tenant id and `$3`
 /// provider. Left behind, it would tell the next read that a cache emptied of
 /// those rows is fresh and fully backfilled, and nothing would read them
 /// again.
 pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
-    (
-        "sync_state",
-        concat!("DELETE FROM sync_state WHERE ", user_rows!()),
-    ),
+    USER_SYNC_CURSORS_SQL,
     (
         "activity_fetch_freshness",
         concat!(
@@ -321,8 +347,8 @@ pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, 
      ORDER BY purged_at DESC LIMIT $2";
 
 /// What a whole-provider purge deletes, in the same order as
-/// [`USER_PROVIDER_ROWS_SQL`] then [`USER_SYNC_STATE_SQL`], each statement
-/// binding `$1` provider.
+/// [`USER_WELLNESS_ROWS_SQL`], [`USER_ACTIVITY_ROWS_SQL`] then
+/// [`USER_SYNC_STATE_SQL`], each statement binding `$1` provider.
 ///
 /// ISOLATION EXEMPTION: these statements carry neither `tenant_id` nor
 /// `user_id` on purpose. They serve the operator's termination purge, which a
@@ -467,6 +493,9 @@ pub enum PurgeReason {
     ProviderRevoked,
     /// The coach–athlete link the data was read through ended.
     LinkEnded,
+    /// The member withdrew the wellness consent on the coach–athlete link
+    /// their wellness was read through; the link itself stands.
+    WellnessConsentWithdrawn,
     /// The operator's whole-provider purge, on termination of access.
     Termination,
     /// The provider's cache TTL passed for those copies.
@@ -483,6 +512,7 @@ impl PurgeReason {
             Self::SeatReclaim => "seat_reclaim",
             Self::ProviderRevoked => "provider_revoked",
             Self::LinkEnded => "link_ended",
+            Self::WellnessConsentWithdrawn => "wellness_consent_withdrawn",
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
         }
@@ -532,6 +562,24 @@ pub trait ProviderDataRepository: Send + Sync {
     /// Returns a database error when any statement fails; nothing is deleted
     /// and nothing recorded then.
     async fn purge_user_provider_data(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge>;
+
+    /// Delete the wellness `provider` contributed for `user_id` under
+    /// `tenant_id` (its time-series points and their rollups, its sleep,
+    /// recovery and health rows, the data sources they reference, and the
+    /// sync's cursors over them) and nothing else, in one transaction that
+    /// also writes the attestation row naming `reason`. The provider's
+    /// activities, and the sync state describing them, stay.
+    ///
+    /// # Errors
+    /// Returns a database error when any statement fails; nothing is deleted
+    /// and nothing recorded then.
+    async fn purge_user_provider_wellness(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
@@ -638,10 +686,13 @@ pub(crate) use insert_purge_record;
 /// `use` every one of them.
 macro_rules! impl_provider_data_repository {
     ($ty:ty) => {
-        #[async_trait::async_trait]
-        impl ProviderDataRepository for $ty {
-            async fn purge_user_provider_data(
+        impl $ty {
+            /// Run each of `statements`, in order, over one user's `provider`
+            /// rows under one tenant, in one transaction that also writes the
+            /// attestation row naming `reason`.
+            async fn purge_user_rows(
                 &self,
+                statements: &[&[(&'static str, &'static str)]],
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
@@ -653,8 +704,7 @@ macro_rules! impl_provider_data_repository {
                     AppError::database(format!("Failed to begin the provider data purge: {e}"))
                 })?;
                 let mut purge = ProviderDataPurge::default();
-                for (table, statement) in USER_PROVIDER_ROWS_SQL.iter().chain(&USER_SYNC_STATE_SQL)
-                {
+                for (table, statement) in statements.iter().flat_map(|set| set.iter()) {
                     let removed = sqlx::query(statement)
                         .bind(&user)
                         .bind(&tenant)
@@ -681,6 +731,47 @@ macro_rules! impl_provider_data_repository {
                     AppError::database(format!("Failed to commit the provider data purge: {e}"))
                 })?;
                 Ok(purge)
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl ProviderDataRepository for $ty {
+            async fn purge_user_provider_data(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                reason: PurgeReason,
+            ) -> AppResult<ProviderDataPurge> {
+                self.purge_user_rows(
+                    &[
+                        &USER_WELLNESS_ROWS_SQL,
+                        &USER_ACTIVITY_ROWS_SQL,
+                        &USER_SYNC_STATE_SQL,
+                    ],
+                    user_id,
+                    tenant_id,
+                    provider,
+                    reason,
+                )
+                .await
+            }
+
+            async fn purge_user_provider_wellness(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                reason: PurgeReason,
+            ) -> AppResult<ProviderDataPurge> {
+                self.purge_user_rows(
+                    &[&USER_WELLNESS_ROWS_SQL, &[USER_SYNC_CURSORS_SQL]],
+                    user_id,
+                    tenant_id,
+                    provider,
+                    reason,
+                )
+                .await
             }
 
             async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge> {
