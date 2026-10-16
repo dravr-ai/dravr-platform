@@ -207,6 +207,13 @@ pub async fn grant(
     operator: Option<Uuid>,
 ) -> AppResult<GrantOutcome> {
     let request = pending_request(repos, request_id).await?;
+    // Read before the claim: an undo restores this, so a grant an operator
+    // made by hand meanwhile is never taken back by a failed attachment.
+    let had_coach_access = repos
+        .users
+        .get_global(request.user_id)
+        .await?
+        .is_some_and(|user| user.manages_roster);
 
     let decided_at = Utc::now();
     if !repos
@@ -220,7 +227,7 @@ pub async fn grant(
     let attached_group = match apply_grant(repos, &request, operator).await {
         Ok(attached_group) => attached_group,
         Err(error) => {
-            undo_grant_claim(repos, &request, operator).await;
+            undo_grant_claim(repos, &request, operator, had_coach_access).await;
             return Err(error);
         }
     };
@@ -271,19 +278,24 @@ async fn apply_grant(
     Ok(None)
 }
 
-/// Undo a grant whose effects failed after it claimed the request: take back
-/// the coach access and put the request back to pending. Both steps are
-/// attempted and what did not undo is logged; the caller returns the
-/// original error.
+/// Undo a grant whose effects failed after it claimed the request: put the
+/// coach access back to what it was before the grant (`had_coach_access`)
+/// and the request back to pending. Both steps are attempted and what did
+/// not undo is logged; the caller returns the original error.
 async fn undo_grant_claim(
     repos: &RepositoryRegistry,
     request: &CoachAccessRequest,
     operator: Option<Uuid>,
+    had_coach_access: bool,
 ) {
-    let revoked = repos
-        .users
-        .set_manages_roster_by_operator(request.user_id, false, operator)
-        .await;
+    let revoked = if had_coach_access {
+        Ok(())
+    } else {
+        repos
+            .users
+            .set_manages_roster_by_operator(request.user_id, false, operator)
+            .await
+    };
     let reopened = repos.coach_access_requests.reopen(request.id).await;
     if revoked.is_err() || !matches!(reopened, Ok(true)) {
         warn!(

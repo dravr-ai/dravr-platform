@@ -24,6 +24,7 @@ use helpers::notify_capture::{capture_notify, named};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{CoachAccessStatus, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
@@ -515,5 +516,99 @@ async fn a_grant_after_a_decline_is_refused_and_gives_nothing() -> Result<()> {
         .await?
         .expect("group");
     assert_eq!(kept.coach_user_id, None);
+    Ok(())
+}
+
+/// Make every later write to `coaching_groups` fail, so a grant fails at the
+/// group attachment, after it gave coach access.
+async fn refuse_group_writes(resources: &ServerContext) {
+    const NAME: &str = "fault_coaching_groups_refused";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(&format!(
+                "CREATE TRIGGER {NAME} BEFORE UPDATE ON coaching_groups \
+                 BEGIN SELECT RAISE(ABORT, 'group write refused'); END"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(&format!(
+                "CREATE FUNCTION {NAME}() RETURNS trigger LANGUAGE plpgsql \
+                 AS $$ BEGIN RAISE EXCEPTION 'group write refused'; END $$"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+            sqlx::query(&format!(
+                "CREATE TRIGGER {NAME} BEFORE UPDATE ON coaching_groups \
+                 FOR EACH ROW EXECUTE FUNCTION {NAME}()"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+    }
+}
+
+/// carnet#902: a grant that fails at the group attachment is undone, but the
+/// undo puts coach access back to what it was before the grant. A requester
+/// with no access before loses the access the grant gave; one an operator
+/// granted by hand meanwhile keeps it. Either way the request is pending again.
+#[tokio::test]
+#[serial]
+async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let operator = session(&resources, "undo-super@example.com", UserRole::SuperAdmin).await?;
+
+    let fresh = session(&resources, "undo-fresh@example.com", UserRole::User).await?;
+    let fresh_group = coachless_group(&resources, &fresh).await?;
+    let (_, opened) = ask(&resources, &fresh.auth, json!({ "group_id": fresh_group })).await;
+    let fresh_request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+
+    let granted_by_hand = session(&resources, "undo-hand@example.com", UserRole::User).await?;
+    let hand_group = coachless_group(&resources, &granted_by_hand).await?;
+    let (_, opened) = ask(
+        &resources,
+        &granted_by_hand.auth,
+        json!({ "group_id": hand_group }),
+    )
+    .await;
+    let hand_request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+    repos
+        .users
+        .set_manages_roster_by_operator(granted_by_hand.user_id, true, Some(operator.user_id))
+        .await?;
+
+    refuse_group_writes(&resources).await;
+    for request in [fresh_request, hand_request] {
+        coach_access::grant(repos, request, Some(operator.user_id))
+            .await
+            .expect_err("the group attachment is refused");
+        let reopened = repos
+            .coach_access_requests
+            .get(request)
+            .await?
+            .expect("request");
+        assert_eq!(reopened.status, CoachAccessStatus::Pending);
+    }
+
+    let fresh_user = repos.users.get_global(fresh.user_id).await?.expect("user");
+    assert!(
+        !fresh_user.manages_roster,
+        "the grant's own access is taken back"
+    );
+    let hand_user = repos
+        .users
+        .get_global(granted_by_hand.user_id)
+        .await?
+        .expect("user");
+    assert!(
+        hand_user.manages_roster,
+        "an operator's earlier grant survives the undo"
+    );
     Ok(())
 }
