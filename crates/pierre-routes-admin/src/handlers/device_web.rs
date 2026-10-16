@@ -18,7 +18,6 @@
 //! /admin/device/approve-web` is CSRF-exempt (see `CSRF_EXEMPT_PATHS`) and needs
 //! no session cookie, CSRF header, or JavaScript.
 
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -30,6 +29,7 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
+use pierre_auth::oauth2_server::SignInAttempt;
 use pierre_auth::password::verify_password;
 use pierre_core::html::{escape_html_attribute, HOSTED_PAGE_CSS};
 use pierre_core::models::User;
@@ -60,20 +60,23 @@ pub struct DeviceApproveForm {
 /// Verify email + password, returning the [`User`] if the credentials are valid.
 ///
 /// Every failure reads as "not recognized" on the page, so the log is where a
-/// lookup that failed is told apart from credentials that did not match. An
-/// unknown address or a wrong password is counted in the sign-in windows of
-/// `client` and `email` (carnet#804); a failed lookup is not the caller's
-/// guess, so it is not.
+/// lookup that failed is told apart from credentials that did not match. The
+/// attempt was counted in the sign-in windows before this check (carnet#804,
+/// carnet#908): an unknown address or a wrong password keeps its hit, while a
+/// verified password and a failed lookup (not the caller's guess) give it
+/// back.
 async fn authenticate(
     context: &AdminApiContext,
-    client: Option<IpAddr>,
+    attempt: SignInAttempt,
     email: &str,
     password: &str,
 ) -> Option<User> {
+    let limiter = &context.sign_in_limiter;
     let user = match context.repos.users.get_by_email(email).await {
         Ok(user) => user,
         Err(e) => {
             error!(error = %e, "Device approval sign-in could not complete: user lookup failed");
+            limiter.refund_sign_in(attempt).await;
             return None;
         }
     };
@@ -85,11 +88,8 @@ async fn authenticate(
             .then_some(user),
         None => None,
     };
-    if verified.is_none() {
-        context
-            .sign_in_limiter
-            .count_failed_sign_in(client, email)
-            .await;
+    if verified.is_some() {
+        limiter.refund_sign_in(attempt).await;
     }
     verified
 }
@@ -118,14 +118,25 @@ pub async fn handle_device_approve_web(
 ) -> Response {
     let user_code = sanitize_user_code(&form.user_code);
 
-    // The sign-in windows are read before the password is checked
-    // (carnet#804): this page signs in a super-admin, the account most worth
-    // guessing.
+    // The attempt is counted in the sign-in windows before the password is
+    // checked (carnet#804, carnet#908): this page signs in a super-admin, the
+    // account most worth guessing.
     let limiter = &context.sign_in_limiter;
     let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
-    match limiter.sign_in_wait(client, &form.email).await {
-        Ok(None) => {}
-        Ok(Some(retry_after)) => {
+    let attempt = match limiter.begin_sign_in(client, &form.email).await {
+        Ok(attempt) => attempt,
+        Err(e) => {
+            error!(error = %e, "Device approval sign-in limiter could not count the attempt");
+            let page = render_form(
+                &user_code,
+                Some("Sign-in is temporarily unavailable. Try again in a minute."),
+            );
+            return (StatusCode::SERVICE_UNAVAILABLE, Html(page)).into_response();
+        }
+    };
+    match attempt.retry_after() {
+        None => {}
+        Some(retry_after) => {
             warn!(
                 retry_after,
                 "Device approval sign-in refused: too many attempts"
@@ -141,16 +152,8 @@ pub async fn handle_device_approve_web(
             )
                 .into_response();
         }
-        Err(e) => {
-            error!(error = %e, "Device approval sign-in limiter could not read its windows");
-            let page = render_form(
-                &user_code,
-                Some("Sign-in is temporarily unavailable. Try again in a minute."),
-            );
-            return (StatusCode::SERVICE_UNAVAILABLE, Html(page)).into_response();
-        }
     }
-    resolve_approval(&context, client, &user_code, &form)
+    resolve_approval(&context, attempt, &user_code, &form)
         .await
         .into_response()
 }
@@ -159,11 +162,11 @@ pub async fn handle_device_approve_web(
 /// was admitted by its windows.
 async fn resolve_approval(
     context: &AdminApiContext,
-    client: Option<IpAddr>,
+    attempt: SignInAttempt,
     user_code: &str,
     form: &DeviceApproveForm,
 ) -> Html<String> {
-    let Some(user) = authenticate(context, client, &form.email, &form.password).await else {
+    let Some(user) = authenticate(context, attempt, &form.email, &form.password).await else {
         return Html(render_form(
             user_code,
             Some("That email or password was not recognized."),

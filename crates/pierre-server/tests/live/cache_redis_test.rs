@@ -686,6 +686,41 @@ async fn test_redis_count_in_window_counts_until_the_window_closes() -> Result<(
     Ok(())
 }
 
+/// A hit taken back leaves the window's end where it was, and the count never
+/// goes below zero; a window that is not open stays absent.
+#[tokio::test]
+async fn test_redis_uncount_in_window_takes_back_one_hit_never_below_zero() -> Result<()> {
+    let cache = create_redis_cache().await?;
+    let key = test_cache_key(CacheResource::Custom("uncount".to_owned()));
+    let window = Duration::from_mins(1);
+    cache.invalidate(&key).await?;
+
+    cache.uncount_in_window(&key).await?;
+    let absent: Option<u64> = cache.get(&key).await?;
+    assert_eq!(absent, None, "no window is opened by a refund");
+
+    cache.count_in_window(&key, window).await?;
+    let second = cache.count_in_window(&key, window).await?;
+    assert_eq!(second.hits, 2);
+    cache.uncount_in_window(&key).await?;
+    let counted: Option<u64> = cache.get(&key).await?;
+    assert_eq!(counted, Some(1));
+    let ttl = cache
+        .ttl(&key)
+        .await?
+        .expect("the window keeps its lifetime");
+    assert!(ttl > Duration::from_secs(50), "{ttl:?}");
+
+    cache.uncount_in_window(&key).await?;
+    cache.uncount_in_window(&key).await?;
+    let floored: Option<u64> = cache.get(&key).await?;
+    assert_eq!(floored, Some(0), "the count stops at zero");
+    let next = cache.count_in_window(&key, window).await?;
+    assert_eq!(next.hits, 1);
+    cache.invalidate(&key).await?;
+    Ok(())
+}
+
 /// Hits landing at once, over the connection manager's multiplexed
 /// connection, are each counted exactly once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

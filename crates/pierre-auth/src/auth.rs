@@ -34,11 +34,14 @@ use pierre_core::constants::{
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
+
+mod method;
+pub use method::{AuthMethod, ImpersonationGrant};
 
 /// Response for checking system setup status
 ///
@@ -281,118 +284,6 @@ pub struct AuthResult {
     pub client_id: Option<String>,
 }
 
-/// Authentication method used
-#[derive(Debug, Clone)]
-pub enum AuthMethod {
-    /// `JWT` token authentication
-    JwtToken {
-        /// User tier for rate limiting
-        tier: String,
-    },
-    /// `API` key authentication
-    ApiKey {
-        /// `API` key `ID`
-        key_id: String,
-        /// `API` key tier
-        tier: String,
-    },
-    /// Messaging channel link authentication
-    ///
-    /// Used when a webhook (`Telegram`, `WhatsApp`, `Discord`, `Slack`,
-    /// `Messenger`) resolves an inbound message to a Pierre user via the
-    /// `channel_link` row written at OTP/deep-link verification time. The
-    /// presence of a valid link plus an active `UserStatus` constitutes the
-    /// credential — same authority as a `JwtToken`, surfaced through the
-    /// same [`AuthResult`] so the chat pipeline, command dispatcher, and
-    /// tool execution layer cannot distinguish messaging from `HTTP` callers.
-    ChannelLink {
-        /// Channel identifier (`telegram`, `whatsapp`, `discord`, …).
-        channel: String,
-        /// Channel-side sender id (`Telegram` chat id, `WhatsApp` phone, …).
-        channel_user_id: String,
-        /// User tier for rate limiting (mirrors the `JWT` variant's field
-        /// so [`crate::rate_limiting::calculate_jwt_rate_limit`] applies the
-        /// user-tier policy uniformly).
-        tier: String,
-    },
-    /// Personal MCP token authentication (`pmcp_`, carnet#788)
-    ///
-    /// The token an athlete mints in Settings and pastes into an MCP client
-    /// (Claude Desktop, Cursor). It is that client's credential, not the
-    /// athlete's own: accepted by `/mcp` only, carrying every delegable scope
-    /// and never `admin`, and refused by every REST route, as a delegated
-    /// OAuth grant is.
-    McpToken {
-        /// The token's row id in the owner's token list
-        token_id: String,
-        /// User tier for rate limiting (the owner's, as on a `JWT`)
-        tier: String,
-    },
-}
-
-impl AuthMethod {
-    /// Refuse to mint a session from an API key or a personal MCP token.
-    ///
-    /// Either is a caller outside Dravr's apps; a session token is the
-    /// athlete in one of them. Exchanged for a session, a key would read as the
-    /// athlete's own app on every chat and REST route, past the transport gate
-    /// that keeps some providers' data off external callers (carnet#724).
-    ///
-    /// # Errors
-    ///
-    /// [`ErrorCode::PermissionDenied`](pierre_core::errors::ErrorCode::PermissionDenied)
-    /// when the request was authenticated with an API key or an MCP token.
-    pub fn refuse_api_key_upgrade(&self) -> AppResult<()> {
-        match self {
-            Self::ApiKey { .. } => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "An API key cannot be exchanged for a session; sign in to obtain one",
-            )),
-            Self::McpToken { .. } => Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "An MCP token cannot be exchanged for a session; sign in to obtain one",
-            )),
-            Self::JwtToken { .. } | Self::ChannelLink { .. } => Ok(()),
-        }
-    }
-
-    /// Get a human-readable display name for the authentication method
-    #[must_use]
-    pub const fn display_name(&self) -> &str {
-        match self {
-            Self::JwtToken { .. } => "JWT Token",
-            Self::ApiKey { .. } => "API Key",
-            Self::ChannelLink { .. } => "Channel Link",
-            Self::McpToken { .. } => "MCP Token",
-        }
-    }
-
-    /// Get detailed information about the authentication method
-    #[must_use]
-    pub fn details(&self) -> String {
-        match self {
-            Self::JwtToken { tier } => {
-                format!("JWT Token (tier: {tier})")
-            }
-            Self::ApiKey { key_id, tier } => {
-                format!("API Key (tier: {tier}, id: {key_id})")
-            }
-            Self::ChannelLink {
-                channel,
-                channel_user_id,
-                tier,
-            } => {
-                format!(
-                    "Channel Link (channel: {channel}, sender: {channel_user_id}, tier: {tier})"
-                )
-            }
-            Self::McpToken { token_id, tier } => {
-                format!("MCP Token (tier: {tier}, id: {token_id})")
-            }
-        }
-    }
-}
-
 /// Authentication manager for `JWT` tokens and user sessions
 pub struct AuthManager {
     token_expiry_hours: i64,
@@ -562,15 +453,62 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let now = Utc::now();
         // Impersonation tokens have shorter expiry (1 hour)
-        let expiry = now + Duration::hours(1);
+        let expiry = (Utc::now() + Duration::hours(1)).timestamp();
+        Self::impersonation_token(
+            target_user,
+            impersonator_id,
+            session_id,
+            expiry,
+            jwks_manager,
+            active_tenant_id,
+        )
+    }
 
+    /// Re-mint the impersonation token `grant` names for `target_user`, with
+    /// another active tenant: the same operator and session, and an expiry no
+    /// later than the token it replaces, so a tenant switch never stretches an
+    /// impersonation past its hour or out of its session's revocation.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::generate_impersonation_token`].
+    pub fn reissue_impersonation_token(
+        &self,
+        target_user: &User,
+        grant: &ImpersonationGrant,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+    ) -> AppResult<String> {
+        let expiry = (Utc::now() + Duration::hours(1))
+            .timestamp()
+            .min(grant.expires_at);
+        Self::impersonation_token(
+            target_user,
+            grant.impersonator_id,
+            &grant.session_id,
+            expiry,
+            jwks_manager,
+            active_tenant_id,
+        )
+    }
+
+    /// Sign an impersonation token expiring at `expiry` (seconds since the
+    /// epoch).
+    fn impersonation_token(
+        target_user: &User,
+        impersonator_id: Uuid,
+        session_id: &str,
+        expiry: i64,
+        jwks_manager: &JwksManager,
+        active_tenant_id: Option<String>,
+    ) -> AppResult<String> {
+        let now = Utc::now();
         let claims = Claims {
             sub: target_user.id.to_string(),
             email: target_user.email.clone(),
             iat: now.timestamp(),
-            exp: expiry.timestamp(),
+            exp: expiry,
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             providers: target_user.available_providers(),

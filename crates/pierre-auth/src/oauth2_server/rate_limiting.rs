@@ -14,7 +14,7 @@ use pierre_cache::{Cache, CacheConfig, CacheKey, CacheProvider, CacheResource, W
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use sha2::{Digest, Sha256};
-use tracing::{error, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::client_address::{metering_key, TrustedProxies};
@@ -29,6 +29,36 @@ const WINDOW_KEY_NAMESPACE: &str = "_oauth2_rate_limit";
 /// used one. An expired window reads as absent, so the store needs no sweep;
 /// the bound is what caps its memory.
 const LOCAL_WINDOW_CAPACITY: usize = 10_000;
+
+/// The store a sign-in attempt's hit was counted in, so its refund lands in
+/// the same one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CountedIn {
+    /// The store every replica counts into
+    Shared,
+    /// This process's own windows
+    Local,
+}
+
+/// A password sign-in counted in its windows by
+/// [`OAuth2RateLimiter::begin_sign_in`], before its password is checked.
+#[derive(Debug)]
+#[must_use = "a refused attempt must be answered, and an admitted one refunded or kept"]
+pub struct SignInAttempt {
+    /// Each window the attempt was counted in, with the store that counted it
+    counted: Vec<(OAuth2Endpoint, CacheKey, CountedIn)>,
+    /// The longest wait a full window asks for, when one is full
+    retry_after: Option<u32>,
+}
+
+impl SignInAttempt {
+    /// `None` when every window had room for the attempt, so its password may
+    /// be checked; `Some(seconds)` — the `Retry-After` — when one is full.
+    #[must_use]
+    pub const fn retry_after(&self) -> Option<u32> {
+        self.retry_after
+    }
+}
 
 /// Per-address rate limiter for the `OAuth2` endpoints.
 ///
@@ -127,52 +157,66 @@ impl OAuth2RateLimiter {
         self.status(endpoint, &key).await
     }
 
-    /// Whether a password sign-in from `client` naming `email` may be tried:
-    /// `None` when the address's window and the account's both have room,
-    /// `Some(seconds)` — the `Retry-After` — when either is full.
+    /// Count a password sign-in from `client` naming `email` in the
+    /// address's window and the account's, before its password is checked.
     ///
-    /// Reads the windows without counting: only a refused password counts
-    /// ([`Self::count_failed_sign_in`]), so athletes signing in successfully
-    /// from one shared address never fill its window. Checked before the
-    /// password, so past a full window every attempt is refused alike and a
-    /// refusal never says whether a guess was right. `client` is `None` only
-    /// on a router served without `ConnectInfo`; the account's window still
-    /// applies.
+    /// Each window is counted with the store's atomic increment, so a burst of
+    /// concurrent attempts cannot all read the same pre-burst count: only as
+    /// many as a window admits get past [`SignInAttempt::retry_after`], and
+    /// the rest are refused before their password is checked. Past a full
+    /// window every attempt is refused alike, so a refusal never says whether
+    /// a guess was right. A verified password, or an outcome that was not the
+    /// caller's guess, gives its hit back through [`Self::refund_sign_in`],
+    /// so athletes signing in successfully from one shared address never fill
+    /// its window. `client` is `None` only on a router served without
+    /// `ConnectInfo`; the account's window still applies.
     ///
     /// # Errors
     ///
-    /// Returns an error when the process's own store holds something other
-    /// than a count at a window's key: the caller refuses the attempt rather
-    /// than let an unmetered guess through.
-    pub async fn sign_in_wait(
+    /// Returns an error when neither store can count the attempt in a window:
+    /// the caller refuses it rather than let an unmetered guess through.
+    pub async fn begin_sign_in(
         &self,
         client: Option<IpAddr>,
         email: &str,
-    ) -> AppResult<Option<u32>> {
-        let mut wait = None;
+    ) -> AppResult<SignInAttempt> {
+        let mut attempt = SignInAttempt {
+            counted: Vec::with_capacity(2),
+            retry_after: None,
+        };
         for (endpoint, key) in Self::sign_in_windows(client, email) {
-            let status = self.peek(endpoint, &key).await?;
-            if status.is_limited {
-                let retry_after = status.retry_after_seconds.unwrap_or(1);
-                wait = Some(wait.map_or(retry_after, |longest: u32| longest.max(retry_after)));
+            let (counted, store) = self.count_in(endpoint, &key).await?;
+            if counted.hits > u64::from(self.limits.get_limit(endpoint)) {
+                let wait = u32::try_from(counted.resets_in.as_secs())
+                    .unwrap_or(u32::MAX)
+                    .max(1);
+                attempt.retry_after = Some(attempt.retry_after.map_or(wait, |w| w.max(wait)));
             }
+            attempt.counted.push((endpoint, key, store));
         }
-        Ok(wait)
+        Ok(attempt)
     }
 
-    /// Count one refused password sign-in from `client` naming `email` in the
-    /// address's window and the account's.
+    /// Give back the hits [`Self::begin_sign_in`] counted for `attempt`, in
+    /// the store that counted each.
     ///
-    /// Every window is counted even when another could not be. The sign-in is
-    /// already answered, so a window neither store can count is logged here
-    /// rather than returned.
-    pub async fn count_failed_sign_in(&self, client: Option<IpAddr>, email: &str) {
-        for (endpoint, key) in Self::sign_in_windows(client, email) {
-            if let Err(failure) = self.count(endpoint, &key).await {
-                error!(
+    /// For an attempt whose password verified, or that failed for a reason
+    /// that was not the caller's guess (a suspended account, a server fault).
+    /// The sign-in is already answered, so a hit that cannot be given back is
+    /// logged here rather than returned; it closes with its window.
+    pub async fn refund_sign_in(&self, attempt: SignInAttempt) {
+        for (endpoint, key, store) in attempt.counted {
+            let refunded = match (store, &self.shared) {
+                (CountedIn::Shared, Some(shared)) => shared.uncount_in_window(&key).await,
+                (CountedIn::Shared | CountedIn::Local, _) => {
+                    self.local.uncount_in_window(&key).await
+                }
+            };
+            if let Err(failure) = refunded {
+                warn!(
                     endpoint = endpoint.as_str(),
                     error = %failure,
-                    "OAuth2 rate limiter could not count a refused password sign-in"
+                    "OAuth2 rate limiter could not give back a sign-in attempt's hit"
                 );
             }
         }
@@ -196,56 +240,6 @@ impl OAuth2RateLimiter {
             .into_iter()
             .chain([(by_account, account_key)])
             .collect()
-    }
-
-    /// Report `endpoint`'s window at `key` without counting a hit in it.
-    ///
-    /// Reads the shared store and this process's, and reports the fuller: a
-    /// hit the shared store could not count was counted here instead.
-    async fn peek(
-        &self,
-        endpoint: OAuth2Endpoint,
-        key: &CacheKey,
-    ) -> AppResult<OAuth2RateLimitStatus> {
-        let mut hits: u64 = 0;
-        let mut resets_in = None;
-        if let Some(shared) = &self.shared {
-            match shared.get::<u64>(key).await {
-                Ok(Some(counted)) => {
-                    hits = counted;
-                    resets_in = shared.ttl(key).await.ok().flatten();
-                }
-                Ok(None) => {}
-                Err(failure) => warn!(
-                    endpoint = endpoint.as_str(),
-                    error = %failure,
-                    "OAuth2 rate limiter's shared store could not read a window; \
-                     reading this process's"
-                ),
-            }
-        }
-        if let Some(counted) = self.local.get::<u64>(key).await? {
-            if counted > hits {
-                hits = counted;
-                resets_in = self.local.ttl(key).await?;
-            }
-        }
-
-        let limit = self.limits.get_limit(endpoint);
-        let counted = u32::try_from(hits).unwrap_or(u32::MAX);
-        let reset_at = (SystemTime::now() + resets_in.unwrap_or_default())
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since_epoch| {
-                i64::try_from(since_epoch.as_secs()).unwrap_or(i64::MAX)
-            });
-        Ok(OAuth2RateLimitStatus {
-            is_limited: counted >= limit,
-            limit,
-            remaining: limit.saturating_sub(counted),
-            reset_at,
-            retry_after_seconds: None,
-        }
-        .with_retry_after())
     }
 
     /// Count one hit in `endpoint`'s window at `key` and report the window.
@@ -278,9 +272,18 @@ impl OAuth2RateLimiter {
     /// Count one hit at `key`: in the shared store when there is one and it
     /// answers, else in this process's.
     async fn count(&self, endpoint: OAuth2Endpoint, key: &CacheKey) -> AppResult<WindowCount> {
+        Ok(self.count_in(endpoint, key).await?.0)
+    }
+
+    /// [`Self::count`], naming the store that counted the hit.
+    async fn count_in(
+        &self,
+        endpoint: OAuth2Endpoint,
+        key: &CacheKey,
+    ) -> AppResult<(WindowCount, CountedIn)> {
         if let Some(shared) = &self.shared {
             match shared.count_in_window(key, self.window).await {
-                Ok(counted) => return Ok(counted),
+                Ok(counted) => return Ok((counted, CountedIn::Shared)),
                 Err(failure) => warn!(
                     endpoint = endpoint.as_str(),
                     error = %failure,
@@ -289,7 +292,10 @@ impl OAuth2RateLimiter {
                 ),
             }
         }
-        self.local.count_in_window(key, self.window).await
+        Ok((
+            self.local.count_in_window(key, self.window).await?,
+            CountedIn::Local,
+        ))
     }
 
     /// The cache key of `endpoint`'s window for `subject` (a metered client
@@ -313,4 +319,101 @@ fn email_digest(email: &str) -> String {
         "{:x}",
         Sha256::digest(email.trim().to_lowercase().as_bytes())
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tokio::task::yield_now;
+
+    use super::*;
+
+    /// A limiter on its own process-local windows, admitting `per_address`
+    /// sign-ins a window from one address and `per_account` naming one email.
+    fn limiter(per_address: u32, per_account: u32) -> OAuth2RateLimiter {
+        let config = RateLimitConfig {
+            password_login_rpm: per_address,
+            password_login_account_rpm: per_account,
+            rate_limit_window_secs: 60,
+            ..RateLimitConfig::default()
+        };
+        OAuth2RateLimiter::new(None, OAuth2RateLimiter::local_window_store(), &config)
+    }
+
+    fn address(last: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(203, 0, 113, last))
+    }
+
+    /// Thirty wrong passwords for one account fired at once: every attempt is
+    /// counted before any password is checked, so exactly the account's
+    /// allowance reaches the verifier and the rest are refused with a wait
+    /// (carnet#908).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_concurrent_burst_reaches_the_verifier_only_as_often_as_the_window_admits() {
+        let limiter = limiter(1_000, 10);
+        // Shared by the spawned attempts and read once they are all done.
+        let verified = Arc::new(AtomicUsize::new(0));
+        let attempts: Vec<_> = (0..30_u8)
+            .map(|n| {
+                let limiter = limiter.clone();
+                let verified = Arc::clone(&verified);
+                tokio::spawn(async move {
+                    let attempt = limiter
+                        .begin_sign_in(Some(address(n)), "victim@example.com")
+                        .await
+                        .unwrap();
+                    let wait = attempt.retry_after();
+                    if wait.is_none() {
+                        // The password check: slow, and the burst interleaves here.
+                        yield_now().await;
+                        verified.fetch_add(1, Ordering::SeqCst);
+                    }
+                    wait
+                })
+            })
+            .collect();
+        let mut refused = Vec::new();
+        for attempt in attempts {
+            if let Some(wait) = attempt.await.unwrap() {
+                refused.push(wait);
+            }
+        }
+
+        assert_eq!(verified.load(Ordering::SeqCst), 10);
+        assert_eq!(refused.len(), 20);
+        assert!(
+            refused.iter().all(|&wait| (1..=60).contains(&wait)),
+            "{refused:?}"
+        );
+    }
+
+    /// Successful sign-ins give their hit back, so one shared address never
+    /// fills its window with them; guesses then still meet the full window.
+    #[tokio::test]
+    async fn refunded_sign_ins_leave_the_address_window_empty() {
+        let limiter = limiter(20, 1_000);
+        for n in 0..25 {
+            let attempt = limiter
+                .begin_sign_in(Some(address(1)), &format!("athlete-{n}@example.com"))
+                .await
+                .unwrap();
+            assert_eq!(attempt.retry_after(), None, "success {n} is admitted");
+            limiter.refund_sign_in(attempt).await;
+        }
+
+        for n in 0..20 {
+            let guess = limiter
+                .begin_sign_in(Some(address(1)), &format!("guess-{n}@example.com"))
+                .await
+                .unwrap();
+            assert_eq!(guess.retry_after(), None, "guess {n} fits the empty window");
+        }
+        let over = limiter
+            .begin_sign_in(Some(address(1)), "one-more@example.com")
+            .await
+            .unwrap();
+        assert!(over.retry_after().is_some(), "the 21st guess is refused");
+    }
 }

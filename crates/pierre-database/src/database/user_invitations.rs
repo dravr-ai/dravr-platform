@@ -11,11 +11,11 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
+use crate::repositories::link_token_consume::consume_link_token;
 use crate::repositories::user_invitations::{
-    impl_user_invitation_repository, invalid_invitation, invitation_from_row,
-    COUNT_RECENT_INVITATIONS_SQL, INSERT_INVITATION_SQL, INVITATION_MAX_ATTEMPTS,
-    LIST_LIVE_INVITATIONS_SQL, LOAD_INVITATION_SQL, LOCK_INVITATION_SQL,
-    RECORD_INVITATION_ATTEMPT_SQL, REDEEM_INVITATION_SQL, REVOKE_LIVE_INVITATIONS_SQL,
+    impl_user_invitation_repository, invitation_from_row, COUNT_RECENT_INVITATIONS_SQL,
+    INSERT_INVITATION_SQL, INVITATION_LINK_TOKEN, LIST_LIVE_INVITATIONS_SQL,
+    REVOKE_LIVE_INVITATIONS_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::UserInvitationRepository;

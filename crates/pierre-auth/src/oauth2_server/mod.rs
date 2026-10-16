@@ -63,7 +63,7 @@ pub use models::TokenRequest;
 pub use models::TokenResponse;
 
 // OAuth 2.0 rate limiting
-pub use rate_limiting::OAuth2RateLimiter;
+pub use rate_limiting::{OAuth2RateLimiter, SignInAttempt};
 
 // OAuth 2.0 typestate pattern for compile-time flow safety
 /// Authenticated OAuth flow state (has tokens)

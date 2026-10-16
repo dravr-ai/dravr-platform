@@ -17,17 +17,16 @@
 //! As with the verification tokens, `user_id` is a `uuid` column on Postgres
 //! and `TEXT` on `SQLite`, so the shell hands the body its
 //! [`uuid_columns`](super::uuid_columns) codec; timestamps bind as
-//! [`DateTime<Utc>`] on both, and `attempt_count` is cast to `BIGINT` so one
-//! decode serves both drivers.
+//! [`DateTime<Utc>`] on both. The consume runs through the one body every link token shares
+//! ([`link_token_consume`](super::link_token_consume)), which binds the
+//! attempt cap against the `INTEGER` `attempt_count` column on both drivers.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use uuid::Uuid;
 
-/// Max wrong verifier guesses against one sign-in token before it
-/// self-invalidates. Same posture as the verification and reset flows (CWE-307).
-pub(crate) const SIGN_IN_MAX_ATTEMPTS: i64 = 5;
+use super::link_token_consume::{link_token_guess_sql, LinkTokenTable, LINK_TOKEN_MAX_ATTEMPTS};
 
 /// Docs sign-in links for the dravr.ai website.
 #[async_trait]
@@ -58,27 +57,17 @@ pub(crate) const STORE_SIGN_IN_TOKEN_SQL: &str = r"
             VALUES ($1, $2, $3, $4, $5, $6)
             ";
 
-/// The live token behind a selector: unused and not yet expired at `$2`.
-pub(crate) const LOAD_SIGN_IN_TOKEN_SQL: &str = r"
-            SELECT user_id, token_hash, CAST(attempt_count AS BIGINT) AS attempt_count
-            FROM website_sign_in_tokens
-            WHERE selector = $1
-              AND used_at IS NULL
-              AND expires_at > $2
-            ";
-
-/// Brute-force lockout: past the attempt cap the token is spent outright.
-pub(crate) const LOCK_SIGN_IN_TOKEN_SQL: &str =
-    "UPDATE website_sign_in_tokens SET used_at = $1 WHERE selector = $2";
-
-/// A wrong verifier costs one attempt and leaves the token live.
-pub(crate) const RECORD_SIGN_IN_ATTEMPT_SQL: &str =
-    "UPDATE website_sign_in_tokens SET attempt_count = attempt_count + 1 WHERE selector = $1";
-
-/// Claim the token exactly once: only the request that flips `used_at` from
-/// NULL affects a row, so a concurrent request holding the same live row loses.
-pub(crate) const CONSUME_SIGN_IN_TOKEN_SQL: &str =
-    "UPDATE website_sign_in_tokens SET used_at = $1 WHERE selector = $2 AND used_at IS NULL";
+/// How a docs sign-in token is consumed ([`consume_link_token`]).
+pub(crate) const SIGN_IN_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
+    guess_sql: link_token_guess_sql!("website_sign_in_tokens", "used_at IS NULL", "user_id"),
+    lock_sql: "UPDATE website_sign_in_tokens SET used_at = $1 \
+               WHERE selector = $2 AND used_at IS NULL AND attempt_count >= $3",
+    claim_sql: "UPDATE website_sign_in_tokens SET used_at = $1 \
+                WHERE selector = $2 AND used_at IS NULL",
+    invalid: invalid_sign_in_token,
+    what: "sign-in token",
+    max_attempts: LINK_TOKEN_MAX_ATTEMPTS,
+};
 
 /// Tokens issued for a user since a moment, used or not.
 pub(crate) const COUNT_RECENT_SIGN_IN_TOKENS_SQL: &str = r"
@@ -129,67 +118,9 @@ macro_rules! impl_website_sign_in_token_repository {
             }
 
             async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid> {
-                let now = Utc::now();
-
-                let row = sqlx::query(LOAD_SIGN_IN_TOKEN_SQL)
-                    .bind(selector)
-                    .bind(now)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to load sign-in token: {e}"))
-                    })?;
-
-                let Some(row) = row else {
-                    return Err(invalid_sign_in_token());
-                };
-                let user_id = $ids::read(&row, "user_id")?;
-                let stored_hash: String = row
-                    .try_get("token_hash")
-                    .map_err(|e| AppError::database(format!("Failed to get token_hash: {e}")))?;
-                let attempts: i64 = row
-                    .try_get("attempt_count")
-                    .map_err(|e| AppError::database(format!("Failed to get attempt_count: {e}")))?;
-
-                if attempts >= SIGN_IN_MAX_ATTEMPTS {
-                    sqlx::query(LOCK_SIGN_IN_TOKEN_SQL)
-                        .bind(now)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to lock sign-in token: {e}"))
-                        })?;
-                    return Err(invalid_sign_in_token());
-                }
-
-                // Comparing SHA-256 hashes, not the secret: a timing side-channel on the
-                // hash cannot forge the verifier without a preimage.
-                if stored_hash != verifier_hash {
-                    sqlx::query(RECORD_SIGN_IN_ATTEMPT_SQL)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to record sign-in attempt: {e}"))
-                        })?;
-                    return Err(invalid_sign_in_token());
-                }
-
-                let claimed = sqlx::query(CONSUME_SIGN_IN_TOKEN_SQL)
-                    .bind(now)
-                    .bind(selector)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to consume sign-in token: {e}"))
-                    })?;
-
-                if claimed.rows_affected() == 0 {
-                    return Err(invalid_sign_in_token());
-                }
-
-                Ok(user_id)
+                let row =
+                    consume_link_token!(self.pool(), &SIGN_IN_LINK_TOKEN, selector, verifier_hash)?;
+                $ids::read(&row, "user_id")
             }
 
             async fn count_recent_tokens(

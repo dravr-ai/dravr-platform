@@ -476,7 +476,7 @@ async fn test_complete_reset_succeeds_after_fewer_than_max_wrong_verifier() {
     let selector = generated.token.split('.').next().unwrap();
     let wrong = format!("{selector}.{}", "0".repeat(32));
 
-    // FOUR wrong guesses — one fewer than RESET_MAX_VERIFY_ATTEMPTS=5. Each must
+    // FOUR wrong guesses — one fewer than LINK_TOKEN_MAX_ATTEMPTS=5. Each must
     // be rejected, but must NOT consume or invalidate the token (recovery window).
     for attempt in 0..4 {
         let response = AxumTestRequest::post("/api/auth/complete-reset")

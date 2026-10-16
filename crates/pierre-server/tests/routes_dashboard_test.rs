@@ -415,6 +415,7 @@ impl DashboardTestSetup {
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
+                impersonation: None,
             },
             active_tenant_id: None,
         }
@@ -592,6 +593,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
+                    impersonation: None,
                 },
                 active_tenant_id: None,
             },
@@ -609,6 +611,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
+                    impersonation: None,
                 },
                 active_tenant_id: None,
             },

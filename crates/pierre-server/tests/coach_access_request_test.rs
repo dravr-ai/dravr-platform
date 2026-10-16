@@ -21,12 +21,14 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named};
-use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::errors::ErrorCode;
+use pierre_core::models::{CoachAccessStatus, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::coach_access;
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -420,5 +422,98 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
         repos.coach_access_requests.get(request_id).await?.is_none(),
         "the request must go with the account"
     );
+    Ok(())
+}
+
+/// A grant racing a decline on the same request (two operators, or one
+/// double-submit): whichever claims the decision first decides it, and the
+/// access state follows the row — never a `declined` row over a user who
+/// holds coach access and coaches the group (carnet#902).
+#[tokio::test]
+#[serial]
+async fn a_grant_racing_a_decline_leaves_the_row_and_the_access_in_agreement() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let operator = session(&resources, "race-super@example.com", UserRole::SuperAdmin).await?;
+
+    for round in 0..30 {
+        let coach = session(
+            &resources,
+            &format!("race-coach-{round}@example.com"),
+            UserRole::User,
+        )
+        .await?;
+        let group = coachless_group(&resources, &coach).await?;
+        let (status, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
+        assert_eq!(status, 201, "{opened}");
+        let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+
+        let (granted, declined) = tokio::join!(
+            coach_access::grant(repos, request_id, Some(operator.user_id)),
+            coach_access::decline(repos, request_id, Some(operator.user_id)),
+        );
+        assert!(
+            granted.is_ok() != declined.is_ok(),
+            "exactly one decision wins (round {round}): grant {granted:?}, decline {declined:?}"
+        );
+
+        let row = repos
+            .coach_access_requests
+            .get(request_id)
+            .await?
+            .expect("request");
+        let is_granted = row.status == CoachAccessStatus::Granted;
+        assert_eq!(is_granted, granted.is_ok(), "round {round}: {row:?}");
+        let user = repos.users.get_global(coach.user_id).await?.expect("coach");
+        assert_eq!(
+            user.manages_roster, is_granted,
+            "round {round}: coach access must follow the row ({:?})",
+            row.status
+        );
+        let attached = repos
+            .groups
+            .get_group(&group.to_string(), coach.tenant_id)
+            .await?
+            .expect("group");
+        assert_eq!(
+            attached.coach_user_id == Some(coach.user_id),
+            is_granted,
+            "round {round}: the group attachment must follow the row ({:?})",
+            row.status
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn a_grant_after_a_decline_is_refused_and_gives_nothing() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let coach = session(&resources, "late-grant-coach@example.com", UserRole::User).await?;
+    let group = coachless_group(&resources, &coach).await?;
+    let (_, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
+    let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+    let operator = session(
+        &resources,
+        "late-grant-super@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+
+    coach_access::decline(repos, request_id, Some(operator.user_id)).await?;
+    let error = coach_access::grant(repos, request_id, Some(operator.user_id))
+        .await
+        .expect_err("a decided request cannot be granted");
+    assert_eq!(error.code, ErrorCode::ResourceAlreadyExists);
+
+    let user = repos.users.get_global(coach.user_id).await?.expect("coach");
+    assert!(!user.manages_roster);
+    let kept = repos
+        .groups
+        .get_group(&group.to_string(), coach.tenant_id)
+        .await?
+        .expect("group");
+    assert_eq!(kept.coach_user_id, None);
     Ok(())
 }

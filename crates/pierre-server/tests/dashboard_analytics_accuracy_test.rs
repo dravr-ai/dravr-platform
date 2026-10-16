@@ -139,6 +139,7 @@ impl AnalyticsFixture {
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
+                impersonation: None,
             },
             active_tenant_id: Some(self.tenant_id),
         }

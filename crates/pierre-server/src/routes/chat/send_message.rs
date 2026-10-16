@@ -713,6 +713,7 @@ mod tests {
     fn jwt() -> AuthMethod {
         AuthMethod::JwtToken {
             tier: "starter".to_owned(),
+            impersonation: None,
         }
     }
 

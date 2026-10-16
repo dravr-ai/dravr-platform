@@ -11,11 +11,11 @@ use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::email_verification_tokens::{
-    impl_email_verification_repository, invalid_verification_token, CONSUME_VERIFICATION_TOKEN_SQL,
-    COUNT_RECENT_VERIFICATION_TOKENS_SQL, IS_EMAIL_VERIFIED_SQL, LOAD_VERIFICATION_TOKEN_SQL,
-    LOCK_VERIFICATION_TOKEN_SQL, MARK_EMAIL_VERIFIED_SQL, RECORD_VERIFICATION_ATTEMPT_SQL,
-    STORE_VERIFICATION_TOKEN_SQL, VERIFY_MAX_ATTEMPTS,
+    impl_email_verification_repository, COUNT_RECENT_VERIFICATION_TOKENS_SQL,
+    IS_EMAIL_VERIFIED_SQL, MARK_EMAIL_VERIFIED_SQL, STORE_VERIFICATION_TOKEN_SQL,
+    VERIFICATION_LINK_TOKEN,
 };
+use crate::repositories::link_token_consume::consume_link_token;
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::EmailVerificationRepository;
 

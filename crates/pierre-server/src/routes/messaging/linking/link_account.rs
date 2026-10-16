@@ -7,7 +7,7 @@
 use std::net::IpAddr;
 
 use pierre_auth::dto::auth::RegisterRequest;
-use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::oauth2_server::rate_limiting::{OAuth2RateLimiter, SignInAttempt};
 use pierre_auth::password::verify_password;
 use pierre_core::constants::error_messages;
 use pierre_core::errors::AppError;
@@ -63,9 +63,10 @@ pub(super) async fn resolve_user_from_form(
 /// Authenticate a user by email and password
 ///
 /// Returns the user ID on success, or an error message string on failure.
-/// The sign-in windows are read before the password is checked and a refused
-/// password is counted in them (carnet#804), so this page is no faster a
-/// guessing oracle than the app's own sign-in.
+/// The attempt is counted in the sign-in windows before the password is
+/// checked, and only a refused password keeps its hit (carnet#804,
+/// carnet#908), so this page is no faster a guessing oracle than the app's
+/// own sign-in.
 async fn authenticate_user(
     resources: &ServerContext,
     email: &str,
@@ -73,38 +74,30 @@ async fn authenticate_user(
     client: Option<IpAddr>,
 ) -> Result<(Uuid, UserStatus), String> {
     let limiter = &resources.auth.oauth2_rate_limiter;
-    if let Some(refusal) = sign_in_refusal(limiter, client, email).await {
-        return Err(refusal);
+    let attempt = admitted_sign_in(limiter, client, email).await?;
+    let verified = verify_credentials(resources, email, password).await;
+    if !matches!(verified, Err(CredentialRefusal::Invalid)) {
+        limiter.refund_sign_in(attempt).await;
     }
-    match verify_credentials(resources, email, password).await {
-        Ok(account) => Ok(account),
-        Err(refusal) => {
-            if matches!(refusal, CredentialRefusal::Invalid) {
-                limiter.count_failed_sign_in(client, email).await;
-            }
-            Err(refusal.message())
-        }
-    }
+    verified.map_err(|refusal| refusal.message())
 }
 
-/// The words the page shows when the sign-in windows of `client` and `email`
-/// refuse the attempt before its password is checked, or `None` to try it.
-async fn sign_in_refusal(
+/// The attempt counted in the sign-in windows of `client` and `email`, or the
+/// words the page shows when they refuse it before its password is checked.
+async fn admitted_sign_in(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
     email: &str,
-) -> Option<String> {
-    match limiter.sign_in_wait(client, email).await {
-        Ok(None) => None,
-        Ok(Some(retry_after)) => {
-            warn!(retry_after, "Link page sign-in refused: too many attempts");
-            Some("Too many sign-in attempts. Wait a minute, then try again.".to_owned())
-        }
-        Err(e) => {
-            error!(error = %e, "Link page sign-in limiter could not read its windows");
-            Some(SIGN_IN_FAULT.to_owned())
-        }
-    }
+) -> Result<SignInAttempt, String> {
+    let attempt = limiter.begin_sign_in(client, email).await.map_err(|e| {
+        error!(error = %e, "Link page sign-in limiter could not count the attempt");
+        SIGN_IN_FAULT.to_owned()
+    })?;
+    let Some(retry_after) = attempt.retry_after() else {
+        return Ok(attempt);
+    };
+    warn!(retry_after, "Link page sign-in refused: too many attempts");
+    Err("Too many sign-in attempts. Wait a minute, then try again.".to_owned())
 }
 
 /// The account `email` and `password` sign in, or why they were refused.

@@ -370,8 +370,9 @@ pub async fn handle_session(
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
-    // A session is restored from a session, never minted from an API key.
-    auth_result.auth_method.refuse_api_key_upgrade()?;
+    // A session is restored from a session, never minted from an API key or
+    // an impersonation token.
+    auth_result.auth_method.refuse_session_upgrade()?;
 
     let user_id = auth_result.user_id;
     Span::current().record("user_id", user_id.to_string());

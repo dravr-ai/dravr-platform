@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 
 use axum::{
     extract::{Form, State},
@@ -14,6 +13,7 @@ use axum::{
 };
 use pierre_auth::dto::auth::LoginRequest;
 use pierre_auth::oauth2_server::models::OAuth2Error;
+use pierre_auth::oauth2_server::SignInAttempt;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::redaction::mask_email;
 use pierre_middleware::PeerAddress;
@@ -21,7 +21,7 @@ use tracing::{error, info, warn};
 
 use super::login_text::LoginText;
 use super::{OAuth2Context, OAuth2Routes};
-use crate::oauth2_rate_limited::sign_in_page_refusal;
+use crate::oauth2_rate_limited::sign_in_page_admission;
 
 impl OAuth2Routes {
     /// Handle OAuth login form submission (POST /oauth2/login)
@@ -40,8 +40,8 @@ impl OAuth2Routes {
             return (StatusCode::BAD_REQUEST, "Missing password").into_response();
         };
 
-        // The sign-in windows are read before the password is checked
-        // (carnet#804)
+        // The attempt is counted in the sign-in windows before the password
+        // is checked (carnet#804, carnet#908)
         let limiter = &context.rate_limiter;
         let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
         let text = LoginText::for_request(
@@ -52,32 +52,38 @@ impl OAuth2Routes {
         let render = |error: &OAuth2Error| {
             Self::login_failure_response(&form, &text, &text.refusal(error), error.http_status())
         };
-        if let Some(refused) = sign_in_page_refusal(limiter, client, email, render).await {
-            return refused;
-        }
+        let attempt = match sign_in_page_admission(limiter, client, email, render).await {
+            Ok(attempt) => attempt,
+            Err(refused) => return *refused,
+        };
 
         // The account rules every password login follows: a suspended account
         // is refused here, and the login is recorded as the web app's is
         match Self::password_sign_in(&context, email, password).await {
-            Ok(token) => Self::continue_to_authorize(&context, &form, email, &token),
-            Err(e) => Self::refused_sign_in(&context, client, &form, &text, email, &e).await,
+            Ok(token) => {
+                limiter.refund_sign_in(attempt).await;
+                Self::continue_to_authorize(&context, &form, email, &token)
+            }
+            Err(e) => Self::refused_sign_in(&context, attempt, &form, &text, &e).await,
         }
     }
 
     /// The page a hosted-form sign-in whose login failed answers with. A
-    /// refused password is counted in the sign-in windows and answered with
-    /// the generic retry page. A suspended account (checked only once its
-    /// password verified) and a server fault are neither the caller's guess:
-    /// nothing is counted, and the page says what happened rather than
-    /// calling the password wrong — the apps sign in here (carnet#787).
+    /// refused password keeps its hit in the sign-in windows and is answered
+    /// with the generic retry page. A suspended account (checked only once
+    /// its password verified) and a server fault are neither the caller's
+    /// guess: the hit is given back, and the page says what happened rather
+    /// than calling the password wrong — the apps sign in here (carnet#787).
     async fn refused_sign_in(
         context: &OAuth2Context,
-        client: Option<IpAddr>,
+        attempt: SignInAttempt,
         form: &HashMap<String, String>,
         text: &LoginText<'_>,
-        email: &str,
         e: &AppError,
     ) -> Response {
+        if e.code == ErrorCode::AccountSuspended || e.is_server_fault() {
+            context.rate_limiter.refund_sign_in(attempt).await;
+        }
         if e.code == ErrorCode::AccountSuspended {
             warn!("OAuth login refused: the account is suspended");
             return Self::login_failure_response(
@@ -97,10 +103,6 @@ impl OAuth2Routes {
             );
         }
         warn!("Authentication failed for OAuth login: {}", e);
-        context
-            .rate_limiter
-            .count_failed_sign_in(client, email)
-            .await;
         Self::login_failure_response(
             form,
             text,

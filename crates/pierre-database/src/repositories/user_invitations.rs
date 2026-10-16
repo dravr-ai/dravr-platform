@@ -20,8 +20,9 @@
 //!
 //! `invited_by` is a `uuid` column on Postgres and `TEXT` on `SQLite`, so the
 //! shell hands the body its [`uuid_columns`](super::uuid_columns) codec;
-//! timestamps bind as [`DateTime<Utc>`] on both, and `attempt_count` is cast
-//! to `BIGINT` so one decode serves both drivers.
+//! timestamps bind as [`DateTime<Utc>`] on both. The consume runs through the one body every link token shares
+//! ([`link_token_consume`](super::link_token_consume)), which binds the
+//! attempt cap against the `INTEGER` `attempt_count` column on both drivers.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -29,9 +30,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserInvitation;
 use uuid::Uuid;
 
-/// Max wrong verifier guesses against one invitation before it is revoked.
-/// Same posture as the verification, reset and sign-in links (CWE-307).
-pub(crate) const INVITATION_MAX_ATTEMPTS: i64 = 5;
+use super::link_token_consume::{link_token_guess_sql, LinkTokenTable, LINK_TOKEN_MAX_ATTEMPTS};
 
 /// Single-use invitations mailed to an address with no account.
 #[async_trait]
@@ -78,35 +77,23 @@ pub(crate) const INSERT_INVITATION_SQL: &str = r"
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ";
 
-/// The live invitation behind a selector: unredeemed, unrevoked and not yet
-/// expired at `$2`.
-pub(crate) const LOAD_INVITATION_SQL: &str = r"
-            SELECT email, invited_by, token_hash,
-                   CAST(attempt_count AS BIGINT) AS attempt_count,
-                   expires_at, created_at
-            FROM user_invitations
-            WHERE selector = $1
-              AND redeemed_at IS NULL
-              AND revoked_at IS NULL
-              AND expires_at > $2
-            ";
-
-/// Brute-force lockout: past the attempt cap the invitation is revoked outright.
-pub(crate) const LOCK_INVITATION_SQL: &str =
-    "UPDATE user_invitations SET revoked_at = $1 WHERE selector = $2 AND revoked_at IS NULL";
-
-/// A wrong verifier costs one attempt and leaves the invitation live.
-pub(crate) const RECORD_INVITATION_ATTEMPT_SQL: &str =
-    "UPDATE user_invitations SET attempt_count = attempt_count + 1 WHERE selector = $1";
-
-/// Redeem exactly once: only the request that flips `redeemed_at` from NULL
-/// affects a row, so a concurrent request holding the same live row loses.
-pub(crate) const REDEEM_INVITATION_SQL: &str = r"
-            UPDATE user_invitations SET redeemed_at = $1
-            WHERE selector = $2
-              AND redeemed_at IS NULL
-              AND revoked_at IS NULL
-            ";
+/// How an invitation is redeemed ([`consume_link_token`]): live means
+/// unredeemed and unrevoked, and an invitation past the cap is revoked.
+pub(crate) const INVITATION_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
+    guess_sql: link_token_guess_sql!(
+        "user_invitations",
+        "redeemed_at IS NULL AND revoked_at IS NULL",
+        "email, invited_by, expires_at, created_at"
+    ),
+    lock_sql: "UPDATE user_invitations SET revoked_at = $1 \
+               WHERE selector = $2 AND redeemed_at IS NULL AND revoked_at IS NULL \
+               AND attempt_count >= $3",
+    claim_sql: "UPDATE user_invitations SET redeemed_at = $1 \
+                WHERE selector = $2 AND redeemed_at IS NULL AND revoked_at IS NULL",
+    invalid: invalid_invitation,
+    what: "invitation",
+    max_attempts: LINK_TOKEN_MAX_ATTEMPTS,
+};
 
 /// Every invitation still redeemable at `$1`, oldest first.
 pub(crate) const LIST_LIVE_INVITATIONS_SQL: &str = r"
@@ -214,63 +201,13 @@ macro_rules! impl_user_invitation_repository {
                 selector: &str,
                 verifier_hash: &str,
             ) -> AppResult<UserInvitation> {
-                let now = Utc::now();
-
-                let row = sqlx::query(LOAD_INVITATION_SQL)
-                    .bind(selector)
-                    .bind(now)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to load invitation: {e}")))?;
-
-                let Some(row) = row else {
-                    return Err(invalid_invitation());
-                };
-                let invitation = invitation_from_row(&row, $ids::read_opt(&row, "invited_by")?)?;
-                let stored_hash: String = row
-                    .try_get("token_hash")
-                    .map_err(|e| AppError::database(format!("Failed to get token_hash: {e}")))?;
-                let attempts: i64 = row
-                    .try_get("attempt_count")
-                    .map_err(|e| AppError::database(format!("Failed to get attempt_count: {e}")))?;
-
-                if attempts >= INVITATION_MAX_ATTEMPTS {
-                    sqlx::query(LOCK_INVITATION_SQL)
-                        .bind(now)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to lock invitation: {e}"))
-                        })?;
-                    return Err(invalid_invitation());
-                }
-
-                // Comparing SHA-256 hashes, not the secret: a timing side-channel on the
-                // hash cannot forge the verifier without a preimage.
-                if stored_hash != verifier_hash {
-                    sqlx::query(RECORD_INVITATION_ATTEMPT_SQL)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to record invitation attempt: {e}"))
-                        })?;
-                    return Err(invalid_invitation());
-                }
-
-                let claimed = sqlx::query(REDEEM_INVITATION_SQL)
-                    .bind(now)
-                    .bind(selector)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to redeem invitation: {e}")))?;
-
-                if claimed.rows_affected() == 0 {
-                    return Err(invalid_invitation());
-                }
-
-                Ok(invitation)
+                let row = consume_link_token!(
+                    self.pool(),
+                    &INVITATION_LINK_TOKEN,
+                    selector,
+                    verifier_hash
+                )?;
+                invitation_from_row(&row, $ids::read_opt(&row, "invited_by")?)
             }
 
             async fn revoke_for_email(&self, email: &str) -> AppResult<bool> {
