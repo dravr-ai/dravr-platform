@@ -2194,6 +2194,7 @@
       "loginFailed": "Login failed",
       "signInRejected": "{0} didn't accept that sign-in. Check your details and try again.",
       "signInUnavailable": "We couldn't sign you in to {0} right now. This is usually temporary — please try again in a few minutes.",
+      "signInChallenged": "{0} asked for an extra security check we can't complete automatically right now. Please try again in a little while.",
       "signInExpired": "This sign-in is no longer active. Please start the sign-in again.",
       "tryAgain": "Try Again"
     },

@@ -2194,6 +2194,7 @@
       "loginFailed": "La connexion a échoué",
       "signInRejected": "{0} a refusé cette connexion. Vérifie tes informations et réessaie.",
       "signInUnavailable": "Impossible de te connecter à {0} pour le moment. C’est généralement temporaire — réessaie dans quelques minutes.",
+      "signInChallenged": "{0} a demandé une vérification de sécurité supplémentaire qu’on ne peut pas faire automatiquement pour le moment. Réessaie un peu plus tard.",
       "signInExpired": "Cette connexion n’est plus active. Recommence la connexion.",
       "tryAgain": "Réessayer"
     },

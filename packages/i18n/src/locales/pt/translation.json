@@ -2194,6 +2194,7 @@
       "loginFailed": "Não foi possível entrar",
       "signInRejected": "{0} não aceitou esse início de sessão. Verifica os teus dados e tenta de novo.",
       "signInUnavailable": "De momento não foi possível iniciar sessão em {0}. Costuma ser temporário — tenta de novo dentro de alguns minutos.",
+      "signInChallenged": "{0} pediu uma verificação de segurança adicional que de momento não conseguimos concluir automaticamente. Tenta de novo daqui a pouco.",
       "signInExpired": "Este início de sessão já não está ativo. Começa de novo.",
       "tryAgain": "Tentar de novo"
     },
