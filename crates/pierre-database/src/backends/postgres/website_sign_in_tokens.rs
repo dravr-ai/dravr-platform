@@ -10,11 +10,11 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
+use crate::repositories::link_token_consume::consume_link_token;
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::website_sign_in_tokens::{
-    impl_website_sign_in_token_repository, invalid_sign_in_token, CONSUME_SIGN_IN_TOKEN_SQL,
-    COUNT_RECENT_SIGN_IN_TOKENS_SQL, LOAD_SIGN_IN_TOKEN_SQL, LOCK_SIGN_IN_TOKEN_SQL,
-    RECORD_SIGN_IN_ATTEMPT_SQL, SIGN_IN_MAX_ATTEMPTS, STORE_SIGN_IN_TOKEN_SQL,
+    impl_website_sign_in_token_repository, COUNT_RECENT_SIGN_IN_TOKENS_SQL, SIGN_IN_LINK_TOKEN,
+    STORE_SIGN_IN_TOKEN_SQL,
 };
 use crate::repositories::WebsiteSignInTokenRepository;
 

@@ -17,15 +17,13 @@
 //! on both. Timestamps bind as [`DateTime<Utc>`] on both: `TIMESTAMPTZ` on
 //! Postgres, RFC 3339 text on `SQLite`, which orders correctly for the
 //! `expires_at > now` filter because every value shares one offset and width.
-//! `attempt_count` is `INTEGER` on both, which Postgres decodes as `i32` and
-//! `SQLite` as `i64`, so the statement casts it to `BIGINT` and one decode
-//! serves both drivers.
+//! The consume runs through the one body every link token shares
+//! ([`link_token_consume`](super::link_token_consume)), which binds the
+//! attempt cap against the `INTEGER` `attempt_count` column on both drivers.
 
 use pierre_core::errors::AppError;
 
-/// Max wrong verifier guesses against one verification token before it
-/// self-invalidates. Same posture as the reset flow's lockout (CWE-307).
-pub(crate) const VERIFY_MAX_ATTEMPTS: i64 = 5;
+use super::link_token_consume::{link_token_guess_sql, LinkTokenTable, LINK_TOKEN_MAX_ATTEMPTS};
 
 /// Issue one token: the selector half in clear, the verifier half hashed.
 pub(crate) const STORE_VERIFICATION_TOKEN_SQL: &str = r"
@@ -33,28 +31,17 @@ pub(crate) const STORE_VERIFICATION_TOKEN_SQL: &str = r"
             VALUES ($1, $2, $3, $4, $5, $6)
             ";
 
-/// The live token behind a selector: unused and not yet expired at `$2`.
-pub(crate) const LOAD_VERIFICATION_TOKEN_SQL: &str = r"
-            SELECT user_id, token_hash, CAST(attempt_count AS BIGINT) AS attempt_count
-            FROM email_verification_tokens
-            WHERE selector = $1
-              AND used_at IS NULL
-              AND expires_at > $2
-            ";
-
-/// Brute-force lockout: past the attempt cap the token is spent outright.
-pub(crate) const LOCK_VERIFICATION_TOKEN_SQL: &str =
-    "UPDATE email_verification_tokens SET used_at = $1 WHERE selector = $2";
-
-/// A wrong verifier costs one attempt and leaves the token live.
-pub(crate) const RECORD_VERIFICATION_ATTEMPT_SQL: &str =
-    "UPDATE email_verification_tokens SET attempt_count = attempt_count + 1 WHERE selector = $1";
-
-/// Claim the token exactly once: only the request that flips `used_at` from
-/// NULL affects a row, so a concurrent request holding the same live row
-/// loses here.
-pub(crate) const CONSUME_VERIFICATION_TOKEN_SQL: &str =
-    "UPDATE email_verification_tokens SET used_at = $1 WHERE selector = $2 AND used_at IS NULL";
+/// How a verification token is consumed ([`consume_link_token`]).
+pub(crate) const VERIFICATION_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
+    guess_sql: link_token_guess_sql!("email_verification_tokens", "used_at IS NULL", "user_id"),
+    lock_sql: "UPDATE email_verification_tokens SET used_at = $1 \
+               WHERE selector = $2 AND used_at IS NULL AND attempt_count >= $3",
+    claim_sql: "UPDATE email_verification_tokens SET used_at = $1 \
+                WHERE selector = $2 AND used_at IS NULL",
+    invalid: invalid_verification_token,
+    what: "verification token",
+    max_attempts: LINK_TOKEN_MAX_ATTEMPTS,
+};
 
 /// Tokens issued for a user since a moment, used or not, for rate limiting.
 pub(crate) const COUNT_RECENT_VERIFICATION_TOKENS_SQL: &str = r"
@@ -120,69 +107,13 @@ macro_rules! impl_email_verification_repository {
             }
 
             async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid> {
-                let now = Utc::now();
-
-                let row = sqlx::query(LOAD_VERIFICATION_TOKEN_SQL)
-                    .bind(selector)
-                    .bind(now)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to load verification token: {e}"))
-                    })?;
-
-                let Some(row) = row else {
-                    return Err(invalid_verification_token());
-                };
-                let user_id = $ids::read(&row, "user_id")?;
-                let stored_hash: String = row
-                    .try_get("token_hash")
-                    .map_err(|e| AppError::database(format!("Failed to get token_hash: {e}")))?;
-                let attempts: i64 = row
-                    .try_get("attempt_count")
-                    .map_err(|e| AppError::database(format!("Failed to get attempt_count: {e}")))?;
-
-                if attempts >= VERIFY_MAX_ATTEMPTS {
-                    sqlx::query(LOCK_VERIFICATION_TOKEN_SQL)
-                        .bind(now)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to lock verification token: {e}"))
-                        })?;
-                    return Err(invalid_verification_token());
-                }
-
-                // Comparing SHA-256 hashes, not the secret: a timing side-channel on the
-                // hash cannot forge the verifier without a preimage.
-                if stored_hash != verifier_hash {
-                    sqlx::query(RECORD_VERIFICATION_ATTEMPT_SQL)
-                        .bind(selector)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!(
-                                "Failed to record verification attempt: {e}"
-                            ))
-                        })?;
-                    return Err(invalid_verification_token());
-                }
-
-                let claimed = sqlx::query(CONSUME_VERIFICATION_TOKEN_SQL)
-                    .bind(now)
-                    .bind(selector)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to consume verification token: {e}"))
-                    })?;
-
-                if claimed.rows_affected() == 0 {
-                    return Err(invalid_verification_token());
-                }
-
-                Ok(user_id)
+                let row = consume_link_token!(
+                    self.pool(),
+                    &VERIFICATION_LINK_TOKEN,
+                    selector,
+                    verifier_hash
+                )?;
+                $ids::read(&row, "user_id")
             }
 
             async fn count_recent_tokens(
