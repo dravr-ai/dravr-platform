@@ -134,6 +134,7 @@ pub mod endurance_workouts;
 pub mod planned_workouts;
 
 /// Argument parsing and the summary row for the endurance workout tools.
+#[cfg(feature = "tools-data")]
 mod endurance_workouts_args;
 /// Answer shapes for the endurance workout tools, and their derived schemas.
 pub mod endurance_workouts_output;
