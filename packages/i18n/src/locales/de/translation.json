@@ -2290,7 +2290,25 @@
     "requestAccessPending": "Anfrage gesendet – das Dravr-Team prüft sie.",
     "requestAccessDeclined": "Deine letzte Anfrage wurde abgelehnt. Du kannst erneut anfragen.",
     "requestAccessFailed": "Wir konnten deine Anfrage nicht senden. Bitte versuche es erneut.",
-    "reply_corrected": "{0} hat Dravrs Antwort an {1} korrigiert („{2}“):\n\n{3}"
+    "reply_corrected": "{0} hat Dravrs Antwort an {1} korrigiert („{2}“):\n\n{3}",
+    "planThread": {
+      "open": "Am Plan von {{name}} arbeiten",
+      "subtitle": "Plan · {{name}}",
+      "kindLabel": "Athletenplan",
+      "openError": "Dieser Plan-Verlauf konnte nicht geöffnet werden. Bitte versuche es erneut."
+    },
+    "planDraft": {
+      "badge": "Entwurf · {{name}} sieht ihn noch nicht",
+      "publish": "Für {{name}} veröffentlichen",
+      "discard": "Entwurf verwerfen",
+      "discardConfirm": "Diesen Entwurf verwerfen? Der aktuelle Plan von {{name}} bleibt unverändert.",
+      "published": "Veröffentlicht. {{name}} wurde benachrichtigt.",
+      "conflictTitle": "Der Plan von {{name}} hat sich seit Beginn dieses Entwurfs geändert",
+      "conflictWeeks": "Im Entwurf und im aktuellen Plan geänderte Wochen: {{weeks}}",
+      "conflictSeason": "Die Saison von {{name}} wurde nach Beginn dieses Entwurfs neu aufgebaut, daher passen die Wochen des Entwurfs womöglich nicht mehr dazu.",
+      "overwrite": "Trotzdem veröffentlichen",
+      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden."
+    }
   },
   "impersonationLog": {
     "active": "Aktiv",
@@ -2610,6 +2628,14 @@
       "agent_updated": {
         "body": "Ein Administrator hat {0} aktualisiert.",
         "title": "Agent aktualisiert"
+      },
+      "coach_plan_published": {
+        "body": "{0} hat deinen Trainingsplan für {1} veröffentlicht. Du findest ihn auf der Startseite.",
+        "title": "Neuer Plan von {0}"
+      },
+      "coach_plan_pushed": {
+        "body": "{0} hat die Einheiten aus deinem Plan in deinen {1}-Kalender eingetragen.",
+        "title": "Einheiten in deinem {1}-Kalender"
       },
       "delegation_confirmed": {
         "body": "{0} hat deine {2}-Verknüpfung in {1} bestätigt. Die Einheiten werden jetzt über dein Konto gelesen.",
