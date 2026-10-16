@@ -104,13 +104,16 @@ mod token_grant;
 #[cfg(feature = "provider-sciotte")]
 mod trainingpeaks_account;
 
-// Re-exported for the sciotte login error-handling regression test
-// (`sciotte_login_error_handling_test`): the `sciotte` module is private, so
-// these two pure/near-pure helpers are the testable seam guarding the "no raw
+// Re-exported for the sciotte login error-handling and challenge regression
+// tests (`sciotte_login_error_handling_test`, `sciotte_login_challenge_test`):
+// the `sciotte` module is private, so
+// these pure/near-pure helpers are the testable seam guarding the "no raw
 // error to the user" + friendly-copy contract. Doc-hidden — internal-only.
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
-pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
+pub use sciotte::{
+    friendly_login_challenge_message, friendly_login_failure_message, report_login_system_failure,
+};
 
 // Re-exported for the sciotte flow-binding and backpressure regression tests
 // (`sciotte_flow_binding_test`, `sciotte_backpressure_test`): the `sciotte`
@@ -124,7 +127,8 @@ pub use sciotte::{friendly_login_failure_message, report_login_system_failure};
 #[doc(hidden)]
 pub use sciotte::{
     forget_remote_flow, login_failure_response, remember_remote_flow, remember_remote_flow_for,
-    require_remote_flow, CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON, REMOTE_FLOW_TTL_SECS,
+    require_remote_flow, CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
+    REMOTE_FLOW_TTL_SECS,
 };
 
 // Re-export the cross-cutting auth DTOs so existing

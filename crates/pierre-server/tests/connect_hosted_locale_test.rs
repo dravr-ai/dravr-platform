@@ -33,10 +33,11 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_BACK, KEY_HOSTED_COMMON_CREDENTIALS_NOTE,
     KEY_HOSTED_COMMON_EMAIL_LABEL, KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL,
     KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOG_IN, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
-    KEY_HOSTED_COMMON_PASSWORD_LABEL, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
-    KEY_HOSTED_COMMON_SIGN_IN_REJECTED, KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE,
-    KEY_HOSTED_COMMON_SUBTITLE, KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_YOUR_CHAT_APP,
-    KEY_HOSTED_ERROR_HEADING, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
+    KEY_HOSTED_COMMON_PASSWORD_LABEL, KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED,
+    KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE,
+    KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_YOUR_CHAT_APP, KEY_HOSTED_ERROR_HEADING,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
     KEY_HOSTED_ERROR_OAUTH_START_FAILED, KEY_HOSTED_ERROR_PAGE_TITLE,
     KEY_HOSTED_INTERVALS_API_KEY_REQUIRED, KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
     KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE, KEY_HOSTED_INTERVALS_COACH_NOTE,
@@ -61,7 +62,9 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };
-use pierre_routes_auth::{AuthRoutes, CODE_REJECTED_REASON, LOGIN_FLOW_EXPIRED_REASON};
+use pierre_routes_auth::{
+    AuthRoutes, CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
+};
 use pierre_services::locale::resolve_channel_locale;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -950,10 +953,17 @@ fn assert_failures_are_worded_by_the_page(body: &str, what: &str) {
         script.contains(&format!(r#"codeRejectedReason: "{CODE_REJECTED_REASON}","#)),
         "{what}: the script knows the refused-code reason"
     );
+    assert!(
+        script.contains(&format!(
+            r#"loginChallengeReason: "{LOGIN_CHALLENGE_REASON}","#
+        )),
+        "{what}: the script knows the challenged-sign-in reason"
+    );
     for wording in [
         "S.codeRejected",
         "S.signInRejected",
         "S.signInUnavailable",
+        "S.signInChallenged",
         "S.signInExpired",
         "S.linkExpired",
     ] {
@@ -1051,12 +1061,16 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
             strings["signInUnavailable"],
             catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &[])
         );
+        assert_eq!(
+            strings["signInChallenged"],
+            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, &[])
+        );
         assert_eq!(strings["signInExpired"], expired);
         assert_eq!(
             strings["linkExpired"],
             catalogue.text(KEY_HOSTED_ERROR_INVALID_LINK, &[])
         );
-        for slotted in ["signInRejected", "signInUnavailable"] {
+        for slotted in ["signInRejected", "signInUnavailable", "signInChallenged"] {
             assert!(
                 strings[slotted]
                     .as_str()
@@ -1084,6 +1098,10 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
         assert_eq!(
             strings["signInUnavailable"],
             catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &["Garmin"])
+        );
+        assert_eq!(
+            strings["signInChallenged"],
+            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, &["Garmin"])
         );
         assert_eq!(strings["signInExpired"], expired);
         assert_eq!(

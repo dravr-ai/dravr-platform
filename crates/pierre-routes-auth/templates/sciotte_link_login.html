@@ -129,6 +129,9 @@
                 timeoutMs: 1200000,
                 // `details.reason` of the refusal a lapsed sign-in gets.
                 flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
+                // `details.reason` of the refusal a sign-in the provider stopped
+                // at a challenge (a captcha) gets.
+                loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
                 // The strings the script sets, in the athlete's locale.
@@ -165,6 +168,7 @@
                 if (failure.rejected) return S.signInRejected;
                 if (failure.status === 401) return S.linkExpired;
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
+                if (failure.reason === CONFIG.loginChallengeReason) return S.signInChallenged;
                 return S.signInUnavailable;
             }
             function showFailure(failure) {

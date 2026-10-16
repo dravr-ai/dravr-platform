@@ -1,5 +1,5 @@
 // ABOUTME: A code the provider refuses keeps the sign-in on its code step, with an inline message and an empty, focused input
-// ABOUTME: Pins the "Verifying code" spinner, the lapsed and failed sign-in copy, and the code input's accessibility
+// ABOUTME: Pins the "Verifying code" spinner, the lapsed, challenged and failed sign-in copy, and the code input's accessibility
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,6 +26,17 @@ vi.mock('../../services/api', () => ({
 vi.mock('../OAuthAppSetupModal', () => ({ default: () => null }));
 
 const CODE_LABEL = 'Enter the 6-digit code COROS sent you';
+
+/** The app's sentence for a sign-in a provider stopped at a security check. */
+const CHALLENGED = "COROS asked for an extra security check we can't complete automatically right now. Please try again in a little while.";
+
+/** A provider security check, as the server refuses it. */
+const challengeRefusal = {
+  response: {
+    status: 400,
+    data: { message: 'Garmin showed a captcha frame on the sign-in page', details: { reason: 'login_challenge' } },
+  },
+};
 
 function renderModal(onConnected = vi.fn(), target: 'coros' | 'strava' = 'coros') {
   render(
@@ -112,6 +123,25 @@ describe('SciotteLoginModal — the code step', () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Try Again' }));
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
+  });
+
+  it('names the provider that stopped the sign-in at a security check', async () => {
+    sciotteLogin.mockRejectedValueOnce(challengeRefusal);
+    renderModal();
+    await signIn(userEvent.setup());
+
+    expect(await screen.findByText(CHALLENGED)).toBeInTheDocument();
+    expect(screen.queryByText(/captcha/)).not.toBeInTheDocument();
+  });
+
+  it('names the provider that stopped the code step at a security check', async () => {
+    renderModal();
+    const user = await reachCodeStep();
+    sciotteSubmitOTP.mockRejectedValueOnce(challengeRefusal);
+    await submitCode(user, '246810');
+
+    expect(await screen.findByText(CHALLENGED)).toBeInTheDocument();
+    expect(screen.queryByText(/captcha/)).not.toBeInTheDocument();
   });
 
   it('words a failed code in the app, not in the provider prose', async () => {

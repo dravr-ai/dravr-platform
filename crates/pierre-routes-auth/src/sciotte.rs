@@ -27,13 +27,13 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use dravr_sciotte::client::SciotteClient;
-use dravr_sciotte::wire::{LoginMethod, LoginOutcome};
-use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
+use dravr_sciotte::wire::{LoginMethod, LoginOutcome, LOGIN_CHALLENGE};
+use pierre_providers::sciotte_error::{is_login_challenge, shed_retry_after_secs, to_app_error};
 
 #[cfg(feature = "health-sync")]
 use crate::oauth::spawn_health_backfill;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
-use crate::sciotte_session_reuse::try_reuse_existing_session;
+use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -96,6 +96,14 @@ const NO_PENDING_LOGIN_MESSAGE: &str =
 /// The hosted login pages word every failure in the athlete's own language,
 /// so they act on this and never print [`NO_PENDING_LOGIN_MESSAGE`].
 pub const LOGIN_FLOW_EXPIRED_REASON: &str = "login_flow_expired";
+
+/// `details.reason` of the refusal a sign-in the provider stopped at a
+/// challenge (a captcha) gets.
+///
+/// It is the service's own marker, so the login UIs select on the one word
+/// the wire already carries. The hosted login pages word that refusal in the
+/// athlete's own language from it, and never print the message.
+pub const LOGIN_CHALLENGE_REASON: &str = LOGIN_CHALLENGE;
 
 /// `reason` of an `otp_required` answer to a refused or incomplete code.
 ///
@@ -707,8 +715,40 @@ pub fn friendly_login_failure_message(provider: &str) -> String {
     )
 }
 
+/// Friendly, provider-aware copy shown to the user when the provider stopped a
+/// sign-in at a challenge (a captcha) the scraper service could not answer.
+///
+/// The English fallback of `hosted.common.signInChallenged`; the hosted login
+/// pages show the catalogue's copy in the athlete's locale instead.
+#[must_use]
+pub fn friendly_login_challenge_message(provider: &str) -> String {
+    let display = backend_resolver::brand_name(&global_registry(), provider)
+        .unwrap_or("Your fitness account");
+    format!(
+        "{display} asked for an extra security check we can't complete automatically \
+         right now. Please try again in a little while."
+    )
+}
+
+/// The athlete-facing refusal of a sign-in the provider stopped at a
+/// challenge: the friendly copy, verbatim under `InvalidInput` (see
+/// `AppError::sanitized_message`), and [`LOGIN_CHALLENGE_REASON`] under
+/// `details.reason` for the login UIs to select on.
+///
+/// A `4xx` on purpose: `response_failure_log_middleware` records a `5xx` that
+/// carries no `Retry-After` at `ERROR`, which pages operators, and the service
+/// names no wait for a challenge.
+fn login_challenge_refusal(provider: &str) -> AppError {
+    let mut refusal = AppError::invalid_input(friendly_login_challenge_message(provider));
+    refusal.details = Some(Box::new(
+        serde_json::json!({ "reason": LOGIN_CHALLENGE_REASON }),
+    ));
+    refusal
+}
+
 /// Turn an `Err` from the dedicated scraper service into what the athlete gets
-/// back: a retryable shed response, or the operator-alerting system failure.
+/// back: a retryable shed response, the challenge refusal, or the
+/// operator-alerting system failure.
 ///
 /// A load-shed is the service's designed answer to a saturated Chrome budget
 /// (`503` + `Retry-After`), so it is deliberately routed *around*
@@ -716,12 +756,21 @@ pub fn friendly_login_failure_message(provider: &str) -> String {
 /// `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel — plus a
 /// `sync.failed` business event, and both would fire once per shed request at
 /// exactly the moment the service is busiest, turning healthy backpressure into
-/// an operator page storm. Everything else still alerts.
+/// an operator page storm.
+///
+/// A sign-in the provider stopped at a challenge (a captcha) goes around it
+/// too: it is the provider's bot check, which no operator can answer, and the
+/// athlete is told so in [`friendly_login_challenge_message`]'s words. Unlike
+/// a shed it ends the attempt — the service stopped the login — so it is an
+/// `Err`, which the continuation handlers answer by dropping the flow.
+///
+/// Everything else still alerts.
 ///
 /// # Errors
 ///
-/// Returns the system-failure [`AppError`] (already logged + alerted) for any
-/// error that is not a shed.
+/// Returns the challenge refusal for a challenge, and the system-failure
+/// [`AppError`] (already logged + alerted) for any other error that is not a
+/// shed.
 pub fn login_failure_response(
     user_id: Uuid,
     tenant_id: Uuid,
@@ -729,6 +778,16 @@ pub fn login_failure_response(
     stage: &str,
     error: &AppError,
 ) -> Result<Response, AppError> {
+    if is_login_challenge(error) {
+        warn!(
+            %user_id,
+            provider = %provider,
+            stage = %stage,
+            "Sciotte login stopped at a provider challenge — the athlete's to retry, not a \
+             system failure"
+        );
+        return Err(login_challenge_refusal(provider));
+    }
     let Some(retry_after_secs) = shed_retry_after_secs(error) else {
         return Err(report_login_system_failure(
             user_id, tenant_id, provider, stage, error,
@@ -844,11 +903,17 @@ pub async fn handle_sciotte_login(
     // Session short-circuit: a stored Sciotte session written within the reuse
     // window answers a double tap or a refresh-after-connect without a second
     // login; anything older is replaced by signing in with these credentials.
-    if let Some(response) =
-        try_reuse_existing_session(&resources, user_id, tenant_id, provider).await?
-    {
-        return Ok(response);
-    }
+    // One the platform has observed dead (its expiry is past, or a refused
+    // read flagged this caller's connection to the provider `needs_reauth` or
+    // `revoked`) seeds the login browser with its cookies so the provider
+    // sees the device it trusted last time; one not observed dead is never
+    // sent, since its live cookies could sign in to the account a coach is
+    // switching away from. The lookups are by this caller's (user, tenant,
+    // provider), so no other athlete's session or connection can seed it.
+    let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
+        StoredSessionUse::Reused(response) => return Ok(response),
+        StoredSessionUse::SignIn { prior_session } => prior_session,
+    };
 
     // ADR-021: the login runs on the dedicated dravr-sciotte service (there is
     // no in-process fallback since the Phase 4 cutover). The service owns the
@@ -858,13 +923,19 @@ pub async fn handle_sciotte_login(
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
     // is a *system* failure: alert operators + emit `sync.failed`.
     let remote = resources.provider_registry.require_sciotte_client()?;
-    info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
+    info!(
+        user_id = %user_id,
+        target = %target,
+        with_prior_session = prior_session.is_some(),
+        "Starting sciotte credential login (remote service)"
+    );
     let outcome = match remote
         .login_with_credentials(
             &request.email,
             &request.password,
             request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
+            prior_session.as_ref(),
         )
         .await
     {
@@ -920,9 +991,9 @@ pub async fn handle_sciotte_select_2fa(
                 // there for the retry the `Retry-After` invites — keep it.
                 Ok(shed) => Ok(shed),
                 // Both login UIs send the user back to the credential screen
-                // from their error phase, so a system failure ends the attempt:
-                // dropping the entry stops the next login from inheriting an id
-                // the service reaps.
+                // from their error phase, so a system failure or a provider
+                // challenge ends the attempt: dropping the entry stops the next
+                // login from inheriting an id the service reaps.
                 Err(failure) => {
                     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
                     Err(failure)
@@ -980,9 +1051,9 @@ pub async fn handle_sciotte_submit_otp(
                 // there for the retry the `Retry-After` invites — keep it.
                 Ok(shed) => Ok(shed),
                 // Both login UIs send the user back to the credential screen
-                // from their error phase, so a system failure ends the attempt:
-                // dropping the entry stops the next login from inheriting an id
-                // the service reaps.
+                // from their error phase, so a system failure or a provider
+                // challenge ends the attempt: dropping the entry stops the next
+                // login from inheriting an id the service reaps.
                 Err(failure) => {
                     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
                     Err(failure)

@@ -25,6 +25,10 @@
 //!   under the details key [`sciotte_refusal`] reads. Neither is an auth
 //!   error: signing in again changes nothing about which account the athlete
 //!   holds or whose roster an athlete is on;
+//! - a login the provider stopped at a challenge (a captcha) is
+//!   [`ErrorCode::ExternalAuthFailed`] carrying the [`LOGIN_CHALLENGE`]
+//!   marker, read back by [`is_login_challenge`]. It is neither a refused
+//!   password nor a session to renew, and no operator can answer it;
 //! - everything else is an internal fault.
 //!
 //! Nothing here logs, and no message carries a response body.
@@ -32,7 +36,7 @@
 use dravr_sciotte::client::{
     ClientError, Operation, SciotteClient, ServiceError, TransportFailure,
 };
-use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
+use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED, LOGIN_CHALLENGE};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 
@@ -80,6 +84,10 @@ pub fn to_app_error(error: ClientError) -> AppError {
             ATHLETE_REQUIRED,
         ),
         ClientError::AthleteNotAccessible { .. } => athlete_not_accessible(),
+        challenge @ ClientError::LoginChallenge { .. } => with_refusal_marker(
+            AppError::new(ErrorCode::ExternalAuthFailed, challenge.to_string()),
+            LOGIN_CHALLENGE,
+        ),
         refused @ ClientError::QueryRefused { .. } => AppError::internal(refused.to_string()),
         mismatch @ ClientError::CountMismatch { .. } => AppError::internal(mismatch.to_string()),
         // LIMITATION(registre#746): the login-step `ClientError::Unexpected` arm also receives a
@@ -195,7 +203,8 @@ fn with_refusal_marker(mut error: AppError, marker: &str) -> AppError {
 }
 
 /// The scraper refusal `error` carries ([`ATHLETE_REQUIRED`],
-/// [`ATHLETE_NOT_ACCESSIBLE`]), or `None` for any other error.
+/// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`]), or `None` for any other
+/// error.
 #[must_use]
 pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
     error
@@ -213,6 +222,18 @@ pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
 /// [`to_app_error`] of [`ClientError::NotConfigured`] when `client` is `None`.
 pub fn require_client(client: Option<&SciotteClient>) -> AppResult<&SciotteClient> {
     client.ok_or_else(|| to_app_error(ClientError::NotConfigured))
+}
+
+/// Whether `error` is a login the provider stopped at a challenge.
+///
+/// Callers branch on this to tell the athlete the provider asked for a check
+/// the service could not complete, instead of routing it through the
+/// system-failure path: retrying at once meets the same challenge, and no
+/// operator can answer it.
+#[must_use]
+pub fn is_login_challenge(error: &AppError) -> bool {
+    matches!(error.code, ErrorCode::ExternalAuthFailed)
+        && sciotte_refusal(error) == Some(LOGIN_CHALLENGE)
 }
 
 /// The wait window a load-shed advertises, or `None` when `error` is anything
@@ -552,6 +573,27 @@ mod tests {
     }
 
     #[test]
+    fn a_login_stopped_at_a_provider_challenge_is_external_auth_with_its_marker() {
+        for operation in [Operation::Login, Operation::SubmitOtp, Operation::Select2fa] {
+            let client_error = ClientError::LoginChallenge {
+                exchange: exchange(operation).into(),
+                message: Some("captcha frame on the sign-in page".to_owned()),
+            };
+            let said = client_error.to_string();
+            let error = mapped(
+                client_error,
+                ErrorCode::ExternalAuthFailed,
+                Some(&json!({"sciotte_refusal": "login_challenge"})),
+            );
+            assert_eq!(error.message, said);
+            assert!(is_login_challenge(&error));
+            assert_eq!(sciotte_refusal(&error), Some(LOGIN_CHALLENGE));
+            assert_eq!(shed_retry_after_secs(&error), None);
+            assert_eq!(error.provider_auth_required_provider(), None);
+        }
+    }
+
+    #[test]
     fn a_query_the_service_refused_is_internal_and_no_athlete_refusal() {
         for marker in ["invalid_athlete", "invalid_window", "invalid_date"] {
             let error = mapped(
@@ -658,6 +700,10 @@ mod tests {
     #[test]
     fn the_details_readers_answer_none_for_an_error_of_another_kind() {
         assert_eq!(sciotte_refusal(&AppError::internal("plain")), None);
+        assert!(!is_login_challenge(&AppError::internal("plain")));
+        // The marker on another code is not a challenge.
+        let marked = with_refusal_marker(AppError::internal("plain"), LOGIN_CHALLENGE);
+        assert!(!is_login_challenge(&marked));
         assert_eq!(
             shed_retry_after_secs(&AppError::internal("chrome crashed")),
             None

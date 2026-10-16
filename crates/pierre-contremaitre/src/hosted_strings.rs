@@ -82,6 +82,8 @@ pub const KEY_HOSTED_COMMON_LOGIN_FAILED: &str = "hosted.common.loginFailed";
 pub const KEY_HOSTED_COMMON_SIGN_IN_REJECTED: &str = "hosted.common.signInRejected";
 /// Key: "We couldn't sign you in to `{0}` right now. This is usually temporary — please try again in a few minutes."
 pub const KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE: &str = "hosted.common.signInUnavailable";
+/// Key: "`{0}` asked for an extra security check we can't complete automatically right now. Please try again in a little while."
+pub const KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED: &str = "hosted.common.signInChallenged";
 /// Key: "This sign-in is no longer active. Please start the sign-in again." No format placeholders.
 pub const KEY_HOSTED_COMMON_SIGN_IN_EXPIRED: &str = "hosted.common.signInExpired";
 /// Key: "Try Again" No format placeholders.

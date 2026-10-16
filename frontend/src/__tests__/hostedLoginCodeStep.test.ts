@@ -3,7 +3,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, the code label naming the provider, the right code connecting, and a lapsed sign-in's copy
+// ABOUTME: Pins the inline refusal, the code label naming the provider, the right code connecting, a lapsed or challenged sign-in's copy
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -32,6 +32,7 @@ function fill(template: string, value: string): string {
 const PROVIDER = 'COROS';
 const CODE_REJECTED = text('shell.sciotteCodeRejected');
 const SIGN_IN_EXPIRED = text('hosted.common.signInExpired');
+const SIGN_IN_CHALLENGED = fill(text('hosted.common.signInChallenged'), PROVIDER);
 
 type Page = 'sciotte_link_login' | 'connect_hosted';
 
@@ -50,6 +51,7 @@ function scriptStrings(page: Page): Record<string, string> {
       connectingTo: fill(text('hosted.common.connectingTo'), PROVIDER),
       signInRejected: fill(text('hosted.common.signInRejected'), PROVIDER),
       signInUnavailable: fill(text('hosted.common.signInUnavailable'), PROVIDER),
+      signInChallenged: SIGN_IN_CHALLENGED,
     };
   }
   return {
@@ -67,6 +69,7 @@ function scriptStrings(page: Page): Record<string, string> {
     otpLabel: text('hosted.common.otpLabelNamed'),
     signInRejected: text('hosted.common.signInRejected'),
     signInUnavailable: text('hosted.common.signInUnavailable'),
+    signInChallenged: text('hosted.common.signInChallenged'),
     stravaFallback: text('hosted.picker.stravaFallback'),
     signInIncomplete: text('hosted.picker.signInIncomplete'),
   };
@@ -77,6 +80,7 @@ function renderPage(page: Page): string {
   const values: Record<string, string> = {
     STRINGS_JSON: JSON.stringify(scriptStrings(page)),
     FLOW_EXPIRED_REASON: 'login_flow_expired',
+    LOGIN_CHALLENGE_REASON: 'login_challenge',
     CODE_REJECTED_REASON: 'code_rejected',
     CONSENT_REQUIRED: 'false',
     CONSENT_HIDDEN: ' hidden',
@@ -209,5 +213,24 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — the code s
     });
     await enterCode(view, '246810', () => expect(view.visible('phase-error')).toBe(true));
     expect(view.byId('error-message').textContent).toBe(SIGN_IN_EXPIRED);
+  });
+
+  it('says the provider asked for a check when the sign-in was stopped at a challenge', async () => {
+    const view = open(page, {
+      [LOGIN]: [
+        {
+          status: 400,
+          body: { message: 'server prose', details: { reason: 'login_challenge' } },
+        },
+      ],
+    });
+    if (page === 'connect_hosted') {
+      (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+    }
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+    expect(view.byId('error-message').textContent).toBe(SIGN_IN_CHALLENGED);
   });
 });
