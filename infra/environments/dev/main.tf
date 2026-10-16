@@ -1115,6 +1115,13 @@ module "sciotte" {
     # bot (carnet#1035). Keep the major version in step with the image's
     # Chromium when it moves.
     DRAVR_BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+
+    # Credential logins launch headless. Unset, sciotte opens a headed Chrome
+    # for them, which in this display-less container met Garmin's SSO captcha
+    # at page render (button disabled before submit) on every login from
+    # 2026-10-09 to 10-16; headless reached the emailed-code step in 1.5 s on
+    # the first try (carnet#1035).
+    DRAVR_SCIOTTE_CREDENTIAL_LOGIN_HEADLESS = "true"
   }
 
   secret_env_vars = {
