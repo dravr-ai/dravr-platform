@@ -36,6 +36,7 @@ mod helpers;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug as FmtDebug;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 
@@ -60,12 +61,9 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
 use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::span::{Attributes, Id, Record};
+use tracing::subscriber::{set_default, DefaultGuard};
+use tracing::{Event, Metadata, Subscriber};
 use uuid::Uuid;
 
 /// Logins whose email starts with this are stopped at a challenge.
@@ -458,17 +456,12 @@ fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> 
     .to_string()
 }
 
-// ── Capture of what the platform logs (same shape as sciotte_backpressure_test) ──
+// ── Capture of what the platform logs ──
 
 #[derive(Clone, Debug)]
 struct CapturedEvent {
     level: tracing::Level,
     fields: HashMap<String, String>,
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
 }
 
 #[derive(Default)]
@@ -488,11 +481,34 @@ impl Visit for FieldVisitor {
     }
 }
 
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+/// Records every event and keeps no span state.
+///
+/// A login here runs through sqlx, whose SQLite worker threads drop spans
+/// created on the test thread. Under a `tracing_subscriber::Registry`
+/// installed with `set_default`, that drop can reach a registry that no
+/// longer holds the span and panic the worker ("tried to drop a ref to
+/// Id(1), but no such span exists"), failing the login before the handler
+/// logs. Handing out span ids without tracking them leaves nothing to drop.
+#[derive(Default)]
+struct CaptureSubscriber {
+    events: Arc<Mutex<Vec<CapturedEvent>>>,
+    next_span: AtomicU64,
+}
+
+impl Subscriber for CaptureSubscriber {
+    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
+        true
+    }
+
+    fn new_span(&self, _span: &Attributes<'_>) -> Id {
+        Id::from_u64(self.next_span.fetch_add(1, Ordering::Relaxed) + 1)
+    }
+
+    fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+    fn event(&self, event: &Event<'_>) {
         let mut visitor = FieldVisitor::default();
         event.record(&mut visitor);
         self.events.lock().unwrap().push(CapturedEvent {
@@ -500,12 +516,16 @@ where
             fields: visitor.fields,
         });
     }
+
+    fn enter(&self, _span: &Id) {}
+
+    fn exit(&self, _span: &Id) {}
 }
 
 fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
+    let capture = CaptureSubscriber::default();
     let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let guard = set_default(capture);
     (events, guard)
 }
 
