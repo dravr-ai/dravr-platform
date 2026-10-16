@@ -447,6 +447,7 @@ mod tests {
                     Some(HOSTILE),
                     Some(HOSTILE),
                     None,
+                    CoachAccessOrigin::Asked,
                 ),
                 "Coach access requested",
                 "Coach access requested",
