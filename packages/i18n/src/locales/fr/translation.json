@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Ton groupe est prêt, mais tu n'en es pas encore le coach. L'accès coach vient avec un compte coach TrainingPeaks, ou l'équipe Dravr l'active pour toi.",
+    "accessPendingBody": "Ton groupe est prêt, mais tu n'en es pas encore le coach. L'accès coach vient avec un compte coach TrainingPeaks, ou l'équipe Dravr l'active pour toi. Connecter un compte intervals.icu qui entraîne des athlètes en fait la demande à l'équipe pour toi.",
     "accessPendingHeading": "Accès coach en attente",
     "attached": "Coach humain rattaché",
     "attachedBadge": "Coach rattaché",

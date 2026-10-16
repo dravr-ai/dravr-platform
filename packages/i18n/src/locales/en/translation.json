@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Your group is ready, but you aren't its coach yet. Coach access comes with a TrainingPeaks coach account, or the Dravr team turns it on for you.",
+    "accessPendingBody": "Your group is ready, but you aren't its coach yet. Coach access comes with a TrainingPeaks coach account, or the Dravr team turns it on for you. Connecting an intervals.icu account that coaches athletes asks the team for you.",
     "accessPendingHeading": "Coach access pending",
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",

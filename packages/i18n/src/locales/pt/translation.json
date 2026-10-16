@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Seu grupo está pronto, mas você ainda não é o treinador dele. O acesso de treinador vem com uma conta de treinador do TrainingPeaks, ou a equipe Dravr o ativa para você.",
+    "accessPendingBody": "Seu grupo está pronto, mas você ainda não é o treinador dele. O acesso de treinador vem com uma conta de treinador do TrainingPeaks, ou a equipe Dravr o ativa para você. Conectar uma conta do intervals.icu que treina atletas faz o pedido à equipe por você.",
     "accessPendingHeading": "Acesso de treinador pendente",
     "attached": "Treinador humano associado",
     "attachedBadge": "Coach associado",

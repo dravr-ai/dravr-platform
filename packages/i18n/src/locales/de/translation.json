@@ -2252,7 +2252,7 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Deine Gruppe ist bereit, aber du bist noch nicht ihr Coach. Den Coach-Zugang gibt es mit einem TrainingPeaks-Coach-Konto, oder das Dravr-Team schaltet ihn für dich frei.",
+    "accessPendingBody": "Deine Gruppe ist bereit, aber du bist noch nicht ihr Coach. Den Coach-Zugang gibt es mit einem TrainingPeaks-Coach-Konto, oder das Dravr-Team schaltet ihn für dich frei. Wenn du ein intervals.icu-Konto verbindest, das Athleten trainiert, fragt Dravr das Team für dich an.",
     "accessPendingHeading": "Coach-Zugang ausstehend",
     "attached": "Menschlicher Coach zugeordnet",
     "attachedBadge": "Coach zugewiesen",
