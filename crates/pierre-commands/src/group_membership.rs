@@ -19,10 +19,12 @@ use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInvite
 use pierre_core::models::{AddMessageParams, ConversationRecord, TenantId, User};
 use pierre_core::transport::TransportPolicy;
 use pierre_groups::creation_policy::{
-    check_create_group_permission, may_coach_group, GROUP_CREATION_POLICY_KEY,
+    check_create_group_permission, creator_coaches_group, may_coach_group,
+    GROUP_CREATION_POLICY_KEY,
 };
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_runtime_context::ConfigLookupScope;
+use pierre_services::coach_access::name_requested_group;
 use pierre_services::default_agent::group_default;
 use pierre_services::delegated_connections::person_name;
 use pierre_services::locale::user_locale;
@@ -55,8 +57,9 @@ async fn typed_in_thread(
 /// (else the caller's selected agent), behind the same gates as the web and
 /// mobile create flows: the tenant plan must include group coaching and the
 /// tenant's `group_creation_policy` decides whether a non-admin may create.
-/// The creator then gets a conversation that is the group's chat — see
-/// [`GroupCreateHandler::file_creator_conversation`].
+/// A coach who creates it is attached as its human coach
+/// ([`creator_coaches_group`]). The creator then gets a conversation that is
+/// the group's chat — see [`GroupCreateHandler::file_creator_conversation`].
 pub struct GroupCreateHandler;
 
 impl GroupCreateHandler {
@@ -268,13 +271,21 @@ impl CommandHandler for GroupCreateHandler {
             )));
         }
 
+        // A coach who creates a group is its human coach; anyone else's group
+        // waits for a coach to redeem a coach invite.
+        let creator = repos
+            .users
+            .get_global(ctx.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+        let coach_user_id = creator_coaches_group(&creator, ctx.tenant_id).then_some(ctx.user_id);
+
         let request = CreateGroupRequest {
             name: name.to_owned(),
             description: None,
             agent_id: agent.id.to_string(),
             max_members: None,
-            // A coach is attached by redeeming a coach invite.
-            coach_user_id: None,
+            coach_user_id,
         };
         // `group.created` is emitted by the service, once for every surface.
         let group = ctx
@@ -283,6 +294,22 @@ impl CommandHandler for GroupCreateHandler {
             .create_group(&request, ctx.user_id, ctx.tenant_id, plan_tier.as_ref())
             .await?;
 
+        // A coach whose coach access is still waiting gets the group named on
+        // that request, so the grant attaches them to it — as `POST
+        // /api/groups` does for onboarding's group step.
+        if group.coach_user_id.is_none() {
+            if let Err(e) =
+                name_requested_group(repos, ctx.user_id, (group.id, ctx.tenant_id)).await
+            {
+                warn!(
+                    user_id = %ctx.user_id,
+                    group_id = %group.id,
+                    error = %e,
+                    "Could not name the new group on the creator's waiting coach access request"
+                );
+            }
+        }
+
         Self::file_creator_conversation(ctx, thread, &group).await?;
 
         info!(
@@ -290,6 +317,7 @@ impl CommandHandler for GroupCreateHandler {
             group_id = %group.id,
             agent_id = %agent.id,
             channel = %ctx.channel_type,
+            coach_attached = group.coach_user_id.is_some(),
             "Coaching group created via /group create"
         );
 

@@ -105,10 +105,24 @@ where
 /// admin. Athlete membership is cross-tenant; coach attachment is not, so the
 /// caller must act in the group's own tenant. The one rule behind redeeming a
 /// coach invite (`/group join`) and creating a group as its coach
-/// (`POST /api/groups`).
+/// (`POST /api/groups`, and `/group create` through [`creator_coaches_group`]).
 #[must_use]
 pub fn may_coach_group(user: &User, caller_tenant: TenantId, group_tenant: TenantId) -> bool {
     (user.manages_roster || user.is_admin) && caller_tenant == group_tenant
+}
+
+/// Whether the creator of a group in `tenant_id` becomes its human coach
+/// without asking (`/group create`).
+///
+/// A coach who creates a group means to coach it, so a roster manager who
+/// [`may_coach_group`] is attached on creation. Platform admin alone does not
+/// attach: an admin setting a group up for someone else would otherwise hold
+/// the one coach seat, and the real coach's invite would be refused until the
+/// admin detached themselves. An admin who means to coach asks for it
+/// (`coach_is_me` on `POST /api/groups`) or redeems a coach invite.
+#[must_use]
+pub fn creator_coaches_group(user: &User, tenant_id: TenantId) -> bool {
+    user.manages_roster && may_coach_group(user, tenant_id, tenant_id)
 }
 
 #[cfg(test)]
@@ -145,6 +159,30 @@ mod tests {
         assert!(!may_coach_group(
             &user(true, true),
             TenantId::generate(),
+            TenantId::generate()
+        ));
+    }
+
+    #[test]
+    fn a_roster_manager_coaches_the_group_they_create() {
+        assert!(creator_coaches_group(
+            &user(true, false),
+            TenantId::generate()
+        ));
+    }
+
+    #[test]
+    fn a_platform_admin_does_not_take_the_coach_seat_by_creating() {
+        assert!(!creator_coaches_group(
+            &user(false, true),
+            TenantId::generate()
+        ));
+    }
+
+    #[test]
+    fn an_athlete_creates_a_coachless_group() {
+        assert!(!creator_coaches_group(
+            &user(false, false),
             TenantId::generate()
         ));
     }
