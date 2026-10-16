@@ -41,6 +41,9 @@ use std::{
 use tracing::info;
 use uuid::Uuid;
 
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::client::SciotteClient;
+
 // Conditional imports for provider-specific types
 #[cfg(feature = "provider-coros")]
 use crate::coros_provider::CorosProviderFactory;
@@ -50,6 +53,8 @@ use crate::garmin_provider::GarminProviderFactory;
 use crate::intervals_icu_provider::{
     default_config as intervals_icu_default_config, IntervalsIcuProviderFactory,
 };
+#[cfg(feature = "provider-sciotte")]
+use crate::sciotte_error::require_client;
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
     SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProviderFactory,
@@ -109,6 +114,12 @@ pub struct ProviderRegistry {
     /// signing OAuth app or personal API key. `None` counts nothing (a
     /// registry built for a test).
     request_limiter: Option<Arc<ProviderRateLimiter>>,
+    /// The one client every sciotte backend calls the scraper service through,
+    /// shared so they reuse one connection pool and one cached identity token.
+    /// `None` (a registry built for a test, or a server started with no
+    /// service configured) makes every scrape report the service missing.
+    #[cfg(feature = "provider-sciotte")]
+    sciotte_client: Option<SciotteClient>,
 }
 
 impl ProviderRegistry {
@@ -123,6 +134,8 @@ impl ProviderRegistry {
             default_configs: HashMap::new(),
             descriptors: HashMap::new(),
             request_limiter: None,
+            #[cfg(feature = "provider-sciotte")]
+            sciotte_client: None,
         };
 
         // Register all enabled providers
@@ -135,6 +148,7 @@ impl ProviderRegistry {
         Self::register_sciotte_garmin(&mut registry);
         Self::register_sciotte_trainingpeaks(&mut registry);
         Self::register_sciotte_coros(&mut registry);
+        Self::register_sciotte_factories(&mut registry);
         Self::register_intervals_icu(&mut registry);
         Self::register_wahoo(&mut registry);
 
@@ -319,7 +333,6 @@ impl ProviderRegistry {
     /// from fitness platform HTML pages (Strava, Garmin, etc.).
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte(registry: &mut Self) {
-        registry.register_factory(oauth_providers::SCIOTTE, Box::new(SciotteProviderFactory));
         registry.register_descriptor(oauth_providers::SCIOTTE, Box::new(SciotteDescriptor));
         // Sciotte runs in-process via dravr-sciotte library — no OAuth, no external URLs
         registry.set_default_config(
@@ -341,10 +354,6 @@ impl ProviderRegistry {
     /// Register Sciotte Garmin Connect provider (in-process web scraping)
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_garmin(registry: &mut Self) {
-        registry.register_factory(
-            oauth_providers::SCIOTTE_GARMIN,
-            Box::new(SciotteGarminProviderFactory),
-        );
         registry.register_descriptor(
             oauth_providers::SCIOTTE_GARMIN,
             Box::new(SciotteGarminDescriptor),
@@ -368,10 +377,6 @@ impl ProviderRegistry {
     /// Register Sciotte TrainingPeaks provider (web scraping on the scraper service)
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_trainingpeaks(registry: &mut Self) {
-        registry.register_factory(
-            oauth_providers::SCIOTTE_TRAININGPEAKS,
-            Box::new(SciotteTrainingPeaksProviderFactory),
-        );
         registry.register_descriptor(
             oauth_providers::SCIOTTE_TRAININGPEAKS,
             Box::new(SciotteTrainingPeaksDescriptor),
@@ -396,10 +401,6 @@ impl ProviderRegistry {
     /// `coros` backend until the partner API (carnet#509) is approved.
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_coros(registry: &mut Self) {
-        registry.register_factory(
-            oauth_providers::SCIOTTE_COROS,
-            Box::new(SciotteCorosProviderFactory),
-        );
         registry.register_descriptor(
             oauth_providers::SCIOTTE_COROS,
             Box::new(SciotteCorosDescriptor),
@@ -419,6 +420,32 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_coros(_registry: &mut Self) {}
+
+    /// Register the four sciotte backends' factories, each holding a clone of
+    /// this registry's sciotte client.
+    #[cfg(feature = "provider-sciotte")]
+    fn register_sciotte_factories(registry: &mut Self) {
+        let client = registry.sciotte_client.clone();
+        registry.register_factory(
+            oauth_providers::SCIOTTE,
+            Box::new(SciotteProviderFactory::new(client.clone())),
+        );
+        registry.register_factory(
+            oauth_providers::SCIOTTE_GARMIN,
+            Box::new(SciotteGarminProviderFactory::new(client.clone())),
+        );
+        registry.register_factory(
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            Box::new(SciotteTrainingPeaksProviderFactory::new(client.clone())),
+        );
+        registry.register_factory(
+            oauth_providers::SCIOTTE_COROS,
+            Box::new(SciotteCorosProviderFactory::new(client)),
+        );
+    }
+
+    #[cfg(not(feature = "provider-sciotte"))]
+    fn register_sciotte_factories(_registry: &mut Self) {}
 
     /// Register the Intervals.icu provider with environment-based configuration.
     ///
@@ -742,6 +769,38 @@ impl ProviderRegistry {
     pub fn with_request_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
         self.request_limiter = Some(limiter);
         self
+    }
+
+    /// This registry, calling the scraper service through `client` from every
+    /// sciotte backend it builds and handing the same client to the other
+    /// sciotte calls through [`Self::sciotte_client`]. The server builds the
+    /// client once, at startup; `None` leaves the service unconfigured.
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub fn with_sciotte_client(mut self, client: Option<SciotteClient>) -> Self {
+        self.sciotte_client = client;
+        Self::register_sciotte_factories(&mut self);
+        self
+    }
+
+    /// The server's sciotte client, for the calls to the scraper service that
+    /// are not a provider's own reads (logins, session drops, health reads),
+    /// or `None` when no service is configured.
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub const fn sciotte_client(&self) -> Option<&SciotteClient> {
+        self.sciotte_client.as_ref()
+    }
+
+    /// [`Self::sciotte_client`] for a call that cannot run without one.
+    ///
+    /// # Errors
+    ///
+    /// The not-configured error when the server started with no scraper
+    /// service.
+    #[cfg(feature = "provider-sciotte")]
+    pub fn require_sciotte_client(&self) -> AppResult<&SciotteClient> {
+        require_client(self.sciotte_client.as_ref())
     }
 
     /// The budget of `app` (the signing OAuth client's id), with the app's own

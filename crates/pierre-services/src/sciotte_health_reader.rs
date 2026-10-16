@@ -27,15 +27,27 @@ use dravr_enforme::providers::sciotte_reader::{
 };
 use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
+use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
 
 /// Reads daily summaries on the dravr-sciotte scraper service.
 ///
-/// The service is the one `DRAVR_SCIOTTE_REMOTE_URL` names. The client is
-/// built per read, as every other remote sciotte read builds it; it is a thin
-/// handle over a pooled HTTP client and a cached identity token.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SciotteServiceReader;
+/// Every read goes through the client it was built with: the server's one
+/// [`SciotteClient`], whose clones share a pooled HTTP client and a cached
+/// identity token, so a health sync over many athletes opens one connection
+/// pool and mints one token rather than one per read.
+#[derive(Clone)]
+pub struct SciotteServiceReader {
+    client: Option<SciotteClient>,
+}
+
+impl SciotteServiceReader {
+    /// A reader calling the scraper service through `client`; `None` (no
+    /// service configured) makes every read report that.
+    #[must_use]
+    pub const fn new(client: Option<SciotteClient>) -> Self {
+        Self { client }
+    }
+}
 
 #[async_trait]
 impl DailySummaryReader for SciotteServiceReader {
@@ -45,8 +57,7 @@ impl DailySummaryReader for SciotteServiceReader {
         session: &AuthSession,
         date: NaiveDate,
     ) -> ScraperResult<DailySummary> {
-        let remote =
-            SciotteClient::require_from_env().map_err(|e| scraper_error(to_app_error(e)))?;
+        let remote = require_client(self.client.as_ref()).map_err(scraper_error)?;
         remote
             .read_imported(session, provider, || {
                 remote.get_daily_summary(&session.session_id, date)

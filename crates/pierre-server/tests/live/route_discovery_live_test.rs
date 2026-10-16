@@ -27,7 +27,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 /// Prévost, Québec — reference point for route-discovery integration tests.
-/// Nominatim resolves this to roughly 45.87, -74.08. Well-trafficked OSM area
+/// The place geocoder resolves it to roughly 45.87, -74.08. Well-trafficked OSM area
 /// with named trails.
 const PREVOST_QC_LAT: f64 = 45.87;
 const PREVOST_QC_LON: f64 = -74.08;

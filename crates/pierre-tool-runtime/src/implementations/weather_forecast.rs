@@ -199,9 +199,11 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Place name to geocode instead of coordinates, e.g. \"Chamonix\" — the name \
-                     only, no region or country appended. Ignored when latitude and longitude \
-                     are given"
+                    "Place name to geocode instead of coordinates, e.g. \"Chamonix\", resolved \
+                     by the same gazetteer as discover_routes. A region and country written out \
+                     after the name (\"Paris, Texas, United States\") choose among places of \
+                     the same name; an abbreviation chooses nothing. Ignored when latitude and \
+                     longitude are given"
                         .to_owned(),
                 ),
                 min_length: Some(1),

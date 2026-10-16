@@ -22,15 +22,14 @@
 //! CR-10 number, the comments in order with their authors and times — and
 //! that a Strava row's self-report comes out exactly as it did before.
 //!
-//! The scraped scenarios live in one test because they share the process-wide
-//! `DRAVR_SCIOTTE_REMOTE_URL`; separate `#[tokio::test]`s in this binary would
-//! race. The pure mapping functions are tested on their own below.
+//! The scraped scenarios live in one test over one stand-in scraper, which
+//! both providers reach through a client built for it rather than through the
+//! environment. The pure mapping functions are tested on their own below.
 
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, TimeZone, Utc};
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -391,23 +390,26 @@ async fn scraped_rows_reach_cageux_with_their_metrics_and_self_report() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, seen.clone());
 
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
+    let client = SciotteClient::new(&format!("http://{addr}"), None)
+        .expect("a loopback client needs no audience"); // Safe: loopback URL
 
     let trainingpeaks = connected(
-        &SciotteTrainingPeaksProviderFactory,
+        &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
         TRAININGPEAKS_SESSION,
     )
     .await;
-    let strava = connected(&SciotteProviderFactory, "sciotte", STRAVA_SESSION).await;
+    let strava = connected(
+        &SciotteProviderFactory::new(Some(client)),
+        "sciotte",
+        STRAVA_SESSION,
+    )
+    .await;
 
     a_workout_keeps_its_load_metrics(trainingpeaks.as_ref(), &seen).await;
     the_self_report_crosses_in_the_platform_scales(trainingpeaks.as_ref()).await;
     ratings_outside_their_scales_are_dropped(trainingpeaks.as_ref()).await;
     a_strava_row_keeps_its_self_report_as_before(strava.as_ref(), &seen).await;
-
-    env::remove_var(ENV_REMOTE_URL);
 }
 
 #[test]

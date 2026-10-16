@@ -779,10 +779,13 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
 /// it. A profile read that reaches another instance is answered
 /// `401 session_not_found`, which says nothing about the account's session:
 /// taken for a dead one, it tells a coach to reconnect an account that works.
-async fn a_profile_read_that_misses_the_import_is_imported_once_more(calls: &Calls) {
+async fn a_profile_read_that_misses_the_import_is_imported_once_more(
+    resources: &Arc<ServerContext>,
+    calls: &Calls,
+) {
     let session: AuthSession = serde_json::from_value(session_json(ROAMING_SESSION)).unwrap();
 
-    let profile = trainingpeaks_profile(&session)
+    let profile = trainingpeaks_profile(resources.provider_registry(), &session)
         .await
         .expect("an instance that holds no session is not a dead session");
 
@@ -817,7 +820,7 @@ async fn a_trainingpeaks_account_role_is_read_recorded_and_acted_on() {
     a_reused_legacy_session_is_probed(&resources, &calls).await;
     a_stale_session_signs_in_again(&resources, &calls).await;
     a_coach_account_that_is_not_the_users_earns_nothing(&resources).await;
-    a_profile_read_that_misses_the_import_is_imported_once_more(&calls).await;
+    a_profile_read_that_misses_the_import_is_imported_once_more(&resources, &calls).await;
 
     env::remove_var(ENV_REMOTE_URL);
 }

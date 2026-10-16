@@ -29,6 +29,7 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
+use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
 use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
@@ -333,7 +334,8 @@ impl PierreSyncStorage {
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     /// The scrape-backed providers read their daily summaries on the dedicated
-    /// sciotte service (ADR-021): no browser runs in this pod.
+    /// sciotte service (ADR-021) through `sciotte`, the server's one client
+    /// for it: no browser runs in this pod.
     ///
     /// # Errors
     ///
@@ -341,8 +343,9 @@ impl PierreSyncStorage {
     /// vendor call with timeouts and never builds an untimed client instead.
     pub fn build_orchestrator(
         self: &Arc<Self>,
+        sciotte: Option<SciotteClient>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
-        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader);
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(sciotte));
         self.build_orchestrator_with_reader(&reader)
     }
 

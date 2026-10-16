@@ -38,12 +38,12 @@
 //! A coach link binds a roster athlete to a member the same way, and every
 //! read through it checks that binding again ([`link_binding`]).
 
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::{AccountRole, AthleteProfile, AuthSession};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountRole, TenantId};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_error::to_app_error;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use tracing::info;
@@ -384,7 +384,8 @@ async fn purge_misfiled_activities(
 /// on the scraper service: its names, whether it trains or coaches, and a
 /// coach account's roster.
 ///
-/// The session is imported first, and imported once more when the read
+/// The read goes through `registry`'s sciotte client, the server's one client
+/// for the service. The session is imported first, and imported once more when the read
 /// reaches an instance the import did not: that instance holding no session
 /// says nothing about the account's, so it must not read as a session to
 /// reconnect.
@@ -393,8 +394,11 @@ async fn purge_misfiled_activities(
 ///
 /// Returns an error when the scraper service is not configured, or when it
 /// cannot import the session or read the profile.
-pub async fn trainingpeaks_profile(session: &AuthSession) -> AppResult<AthleteProfile> {
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+pub async fn trainingpeaks_profile(
+    registry: &ProviderRegistry,
+    session: &AuthSession,
+) -> AppResult<AthleteProfile> {
+    let remote = registry.require_sciotte_client()?;
     remote
         .read_imported(
             session,
@@ -429,11 +433,12 @@ pub fn account_role(profile: &AthleteProfile) -> ProviderAccountRole {
 /// recorded then), or the repository error when recording fails.
 pub async fn probe_trainingpeaks_role(
     repos: &RepositoryRegistry,
+    registry: &ProviderRegistry,
     session: &AuthSession,
     user_id: Uuid,
     tenant: TenantId,
 ) -> AppResult<ProviderAccountRole> {
-    let profile = trainingpeaks_profile(session).await?;
+    let profile = trainingpeaks_profile(registry, session).await?;
     Ok(
         record_trainingpeaks_profile(repos, user_id, tenant, &profile)
             .await?

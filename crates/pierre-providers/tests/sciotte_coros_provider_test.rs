@@ -20,14 +20,13 @@
 //! provider, `coros`. A backend that sent the wrong name would scrape Strava
 //! with a COROS session, so the import request is asserted on the wire.
 //!
-//! One test drives the network because the scraper URL is the process-wide
-//! `DRAVR_SCIOTTE_REMOTE_URL`; separate network `#[test]`s would race on it.
+//! The provider reaches the stub through a client built for it, never through
+//! the environment.
 
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
 use pierre_providers::core::{
@@ -165,7 +164,7 @@ fn coros_activity_json() -> String {
     .to_string()
 }
 
-async fn connected_provider() -> Box<dyn FitnessProvider> {
+async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let config = ProviderConfig {
         name: SCIOTTE_COROS.to_owned(),
         auth_url: String::new(),
@@ -174,7 +173,8 @@ async fn connected_provider() -> Box<dyn FitnessProvider> {
         revoke_url: None,
         default_scopes: vec![],
     };
-    let provider = SciotteCorosProviderFactory
+    let client = SciotteClient::new(base_url, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let provider = SciotteCorosProviderFactory::new(Some(client))
         .create(config)
         .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
@@ -210,10 +210,7 @@ async fn a_coros_scrape_imports_its_session_as_coros_and_keeps_the_run_whole() {
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&seen));
 
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
-
-    let provider = connected_provider().await;
+    let provider = connected_provider(&format!("http://{addr}")).await;
     let activity = provider
         .get_activity("910000000000000001")
         .await

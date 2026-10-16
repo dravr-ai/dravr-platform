@@ -26,14 +26,13 @@
 //! the wire. The client's own request lines and the service's refusals are
 //! pinned in dravr-sciotte (`client_test`, `client_contract_test`), and the
 //! code each refusal lands as in `sciotte_error`'s unit tests. The scraped
-//! scenarios share one test because they share the process-wide
-//! `DRAVR_SCIOTTE_REMOTE_URL`.
+//! scenarios share one test over one stand-in, which every provider reaches
+//! through a client built for it rather than through the environment.
 
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{NaiveDate, TimeZone, Utc};
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_providers::core::{
@@ -260,9 +259,12 @@ fn request_lines(seen: &Mutex<Vec<String>>, path: &str, session: &str) -> Vec<St
         .collect()
 }
 
-async fn the_trainingpeaks_provider_reads_and_converts_the_plan(seen: &Mutex<Vec<String>>) {
+async fn the_trainingpeaks_provider_reads_and_converts_the_plan(
+    client: &SciotteClient,
+    seen: &Mutex<Vec<String>>,
+) {
     let trainingpeaks = connected(
-        &SciotteTrainingPeaksProviderFactory,
+        &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
         ATHLETE_SESSION,
     )
@@ -319,9 +321,9 @@ async fn the_trainingpeaks_provider_reads_and_converts_the_plan(seen: &Mutex<Vec
     assert!(import.contains(r#""provider":"trainingpeaks""#), "{import}");
 }
 
-async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in() {
+async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in(client: &SciotteClient) {
     let coach = connected(
-        &SciotteTrainingPeaksProviderFactory,
+        &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
         COACH_SESSION,
     )
@@ -365,9 +367,9 @@ async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in() {
     }
 }
 
-async fn a_dead_session_still_asks_for_a_reconnect() {
+async fn a_dead_session_still_asks_for_a_reconnect(client: &SciotteClient) {
     let dead = connected(
-        &SciotteTrainingPeaksProviderFactory,
+        &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
         DEAD_SESSION,
     )
@@ -385,10 +387,18 @@ async fn a_dead_session_still_asks_for_a_reconnect() {
     assert_eq!(sciotte_refusal(&error), None);
 }
 
-async fn the_strava_and_garmin_mirrors_refuse_the_read(seen: &Mutex<Vec<String>>) {
-    let strava = connected(&SciotteProviderFactory, "sciotte", STRAVA_SESSION).await;
+async fn the_strava_and_garmin_mirrors_refuse_the_read(
+    client: &SciotteClient,
+    seen: &Mutex<Vec<String>>,
+) {
+    let strava = connected(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        STRAVA_SESSION,
+    )
+    .await;
     let garmin = connected(
-        &SciotteGarminProviderFactory,
+        &SciotteGarminProviderFactory::new(Some(client.clone())),
         "sciotte_garmin",
         STRAVA_SESSION,
     )
@@ -421,15 +431,13 @@ async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, seen.clone());
 
-    env::set_var(ENV_REMOTE_URL, format!("http://{addr}"));
-    env::remove_var(ENV_AUDIENCE);
+    let client = SciotteClient::new(&format!("http://{addr}"), None)
+        .expect("a loopback client needs no audience"); // Safe: loopback URL
 
-    the_trainingpeaks_provider_reads_and_converts_the_plan(&seen).await;
-    a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in().await;
-    a_dead_session_still_asks_for_a_reconnect().await;
-    the_strava_and_garmin_mirrors_refuse_the_read(&seen).await;
-
-    env::remove_var(ENV_REMOTE_URL);
+    the_trainingpeaks_provider_reads_and_converts_the_plan(&client, &seen).await;
+    a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in(&client).await;
+    a_dead_session_still_asks_for_a_reconnect(&client).await;
+    the_strava_and_garmin_mirrors_refuse_the_read(&client, &seen).await;
 }
 
 #[test]

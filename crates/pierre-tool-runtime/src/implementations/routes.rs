@@ -166,9 +166,10 @@ fn discover_annotations() -> ToolAnnotations {
 /// Tool for discovering real routes and trails near a location from OSM data.
 ///
 /// The LLM calls this instead of fabricating terrain. When the user asks
-/// "propose a 10km run in Prévost, QC", the agent looks up the approximate
-/// coordinates of Prévost and invokes this tool to get a list of named
-/// real trails within the search radius.
+/// "propose a 10km run in Prévost", the agent passes the place
+/// ("Prévost, Quebec, Canada") and gets back a list of named real trails
+/// within the search radius around wherever the platform's one place
+/// geocoder resolves it — the place `get_weather_forecast` resolves too.
 pub struct DiscoverRoutesTool;
 
 #[async_trait]
@@ -181,9 +182,12 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Place name to resolve via Nominatim forward geocoding. Prefer this \
-                     over latitude/longitude — pass natural strings like 'Prévost, QC', \
-                     'Saint-Alexis-des-Monts', or 'Mont-Tremblat'. When set, the \
+                    "Place to search around, resolved by the same gazetteer as \
+                     get_weather_forecast. Prefer this over latitude/longitude. Give the \
+                     place's own name, optionally followed by its region and country to \
+                     choose among places of the same name: 'Prévost, Quebec, Canada', \
+                     'Saint-Alexis-des-Monts' or 'Mont-Tremblant'. Write the region out: \
+                     an abbreviation such as 'QC' chooses nothing. When set, the \
                      latitude/longitude parameters are ignored."
                         .to_owned(),
                 ),
@@ -277,10 +281,12 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             "discover_routes",
             "Discover real named running, cycling, hiking, or ski routes near a location, \
              grounded in OpenStreetMap data via the Overpass API. Pass either a place name \
-             via `place` (preferred — e.g. \"Prévost, QC\" or \"Saint-Alexis-des-Monts\") or \
-             explicit `latitude`/`longitude` coordinates. Place names are forward-geocoded \
-             via Nominatim before the Overpass query so the LLM never has to guess \
-             coordinates. Use this whenever the user asks you to propose, suggest, or find \
+             via `place` (preferred — e.g. \"Prévost, Quebec, Canada\" or \
+             \"Saint-Alexis-des-Monts\") or explicit `latitude`/`longitude` coordinates. \
+             Place names are resolved by the same gazetteer as get_weather_forecast before \
+             the Overpass query, so the LLM never has to guess coordinates; a region and \
+             country after the name, written out, choose among places of the same name. \
+             Use this whenever the user asks you to propose, suggest, or find \
              a route, trail, or outdoor session in a specific area. Never invent street \
              names, trail names, or terrain you have not verified via this tool. Returns up \
              to 20 named routes, nearest first, each with coordinates and a measured \

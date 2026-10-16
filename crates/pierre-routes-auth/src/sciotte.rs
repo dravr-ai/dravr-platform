@@ -27,7 +27,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use dravr_sciotte::client::SciotteClient;
-use dravr_sciotte::wire::LoginOutcome;
+use dravr_sciotte::wire::{LoginMethod, LoginOutcome};
 use pierre_providers::sciotte_error::{shed_retry_after_secs, to_app_error};
 
 #[cfg(feature = "health-sync")]
@@ -254,8 +254,11 @@ pub async fn forget_remote_flow(cache: &Cache, tenant_id: Uuid, user_id: Uuid) {
 pub struct SciotteLoginRequest {
     pub email: String,
     pub password: String,
-    #[serde(default = "default_method")]
-    pub method: String,
+    /// How to sign in: the provider's own form (`email`, the default when the
+    /// body names none), `google` or `apple`. Any other value is refused when
+    /// the body is read, before a browser is ever started.
+    #[serde(default)]
+    pub method: LoginMethod,
     /// Target platform: "strava" (default), "garmin", "trainingpeaks" or "coros"
     #[serde(default = "default_target")]
     pub target: String,
@@ -264,10 +267,6 @@ pub struct SciotteLoginRequest {
     /// the account has not already accepted the current notice.
     #[serde(default)]
     pub tos_consent: bool,
-}
-
-fn default_method() -> String {
-    "email".to_owned()
 }
 
 fn default_target() -> String {
@@ -858,13 +857,13 @@ pub async fn handle_sciotte_login(
     // A transport/service fault (not a credential rejection, which comes back
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
     // is a *system* failure: alert operators + emit `sync.failed`.
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
     let outcome = match remote
         .login_with_credentials(
             &request.email,
             &request.password,
-            &request.method,
+            request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
         )
         .await
@@ -882,7 +881,7 @@ pub async fn handle_sciotte_login(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,
@@ -905,7 +904,7 @@ pub async fn handle_sciotte_select_2fa(
     // that browser to this caller (see `require_remote_flow`). The remembered
     // provider names the platform for a *system* failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
     let outcome = match remote.select_2fa(&request.option_id, &flow_id).await {
         Ok(outcome) => outcome,
@@ -933,7 +932,7 @@ pub async fn handle_sciotte_select_2fa(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,
@@ -965,7 +964,7 @@ pub async fn handle_sciotte_submit_otp(
     // `require_remote_flow`); the provider names the platform for a *system*
     // failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
     let outcome = match remote.submit_otp(&request.code, &flow_id).await {
         Ok(outcome) => outcome,
@@ -993,7 +992,7 @@ pub async fn handle_sciotte_submit_otp(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,

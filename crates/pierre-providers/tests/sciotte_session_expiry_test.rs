@@ -25,7 +25,7 @@ use pierre_providers::core::{
 };
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
 
-/// Build a bare sciotte provider (no scraper, no env — the remote client is only
+/// Build a bare sciotte provider (no scraper, no client — the client is only
 /// touched on an actual fetch, never on construction or `is_authenticated`).
 fn sciotte_provider() -> Box<dyn FitnessProvider> {
     let config = ProviderConfig {
@@ -36,7 +36,7 @@ fn sciotte_provider() -> Box<dyn FitnessProvider> {
         revoke_url: None,
         default_scopes: vec![],
     };
-    SciotteProviderFactory
+    SciotteProviderFactory::new(None)
         .create(config)
         .expect("sciotte provider construction is infallible")
 }

@@ -29,9 +29,11 @@
 //!
 //! Nothing here logs, and no message carries a response body.
 
-use dravr_sciotte::client::{ClientError, Operation, ServiceError, TransportFailure};
+use dravr_sciotte::client::{
+    ClientError, Operation, SciotteClient, ServiceError, TransportFailure,
+};
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 
 /// The provider slug an auth-shaped sciotte error names. The provider layer
@@ -201,6 +203,16 @@ pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
         .as_ref()?
         .get(SCIOTTE_REFUSAL_DETAIL)?
         .as_str()
+}
+
+/// The server's sciotte client, or the not-configured error a call that needs
+/// the scraper service reports when the server started without one.
+///
+/// # Errors
+///
+/// [`to_app_error`] of [`ClientError::NotConfigured`] when `client` is `None`.
+pub fn require_client(client: Option<&SciotteClient>) -> AppResult<&SciotteClient> {
+    client.ok_or_else(|| to_app_error(ClientError::NotConfigured))
 }
 
 /// The wait window a load-shed advertises, or `None` when `error` is anything

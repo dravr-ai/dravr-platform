@@ -110,6 +110,7 @@ use pierre_notifications::NotificationService;
 use pierre_providers::ai_scope;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
+use pierre_providers::sciotte_provider::startup_client;
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
@@ -216,10 +217,12 @@ impl ServerContext {
         let auth_manager_arc = Arc::new(auth_manager);
 
         // Create the provider registry once, admitting every provider call
-        // against the signing app's budget
+        // against the signing app's budget, and holding the server's one
+        // sciotte client every scraper call shares
         let provider_registry = Arc::new(
             ProviderRegistry::new()
-                .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos)),
+                .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos))
+                .with_sciotte_client(startup_client()),
         );
 
         // Seed the cageux config registry with the layered stack of
@@ -514,6 +517,7 @@ impl ServerContext {
         let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) =
             Self::init_health_sync(
                 &repos,
+                &provider_registry,
                 &sse_manager,
                 SyncFailureNotices::new(
                     Arc::clone(&repos.provider_connections),
@@ -909,6 +913,7 @@ impl ServerContext {
     #[cfg(feature = "health-sync")]
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
+        provider_registry: &ProviderRegistry,
         sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
     ) -> AppResult<(
@@ -921,9 +926,11 @@ impl ServerContext {
 
         use pierre_services::provider_refresh::SyncNotifier;
         let adapter = Arc::new(PierreSyncStorage::new(repos));
-        let orchestrator = adapter.build_orchestrator().map_err(|e| {
-            AppError::internal(format!("health sync providers could not be built: {e}"))
-        })?;
+        let orchestrator = adapter
+            .build_orchestrator(provider_registry.sciotte_client().cloned())
+            .map_err(|e| {
+                AppError::internal(format!("health sync providers could not be built: {e}"))
+            })?;
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
         let abort_handle = start_scheduled_sync(
