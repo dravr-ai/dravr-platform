@@ -27,6 +27,7 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
+use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
@@ -39,7 +40,6 @@ use uuid::Uuid;
 
 use crate::sciotte_health_reader::SciotteServiceReader;
 use crate::whoop_terms;
-use dravr_sciotte::client::SciotteClient;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///

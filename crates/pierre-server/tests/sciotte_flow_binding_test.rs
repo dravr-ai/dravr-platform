@@ -243,7 +243,8 @@ async fn a_new_login_supersedes_the_previously_parked_flow() {
 /// The login method is a closed set (carnet#988): a name the scraper has no
 /// login for is refused when the body is read, before the handler runs, so
 /// nothing the user left parked is touched; each method the scraper knows is
-/// accepted, and so is a body that names none.
+/// accepted. A body that names none is the login
+/// `a_new_login_supersedes_the_previously_parked_flow` sends.
 #[tokio::test]
 async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
     let (resources, user_id, tenant_id) = test_setup().await;
@@ -258,26 +259,35 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
     )
     .await;
 
-    let refused = AxumTestRequest::post("/api/providers/sciotte/login")
-        .header("authorization", &format!("Bearer {token}"))
-        .json(&serde_json::json!({
-            "email": "athlete@example.com",
-            "password": "correct horse battery staple",
-            "method": "sms",
-            "target": "strava",
-        }))
-        .send(AuthRoutes::routes(resources.auth_routes_context()))
-        .await;
-    let status = refused.status();
-    let body = refused.text();
-    assert_eq!(status, 422, "an unknown login method is refused: {body}");
-    assert_eq!(
-        require_remote_flow(&resources.common.cache, tenant_id.as_uuid(), user_id)
-            .await
-            .expect("a refused body never reaches the handler that supersedes the flow")
-            .0,
-        "parked-flow"
-    );
+    // A miscased known method ("Google") is refused like a name the scraper
+    // has no login for ("gmail", "sms"): none is ever driven as the
+    // provider's own form.
+    for method in ["Google", "gmail", "sms"] {
+        let refused = AxumTestRequest::post("/api/providers/sciotte/login")
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&serde_json::json!({
+                "email": "athlete@example.com",
+                "password": "correct horse battery staple",
+                "method": method,
+                "target": "strava",
+            }))
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+        let status = refused.status();
+        let body = refused.text();
+        assert_eq!(
+            status, 422,
+            "the unknown login method {method} is refused: {body}"
+        );
+        assert_eq!(
+            require_remote_flow(&resources.common.cache, tenant_id.as_uuid(), user_id)
+                .await
+                .expect("a refused body never reaches the handler that supersedes the flow")
+                .0,
+            "parked-flow",
+            "method {method} reached the handler"
+        );
+    }
 
     for method in ["email", "direct", "google", "apple"] {
         let accepted = AxumTestRequest::post("/api/providers/sciotte/login")
