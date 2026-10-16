@@ -17,7 +17,16 @@
 //! backfill finishing on two replicas — so the post is claimed in the
 //! `platform_post_claims` ledger before any model call, and only the trigger
 //! that takes the claim posts. A trigger that ends up posting nothing releases
-//! it, so the next landing tries again.
+//! it, so the next landing tries again; one that posted marks it posted.
+//!
+//! ## Stopped mid-post
+//!
+//! The post is a pipeline turn or two, run on the server's in-flight turn
+//! tracker, so a SIGTERM drain awaits it and a panic in it is logged. A turn
+//! can still outlast the drain's few seconds, and the instance then dies
+//! holding a claim it never released nor marked. Such a claim is retaken by
+//! the next landing once [`FIRST_POST_LEASE`] has passed, so the athlete still
+//! gets the post (carnet#911).
 //!
 //! ## Where it lands
 //!
@@ -46,6 +55,7 @@
 //! back to the status's warm-up floor, deduplicated per provider and bounded
 //! by the rail's own limits.
 
+use std::future::Future;
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
@@ -59,7 +69,7 @@ use pierre_routes_auth::{FirstSyncHook, CONNECT_RECENT_DAYS};
 use pierre_services::provider_refresh::token_tenant;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -73,8 +83,20 @@ use crate::services::training_status::request_status_depth;
 /// cache the post's turn answers from.
 const FIRST_READ_LIMIT: usize = 50;
 
+/// How long an unposted, unreleased first-post claim is a post under way.
+///
+/// Past it, the instance holding the claim is presumed gone and the next
+/// landing retakes it: a first post is a
+/// turn or two, minutes at the very most, and an athlete who connected a
+/// provider hears from the coach within the quarter hour.
+pub const FIRST_POST_LEASE: Duration = Duration::minutes(15);
+
 /// The production [`FirstSyncHook`]: has the coach speak first once an
 /// athlete's data lands.
+///
+/// Cloned into the tracked task each report runs on: a weak handle and two
+/// `Arc`s.
+#[derive(Clone)]
 pub struct FirstSyncPoster {
     /// Weak handle to the composition root — repositories, strings and the
     /// tool runtime the first read of an on-demand provider runs on. Weak for
@@ -151,8 +173,30 @@ impl FirstSyncPoster {
             None => None,
         };
 
-        if posted_in_app != Some(true) && posted_to_dm != Some(true) {
+        if posted_in_app == Some(true) || posted_to_dm == Some(true) {
+            mark_first_post_posted(&resources, user_id, tenant_id).await;
+        } else {
             release_first_post(&resources, user_id, tenant_id).await;
+        }
+    }
+
+    /// Run `work` on the server's in-flight turn tracker and wait for it.
+    ///
+    /// A connect reports from a task of its own, which the shutdown drain
+    /// does not see; spawned here, the post's turns are counted and awaited
+    /// like a messaging turn, and a panic in them is logged rather than lost
+    /// with a dropped handle.
+    async fn run_tracked<F>(&self, work: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let Some(resources) = self.ctx.upgrade() else {
+            return;
+        };
+        let handle = resources.common.turns.tracker().spawn(work);
+        drop(resources);
+        if let Err(e) = handle.await {
+            error!(error = %e, "First post: the tracked report did not finish");
         }
     }
 
@@ -184,36 +228,47 @@ impl FirstSyncPoster {
 #[async_trait]
 impl FirstSyncHook for FirstSyncPoster {
     async fn data_landed(&self, user_id: Uuid, tenant_id: TenantId, provider: &str) {
-        self.post_first_sync(user_id, tenant_id, provider).await;
-        // After the post, not beside it: on a scrape provider the capture and
-        // the post's turn would read the one browser session at once.
-        if let Some(resources) = self.ctx.upgrade() {
-            request_history_depth(resources, user_id, tenant_id).await;
-        }
+        let poster = self.clone();
+        let provider = provider.to_owned();
+        self.run_tracked(async move {
+            poster.post_first_sync(user_id, tenant_id, &provider).await;
+            // After the post, not beside it: on a scrape provider the capture
+            // and the post's turn would read the one browser session at once.
+            if let Some(resources) = poster.ctx.upgrade() {
+                request_history_depth(resources, user_id, tenant_id).await;
+            }
+        })
+        .await;
     }
 
     async fn connected_on_demand(&self, user_id: Uuid, provider: &str) {
-        self.first_read(user_id, provider).await;
+        let poster = self.clone();
+        let provider = provider.to_owned();
+        self.run_tracked(async move { poster.first_read(user_id, &provider).await })
+            .await;
     }
 }
 
 /// Claim the first post to the athlete. `false` when an earlier trigger holds
-/// it — the post was made, or is being made — or the claim failed (logged).
+/// it — the post was made, or is being made within [`FIRST_POST_LEASE`] — or
+/// the claim failed (logged).
 async fn claim_first_post(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> bool {
+    let now = Utc::now();
     match resources
         .common
         .repos
         .platform_post_claims
-        .claim_platform_post(
+        .claim_platform_post_once(
             tenant_id,
             user_id,
             PostPurpose::FirstSync.as_str(),
-            Utc::now(),
+            now - FIRST_POST_LEASE,
+            now,
         )
         .await
     {
@@ -227,6 +282,26 @@ async fn claim_first_post(
             warn!(error = %e, "First post: the once-claim failed");
             false
         }
+    }
+}
+
+/// Mark the first post made, so its claim is never retaken. A mark that fails
+/// (logged) leaves the claim to be retaken once its lease passes, and the
+/// athlete may then be posted to a second time.
+async fn mark_first_post_posted(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+    if let Err(e) = resources
+        .common
+        .repos
+        .platform_post_claims
+        .mark_platform_post_posted(
+            tenant_id,
+            user_id,
+            PostPurpose::FirstSync.as_str(),
+            Utc::now(),
+        )
+        .await
+    {
+        warn!(error = %e, "First post: marking the made post failed; its claim may be retaken");
     }
 }
 

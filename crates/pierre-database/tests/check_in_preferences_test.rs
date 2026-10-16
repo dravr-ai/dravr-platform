@@ -168,7 +168,64 @@ async fn a_periodic_claim_is_taken_once_per_period() {
         .await
         .unwrap());
     assert!(claims
-        .claim_platform_post(tenant, user_id, "first_sync", tuesday)
+        .claim_platform_post_once(tenant, user_id, "first_sync", tuesday, tuesday)
         .await
         .unwrap());
+}
+
+/// A post owed once is claimed once; a claim whose post landed is never
+/// retaken, and one abandoned mid-post is retaken only once its lease is past
+/// (carnet#911).
+#[tokio::test]
+async fn a_once_claim_is_retaken_only_when_abandoned_past_its_lease() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let claims = &repos.platform_post_claims;
+    let tenant = TenantId::generate();
+    let noon = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+    let lease = Duration::minutes(15);
+    let claim = |user_id, at| {
+        claims.claim_platform_post_once(tenant, user_id, "first_sync", at - lease, at)
+    };
+
+    let abandoned = fresh_user(repos).await;
+    assert!(
+        claim(abandoned, noon).await.unwrap(),
+        "the first claim is taken"
+    );
+    assert!(
+        !claim(abandoned, noon + Duration::minutes(14))
+            .await
+            .unwrap(),
+        "inside its lease an unposted claim is someone's post under way"
+    );
+    assert!(
+        claim(abandoned, noon + Duration::minutes(16))
+            .await
+            .unwrap(),
+        "past its lease an unposted claim was abandoned and is retaken"
+    );
+
+    let posted = fresh_user(repos).await;
+    assert!(claim(posted, noon).await.unwrap());
+    assert!(claims
+        .mark_platform_post_posted(tenant, posted, "first_sync", noon + Duration::minutes(1))
+        .await
+        .unwrap());
+    assert!(
+        !claim(posted, noon + Duration::days(30)).await.unwrap(),
+        "a post that landed is never claimed again"
+    );
+    assert!(
+        !claims
+            .mark_platform_post_posted(
+                TenantId::generate(),
+                posted,
+                "first_sync",
+                noon + Duration::minutes(1)
+            )
+            .await
+            .unwrap(),
+        "marking is scoped by tenant"
+    );
 }

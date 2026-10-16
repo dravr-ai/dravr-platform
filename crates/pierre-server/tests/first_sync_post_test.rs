@@ -28,8 +28,14 @@ use pierre_core::models::{AddMessageParams, TenantId, SUPPORTED_LOCALES};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::first_sync_post::FirstSyncPoster;
-use pierre_mcp_server::services::platform_post::{PlatformPost, PostSurface};
+use std::sync::Mutex;
+
+use async_trait::async_trait;
+use pierre_mcp_server::services::first_sync_post::{FirstSyncPoster, FIRST_POST_LEASE};
+use pierre_mcp_server::services::platform_post::{
+    PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
+};
+use pierre_mcp_server::services::turn_lifecycle::InFlightTurns;
 use pierre_routes_auth::FirstSyncHook;
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
 use uuid::Uuid;
@@ -339,6 +345,114 @@ async fn a_dm_whose_window_closed_gets_nothing() {
     assert_eq!(asked.len(), 1, "the in-app post alone: {asked:?}");
     assert_eq!(asked[0].surface, PostSurface::InApp);
     assert!(fx.channel.sent.lock().unwrap().is_empty());
+}
+
+/// Take the athlete's first-sync claim `age` ago, as a trigger that is still
+/// posting, or died posting, holds it; marked posted when `posted`.
+async fn seed_first_sync_claim(fx: &Fixture, age: Duration, posted: bool) {
+    let claims = &fx.resources.common.repos.platform_post_claims;
+    let at = Utc::now() - age;
+    assert!(claims
+        .claim_platform_post_once(fx.tenant_id, fx.user_id, "first_sync", at, at)
+        .await
+        .unwrap());
+    if posted {
+        assert!(claims
+            .mark_platform_post_posted(fx.tenant_id, fx.user_id, "first_sync", at)
+            .await
+            .unwrap());
+    }
+}
+
+/// An instance stopped mid-post leaves a claim it neither released nor
+/// marked. Once the lease is past, the next landing retakes it and the athlete
+/// gets the post after all (carnet#911).
+#[tokio::test]
+async fn a_claim_abandoned_past_its_lease_is_retaken_and_posts() {
+    let fx = fixture(RecordingPost::posting(true)).await;
+    seed_first_sync_claim(&fx, FIRST_POST_LEASE + Duration::minutes(1), false).await;
+
+    fx.poster
+        .data_landed(fx.user_id, fx.tenant_id, "whoop")
+        .await;
+
+    assert_eq!(fx.post.asked().len(), 1, "the owed post is made");
+    fx.poster
+        .data_landed(fx.user_id, fx.tenant_id, "whoop")
+        .await;
+    assert_eq!(
+        fx.post.asked().len(),
+        1,
+        "and marked made, so a later landing posts nothing"
+    );
+}
+
+/// A post that landed is never made again, however long ago it was claimed.
+#[tokio::test]
+async fn a_claim_whose_post_landed_is_never_retaken() {
+    let fx = fixture(RecordingPost::posting(true)).await;
+    seed_first_sync_claim(&fx, FIRST_POST_LEASE + Duration::days(30), true).await;
+
+    fx.poster
+        .data_landed(fx.user_id, fx.tenant_id, "whoop")
+        .await;
+
+    assert!(fx.post.asked().is_empty());
+}
+
+/// Inside its lease an unposted claim is another trigger's post under way.
+#[tokio::test]
+async fn a_claim_inside_its_lease_is_a_post_under_way() {
+    let fx = fixture(RecordingPost::posting(true)).await;
+    seed_first_sync_claim(&fx, Duration::minutes(1), false).await;
+
+    fx.poster
+        .data_landed(fx.user_id, fx.tenant_id, "whoop")
+        .await;
+
+    assert!(fx.post.asked().is_empty());
+}
+
+/// A post that counts the turns in flight while it is asked for, and posts
+/// nothing.
+struct CountingPost {
+    turns: Arc<InFlightTurns>,
+    in_flight: Mutex<Vec<usize>>,
+}
+
+#[async_trait]
+impl PlatformPost for CountingPost {
+    async fn post(&self, _request: PlatformPostRequest<'_>) -> Option<PostedReply> {
+        self.in_flight.lock().unwrap().push(self.turns.len());
+        None
+    }
+}
+
+/// The first post runs on the server's in-flight turn tracker, so a SIGTERM
+/// drain counts and awaits it; spawned bare, it was invisible to the drain.
+#[tokio::test]
+async fn the_first_post_runs_where_the_shutdown_drain_sees_it() {
+    let fx = fixture(RecordingPost::posting(true)).await;
+    let counting = Arc::new(CountingPost {
+        turns: Arc::clone(&fx.resources.common.turns),
+        in_flight: Mutex::new(Vec::new()),
+    });
+    let poster = FirstSyncPoster::new(
+        Arc::downgrade(&fx.resources),
+        Arc::clone(&counting) as Arc<dyn PlatformPost>,
+        Arc::new(FakeResolver::new(
+            Arc::clone(&fx.channel) as Arc<dyn MessagingChannel>
+        )),
+    );
+
+    poster.data_landed(fx.user_id, fx.tenant_id, "whoop").await;
+
+    assert_eq!(
+        counting.in_flight.lock().unwrap().as_slice(),
+        [1],
+        "the post was the one tracked turn while it ran"
+    );
+    assert!(fx.resources.common.turns.is_empty(), "and it has finished");
 }
 
 #[cfg(feature = "provider-strava")]
