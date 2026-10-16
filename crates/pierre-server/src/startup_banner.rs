@@ -113,15 +113,6 @@ pub const ENDPOINT_CATEGORIES: &[EndpointCategory] = &[
         ],
     },
     EndpointCategory {
-        name: "Configuration:",
-        endpoints: &[
-            ("Get Config:", "GET", "/config"),
-            ("Update Config:", "PUT", "/config"),
-            ("User Config:", "GET", "/config/user"),
-            ("Update User Config:", "PUT", "/config/user"),
-        ],
-    },
-    EndpointCategory {
         name: "Fitness Configuration:",
         endpoints: &[
             ("Get Fitness Config:", "GET", "/fitness/config"),
