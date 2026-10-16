@@ -28,7 +28,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachAccessRequest, CoachAccessStatus, TenantId, User};
 use pierre_database::RepositoryRegistry;
 use serde::Serialize;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::admin_ops::set_user_manages_roster;
@@ -186,6 +186,12 @@ pub struct GrantOutcome {
 /// group they still own that still has no coach, becomes its coach — so no
 /// coach invite is needed.
 ///
+/// The decision is claimed first, by the conditional update a concurrent
+/// [`decline`] races against, and the effects run only once this grant has
+/// won it. When an effect then fails, the claim is undone (and a coach access
+/// already given is taken back), so the request row and the access state
+/// cannot disagree.
+///
 /// The attachment writes `coach_user_id` directly rather than through
 /// `GroupService::set_group_coach`: that path's extra work ends the delegated
 /// connections read through a coach being *replaced*, and a coachless group
@@ -202,28 +208,6 @@ pub async fn grant(
 ) -> AppResult<GrantOutcome> {
     let request = pending_request(repos, request_id).await?;
 
-    set_user_manages_roster(repos, request.user_id, true, operator).await?;
-
-    let mut attached_group = None;
-    if let Some((group_id, tenant_id)) = located_group(&request) {
-        let group_key = group_id.to_string();
-        let attachable = repos
-            .groups
-            .get_group(&group_key, tenant_id)
-            .await?
-            .is_some_and(|g| {
-                g.is_active && g.owner_id == request.user_id && g.coach_user_id.is_none()
-            });
-        if attachable
-            && repos
-                .groups
-                .set_group_coach_user(&group_key, Some(request.user_id), tenant_id)
-                .await?
-        {
-            attached_group = Some(group_id);
-        }
-    }
-
     let decided_at = Utc::now();
     if !repos
         .coach_access_requests
@@ -232,6 +216,14 @@ pub async fn grant(
     {
         return Err(already_decided());
     }
+
+    let attached_group = match apply_grant(repos, &request, operator).await {
+        Ok(attached_group) => attached_group,
+        Err(error) => {
+            undo_grant_claim(repos, &request, operator).await;
+            return Err(error);
+        }
+    };
     info!(
         request_id = %request_id,
         target_user_id = %request.user_id,
@@ -248,6 +240,60 @@ pub async fn grant(
         },
         attached_group,
     })
+}
+
+/// A claimed grant's effects: coach access, then the group attachment. The
+/// group the requester now coaches, when the attachment happened.
+async fn apply_grant(
+    repos: &RepositoryRegistry,
+    request: &CoachAccessRequest,
+    operator: Option<Uuid>,
+) -> AppResult<Option<Uuid>> {
+    set_user_manages_roster(repos, request.user_id, true, operator).await?;
+
+    let Some((group_id, tenant_id)) = located_group(request) else {
+        return Ok(None);
+    };
+    let group_key = group_id.to_string();
+    let attachable = repos
+        .groups
+        .get_group(&group_key, tenant_id)
+        .await?
+        .is_some_and(|g| g.is_active && g.owner_id == request.user_id && g.coach_user_id.is_none());
+    if attachable
+        && repos
+            .groups
+            .set_group_coach_user(&group_key, Some(request.user_id), tenant_id)
+            .await?
+    {
+        return Ok(Some(group_id));
+    }
+    Ok(None)
+}
+
+/// Undo a grant whose effects failed after it claimed the request: take back
+/// the coach access and put the request back to pending. Both steps are
+/// attempted and what did not undo is logged; the caller returns the
+/// original error.
+async fn undo_grant_claim(
+    repos: &RepositoryRegistry,
+    request: &CoachAccessRequest,
+    operator: Option<Uuid>,
+) {
+    let revoked = repos
+        .users
+        .set_manages_roster_by_operator(request.user_id, false, operator)
+        .await;
+    let reopened = repos.coach_access_requests.reopen(request.id).await;
+    if revoked.is_err() || !matches!(reopened, Ok(true)) {
+        warn!(
+            request_id = %request.id,
+            target_user_id = %request.user_id,
+            revoke = ?revoked.err(),
+            reopen = ?reopened,
+            "A failed coach access grant could not be fully undone"
+        );
+    }
 }
 
 /// Decline a pending request. Nothing else changes; the coach may ask again.
