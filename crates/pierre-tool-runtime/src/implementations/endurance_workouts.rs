@@ -882,6 +882,16 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 .payload_hash()
                 .map_err(|e| AppError::internal(format!("hash session: {e}")))?;
 
+            // What this turn derived from first-party-only data does not leave
+            // through an external transport, onto a third-party calendar or
+            // anywhere else: the gate `push_training_plan` applies to a stored
+            // plan, applied to what this call derived (carnet#901).
+            if !ai_scope::admit_derived(ai_scope::derived_policy()) {
+                return Err(AppError::unavailable_over_transport(
+                    "this workout is not available over this interface",
+                ));
+            }
+
             // With `replaces`, the calendar entry keeps its provider id and gets
             // the new workout; without it, a new entry is created.
             let push: AppResult<String> = match &previous {

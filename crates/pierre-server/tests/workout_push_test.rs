@@ -23,7 +23,7 @@
 mod common;
 
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
@@ -418,6 +418,27 @@ impl Fixture {
             .await?)
     }
 
+    /// Run a tool on an executor serving `transport`, over the same resources.
+    async fn execute_over(
+        &self,
+        transport: Transport,
+        tool_name: &str,
+        params: Value,
+    ) -> Result<UniversalResponse> {
+        let executor = UniversalToolExecutor::new(Arc::clone(&self.executor.resources))
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(transport);
+        Ok(executor
+            .execute_tool(UniversalRequest {
+                tool_name: tool_name.to_owned(),
+                parameters: params,
+                user_id: self.user_id.to_string(),
+                protocol: "test".to_owned(),
+                tenant_id: Some(self.tenant_str()),
+            })
+            .await?)
+    }
+
     async fn prescribe(&self, params: Value) -> Result<UniversalResponse> {
         self.execute("prescribe_workout", params).await
     }
@@ -442,6 +463,19 @@ impl Fixture {
         author: PlanAuthor<'_>,
         with_outline: bool,
         weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+    ) {
+        self.save_weeks_stamped(author, with_outline, weeks, TransportPolicy::AnyTransport)
+            .await;
+    }
+
+    /// [`Self::save_weeks_by`], stamped `transport_policy` the way a turn that
+    /// read first-party-only data stamps the plan it saves.
+    async fn save_weeks_stamped(
+        &self,
+        author: PlanAuthor<'_>,
+        with_outline: bool,
+        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+        transport_policy: TransportPolicy,
     ) {
         let goal = GoalRace {
             name: "Fall race".to_owned(),
@@ -503,7 +537,7 @@ impl Fixture {
                 replace_season: false,
                 outline,
                 weeks: &inputs,
-                transport_policy: TransportPolicy::AnyTransport,
+                transport_policy,
             })
             .await
             .expect("save plan bundle");
@@ -2138,5 +2172,71 @@ async fn a_mid_push_cancel_stops_between_entries_and_the_next_push_finishes() ->
     assert_eq!(report["unchanged"].as_u64(), Some(1));
     assert_eq!(report["removed"].as_u64(), Some(0));
     assert_eq!(stub.events().await.len(), 3);
+    Ok(())
+}
+
+/// A plan stamped first-party-only is refused over MCP and A2A, exactly as
+/// reading it is, before the provider is called and before any ledger row is
+/// written; the athlete's own app still pushes it (carnet#901).
+#[tokio::test]
+async fn a_first_party_only_plan_is_not_pushed_over_an_external_transport() -> Result<()> {
+    let stub = stub_live(1).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    fixture
+        .save_weeks_stamped(
+            PlanAuthor::none(),
+            true,
+            &[(
+                monday,
+                "",
+                vec![planned(
+                    monday,
+                    "run",
+                    "Strava-built easy run",
+                    Some(30),
+                    "Z1",
+                )],
+            )],
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await;
+
+    for transport in [Transport::McpHttp, Transport::A2a] {
+        let refused = fixture
+            .execute_over(transport, "push_training_plan", json!({}))
+            .await?;
+        assert!(!refused.success, "{transport:?} must be refused");
+        let text = refused
+            .result
+            .as_ref()
+            .map(Value::to_string)
+            .unwrap_or_default();
+        assert!(
+            text.contains("_unavailable_over_this_interface"),
+            "{transport:?}: {text}"
+        );
+        assert!(!text.contains("Strava-built"), "{transport:?}: {text}");
+    }
+    assert!(
+        stub.requests().await.is_empty(),
+        "the calendar provider must not be called"
+    );
+    assert!(
+        fixture.ledger().await.is_empty(),
+        "no ledger row is written"
+    );
+
+    let report = fixture
+        .execute_over(Transport::WebApp, "push_training_plan", json!({}))
+        .await?;
+    assert!(
+        report.success,
+        "the athlete's own app pushes: {:?}",
+        report.error
+    );
+    let report = report.result.expect("result payload");
+    assert_eq!(report["created"].as_u64(), Some(1), "{report}");
+    assert_eq!(stub.events().await.len(), 1);
     Ok(())
 }
