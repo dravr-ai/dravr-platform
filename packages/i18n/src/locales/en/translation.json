@@ -1613,6 +1613,11 @@
     "wellnessReadGranted": "Shares sleep, HRV and weight",
     "wellnessReadHint": "Dravr reads them through {{coach}}'s account, so {{coach}} sees your readiness and your agent can use it. Turning this off removes what Dravr already read.",
     "wellnessReadLabel": "Also share your {{platform}} sleep, HRV, resting heart rate, weight and daily notes",
+    "wellnessReadOwnSource": "Wellness comes from their own Garmin or WHOOP connection",
+    "wellnessReadOwnSourceNote": "Your own Garmin or WHOOP connection already gives Dravr this, so the link reads none of it while that connection stays.",
+    "wellnessRevokeBody": "Dravr stops reading your {{platform}} wellness through {{coach}}'s account and removes what it already read.",
+    "wellnessRevokeConfirm": "Stop sharing",
+    "wellnessRevokeTitle": "Stop sharing wellness?",
     "withdraw": "Withdraw"
   },
   "discover": {

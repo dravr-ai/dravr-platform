@@ -1613,6 +1613,11 @@
     "wellnessReadGranted": "Partage sommeil, VFC et poids",
     "wellnessReadHint": "Dravr les lit via le compte de {{coach}} : {{coach}} voit ta forme du jour et ton agent peut s'en servir. Désactiver retire ce que Dravr a déjà lu.",
     "wellnessReadLabel": "Partager aussi ton sommeil, ta VFC, ta fréquence cardiaque au repos, ton poids et tes notes du jour {{platform}}",
+    "wellnessReadOwnSource": "Les données de bien-être viennent de sa propre connexion Garmin ou WHOOP",
+    "wellnessReadOwnSourceNote": "Ta propre connexion Garmin ou WHOOP donne déjà ces données à Dravr : le lien n'en lit aucune tant qu'elle reste active.",
+    "wellnessRevokeBody": "Dravr arrête de lire ton bien-être {{platform}} via le compte de {{coach}} et retire ce qu'il a déjà lu.",
+    "wellnessRevokeConfirm": "Arrêter le partage",
+    "wellnessRevokeTitle": "Arrêter de partager le bien-être ?",
     "withdraw": "Retirer"
   },
   "discover": {

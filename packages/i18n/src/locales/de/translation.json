@@ -1613,6 +1613,11 @@
     "wellnessReadGranted": "Teilt Schlaf, HRV und Gewicht",
     "wellnessReadHint": "Dravr liest sie über das Konto von {{coach}}: {{coach}} sieht deine Tagesform, und dein Agent kann sie nutzen. Beim Ausschalten entfernt Dravr, was es schon gelesen hat.",
     "wellnessReadLabel": "Auch Schlaf, HRV, Ruhepuls, Gewicht und Tagesnotizen aus {{platform}} teilen",
+    "wellnessReadOwnSource": "Wellness-Daten kommen aus der eigenen Garmin- oder WHOOP-Verbindung",
+    "wellnessReadOwnSourceNote": "Deine eigene Garmin- oder WHOOP-Verbindung gibt Dravr diese Daten schon, daher liest die Verknüpfung nichts davon, solange sie besteht.",
+    "wellnessRevokeBody": "Dravr liest deine {{platform}}-Wellness nicht mehr über das Konto von {{coach}} und entfernt, was es schon gelesen hat.",
+    "wellnessRevokeConfirm": "Nicht mehr teilen",
+    "wellnessRevokeTitle": "Wellness nicht mehr teilen?",
     "withdraw": "Zurückziehen"
   },
   "discover": {
