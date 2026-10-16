@@ -1610,7 +1610,7 @@
     "unlinkTitle": "¿Desvincular {{platform}}?",
     "unlinked": "Vínculo de {{platform}} terminado",
     "waitingFor": "Esperando la confirmación de {{member}}",
-    "wellnessReadGranted": "Comparte sueño, VFC y peso",
+    "wellnessReadGranted": "Comparte sueño, VFC, frecuencia cardiaca en reposo, peso y notas",
     "wellnessReadHint": "Dravr los lee a través de la cuenta de {{coach}}: {{coach}} ve tu estado de forma y tu agente puede usarlo. Al desactivarlo se borra lo que Dravr ya leyó.",
     "wellnessReadLabel": "Compartir también tu sueño, VFC, frecuencia cardiaca en reposo, peso y notas diarias de {{platform}}",
     "wellnessReadOwnSource": "Los datos de bienestar llegan de su propia conexión con Garmin o WHOOP",
