@@ -30,6 +30,8 @@
 //!
 //! LIMITATION(registre#886): `TerraWebhookHandler` is never mounted — no route accepts Terra webhook POSTs.
 //!
+//! LIMITATION(registre#1061): `TerraProvider` has no tier gate, so a Starter athlete could connect Terra-routed devices billed per account.
+//!
 //! Treat the architecture diagram below as the *intended* design, not as wired
 //! production behavior.
 //!

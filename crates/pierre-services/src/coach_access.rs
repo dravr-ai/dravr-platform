@@ -101,6 +101,7 @@ pub async fn request_access(
 
     let request = CoachAccessRequest::pending(user_id, group, Utc::now());
     if repos.coach_access_requests.open(&request).await? {
+        // LIMITATION(registre#1060): `coach_access.requested` is the only coach-access event; no referral attribution (`coach_referral.*`, `referral_id`) exists.
         info!(
             target: "notify",
             event = "coach_access.requested",

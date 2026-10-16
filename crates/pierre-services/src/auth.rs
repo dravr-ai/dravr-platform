@@ -102,6 +102,8 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
+    /// LIMITATION(registre#1063): `register` has no per-IP limit, bot check or kill switch, so self-activating sign-up stays off.
+    ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
     #[tracing::instrument(skip(self, request), fields(route = "register"))]

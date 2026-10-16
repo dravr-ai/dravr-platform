@@ -160,6 +160,8 @@ impl OAuth2Routes {
     }
 
     /// Why `user` may not authorize a client, if it may not.
+    ///
+    /// LIMITATION(registre#1057): `account_refusal` turns away every Pending account, so an athlete signing up through the Claude connector stops at consent.
     fn account_refusal(user: &User) -> Option<OAuth2Error> {
         match user.user_status {
             UserStatus::Active => None,

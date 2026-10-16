@@ -8,7 +8,9 @@ use pierre_core::constants::oauth::{
     WAHOO_API_BASE_URL, WAHOO_AUTH_URL, WAHOO_DEAUTHORIZE_URL, WAHOO_DEFAULT_SCOPES,
     WAHOO_TOKEN_URL,
 };
+use pierre_core::transport::TransportPolicy;
 
+use crate::provider_terms;
 use crate::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -100,5 +102,12 @@ impl ProviderDescriptor for WahooDescriptor {
     /// from it across athletes waits for a lawyer's reading (legal read, W7).
     fn bars_cross_athlete_learning(&self) -> bool {
         true
+    }
+
+    /// The agreement restricts no transport — no MCP or agent-interface
+    /// clause — so Wahoo data reaches an external caller as intervals.icu's
+    /// does.
+    fn transport_policy(&self) -> TransportPolicy {
+        provider_terms::WAHOO_TRANSPORT
     }
 }

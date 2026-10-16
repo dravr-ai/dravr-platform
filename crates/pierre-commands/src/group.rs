@@ -479,6 +479,8 @@ impl CommandHandler for GroupMembersHandler {
 /// role and file the invite through the same `GroupService` path, so the
 /// two spellings cannot drift.
 ///
+/// LIMITATION(registre#1059): `issue_group_invite` serves owners and admins only, so an athlete cannot invite their own coach from a personal thread.
+///
 /// # Errors
 ///
 /// Returns an error when the caller has no group to invite into, is not a

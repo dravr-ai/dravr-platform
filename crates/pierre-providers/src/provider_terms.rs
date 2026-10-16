@@ -213,6 +213,19 @@ pub const INTERVALS_ICU_TRANSPORT: TransportPolicy = TransportPolicy::AnyTranspo
 pub const INTERVALS_ICU_TRANSPORT_BY_SOURCE: &[(&str, TransportPolicy)] =
     &[("garmin", TransportPolicy::AnyTransport)];
 
+/// Wahoo API Agreement (read 2026-08-17, re-fetched unchanged 2026-10-07): its
+/// data is served over every transport.
+///
+/// The agreement carries no AI, derived-data, MCP or agent-interface
+/// restriction, so serving an athlete their own Wahoo-sourced data over MCP or
+/// A2A is ordinary app functionality. The descriptor declares it instead of
+/// inheriting the `ProviderDescriptor::transport_policy` default, so a change
+/// to that default cannot move Wahoo's data.
+///
+/// Read: dravr-vault `Work Log/2026-08/Wahoo API Agreement — Legal Read and
+/// Sync Assessment (2026-08-17).md`, the §5.16 row.
+pub const WAHOO_TRANSPORT: TransportPolicy = TransportPolicy::AnyTransport;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,6 +408,22 @@ mod tests {
         ] {
             assert_eq!(registry.transport_policy(name), Some(policy), "{name}");
         }
+    }
+
+    /// Wahoo declares its policy instead of inheriting the trait default, so
+    /// the default can change without moving Wahoo's data: the gate serves a
+    /// Wahoo item over every transport.
+    #[cfg(feature = "provider-wahoo")]
+    #[test]
+    fn wahoo_declares_every_transport() {
+        use pierre_core::ai_policy::first_party_only;
+
+        let registry = ProviderRegistry::new();
+        assert_eq!(registry.transport_policy("wahoo"), Some(WAHOO_TRANSPORT));
+        assert!(
+            !first_party_only(&registry, "wahoo", None),
+            "a Wahoo item is served over every transport"
+        );
     }
 
     /// Where each provider's items may go over an external transport, as the

@@ -157,6 +157,8 @@ fn plan_view(tier: &UserTier) -> PlanView {
 /// Single source for the plan-picker UI; the caps come straight from
 /// [`TierQuotaConfig`] so displayed limits always match enforcement.
 ///
+/// LIMITATION(registre#1062): `plan_catalog` lists Starter, Professional and Enterprise only — no athlete Plus plan and no extra-reply metering.
+///
 /// ```
 /// let plans = pierre_routes_billing::plan_catalog();
 /// assert_eq!(plans.len(), 3);

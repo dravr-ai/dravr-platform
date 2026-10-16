@@ -53,6 +53,8 @@ impl TierQuotaConfig {
 }
 
 /// Starter tier — free / evaluation usage limits.
+///
+/// LIMITATION(registre#1058): `STARTER` has no monthly checked-reply cap, and its daily tool-call cap is checked on `/mcp` calls only, never by a chat turn's quota check.
 pub const STARTER: TierQuotaConfig = TierQuotaConfig {
     daily_messages: 50,
     daily_tokens: 500_000,
