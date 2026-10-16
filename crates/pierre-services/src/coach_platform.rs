@@ -144,7 +144,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
     async fn read_roster(&self, read: RosterRead<'_>) -> AppResult<Vec<RosterAthlete>> {
         let session = serde_json::from_str::<AuthSession>(&read.token.access_token)
             .map_err(|_| Refusal::ReconnectNeeded.error(Some(self)))?;
-        let profile = match trainingpeaks_profile(&session).await {
+        let profile = match trainingpeaks_profile(read.registry, &session).await {
             Ok(profile) => profile,
             Err(e) if e.provider_auth_required_provider().is_some() => {
                 return Err(Refusal::ReconnectNeeded.error(Some(self)));

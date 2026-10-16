@@ -59,7 +59,7 @@ pub fn spawn_login_probe(
     let session_json = session_json.to_owned();
     tokio::spawn(async move {
         let tenant = TenantId::from_uuid(tenant_id);
-        match probe_trainingpeaks_role(&repos, &session, user_id, tenant).await {
+        match probe_trainingpeaks_role(&repos, &registry, &session, user_id, tenant).await {
             Ok(ProviderAccountRole::Coach) => {
                 info!(
                     user_id = %user_id,
@@ -108,6 +108,7 @@ pub fn spawn_role_probe_if_unread(
     session: AuthSession,
 ) {
     let repos = Arc::clone(&resources.repos);
+    let registry = Arc::clone(&resources.provider_registry);
     tokio::spawn(async move {
         let tenant = TenantId::from_uuid(tenant_id);
         let unread = match repos
@@ -132,7 +133,7 @@ pub fn spawn_role_probe_if_unread(
         if !unread {
             return;
         }
-        match probe_trainingpeaks_role(&repos, &session, user_id, tenant).await {
+        match probe_trainingpeaks_role(&repos, &registry, &session, user_id, tenant).await {
             Ok(role) => info!(
                 user_id = %user_id,
                 role = %role,

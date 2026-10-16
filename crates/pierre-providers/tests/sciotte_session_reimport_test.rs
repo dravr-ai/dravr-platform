@@ -29,14 +29,13 @@
 //! The scraper here is a loopback stand-in (a test double, per the repo's mock
 //! rule) that records every request under the session it names — the import's
 //! in its body, a read's in `X-Session-Id` — and answers by that session. The
-//! scenarios share one test because they share the process-wide
-//! `DRAVR_SCIOTTE_REMOTE_URL`.
+//! scenarios share one test over that one stand-in, which every provider
+//! reaches through a client built for it rather than through the environment.
 
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -257,23 +256,28 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&log));
-    env::remove_var(ENV_AUDIENCE);
-    env::set_var(ENV_REMOTE_URL, &base);
+    let client = SciotteClient::new(&base, None).expect("a loopback client needs no audience"); // Safe: loopback URL
 
-    a_list_that_missed_the_import_once_is_served(&log).await;
-    a_list_that_missed_the_import_twice_asks_for_a_relogin(&log).await;
-    a_session_the_provider_refused_is_never_reimported(&log).await;
-    a_session_the_service_holds_is_read_once(&log).await;
-    a_refused_import_sends_no_read(&log).await;
-    a_profile_that_missed_the_import_once_is_served(&log).await;
-
-    env::remove_var(ENV_REMOTE_URL);
+    a_list_that_missed_the_import_once_is_served(&client, &log).await;
+    a_list_that_missed_the_import_twice_asks_for_a_relogin(&client, &log).await;
+    a_session_the_provider_refused_is_never_reimported(&client, &log).await;
+    a_session_the_service_holds_is_read_once(&client, &log).await;
+    a_refused_import_sends_no_read(&client, &log).await;
+    a_profile_that_missed_the_import_once_is_served(&client, &log).await;
 }
 
 /// The incident's shape: the read after the import finds no session, the
 /// session is imported again, and the second read serves the athlete's ride.
-async fn a_list_that_missed_the_import_once_is_served(log: &Mutex<Vec<Seen>>) {
-    let provider = provider_holding(&SciotteProviderFactory, "sciotte", MISSED_ONCE_SESSION).await;
+async fn a_list_that_missed_the_import_once_is_served(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
+    let provider = provider_holding(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        MISSED_ONCE_SESSION,
+    )
+    .await;
 
     let activities = provider
         .get_activities_with_params(&list_params())
@@ -295,9 +299,12 @@ async fn a_list_that_missed_the_import_once_is_served(log: &Mutex<Vec<Seen>>) {
 
 /// A second `session_not_found` is final: it reaches the caller auth-required
 /// under the backend that owns the session, and nothing is sent a third time.
-async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(log: &Mutex<Vec<Seen>>) {
+async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
     let provider = provider_holding(
-        &SciotteGarminProviderFactory,
+        &SciotteGarminProviderFactory::new(Some(client.clone())),
         "sciotte_garmin",
         MISSED_TWICE_SESSION,
     )
@@ -323,8 +330,16 @@ async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(log: &Mutex<Vec<
 
 /// `session_expired` is the provider refusing the cookies the service holds:
 /// importing the same cookies again would only scrape into the same refusal.
-async fn a_session_the_provider_refused_is_never_reimported(log: &Mutex<Vec<Seen>>) {
-    let provider = provider_holding(&SciotteProviderFactory, "sciotte", REFUSED_SESSION).await;
+async fn a_session_the_provider_refused_is_never_reimported(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
+    let provider = provider_holding(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        REFUSED_SESSION,
+    )
+    .await;
 
     let error = provider
         .get_activities_with_params(&list_params())
@@ -342,8 +357,13 @@ async fn a_session_the_provider_refused_is_never_reimported(log: &Mutex<Vec<Seen
     );
 }
 
-async fn a_session_the_service_holds_is_read_once(log: &Mutex<Vec<Seen>>) {
-    let provider = provider_holding(&SciotteProviderFactory, "sciotte", HELD_SESSION).await;
+async fn a_session_the_service_holds_is_read_once(client: &SciotteClient, log: &Mutex<Vec<Seen>>) {
+    let provider = provider_holding(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        HELD_SESSION,
+    )
+    .await;
 
     let activities = provider
         .get_activities_with_params(&list_params())
@@ -361,9 +381,13 @@ async fn a_session_the_service_holds_is_read_once(log: &Mutex<Vec<Seen>>) {
 
 /// The service refusing the import is its gate rejecting the platform's
 /// request, which no second import changes and no read may follow.
-async fn a_refused_import_sends_no_read(log: &Mutex<Vec<Seen>>) {
-    let provider =
-        provider_holding(&SciotteProviderFactory, "sciotte", IMPORT_REFUSED_SESSION).await;
+async fn a_refused_import_sends_no_read(client: &SciotteClient, log: &Mutex<Vec<Seen>>) {
+    let provider = provider_holding(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        IMPORT_REFUSED_SESSION,
+    )
+    .await;
 
     let error = provider
         .get_activities_with_params(&list_params())
@@ -384,8 +408,16 @@ async fn a_refused_import_sends_no_read(log: &Mutex<Vec<Seen>>) {
 
 /// Every read follows its import the same way, so the profile read is
 /// re-imported as the list is.
-async fn a_profile_that_missed_the_import_once_is_served(log: &Mutex<Vec<Seen>>) {
-    let provider = provider_holding(&SciotteProviderFactory, "sciotte", MISSED_ONCE_SESSION).await;
+async fn a_profile_that_missed_the_import_once_is_served(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
+    let provider = provider_holding(
+        &SciotteProviderFactory::new(Some(client.clone())),
+        "sciotte",
+        MISSED_ONCE_SESSION,
+    )
+    .await;
 
     let athlete = provider
         .get_athlete()

@@ -857,7 +857,7 @@ pub async fn handle_sciotte_login(
     // A transport/service fault (not a credential rejection, which comes back
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
     // is a *system* failure: alert operators + emit `sync.failed`.
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, target = %target, "Starting sciotte credential login (remote service)");
     let outcome = match remote
         .login_with_credentials(
@@ -881,7 +881,7 @@ pub async fn handle_sciotte_login(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,
@@ -904,7 +904,7 @@ pub async fn handle_sciotte_select_2fa(
     // that browser to this caller (see `require_remote_flow`). The remembered
     // provider names the platform for a *system* failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
     let outcome = match remote.select_2fa(&request.option_id, &flow_id).await {
         Ok(outcome) => outcome,
@@ -932,7 +932,7 @@ pub async fn handle_sciotte_select_2fa(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,
@@ -964,7 +964,7 @@ pub async fn handle_sciotte_submit_otp(
     // `require_remote_flow`); the provider names the platform for a *system*
     // failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = SciotteClient::require_from_env().map_err(to_app_error)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
     let outcome = match remote.submit_otp(&request.code, &flow_id).await {
         Ok(outcome) => outcome,
@@ -992,7 +992,7 @@ pub async fn handle_sciotte_submit_otp(
     };
     remote_login_to_response(
         outcome,
-        &remote,
+        remote,
         &resources,
         user_id,
         tenant_id,
