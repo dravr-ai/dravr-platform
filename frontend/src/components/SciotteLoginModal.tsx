@@ -18,6 +18,7 @@ import { Button, RevealButton } from './ui';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
+  SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   loginIdentifierField,
@@ -97,6 +98,7 @@ export default function SciotteLoginModal({
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const preset = SCIOTTE_LOGIN_PRESETS[target];
+  const providerLabel = t(preset.labelKey);
   const accountField = loginIdentifierField(preset.identifier);
   const glyphInk = providerGlyphInk(preset.backend, scheme);
   // The notice is shown only while the account has not accepted it, and only
@@ -138,6 +140,23 @@ export default function SciotteLoginModal({
     setPhase('credentials');
     setError(null);
   };
+
+  // What a refused sign-in step tells the user, in the app's words rather than
+  // the server's English prose: a lapsed sign-in has to start again, and a
+  // provider security check (a captcha) is the athlete's to retry later. The
+  // challenged sentence is a server-rendered key, so its positional `{0}` is
+  // filled here with the provider's name.
+  const refusalMessage = useCallback(
+    (err: unknown, fallbackKey: string) => {
+      const reason = refusalReason(err);
+      if (reason === SCIOTTE_LOGIN_FLOW_EXPIRED) return t('hosted.common.signInExpired');
+      if (reason === SCIOTTE_LOGIN_CHALLENGE) {
+        return t('hosted.common.signInChallenged').split('{0}').join(providerLabel);
+      }
+      return describeApiError(err, { online, t, fallbackKey });
+    },
+    [online, providerLabel, t]
+  );
 
   // Email/password login — in-process headless Chrome
   const handleEmailLogin = useCallback(
@@ -191,23 +210,19 @@ export default function SciotteLoginModal({
           setPhase('error');
         }
       } catch (err) {
-        setError(describeApiError(err, { online, t, fallbackKey: 'auth.loginFailed' }));
+        setError(refusalMessage(err, 'auth.loginFailed'));
         setPhase('error');
       } finally {
         setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, onClose, onConnected, online, t]
+    [email, password, method, target, notice, consentAccepted, onClose, onConnected, refusalMessage, t]
   );
 
-  // What a refused continuation tells the user: a lapsed sign-in has to start
-  // again, which the server's own reason says without its English prose.
+  // What a refused continuation tells the user.
   const continuationError = useCallback(
-    (err: unknown) =>
-      refusalReason(err) === SCIOTTE_LOGIN_FLOW_EXPIRED
-        ? t('hosted.common.signInExpired')
-        : describeApiError(err, { online, t, fallbackKey: 'shell.sciotteVerificationFailed' }),
-    [online, t]
+    (err: unknown) => refusalMessage(err, 'shell.sciotteVerificationFailed'),
+    [refusalMessage]
   );
 
   // 2FA option selection
@@ -262,7 +277,6 @@ export default function SciotteLoginModal({
 
   // Auto-poll once when number-match phase is reached — the phone notification
   // arrives before the UI shows the number, so poll immediately
-  const providerLabel = t(preset.labelKey);
   // A code reached through the platform's own sign-in was sent by the
   // platform; one behind Google or Apple may come from their prompt or from
   // an authenticator app, so that code step names no sender.

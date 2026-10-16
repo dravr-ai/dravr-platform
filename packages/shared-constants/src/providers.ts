@@ -188,6 +188,14 @@ export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
 export const SCIOTTE_LOGIN_FLOW_EXPIRED = 'login_flow_expired' as const;
 
 /**
+ * `details.reason` of the refusal a sciotte sign-in gets when the provider
+ * stopped it at a security check (a captcha) the scraper cannot answer: the
+ * athlete retries later. Mirrors the server's `LOGIN_CHALLENGE_REASON`; read
+ * it with `refusalReason` from `@pierre/ui-logic`.
+ */
+export const SCIOTTE_LOGIN_CHALLENGE = 'login_challenge' as const;
+
+/**
  * The credential-login target for a provider card, or `null` for a provider
  * that connects some other way (OAuth, an API key).
  */

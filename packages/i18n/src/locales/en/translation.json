@@ -2290,7 +2290,25 @@
     "requestAccessPending": "Request sent — the Dravr team will review it.",
     "requestAccessDeclined": "Your last request was declined. You can ask again.",
     "requestAccessFailed": "We couldn't send your request. Please try again.",
-    "reply_corrected": "{0} corrected Dravr's reply to {1} (“{2}”):\n\n{3}"
+    "reply_corrected": "{0} corrected Dravr's reply to {1} (“{2}”):\n\n{3}",
+    "planThread": {
+      "open": "Work on {{name}}'s plan",
+      "subtitle": "Plan · {{name}}",
+      "kindLabel": "Athlete plan",
+      "openError": "We couldn't open this plan thread. Please try again."
+    },
+    "planDraft": {
+      "badge": "Draft · {{name}} can't see it yet",
+      "publish": "Publish to {{name}}",
+      "discard": "Discard draft",
+      "discardConfirm": "Discard this draft? {{name}}'s live plan stays as it is.",
+      "published": "Published. {{name}} has been notified.",
+      "conflictTitle": "{{name}}'s plan changed since this draft began",
+      "conflictWeeks": "Weeks changed in both the draft and the live plan: {{weeks}}",
+      "conflictSeason": "{{name}}'s season was rebuilt after this draft began, so the draft's weeks may no longer fit it.",
+      "overwrite": "Publish anyway",
+      "consentRevoked": "{{name}} stopped sharing with you, so their plan can't be changed."
+    }
   },
   "impersonationLog": {
     "active": "Active",
@@ -2610,6 +2628,14 @@
       "agent_updated": {
         "body": "An administrator updated {0}.",
         "title": "Agent updated"
+      },
+      "coach_plan_published": {
+        "body": "{0} published your training plan for {1}. You'll find it on Home.",
+        "title": "New plan from {0}"
+      },
+      "coach_plan_pushed": {
+        "body": "{0} put the workouts from your plan on your {1} calendar.",
+        "title": "Workouts on your {1} calendar"
       },
       "delegation_confirmed": {
         "body": "{0} confirmed your {2} link in {1}. Their workouts are now read through your account.",

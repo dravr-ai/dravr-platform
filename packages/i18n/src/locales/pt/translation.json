@@ -2290,7 +2290,25 @@
     "requestAccessPending": "Pedido enviado — a equipa Dravr vai analisá-lo.",
     "requestAccessDeclined": "O teu último pedido foi recusado. Podes pedir de novo.",
     "requestAccessFailed": "Não conseguimos enviar o teu pedido. Tenta de novo.",
-    "reply_corrected": "{0} corrigiu a resposta do Dravr a {1} («{2}»):\n\n{3}"
+    "reply_corrected": "{0} corrigiu a resposta do Dravr a {1} («{2}»):\n\n{3}",
+    "planThread": {
+      "open": "Trabalhar no plano de {{name}}",
+      "subtitle": "Plano · {{name}}",
+      "kindLabel": "Plano de atleta",
+      "openError": "Não conseguimos abrir esta conversa do plano. Tenta de novo."
+    },
+    "planDraft": {
+      "badge": "Rascunho · {{name}} ainda não o vê",
+      "publish": "Publicar para {{name}}",
+      "discard": "Descartar rascunho",
+      "discardConfirm": "Descartar este rascunho? O plano atual de {{name}} fica como está.",
+      "published": "Publicado. Enviámos uma notificação a {{name}}.",
+      "conflictTitle": "O plano de {{name}} mudou desde que este rascunho começou",
+      "conflictWeeks": "Semanas alteradas no rascunho e no plano atual: {{weeks}}",
+      "conflictSeason": "A época de {{name}} foi refeita depois de este rascunho começar, por isso as semanas do rascunho podem já não encaixar.",
+      "overwrite": "Publicar mesmo assim",
+      "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso o plano já não pode ser alterado."
+    }
   },
   "impersonationLog": {
     "active": "Ativa",
@@ -2610,6 +2628,14 @@
       "agent_updated": {
         "body": "Um administrador atualizou {0}.",
         "title": "Agente atualizado"
+      },
+      "coach_plan_published": {
+        "body": "{0} publicou o teu plano de treino para {1}. Podes vê-lo no Início.",
+        "title": "Plano publicado por {0}"
+      },
+      "coach_plan_pushed": {
+        "body": "{0} colocou os treinos do teu plano no teu calendário do {1}.",
+        "title": "Treinos no teu calendário do {1}"
       },
       "delegation_confirmed": {
         "body": "{0} confirmou a tua ligação ao {2} em {1}. Os treinos passam a ser lidos através da tua conta.",

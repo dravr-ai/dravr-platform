@@ -159,6 +159,9 @@
                 providers: {{PROVIDERS_JSON}},
                 // `details.reason` of the refusal a lapsed sign-in gets.
                 flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
+                // `details.reason` of the refusal a sign-in the provider stopped
+                // at a challenge (a captcha) gets.
+                loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
                 // The strings the script sets, in the athlete's locale. A
@@ -352,6 +355,9 @@
                 if (failure.rejected) return fmt(S.signInRejected, sciotteLabel);
                 if (failure.status === 401) return S.linkExpired;
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
+                if (failure.reason === CONFIG.loginChallengeReason) {
+                    return fmt(S.signInChallenged, sciotteLabel);
+                }
                 return fmt(S.signInUnavailable, sciotteLabel);
             }
             function showFailure(failure) {

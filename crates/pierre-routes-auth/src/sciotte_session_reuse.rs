@@ -1,5 +1,5 @@
 // ABOUTME: Decides whether a Sciotte credential login is answered from the session stored moments before
-// ABOUTME: Only a double tap or refresh-after-connect reuses it; an older session is replaced by a real sign-in
+// ABOUTME: Only a double tap or refresh-after-connect reuses it; only one observed dead seeds the sign-in's browser
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,7 +10,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -31,14 +31,100 @@ use crate::AuthRoutesContext;
 /// session.
 const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
 
-/// The stored session a login may answer from, or `None` when the login must
-/// sign in again: the session was written outside [`SESSION_REUSE_WINDOW`], its
-/// blob does not deserialise, or it carries an expiry already in the past.
-fn reusable_session(
+/// What a credential login does with the session stored for its provider.
+pub enum StoredSessionUse {
+    /// The session was written within [`SESSION_REUSE_WINDOW`] and is not
+    /// observed dead (see [`SessionHealth`]): the login is answered from it,
+    /// with this response.
+    Reused(Response),
+    /// The login signs in with the credentials submitted.
+    SignIn {
+        /// The caller's own stored session, sent to seed the login browser,
+        /// and only when the platform has observed it dead: its `expires_at`
+        /// is in the past, or the caller's connection to the same provider is
+        /// flagged `needs_reauth` or `revoked` because a read through it
+        /// failed at the provider. A session the provider refused has dead
+        /// sign-in cookies, so seeding them cannot sign the browser in to
+        /// the old account, while its device-trust cookies still let the
+        /// provider see the device it trusted at that sign-in rather than a
+        /// stranger it challenges.
+        ///
+        /// A stored session not observed dead — no past `expires_at` and an
+        /// `active` connection — is never sent, however old it is. Its
+        /// sign-in cookies may still be live, and the reconnect it is part of
+        /// may be a coach switching to another account: seeded with account
+        /// A's live cookies, the provider could skip its sign-in form, and
+        /// the session stored afterwards would be account A's filed under
+        /// account B's credentials. Such a login goes in with `None`.
+        ///
+        /// `None` also on a fresh connect, and when the stored blob does not
+        /// deserialise.
+        prior_session: Option<AuthSession>,
+    },
+}
+
+/// What the platform has observed about a stored session's liveness.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SessionHealth {
+    /// Nothing says it is dead: no expiry already past, and its connection is
+    /// `active`. Its sign-in cookies may still be live.
+    NotObservedDead,
+    /// Its `expires_at` is past, or the caller's connection to its provider
+    /// requires re-authorizing because a read through it failed at the
+    /// provider. Its sign-in cookies cannot sign anyone in.
+    ObservedDead,
+}
+
+/// Whether `session` carries an expiry already past. A session without one is
+/// "unknown, assume usable": not expired.
+fn has_expired(session: &AuthSession) -> bool {
+    session
+        .expires_at
+        .is_some_and(|expires_at| expires_at <= Utc::now())
+}
+
+/// Read what the platform has observed about `session`: its own expiry, and
+/// the status of the caller's connection to `provider_name`, read by
+/// `(user_id, tenant, provider_name)` so only the caller's own connection to
+/// that provider can count.
+///
+/// Sciotte sessions carry no `expires_at` in practice, so the connection is
+/// what records a session the provider refused: a scrape answered
+/// `session_expired` flags it `needs_reauth`.
+///
+/// # Errors
+///
+/// Only a hard DB failure.
+async fn session_health(
+    resources: &AuthRoutesContext,
+    session: &AuthSession,
+    user_id: Uuid,
+    tenant: TenantId,
+    provider_name: &str,
+) -> Result<SessionHealth, AppError> {
+    if has_expired(session) {
+        return Ok(SessionHealth::ObservedDead);
+    }
+    let connections = resources
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant))
+        .await?;
+    Ok(if connection_needs_reauth(&connections, provider_name) {
+        SessionHealth::ObservedDead
+    } else {
+        SessionHealth::NotObservedDead
+    })
+}
+
+/// Whether the session read from `token` answers a login on its own: written
+/// within [`SESSION_REUSE_WINDOW`] and not observed dead.
+fn answers_login(
     token: &UserOAuthToken,
+    health: SessionHealth,
     user_id: Uuid,
     provider_name: &str,
-) -> Option<AuthSession> {
+) -> bool {
     // Only a session written moments ago answers the login; an older one is
     // exactly what a reconnect is replacing.
     if Utc::now() - token.updated_at > SESSION_REUSE_WINDOW {
@@ -47,61 +133,61 @@ fn reusable_session(
             provider = %provider_name,
             "Stored Sciotte session predates the reuse window — running a fresh login"
         );
-        return None;
+        return false;
     }
 
-    // Guard on deserializability so a corrupt blob falls through to a fresh
-    // login rather than short-circuiting into an unusable "connected" state.
-    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
-        warn!(
+    // A session whose expiry is already past, or whose connection a refused
+    // read flagged, is certainly dead. Without Chrome we can't probe the
+    // cookies, but these cheap local checks stop us returning "connected" for
+    // a session the next scrape would reject (the reconnect-loop trap). A
+    // session with no expiry on an `active` connection is "unknown, assume
+    // usable" — the service re-auths on import if the cookies turn out stale.
+    if health == SessionHealth::ObservedDead {
+        info!(
             %user_id,
             provider = %provider_name,
-            "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
+            "Stored Sciotte session is observed dead — falling through to fresh login"
         );
-        return None;
-    };
-
-    // A session whose expiry is already in the past is certainly dead. Without
-    // Chrome we can't probe the cookies, but this cheap local check stops us
-    // returning "connected" for a session the next scrape would reject (the
-    // reconnect-loop trap). A `None` expiry is "unknown, assume usable" — the
-    // service re-auths on import if the cookies turn out stale.
-    if let Some(expires_at) = session.expires_at {
-        if expires_at <= Utc::now() {
-            info!(
-                %user_id,
-                provider = %provider_name,
-                "Stored Sciotte session is expired — falling through to fresh login"
-            );
-            return None;
-        }
+        return false;
     }
-
-    Some(session)
+    true
 }
 
-/// Answer a login from the stored Sciotte session when that session was written
-/// within [`SESSION_REUSE_WINDOW`] — the double tap / refresh-after-connect case,
-/// which then costs no scraper work. Any older session is ignored and the login
-/// runs with the credentials submitted, so a dead session without an expiry, or
-/// a coach switching accounts, gets a real sign-in (and the session store's
-/// side effects, such as the roster-cache invalidation) instead of a stale
-/// "connected".
+/// Decide what a credential login does with the caller's stored Sciotte
+/// session for `provider_name`.
+///
+/// A session written within [`SESSION_REUSE_WINDOW`] answers the login — the
+/// double tap / refresh-after-connect case, which then costs no scraper work.
+/// Any older session is not reused: the login runs with the credentials
+/// submitted, so a dead session without an expiry, or a coach switching
+/// accounts, gets a real sign-in (and the session store's side effects, such
+/// as the roster-cache invalidation) instead of a stale "connected". That
+/// sign-in carries the old session as its prior session only when the
+/// platform has observed the old session dead — its `expires_at` is past, or
+/// the caller's connection to the provider is `needs_reauth` or `revoked` —
+/// so the provider sees the device it trusted last time rather than a
+/// stranger it challenges. A session not observed dead is never sent: its
+/// cookies may still sign the browser in to the old account, which on a
+/// coach's account switch would store account A's session under account B's
+/// credentials.
 ///
 /// A recent session is still checked locally before reuse: the blob must
-/// deserialise, and any `expires_at` it carries must be in the future, so a
-/// corrupt or known-expired one falls through to a fresh login.
+/// deserialise, and it must not be observed dead.
 ///
-/// Returns `Ok(Some(response))` when the short-circuit fires, `Ok(None)` when
-/// the caller must proceed with a fresh login (no token, a session written
-/// outside the window, an unparseable blob, or a known-expired session), and
-/// `Err(_)` only for a hard DB failure.
-pub async fn try_reuse_existing_session(
+/// The session and the connection are both read by
+/// `(user_id, tenant_id, provider_name)`: only the caller's own session can
+/// answer the login or seed its browser, and only the caller's own connection
+/// to that provider can mark it dead.
+///
+/// # Errors
+///
+/// Only a hard DB failure.
+pub async fn stored_session_use(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     provider_name: &str,
-) -> Result<Option<Response>, AppError> {
+) -> Result<StoredSessionUse, AppError> {
     let tenant = TenantId::from_uuid(tenant_id);
     let Some(token) = resources
         .repos
@@ -109,12 +195,33 @@ pub async fn try_reuse_existing_session(
         .get_token(user_id, tenant, provider_name)
         .await?
     else {
-        return Ok(None);
+        return Ok(StoredSessionUse::SignIn {
+            prior_session: None,
+        });
     };
 
-    let Some(session) = reusable_session(&token, user_id, provider_name) else {
-        return Ok(None);
+    // Guard on deserializability so a corrupt blob falls through to a fresh
+    // login rather than short-circuiting into an unusable "connected" state,
+    // or being sent to seed a login browser.
+    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
+        warn!(
+            %user_id,
+            provider = %provider_name,
+            "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
+        );
+        return Ok(StoredSessionUse::SignIn {
+            prior_session: None,
+        });
     };
+
+    let health = session_health(resources, &session, user_id, tenant, provider_name).await?;
+    if !answers_login(&token, health, user_id, provider_name) {
+        // Only a session observed dead seeds the sign-in: one that may be live
+        // could sign the browser in to the account a coach is switching away
+        // from.
+        let prior_session = (health == SessionHealth::ObservedDead).then_some(session);
+        return Ok(StoredSessionUse::SignIn { prior_session });
+    }
 
     info!(
         %user_id,
@@ -126,7 +233,7 @@ pub async fn try_reuse_existing_session(
     if provider_name == SCIOTTE_TRAININGPEAKS {
         spawn_role_probe_if_unread(resources, user_id, tenant_id, session);
     }
-    Ok(Some(
+    Ok(StoredSessionUse::Reused(
         Json(serde_json::json!({
             "status": "connected",
             "provider": provider_name,

@@ -1495,12 +1495,12 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=330f1915d68c0e46e5a23736d2719880ed972359#330f1915d68c0e46e5a23736d2719880ed972359"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=dc53b00e9a79cc435138b2752429862460927ead#dc53b00e9a79cc435138b2752429862460927ead"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.11.0"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.0#e547aadb07dc5493faef62c9679583c4b1d26074"
+version = "0.11.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.1#1694f696a56fcc2da0a9bc09525e850ac048db01"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1564,8 +1564,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.25.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.25.0#9c8abae745f185651b242c93764791a499d03b39"
+version = "0.26.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.0#dc324ef9427e035db353eaca39b1b909b1aebea3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

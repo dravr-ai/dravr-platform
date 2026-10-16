@@ -2290,7 +2290,25 @@
     "requestAccessPending": "Demande envoyée — l'équipe Dravr va l'examiner.",
     "requestAccessDeclined": "Ta dernière demande a été refusée. Tu peux redemander.",
     "requestAccessFailed": "Impossible d'envoyer ta demande. Réessaie.",
-    "reply_corrected": "{0} a corrigé la réponse de Dravr à {1} (« {2} ») :\n\n{3}"
+    "reply_corrected": "{0} a corrigé la réponse de Dravr à {1} (« {2} ») :\n\n{3}",
+    "planThread": {
+      "open": "Travailler sur le plan de {{name}}",
+      "subtitle": "Plan · {{name}}",
+      "kindLabel": "Plan d’athlète",
+      "openError": "Impossible d’ouvrir ce fil de plan. Réessaie."
+    },
+    "planDraft": {
+      "badge": "Brouillon · {{name}} ne le voit pas encore",
+      "publish": "Publier pour {{name}}",
+      "discard": "Abandonner le brouillon",
+      "discardConfirm": "Abandonner ce brouillon ? Le plan actuel de {{name}} reste tel quel.",
+      "published": "Publié. Une notification a été envoyée à {{name}}.",
+      "conflictTitle": "Le plan de {{name}} a changé depuis le début de ce brouillon",
+      "conflictWeeks": "Semaines modifiées à la fois dans le brouillon et dans le plan actuel : {{weeks}}",
+      "conflictSeason": "La saison de {{name}} a été reconstruite après le début de ce brouillon : les semaines du brouillon risquent de ne plus s’y ajuster.",
+      "overwrite": "Publier quand même",
+      "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan ne peut plus être modifié."
+    }
   },
   "impersonationLog": {
     "active": "En cours",
@@ -2610,6 +2628,14 @@
       "agent_updated": {
         "body": "Un administrateur a mis à jour {0}.",
         "title": "Agent mis à jour"
+      },
+      "coach_plan_published": {
+        "body": "{0} a publié ton plan d’entraînement pour {1}. Tu le retrouves sur l’Accueil.",
+        "title": "Plan publié par {0}"
+      },
+      "coach_plan_pushed": {
+        "body": "{0} a ajouté les séances de ton plan à ton calendrier {1}.",
+        "title": "Séances ajoutées à ton calendrier {1}"
       },
       "delegation_confirmed": {
         "body": "{0} a confirmé ta liaison {2} dans {1}. Ses séances sont désormais lues via ton compte.",

@@ -490,6 +490,7 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
         ] {
             if let Some(v) = extract_number_near(text, kw) {
                 // FTP test-retest reliability is ~±3%.
+                // LIMITATION(registre#1080): the FTP probe has no margin of its own, so under the default `DEFAULT_MARGIN_FRAC` a quoted FTP 3–11% off the record is `Indeterminate` and this check stays silent.
                 return verdict_for(
                     ctx,
                     (ftp * 0.97, ftp * 1.03),

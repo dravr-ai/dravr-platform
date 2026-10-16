@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The mobile code step names the provider that sent the code and keeps the sign-in on a refused one
-// ABOUTME: Pins the one-time-code input, the verifying state, the inline refusal, and the lapsed and failed sign-in copy
+// ABOUTME: Pins the one-time-code input, the verifying state, the inline refusal, and the lapsed, challenged and failed copy
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
@@ -27,6 +27,17 @@ const sciotteSelect2FA = oauthApi.sciotteSelect2FA as jest.Mock;
 
 const CODE_PROMPT = 'Enter the 6-digit code COROS sent you';
 const LOGIN_COPY = 'This may take a moment while we securely connect your account';
+
+/** The app's sentence for a sign-in a provider stopped at a security check. */
+const CHALLENGED = "COROS asked for an extra security check we can't complete automatically right now. Please try again in a little while.";
+
+/** A provider security check, as the server refuses it. */
+const challengeRefusal = {
+  response: {
+    status: 400,
+    data: { message: 'Garmin showed a captcha frame on the sign-in page', details: { reason: 'login_challenge' } },
+  },
+};
 
 /** Sign in to COROS up to its code step. */
 async function reachCodeStep(onConnected = jest.fn()): Promise<jest.Mock> {
@@ -124,6 +135,24 @@ describe('SciotteLoginModal (mobile) — the code step', () => {
     expect(
       await screen.findByText('This sign-in is no longer active. Please start the sign-in again.'),
     ).toBeTruthy();
+  });
+
+  it('names the provider that stopped the sign-in at a security check', async () => {
+    sciotteLogin.mockRejectedValueOnce(challengeRefusal);
+    render(<SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="coros" />);
+    signIn();
+
+    expect(await screen.findByText(CHALLENGED)).toBeTruthy();
+    expect(screen.queryByText(/captcha/)).toBeNull();
+  });
+
+  it('names the provider that stopped the code step at a security check', async () => {
+    await reachCodeStep();
+    sciotteSubmitOTP.mockRejectedValueOnce(challengeRefusal);
+    await submitCode('246810');
+
+    expect(await screen.findByText(CHALLENGED)).toBeTruthy();
+    expect(screen.queryByText(/captcha/)).toBeNull();
   });
 
   it('words a failed code in the app, not in the provider prose', async () => {

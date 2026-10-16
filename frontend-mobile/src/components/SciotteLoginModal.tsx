@@ -31,6 +31,7 @@ import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
+  SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   loginIdentifierField,
@@ -303,6 +304,23 @@ export function SciotteLoginModal({
     }
   }, [onConnected, onClose, t]);
 
+  // What a refused sign-in step tells the user, in the app's words rather than
+  // the server's English prose: a lapsed sign-in has to start again, and a
+  // provider security check (a captcha) is the athlete's to retry later. The
+  // challenged sentence is a server-rendered key, so its positional `{0}` is
+  // filled here with the provider's name.
+  const refusalMessage = useCallback(
+    (err: unknown, fallbackKey: string) => {
+      const reason = refusalReason(err);
+      if (reason === SCIOTTE_LOGIN_FLOW_EXPIRED) return t('hosted.common.signInExpired');
+      if (reason === SCIOTTE_LOGIN_CHALLENGE) {
+        return t('hosted.common.signInChallenged').split('{0}').join(platformName);
+      }
+      return describeApiError(err, { t, fallbackKey });
+    },
+    [platformName, t]
+  );
+
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
     if (notice && !consentAccepted) return;
@@ -344,22 +362,17 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      const message = describeApiError(err, { t, fallbackKey: 'auth.loginFailed' });
-      setError(message);
+      setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     } finally {
       setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, onClose, onConnected, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, onClose, onConnected, refusalMessage, t]);
 
-  // What a refused continuation tells the user: a lapsed sign-in has to start
-  // again, which the server's own reason says without its English prose.
+  // What a refused continuation tells the user.
   const continuationError = useCallback(
-    (err: unknown) =>
-      refusalReason(err) === SCIOTTE_LOGIN_FLOW_EXPIRED
-        ? t('hosted.common.signInExpired')
-        : describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }),
-    [t]
+    (err: unknown) => refusalMessage(err, 'app.verificationFailed'),
+    [refusalMessage]
   );
 
   const handleSelect2FA = useCallback(async (optionId: string) => {

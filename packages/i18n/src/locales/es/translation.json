@@ -2290,7 +2290,25 @@
     "requestAccessPending": "Solicitud enviada: el equipo de Dravr la revisará.",
     "requestAccessDeclined": "Tu última solicitud fue rechazada. Puedes volver a pedirlo.",
     "requestAccessFailed": "No pudimos enviar tu solicitud. Inténtalo de nuevo.",
-    "reply_corrected": "{0} corrigió la respuesta de Dravr a {1} («{2}»):\n\n{3}"
+    "reply_corrected": "{0} corrigió la respuesta de Dravr a {1} («{2}»):\n\n{3}",
+    "planThread": {
+      "open": "Trabajar en el plan de {{name}}",
+      "subtitle": "Plan · {{name}}",
+      "kindLabel": "Plan de atleta",
+      "openError": "No pudimos abrir este hilo del plan. Inténtalo de nuevo."
+    },
+    "planDraft": {
+      "badge": "Borrador · {{name}} aún no lo ve",
+      "publish": "Publicar para {{name}}",
+      "discard": "Descartar borrador",
+      "discardConfirm": "¿Descartar este borrador? El plan actual de {{name}} se queda como está.",
+      "published": "Publicado. Se ha avisado a {{name}}.",
+      "conflictTitle": "El plan de {{name}} ha cambiado desde que empezó este borrador",
+      "conflictWeeks": "Semanas cambiadas tanto en el borrador como en el plan actual: {{weeks}}",
+      "conflictSeason": "La temporada de {{name}} se rehízo después de empezar este borrador, así que las semanas del borrador quizá ya no encajen.",
+      "overwrite": "Publicar de todos modos",
+      "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que ya no se puede cambiar su plan."
+    }
   },
   "impersonationLog": {
     "active": "Activa",
@@ -2610,6 +2628,14 @@
       "agent_updated": {
         "body": "Un administrador ha actualizado {0}.",
         "title": "Agente actualizado"
+      },
+      "coach_plan_published": {
+        "body": "{0} ha publicado tu plan de entrenamiento para {1}. Lo encontrarás en Inicio.",
+        "title": "Plan publicado por {0}"
+      },
+      "coach_plan_pushed": {
+        "body": "{0} ha añadido los entrenamientos de tu plan a tu calendario de {1}.",
+        "title": "Entrenamientos en tu calendario de {1}"
       },
       "delegation_confirmed": {
         "body": "{0} ha confirmado tu vínculo con {2} en {1}. Sus entrenamientos se leen ahora a través de tu cuenta.",
