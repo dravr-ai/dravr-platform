@@ -127,6 +127,11 @@ async fn a_tenant_switch_under_impersonation_keeps_the_impersonation() {
         claims.exp <= original.exp,
         "the switch never extends the hour"
     );
+    let expires_in = body["expires_in"].as_u64().expect("an expiry");
+    assert!(
+        expires_in <= 3600,
+        "the response states the impersonation's remaining hour, not a day: {expires_in}"
+    );
 
     resources
         .common

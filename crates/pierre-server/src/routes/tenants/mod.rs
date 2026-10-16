@@ -24,6 +24,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::Utc;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
@@ -198,6 +199,11 @@ impl TenantRoutes {
             ),
         }
         .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
+        // A reissued impersonation token expires when the one it replaces
+        // does, which is never past its hour; a session lasts the default day
+        let expires_in = impersonation.as_ref().map_or(86400, |grant| {
+            u64::try_from(grant.expires_at - Utc::now().timestamp()).unwrap_or(0)
+        });
 
         info!(
             user_id = %auth.user_id,
@@ -213,7 +219,7 @@ impl TenantRoutes {
                 active_tenant_id: tenant_id.to_string(),
                 tenant_name: tenant.name,
                 role: role_str,
-                expires_in: 86400, // 24 hours (matches default token expiry)
+                expires_in,
             }),
         )
             .into_response())

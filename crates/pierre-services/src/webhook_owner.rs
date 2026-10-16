@@ -22,11 +22,11 @@
 //! carries the id. Tokens are keyed per user, tenant and provider, so one
 //! provider account linked by one person in two tenants, or by two Dravr
 //! accounts, leaves two holders: that id is ambiguous, is dropped with a
-//! warning, and does not fall through to a delegated link. A link that is only proposed, or
-//! that ended, resolves to nobody, and so does one the group relation no
-//! longer backs (the member left, the group is archived, the coach was
-//! replaced): the same relation the member's read path follows. So does one
-//! whose roster athlete is not the member by email
+//! warning, and does not fall through to a delegated link. A link that is
+//! only proposed, or that ended, resolves to nobody, and so does one the
+//! group relation no longer backs (the member left, the group is archived,
+//! the coach was replaced): the same relation the member's read path
+//! follows. So does one whose roster athlete is not the member by email
 //! ([`link_binding`]): the member's read refuses that link, so an event
 //! through it would announce data the member cannot read. An event is never
 //! broadcast: an id that names no one, or more than one member, is dropped.

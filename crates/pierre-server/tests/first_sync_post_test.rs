@@ -18,8 +18,9 @@
 
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
@@ -28,9 +29,6 @@ use pierre_core::models::{AddMessageParams, TenantId, SUPPORTED_LOCALES};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use std::sync::Mutex;
-
-use async_trait::async_trait;
 use pierre_mcp_server::services::first_sync_post::{FirstSyncPoster, FIRST_POST_LEASE};
 use pierre_mcp_server::services::platform_post::{
     PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
