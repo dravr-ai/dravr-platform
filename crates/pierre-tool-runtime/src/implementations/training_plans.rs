@@ -626,6 +626,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
 
 /// Persist a plan outline and/or day-by-day weeks, superseding prior
 /// versions prospectively.
+///
+/// LIMITATION(registre#1069): `SaveTrainingPlanTool` saves a coach's
+/// `athlete=` plan straight into the athlete's active season: plans have no
+/// draft status, so the athlete sees every intermediate save and is never
+/// told their coach changed it.
 pub struct SaveTrainingPlanTool;
 
 #[async_trait]

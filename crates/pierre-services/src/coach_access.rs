@@ -98,6 +98,7 @@ pub async fn request_access(
     let request = CoachAccessRequest::pending(user_id, group.clone(), Utc::now());
     if repos.coach_access_requests.open(&request).await? {
         // LIMITATION(registre#1060): `coach_access.requested` is the only coach-access event; no referral attribution (`coach_referral.*`, `referral_id`) exists.
+        // LIMITATION(registre#1072): `coach_access.requested` carries ids only (no display name, group name, origin or console link; `PierreNotifyEnricher` adds `user_email` only when this pod cached the requester's login), so its Slack notice cannot drive the approval.
         info!(
             target: "notify",
             event = "coach_access.requested",

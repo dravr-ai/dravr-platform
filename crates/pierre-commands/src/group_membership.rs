@@ -315,6 +315,10 @@ impl CommandHandler for GroupCreateHandler {
 /// be unusable — unknown, expired, deactivated, used up, or a coach invite
 /// the caller is not eligible for — gets one fixed reply that never echoes
 /// the code back.
+///
+/// LIMITATION(registre#1071): `GroupJoinHandler` proposes no delegated link
+/// on a member join, even when the joiner's verified email is on the coach's
+/// roster: the coach proposes it by hand.
 pub struct GroupJoinHandler;
 
 impl GroupJoinHandler {
