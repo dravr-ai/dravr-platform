@@ -87,6 +87,8 @@ serde-saphyr = "1.3"
 sha2 = "0.10"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive", "migrate", "macros"], default-features = false }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# TaskTracker: llm_usage writes are spawned on the server's shutdown drain.
+tokio-util = { version = "0.7", features = ["rt"] }
 # Folds a TrainingPeaks roster name and a member's name to the same form (NFD,
 # combining marks dropped) so a coach's picker can suggest the matching member.
 unicode-normalization = "0.1"

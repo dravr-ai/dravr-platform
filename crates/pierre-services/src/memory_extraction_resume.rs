@@ -31,8 +31,10 @@ use pierre_core::errors::AppResult;
 use pierre_database::repositories::{ExtractionJobClaim, MemoryExtractionJobRow};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::ChatProvider;
+use tokio_util::task::TaskTracker;
 use tracing::{info, warn};
 
+use crate::llm_usage_recorder::LlmUsageSink;
 use crate::memory_dedup::DedupConfig;
 use crate::memory_extraction::{
     run_extraction_job, ExtractionJobPayload, SpawnedExtractionRequest, EXTRACTION_JOB_LEASE,
@@ -71,6 +73,9 @@ const SWEEP_BATCH: i64 = 20;
 /// from racing the provider. Sequential runs would let a slow provider walk
 /// the batch past its own lease.
 ///
+/// Each run's `llm_usage` row is written on `usage_writes`, the tracker the
+/// shutdown drain awaits.
+///
 /// # Errors
 ///
 /// The ledger could not be claimed against. A failed run is logged, never
@@ -80,6 +85,7 @@ pub async fn resume_extraction_jobs(
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
     system_prompt: &str,
+    usage_writes: &TaskTracker,
 ) -> AppResult<usize> {
     let now_ms = Utc::now().timestamp_millis();
     let claim = ExtractionJobClaim {
@@ -94,9 +100,10 @@ pub async fn resume_extraction_jobs(
         .memory_extraction_jobs
         .claim_stale_extraction_jobs(claim)
         .await?;
+    let usage = LlmUsageSink::new(Arc::clone(&repos.llm_usage), usage_writes.clone());
     let runs = claimed
         .into_iter()
-        .map(|row| resume_one(repos, chat_provider, dedup, system_prompt, row));
+        .map(|row| resume_one(repos, &usage, chat_provider, dedup, system_prompt, row));
     Ok(join_all(runs).await.into_iter().filter(|ran| *ran).count())
 }
 
@@ -122,6 +129,7 @@ async fn reap_exhausted_jobs(repos: &RepositoryRegistry, now_ms: i64) {
 /// Run one claimed row; `true` when the extraction landed.
 async fn resume_one(
     repos: &RepositoryRegistry,
+    usage: &LlmUsageSink,
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
     system_prompt: &str,
@@ -145,7 +153,7 @@ async fn resume_one(
     };
     let run = run_extraction_job(
         repos.memory.as_ref(),
-        &repos.llm_usage,
+        usage,
         chat_provider,
         dedup,
         system_prompt,
@@ -206,11 +214,14 @@ async fn finish(repos: &RepositoryRegistry, job_id: &str) {
 /// Without a chat provider nothing could run an extraction, so no sweep is
 /// started: the rows would be claimed, fail, and burn their attempts for
 /// nothing. The turn path finishes its own rows in that configuration.
+///
+/// Each resumed extraction's `llm_usage` row is written on `usage_writes`.
 pub fn start_memory_extraction_resume(
     repos: Arc<RepositoryRegistry>,
     chat_provider: Option<Arc<ChatProvider>>,
     harness_config: Arc<HarnessConfigRegistry>,
     system_prompt: String,
+    usage_writes: TaskTracker,
 ) {
     let Some(chat_provider) = chat_provider else {
         info!("memory extraction resume not started: no chat provider is wired, so no owed extraction could run");
@@ -226,6 +237,7 @@ pub fn start_memory_extraction_resume(
             let chat_provider = Arc::clone(&chat_provider);
             let harness_config = Arc::clone(&harness_config);
             let system_prompt = system_prompt.clone();
+            let usage_writes = usage_writes.clone();
             async move {
                 let dedup = DedupConfig {
                     candidate_limit: usize::try_from(
@@ -233,8 +245,14 @@ pub fn start_memory_extraction_resume(
                     )
                     .unwrap_or(usize::MAX),
                 };
-                let ran =
-                    resume_extraction_jobs(&repos, &chat_provider, dedup, &system_prompt).await?;
+                let ran = resume_extraction_jobs(
+                    &repos,
+                    &chat_provider,
+                    dedup,
+                    &system_prompt,
+                    &usage_writes,
+                )
+                .await?;
                 if ran > 0 {
                     info!(
                         ran,

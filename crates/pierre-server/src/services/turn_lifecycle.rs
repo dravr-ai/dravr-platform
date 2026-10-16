@@ -132,9 +132,10 @@ impl InFlightTurns {
     /// with this handle and spawns every trigger dispatch onto it: a push and
     /// linked-chat message fired just before SIGTERM is counted here and
     /// awaited by [`Self::drain`] like a turn. The admin routes' context holds
-    /// one too, for the docs sign-in link mailed after its route answered.
-    /// Clones share one count.
-    #[cfg(any(feature = "client-notifications", feature = "client-admin-api"))]
+    /// one too, for the docs sign-in link mailed after its route answered, and
+    /// every `llm_usage` recorder spawns its row's write on one, so a turn's
+    /// last side call is billed and counted against the athlete's quota rather
+    /// than cut by the runtime's teardown. Clones share one count.
     #[must_use]
     pub(crate) fn tracker(&self) -> TaskTracker {
         self.tracker.clone()
@@ -515,6 +516,182 @@ mod tests {
                 [user_id],
                 "the notification fired during the drain reached the linked channel before the server returned"
             );
+        }
+    }
+
+    /// The `llm_usage` row a turn's last side call writes is spawned on the
+    /// drain's tracker, so it lands before the server returns.
+    mod usage_drain {
+        use std::future::pending;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        use async_trait::async_trait;
+        use pierre_core::errors::AppResult;
+        use pierre_core::models::usage::{
+            InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+        };
+        use pierre_core::models::{ConversationTurnId, TenantId};
+        use pierre_database::repositories::LlmUsageRepository;
+        use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
+        use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
+        use pierre_test_support::db::create_test_db;
+        use tokio::sync::oneshot;
+        use tokio::time::sleep;
+
+        use super::super::{serve_until_drained, InFlightTurns, SHUTDOWN_DRAIN_BUDGET};
+
+        /// How long the slow database takes to accept the row: past the
+        /// shutdown path's three-second notice floor, so a write the drain
+        /// does not track is still in flight when the server future returns.
+        const SLOW_INSERT: Duration = Duration::from_secs(4);
+
+        /// The real usage table behind an insert that takes [`SLOW_INSERT`];
+        /// every read goes straight through.
+        struct SlowInsert(Arc<dyn LlmUsageRepository>);
+
+        #[async_trait]
+        impl LlmUsageRepository for SlowInsert {
+            async fn insert_llm_usage(
+                &self,
+                params: &InsertLlmUsage<'_>,
+            ) -> AppResult<LlmUsageRecord> {
+                sleep(SLOW_INSERT).await;
+                self.0.insert_llm_usage(params).await
+            }
+            async fn get_llm_usage_aggregates(
+                &self,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+                self.0.get_llm_usage_aggregates(tenant_id, since).await
+            }
+            async fn get_llm_usage_daily_series(
+                &self,
+                tenant_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageDailyRow>> {
+                self.0.get_llm_usage_daily_series(tenant_id, since).await
+            }
+            async fn get_llm_usage_aggregates_by_user(
+                &self,
+                user_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+                self.0
+                    .get_llm_usage_aggregates_by_user(user_id, since)
+                    .await
+            }
+            async fn get_llm_usage_daily_series_by_user(
+                &self,
+                user_id: &str,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageDailyRow>> {
+                self.0
+                    .get_llm_usage_daily_series_by_user(user_id, since)
+                    .await
+            }
+            async fn get_recent_llm_calls_admin(
+                &self,
+                limit: i64,
+            ) -> AppResult<Vec<LlmUsageRecord>> {
+                self.0.get_recent_llm_calls_admin(limit).await
+            }
+            async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
+                self.0.count_llm_calls_since(since).await
+            }
+            async fn get_tenant_tool_calls_since(
+                &self,
+                tenant_id: TenantId,
+                since: &str,
+            ) -> AppResult<Vec<LlmUsageRecord>> {
+                self.0.get_tenant_tool_calls_since(tenant_id, since).await
+            }
+            async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)> {
+                self.0.sum_llm_usage_since(since).await
+            }
+            async fn find_llm_usage_by_turn_id(
+                &self,
+                turn_id: ConversationTurnId,
+            ) -> AppResult<Vec<LlmUsageRecord>> {
+                self.0.find_llm_usage_by_turn_id(turn_id).await
+            }
+        }
+
+        /// One side call's usage, as the tool loop reports it.
+        fn side_call() -> LlmCallRecord {
+            LlmCallRecord {
+                provider: "copilot_sdk".to_owned(),
+                model: "gpt-5-mini".to_owned(),
+                prompt_tokens: 812,
+                completion_tokens: 40,
+                cached_tokens: 0,
+                cached_write_tokens: 0,
+                reasoning_tokens: 0,
+                latency_ms: 900,
+                success: true,
+                call_sequence: None,
+                token_counts_estimated: false,
+                tools_called: Vec::new(),
+            }
+        }
+
+        /// A turn's claim judge records its usage a moment into the drain.
+        /// Spawned with a bare `tokio::spawn`, the write was invisible to
+        /// the drain and cut by the runtime's teardown once the server
+        /// returned: the tokens never counted against the athlete's quota or
+        /// the tenant's cost.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_usage_row_recorded_during_the_drain_lands_before_the_server_returns() {
+            assert!(
+                SLOW_INSERT < SHUTDOWN_DRAIN_BUDGET,
+                "the slow insert must fit the budget the drain is allowed"
+            );
+            let db = create_test_db().await.unwrap();
+            let usage_table = Arc::clone(&db.repositories().llm_usage);
+            let turns = Arc::new(InFlightTurns::new());
+            let turn_id = ConversationTurnId::new();
+            let recorder = UsageRepoCallRecorder::new(
+                LlmUsageSink::new(
+                    Arc::new(SlowInsert(Arc::clone(&usage_table))),
+                    turns.tracker(),
+                ),
+                TenantId::generate().to_string(),
+                "athlete-1".to_owned(),
+                Some("conversation-drain".to_owned()),
+                turn_id,
+                "peer_claim_verifier",
+            );
+
+            let (stop, stopped) = oneshot::channel::<()>();
+            let draining = Arc::clone(&turns);
+            let server = tokio::spawn(async move {
+                serve_until_drained(
+                    pending::<AppResult<()>>(),
+                    async {
+                        stopped.await.unwrap();
+                    },
+                    &draining,
+                )
+                .await
+            });
+            stop.send(()).unwrap();
+            sleep(Duration::from_millis(100)).await;
+            assert!(
+                !server.is_finished(),
+                "the drain is still under way when the side call records"
+            );
+
+            recorder.record(side_call());
+
+            server.await.unwrap().unwrap();
+            let rows = usage_table
+                .find_llm_usage_by_turn_id(turn_id)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1, "the row landed before the server returned");
+            assert_eq!(rows[0].prompt_tokens, 812);
+            assert_eq!(rows[0].call_type, "peer_claim_verifier");
         }
     }
 }

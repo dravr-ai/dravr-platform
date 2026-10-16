@@ -339,6 +339,7 @@ impl ServerContext {
             #[cfg(feature = "tools-groups")]
             group_service: self.common.group_service.clone(),
             llm_health: self.common.llm_health.clone(),
+            usage_writes: self.common.turns.tracker(),
             pierre_system_prompt: self.pierre_system_prompt(),
             tool_discipline_prompt: self.tool_discipline_prompt(),
             tool_discipline_messaging_prompt: self.tool_discipline_messaging_prompt(),

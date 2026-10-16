@@ -27,9 +27,10 @@ use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
 };
-use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
+use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use pierre_chat_pipeline::stages::prompt_builder::{
@@ -250,7 +251,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     // The summary call is billed like any other the turn makes.
     let summary_turn = ConversationTurnId::new();
     let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&repos.llm_usage),
+        LlmUsageSink::new(Arc::clone(&repos.llm_usage), TaskTracker::new()),
         tenant_id.to_string(),
         user_id.to_owned(),
         Some(conversation.id.clone()),

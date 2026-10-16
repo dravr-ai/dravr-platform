@@ -39,11 +39,13 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource};
+use pierre_services::llm_usage_recorder::LlmUsageSink;
 use pierre_services::memory_dedup::DedupConfig;
 use pierre_services::memory_extraction::{
     spawn_extract_for_turn, ExtractionJobPayload, SpawnedExtractionRequest, EXTRACTION_JOB_LEASE,
 };
 use pierre_services::memory_extraction_resume::resume_extraction_jobs;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use common::{create_test_server_resources, create_test_user};
@@ -297,7 +299,7 @@ async fn a_turn_without_a_provider_records_its_job_then_finishes_it() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&ledger) as Arc<dyn MemoryExtractionJobRepository>,
-        Arc::clone(&fx.repos.llm_usage),
+        LlmUsageSink::new(Arc::clone(&fx.repos.llm_usage), TaskTracker::new()),
         None,
         CONFIG,
         "SYSTEM".to_owned(),
@@ -354,7 +356,7 @@ async fn a_turn_whose_run_fails_leaves_its_row_for_the_sweep() {
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
         Arc::clone(&fx.repos.memory_extraction_jobs),
-        Arc::clone(&fx.repos.llm_usage),
+        LlmUsageSink::new(Arc::clone(&fx.repos.llm_usage), TaskTracker::new()),
         Some(Arc::new(extractor.provider())),
         CONFIG,
         "SYSTEM".to_owned(),
@@ -404,9 +406,15 @@ async fn a_stale_row_is_resumed_and_its_facts_land() {
         .unwrap();
     let extractor = ScriptedExtractor::answering(GOAL_REPLY);
 
-    let ran = resume_extraction_jobs(&fx.repos, &extractor.provider(), CONFIG, "SYSTEM")
-        .await
-        .expect("the sweep runs");
+    let ran = resume_extraction_jobs(
+        &fx.repos,
+        &extractor.provider(),
+        CONFIG,
+        "SYSTEM",
+        &TaskTracker::new(),
+    )
+    .await
+    .expect("the sweep runs");
 
     assert_eq!(ran, 1, "the one stale row ran to the end");
     assert_eq!(extractor.calls(), 1);
@@ -463,9 +471,15 @@ async fn a_resumed_run_that_fails_keeps_its_row_claimed() {
         .unwrap();
     let extractor = ScriptedExtractor::failing();
 
-    let ran = resume_extraction_jobs(&fx.repos, &extractor.provider(), CONFIG, "SYSTEM")
-        .await
-        .expect("a failed run is logged, never propagated");
+    let ran = resume_extraction_jobs(
+        &fx.repos,
+        &extractor.provider(),
+        CONFIG,
+        "SYSTEM",
+        &TaskTracker::new(),
+    )
+    .await
+    .expect("a failed run is logged, never propagated");
 
     assert_eq!(ran, 0, "nothing landed");
     assert_eq!(extractor.calls(), 1, "the sweep did try");
@@ -518,9 +532,15 @@ async fn an_unreadable_payload_is_finished_without_a_run() {
     }
     let extractor = ScriptedExtractor::answering(GOAL_REPLY);
 
-    let ran = resume_extraction_jobs(&fx.repos, &extractor.provider(), CONFIG, "SYSTEM")
-        .await
-        .expect("the sweep runs");
+    let ran = resume_extraction_jobs(
+        &fx.repos,
+        &extractor.provider(),
+        CONFIG,
+        "SYSTEM",
+        &TaskTracker::new(),
+    )
+    .await
+    .expect("the sweep runs");
 
     assert_eq!(ran, 1, "only the readable row ran");
     assert_eq!(
@@ -557,9 +577,15 @@ async fn a_fresh_row_is_left_to_its_own_spawn() {
         .unwrap();
     let extractor = ScriptedExtractor::answering(GOAL_REPLY);
 
-    let ran = resume_extraction_jobs(&fx.repos, &extractor.provider(), CONFIG, "SYSTEM")
-        .await
-        .expect("the sweep runs");
+    let ran = resume_extraction_jobs(
+        &fx.repos,
+        &extractor.provider(),
+        CONFIG,
+        "SYSTEM",
+        &TaskTracker::new(),
+    )
+    .await
+    .expect("the sweep runs");
 
     assert_eq!(ran, 0);
     assert_eq!(

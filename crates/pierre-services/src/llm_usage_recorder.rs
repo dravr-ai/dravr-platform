@@ -16,21 +16,48 @@
 //! memory extraction, advice capture and the outcome evaluator run in this
 //! crate, and the resume sweep and the evaluator build their recorders without
 //! a turn in hand.
+//!
+//! Each write is spawned on the [`TaskTracker`] its [`LlmUsageSink`] carries —
+//! in the server, the handle of its in-flight turn tracker — so the SIGTERM
+//! drain awaits a row a turn's last side call wrote instead of the runtime's
+//! teardown cutting it, and a write that panics is logged rather than lost
+//! with its dropped handle.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use embacle::pricing::TokenCounts;
+use futures_util::FutureExt;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::ConversationTurnId;
 use pierre_database::repositories::LlmUsageRepository;
 use pierre_llm::call_record::{LlmCallRecord, LlmCallRecorder};
-use tracing::{info, warn};
+use tokio_util::task::TaskTracker;
+use tracing::{error, info, warn};
 
 use crate::pricing::GLOBAL_PRICING_REGISTRY;
 
+/// Where `llm_usage` rows go: the repository they are written to, and the
+/// tracker each write is spawned on so the shutdown drain awaits it.
+#[derive(Clone)]
+pub struct LlmUsageSink {
+    /// The `llm_usage` table.
+    repo: Arc<dyn LlmUsageRepository>,
+    /// The drain-tracked spawner; clones share one count.
+    writes: TaskTracker,
+}
+
+impl LlmUsageSink {
+    /// Rows written to `repo`, each write spawned on `writes`.
+    #[must_use]
+    pub const fn new(repo: Arc<dyn LlmUsageRepository>, writes: TaskTracker) -> Self {
+        Self { repo, writes }
+    }
+}
+
 /// Per-call sink that persists one `llm_usage` row per LLM invocation.
 pub struct UsageRepoCallRecorder {
-    llm_usage: Arc<dyn LlmUsageRepository>,
+    sink: LlmUsageSink,
     tenant_id: String,
     user_id: String,
     conversation_id: Option<String>,
@@ -39,9 +66,10 @@ pub struct UsageRepoCallRecorder {
 }
 
 impl UsageRepoCallRecorder {
-    /// Build a recorder scoped to a single turn.
+    /// Build a recorder scoped to a single turn, writing through `sink`.
+    #[must_use]
     pub fn new(
-        llm_usage: Arc<dyn LlmUsageRepository>,
+        sink: LlmUsageSink,
         tenant_id: String,
         user_id: String,
         conversation_id: Option<String>,
@@ -49,7 +77,7 @@ impl UsageRepoCallRecorder {
         call_type: &'static str,
     ) -> Self {
         Self {
-            llm_usage,
+            sink,
             tenant_id,
             user_id,
             conversation_id,
@@ -61,7 +89,7 @@ impl UsageRepoCallRecorder {
 
 impl LlmCallRecorder for UsageRepoCallRecorder {
     fn record(&self, record: LlmCallRecord) {
-        let llm_usage = Arc::clone(&self.llm_usage);
+        let llm_usage = Arc::clone(&self.sink.repo);
         let tenant_id = self.tenant_id.clone();
         let user_id = self.user_id.clone();
         let conversation_id = self.conversation_id.clone();
@@ -69,7 +97,7 @@ impl LlmCallRecorder for UsageRepoCallRecorder {
         let base_call_type = self.call_type;
         let call_sequence = record.call_sequence;
         let tenant_id_for_cost = self.tenant_id.clone();
-        tokio::spawn(async move {
+        let write = async move {
             // Reasoning tokens are consumed and billed, and every provider that
             // reports them separately excludes them from `completion_tokens`, so
             // leaving them out made `total_tokens` smaller than the tokens the
@@ -149,6 +177,14 @@ impl LlmCallRecorder for UsageRepoCallRecorder {
             };
             if let Err(e) = llm_usage.insert_llm_usage(&params).await {
                 warn!("Failed to record per-LLM-call usage: {e}");
+            }
+        };
+        self.sink.writes.spawn(async move {
+            if AssertUnwindSafe(write).catch_unwind().await.is_err() {
+                error!(
+                    call_type = base_call_type,
+                    "per-LLM-call usage write panicked; its llm_usage row is lost"
+                );
             }
         });
     }

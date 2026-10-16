@@ -125,6 +125,7 @@ use pierre_tool_runtime::derived_content;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
+use tokio_util::task::TaskTracker;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
 
@@ -220,6 +221,10 @@ pub struct ChatPipelineContext {
     /// Shared LLM startup-probe state — read by [`run`] to fail fast with
     /// 503 when the primary provider is sustained-broken.
     pub llm_health: Arc<LlmHealthState>,
+    /// The tracker every `llm_usage` write a turn makes is spawned on: the
+    /// server's in-flight turn tracker, so the SIGTERM drain awaits a row a
+    /// turn's last side call wrote.
+    pub usage_writes: TaskTracker,
     /// Main Pierre fitness assistant system prompt (resolved through the
     /// prompt registry with compiled-in fallback).
     pub pierre_system_prompt: String,
