@@ -9,7 +9,7 @@ use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
-use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims};
+use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims, ImpersonationGrant};
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
 };
@@ -811,10 +811,16 @@ impl McpAuthMiddleware {
 
         // An impersonation token acts only while its session is live: ending
         // the session revokes it, rather than leaving it good until its hour
-        // runs out.
-        if let Some(session_id) = claims.impersonation_session_id.as_deref() {
-            self.require_live_impersonation(session_id, user_id).await?;
-        }
+        // runs out. The impersonation rides on the credential, so a handler
+        // minting a token from it can keep it an impersonation.
+        let impersonation = match claims.impersonation_session_id.as_deref() {
+            Some(session_id) => Some(ImpersonationGrant {
+                session_id: session_id.to_owned(),
+                impersonator_id: self.require_live_impersonation(session_id, user_id).await?,
+                expires_at: claims.exp,
+            }),
+            None => None,
+        };
 
         // Whatever the token was minted with. A first-party session was minted
         // with the full self grant; a delegated OAuth token stays as narrow as
@@ -906,6 +912,7 @@ impl McpAuthMiddleware {
                 user_id,
                 auth_method: AuthMethod::JwtToken {
                     tier: format!("{:?}", user.tier).to_lowercase(),
+                    impersonation,
                 },
                 active_tenant_id,
                 scopes,
@@ -930,7 +937,7 @@ impl McpAuthMiddleware {
         &self,
         session_id: &str,
         user_id: uuid::Uuid,
-    ) -> AppResult<()> {
+    ) -> AppResult<uuid::Uuid> {
         let session = self
             .repos
             .impersonation
@@ -953,7 +960,7 @@ impl McpAuthMiddleware {
             session_id = %session_id,
             "Request authenticated under impersonation"
         );
-        Ok(())
+        Ok(session.impersonator_id)
     }
 
     /// Get reference to the auth manager for testing purposes

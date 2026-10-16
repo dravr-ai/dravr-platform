@@ -42,6 +42,7 @@ fn create_test_auth_result(user_id: Uuid) -> AuthResult {
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "free".to_owned(),
+            impersonation: None,
         },
         active_tenant_id: None,
     }

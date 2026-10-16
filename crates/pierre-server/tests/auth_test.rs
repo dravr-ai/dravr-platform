@@ -549,6 +549,7 @@ fn test_jwt_validation_error_display() {
 fn test_auth_method_details() {
     let jwt_method = AuthMethod::JwtToken {
         tier: "professional".to_owned(),
+        impersonation: None,
     };
 
     let jwt_details = jwt_method.details();
@@ -695,7 +696,7 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
 
         assert_eq!(auth_result.user_id, user.id);
         match auth_result.auth_method {
-            AuthMethod::JwtToken { tier: tier_str } => {
+            AuthMethod::JwtToken { tier: tier_str, .. } => {
                 assert_eq!(tier_str, format!("{tier:?}").to_lowercase());
             }
             other => panic!("Expected JwtToken auth method, got {other:?}"),

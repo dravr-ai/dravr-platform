@@ -14,11 +14,134 @@
 //! live and to belong to the token's subject.
 
 mod common;
+mod helpers;
+
+use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_email};
+use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::ErrorCode;
+use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::tenants::TenantRoutes;
+use pierre_routes_auth::AuthRoutes;
+use serde_json::{json, Value};
 use uuid::Uuid;
+
+/// A live impersonation of a fresh target by a fresh operator: the session,
+/// the target, and the bearer header carrying its token.
+async fn live_impersonation(
+    resources: &Arc<ServerContext>,
+    label: &str,
+) -> (ImpersonationSession, User, String) {
+    let database = &resources.agent.database;
+    let (operator_id, _) =
+        create_test_user_with_email(database, &format!("operator-{label}@example.com"))
+            .await
+            .unwrap();
+    let (_, target) = create_test_user_with_email(database, &format!("target-{label}@example.com"))
+        .await
+        .unwrap();
+    let session = ImpersonationSession::new(operator_id, target.id, Some("support".to_owned()));
+    resources
+        .common
+        .repos
+        .impersonation
+        .create_session(&session)
+        .await
+        .unwrap();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_impersonation_token(
+            &target,
+            operator_id,
+            &session.id,
+            &resources.auth.jwks_manager,
+            None,
+        )
+        .unwrap();
+    (session, target, format!("Bearer {token}"))
+}
+
+/// Restoring a session from an impersonation token would mint the operator
+/// an ordinary 24-hour session as the athlete, outside the impersonation's
+/// revocation and audit: it is refused, and no cookie is set (carnet#909).
+#[tokio::test]
+async fn an_impersonation_token_is_not_exchanged_for_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, _, bearer) = live_impersonation(&resources, "restore").await;
+
+    let response = AxumTestRequest::get("/api/auth/session")
+        .header("authorization", &bearer)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(response.status(), 403, "{}", response.body_text());
+    assert!(response.header("set-cookie").is_none());
+}
+
+/// A tenant switch under impersonation stays the impersonation: the new
+/// token names the same operator and session and expires no later, so ending
+/// the impersonation revokes it too (carnet#909).
+#[tokio::test]
+async fn a_tenant_switch_under_impersonation_keeps_the_impersonation() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (session, target, bearer) = live_impersonation(&resources, "switch").await;
+    let auth = &resources.auth;
+    let original = auth
+        .auth_manager
+        .validate_token_detailed(bearer.trim_start_matches("Bearer "), &auth.jwks_manager)
+        .unwrap();
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(target.id)
+        .await
+        .unwrap()
+        .first()
+        .expect("the target owns a tenant")
+        .id;
+
+    let response = AxumTestRequest::post("/tenants/switch")
+        .header("authorization", &bearer)
+        .json(&json!({ "tenant_id": tenant.to_string() }))
+        .send(TenantRoutes::routes(Arc::clone(&resources)))
+        .await;
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+    let body: Value = response.json();
+    let switched = body["token"].as_str().expect("a token").to_owned();
+    let claims = auth
+        .auth_manager
+        .validate_token_detailed(&switched, &auth.jwks_manager)
+        .unwrap();
+    assert_eq!(claims.sub, target.id.to_string());
+    assert_eq!(claims.active_tenant_id, Some(tenant.to_string()));
+    assert_eq!(claims.impersonator_id, original.impersonator_id);
+    assert_eq!(
+        claims.impersonation_session_id.as_deref(),
+        Some(session.id.as_str())
+    );
+    assert!(
+        claims.exp <= original.exp,
+        "the switch never extends the hour"
+    );
+
+    resources
+        .common
+        .repos
+        .impersonation
+        .end_session(&session.id)
+        .await
+        .unwrap();
+    let refused = auth
+        .auth_middleware
+        .authenticate_request(Some(&format!("Bearer {switched}")))
+        .await
+        .expect_err("ending the impersonation revokes the switched token");
+    assert_eq!(refused.code, ErrorCode::AuthInvalid);
+}
 
 #[tokio::test]
 async fn an_ended_impersonation_session_revokes_its_token() {
