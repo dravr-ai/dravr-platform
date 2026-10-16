@@ -15,6 +15,7 @@ use dravr_canot::channels::slack::transport::{
 };
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_chat_pipeline::suggestions::is_postback;
+use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constant_time::configured_secret;
 use pierre_core::models::TenantId;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -88,8 +89,8 @@ impl ActionRoute {
 ///   it — the same session, gates and turn a typed message gets.
 /// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
 ///   notifications, authorized by the ops channel they are tapped in.
-///   LIMITATION(registre#1056): `ActionRoute::Ops` approve/reject has no producer —
-///   nothing posts these buttons.
+///   LIMITATION(registre#1067): `ActionRoute::Ops` approve/reject has no producer —
+///   the buttons need tronc 5.1's `NotifyActions`, and the platform is on 4.4.
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
@@ -131,7 +132,7 @@ pub(crate) async fn handle_slack_action(
     // from Slack; we additionally require the action to originate from that
     // channel so the buttons are honored nowhere else. No Pierre admin role
     // is required: operators approve users without holding admin privileges.
-    verify_ops_channel(&action)?;
+    verify_ops_channel(&action, NOTIFY_ROUTING_PROVIDER.as_ref())?;
 
     // Attribute the action to the Slack handle that clicked. The username
     // rides in the interactive payload, so no `users.info` call or
@@ -531,17 +532,30 @@ fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
         .ok_or_else(|| AppError::invalid_input(format!("Unknown action: {action_id}")))
 }
 
-/// Authorize an ops action by trusting the configured ops channel.
+/// The notify event the Approve and Reject buttons go out under; its routing
+/// rule names the room they are honoured in.
+const PENDING_APPROVAL_EVENT: &str = "user.pending_approval";
+
+/// Authorize an ops action by trusting the approvals room.
 ///
-/// Reads `SLACK_OPS_USERS_CHANNEL` — the channel the approve/reject buttons are
-/// posted to — and honors the action only when it originates there. Fails
-/// closed (rejects) when the channel is unset or does not match.
-///
-/// LIMITATION(registre#1056): `verify_ops_channel` reads `SLACK_OPS_USERS_CHANNEL`,
-/// which no deployment sets, so every ops action is refused.
-fn verify_ops_channel(action: &SlackAction) -> AppResult<()> {
-    let configured = env::var("SLACK_OPS_USERS_CHANNEL")
-        .map_err(|_| AppError::internal("SLACK_OPS_USERS_CHANNEL not configured"))?;
+/// The room is the channel the contremaitre routing rule for
+/// `user.pending_approval` names, the same rule that delivers the ping a tap
+/// answers, so the room is configured in one place and a rerouted ping moves
+/// its approvals with it. The action is honoured only when it originates
+/// there. Fails closed (rejects) when the event has no rule of its own naming
+/// a channel (the routing's default room is never trusted) or the channel does
+/// not match.
+fn verify_ops_channel(
+    action: &SlackAction,
+    routing: &ContremaitreRoutingProvider,
+) -> AppResult<()> {
+    let configured = routing
+        .event_channel(PENDING_APPROVAL_EVENT)
+        .ok_or_else(|| {
+            AppError::internal(format!(
+                "No notify routing rule names the room for {PENDING_APPROVAL_EVENT}"
+            ))
+        })?;
 
     if channel_matches(&action.channel_name, &action.channel_id, &configured) {
         return Ok(());
@@ -701,7 +715,13 @@ mod tests {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
-    use super::{verify_slack_signature, ActionRoute};
+    use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
+    use dravr_tronc::notify::RoutingProvider;
+
+    use super::{
+        verify_ops_channel, verify_slack_signature, ActionRoute, ContremaitreRoutingProvider,
+        SlackAction,
+    };
 
     #[test]
     fn a_suggestion_or_a_proposal_pick_is_the_athletes_turn() {
@@ -794,5 +814,57 @@ mod tests {
                 "canot must refuse a signature under {blank:?}, got: {err}"
             );
         }
+    }
+
+    fn tap_in(channel_id: &str, channel_name: &str) -> SlackAction {
+        SlackAction {
+            action_id: "approve_user:00000000-0000-0000-0000-000000000001".to_owned(),
+            slack_user_id: "U1".to_owned(),
+            slack_username: "operator".to_owned(),
+            channel_id: channel_id.to_owned(),
+            channel_name: channel_name.to_owned(),
+            message_ts: "1.0".to_owned(),
+        }
+    }
+
+    #[test]
+    fn an_approval_is_honoured_only_in_the_room_the_pending_ping_is_routed_to() {
+        let routing = ContremaitreRoutingProvider::new_empty();
+        routing
+            .reload(NOTIFY_ROUTING_YAML)
+            .expect("the pinned routing rules parse");
+
+        // Both rooms come from the pinned table, so a reroute upstream moves
+        // the test with it.
+        let room = routing
+            .event_channel("user.pending_approval")
+            .expect("the pinned routing names the approvals room");
+        let firehose = RoutingProvider::route_for(&routing, "test.unrouted")
+            .expect("the pinned routing has a default room")
+            .channel;
+        assert_ne!(room, firehose, "approvals have a room of their own");
+
+        assert!(verify_ops_channel(&tap_in(&room, ""), &routing).is_ok());
+        // The default room carries other events, never an approval.
+        let err = verify_ops_channel(&tap_in(&firehose, ""), &routing)
+            .expect_err("a tap outside the approvals room is refused");
+        assert!(err.to_string().contains("ops channel"), "{err}");
+    }
+
+    #[test]
+    fn an_approval_is_refused_while_no_rule_of_its_own_names_the_room() {
+        let routing = ContremaitreRoutingProvider::new_empty();
+        let err = verify_ops_channel(&tap_in("C0ANS7HU3CH", "dravr-dev-users"), &routing)
+            .expect_err("no routing rule, no approvals");
+        assert!(err.to_string().contains("user.pending_approval"), "{err}");
+
+        // A table without the event's rule still routes it to the default
+        // room; that room is never where approvals are honoured.
+        routing
+            .reload("version: 1\ndefaults:\n  channel: \"C0B3FRDDD25\"\nevents: {}\n")
+            .expect("a defaults-only table parses");
+        let err = verify_ops_channel(&tap_in("C0B3FRDDD25", "dev-dravr-events"), &routing)
+            .expect_err("the default room is not the approvals room");
+        assert!(err.to_string().contains("user.pending_approval"), "{err}");
     }
 }

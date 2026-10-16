@@ -333,7 +333,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         )),
         refresh_token_expiry_days: 30,
         csrf_manager: resources.auth.csrf_manager.clone(),
-        accounts: resources.oauth2_accounts(),
+        accounts: resources.account_service(),
         google_sign_in: resources.oauth2_google_sign_in(),
         strings: Arc::new(MessagingStringsRegistry::new()),
     };
@@ -492,6 +492,7 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
     assert_eq!(tenants.len(), 1);
     let signed_up = only(&events, "user.signed_up");
     assert_eq!(signed_up.field("source"), "google");
+    assert!(named(&events, "user.pending_approval").is_empty());
     assert_eq!(signed_up.field("user_id"), user.id.to_string());
     assert_eq!(
         only(&events, "user.login").field("user_id"),
@@ -575,7 +576,7 @@ async fn a_verified_password_account_is_reached_and_keeps_its_password() {
         Some("108000000000000000002")
     );
     f.resources
-        .oauth2_accounts()
+        .account_service()
         .login(LoginRequest {
             email: "runner@gmail.com".to_owned(),
             password: "password123".to_owned(),
@@ -615,7 +616,7 @@ async fn a_firebase_account_keeps_its_firebase_uid_and_both_paths_meet_on_the_go
     // Firebase UID and a changed address, reaches the same account by the sub.
     let login = f
         .resources
-        .oauth2_accounts()
+        .account_service()
         .login_with_federated_identity(FederatedIdentity {
             firebase_uid: Some("fb-uid-other"),
             google_subject: Some("108000000000000000003"),
@@ -1005,12 +1006,19 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
 async fn a_pending_account_signs_in_but_is_not_shown_consent() {
     let f = Fixture::new().await;
 
+    let (events, guard) = capture_notify();
     let callback = f
         .sign_in(|n| GoogleIdClaims::issued("108000000000000000009", "waiting@gmail.com", n))
         .await;
+    drop(guard);
     assert_eq!(callback.status(), 303, "{}", callback.body_text());
     let user = f.user("waiting@gmail.com").await.unwrap();
     assert_eq!(user.user_status, UserStatus::Pending);
+    // The admins hear about a federated sign-up too (carnet#1056).
+    assert_eq!(
+        only(&events, "user.pending_approval").field("user_id"),
+        user.id.to_string()
+    );
 
     let jwt = session(&callback).unwrap();
     let page = authorize_page(&f, callback.header("location").unwrap(), &jwt).await;
@@ -1410,7 +1418,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
     let mut squatted = f.account("victim@gmail.com", false).await;
     squatted.firebase_uid = Some("attacker-firebase-uid".to_owned());
     repos.users.update(&squatted).await.unwrap();
-    let accounts = f.resources.oauth2_accounts();
+    let accounts = f.resources.account_service();
     let session_refresh = accounts
         .issue_refresh_token(squatted.id, None, MOBILE_CLIENT_ID.to_owned())
         .await
@@ -1520,7 +1528,7 @@ async fn the_firebase_path_retires_an_unverified_accounts_credentials_the_same_w
 
     let login = f
         .resources
-        .oauth2_accounts()
+        .account_service()
         .login_with_federated_identity(FederatedIdentity {
             firebase_uid: Some("owner-firebase-uid"),
             google_subject: Some("108000000000000000014"),

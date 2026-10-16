@@ -144,6 +144,7 @@ pub use first_sync::{FirstSyncHook, FirstSyncSlot, CONNECT_RECENT_DAYS};
 pub use pierre_mcp_transport::OAuthCallbackResponse;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;
+use pierre_services::operator_mail::PendingSignupMail;
 
 /// Shared state for every auth route handler in this crate.
 ///
@@ -209,6 +210,24 @@ pub struct AuthRoutesContext {
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
+}
+
+impl AuthRoutesContext {
+    /// The account service for a route that may create an account: an
+    /// account it leaves waiting for approval is also emailed to the
+    /// super-admins when outbound email is configured (carnet#1056).
+    #[must_use]
+    pub fn account_service(&self) -> AuthService {
+        AuthService::new(
+            self.auth_manager.clone(),
+            self.jwks_manager.clone(),
+            self.config.clone(),
+            self.data.clone(),
+        )
+        .with_pending_signup_mail(self.email_service.as_ref().map(|email| {
+            PendingSignupMail::new(Arc::clone(email), self.config.frontend_url.as_deref())
+        }))
+    }
 }
 
 /// Authentication route group entry point.

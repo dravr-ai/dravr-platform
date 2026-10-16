@@ -32,7 +32,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_middleware::redaction::mask_email_for_display;
-use pierre_services::auth::AuthService;
 use pierre_services::messaging_broadcast::proactive_text;
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -574,24 +573,23 @@ async fn create_verified_channel_link(
 /// Best-effort on both writes. The link exists and the user is already talking
 /// to us; failing the turn over bookkeeping would be the wrong trade.
 async fn stamp_verified_after_otp(resources: &ServerContext, user_id: Uuid) {
-    if let Err(e) = resources
+    let first_proof = match resources
         .common
         .repos
         .email_verification
         .mark_verified(user_id)
         .await
     {
-        warn!(error = %e, user_id = %user_id, "failed to stamp email verified after OTP");
-    }
+        Ok(first_proof) => first_proof,
+        Err(e) => {
+            warn!(error = %e, user_id = %user_id, "failed to stamp email verified after OTP");
+            false
+        }
+    };
 
-    let auth_service = AuthService::new(
-        resources.auth.auth_manager.clone(),
-        resources.auth.jwks_manager.clone(),
-        resources.common.config.clone(),
-        resources.data(),
-    );
-    if let Err(e) = auth_service
-        .apply_approval_after_verification(user_id)
+    if let Err(e) = resources
+        .account_service()
+        .apply_approval_after_verification(user_id, first_proof)
         .await
     {
         warn!(error = %e, user_id = %user_id, "approval decision failed after OTP verification");
@@ -878,18 +876,14 @@ async fn handle_signup_confirm_step(
 /// link to the address they just proved.
 ///
 /// The account is created Active or Pending by the same
-/// [`AuthService::register`] rules every other signup uses, so the approval
-/// posture stays in one place rather than being special-cased per surface.
+/// [`pierre_services::auth::AuthService::register`] rules every other signup
+/// uses, so the approval posture stays in one place rather than being
+/// special-cased per surface.
 async fn create_chat_originated_user(
     resources: &ServerContext,
     email: &str,
 ) -> Result<(), AppError> {
-    let auth_service = AuthService::new(
-        resources.auth.auth_manager.clone(),
-        resources.auth.jwks_manager.clone(),
-        resources.common.config.clone(),
-        resources.data(),
-    );
+    let auth_service = resources.account_service();
 
     // A random unusable secret: `register` requires one, and nothing may ever
     // authenticate with it. The reset flow is the only way in until they set a

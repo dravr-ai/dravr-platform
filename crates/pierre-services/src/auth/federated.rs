@@ -111,10 +111,13 @@ impl AuthService {
         // can show the "pending approval" page (user_status is in the response).
         Self::reject_if_suspended(&user)?;
 
-        self.record_federated_email_proof(&user, &identity).await?;
+        let first_proof = self.record_federated_email_proof(&user, &identity).await?;
 
         // Retroactively approve pending users whose domain now qualifies
         self.auto_approve_if_eligible(&mut user).await?;
+        if first_proof {
+            self.mail_admins_if_pending(&user);
+        }
 
         let response = self
             .complete_federated_login(&user, identity.provider)
@@ -137,22 +140,24 @@ impl AuthService {
     /// Mark `user`'s email verified when the sign-in proves it
     /// ([`FederatedIdentity::proves_email`]), as the confirmation link does.
     /// A sign-in never vouches for an address the account does not hold, and
-    /// one that proves nothing leaves an earlier mark as it is.
+    /// one that proves nothing leaves an earlier mark as it is. Returns `true`
+    /// when this sign-in made the address's first proof.
     async fn record_federated_email_proof(
         &self,
         user: &User,
         identity: &FederatedIdentity<'_>,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         if !identity.proves_email(&user.email) {
-            return Ok(());
+            return Ok(false);
         }
-        self.data
+        let first_proof = self
+            .data
             .repos()
             .email_verification
             .mark_verified(user.id)
             .await?;
         info!(user_id = %user.id, provider = %identity.provider, "Email verified by the sign-in provider");
-        Ok(())
+        Ok(first_proof)
     }
 
     /// Find the account `identity` signs in to, or create it (the module
@@ -451,6 +456,7 @@ impl AuthService {
             source = identity.signup_source.as_str(),
             "account created"
         );
+        Self::announce_if_pending(&new_user, tenant_id);
 
         Ok(new_user)
     }

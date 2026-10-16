@@ -92,12 +92,7 @@ pub async fn handle_register(
 
     info!("Admin-authenticated user registration attempt");
 
-    let auth_service = AuthService::new(
-        resources.auth_manager.clone(),
-        resources.jwks_manager.clone(),
-        resources.config.clone(),
-        resources.data.clone(),
-    );
+    let auth_service = resources.account_service();
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
@@ -195,12 +190,7 @@ pub async fn handle_public_register(
 ) -> Result<Response, AppError> {
     info!("Public self-registration attempt");
 
-    let auth_service = AuthService::new(
-        resources.auth_manager.clone(),
-        resources.jwks_manager.clone(),
-        resources.config.clone(),
-        resources.data.clone(),
-    );
+    let auth_service = resources.account_service();
 
     match auth_service.register(request.clone()).await {
         Ok(response) => {
@@ -208,9 +198,8 @@ pub async fn handle_public_register(
             // attribute the user.signed_up event without re-passing the id. The
             // personal tenant is created inside register() and not exposed on the
             // response, so tenant_id is recorded at the login/session span instead.
-            //
-            // LIMITATION(registre#1056): `user.signed_up` carries no `UserStatus` and has no
-            // routing rule, so a sign-up awaiting approval reaches no admin as one.
+            // A sign-up left Pending also raises `user.pending_approval` from
+            // inside register(), which is what reaches the admins.
             Span::current().record("user_id", field::display(&response.user_id));
             info!(
                 target: "notify",
@@ -267,12 +256,7 @@ pub async fn handle_firebase_login(
         AppError::invalid_input("Firebase authentication is not configured on this server")
     })?;
 
-    let auth_service = AuthService::new(
-        resources.auth_manager.clone(),
-        resources.jwks_manager.clone(),
-        resources.config.clone(),
-        resources.data.clone(),
-    );
+    let auth_service = resources.account_service();
 
     match auth_service
         .login_with_firebase(request, firebase_auth)

@@ -127,13 +127,27 @@ async fn consuming_a_valid_token_marks_the_address_verified() {
         "consuming must return the user the token was issued to"
     );
 
-    repo.mark_verified(user_id)
-        .await
-        .expect("mark_verified failed");
+    assert!(
+        repo.mark_verified(user_id)
+            .await
+            .expect("mark_verified failed"),
+        "the first stamp is the address's first proof"
+    );
 
     assert!(
         repo.is_verified(user_id).await.expect("is_verified failed"),
         "the address must read as verified once the token is consumed and stamped"
+    );
+
+    // A second proof of the same inbox keeps the first and says so: the
+    // operator email for a pending account goes out on the first proof only
+    // (carnet#1056).
+    assert!(
+        !repo
+            .mark_verified(user_id)
+            .await
+            .expect("re-marking an already verified address succeeds"),
+        "a repeated stamp is not a first proof"
     );
 }
 

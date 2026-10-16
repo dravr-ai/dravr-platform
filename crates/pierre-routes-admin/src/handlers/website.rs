@@ -81,7 +81,7 @@ fn ok_status() -> Json<Value> {
 /// Trim, lowercase and validate an address, the way registration does.
 fn valid_email(raw: &str) -> AppResult<String> {
     let email = normalize_email(raw);
-    if AuthService::is_valid_email(&email) && !email.contains(char::is_whitespace) {
+    if AuthService::is_valid_email(&email) {
         Ok(email)
     } else {
         Err(AppError::invalid_input("Invalid email format"))

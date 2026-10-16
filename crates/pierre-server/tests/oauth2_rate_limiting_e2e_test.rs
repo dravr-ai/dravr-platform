@@ -733,7 +733,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         accounts: common::create_test_server_resources()
             .await
             .unwrap()
-            .oauth2_accounts(),
+            .account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(limiter),

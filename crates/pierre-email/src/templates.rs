@@ -506,6 +506,62 @@ pub fn coach_access_requested_html(
     )
 }
 
+/// The operator email announcing a sign-up that no auto-approval rule
+/// admitted (carnet#1056). Everything the applicant typed is escaped.
+#[must_use]
+pub fn signup_awaiting_approval_html(
+    applicant_email: &str,
+    applicant_name: Option<&str>,
+    review_url: Option<&str>,
+) -> String {
+    let who = applicant_name.map_or_else(
+        || encode_text(applicant_email).into_owned(),
+        |name| format!("{} ({})", encode_text(name), encode_text(applicant_email)),
+    );
+    let action = review_url.map_or_else(
+        || "Approve or reject it in the admin console, under Users.".to_owned(),
+        |url| {
+            format!(
+                r#"<a href="{}" style="display:inline-block;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Review the account</a>"#,
+                encode_double_quoted_attribute(url)
+            )
+        },
+    );
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account waiting for approval</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#0a0a0f;color:#e5e7eb;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;padding:40px 20px;">
+    <tr>
+      <td style="text-align:center;padding-bottom:32px;">
+        <h1 style="margin:0;font-size:24px;font-weight:700;color:#ffffff;">Dravr</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">Account waiting for approval</h2>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          {who} signed up. They cannot use Dravr until an admin approves the account.
+        </p>
+        <div style="text-align:center;margin:0;">{action}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="text-align:center;padding-top:24px;">
+        <p style="margin:0;font-size:12px;color:#4b5563;">&copy; Dravr</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +593,25 @@ mod tests {
         assert!(html.contains("coach@example.com asked for coach access"));
         assert!(html.contains("without naming a group"));
         assert!(html.contains("Users &rarr; Coach access"));
+    }
+
+    #[test]
+    fn the_signup_approval_email_escapes_what_the_applicant_typed() {
+        let html = signup_awaiting_approval_html(
+            "new@example.com",
+            Some("<b>Jo</b> & Co"),
+            Some("https://app.dravr.ai/#users"),
+        );
+        assert!(html.contains("&lt;b&gt;Jo&lt;/b&gt; &amp; Co (new@example.com) signed up"));
+        assert!(html.contains("href=\"https://app.dravr.ai/#users\""));
+        assert!(!html.contains("<b>Jo</b>"));
+    }
+
+    #[test]
+    fn the_signup_approval_email_reads_without_a_name_or_link() {
+        let html = signup_awaiting_approval_html("new@example.com", None, None);
+        assert!(html.contains("new@example.com signed up"));
+        assert!(html.contains("in the admin console, under Users"));
     }
 
     #[test]

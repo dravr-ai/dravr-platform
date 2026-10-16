@@ -25,6 +25,7 @@ mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
 use helpers::first_party_sign_in::SignIn;
+use helpers::notify_capture::{capture_notify, named, only};
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -133,12 +134,18 @@ async fn preapproved_email_registers_active_with_attribution() {
         .expect("recording the allow must succeed");
     assert!(added, "first allow of a new address must report insertion");
 
+    let (events, guard) = capture_notify();
     let (status, body) = register(&resources, email, "securePassword123").await;
+    drop(guard);
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(
         body["user_status"].as_str(),
         Some("active"),
         "a pre-approved email must land active, got: {body}"
+    );
+    assert!(
+        named(&events, "user.pending_approval").is_empty(),
+        "an account that lands active waits on no admin"
     );
 
     let user = resources
@@ -204,13 +211,44 @@ async fn an_allow_outliving_its_operator_still_registers_active_unattributed() {
 async fn unlisted_email_registers_pending() {
     let resources = setup().await.expect("server context setup failed");
 
+    let (events, guard) = capture_notify();
     let (status, body) = register(&resources, "stranger@example.com", "securePassword123").await;
+    drop(guard);
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(
         body["user_status"].as_str(),
         Some("pending"),
         "an unlisted email must land in the pending queue, got: {body}"
     );
+
+    // The admins hear about it (carnet#1056): one ping naming the account
+    // and the personal workspace it was given.
+    let user_id = body["user_id"].as_str().expect("user_id");
+    let ping = only(&events, "user.pending_approval");
+    assert_eq!(ping.field("user_id"), user_id);
+    let tenants = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(Uuid::parse_str(user_id).expect("user_id must be a UUID"))
+        .await
+        .expect("tenants of the new account");
+    assert_eq!(ping.field("tenant_id"), tenants[0].id.to_string());
+}
+
+/// An address an applicant types reaches the approvals room as the subject of
+/// the ping, so one Slack would render as a room-wide mention is refused at
+/// the door and pings nobody (carnet#1056).
+#[tokio::test]
+async fn an_address_carrying_slack_markup_is_refused_and_pings_nobody() {
+    let resources = setup().await.expect("server context setup failed");
+
+    let (events, guard) = capture_notify();
+    let (status, body) = register(&resources, "<!channel>@example.com", "securePassword123").await;
+    drop(guard);
+    assert_eq!(status, 400, "the address must be refused: {body}");
+    assert!(named(&events, "user.pending_approval").is_empty());
+    assert!(named(&events, "user.signed_up").is_empty());
 }
 
 #[tokio::test]

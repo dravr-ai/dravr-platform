@@ -40,18 +40,17 @@ use super::tool_surface::HostedToolBridge;
 use dravr_canot::ChannelRegistry;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::AgentsRepository;
+use pierre_services::operator_mail::PendingSignupMail;
 #[cfg(feature = "health-sync")]
 use pierre_services::personal_bests::PersonalBests;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
-#[cfg(feature = "protocol-rest")]
 use std::sync::Arc;
 
 #[cfg(feature = "protocol-rest")]
 use pierre_auth::google_oidc::{google_callback_url, GoogleOidcClient};
 #[cfg(feature = "protocol-rest")]
 use pierre_routes_identity::GoogleSignIn;
-#[cfg(feature = "protocol-rest")]
 use pierre_services::auth::AuthService;
 #[cfg(feature = "protocol-rest")]
 use tracing::info;
@@ -157,6 +156,28 @@ impl ServerContext {
     pub fn memory_extraction_prompt(&self) -> String {
         self.mcp.prompt_registry.memory_extraction_prompt()
     }
+
+    /// The account service for any path that may create an account, the
+    /// hosted OAuth 2.0 login page included: an account it leaves waiting for
+    /// approval is also emailed to the
+    /// super-admins when outbound email is configured (carnet#1056). Every
+    /// sign-up built from the server context goes through here, so none can
+    /// leave the mailer off.
+    #[must_use]
+    pub fn account_service(&self) -> AuthService {
+        AuthService::new(
+            self.auth.auth_manager.clone(),
+            self.auth.jwks_manager.clone(),
+            self.common.config.clone(),
+            self.data(),
+        )
+        .with_pending_signup_mail(self.common.email_service.as_ref().map(|email| {
+            PendingSignupMail::new(
+                Arc::clone(email),
+                self.common.config.frontend_url.as_deref(),
+            )
+        }))
+    }
 }
 
 // ─── pierre-routes-auth context builder ─────────────────────────────────
@@ -232,18 +253,6 @@ impl ServerContext {
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }
-    }
-
-    /// The account rules the hosted OAuth 2.0 login page signs athletes in
-    /// through: the same [`AuthService`] the web app's sign-in routes build.
-    #[must_use]
-    pub fn oauth2_accounts(&self) -> AuthService {
-        AuthService::new(
-            self.auth.auth_manager.clone(),
-            self.auth.jwks_manager.clone(),
-            self.common.config.clone(),
-            self.data(),
-        )
     }
 
     /// "Continue with Google" on the hosted OAuth 2.0 login page, when

@@ -30,8 +30,10 @@ use pierre_core::models::{
 use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
+use crate::analytics::cache_user_email;
 use crate::default_agent::first_athlete_facing;
 use crate::link_token::split_link_token;
+use crate::operator_mail::PendingSignupMail;
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
@@ -76,6 +78,9 @@ pub struct AuthService {
     jwks_manager: Arc<JwksManager>,
     config: Arc<ServerConfig>,
     data: DataContext,
+    /// Emails the super-admins about an account left Pending; `None` sends
+    /// the Slack ping alone. Set by the services that create accounts.
+    pending_signup_mail: Option<PendingSignupMail>,
 }
 
 impl AuthService {
@@ -92,7 +97,66 @@ impl AuthService {
             jwks_manager,
             config,
             data,
+            pending_signup_mail: None,
         }
+    }
+
+    /// Email the super-admins through `mail` when an account this service
+    /// handles proves its address and still waits for approval.
+    #[must_use]
+    pub fn with_pending_signup_mail(mut self, mail: Option<PendingSignupMail>) -> Self {
+        self.pending_signup_mail = mail;
+        self
+    }
+
+    /// Tell the users room about an account no auto-approval rule admitted,
+    /// whatever the sign-up source.
+    ///
+    /// The two paths that create an account under the approval posture call
+    /// it: [`Self::create_account`] (password, admin, chat and link-page
+    /// sign-ups) and the federated create (Google, Firebase).
+    /// `user.pending_approval` is routed to the users room, the only room whose
+    /// Approve and Reject taps the Slack interactivity route honours. An
+    /// account that is already Active raises nothing here: `user.signed_up`
+    /// counts every sign-up. The super-admins' email waits for the address to
+    /// be proven ([`Self::mail_admins_if_pending`]).
+    fn announce_if_pending(user: &User, tenant_id: TenantId) {
+        if user.user_status != UserStatus::Pending {
+            return;
+        }
+        // The enricher resolves the subject's address from this cache, so the
+        // ping names who is waiting.
+        cache_user_email(&user.id.to_string(), &user.email);
+        info!(
+            target: "notify",
+            event = "user.pending_approval",
+            user_id = %user.id,
+            tenant_id = %tenant_id,
+            "account waiting for approval"
+        );
+    }
+
+    /// Email the super-admins about an account whose address was just proven
+    /// for the first time and that still waits for approval (carnet#1056).
+    ///
+    /// Waiting for the proof keeps a burst of throwaway sign-ups out of the
+    /// operators' inboxes and off the shared Resend quota: an address nobody
+    /// confirmed never reaches them. Callers pass only a first proof (the
+    /// confirmation link, the chat OTP, a provider vouching for the address),
+    /// so each account is mailed once. Sent off the request path, and only
+    /// when this service carries a [`PendingSignupMail`].
+    fn mail_admins_if_pending(&self, user: &User) {
+        if user.user_status != UserStatus::Pending {
+            return;
+        }
+        let Some(mail) = self.pending_signup_mail.clone() else {
+            return;
+        };
+        let users = Arc::clone(&self.data.repos().users);
+        let applicant = user.clone();
+        task::spawn(async move {
+            mail.send(users.as_ref(), &applicant).await;
+        });
     }
 
     /// Handle user registration
@@ -274,6 +338,8 @@ impl AuthService {
                 error!("Failed to assign user to tenant: {}", e);
                 AppError::database(format!("Failed to assign tenant: {e}"))
             })?;
+
+        Self::announce_if_pending(&user, tenant_id);
 
         Ok((user_id, user))
     }
@@ -817,6 +883,10 @@ impl AuthService {
     /// Flip `AUTO_APPROVE_USERS` on and the same call promotes them immediately,
     /// with no second implementation for "open signup".
     ///
+    /// `first_proof` is what the repository's `mark_verified`
+    /// returned: when this proof is the address's first and the account still
+    /// waits, the super-admins are emailed.
+    ///
     /// Returns the status the user now holds.
     ///
     /// # Errors
@@ -825,6 +895,7 @@ impl AuthService {
     pub async fn apply_approval_after_verification(
         &self,
         user_id: uuid::Uuid,
+        first_proof: bool,
     ) -> AppResult<UserStatus> {
         let Some(mut user) = self.data.repos().users.get_global(user_id).await? else {
             return Err(AppError::not_found("User not found"));
@@ -836,6 +907,9 @@ impl AuthService {
         }
 
         self.auto_approve_if_eligible(&mut user).await?;
+        if first_proof {
+            self.mail_admins_if_pending(&user);
+        }
         Ok(user.user_status)
     }
 
@@ -1025,10 +1099,18 @@ impl AuthService {
     }
 
     /// Validate email format
+    ///
+    /// Whitespace and `<` `>` are refused outright: no deliverable unquoted
+    /// address carries them, and Slack renders `<!channel>` or `<url|text>`
+    /// in an operator ping as a room-wide mention or a disguised link, so an
+    /// address an applicant typed must never hold them (carnet#1056).
     #[must_use]
     pub fn is_valid_email(email: &str) -> bool {
         // Simple email validation
         if email.len() <= 5 {
+            return false;
+        }
+        if email.contains(|c: char| c.is_whitespace() || c == '<' || c == '>') {
             return false;
         }
         let Some(at_pos) = email.find('@') else {
@@ -1058,5 +1140,24 @@ impl AuthService {
             .await
             .map_err(|e| AppError::internal(format!("Password hashing task failed: {e}")))?
             .map_err(|e| AppError::internal(format!("Password hashing failed: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AuthService;
+
+    #[test]
+    fn an_address_slack_would_read_as_markup_is_not_an_address() {
+        for address in [
+            "<!channel>@example.com",
+            "x<https://evil.example|open>@example.com",
+            "first last@example.com",
+            "tab\there@example.com",
+            "new\nline@example.com",
+        ] {
+            assert!(!AuthService::is_valid_email(address), "{address:?}");
+        }
+        assert!(AuthService::is_valid_email("user.name+tag@domain.co.uk"));
     }
 }

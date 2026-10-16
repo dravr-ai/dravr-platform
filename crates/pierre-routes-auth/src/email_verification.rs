@@ -30,7 +30,6 @@ use tracing::{error, info, warn};
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::UserStatus;
-use pierre_services::auth::AuthService;
 use pierre_services::email_verification::resolve_settings;
 use pierre_services::link_token::{generate_link_token, split_link_token};
 
@@ -239,25 +238,22 @@ pub async fn handle_verify_email(
         return verification_redirect(&resources, "invalid");
     };
 
-    if let Err(e) = resources
+    let first_proof = match resources
         .repos
         .email_verification
         .mark_verified(user_id)
         .await
     {
-        error!(error = %e, user_id = %user_id, "failed to stamp email as verified");
-        return verification_redirect(&resources, "error");
-    }
+        Ok(first_proof) => first_proof,
+        Err(e) => {
+            error!(error = %e, user_id = %user_id, "failed to stamp email as verified");
+            return verification_redirect(&resources, "error");
+        }
+    };
 
-    let auth_service = AuthService::new(
-        resources.auth_manager.clone(),
-        resources.jwks_manager.clone(),
-        resources.config.clone(),
-        resources.data.clone(),
-    );
-
-    let status = match auth_service
-        .apply_approval_after_verification(user_id)
+    let status = match resources
+        .account_service()
+        .apply_approval_after_verification(user_id, first_proof)
         .await
     {
         Ok(status) => status,

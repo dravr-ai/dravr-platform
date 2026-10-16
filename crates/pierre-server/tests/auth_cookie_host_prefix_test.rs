@@ -123,7 +123,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         )),
         refresh_token_expiry_days: 30,
         csrf_manager: resources.auth.csrf_manager.clone(),
-        accounts: resources.oauth2_accounts(),
+        accounts: resources.account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
     };
