@@ -133,7 +133,6 @@ configuration_catalog_test	0.0
 configuration_e2e_test	2.6
 configuration_mcp_integration_test	0.1
 configuration_profiles_test	0.0
-configuration_runtime_test	0.0
 configuration_tools_integration_test	1.8
 configuration_validation_test	0.0
 configuration_vo2_max_test	0.0

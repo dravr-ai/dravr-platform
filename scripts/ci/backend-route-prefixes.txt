@@ -24,7 +24,6 @@
 a2a           # proxied
 admin         # proxied
 api           # proxied
-config        # unproxied: GET/PUT /config and /config/user (ConfigurationRoutes)
 fitness       # proxied
 health        # edge: nginx serves `location = /health` for Cloud Run
 internal      # unproxied: Cloud Tasks posts /internal/turns/{id}/run to the service's own run.app URL; /internal/conversation-turn/{id} is admin observability

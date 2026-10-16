@@ -323,6 +323,8 @@ impl ProviderToolRouter {
         use crate::routes::api_keys::ApiKeyRoutes;
         #[cfg(feature = "client-messaging")]
         use crate::routes::commands::CommandRoutes;
+        #[cfg(feature = "client-settings")]
+        use crate::routes::fitness::FitnessConfigurationRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
         #[cfg(all(feature = "client-chat", feature = "client-messaging"))]
@@ -333,10 +335,6 @@ impl ProviderToolRouter {
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
         #[cfg(feature = "client-chat")]
         use crate::routes::{chat::ChatRoutes, usage::UsageRoutes};
-        #[cfg(feature = "client-settings")]
-        use crate::routes::{
-            configuration::ConfigurationRoutes, fitness::FitnessConfigurationRoutes,
-        };
         use crate::routes::{i18n::I18nRoutes, memory::MemoryRoutes, personas::PersonasRoutes};
         #[cfg(feature = "protocol-a2a")]
         use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
@@ -567,7 +565,6 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "client-settings")]
         let app = app
-            .merge(ConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
             .merge(pierre_routes_billing::billing_routes().with_state(Arc::clone(resources)))
             .merge(athlete_home::athlete_home_routes().with_state(Arc::clone(resources)))

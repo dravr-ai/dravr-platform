@@ -43,10 +43,6 @@ pub mod mcp;
 // CLIENT-WEB FEATURES
 // ═══════════════════════════════════════════════════════════════
 
-/// Configuration management routes
-#[cfg(feature = "client-settings")]
-pub mod configuration;
-
 /// Fitness configuration routes
 #[cfg(feature = "client-settings")]
 pub mod fitness;

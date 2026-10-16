@@ -24,9 +24,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], defau
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.50", features = ["sync"] }
 tracing = "0.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [lints]
 workspace = true
