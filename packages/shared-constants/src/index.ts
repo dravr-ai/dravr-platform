@@ -249,8 +249,8 @@ export {
 } from './groups';
 
 // Coaching-platform link vocabulary: each refusal the group's link routes
-// send, as a corpus key resolved with each client's own t(), and the platform
-// name those keys carry
+// send and each consent a link carries, as corpus keys resolved with each
+// client's own t(), and the platform name those keys carry
 export {
   coachPlatformName,
   DELEGATION_REFUSAL_KEY,
@@ -258,7 +258,17 @@ export {
   DELEGATION_CONNECTION_REFUSALS,
   isDelegationRefusal,
   delegationRefusalKey,
+  DELEGATION_CONSENT_KEYS,
+  DELEGATION_CONSENTS_NONE_KEY,
+  WELLNESS_READ_SKIP_KEYS,
+  offeredConsents,
+  consentStateKeys,
+  consentNoteKey,
+  confirmConsents,
+  DELEGATION_REVOKE_CONFIRM_KEYS,
+  consentChangeConfirm,
 } from './delegation';
+export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 
 // The map layers both route cards draw over, and the ink the track is drawn in
 export {

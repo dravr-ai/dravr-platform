@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{RelativeIntensity, TenantId, WorkoutStep};
+use pierre_core::models::{
+    ConnectionType, ProviderConnection, RelativeIntensity, TenantId, WorkoutStep,
+};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver::resolve_backend;
 use pierre_providers::core::FitnessProvider;
@@ -69,25 +71,74 @@ pub(super) fn provider_arg(args: &Value) -> Option<&str> {
         .filter(|name| !name.is_empty())
 }
 
-/// The backends `user_id` holds a connection to.
-async fn connected_backends(
+/// Which of an athlete's connections a calendar is chosen among.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CalendarConnections {
+    /// Only those the athlete made themselves: what the athlete's own write
+    /// goes through. A calendar they read only through a human coach's link
+    /// takes that coach's writes, never theirs.
+    Own,
+    /// Every one, the delegated connection a human coach's link registers
+    /// included: what a coach's write goes through, and what a read of the
+    /// ledger looks under.
+    WithLink,
+}
+
+/// `user_id`'s provider connections under `tenant_id`.
+async fn connections(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
-) -> AppResult<Vec<String>> {
-    Ok(context
+) -> AppResult<Vec<ProviderConnection>> {
+    context
         .resources
         .repos()
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
-        .await?
-        .into_iter()
-        .map(|connection| connection.provider)
-        .collect())
+        .await
+}
+
+/// The backends `rows` hold a connection to among `which`.
+fn backends_among(rows: &[ProviderConnection], which: CalendarConnections) -> Vec<&str> {
+    rows.iter()
+        .filter(|connection| {
+            which == CalendarConnections::WithLink
+                || connection.connection_type != ConnectionType::Delegated
+        })
+        .map(|connection| connection.provider.as_str())
+        .collect()
+}
+
+/// Whether `rows` hold `backend` only through a human coach's link: a
+/// delegated connection, and no connection of the athlete's own, which would
+/// win over every link.
+fn only_through_a_link(rows: &[ProviderConnection], backend: &str) -> bool {
+    let mut on_backend = rows
+        .iter()
+        .filter(|connection| connection.provider == backend)
+        .peekable();
+    on_backend.peek().is_some()
+        && on_backend.all(|connection| connection.connection_type == ConnectionType::Delegated)
+}
+
+/// Whether `user_id` holds the calendar on `backend` only through a human
+/// coach's link, so that only the coach writes it.
+///
+/// # Errors
+///
+/// Returns the repository error when the connections cannot be read.
+pub(super) async fn holds_only_through_a_link(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    backend: &str,
+) -> AppResult<bool> {
+    let rows = connections(context, tenant_id, user_id).await?;
+    Ok(only_through_a_link(&rows, backend))
 }
 
 /// The backend a calendar write goes to: the one the caller named, else the
-/// athlete's connected provider that declares calendar-write.
+/// athlete's provider among `which` that declares calendar-write.
 ///
 /// # Errors
 ///
@@ -98,6 +149,7 @@ pub(super) async fn calendar_target(
     tenant_id: TenantId,
     user_id: Uuid,
     requested: Option<&str>,
+    which: CalendarConnections,
 ) -> AppResult<String> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
@@ -112,14 +164,27 @@ pub(super) async fn calendar_target(
         ),
         None => None,
     };
-    let connected = connected_backends(context, tenant_id, user_id).await?;
-    let connected: Vec<&str> = connected.iter().map(String::as_str).collect();
-    resolve_calendar_target(registry, &connected, requested.as_deref())
+    let rows = connections(context, tenant_id, user_id).await?;
+    resolve_calendar_target(
+        registry,
+        &backends_among(&rows, which),
+        requested.as_deref(),
+    )
+}
+
+/// The calendar a read of the push ledger looks under, and who writes it.
+pub(super) struct LedgerCalendar {
+    /// The calendar's backend.
+    pub(super) backend: String,
+    /// Whether the athlete holds it only through a human coach's link, so
+    /// that only the coach pushes to it.
+    pub(super) through_link: bool,
 }
 
 /// The calendar a read of the push ledger looks under: the athlete's
-/// connected target, falling back to the first calendar-write provider so an
-/// athlete who never connected one reads an empty ledger, not an error.
+/// connected target, their human coach's link included, falling back to the
+/// first calendar-write provider so an athlete who never connected one reads
+/// an empty ledger, not an error.
 ///
 /// # Errors
 ///
@@ -129,10 +194,16 @@ pub(super) async fn calendar_ledger_target(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
-) -> AppResult<String> {
-    let connected = connected_backends(context, tenant_id, user_id).await?;
-    let connected: Vec<&str> = connected.iter().map(String::as_str).collect();
-    calendar_read_target(context.resources.provider_registry(), &connected)
+) -> AppResult<LedgerCalendar> {
+    let rows = connections(context, tenant_id, user_id).await?;
+    let backend = calendar_read_target(
+        context.resources.provider_registry(),
+        &backends_among(&rows, CalendarConnections::WithLink),
+    )?;
+    Ok(LedgerCalendar {
+        through_link: only_through_a_link(&rows, &backend),
+        backend,
+    })
 }
 
 /// Build the athlete's authenticated provider for the calendar `backend`, or
@@ -356,5 +427,45 @@ pub(super) fn step_schema() -> PropertySchema {
             "target_zone".to_owned(),
         ]),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn connection(provider: &str, connection_type: ConnectionType) -> ProviderConnection {
+        ProviderConnection::new(
+            Uuid::new_v4(),
+            Uuid::new_v4().to_string(),
+            provider.to_owned(),
+            connection_type,
+        )
+    }
+
+    #[test]
+    fn a_calendar_held_only_through_a_link_is_the_coachs_to_write() {
+        let linked = [connection("intervals_icu", ConnectionType::Delegated)];
+        assert!(only_through_a_link(&linked, "intervals_icu"));
+        assert_eq!(
+            backends_among(&linked, CalendarConnections::Own),
+            Vec::<&str>::new()
+        );
+        assert_eq!(
+            backends_among(&linked, CalendarConnections::WithLink),
+            ["intervals_icu"]
+        );
+    }
+
+    #[test]
+    fn an_own_connection_or_none_at_all_is_no_link_only_calendar() {
+        let own_and_link = [
+            connection("intervals_icu", ConnectionType::Delegated),
+            connection("intervals_icu", ConnectionType::Manual),
+        ];
+        assert!(!only_through_a_link(&own_and_link, "intervals_icu"));
+        let other_backend = [connection("trainingpeaks", ConnectionType::Delegated)];
+        assert!(!only_through_a_link(&other_backend, "intervals_icu"));
+        assert!(!only_through_a_link(&[], "intervals_icu"));
     }
 }

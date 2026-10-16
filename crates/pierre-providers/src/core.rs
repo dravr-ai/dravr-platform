@@ -124,8 +124,8 @@ use crate::backend_resolver::user_facing_name;
 use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
-    API_KEY_TOKEN_TYPE,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
+    SportType, Stats, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget::RequestBudget;
@@ -565,6 +565,28 @@ pub trait FitnessProvider: Send + Sync {
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         Err(AppError::invalid_input(format!(
             "{} does not list a coach's athletes",
+            user_facing_name(self.name())
+        )))
+    }
+
+    // ── Athlete settings ─────────────────────────────────────────────────
+
+    /// The training thresholds the athlete keeps on the provider: FTP,
+    /// threshold and maximum heart rate, threshold pace. `primary_sport` is
+    /// the athlete's main sport when Dravr knows it, which decides whose
+    /// settings the heart-rate thresholds come from on a provider that keeps
+    /// them per sport.
+    ///
+    /// A provider that keeps such settings and serves them through an API
+    /// overrides this. Every other provider inherits the refusal: thresholds
+    /// that are all absent would read as an athlete who set none.
+    async fn read_thresholds(
+        &self,
+        primary_sport: Option<&SportType>,
+    ) -> AppResult<ProviderThresholds> {
+        let _ = primary_sport;
+        Err(AppError::invalid_input(format!(
+            "{} does not expose athlete thresholds",
             user_facing_name(self.name())
         )))
     }

@@ -20,7 +20,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{
     Activity, DataSource, DeviceType, SportType, StoredRecoveryMetrics, StoredSleepSession,
-    TenantId, UserPhysiologicalProfile,
+    TenantId, ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertClaimVerdictParams;
@@ -77,6 +77,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }

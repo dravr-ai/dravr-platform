@@ -11,8 +11,12 @@
 //! is the way out of that state that does not go through a support inbox:
 //!
 //! 1. [`request_access`] opens a request, naming the coach's group when they
-//!    asked from one. It grants nothing; it announces itself on the notify
-//!    channel, and the caller emails the super-admins.
+//!    asked from one, or filed for them when their Intervals.icu key coaches
+//!    athletes ([`crate::coach_access_evidence`]). It grants nothing; it
+//!    announces itself on the notify channel, and a caller holding the email
+//!    service tells every super-admin ([`email_super_admins`]). A request
+//!    that names no group takes the one its coach later makes to coach
+//!    ([`name_requested_group`]).
 //! 2. A super-admin reads the queue ([`list_requests`]) and either
 //!    [`grant`]s — `manages_roster` as an operator grant, and the requester
 //!    attached as coach of the named group when they still own it and it
@@ -26,9 +30,13 @@ use std::collections::HashMap;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachAccessRequest, CoachAccessStatus, TenantId, User};
+use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
+use pierre_email::templates::CoachAccessOrigin;
+use pierre_email::ResendEmailService;
+use pierre_middleware::redaction::mask_email;
 use serde::Serialize;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::admin_ops::set_user_manages_roster;
@@ -59,6 +67,10 @@ impl RequestOutcome {
 /// be theirs and still coachless, since that is the group a grant attaches
 /// them to. A user who already holds coach access has nothing to ask for.
 ///
+/// A user who already has a request waiting gets it back. When it names no
+/// group (one filed from their Intervals.icu roster) and this ask names one,
+/// the waiting request names it from now on, so a grant attaches them to it.
+///
 /// # Errors
 ///
 /// Returns not-found for an unknown user or group, permission-denied when the
@@ -79,27 +91,11 @@ pub async fn request_access(
     }
 
     let group = match group {
-        Some((group_id, tenant_id)) => {
-            let found = repos
-                .groups
-                .get_group(&group_id.to_string(), tenant_id)
-                .await?
-                .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
-            if found.owner_id != user_id {
-                return Err(AppError::new(
-                    ErrorCode::PermissionDenied,
-                    "Only the group's owner can ask to coach it",
-                ));
-            }
-            if found.coach_user_id.is_some() {
-                return Err(AppError::invalid_input("This group already has a coach"));
-            }
-            Some((group_id, found.tenant_id))
-        }
+        Some(group) => Some(group_to_coach(repos, user_id, group).await?),
         None => None,
     };
 
-    let request = CoachAccessRequest::pending(user_id, group, Utc::now());
+    let request = CoachAccessRequest::pending(user_id, group.clone(), Utc::now());
     if repos.coach_access_requests.open(&request).await? {
         // LIMITATION(registre#1060): `coach_access.requested` is the only coach-access event; no referral attribution (`coach_referral.*`, `referral_id`) exists.
         info!(
@@ -119,7 +115,187 @@ pub async fn request_access(
         .await?
         .filter(|r| r.status == CoachAccessStatus::Pending)
         .ok_or_else(|| AppError::internal("Coach access request was neither opened nor pending"))?;
+    let pending = match group {
+        Some(group) => name_group(repos, pending, group).await?,
+        None => pending,
+    };
     Ok(RequestOutcome::AlreadyPending(pending))
+}
+
+/// Name `group` (its id and tenant) on `user_id`'s waiting coach-access
+/// request when that request names no group, so a grant attaches them to it.
+///
+/// Called when a coach without coach access makes the group they asked to
+/// coach and it comes back coachless: a request filed from their
+/// Intervals.icu roster before the group existed names none, and the coach is
+/// shown it as already sent. Nothing is opened, granted or announced; a user
+/// with no waiting request, or one that names a group already, is left as
+/// they are.
+///
+/// # Errors
+///
+/// Returns not-found for an unknown group, permission-denied when the group
+/// is not the user's, invalid-input when it already has a coach, and the
+/// repository error otherwise.
+pub async fn name_requested_group(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    group: (Uuid, TenantId),
+) -> AppResult<()> {
+    let Some(pending) = repos
+        .coach_access_requests
+        .latest_for_user(user_id)
+        .await?
+        .filter(|r| r.status == CoachAccessStatus::Pending && r.group_id.is_none())
+    else {
+        return Ok(());
+    };
+    let group = group_to_coach(repos, user_id, group).await?;
+    name_group(repos, pending, group).await?;
+    Ok(())
+}
+
+/// The group (its id and tenant) `user_id` asks to coach, once it is theirs
+/// and still coachless: the group a grant attaches them to.
+///
+/// # Errors
+///
+/// Returns not-found for an unknown group, permission-denied when the group
+/// is not the user's, invalid-input when it already has a coach, and the
+/// repository error otherwise.
+async fn group_to_coach(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    (group_id, tenant_id): (Uuid, TenantId),
+) -> AppResult<(Uuid, String)> {
+    let found = repos
+        .groups
+        .get_group(&group_id.to_string(), tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
+    if found.owner_id != user_id {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Only the group's owner can ask to coach it",
+        ));
+    }
+    if found.coach_user_id.is_some() {
+        return Err(AppError::invalid_input("This group already has a coach"));
+    }
+    Ok((group_id, found.tenant_id))
+}
+
+/// `pending`, naming `group` when it named none; as it was otherwise.
+async fn name_group(
+    repos: &RepositoryRegistry,
+    mut pending: CoachAccessRequest,
+    (group_id, group_tenant_id): (Uuid, String),
+) -> AppResult<CoachAccessRequest> {
+    if pending.group_id.is_none()
+        && repos
+            .coach_access_requests
+            .name_group(pending.id, pending.user_id, group_id, &group_tenant_id)
+            .await?
+    {
+        info!(
+            request_id = %pending.id,
+            group_id = %group_id,
+            "Coach access request now names the group its coach asked to coach"
+        );
+        pending.group_id = Some(group_id);
+        pending.group_tenant_id = Some(group_tenant_id);
+    }
+    Ok(pending)
+}
+
+/// Email every active super-admin about the request just opened.
+///
+/// The email links the console queue under `frontend_url` when the server
+/// has one. `origin` says how the request opened: one filed from an
+/// Intervals.icu roster is never worded as the coach's asking.
+///
+/// Best-effort: an unconfigured email service or a failed send is logged and
+/// never fails the caller; the notify channel and the console queue carry the
+/// request regardless.
+pub async fn email_super_admins(
+    repos: &RepositoryRegistry,
+    email: Option<&ResendEmailService>,
+    frontend_url: Option<&str>,
+    request: &CoachAccessRequest,
+    origin: CoachAccessOrigin,
+) {
+    let Some(email) = email else {
+        warn!(request_id = %request.id, "Email service not configured — skipping coach access emails");
+        return;
+    };
+    let Some(recipients) = super_admin_emails(repos, request.id).await else {
+        return;
+    };
+    let Some(requester) = repos.users.get_global(request.user_id).await.ok().flatten() else {
+        warn!(request_id = %request.id, "Coach access requester vanished before the email");
+        return;
+    };
+    let group_name = requested_group_name(repos, request).await;
+    let review_url = frontend_url.map(|base| format!("{}/#users", base.trim_end_matches('/')));
+
+    for to in &recipients {
+        let sent = email
+            .send_coach_access_requested(
+                to,
+                &requester.email,
+                requester.display_name.as_deref(),
+                group_name.as_deref(),
+                review_url.as_deref(),
+                origin,
+            )
+            .await;
+        log_email_outcome(to, request.id, sent);
+    }
+}
+
+/// The addresses of every active super-admin; `None` (logged) when they
+/// cannot be read.
+async fn super_admin_emails(repos: &RepositoryRegistry, request_id: Uuid) -> Option<Vec<String>> {
+    match repos.users.list_admins().await {
+        Ok(admins) => Some(
+            admins
+                .into_iter()
+                .filter(|a| a.is_active && matches!(a.role, UserRole::SuperAdmin))
+                .map(|a| a.email)
+                .collect(),
+        ),
+        Err(e) => {
+            warn!(%request_id, error = %e, "Could not list super-admins for a coach access request");
+            None
+        }
+    }
+}
+
+/// The name of the group a request names, for the email; `None` when it names
+/// none or the group is gone.
+async fn requested_group_name(
+    repos: &RepositoryRegistry,
+    request: &CoachAccessRequest,
+) -> Option<String> {
+    let (group_id, tenant_id) = located_group(request)?;
+    repos
+        .groups
+        .get_group(&group_id.to_string(), tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|g| g.name)
+}
+
+/// Log one operator email's outcome against the masked recipient.
+fn log_email_outcome(to: &str, request_id: Uuid, sent: AppResult<()>) {
+    let recipient = mask_email(to);
+    match sent {
+        Ok(()) => info!(%recipient, %request_id, "Coach access request email sent"),
+        Err(e) => {
+            warn!(%recipient, %request_id, error = %e, "Failed to send coach access request email");
+        }
+    }
 }
 
 /// A request as the admin queue shows it: who asked, and for which group.

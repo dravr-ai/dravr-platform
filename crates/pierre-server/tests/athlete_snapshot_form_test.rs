@@ -15,7 +15,9 @@ use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
-use pierre_core::models::{Activity, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{
+    Activity, SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
+};
 use pierre_core::transport::TransportPolicy;
 use pierre_evals::personalized::check as personalized_check;
 use pierre_evals::{ClaimSource, ConservativeStrategy, ExtractedClaim, PersonalizedContext};
@@ -70,6 +72,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
+        threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }

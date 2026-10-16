@@ -186,15 +186,18 @@ export const ENDPOINTS = {
     REPORT: (id: string) => `/api/groups/${id}/report`,
     /** Group health flags */
     HEALTH: (id: string) => `/api/groups/${id}/health`,
-    /** A group's live TrainingPeaks links; POST proposes one (coach only) */
+    /** A group's live coaching-platform links; POST proposes one (coach only) */
     DELEGATED_CONNECTIONS: (id: string) => `/api/groups/${id}/delegated-connections`,
     /** End one link (the coach or the linked member) */
     DELEGATED_CONNECTION: (groupId: string, connectionId: string) =>
       `/api/groups/${groupId}/delegated-connections/${connectionId}`,
-    /** The linked member confirms a proposed link */
+    /** The linked member confirms a proposed link, with the consents they grant */
     DELEGATED_CONNECTION_CONFIRM: (groupId: string, connectionId: string) =>
       `/api/groups/${groupId}/delegated-connections/${connectionId}/confirm`,
-    /** The coach's TrainingPeaks roster, with each athlete's link in the group */
+    /** The linked member grants or revokes what a confirmed link shares (PUT) */
+    DELEGATED_CONNECTION_CONSENTS: (groupId: string, connectionId: string) =>
+      `/api/groups/${groupId}/delegated-connections/${connectionId}/consents`,
+    /** The coach's coaching-platform roster, with each athlete's link in the group */
     DELEGATION_ROSTER: (id: string) => `/api/groups/${id}/delegated-connections/roster`,
   },
 

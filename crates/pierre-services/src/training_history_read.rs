@@ -530,7 +530,7 @@ pub(crate) mod tests {
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::config::profiles::FitnessLevel;
     use pierre_core::models::{
-        ActivityBuilder, ConnectionType, SportType, UserPhysiologicalProfile,
+        ActivityBuilder, ConnectionType, SportType, ThresholdProvenance, UserPhysiologicalProfile,
     };
     use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_database::backends::factory::Database;
@@ -599,6 +599,7 @@ pub(crate) mod tests {
             w_prime_joules: None,
             critical_speed_mps: None,
             d_prime_meters: None,
+            threshold_provenance: ThresholdProvenance::default(),
             transport_policy: TransportPolicy::AnyTransport,
         };
         repos

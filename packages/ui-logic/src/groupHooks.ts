@@ -9,9 +9,13 @@ import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { GroupsApi } from '@pierre/api-client';
 import type {
   CoachPlatformProvider,
+  ConfirmDelegatedConnectionRequest,
   CreateInviteRequest,
+  DelegatedConnection,
+  DelegatedConnectionsResponse,
   GroupRole,
   ProposeDelegatedConnectionRequest,
+  UpdateDelegatedConnectionConsentsRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
@@ -52,6 +56,22 @@ function invalidateDelegation(queryClient: QueryClient, groupId: string) {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
   ]);
+}
+
+/**
+ * Put the link the server answered a consent change with into the group's
+ * link list, so the control the member changed shows the new state at once
+ * rather than its old one until the refetch lands.
+ */
+function putLink(queryClient: QueryClient, groupId: string, link: DelegatedConnection) {
+  queryClient.setQueryData<DelegatedConnectionsResponse>(
+    QUERY_KEYS.groups.delegatedConnections(groupId),
+    (list) =>
+      list && {
+        ...list,
+        connections: list.connections.map((held) => (held.id === link.id ? link : held)),
+      },
+  );
 }
 
 /**
@@ -532,18 +552,61 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
 
   /**
    * The member confirms a proposed link: their consent to having their
-   * TrainingPeaks workouts read through the coach's account.
+   * workouts on the coaching platform read through the coach's account.
+   * `consents` names what else they grant of what the link offers; without
+   * it the confirm grants nothing more.
    */
   function useConfirmDelegatedConnection(groupId: string) {
     const queryClient = useQueryClient();
 
     const mutation = useMutation({
-      mutationFn: (connectionId: string) => groupsApi.confirmDelegatedConnection(groupId, connectionId),
+      mutationFn: ({
+        connectionId,
+        consents,
+      }: {
+        connectionId: string;
+        consents?: ConfirmDelegatedConnectionRequest;
+      }) => groupsApi.confirmDelegatedConnection(groupId, connectionId, consents),
       onSuccess: () => invalidateDelegation(queryClient, groupId),
     });
 
     return {
-      confirmLink: mutation.mutateAsync,
+      confirmLink: (connectionId: string, consents?: ConfirmDelegatedConnectionRequest) =>
+        mutation.mutateAsync({ connectionId, consents }),
+      isPending: mutation.isPending,
+    };
+  }
+
+  /**
+   * The member grants or revokes what their confirmed link shares beyond the
+   * read: the coach's calendar writes, the wellness sync. Revoking the
+   * wellness sync deletes what it synced, which the server does before it
+   * answers.
+   */
+  function useSetDelegatedLinkConsents(groupId: string) {
+    const queryClient = useQueryClient();
+
+    const mutation = useMutation({
+      mutationFn: ({
+        connectionId,
+        consents,
+      }: {
+        connectionId: string;
+        consents: UpdateDelegatedConnectionConsentsRequest;
+      }) => groupsApi.setDelegatedLinkConsents(groupId, connectionId, consents),
+      onSuccess: (link) => {
+        putLink(queryClient, groupId, link);
+        return invalidateDelegation(queryClient, groupId);
+      },
+      // A refused change may still have moved the link (a revoke the server
+      // applied before its purge failed, a link ended meanwhile): the list is
+      // read again, so the controls show what the server holds.
+      onError: () => invalidateDelegation(queryClient, groupId),
+    });
+
+    return {
+      setConsents: (connectionId: string, consents: UpdateDelegatedConnectionConsentsRequest) =>
+        mutation.mutateAsync({ connectionId, consents }),
       isPending: mutation.isPending,
     };
   }
@@ -589,6 +652,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     useRefreshDelegationRoster,
     useProposeDelegatedConnection,
     useConfirmDelegatedConnection,
+    useSetDelegatedLinkConsents,
     useEndDelegatedConnection,
   };
 }

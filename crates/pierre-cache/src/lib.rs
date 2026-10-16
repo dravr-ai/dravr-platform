@@ -321,7 +321,10 @@ pub enum CacheResource {
     },
     /// The athletes a coach account coaches on the provider, as the provider's
     /// roster reports them (10 min TTL). Keyed by the coach's own tenant and
-    /// user, so one coach's roster never answers for another's.
+    /// user, so one coach's roster never answers for another's. The key
+    /// carries the roster shape's version (`_v2`: each athlete with the
+    /// coach's access and private wellness fields), so a roster cached in an
+    /// older shape is never served as one that reports them.
     ProviderRoster,
     /// The sciotte login flow an athlete has parked on the scraper service,
     /// awaiting its OTP/2FA continuation. Shared rather than process-local so a
@@ -392,7 +395,7 @@ impl fmt::Display for CacheResource {
             Self::TrainingHistory { from, to } => {
                 write!(f, "training_history:{from}:{to}")
             }
-            Self::ProviderRoster => write!(f, "provider_roster"),
+            Self::ProviderRoster => write!(f, "provider_roster_v2"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),

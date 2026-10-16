@@ -14,7 +14,10 @@
 //!
 //! At most one request per user is pending, held by a partial unique index, so
 //! [`CoachAccessRequestRepository::open`] is idempotent: a second tap affects
-//! no row and the caller reads back the request already waiting.
+//! no row and the caller reads back the request already waiting. A pending
+//! request that names no group (one filed from an Intervals.icu roster) takes
+//! the group its coach later asks to coach
+//! ([`CoachAccessRequestRepository::name_group`]).
 //!
 //! `user_id` and `decided_by` are `uuid` on Postgres and `TEXT` on `SQLite`;
 //! they bind and read through the shell's codec (`$ids`). `id` and `group_id`
@@ -40,6 +43,16 @@ pub trait CoachAccessRequestRepository: Send + Sync {
     /// Every request in `status`, oldest first.
     async fn list_by_status(&self, status: CoachAccessStatus)
         -> AppResult<Vec<CoachAccessRequest>>;
+    /// Name the group a grant attaches `user_id` to on their pending request
+    /// `id`, when it names none yet. `false` when the request is not theirs,
+    /// not pending, or already names a group, which is left as it is.
+    async fn name_group(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        group_id: Uuid,
+        group_tenant_id: &str,
+    ) -> AppResult<bool>;
     /// Record a super-admin's decision on a pending request. `false` when the
     /// request is not pending (already decided, or unknown), which is left
     /// as it is.
@@ -88,6 +101,14 @@ pub(crate) const LIST_BY_STATUS_SQL: &str = concat!(
     coach_access_request_columns!(),
     " FROM coach_access_requests WHERE status = $1 ORDER BY created_at ASC, id ASC"
 );
+
+/// Name a group on the user's pending request that names none; matches
+/// nothing otherwise.
+pub(crate) const NAME_GROUP_SQL: &str = r"
+            UPDATE coach_access_requests
+            SET group_id = $3, group_tenant_id = $4
+            WHERE id = $1 AND user_id = $2 AND status = 'pending' AND group_id IS NULL
+            ";
 
 /// Decide a request that is still pending; matches nothing otherwise.
 pub(crate) const DECIDE_REQUEST_SQL: &str = r"
@@ -220,6 +241,28 @@ macro_rules! impl_coach_access_request_repository {
                         AppError::database(format!("Failed to list coach access requests: {e}"))
                     })?;
                 rows.iter().map(Self::coach_access_row).collect()
+            }
+
+            async fn name_group(
+                &self,
+                id: Uuid,
+                user_id: Uuid,
+                group_id: Uuid,
+                group_tenant_id: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(NAME_GROUP_SQL)
+                    .bind(id.to_string())
+                    .bind($ids::bind(user_id))
+                    .bind(group_id.to_string())
+                    .bind(group_tenant_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to name a coach access request's group: {e}"
+                        ))
+                    })?;
+                Ok(result.rows_affected() == 1)
             }
 
             async fn decide(

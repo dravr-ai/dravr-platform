@@ -161,12 +161,17 @@ fn style_violations(
     violations
 }
 
-/// Tools whose every result is a coached athlete's data: the roster overview
-/// and the consent-gated member fetch. The member fetch is also the name the
+/// Tools whose every result is a coached athlete's data: the roster overview,
+/// the coaching-platform roster, which names the coach's members, and the
+/// consent-gated member fetch. The member fetch is also the name the
 /// pipeline records when it fetches a named peer itself
 /// ([`super::peer_grounding`], [`super::capability_subject`]), so
 /// `tools_called` carries it whichever side made the call.
-const ROSTER_READ_TOOLS: &[&str] = &["get_roster_overview", PEER_FETCH_TOOL];
+const ROSTER_READ_TOOLS: &[&str] = &[
+    "get_roster_overview",
+    "get_provider_roster",
+    PEER_FETCH_TOOL,
+];
 
 /// `true` when the turn read a coached athlete's data, judged from the names
 /// of the tools that ran.
@@ -1040,6 +1045,7 @@ mod tests {
     #[test]
     fn a_roster_read_marks_the_turn() {
         assert!(turn_read_roster_data(&called(&["get_roster_overview"])));
+        assert!(turn_read_roster_data(&called(&["get_provider_roster"])));
         assert!(turn_read_roster_data(&called(&[
             "get_activities",
             PEER_FETCH_TOOL
@@ -1064,9 +1070,11 @@ mod tests {
         use dravr_tronc::mcp::tool::McpTool;
         use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
         use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
+        use pierre_tool_runtime::implementations::provider_roster::GetProviderRosterTool;
 
         let registered = [
             GetRosterOverviewTool.definition().name,
+            GetProviderRosterTool.definition().name,
             GetGroupMemberActivitiesTool.definition().name,
         ];
         for name in ROSTER_READ_TOOLS {

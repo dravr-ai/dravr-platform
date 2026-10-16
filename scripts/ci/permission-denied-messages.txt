@@ -43,6 +43,8 @@ crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
 crates/pierre-middleware/src/auth.rs:A personal MCP token is accepted only by the MCP endpoint
 crates/pierre-middleware/src/auth.rs:This access token was delegated to an application and is accepted only by the MCP and A2A endpoints
 crates/pierre-providers/src/delegation.rs:That athlete no longer shares their {brand} account with this coach
+crates/pierre-providers/src/delegation.rs:{brand} does not show this athlete's sport settings to the coach's account
+crates/pierre-providers/src/delegation.rs:{brand} refused this calendar write: the coach's {brand} account reads this athlete but may not write their calendar
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
@@ -58,6 +60,7 @@ crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
+crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can change what it shares
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/group_update_access.rs:The group's coach may change only its weekly digest
@@ -77,5 +80,6 @@ crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tena
 crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
 crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
+crates/pierre-services/src/delegated_link_consents.rs:Grant what a coach link shares in the Dravr app; from here it can only be revoked
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation

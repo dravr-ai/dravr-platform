@@ -13,6 +13,12 @@
 //! stored encrypted in the access-token column, the athlete id plaintext in
 //! `user_oauth_tokens.provider_user_id`, and a `Manual` provider connection is
 //! registered so the resolver treats it like any other connected backend.
+//!
+//! Once a key is stored, its roster is read off the request: a key whose
+//! account coaches active athletes files its owner's coach-access request
+//! for a super-admin to decide, and never grants coach access itself.
+
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -23,11 +29,13 @@ use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE};
 use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_services::coach_access::email_super_admins;
+use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "health-sync")]
@@ -253,8 +261,44 @@ pub async fn link_intervals_icu_account(
     // rather than at the next scheduled pass.
     #[cfg(feature = "health-sync")]
     spawn_health_backfill(resources, &user_id.to_string(), INTERVALS_ICU, None);
+    spawn_coach_access_probe(resources, user_id, tenant);
 
     Ok(athlete)
+}
+
+/// After a key is linked, read its roster off the request and file the
+/// coach-access request it is evidence for
+/// ([`probe_intervals_icu_roster`]), emailing every super-admin about a
+/// request it opens as a tapped request does.
+///
+/// The link answers as soon as the key is stored: the roster read is a
+/// second request to Intervals.icu, and a failed one only waits for the next
+/// live roster read to file the request.
+fn spawn_coach_access_probe(resources: &AuthRoutesContext, user_id: Uuid, tenant: TenantId) {
+    let repos = Arc::clone(&resources.repos);
+    let registry = Arc::clone(&resources.provider_registry);
+    let email = resources.email_service.clone();
+    let config = Arc::clone(&resources.config);
+    tokio::spawn(async move {
+        match probe_intervals_icu_roster(&repos, &registry, user_id, tenant).await {
+            Ok(Some(filed)) => {
+                email_super_admins(
+                    &repos,
+                    email.as_deref(),
+                    config.frontend_url.as_deref(),
+                    &filed.request,
+                    filed.origin(),
+                )
+                .await;
+            }
+            Ok(None) => {}
+            Err(e) => warn!(
+                user_id = %user_id,
+                error = %e,
+                "Intervals.icu roster probe failed; the next live roster read files any coach access request"
+            ),
+        }
+    });
 }
 
 /// `DELETE /api/providers/intervals_icu/disconnect`

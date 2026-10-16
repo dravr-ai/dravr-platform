@@ -30,6 +30,8 @@ import type {
   DelegatedConnectionsResponse,
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
+  ConfirmDelegatedConnectionRequest,
+  UpdateDelegatedConnectionConsentsRequest,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -59,6 +61,8 @@ export type {
   DelegatedConnectionsResponse,
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
+  ConfirmDelegatedConnectionRequest,
+  UpdateDelegatedConnectionConsentsRequest,
 };
 
 /**
@@ -224,14 +228,36 @@ export function createGroupsApi(axios: AxiosInstance) {
 
     /**
      * The member confirms a proposed link, consenting to their workouts on
-     * the coaching platform being read through the coach's account.
+     * the coaching platform being read through the coach's account, and
+     * granting whichever of the link's offered consents `consents` names.
+     * With no `consents` the request carries no body and grants nothing.
      */
     async confirmDelegatedConnection(
       groupId: string,
       connectionId: string,
+      consents?: ConfirmDelegatedConnectionRequest,
     ): Promise<DelegatedConnection> {
       const response = await axios.post<DelegatedConnection>(
         ENDPOINTS.GROUPS.DELEGATED_CONNECTION_CONFIRM(groupId, connectionId),
+        consents,
+      );
+      return response.data;
+    },
+
+    /**
+     * The member grants or revokes what their confirmed link shares beyond
+     * the read; a consent left out stays as it stands. Revoking
+     * `wellness_read` deletes the wellness the link synced. Answers with the
+     * link as it now stands.
+     */
+    async setDelegatedLinkConsents(
+      groupId: string,
+      connectionId: string,
+      consents: UpdateDelegatedConnectionConsentsRequest,
+    ): Promise<DelegatedConnection> {
+      const response = await axios.put<DelegatedConnection>(
+        ENDPOINTS.GROUPS.DELEGATED_CONNECTION_CONSENTS(groupId, connectionId),
+        consents,
       );
       return response.data;
     },

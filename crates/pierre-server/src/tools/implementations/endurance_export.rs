@@ -241,8 +241,12 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              the underlying tables. Critical power, W′, critical speed and D′ each \
              carry `kind` (measured or estimated) and `origin`: quote an estimated \
              value as an estimate attributed to its origin ('Vekta estimates your \
-             CP at 312 W'), never as a measurement. Empty slots come back as \
-             `null` rather than 404, so agents can rely on the shape.",
+             CP at 312 W'), never as a measurement. An FTP, threshold or max heart \
+             rate, or threshold pace a provider supplied is named in \
+             `threshold_provenance` with its origin: quote it as that provider's \
+             estimate ('intervals.icu has your FTP at 285 W'); one not named there \
+             is the athlete's own. Empty slots come back as `null` rather than \
+             404, so agents can rely on the shape.",
             schema,
             Some(read_only_annotations()),
         )))

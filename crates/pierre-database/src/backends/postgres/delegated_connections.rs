@@ -7,7 +7,8 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_email, DelegatedConnection, DelegationEndReason, DelegationStatus, TenantId,
+    normalize_email, DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents,
+    TenantId,
 };
 use sqlx::postgres::PgRow;
 use uuid::Uuid;
@@ -18,8 +19,9 @@ use crate::repositories::delegated_connections::{
     unknown_value, CONFIRM_SQL, END_CONFIRMED_FOR_MEMBER_SQL, END_FOR_COACH_SQL,
     END_FOR_GROUP_MEMBER_SQL, END_FOR_GROUP_SQL, END_ONE_SQL, FIND_ACTIVE_FOR_MEMBER_SQL,
     GET_FOR_PARTICIPANT_SQL, LIST_BACKED_FOR_MEMBER_SQL, LIST_CONFIRMED_FOR_ATHLETE_SQL,
-    LIST_LIVE_FOR_COACH_IN_GROUP_SQL, LIST_LIVE_FOR_COACH_SQL, LIST_LIVE_FOR_MEMBER_IN_GROUP_SQL,
-    LIST_LIVE_FOR_MEMBER_SQL, PROPOSE_SQL,
+    LIST_CONFIRMED_FOR_PROVIDER_SQL, LIST_LIVE_FOR_COACH_IN_GROUP_SQL, LIST_LIVE_FOR_COACH_SQL,
+    LIST_LIVE_FOR_MEMBER_IN_GROUP_SQL, LIST_LIVE_FOR_MEMBER_SQL, PROPOSE_SQL,
+    SET_LINK_CONSENTS_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::DelegatedConnectionRepository;

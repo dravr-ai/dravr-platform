@@ -37,6 +37,11 @@ function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection
     proposed_at: '2026-09-24T08:00:00Z',
     confirmed_at: null,
     read_refused: null,
+    calendar_write: false,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
     ...overrides,
   };
 }
@@ -64,6 +69,7 @@ vi.mock('../../../services/api', () => ({
     getDelegationRoster: vi.fn(),
     proposeDelegatedConnection: vi.fn(),
     confirmDelegatedConnection: vi.fn(),
+    setDelegatedLinkConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
   },
   providersApi: {
@@ -746,7 +752,8 @@ describe('GroupInfoPanel', () => {
 
     await user.click(within(request).getByTestId('delegation-confirm'));
     await waitFor(() =>
-      expect(groupsApi.confirmDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-1'),
+      // A TrainingPeaks link offers no consent, so the confirm carries no body.
+      expect(groupsApi.confirmDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-1', undefined),
     );
   });
 
@@ -769,5 +776,59 @@ describe('GroupInfoPanel', () => {
     await user.click(screen.getByTestId('group-info-leave'));
     const confirm = await screen.findByRole('dialog');
     expect(confirm).toHaveTextContent('Your TrainingPeaks link through this group ends too.');
+  });
+
+  it("shows every live link of a member with its own platform and controls, a newer proposal hiding none", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    // The server lists the newest proposal first: a TrainingPeaks link the
+    // coach just proposed, above the Intervals.icu link the member confirmed
+    // earlier with their wellness shared.
+    const intervals = link({
+      id: 'dc-intervals',
+      provider: 'intervals_icu',
+      provider_athlete_id: 'i201',
+      status: 'confirmed',
+      proposed_at: '2026-09-20T08:00:00Z',
+      confirmed_at: '2026-09-20T09:00:00Z',
+      calendar_write_supported: true,
+      wellness_read: true,
+      wellness_read_supported: true,
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [link({ id: 'dc-trainingpeaks', proposed_at: '2026-10-14T08:00:00Z' }), intervals],
+      total: 2,
+      viewer: 'member',
+    });
+    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue({ ...intervals, wellness_read: false });
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByText('TrainingPeaks through your human coach')).toBeInTheDocument();
+    expect(screen.getByText('Intervals.icu through your human coach')).toBeInTheDocument();
+    const proposal = await screen.findByTestId('delegation-member-link-dc-trainingpeaks');
+    expect(within(proposal).getByTestId('delegation-request')).toHaveTextContent('TrainingPeaks link request');
+
+    const confirmed = screen.getByTestId('delegation-member-link-dc-intervals');
+    expect(within(confirmed).getByTestId('delegation-linked')).toHaveTextContent(
+      "Your Intervals.icu workouts are read through Casey Coach's account.",
+    );
+    const wellness = within(confirmed).getByTestId('delegation-consent-wellness_read');
+    expect(wellness).toBeChecked();
+    await user.click(wellness);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop sharing' }));
+    await waitFor(() =>
+      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-intervals', {
+        wellness_read: false,
+      }),
+    );
+
+    // Leaving ends both, and the warning names both.
+    await user.click(screen.getByTestId('group-info-leave'));
+    const leave = await screen.findByRole('dialog');
+    expect(leave).toHaveTextContent('Your TrainingPeaks link through this group ends too.');
+    expect(leave).toHaveTextContent('Your Intervals.icu link through this group ends too.');
   });
 });

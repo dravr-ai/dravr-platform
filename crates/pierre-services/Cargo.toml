@@ -39,6 +39,8 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
+# Emails the super-admins about each coach-access request opened.
+pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 dravr-cageux = { workspace = true }
@@ -87,9 +89,6 @@ serde-saphyr = "1.3"
 sha2 = "0.10"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive", "migrate", "macros"], default-features = false }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time", "sync"] }
-# Folds a TrainingPeaks roster name and a member's name to the same form (NFD,
-# combining marks dropped) so a coach's picker can suggest the matching member.
-unicode-normalization = "0.1"
 tracing = "0.1"
 url = "2.5"
 urlencoding = "2.1"

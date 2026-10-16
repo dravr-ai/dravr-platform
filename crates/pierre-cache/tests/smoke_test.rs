@@ -89,7 +89,9 @@ async fn in_memory_cache_round_trips_a_value() {
 /// A coach's provider roster is cached under the coach's own tenant and user,
 /// under a key of its own, for ten minutes: long enough that linking several
 /// athletes in one sitting pays one scraper page load, short enough that an
-/// athlete added on the provider shows up in the same session.
+/// athlete added on the provider shows up in the same session. The key names
+/// the roster shape's version, so an entry cached before each athlete carried
+/// the coach's access is never read back as one that does.
 #[test]
 fn provider_roster_keys_per_coach_and_lives_ten_minutes() {
     let tenant_id = TenantId::generate();
@@ -102,7 +104,9 @@ fn provider_roster_keys_per_coach_and_lives_ten_minutes() {
     );
     assert_eq!(
         key.to_string(),
-        format!("tenant:{tenant_id}:user:{coach}:provider:sciotte_trainingpeaks:provider_roster")
+        format!(
+            "tenant:{tenant_id}:user:{coach}:provider:sciotte_trainingpeaks:provider_roster_v2"
+        )
     );
     assert_ne!(
         key.to_string(),

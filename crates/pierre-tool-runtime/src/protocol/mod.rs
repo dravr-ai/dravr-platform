@@ -6,6 +6,8 @@
 
 /// Authentication service used by universal protocol handlers
 pub mod auth;
+/// Whether a human coach writes a coached athlete's coaching-platform calendar, and the writer they write it with
+pub(crate) mod coach_calendar;
 /// Whether an athlete has any data behind them: a connection, a token or an uploaded file
 mod data_source;
 /// Whose session a `TrainingPeaks` read goes through; a coach account's own read is refused in words

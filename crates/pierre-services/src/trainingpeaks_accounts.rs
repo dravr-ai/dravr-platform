@@ -79,8 +79,8 @@ impl EmailBinding {
 /// Whether the `TrainingPeaks` account whose email is `provider_email` is
 /// `user_id`'s: that email must be the user's verified Dravr email.
 ///
-/// Both are compared in their normalized form ([`normalize_email`]), so case
-/// and surrounding whitespace do not matter.
+/// The two are compared in normalized form, so case and surrounding
+/// whitespace do not matter.
 ///
 /// # Errors
 ///
@@ -91,25 +91,62 @@ pub async fn email_binding(
     user_id: Uuid,
     provider_email: Option<&str>,
 ) -> AppResult<EmailBinding> {
-    let Some(provider_email) = provider_email
-        .map(normalize_email)
-        .filter(|email| !email.is_empty())
-    else {
+    // Nothing to compare: no read can make a missing email bind.
+    if provider_email_key(provider_email).is_none() {
         return Ok(EmailBinding::ProviderEmailMissing);
-    };
+    }
     let user = repos
         .users
         .get_global(user_id)
         .await?
         .ok_or_else(|| AppError::not_found("User"))?;
-    if !repos.email_verification.is_verified(user_id).await? {
-        return Ok(EmailBinding::DravrEmailUnverified);
+    let verified = repos.email_verification.is_verified(user_id).await?;
+    Ok(bind_email(provider_email, &user.email, verified))
+}
+
+/// How a provider account whose email is `provider_email` binds to the Dravr
+/// account whose primary email is `dravr_email`, verified or not: the one
+/// rule every email binding applies.
+///
+/// The emails are compared in their normalized form ([`normalize_email`]),
+/// so case and surrounding whitespace do not matter ([`same_email`]). An
+/// unverified Dravr email proves no one, so it never binds, whatever it
+/// reads.
+#[must_use]
+pub(crate) fn bind_email(
+    provider_email: Option<&str>,
+    dravr_email: &str,
+    dravr_verified: bool,
+) -> EmailBinding {
+    if provider_email_key(provider_email).is_none() {
+        return EmailBinding::ProviderEmailMissing;
     }
-    Ok(if provider_email == normalize_email(&user.email) {
+    if !dravr_verified {
+        return EmailBinding::DravrEmailUnverified;
+    }
+    if same_email(provider_email, dravr_email) {
         EmailBinding::Bound
     } else {
         EmailBinding::Mismatch
-    })
+    }
+}
+
+/// Whether `provider_email` reads as `dravr_email`, in their normalized form.
+///
+/// A comparison only: it says which Dravr account an email names, never that
+/// the account is proven to be its owner's ([`bind_email`]). A missing or
+/// empty provider email names no one.
+#[must_use]
+pub(crate) fn same_email(provider_email: Option<&str>, dravr_email: &str) -> bool {
+    provider_email_key(provider_email).is_some_and(|email| email == normalize_email(dravr_email))
+}
+
+/// `provider_email` normalized; `None` when the provider shared none, or an
+/// empty one.
+pub(crate) fn provider_email_key(provider_email: Option<&str>) -> Option<String> {
+    provider_email
+        .map(normalize_email)
+        .filter(|email| !email.is_empty())
 }
 
 /// Whether the roster athlete a confirmed `link` names is its member by email.
@@ -402,4 +439,55 @@ pub async fn probe_trainingpeaks_role(
             .await?
             .role,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_verified_email_binds_case_and_whitespace_aside() {
+        assert_eq!(
+            bind_email(Some("  Alex@Links.Test "), "alex@links.test", true),
+            EmailBinding::Bound
+        );
+        assert_eq!(
+            bind_email(Some("sam@links.test"), "alex@links.test", true),
+            EmailBinding::Mismatch
+        );
+    }
+
+    #[test]
+    fn an_unverified_email_never_binds_even_when_it_matches() {
+        assert_eq!(
+            bind_email(Some("alex@links.test"), "alex@links.test", false),
+            EmailBinding::DravrEmailUnverified
+        );
+        assert_eq!(
+            bind_email(Some("sam@links.test"), "alex@links.test", false),
+            EmailBinding::DravrEmailUnverified
+        );
+    }
+
+    #[test]
+    fn a_missing_or_blank_provider_email_binds_no_one() {
+        for missing in [None, Some(""), Some("   ")] {
+            assert_eq!(
+                bind_email(missing, "alex@links.test", true),
+                EmailBinding::ProviderEmailMissing,
+                "{missing:?}"
+            );
+            assert!(!same_email(missing, "alex@links.test"), "{missing:?}");
+            assert!(
+                !same_email(missing, ""),
+                "{missing:?} never names an empty email"
+            );
+        }
+    }
+
+    #[test]
+    fn the_comparison_names_the_account_without_proving_it() {
+        assert!(same_email(Some("ALEX@links.test"), " alex@LINKS.test"));
+        assert!(!same_email(Some("alex@links.test"), "alex@links.tests"));
+    }
 }

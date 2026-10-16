@@ -181,13 +181,14 @@ export default function GroupInfoPanel({
     enabled: mayAskForCoachAccess,
   });
   const canRequestCoachAccess = mayAskForCoachAccess && onboardingStatus?.coaches_others === true;
-  // A member sees only their own links, at most one live per group.
-  const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
-  // The coaching platform the links are on, which their titles name: the
-  // coach's roster names it (the section reads the same cached roster), a
-  // member's link names its own.
+  // A member sees only their own links: one live per coaching platform the
+  // group's coach links them on, each with its own controls.
+  const memberLinks = delegationViewer === 'member' ? delegatedConnections : [];
+  // The coaching platform the coach's links are on, which their title names:
+  // the coach's roster names it (the section reads the same cached roster).
+  // Each of a member's links names its own.
   const { provider: rosterProvider } = useDelegationRoster(groupId, delegationViewer === 'coach');
-  const linkPlatform = coachPlatformName(delegationViewer === 'coach' ? rosterProvider : liveLink?.provider);
+  const rosterPlatform = coachPlatformName(rosterProvider);
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the server refuses any other field from them.
   // The digest select shows only where the tenant's tier sends a digest at all.
@@ -366,7 +367,7 @@ export default function GroupInfoPanel({
       {/* Which side of the links the caller is on is the server's answer:
           a coach who is also a member is still the group's coach. */}
       {delegationViewer === 'coach' ? (
-        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle', { platform: linkPlatform })}>
+        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle', { platform: rosterPlatform })}>
           <DelegatedConnectionsSection
             groupId={groupId}
             mode="coach"
@@ -375,16 +376,22 @@ export default function GroupInfoPanel({
             onOpenConnections={onOpenConnections}
           />
         </Section>
-      ) : delegationViewer === 'member' && liveLink ? (
-        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.memberSectionTitle', { platform: linkPlatform })}>
-          <DelegatedConnectionsSection
-            groupId={groupId}
-            mode="member"
-            connections={[liveLink]}
-            members={members}
-          />
-        </Section>
-      ) : null}
+      ) : (
+        memberLinks.map((link) => (
+          <Section
+            key={link.id}
+            icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />}
+            title={t('delegation.memberSectionTitle', { platform: coachPlatformName(link.provider) })}
+          >
+            <DelegatedConnectionsSection
+              groupId={groupId}
+              mode="member"
+              connections={[link]}
+              members={members}
+            />
+          </Section>
+        ))
+      )}
 
       {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}
       {isAdmin && (
@@ -583,11 +590,13 @@ export default function GroupInfoPanel({
         onClose={() => setConfirmLeave(false)}
         onConfirm={() => void handleLeave()}
         title={t('groups.leaveGroup')}
-        message={
-          liveLink
-            ? `${t('app.confirmLeaveGroupWeb', { group: group.name })} ${t('delegation.leaveEndsLink', { platform: linkPlatform })}`
-            : t('app.confirmLeaveGroupWeb', { group: group.name })
-        }
+        message={[
+          t('app.confirmLeaveGroupWeb', { group: group.name }),
+          // Leaving ends every link the member holds in the group.
+          ...memberLinks.map((link) =>
+            t('delegation.leaveEndsLink', { platform: coachPlatformName(link.provider) }),
+          ),
+        ].join(' ')}
         confirmLabel={t('app.leaveGroup')}
         variant="warning"
         isLoading={isLeaving}

@@ -56,6 +56,7 @@ pub mod onboarding;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
 pub mod pillar;
+mod provider_thresholds;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
@@ -92,8 +93,8 @@ pub use dravr_cageux::models::activity::{
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
 // A session a provider's calendar plans for the athlete, in the periodization
-// grammar — read back from TrainingPeaks today, from any calendar provider
-// that declares the planned-workouts capability.
+// grammar — read back from TrainingPeaks and Intervals.icu, from any calendar
+// provider that declares the planned-workouts capability.
 pub use dravr_cageux::models::planned_workout::{PlannedWorkout, PlannedWorkoutBuilder};
 // Form banding lives in the sports-science engine (dravr-cageux) so every
 // surface reads the same edges; see `FormBand` for why raw TSB is never banded.
@@ -143,7 +144,8 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 // Athlete domain
 pub use athlete::{Athlete, PeriodTotals, Stats, StatsCoverage};
 pub use delegated_connection::{
-    DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
+    DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents, RosterAccess,
+    RosterAthlete,
 };
 pub use units::UnitSystem;
 
@@ -151,8 +153,10 @@ pub use check_in::CheckInCadence;
 
 // Physiology provenance domain
 pub use measurement::{
-    MeasurementKind, MetricProvenance, ProvenancedValue, ATHLETE_REPORTED_ORIGIN,
+    MeasurementKind, MetricProvenance, ProvenancedValue, ThresholdProvenance,
+    ATHLETE_REPORTED_ORIGIN,
 };
+pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
 
 // User domain
 pub use user::{

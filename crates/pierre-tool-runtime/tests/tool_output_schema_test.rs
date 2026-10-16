@@ -24,7 +24,9 @@ use dravr_meteo::{
 };
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::models::{MeasurementKind, MetricProvenance, ProvenancedValue, SportType};
+use pierre_core::models::{
+    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
+};
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::output_schema_for;
@@ -67,6 +69,9 @@ use pierre_tool_runtime::implementations::analytics::{
     AnalyzeWeatherImpactTool, CalculateFitnessScoreTool, CalculateMetricsTool,
     CompareActivitiesTool, DetectPatternsTool, GenerateRecommendationsTool,
     GetActivityIntelligenceTool, PredictPerformanceTool,
+};
+use pierre_tool_runtime::implementations::athlete_link::{
+    ProposeAthleteLinkResult, ProposeAthleteLinkTool,
 };
 use pierre_tool_runtime::implementations::athlete_stats::{
     GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
@@ -140,13 +145,21 @@ use pierre_tool_runtime::implementations::nutrition_gate::{FiguresWithheld, Nutr
 use pierre_tool_runtime::implementations::physiology::{
     PhysiologyProfile, SetPhysiologyResult, SetPhysiologyTool,
 };
+use pierre_tool_runtime::implementations::physiology_import::{
+    ImportProviderThresholdsResult, ImportProviderThresholdsTool, ThresholdImport,
+    ThresholdImports, WPrimeImport,
+};
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
-    GetPlannedWorkoutsResult, GetPlannedWorkoutsTool,
+    GetPlannedWorkoutsResult, GetPlannedWorkoutsTool, UnavailableCalendar,
 };
 use pierre_tool_runtime::implementations::playbooks::{
     ForgetPlaybookResult, ForgetPlaybookTool, InterventionEntry, ListCoachingPlaybooksResult,
     ListCoachingPlaybooksTool, PlaybookEntry, TriggerEntry,
+};
+use pierre_tool_runtime::implementations::provider_roster::{
+    GetProviderRosterTool, ProviderRosterAccess, ProviderRosterCount, ProviderRosterMember,
+    ProviderRosterPlatform, ProviderRosterRefusal, ProviderRosterResult, ProviderRosterState,
 };
 use pierre_tool_runtime::implementations::recipes::{
     DeleteRecipeResult, DeleteRecipeTool, GetRecipeConstraintsTool, GetRecipeTool,
@@ -1824,6 +1837,14 @@ fn the_calendar_block_is_not_a_view_of_the_athletes_calendar() {
         !required.contains(&"scope"),
         "the note appears only when there is emptiness to explain"
     );
+    // Who pushes the calendar appears only when it is not the reader, and
+    // names the one other who does: the athlete's human coach.
+    assert!(
+        !required.contains(&"pushed_by"),
+        "an athlete who pushes their own calendar is told nothing more: {block:#}"
+    );
+    let pusher = serde_json::to_string(&schema["$defs"]["CalendarPusher"]).expect("serializes");
+    assert!(pusher.contains("\"human_coach\""), "{pusher}");
 
     // `plan` ships as an explicit null when there is none, rather than being
     // omitted — a client rendering "your plan" has to tell "no plan" from
@@ -3395,6 +3416,18 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             output_schema_for::<RosterOverviewResult>(),
         ),
         (
+            "get_provider_roster",
+            <GetProviderRosterTool as McpTool<dyn ToolRuntime>>::definition(&GetProviderRosterTool),
+            output_schema_for::<ProviderRosterResult>(),
+        ),
+        (
+            "propose_athlete_link",
+            <ProposeAthleteLinkTool as McpTool<dyn ToolRuntime>>::definition(
+                &ProposeAthleteLinkTool,
+            ),
+            output_schema_for::<ProposeAthleteLinkResult>(),
+        ),
+        (
             "push_training_plan",
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
@@ -3927,6 +3960,93 @@ fn the_group_projection_carries_no_more_of_a_peer_than_it_should() {
 }
 
 #[test]
+fn the_provider_roster_names_members_and_counts_everyone_else() {
+    // A member carries their Dravr name and nothing the platform lists about
+    // them; a field added here reaches a model for every member at once —
+    // confirm it is no roster name, email or athlete id, then update this list.
+    let member = output_schema_for::<ProviderRosterMember>();
+    let mut declared: Vec<String> = member["properties"]
+        .as_object()
+        .expect("object schema")
+        .keys()
+        .cloned()
+        .collect();
+    declared.sort();
+    assert_eq!(
+        declared,
+        ["access", "group", "name", "not_reading_because", "state"],
+        "the provider roster member projection changed"
+    );
+
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<ProviderRosterResult>()).expect("compiles");
+    let value = serde_json::to_value(ProviderRosterResult {
+        platforms: vec![
+            ProviderRosterPlatform {
+                provider: "intervals_icu".to_owned(),
+                refusal: None,
+                roster_size: Some(4),
+                members: vec![
+                    ProviderRosterMember {
+                        name: "Alice".to_owned(),
+                        group: "Tuesday Track".to_owned(),
+                        state: ProviderRosterState::Linked,
+                        access: ProviderRosterAccess::Coach,
+                        not_reading_because: None,
+                    },
+                    ProviderRosterMember {
+                        name: "Bruno".to_owned(),
+                        group: "Tuesday Track".to_owned(),
+                        state: ProviderRosterState::LinkedNotReading,
+                        access: ProviderRosterAccess::Unknown,
+                        not_reading_because: Some("athlete_email_mismatch".to_owned()),
+                    },
+                ],
+                others: vec![ProviderRosterCount {
+                    state: ProviderRosterState::NotInYourGroups,
+                    access: ProviderRosterAccess::Follower,
+                    athletes: 2,
+                }],
+            },
+            ProviderRosterPlatform {
+                provider: "trainingpeaks".to_owned(),
+                refusal: Some(ProviderRosterRefusal {
+                    reason: "unavailable_over_transport".to_owned(),
+                    error: "not read over this interface".to_owned(),
+                }),
+                roster_size: None,
+                members: Vec::new(),
+                others: Vec::new(),
+            },
+        ],
+        coach_access: true,
+        coach_access_request_pending: false,
+        groups_coached: 1,
+        next_steps: vec!["Share the group's invite.".to_owned()],
+    })
+    .expect("serializes");
+    assert!(validator.is_valid(&value), "provider roster:\n{value:#}");
+    assert!(
+        value["platforms"][1].get("roster_size").is_none(),
+        "a roster not read carries no size at all"
+    );
+    assert!(value["platforms"][0]["members"][0]
+        .get("not_reading_because")
+        .is_none());
+
+    let validator = jsonschema::validator_for(&output_schema_for::<ProposeAthleteLinkResult>())
+        .expect("compiles");
+    let value = serde_json::to_value(ProposeAthleteLinkResult {
+        member: "Alice".to_owned(),
+        group: "Tuesday Track".to_owned(),
+        provider: "intervals_icu".to_owned(),
+        next_step: "Alice is asked to confirm the link in the Dravr app.".to_owned(),
+    })
+    .expect("serializes");
+    assert!(validator.is_valid(&value), "athlete link:\n{value:#}");
+}
+
+#[test]
 fn the_roster_overview_shares_only_the_roster_card_fields() {
     // A coach reads these for every consenting athlete they hold at once. A
     // field added here reaches the coach for the whole roster — confirm that
@@ -4409,6 +4529,13 @@ fn each_physiology_schema_is_attached_to_the_tool_it_names() {
             output_schema_for::<SetPhysiologyResult>(),
         ),
         (
+            "import_provider_thresholds",
+            <ImportProviderThresholdsTool as McpTool<dyn ToolRuntime>>::definition(
+                &ImportProviderThresholdsTool,
+            ),
+            output_schema_for::<ImportProviderThresholdsResult>(),
+        ),
+        (
             "estimate_vo2max",
             <EstimateVo2maxTool as McpTool<dyn ToolRuntime>>::definition(&EstimateVo2maxTool),
             output_schema_for::<EstimateVo2maxResult>(),
@@ -4459,6 +4586,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
             w_prime_joules: None,
             critical_speed_mps: None,
             d_prime_meters: None,
+            threshold_provenance: ThresholdProvenance::default(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4518,6 +4646,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
                 },
             )),
             d_prime_meters: None,
+            threshold_provenance: ThresholdProvenance::default(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4539,6 +4668,86 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
     assert!(
         !validator.is_valid(&unkinded),
         "the schema must require the kind beside the value"
+    );
+}
+
+#[test]
+fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
+    // carnet#1021: each threshold says what the import did with it, and the
+    // profile names the values a provider supplied, so the agent quotes them
+    // as that provider's estimate rather than as the athlete's own.
+    let derived = output_schema_for::<ImportProviderThresholdsResult>();
+    let validator = jsonschema::validator_for(&derived).expect("compiles");
+    let value = serde_json::to_value(ImportProviderThresholdsResult {
+        provider: "Intervals.icu".to_owned(),
+        saved: true,
+        thresholds: ThresholdImports {
+            ftp_watts: ThresholdImport::Imported { value: 285 },
+            threshold_hr: ThresholdImport::SkippedOutOfRange {
+                value: 205,
+                reason: "threshold_hr must be between 100 and 200 bpm, got 205".to_owned(),
+            },
+            max_hr: ThresholdImport::KeptYours {
+                yours: 190,
+                provider: 186,
+            },
+            threshold_pace_sec_per_km: ThresholdImport::AbsentOnProvider,
+            w_prime_joules: WPrimeImport::NotImported {
+                reason: "the two models are not interchangeable".to_owned(),
+            },
+        },
+        profile: Some(PhysiologyProfile {
+            ftp_watts: Some(285),
+            threshold_pace_sec_per_km: None,
+            max_hr: Some(190),
+            resting_hr: None,
+            threshold_hr: None,
+            lactate_threshold_percentage: None,
+            vo2_max: None,
+            weight: None,
+            age: None,
+            fitness_level: FitnessLevel::Intermediate,
+            primary_sport: SportType::Ride,
+            training_experience_years: None,
+            hr_zones: None,
+            power_zones: None,
+            critical_power_watts: None,
+            w_prime_joules: None,
+            critical_speed_mps: None,
+            d_prime_meters: None,
+            threshold_provenance: ThresholdProvenance {
+                ftp_watts: Some(MetricProvenance {
+                    kind: MeasurementKind::Estimated,
+                    origin: Some("intervals.icu".to_owned()),
+                    as_of: NaiveDate::from_ymd_opt(2026, 9, 30),
+                }),
+                ..ThresholdProvenance::default()
+            },
+        }),
+        training_history: HistoryRefresh::NothingStored,
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "an import result must satisfy the schema:\n{value:#}"
+    );
+    assert_eq!(
+        value["thresholds"]["max_hr"],
+        serde_json::json!({"outcome": "kept_yours", "yours": 190, "provider": 186})
+    );
+    assert_eq!(
+        value["profile"]["threshold_provenance"],
+        serde_json::json!({"ftp_watts": {"kind": "estimated", "origin": "intervals.icu", "as_of": "2026-09-30"}})
+    );
+    let mut unnamed = value;
+    unnamed["thresholds"]["ftp_watts"]
+        .as_object_mut()
+        .expect("an object")
+        .remove("outcome");
+    assert!(
+        !validator.is_valid(&unnamed),
+        "the schema must require each threshold's outcome"
     );
 }
 
@@ -5286,6 +5495,19 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
     )
     .completed_activity_id("900001:910007".to_owned())
     .build();
+    // Intervals.icu: a race titled with its priority, no steps, and the
+    // activity the calendar paired with it.
+    let race = PlannedWorkoutBuilder::new(
+        "intervals_icu",
+        "43",
+        day(29),
+        SportType::Run,
+        "A race: Fall Classic",
+    )
+    .planned_duration_seconds(2700)
+    .planned_distance_meters(10_000.0)
+    .completed_activity_id("i101".to_owned())
+    .build();
 
     let tool =
         <GetPlannedWorkoutsTool as McpTool<dyn ToolRuntime>>::definition(&GetPlannedWorkoutsTool);
@@ -5295,11 +5517,12 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
         tool.output_schema.clone(),
         &derived,
         &GetPlannedWorkoutsResult {
-            provider: "trainingpeaks".to_owned(),
+            providers: vec!["intervals_icu".to_owned(), "trainingpeaks".to_owned()],
+            unavailable: vec![],
             start_date: day(28),
             end_date: day(30),
-            count: 2,
-            planned_workouts: vec![ride, day_off],
+            count: 3,
+            planned_workouts: vec![ride, race, day_off],
         },
         "get_planned_workouts",
     );
@@ -5307,7 +5530,11 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
         tool.output_schema,
         &derived,
         &GetPlannedWorkoutsResult {
-            provider: "trainingpeaks".to_owned(),
+            providers: vec!["trainingpeaks".to_owned()],
+            unavailable: vec![UnavailableCalendar {
+                provider: "intervals_icu".to_owned(),
+                error: "intervals_icu: get_events returned 500 Internal Server Error".to_owned(),
+            }],
             start_date: day(28),
             end_date: day(30),
             count: 0,

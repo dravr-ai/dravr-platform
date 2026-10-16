@@ -17,6 +17,11 @@
 //! lifecycle ends it too (the member leaves, the group is archived, the coach
 //! is detached or disconnects). A revoked row is terminal: a new proposal is a
 //! new row, and the revoked one stays so its history can be read back.
+//!
+//! Beyond the read, a confirmed link carries the member's own consents
+//! ([`LinkConsents`]): whether the link's coach writes their training
+//! calendar, and whether their wellness syncs through the coach's account.
+//! Each is off until the member grants it, and only the member changes it.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -168,6 +173,46 @@ pub struct DelegatedConnection {
     pub revoked_by: Option<Uuid>,
     /// Why it ended.
     pub revoke_reason: Option<DelegationEndReason>,
+    /// Whether the member lets the link's coach write their training calendar
+    /// on the platform. Off until the member grants it, at confirm or on the
+    /// confirmed link; only the member changes it.
+    pub calendar_write: bool,
+    /// When the member last granted or revoked `calendar_write`; `None` while
+    /// it was never granted.
+    pub calendar_write_at: Option<DateTime<Utc>>,
+    /// Whether the member lets their wellness (sleep, HRV, resting heart
+    /// rate, weight, daily note) sync through the coach's account. Off until
+    /// the member grants it; only the member changes it.
+    pub wellness_read: bool,
+    /// When the member last granted or revoked `wellness_read`; `None` while
+    /// it was never granted.
+    pub wellness_read_at: Option<DateTime<Utc>>,
+}
+
+/// What a member lets a confirmed link do beyond reading their workouts.
+///
+/// Each consent is the member's alone and off until they grant it; the
+/// default grants nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LinkConsents {
+    /// The link's coach writes the member's training calendar on the
+    /// platform.
+    pub calendar_write: bool,
+    /// The member's wellness syncs through the coach's account.
+    pub wellness_read: bool,
+}
+
+/// What the coach's provider account may do with a roster athlete's data, as
+/// the provider reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RosterAccess {
+    /// The coach coaches the athlete there: reads and writes their data.
+    Coach,
+    /// The coach only follows the athlete: reads, never writes.
+    Follower,
+    /// The provider lists the athlete but gives the coach no access to them.
+    NoAccess,
 }
 
 /// The athlete a proposal names, as the coach's provider roster lists them.
@@ -179,6 +224,61 @@ pub struct RosterAthlete {
     pub name: Option<String>,
     /// The athlete's email on the roster, when the provider shares one.
     pub email: Option<String>,
+    /// The coach's access to the athlete; `None` when the provider did not
+    /// say, or said something outside [`RosterAccess`]. An unknown access
+    /// grants nothing a known one would.
+    #[serde(default)]
+    pub access: Option<RosterAccess>,
+    /// The provider's names of the wellness fields the athlete keeps private:
+    /// `None` when the provider did not say (`TrainingPeaks` never does),
+    /// `Some` of an empty list when the athlete keeps nothing private.
+    #[serde(default)]
+    pub private_wellness_keys: Option<Vec<String>>,
+    /// Whether the platform lists the athlete as active: `Some(true)` for an
+    /// active athlete, `Some(false)` for a dormant or archived one, `None`
+    /// when the platform did not say (`TrainingPeaks` never does) or said
+    /// something else. An unknown standing counts as neither.
+    #[serde(default)]
+    pub active: Option<bool>,
+}
+
+impl RosterAthlete {
+    /// An athlete the roster lists by `id`, with its `name` and `email` when
+    /// it gives them, and no access, private wellness fields or standing
+    /// reported.
+    #[must_use]
+    pub fn new(id: impl Into<String>, name: Option<String>, email: Option<String>) -> Self {
+        Self {
+            id: id.into(),
+            name,
+            email,
+            access: None,
+            private_wellness_keys: None,
+            active: None,
+        }
+    }
+
+    /// The athlete with the coach's access to them as the provider reports it.
+    #[must_use]
+    pub const fn with_access(mut self, access: Option<RosterAccess>) -> Self {
+        self.access = access;
+        self
+    }
+
+    /// The athlete with whether the provider lists them as active.
+    #[must_use]
+    pub const fn with_active(mut self, active: Option<bool>) -> Self {
+        self.active = active;
+        self
+    }
+
+    /// The athlete with the wellness fields they keep private, as the
+    /// provider reports them.
+    #[must_use]
+    pub fn with_private_wellness_keys(mut self, keys: Option<Vec<String>>) -> Self {
+        self.private_wellness_keys = keys;
+        self
+    }
 }
 
 impl DelegatedConnection {
@@ -209,6 +309,67 @@ impl DelegatedConnection {
             revoked_at: None,
             revoked_by: None,
             revoke_reason: None,
+            calendar_write: false,
+            calendar_write_at: None,
+            wellness_read: false,
+            wellness_read_at: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fresh_proposal_holds_no_consent() {
+        let link = DelegatedConnection::propose(
+            "intervals_icu".to_owned(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            TenantId::generate(),
+            Uuid::new_v4(),
+            RosterAthlete::new("i201", None, Some("alex@links.test".to_owned())),
+        );
+        assert!(!link.calendar_write);
+        assert!(!link.wellness_read);
+        assert_eq!(link.calendar_write_at, None);
+        assert_eq!(link.wellness_read_at, None);
+        assert_eq!(
+            LinkConsents::default(),
+            LinkConsents {
+                calendar_write: false,
+                wellness_read: false,
+            }
+        );
+    }
+
+    #[test]
+    fn a_roster_athlete_stored_without_access_reads_as_unreported() -> serde_json::Result<()> {
+        let athlete: RosterAthlete =
+            serde_json::from_str(r#"{"id":"i201","name":"Alex","email":null}"#)?;
+        assert_eq!(
+            athlete,
+            RosterAthlete::new("i201", Some("Alex".to_owned()), None)
+        );
+        assert_eq!(athlete.access, None);
+        assert_eq!(athlete.private_wellness_keys, None);
+        assert_eq!(athlete.active, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_roster_athlete_keeps_what_the_provider_reported_through_the_cache(
+    ) -> serde_json::Result<()> {
+        let athlete = RosterAthlete::new("i201", None, Some("alex@links.test".to_owned()))
+            .with_access(Some(RosterAccess::NoAccess))
+            .with_private_wellness_keys(Some(vec!["hrv".to_owned()]))
+            .with_active(Some(false));
+        let json = serde_json::to_value(&athlete)?;
+        assert_eq!(json["access"], "no_access");
+        assert_eq!(json["private_wellness_keys"], serde_json::json!(["hrv"]));
+        assert_eq!(json["active"], false);
+        assert_eq!(serde_json::from_value::<RosterAthlete>(json)?, athlete);
+        Ok(())
     }
 }

@@ -829,18 +829,63 @@ impl ProviderRegistry {
         coach_credentials: OAuth2Credentials,
     ) -> AppResult<Box<dyn FitnessProvider>> {
         let reads = self.delegated_reads(provider_name)?;
-        let config = self
-            .default_configs
+        let provider = reads.create_delegated(self.delegated_config(provider_name)?, athlete_id)?;
+        provider.set_credentials(coach_credentials).await?;
+        Ok(provider)
+    }
+
+    /// Create a provider that reads one coached athlete, `athlete_id`, and
+    /// writes their training calendar through `coach_credentials`, the
+    /// coach account's own stored credential: what a coach's write to a
+    /// coached athlete's calendar goes through.
+    ///
+    /// Only a provider whose descriptor declares both
+    /// [`ProviderCapabilities::COACH_ROSTER`] and
+    /// [`ProviderCapabilities::CALENDAR_WRITE`]
+    /// ([`ProviderCapabilities::supports_coach_calendar_write`]) is built this
+    /// way. Whether this coach may write this athlete's calendar — the link,
+    /// the athlete's consent, the coach's access on the platform — is the
+    /// caller's to decide first. The provider built names `athlete_id` on
+    /// every call, as a delegated reader does.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for a provider whose coach credential
+    /// writes no athlete's calendar, for an athlete id it refuses, or when the
+    /// provider has no default configuration; or the provider's refusal of
+    /// the credentials.
+    pub async fn create_delegated_calendar_writer(
+        &self,
+        provider_name: &str,
+        athlete_id: &str,
+        coach_credentials: OAuth2Credentials,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        let writes = self
+            .get_capabilities(provider_name)
+            .is_some_and(|caps| caps.supports_coach_calendar_write());
+        if !writes {
+            return Err(AppError::invalid_input(format!(
+                "{provider_name} does not let a coach write a coached athlete's calendar"
+            )));
+        }
+        let provider = self
+            .delegated_reads(provider_name)?
+            .create_delegated_calendar_writer(self.delegated_config(provider_name)?, athlete_id)?;
+        provider.set_credentials(coach_credentials).await?;
+        Ok(provider)
+    }
+
+    /// The default configuration a provider built for a coached athlete
+    /// starts from.
+    fn delegated_config(&self, provider_name: &str) -> AppResult<ProviderConfig> {
+        self.default_configs
             .get(provider_name)
+            .cloned()
             .ok_or_else(|| {
                 AppError::invalid_input(format!(
                     "No default configuration for provider: {provider_name}"
                 ))
-            })?
-            .clone();
-        let provider = reads.create_delegated(config, athlete_id)?;
-        provider.set_credentials(coach_credentials).await?;
-        Ok(provider)
+            })
     }
 
     /// Every provider a coach account reads its athletes through (those whose
@@ -1062,5 +1107,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A coach writes an athlete's calendar only on a coaching platform whose
+    /// calendar takes writes: either declaration alone is not enough.
+    #[test]
+    fn a_coach_calendar_write_needs_a_coach_roster_and_a_calendar_write() {
+        let roster = ProviderCapabilities::COACH_ROSTER;
+        let calendar = ProviderCapabilities::CALENDAR_WRITE;
+        assert!(!roster.supports_coach_calendar_write());
+        assert!(!calendar.supports_coach_calendar_write());
+        assert!(!ProviderCapabilities::empty().supports_coach_calendar_write());
+        assert!(roster.union(calendar).supports_coach_calendar_write());
+
+        // Intervals.icu is a coaching platform whose calendar takes writes;
+        // TrainingPeaks lists a roster but takes no calendar write, and Wahoo
+        // takes calendar writes but lists no roster.
+        let registry = ProviderRegistry::new();
+        let coach_writes = |name: &str| {
+            registry
+                .get_capabilities(name)
+                .is_some_and(|caps| caps.supports_coach_calendar_write())
+        };
+        #[cfg(feature = "provider-intervals-icu")]
+        assert!(coach_writes(oauth_providers::INTERVALS_ICU));
+        #[cfg(feature = "provider-sciotte")]
+        assert!(!coach_writes(oauth_providers::SCIOTTE_TRAININGPEAKS));
+        #[cfg(feature = "provider-wahoo")]
+        assert!(!coach_writes(oauth_providers::WAHOO));
+        assert!(!coach_writes("no_such_provider"));
     }
 }

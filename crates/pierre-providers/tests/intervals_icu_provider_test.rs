@@ -27,8 +27,8 @@ use pierre_providers::models::periodization::{
     EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
 };
 use pierre_providers::models::{
-    Feel, IntensityDistribution, PlannedSession, SportType, TimeSeriesData, WorkoutTargetZones,
-    WorkoutTemplate,
+    Feel, IntensityDistribution, PlannedSession, PlannedWorkout, SportType, TimeSeriesData,
+    WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::ProviderRegistry;
@@ -237,6 +237,11 @@ async fn registry_registers_intervals_icu_as_an_oauth_provider() {
     assert!(caps.supports_recovery());
     assert!(caps.supports_health());
     assert!(!caps.supports_continuous_data());
+    // The calendar is read for the workouts and races planned on it.
+    assert!(caps.supports_planned_workouts());
+    assert!(registry
+        .planned_workout_providers()
+        .contains(&"intervals_icu"));
 }
 
 #[tokio::test]
@@ -625,11 +630,16 @@ async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
 /// the whole point of the test below: the defect was that only one request was
 /// ever made.
 async fn stub_pages(bodies: Vec<String>) -> (String, JoinHandle<Vec<String>>) {
+    stub_answers(bodies.into_iter().map(|body| ("200 OK", body)).collect()).await
+}
+
+/// [`stub_pages`], each request answered with its own status line.
+async fn stub_answers(answers: Vec<(&'static str, String)>) -> (String, JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
     let addr = listener.local_addr().expect("stub addr");
     let handle = tokio::spawn(async move {
         let mut heads = Vec::new();
-        for body in bodies {
+        for (status, body) in answers {
             let (mut socket, _) = listener.accept().await.expect("accept");
             let mut head = Vec::new();
             let mut buf = [0_u8; 1024];
@@ -644,7 +654,7 @@ async fn stub_pages(bodies: Vec<String>) -> (String, JoinHandle<Vec<String>>) {
                 }
             }
             let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             socket
@@ -1292,4 +1302,249 @@ async fn list_read_carries_the_recording_device() {
         "a blank name is no device"
     );
     assert_eq!(find("none").device_name(), None);
+}
+
+// ── Planned workouts ───────────────────────────────────────────────────────
+
+/// The calendar a planned read is served: a paired workout and a race the
+/// athlete planned, then what a planned calendar never shows — a note (which
+/// the category filter would have kept off the wire), one of Dravr's own
+/// pushes, an event the coach hid from the athlete, and one with no date.
+fn planned_calendar_body() -> String {
+    serde_json::json!([
+        { "id": 42, "category": "WORKOUT", "name": "Threshold 3x10", "type": "Ride",
+          "description": "Hold the line.", "start_date_local": "2026-09-29T00:00:00",
+          "moving_time": 3600, "distance": null, "hide_from_athlete": false },
+        { "id": 43, "category": "RACE_A", "name": "Fall Classic", "type": "Run",
+          "start_date_local": "2026-10-04" },
+        { "id": 44, "category": "NOTE", "name": "Travel", "start_date_local": "2026-09-30" },
+        { "id": 45, "category": "WORKOUT", "name": "Dravr session",
+          "start_date_local": "2026-09-30T00:00:00",
+          "external_id": "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-09-30:0" },
+        { "id": 46, "category": "WORKOUT", "name": "Coach draft", "hide_from_athlete": true,
+          "start_date_local": "2026-10-01T00:00:00" },
+        { "id": 47, "category": "WORKOUT", "name": "Undated", "start_date_local": null }
+    ])
+    .to_string()
+}
+
+/// The pairing read's answer exactly as `fields=` shapes it: null values
+/// left out, no `start_date_local`.
+const PAIRING_BODY: &str = r#"[{"id":"i101","paired_event_id":42},{"id":"i102"}]"#;
+
+#[tokio::test]
+async fn the_calendar_read_asks_for_every_category() {
+    // The reconcile's view of the calendar: Dravr's week notes are NOTE
+    // events, so a category filter here would have them pushed again on
+    // every plan push.
+    let (base_url, stub) = stub_once("[]").await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    provider
+        .list_calendar_events(from, to)
+        .await
+        .expect("the calendar read succeeds");
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(
+        request_target(&head),
+        "/api/v1/athlete/i123456/events?oldest=2026-09-28&newest=2026-10-04"
+    );
+}
+
+#[tokio::test]
+async fn a_planned_read_asks_for_workouts_and_races_then_who_completed_them() {
+    let (base_url, stub) = stub_pages(vec![planned_calendar_body(), PAIRING_BODY.to_owned()]).await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+
+    let planned = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect("the planned read succeeds");
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert_eq!(heads.len(), 2, "the events, then the pairing");
+    assert_eq!(
+        request_target(&heads[0]),
+        "/api/v1/athlete/i123456/events?oldest=2026-09-28&newest=2026-10-04\
+         &category=WORKOUT%2CRACE_A%2CRACE_B%2CRACE_C"
+    );
+    assert_eq!(
+        request_target(&heads[1]),
+        "/api/v1/athlete/i123456/activities?oldest=2026-09-28&newest=2026-10-05\
+         &fields=id%2Cpaired_event_id",
+        "the pairing covers the window's last day"
+    );
+    for head in &heads {
+        assert_eq!(basic_credentials(head), "API_KEY:test-api-key");
+    }
+
+    let ids: Vec<&str> = planned
+        .iter()
+        .map(PlannedWorkout::provider_workout_id)
+        .collect();
+    assert_eq!(
+        ids,
+        ["42", "43"],
+        "notes, Dravr's own pushes, hidden and undated events are left out"
+    );
+    let ride = &planned[0];
+    assert_eq!(ride.provider(), "intervals_icu");
+    assert_eq!(ride.title(), "Threshold 3x10");
+    assert_eq!(ride.sport_type(), &SportType::Ride);
+    assert_eq!(
+        ride.date(),
+        NaiveDate::from_ymd_opt(2026, 9, 29).expect("valid date")
+    );
+    assert_eq!(ride.planned_duration_seconds(), Some(3600));
+    assert_eq!(ride.description(), Some("Hold the line."));
+    assert_eq!(ride.completed_activity_id(), Some("i101"));
+    let race = &planned[1];
+    assert_eq!(race.title(), "A race: Fall Classic");
+    assert_eq!(race.sport_type(), &SportType::Run);
+    assert_eq!(
+        race.completed_activity_id(),
+        None,
+        "nothing completed the race"
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_planned_read_addresses_the_tokens_own_athlete() {
+    let (base_url, stub) = stub_pages(vec![planned_calendar_body(), PAIRING_BODY.to_owned()]).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+
+    let planned = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect("the planned read succeeds");
+    assert_eq!(planned.len(), 2);
+    let heads = stub.await.expect("stub task joins");
+    assert!(
+        request_target(&heads[0]).starts_with("/api/v1/athlete/0/events?"),
+        "{}",
+        heads[0]
+    );
+    assert!(
+        request_target(&heads[1]).starts_with("/api/v1/athlete/0/activities?"),
+        "{}",
+        heads[1]
+    );
+}
+
+#[tokio::test]
+async fn a_future_window_or_an_empty_plan_spends_no_pairing_request() {
+    // One connection each: a second request would find no listener and fail
+    // the read.
+    let today = Utc::now().date_naive();
+    let (base_url, stub) = stub_once(
+        r#"[{"id":7,"category":"WORKOUT","name":"Long ride","start_date_local":"2099-01-03"}]"#,
+    )
+    .await;
+    let provider = provider_against(base_url).await;
+    let planned = provider
+        .list_planned_workouts(today + Duration::days(3), today + Duration::days(10))
+        .await
+        .expect("a future window reads the plan alone");
+    stub.await.expect("stub task joins");
+    assert_eq!(planned.len(), 1);
+    assert_eq!(planned[0].completed_activity_id(), None);
+
+    let (base_url, stub) = stub_once("[]").await;
+    let provider = provider_against(base_url).await;
+    let planned = provider
+        .list_planned_workouts(today - Duration::days(7), today)
+        .await
+        .expect("an empty calendar reads");
+    stub.await.expect("stub task joins");
+    assert!(planned.is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_pairing_read_fails_the_planned_read() {
+    // No `completed_activity_id` means "not done": a pairing that could not
+    // be read must never be reported as workouts the athlete skipped.
+    let (base_url, stub) = stub_answers(vec![
+        ("200 OK", planned_calendar_body()),
+        ("500 Internal Server Error", "{}".to_owned()),
+    ])
+    .await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let error = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect_err("the pairing failed");
+    stub.await.expect("stub task joins");
+    assert_eq!(error.code, ErrorCode::ExternalServiceError, "{error}");
+}
+
+/// An athlete's sport settings: cycling's FTP and heart rates, running's
+/// heart rates and a 4 m/s threshold pace, and a W′ the read never takes.
+const SPORT_SETTINGS_BODY: &str = r#"[
+    {"types":["Ride","VirtualRide"],"ftp":285,"lthr":168,"max_hr":186,"w_prime":21000,
+     "updated":"2026-09-30T08:12:44Z"},
+    {"types":["Run"],"lthr":174,"max_hr":192,"threshold_pace":4.0,"pace_units":"MINS_KM",
+     "updated":"2026-08-14T19:01:02Z"}
+]"#;
+
+#[tokio::test]
+async fn sport_settings_are_read_at_the_athletes_own_path_with_their_key() {
+    let (base_url, stub) = stub_once(SPORT_SETTINGS_BODY).await;
+    let provider = provider_against(base_url).await;
+    let thresholds = provider
+        .read_thresholds(Some(&SportType::Run))
+        .await
+        .expect("the settings read");
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/i123456/sport-settings "),
+        "{head}"
+    );
+    assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
+    assert_eq!(thresholds.origin, "intervals.icu");
+    assert_eq!(thresholds.ftp_watts.map(|t| t.value), Some(285));
+    // A runner's heart rates come from the running settings.
+    assert_eq!(thresholds.threshold_hr.map(|t| t.value), Some(174));
+    assert_eq!(thresholds.max_hr.map(|t| t.value), Some(192));
+    assert_eq!(
+        thresholds.threshold_pace_sec_per_km.map(|t| t.value),
+        Some(250.0)
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_token_reads_the_sport_settings_of_the_athlete_it_names() {
+    let (base_url, stub) = stub_once(SPORT_SETTINGS_BODY).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+    let thresholds = provider
+        .read_thresholds(None)
+        .await
+        .expect("the settings read");
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/0/sport-settings "),
+        "{head}"
+    );
+    assert_eq!(thresholds.max_hr.map(|t| t.value), Some(186));
 }

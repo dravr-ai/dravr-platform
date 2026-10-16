@@ -2,17 +2,24 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Group info's coaching-platform links — the coach links roster athletes to members, a member confirms or declines
-// ABOUTME: Either side ends a link; every refusal is worded from its details.reason, never from the server's English
+// ABOUTME: The member alone grants what a link shares beyond the read; refusals are worded from details.reason
 
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Text, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Alert, Switch, Text, View, type ViewStyle } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import {
   DELEGATION_CONNECTION_REFUSALS,
+  DELEGATION_CONSENT_KEYS,
   QUERY_KEYS,
   coachPlatformName,
+  confirmConsents,
+  consentChangeConfirm,
+  consentNoteKey,
+  consentStateKeys,
   delegationRefusalKey,
   isDelegationRefusal,
+  offeredConsents,
+  type DelegationConsent,
 } from '@pierre/shared-constants';
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
@@ -24,6 +31,7 @@ import {
   useEndDelegatedConnection,
   useProposeDelegatedConnection,
   useRefreshDelegationRoster,
+  useSetDelegatedLinkConsents,
 } from '../../hooks/useGroups';
 import { oauthApi } from '../../services/api';
 import type { DelegatedConnection, DelegationRosterAthlete, GroupMember } from '../../types';
@@ -35,11 +43,14 @@ export interface DelegatedConnectionsSectionProps {
   groupId: string;
   /** The coach links athletes; a member answers the link naming them. */
   mode: 'coach' | 'member';
-  /** The group's live links the caller may see: all for the coach, their own for a member. */
+  /**
+   * The group's live links the caller may see: all for the coach, their own
+   * for a member, one per coaching platform, each answered on its own.
+   */
   connections: DelegatedConnection[];
   /** The group's live members, the coach's picker's choices. */
   members: GroupMember[];
-  /** Open the connections pane, where the coach's own TrainingPeaks lives. */
+  /** Open the connections pane, where the coach's own coaching platform lives. */
   onOpenConnections?: () => void;
 }
 
@@ -81,7 +92,14 @@ export function DelegatedConnectionsSection({
   return mode === 'coach' ? (
     <CoachLinks groupId={groupId} connections={connections} members={members} onOpenConnections={onOpenConnections} />
   ) : (
-    <MemberLink groupId={groupId} link={connections[0] ?? null} />
+    <View className="gap-4">
+      {connections.map((link) => (
+        // Keyed by the link, so a grant switched on for one proposal never carries over to the next.
+        <View key={link.id} testID={`delegation-member-link-${link.id}`}>
+          <MemberLink groupId={groupId} link={link} />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -173,9 +191,14 @@ function CoachLinks({
           let trailing: React.ReactNode;
           let subtitle: string | undefined;
           if (link?.status === 'confirmed') {
-            subtitle = link.read_refused
-              ? t(delegationRefusalKey(link.read_refused), { platform })
-              : t('delegation.linkedTo', { member: linkedName });
+            // The state line, then what the member granted beyond the read,
+            // each on a line of its own.
+            subtitle = [
+              link.read_refused
+                ? t(delegationRefusalKey(link.read_refused), { platform })
+                : t('delegation.linkedTo', { member: linkedName }),
+              ...consentStateKeys(link).map((key) => t(key)),
+            ].join('\n');
             trailing = (
               <InkAction label={t('delegation.unlink')} onPress={() => confirmUnlink(link)} testID={`delegation-unlink-${link.id}`} />
             );
@@ -260,16 +283,22 @@ function CoachLinks({
 // Member
 // ============================================================================
 
-function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnection | null }) {
+function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnection }) {
   const { t } = useTranslation();
-  const platform = coachPlatformName(link?.provider);
+  const colors = useThemeColors();
+  const platform = coachPlatformName(link.provider);
   const showRefusal = useRefusalAlert();
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
+  const { setConsents, isPending: isSavingConsents } = useSetDelegatedLinkConsents(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
+  // What the member grants with their confirm: nothing until they switch it on.
+  const [grants, setGrants] = useState<Partial<Record<DelegationConsent, boolean>>>({});
+  // A change on its way to the server, shown as made until the server answers.
+  const [changing, setChanging] = useState<Partial<Record<DelegationConsent, boolean>>>({});
 
   // Whether the coach must sign in again is a fact of the coach's connection,
   // which the provider row carries; the group's link list does not.
-  const isConfirmed = link?.status === 'confirmed';
+  const isConfirmed = link.status === 'confirmed';
   const { data: providers } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
@@ -277,19 +306,82 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   });
   const coachNeedsReauth =
     providers?.providers.some(
-      (p) => p.delegation?.connection_id === link?.id && p.delegation?.coach_needs_reauth === true,
+      (p) => p.delegation?.connection_id === link.id && p.delegation?.coach_needs_reauth === true,
     ) ?? false;
 
-  if (!link) return null;
   const coach = link.coach_display_name;
+  const offered = offeredConsents(link);
 
   const confirm = async () => {
     try {
-      await confirmLink(link.id);
+      await confirmLink(link.id, confirmConsents(link, grants));
     } catch (err) {
       showRefusal(err);
     }
   };
+
+  const changeConsent = async (consent: DelegationConsent, granted: boolean) => {
+    setChanging((held) => ({ ...held, [consent]: granted }));
+    try {
+      await setConsents(link.id, { [consent]: granted });
+    } catch (err) {
+      showRefusal(err);
+    } finally {
+      // The link now says where the consent stands: granted, or unchanged after a refusal.
+      setChanging((held) => ({ ...held, [consent]: undefined }));
+    }
+  };
+
+  /** A turn of a confirmed link's consent, behind a confirm when it deletes what the link read. */
+  const askThenChange = (consent: DelegationConsent, granted: boolean) => {
+    const ask = consentChangeConfirm(consent, granted);
+    if (!ask) {
+      void changeConsent(consent, granted);
+      return;
+    }
+    Alert.alert(t(ask.title), t(ask.body, { platform, coach }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t(ask.confirm), style: 'destructive', onPress: () => void changeConsent(consent, granted) },
+    ]);
+  };
+
+  /**
+   * A row with a switch for each consent the link offers, on as `isGranted`
+   * says, its hint followed by why a granted one syncs nothing.
+   */
+  const consentRows = (
+    isGranted: (consent: DelegationConsent) => boolean,
+    onChange: (consent: DelegationConsent, granted: boolean) => void,
+    disabled: boolean,
+  ) =>
+    offered.length > 0 && (
+      <View style={CANCEL_PANEL_INSET} testID="delegation-consents">
+        {offered.map((consent, index) => {
+          const label = t(DELEGATION_CONSENT_KEYS[consent].label, { platform, coach });
+          const note = consentNoteKey(link, consent);
+          const hint = t(DELEGATION_CONSENT_KEYS[consent].hint, { platform, coach });
+          return (
+            <Row
+              key={consent}
+              title={label}
+              subtitle={note ? `${hint}\n${t(note, { platform })}` : hint}
+              trailing={
+                <Switch
+                  value={isGranted(consent)}
+                  onValueChange={(granted) => onChange(consent, granted)}
+                  disabled={disabled}
+                  trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                  accessibilityLabel={label}
+                  testID={`delegation-consent-${consent}`}
+                />
+              }
+              last={index === offered.length - 1}
+              testID={`delegation-consent-row-${consent}`}
+            />
+          );
+        })}
+      </View>
+    );
 
   const end = async () => {
     try {
@@ -308,6 +400,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
             ? t('delegation.requestBody', { platform, coach, athlete: link.provider_athlete_name })
             : t('delegation.requestBodyNoName', { platform, coach })}
         </Text>
+        {consentRows(
+          (consent) => grants[consent] === true,
+          (consent, granted) => setGrants((held) => ({ ...held, [consent]: granted })),
+          isConfirming || isEnding,
+        )}
         <Text className="text-xs text-text-tertiary">{t('delegation.requestFootnote')}</Text>
         <View className="flex-row gap-2 pt-1">
           <Button
@@ -338,16 +435,19 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   };
 
   return (
-    <View className="flex-row items-center gap-3 py-2" testID="delegation-linked">
-      {link.read_refused ? (
-        <StatusLine tone="warning" text={t(delegationRefusalKey(link.read_refused), { platform })} testID="delegation-read-refused" />
-      ) : (
-        <StatusLine
-          tone={coachNeedsReauth ? 'warning' : 'success'}
-          text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { platform, coach }) : t('delegation.confirmedBody', { platform, coach })}
-        />
-      )}
-      <InkAction label={t('delegation.unlink')} onPress={unlink} testID={`delegation-unlink-${link.id}`} />
+    <View testID="delegation-linked">
+      <View className="flex-row items-center gap-3 py-2">
+        {link.read_refused ? (
+          <StatusLine tone="warning" text={t(delegationRefusalKey(link.read_refused), { platform })} testID="delegation-read-refused" />
+        ) : (
+          <StatusLine
+            tone={coachNeedsReauth ? 'warning' : 'success'}
+            text={coachNeedsReauth ? t('delegation.coachReconnectNeeded', { platform, coach }) : t('delegation.confirmedBody', { platform, coach })}
+          />
+        )}
+        <InkAction label={t('delegation.unlink')} onPress={unlink} testID={`delegation-unlink-${link.id}`} />
+      </View>
+      {consentRows((consent) => changing[consent] ?? link[consent], askThenChange, isSavingConsents || isEnding)}
     </View>
   );
 }

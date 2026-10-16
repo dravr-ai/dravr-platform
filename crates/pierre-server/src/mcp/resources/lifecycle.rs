@@ -926,8 +926,13 @@ impl ServerContext {
         })?;
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
-        let abort_handle =
-            start_scheduled_sync(Arc::clone(&orchestrator), &auth_repos, notifier, notices);
+        let abort_handle = start_scheduled_sync(
+            Arc::clone(&orchestrator),
+            Arc::clone(&adapter),
+            &auth_repos,
+            notifier,
+            notices,
+        );
         info!("Health data sync scheduler started (Pierre-aware)");
         Ok((adapter, orchestrator, abort_handle))
     }

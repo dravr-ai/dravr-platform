@@ -16,6 +16,7 @@ pub mod templates;
 use dravr_tronc::notifications::{ResendBody, ResendClient, ResendEmail};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_inner_client;
+use templates::CoachAccessOrigin;
 use tracing::{debug, info, warn};
 
 /// Subject line of the password-reset code email.
@@ -39,8 +40,13 @@ pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs"
 /// Subject line for the operator-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
-/// Subject line of the operator email announcing a coach-access request.
+/// Subject line of the operator email announcing a coach-access request a
+/// coach asked for.
 pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for coach access";
+/// Subject line of the operator email announcing a coach-access request filed
+/// for a coach from the Intervals.icu roster of a key they linked.
+pub const SUBJECT_COACH_ACCESS_FILED: &str =
+    "Dravr: a coach-access request was filed from an Intervals.icu roster";
 
 /// Email service backed by the Resend transactional email API.
 ///
@@ -209,7 +215,9 @@ impl ResendEmailService {
         self.send_email(to, SUBJECT_INVITATION, &html).await
     }
 
-    /// Tell a super-admin that a coach asked for coach access (carnet#738).
+    /// Tell a super-admin that a coach-access request opened (carnet#738):
+    /// one the coach asked for, or one filed for them from their
+    /// Intervals.icu roster, as `origin` says.
     ///
     /// `review_url` links to the admin console queue; without one the email
     /// names where to find it.
@@ -224,15 +232,20 @@ impl ResendEmailService {
         requester_name: Option<&str>,
         group_name: Option<&str>,
         review_url: Option<&str>,
+        origin: CoachAccessOrigin,
     ) -> AppResult<()> {
         let html = templates::coach_access_requested_html(
             requester_email,
             requester_name,
             group_name,
             review_url,
+            origin,
         );
-        self.send_email(to, SUBJECT_COACH_ACCESS_REQUESTED, &html)
-            .await
+        let subject = match origin {
+            CoachAccessOrigin::Asked => SUBJECT_COACH_ACCESS_REQUESTED,
+            CoachAccessOrigin::IntervalsIcuRoster { .. } => SUBJECT_COACH_ACCESS_FILED,
+        };
+        self.send_email(to, subject, &html).await
     }
 
     /// Send a channel linking verification code email

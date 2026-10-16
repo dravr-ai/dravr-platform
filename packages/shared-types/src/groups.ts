@@ -316,7 +316,7 @@ export interface GroupTranscriptPage {
   before?: string;
 }
 
-// ========== DELEGATED CONNECTIONS (TrainingPeaks through the group's coach) ==========
+// ========== DELEGATED CONNECTIONS (a coaching platform through the group's coach) ==========
 
 /**
  * A live link's state: `proposed` waits for the member's answer,
@@ -328,14 +328,15 @@ export type DelegationStatus = 'proposed' | 'confirmed';
 export type DelegationViewer = 'coach' | 'member';
 
 /**
- * A group coach's link between an athlete on their TrainingPeaks roster and
- * a member of the group. Once the member confirms, the member's TrainingPeaks
- * workouts are read through the coach's own TrainingPeaks account.
+ * A group coach's link between an athlete on their coaching-platform roster
+ * and a member of the group. Once the member confirms, the member's workouts
+ * on that platform are read through the coach's own account there. What the
+ * link shares beyond that read, the member alone grants and revokes.
  */
 export interface DelegatedConnection {
   id: string;
   group_id: string;
-  /** The provider as the athlete knows it, always `trainingpeaks`. */
+  /** The coaching platform as the athlete knows it (`trainingpeaks`, `intervals_icu`). */
   provider: string;
   coach_user_id: string;
   /** The coach's display name, else their email. */
@@ -343,9 +344,9 @@ export interface DelegatedConnection {
   member_user_id: string;
   /** The member as the group's member list names them. */
   member_display_name: string;
-  /** The athlete's id on the coach's TrainingPeaks roster. */
+  /** The athlete's id on the coach's roster. */
   provider_athlete_id: string;
-  /** The athlete's name on the coach's TrainingPeaks roster, when it has one. */
+  /** The athlete's name on the coach's roster, when it has one. */
   provider_athlete_name: string | null;
   status: DelegationStatus;
   proposed_at: string;
@@ -356,10 +357,31 @@ export interface DelegatedConnection {
    * while it reads, and for a proposal.
    */
   read_refused: DelegationReadRefusal | null;
+  /** Whether the member lets the link's coach put workouts on their calendar on the platform. */
+  calendar_write: boolean;
+  /** Whether the platform takes a coach's calendar writes, so the link can ask the member for them. */
+  calendar_write_supported: boolean;
+  /** Whether the member lets their wellness (sleep, HRV, weight…) sync through the coach's account. */
+  wellness_read: boolean;
+  /** Whether the coach's account reads wellness on the platform, so the link can ask the member for it. */
+  wellness_read_supported: boolean;
+  /**
+   * Why the link syncs none of the member's wellness: a wellness source of
+   * their own already gives Dravr it. The member reads it granted or not; the
+   * coach only once the member shared their wellness. `null` when nothing of
+   * theirs keeps it from syncing, and on a platform that offers no wellness.
+   */
+  wellness_read_skipped: WellnessReadSkip | null;
 }
 
 /** Why a confirmed link reads nothing: its roster athlete is not its member by email. */
 export type DelegationReadRefusal = 'athlete_email_missing' | 'athlete_email_mismatch' | 'member_email_unverified';
+
+/**
+ * Why a link syncs none of the member's wellness: their own connection to the
+ * link's platform, or their own Garmin or WHOOP connection.
+ */
+export type WellnessReadSkip = 'own_connection' | 'own_wellness_source';
 
 /** A group's live links: every one for its coach, their own for a member. */
 export interface DelegatedConnectionsResponse {
@@ -380,7 +402,10 @@ export interface DelegationRosterAthlete {
   display_name: string | null;
   /** The live link that holds this athlete in the group, when there is one. */
   connection: DelegatedConnection | null;
-  /** The unlinked member whose name reads as the athlete's; preselects the picker. */
+  /**
+   * The unlinked member whose verified email is the athlete's roster email,
+   * when the platform gives the coach access to the athlete; preselects the picker.
+   */
   suggested_member_user_id: string | null;
 }
 
@@ -397,6 +422,27 @@ export interface ProposeDelegatedConnectionRequest {
   provider: CoachPlatformProvider;
   provider_athlete_id: string;
   member_user_id: string;
+}
+
+/**
+ * What the member grants as they confirm a link. A consent left out is not
+ * granted, and one the platform does not offer is ignored, so a confirm with
+ * no body grants nothing.
+ */
+export interface ConfirmDelegatedConnectionRequest {
+  calendar_write?: boolean;
+  wellness_read?: boolean;
+}
+
+/**
+ * The member grants (`true`) or revokes (`false`) what a confirmed link
+ * shares. A consent left out stays as it stands. Revoking `wellness_read`
+ * deletes the wellness the link synced. A grant is taken only from Dravr's
+ * own app; a revoke from anywhere.
+ */
+export interface UpdateDelegatedConnectionConsentsRequest {
+  calendar_write?: boolean;
+  wellness_read?: boolean;
 }
 
 /**
@@ -417,9 +463,11 @@ export type DelegationRefusalReason =
   | 'unsupported_provider'
   | 'invalid_athlete'
   | 'athlete_not_on_roster'
+  | 'athlete_no_access'
   | DelegationReadRefusal
   | 'member_is_coach'
   | 'already_proposed'
   | 'athlete_already_linked'
   | 'own_connection'
-  | 'already_linked';
+  | 'already_linked'
+  | 'consent_grant_needs_app';

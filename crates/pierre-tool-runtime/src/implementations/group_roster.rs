@@ -41,7 +41,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::info;
 use uuid::Uuid;
 
@@ -55,6 +55,7 @@ use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
+use super::coach_scope::refusal;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -188,11 +189,6 @@ struct RosterEntry {
     status: RosterAthleteStatus,
 }
 
-/// A refusal in the tool's error shape, with a machine-readable reason.
-fn refusal(reason: &str, message: &str) -> ToolResult {
-    ToolResult::error(json!({ "reason": reason, "error": message }))
-}
-
 /// The groups the call covers, or the refusal that explains why it covers none.
 ///
 /// The outer `Err` is a repository failure; the inner `Err` is the refusal.
@@ -212,8 +208,10 @@ async fn covered_groups(
     if groups.is_empty() {
         return Ok(Err(refusal(
             "not_a_coach",
-            "You are not the coach of any group, so there is no roster to review. A coach joins \
-             a group by redeeming its coach invite.",
+            "You are not the human coach of any Dravr group, so no group roster is reviewed \
+             here. That says nothing about the roster of your coaching platform: \
+             `get_provider_roster` reads it. A coach joins a group by redeeming its coach \
+             invite.",
         )));
     }
 
@@ -450,9 +448,9 @@ async fn build_overview(
 
 /// Review every athlete the caller coaches, consent-gated, in one call.
 ///
-/// LIMITATION(registre#1018): `GetRosterOverviewTool` sees the members of the caller's Dravr
-/// groups only: the coach's provider roster (intervals.icu, `TrainingPeaks`) and proposing a
-/// delegated link are reachable through REST and the web/mobile UI, never from chat.
+/// It reads the members of the caller's Dravr groups; the coach's
+/// coaching-platform roster is [`super::provider_roster`]'s, and proposing a
+/// link to one of its athletes is [`super::athlete_link`]'s.
 pub struct GetRosterOverviewTool;
 
 #[async_trait]
@@ -481,7 +479,8 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              `no_coach_consent` means the athlete stopped sharing with you — they can share again \
              with `/group consent coach yes`; never infer their numbers. In a group's room the \
              review covers that group only. Use `get_group_member_activities` for one athlete's \
-             full session history.",
+             full session history, and `get_provider_roster` for the roster of your coaching \
+             platform (Intervals.icu, TrainingPeaks).",
             schema,
             Some(ToolAnnotations {
                 read_only_hint: Some(true),

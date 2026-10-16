@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, OnceLock};
+use std::future::Future;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -27,16 +29,20 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
-use pierre_core::errors::ErrorCode;
-use pierre_core::models::{TenantId, UserOAuthToken};
-use pierre_database::repositories::SyncCursorRow;
+use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
+use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::delegated_wellness::{
+    excluded_from_wellness, health_the_link_files, recovery_the_link_files, sleep_the_link_files,
+    DelegatedWellness, PrivateWellness,
+};
 use crate::sciotte_health_reader::SciotteServiceReader;
 use crate::whoop_terms;
 
@@ -85,9 +91,10 @@ pub struct PierreSyncStorage {
     /// Fitness-domain stores backing enforme's sleep / recovery / health /
     /// data-source / sync-cursor / time-series trait impls.
     fitness: FitnessRepos,
-    /// Auth-domain handle for the `oauth_tokens` lookup behind
-    /// `resolve_tenant_id` (enforme's contract gives us only `user_id` +
-    /// `provider`, so we recover the owning tenant from the token row).
+    /// Auth-domain handle for the `oauth_tokens` and `delegated_connections`
+    /// lookups behind `resolve_tenant_id` (enforme's contract gives us only
+    /// `user_id` + `provider`, so we recover the owning tenant from the token
+    /// row, or from the link a coach-linked member's wellness syncs through).
     auth: AuthRepos,
     /// Bridge to the platform OAuth refresh flow (`AuthService`), injected by
     /// pierre-server after runtime construction — the refresh path lives above
@@ -95,9 +102,10 @@ pub struct PierreSyncStorage {
     /// injection, credential reads fall back to the stored token row (startup
     /// window before the first scheduled sync tick, and storage-only tests).
     refresher: OnceLock<Arc<dyn SyncCredentialRefresher>>,
-    /// The full registry, for the WHOOP owner-authorization read: the notice
-    /// flag and the account's acceptance live outside both views. Shared with
-    /// the server's own handle to the same pools.
+    /// The full registry, for the WHOOP owner-authorization read (the notice
+    /// flag and the account's acceptance live outside both views) and for the
+    /// delegated wellness pass's links and worker ledger. Shared with the
+    /// server's own handle to the same pools.
     registry: Arc<RepositoryRegistry>,
 }
 
@@ -210,6 +218,89 @@ pub trait SyncCredentialRefresher: Send + Sync {
         tenant_id: &str,
         provider: &str,
     ) -> EnformeResult<Option<ProviderCredentials>>;
+
+    /// What `member`'s `provider` wellness syncs with through their human
+    /// coach's confirmed link
+    /// ([`crate::delegated_wellness::delegated_wellness_credentials`]), for a
+    /// member who holds no credential of their own: the coach's credentials,
+    /// and what the athlete keeps private from the coach. `None` when it does
+    /// not sync that way. The decision reads the coach's roster through the
+    /// provider registry, the cache and the notifications only the runtime
+    /// holds.
+    async fn delegated_credentials(
+        &self,
+        member: Uuid,
+        provider: &str,
+    ) -> EnformeResult<Option<DelegatedWellness>>;
+}
+
+/// One sync of a member by the scheduler's delegated wellness pass.
+struct DelegatedSync {
+    /// The member whose wellness the pass syncs.
+    member: Uuid,
+    /// What the athlete keeps private from the coach, recorded when the
+    /// sync is handed its credentials ([`record_private_wellness`]).
+    private: Mutex<Option<PrivateWellness>>,
+}
+
+tokio::task_local! {
+    /// The delegated pass's sync running on this task.
+    static DELEGATED_SYNC: DelegatedSync;
+}
+
+/// Run `work`, one sync of `member` by the scheduler's delegated wellness
+/// pass: the only place credentials read through a coach's link are handed
+/// out ([`PierreSyncStorage::get_credentials`]). Everywhere else a member
+/// with no credential of their own has none.
+pub(crate) async fn delegated_sync_scope<F: Future>(member: Uuid, work: F) -> F::Output {
+    let sync = DelegatedSync {
+        member,
+        private: Mutex::new(None),
+    };
+    DELEGATED_SYNC.scope(sync, work).await
+}
+
+/// Whether the running task is the delegated pass's sync of `member`.
+fn in_delegated_sync_of(member: Uuid) -> bool {
+    DELEGATED_SYNC
+        .try_with(|sync| sync.member == member)
+        .unwrap_or(false)
+}
+
+/// Record that the delegated pass's sync of `member` keeps `private` from
+/// what it files. A second record within one sync keeps what either names.
+fn record_private_wellness(member: Uuid, private: PrivateWellness) {
+    let _ = DELEGATED_SYNC.try_with(|sync| {
+        if sync.member != member {
+            return;
+        }
+        // A poisoned record stays unrecorded, which files nothing.
+        if let Ok(mut held) = sync.private.lock() {
+            *held = Some(held.map_or(private, |earlier| earlier.union(private)));
+        }
+    });
+}
+
+/// What a row enforme hands over for `user_id` keeps private, when the
+/// running task is the delegated pass's sync of that member, so the row is
+/// filed through their human coach's link; `None` for every other row. The
+/// pass syncs only members who hold no credential of their own for the
+/// platform, so within it every row is the link's. A sync whose credentials
+/// recorded nothing keeps every field, and files nothing.
+fn delegated_private_of_row(user_id: &str) -> Option<PrivateWellness> {
+    let member = user_id.parse::<Uuid>().ok()?;
+    DELEGATED_SYNC
+        .try_with(|sync| {
+            (sync.member == member).then(|| {
+                sync.private
+                    .lock()
+                    .ok()
+                    .and_then(|held| *held)
+                    .unwrap_or(PrivateWellness::ALL)
+            })
+        })
+        .ok()
+        .flatten()
 }
 
 impl PierreSyncStorage {
@@ -303,30 +394,129 @@ impl PierreSyncStorage {
     }
 
     /// Resolve the tenant a user's `provider` rows are written under: the
-    /// tenant of the token row that serves that provider.
+    /// tenant of the token row that serves that provider, else — only within
+    /// the delegated pass's sync of that member ([`delegated_sync_scope`]) —
+    /// the tenant of the confirmed link whose member granted it their
+    /// wellness.
     ///
     /// There is no fallback to another provider's token. A record is written
-    /// only under the tenant of the athlete's own connection to its provider:
-    /// once a disconnect has deleted that connection and purged its rows, a
-    /// sync still in flight must fail rather than write them again under
-    /// another provider's tenant.
+    /// only under the tenant of the athlete's own connection to its provider,
+    /// or of the link that reads it: once a disconnect has deleted that
+    /// connection and purged its rows, or the link has ended or lost the
+    /// member's wellness consent, a sync still in flight must fail rather
+    /// than write them again.
     async fn resolve_tenant_id(&self, user_id: &str, provider: &str) -> EnformeResult<TenantId> {
         let user_uuid = user_id
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        let token = self
-            .serving_token(user_uuid, provider)
+        if let Some(token) = self.serving_token(user_uuid, provider).await? {
+            return token_tenant_id(&token);
+        }
+        self.wellness_link_tenant(user_uuid, provider)
             .await?
             .ok_or_else(|| {
                 EnformeError::store(format!(
                     "No token serves provider '{provider}' for user '{user_id}'"
                 ))
-            })?;
-        TenantId::parse_str(&token.tenant_id).map_err(|e| {
-            EnformeError::store(format!("Invalid tenant_id UUID '{}': {e}", token.tenant_id))
-        })
+            })
     }
+
+    /// The tenant `member`'s confirmed `provider` link files their wellness
+    /// under, while the group relation backs it and the member's wellness
+    /// consent holds; `None` outside the delegated pass's sync of `member`.
+    async fn wellness_link_tenant(
+        &self,
+        member: Uuid,
+        provider: &str,
+    ) -> EnformeResult<Option<TenantId>> {
+        if !in_delegated_sync_of(member) {
+            return Ok(None);
+        }
+        let links = self
+            .auth
+            .delegated_connections
+            .list_backed_for_member(member, &sync_backend(provider))
+            .await
+            .map_err(|e| EnformeError::store(format!("Failed to look up delegated links: {e}")))?;
+        Ok(links
+            .into_iter()
+            .find(|link| link.status == DelegationStatus::Confirmed && link.wellness_read)
+            .and_then(|link| link.member_tenant_id))
+    }
+
+    /// The credentials `member`'s `provider` wellness syncs with through
+    /// their human coach's link, for a member who holds no token of their
+    /// own: handed out only within the delegated pass's sync of `member`, and
+    /// only once the runtime's refresher is installed, since deciding it
+    /// reads the coach's roster through what only the runtime holds.
+    async fn delegated_credentials(
+        &self,
+        member: Uuid,
+        provider: &str,
+    ) -> EnformeResult<Option<ProviderCredentials>> {
+        if !in_delegated_sync_of(member) {
+            return Ok(None);
+        }
+        let Some(refresher) = self.refresher.get() else {
+            return Ok(None);
+        };
+        Ok(refresher
+            .delegated_credentials(member, provider)
+            .await?
+            .map(|wellness| {
+                record_private_wellness(member, wellness.private);
+                wellness.credentials
+            }))
+    }
+
+    /// The confirmed `provider` links whose member's wellness the delegated
+    /// pass may sync, as far as Dravr's own rows tell
+    /// ([`excluded_from_wellness`]), oldest confirmation first. What only the
+    /// platform can tell — whether its roster still lists the athlete, and
+    /// what the athlete keeps private — is decided when each sync asks for
+    /// its credentials.
+    ///
+    /// A link whose exclusions cannot be read is logged and left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error when the links cannot be listed.
+    pub(crate) async fn delegated_wellness_links(
+        &self,
+        provider: &str,
+    ) -> AppResult<Vec<DelegatedConnection>> {
+        let links = self
+            .registry
+            .delegated_connections
+            .list_confirmed_for_provider(&sync_backend(provider))
+            .await?;
+        let mut eligible = Vec::with_capacity(links.len());
+        for link in links {
+            match excluded_from_wellness(&self.registry, &link).await {
+                Ok(None) => eligible.push(link),
+                Ok(Some(_)) => {}
+                Err(e) => warn!(
+                    link_id = %link.id,
+                    error = %e,
+                    "Delegated wellness pass skipped a link whose exclusions could not be read"
+                ),
+            }
+        }
+        Ok(eligible)
+    }
+
+    /// The worker ledger the delegated pass claims each link's sync in.
+    pub(crate) fn worker_runs(&self) -> &dyn WorkerRunRepository {
+        self.registry.worker_runs.as_ref()
+    }
+}
+
+/// The tenant `token` is stored under.
+fn token_tenant_id(token: &UserOAuthToken) -> EnformeResult<TenantId> {
+    TenantId::parse_str(&token.tenant_id).map_err(|e| {
+        EnformeError::store(format!("Invalid tenant_id UUID '{}': {e}", token.tenant_id))
+    })
 }
 
 impl fmt::Debug for PierreSyncStorage {
@@ -357,7 +547,16 @@ impl SleepStore for PierreSyncStorage {
             {
                 continue;
             }
-            let session = whoop_terms::sleep_session_to_store(session);
+            // A link files only what the member's consent names, less what
+            // the athlete keeps private.
+            let session = match delegated_private_of_row(&session.user_id) {
+                Some(private) => match sleep_the_link_files(session, private) {
+                    Some(kept) => Cow::Owned(kept),
+                    None => continue,
+                },
+                None => Cow::Borrowed(session),
+            };
+            let session = whoop_terms::sleep_session_to_store(&session);
             self.fitness
                 .sleep
                 .upsert_sleep_session(&tenant_id, &session)
@@ -418,7 +617,16 @@ impl RecoveryStore for PierreSyncStorage {
             {
                 continue;
             }
-            let metric = whoop_terms::recovery_metrics_to_store(metric);
+            // A link files only what the member's consent names, less what
+            // the athlete keeps private.
+            let metric = match delegated_private_of_row(&metric.user_id) {
+                Some(private) => match recovery_the_link_files(metric, private) {
+                    Some(kept) => Cow::Owned(kept),
+                    None => continue,
+                },
+                None => Cow::Borrowed(metric),
+            };
+            let metric = whoop_terms::recovery_metrics_to_store(&metric);
             self.fitness
                 .recovery
                 .upsert_recovery_metrics(&tenant_id, &metric)
@@ -479,9 +687,18 @@ impl HealthStore for PierreSyncStorage {
             {
                 continue;
             }
+            // A link files only what the member's consent names, less what
+            // the athlete keeps private.
+            let snapshot = match delegated_private_of_row(&snapshot.user_id) {
+                Some(private) => match health_the_link_files(snapshot, private) {
+                    Some(kept) => Cow::Owned(kept),
+                    None => continue,
+                },
+                None => Cow::Borrowed(snapshot),
+            };
             self.fitness
                 .health_snapshots
-                .upsert_health_snapshot(&tenant_id, snapshot)
+                .upsert_health_snapshot(&tenant_id, &snapshot)
                 .await
                 .map_err(|e| {
                     EnformeError::store(format!("Failed to upsert health snapshot: {e}"))
@@ -611,9 +828,12 @@ pub fn request_gate(budget: RequestBudget) -> RequestGateHandle {
 
 #[async_trait]
 impl CredentialStore for PierreSyncStorage {
-    /// LIMITATION(registre#1019): `get_credentials` resolves the athlete's own token row only,
-    /// so an athlete reached through a coach's delegated link never syncs wellness (HRV,
-    /// resting HR, sleep, weight) although the coach's key could read it at the athlete's path.
+    /// The athlete's own token row serving `provider`, refreshed through the
+    /// runtime once its refresher is installed. An athlete who holds none is
+    /// served through their human coach's link only within the delegated
+    /// pass's sync of them ([`delegated_sync_scope`]), and has no credentials
+    /// anywhere else: an on-demand refresh or a webhook never spends the
+    /// coach's key.
     async fn get_credentials(
         &self,
         user_id: &str,
@@ -623,7 +843,10 @@ impl CredentialStore for PierreSyncStorage {
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
+        let Some(token) = self.serving_token(user_uuid, provider).await? else {
+            return self.delegated_credentials(user_uuid, provider).await;
+        };
+        let tenant_id = token_tenant_id(&token)?;
         let backend = sync_backend(provider);
 
         // The injected refresher routes through AuthService::get_valid_token,
@@ -637,31 +860,22 @@ impl CredentialStore for PierreSyncStorage {
 
         // No refresher yet (startup window before injection, storage-only
         // tests): return the stored token row as-is.
-        let token = self
-            .auth
-            .oauth_tokens
-            .get_token(user_uuid, tenant_id, &backend)
-            .await
-            .map_err(|e| EnformeError::store(format!("Failed to get OAuth token: {e}")))?;
-
-        Ok(token.map(|t| {
-            let scopes = t
-                .scope
-                .map(|s| s.split(' ').map(String::from).collect::<Vec<_>>())
-                .unwrap_or_default();
-            ProviderCredentials {
-                access_token: t.access_token,
-                refresh_token: t.refresh_token,
-                expires_at: t.expires_at,
-                scopes,
-                user_id: t.user_id.to_string(),
-                provider: t.provider,
-                provider_user_id: t.provider_user_id,
-                kind: credential_kind(&t.token_type),
-                // Only the refresher resolves the signing app; this stored-row
-                // read serves the startup window before it is installed.
-                request_gate: None,
-            }
+        let scopes = token
+            .scope
+            .map(|s| s.split(' ').map(String::from).collect::<Vec<_>>())
+            .unwrap_or_default();
+        Ok(Some(ProviderCredentials {
+            access_token: token.access_token,
+            refresh_token: token.refresh_token,
+            expires_at: token.expires_at,
+            scopes,
+            user_id: token.user_id.to_string(),
+            provider: token.provider,
+            provider_user_id: token.provider_user_id,
+            kind: credential_kind(&token.token_type),
+            // Only the refresher resolves the signing app; this stored-row
+            // read serves the startup window before it is installed.
+            request_gate: None,
         }))
     }
 
@@ -674,12 +888,18 @@ impl CredentialStore for PierreSyncStorage {
             user_id: user_id.to_owned(),
             provider: provider.to_owned(),
         };
+        let user_uuid = user_id
+            .parse::<Uuid>()
+            .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
+        // An athlete served through their coach's link holds nothing of their
+        // own to refresh, and the coach's key is the coach's to renew: the
+        // sync ends as expired, and no connection is touched.
+        let Some(token) = self.serving_token(user_uuid, provider).await? else {
+            return Err(expired());
+        };
         if let Some(refresher) = self.refresher.get() {
-            let user_uuid = user_id
-                .parse::<Uuid>()
-                .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
-            let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
+            let tenant_id = token_tenant_id(&token)?;
             return refresher
                 .force_refresh(user_uuid, &tenant_id.to_string(), &sync_backend(provider))
                 .await?

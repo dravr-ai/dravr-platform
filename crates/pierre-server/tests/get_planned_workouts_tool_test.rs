@@ -306,7 +306,8 @@ async fn the_plan_reaches_the_model_oldest_first_with_its_text_fenced(
     .await;
     assert!(!response.is_error, "{response:?}");
     let body = payload(&response);
-    assert_eq!(body["provider"], "trainingpeaks");
+    assert_eq!(body["providers"], json!(["trainingpeaks"]));
+    assert_eq!(body["unavailable"], json!([]));
     assert_eq!(body["start_date"], "2026-09-28");
     assert_eq!(body["end_date"], "2026-10-04");
     assert_eq!(body["count"], 2);

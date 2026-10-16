@@ -128,8 +128,8 @@ pub mod stored_data;
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod endurance_workouts;
-/// `get_planned_workouts` — the workouts a connected provider's calendar plans,
-/// read through the `PLANNED_WORKOUTS` capability (`tools-data` feature).
+/// `get_planned_workouts` — the workouts the athlete's connected calendars
+/// plan, read through the `PLANNED_WORKOUTS` capability (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod planned_workouts;
 
@@ -142,12 +142,18 @@ pub mod fitness_config;
 
 /// Athlete physiology tools (`tools-config` feature).
 ///
-/// `set_physiology` is the only production writer of
-/// `user_physiological_profiles`. The lactate step test has its own module,
-/// [`lactate_thresholds`], and the `VO2max` field-test estimate its own,
-/// [`vo2max_estimate`].
+/// `set_physiology` writes the athlete's own values into
+/// `user_physiological_profiles`; [`physiology_import`] is the one other
+/// writer. The lactate step test has its own module, [`lactate_thresholds`],
+/// and the `VO2max` field-test estimate its own, [`vo2max_estimate`].
 #[cfg(feature = "tools-config")]
 pub mod physiology;
+
+/// `import_provider_thresholds` — the athlete's FTP, heart-rate thresholds
+/// and threshold pace from a provider's settings, filled only where the
+/// athlete has not set their own (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod physiology_import;
 
 /// `estimate_vo2max` — turns a field test the athlete describes into a
 /// `VO2max` for `set_physiology` to store once confirmed (`tools-config`
@@ -199,15 +205,24 @@ pub mod goals_output;
 #[cfg(feature = "tools-goals")]
 pub mod goals_spec;
 
+/// A human coach proposes a coaching-platform link to a member from chat (`tools-groups` feature).
+#[cfg(feature = "tools-groups")]
+pub mod athlete_link;
 /// The coach's roster overview across the groups they coach (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod group_roster;
 /// Group tools: consent-gated peer activity fetch (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod groups;
+/// The coach's coaching-platform roster, each athlete where they stand with the coach's groups
+/// (`tools-groups` feature).
+#[cfg(feature = "tools-groups")]
+pub mod provider_roster;
 
 /// Shared helpers for every tool that writes to an athlete's provider calendar.
 pub mod calendar;
+/// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
+mod coach_scope;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod commitments;

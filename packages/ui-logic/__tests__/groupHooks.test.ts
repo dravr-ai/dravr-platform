@@ -26,6 +26,7 @@ function fakeGroupsApi() {
     leaveGroup: vi.fn().mockResolvedValue(undefined),
     getDelegationRoster: vi.fn(),
     confirmDelegatedConnection: vi.fn().mockResolvedValue(undefined),
+    setDelegatedLinkConsents: vi.fn(),
   };
 }
 
@@ -179,7 +180,87 @@ describe('createGroupHooks — writes', () => {
 
     await act(() => result.current.confirmLink('conn-1'));
 
-    expect(api.confirmDelegatedConnection).toHaveBeenCalledWith('g1', 'conn-1');
+    // A link that offers no consent is confirmed with no body: nothing more is granted.
+    expect(api.confirmDelegatedConnection).toHaveBeenCalledWith('g1', 'conn-1', undefined);
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ['groups', 'g1', 'delegated-connections'],
+      ['groups', 'g1', 'delegation-roster'],
+      ['providers'],
+      ['providers-status'],
+      ['provider-connections'],
+    ]);
+  });
+
+  it('a confirm carries the consents the member granted', async () => {
+    const { api, wrapper, hooks } = ctx;
+    const { result } = renderHook(() => hooks.useConfirmDelegatedConnection('g1'), { wrapper });
+
+    await act(() => result.current.confirmLink('conn-1', { calendar_write: true, wellness_read: false }));
+
+    expect(api.confirmDelegatedConnection).toHaveBeenCalledWith('g1', 'conn-1', {
+      calendar_write: true,
+      wellness_read: false,
+    });
+  });
+
+  it('a consent change shows the link the server answered with, then refreshes every link read', async () => {
+    const { api, client, wrapper, hooks } = ctx;
+    const held = { id: 'conn-1', calendar_write: false, wellness_read: true };
+    const other = { id: 'conn-2', calendar_write: false, wellness_read: false };
+    client.setQueryData(['groups', 'g1', 'delegated-connections'], {
+      connections: [held, other],
+      total: 2,
+      viewer: 'member',
+    });
+    const answered = { ...held, wellness_read: false };
+    api.setDelegatedLinkConsents.mockResolvedValue(answered);
+    // No list is on screen, so the invalidation refetches nothing: what the
+    // list holds afterwards is what the server's answer put there.
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => hooks.useSetDelegatedLinkConsents('g1'), { wrapper });
+
+    await act(() => result.current.setConsents('conn-1', { wellness_read: false }));
+
+    expect(client.getQueryData(['groups', 'g1', 'delegated-connections'])).toEqual({
+      connections: [answered, other],
+      total: 2,
+      viewer: 'member',
+    });
+    expect(api.setDelegatedLinkConsents).toHaveBeenCalledWith('g1', 'conn-1', { wellness_read: false });
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ['groups', 'g1', 'delegated-connections'],
+      ['groups', 'g1', 'delegation-roster'],
+      ['providers'],
+      ['providers-status'],
+      ['provider-connections'],
+    ]);
+  });
+
+  it('a refused consent change reads every link again before the caller hears of it', async () => {
+    const { api, client, wrapper, hooks } = ctx;
+    const held = { id: 'conn-1', calendar_write: false, wellness_read: true };
+    client.setQueryData(['groups', 'g1', 'delegated-connections'], {
+      connections: [held],
+      total: 1,
+      viewer: 'member',
+    });
+    api.setDelegatedLinkConsents.mockRejectedValue(new Error('purge failed'));
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => hooks.useSetDelegatedLinkConsents('g1'), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.setConsents('conn-1', { wellness_read: false })).rejects.toThrow(
+        'purge failed',
+      );
+    });
+
+    // Nothing the server did not answer is written into the list; the list
+    // is read again, so the control shows where the consent now stands.
+    expect(client.getQueryData(['groups', 'g1', 'delegated-connections'])).toEqual({
+      connections: [held],
+      total: 1,
+      viewer: 'member',
+    });
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
       ['groups', 'g1', 'delegated-connections'],
       ['groups', 'g1', 'delegation-roster'],

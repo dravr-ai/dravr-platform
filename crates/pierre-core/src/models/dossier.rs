@@ -70,9 +70,13 @@ pub struct Dossier {
 
     /// Physiological profile slot (FTP, threshold pace, fitness level, etc.).
     ///
-    /// `None` until the athlete's measurements are written by the
-    /// `set_physiology` tool, which is the only production writer of
-    /// `user_physiological_profiles`.
+    /// `None` until a profile is written. Two tools write
+    /// `user_physiological_profiles`, both in the athlete's own context:
+    /// `set_physiology`, whose values are the athlete's own, and
+    /// `import_provider_thresholds`, which fills a threshold from a provider
+    /// only when the profile has none or the value is that provider's earlier
+    /// one. Each imported threshold is named in the profile's
+    /// `threshold_provenance`.
     pub physiology: Option<UserPhysiologicalProfile>,
 
     /// Heart-rate zone definitions.

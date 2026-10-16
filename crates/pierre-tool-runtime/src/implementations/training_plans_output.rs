@@ -349,6 +349,20 @@ pub struct CalendarBlock {
     /// does not mean. A client without it reports "nothing on your calendar".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Present only when someone other than the reader pushes this calendar:
+    /// the athlete reads it through their human coach's link, so the coach
+    /// updates it and `push_training_plan` is not theirs to call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pushed_by: Option<CalendarPusher>,
+}
+
+/// Who puts Dravr's plan on a calendar when it is not the athlete reading it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CalendarPusher {
+    /// The athlete's human coach, through the link the athlete reads the
+    /// calendar by: only the coach writes it, from Dravr.
+    HumanCoach,
 }
 
 /// One entry Dravr put on the calendar.
@@ -383,4 +397,8 @@ pub struct CalendarPreview {
     pub pending: PushPreview,
     /// Whether it would change anything.
     pub stale: bool,
+    /// Present only when the athlete's human coach, not the athlete, pushes
+    /// this calendar (see [`CalendarBlock::pushed_by`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pushed_by: Option<CalendarPusher>,
 }

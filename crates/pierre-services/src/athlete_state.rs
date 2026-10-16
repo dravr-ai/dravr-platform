@@ -130,7 +130,8 @@ pub struct AthleteState {
     pub plan_active: bool,
     /// A connected provider reports sleep or recovery.
     pub recovery_source: bool,
-    /// A connected provider takes a pushed training plan.
+    /// A provider the athlete connected themselves takes their pushed
+    /// training plan; one read only through a human coach's link does not.
     pub calendar_writable: bool,
 }
 
@@ -210,7 +211,13 @@ async fn read_untracked(
         .provider_connections
         .get_for_user(user_id, Some(tenant))
         .await?;
-    let connected: Vec<&str> = connections.iter().map(|c| c.provider.as_str()).collect();
+    // A calendar the athlete reads only through a human coach's link takes
+    // that coach's writes, never the athlete's own push.
+    let own: Vec<&str> = connections
+        .iter()
+        .filter(|c| c.connection_type != ConnectionType::Delegated)
+        .map(|c| c.provider.as_str())
+        .collect();
     let real: Vec<&str> = connections
         .iter()
         .filter(|c| c.connection_type != ConnectionType::Synthetic)
@@ -221,7 +228,7 @@ async fn read_untracked(
         .iter()
         .flat_map(|provider| serving_backends(provider))
         .any(|backend| registry.supports_sleep(&backend) || registry.supports_recovery(&backend));
-    let calendar_writable = resolve_calendar_target(&registry, &connected, None).is_ok();
+    let calendar_writable = resolve_calendar_target(&registry, &own, None).is_ok();
 
     // Through the terms filter, as every model-facing read: a session a
     // provider keeps from AI is no ground for "my last workout", and one kept

@@ -30,12 +30,14 @@ use std::time::{Duration, Instant};
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::from_fn;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use dravr_sciotte::client::{ENV_AUDIENCE, ENV_REMOTE_URL};
 use helpers::axum_test::AxumTestRequest;
+use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
@@ -49,6 +51,7 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_mcp_server::routes::request_transport::declare_request_transport;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::{DelegatedConnectionRoutes, GroupRoutes, NotificationRoutes};
 use pierre_services::delegated_connections::{end_off_roster, roster_cache_key};
@@ -340,9 +343,13 @@ async fn world(roster_reads: Calls, dropped: Dropped) -> World {
         .await
         .unwrap();
 
+    // Every request is served over the transport its credential names, as
+    // the production app declares it: a session is Dravr's own app, an API
+    // key an external caller.
     let router = GroupRoutes::routes(Arc::clone(&res))
         .merge(DelegatedConnectionRoutes::routes(Arc::clone(&res)))
-        .merge(NotificationRoutes::routes(Arc::clone(&res)));
+        .merge(NotificationRoutes::routes(Arc::clone(&res)))
+        .layer(from_fn(declare_request_transport));
     World {
         res,
         router,
@@ -408,6 +415,23 @@ impl World {
             .json(body)
             .send(self.router.clone())
             .await;
+        (resp.status_code(), parse(&resp.text()))
+    }
+
+    /// A request carrying `authorization` as it is, a session or an API key,
+    /// with `body` as JSON when one is given and no body at all otherwise.
+    async fn send(
+        &self,
+        request: AxumTestRequest,
+        authorization: &str,
+        body: Option<&Value>,
+    ) -> (StatusCode, Value) {
+        let request = request.header("authorization", authorization);
+        let request = match body {
+            Some(body) => request.json(body),
+            None => request,
+        };
+        let resp = request.send(self.router.clone()).await;
         (resp.status_code(), parse(&resp.text()))
     }
 
@@ -608,11 +632,11 @@ async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
 /// the account as a coach's.
 async fn an_unread_role_never_serves_a_cached_roster(w: &World) {
     assert_eq!(w.recorded_role().await, None);
-    let planted = vec![RosterAthlete {
-        id: "999999".to_owned(),
-        name: Some("Someone Else".to_owned()),
-        email: None,
-    }];
+    let planted = vec![RosterAthlete::new(
+        "999999",
+        Some("Someone Else".to_owned()),
+        None,
+    )];
     w.res
         .common
         .cache
@@ -637,9 +661,10 @@ async fn an_unread_role_never_serves_a_cached_roster(w: &World) {
     assert_eq!(w.recorded_role().await, Some(ProviderAccountRole::Coach));
 }
 
-/// The roster lists every athlete, and suggests the member whose name reads
-/// as the athlete's.
-async fn the_roster_suggests_members_by_name(w: &World) {
+/// The roster lists every athlete, and suggests the member whose verified
+/// email the athlete's roster email is: the one member a proposal binds.
+/// The roster name plays no part.
+async fn the_roster_suggests_members_by_email(w: &World) {
     let (status, body) = w.get(&roster_path(w), &w.coach).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["provider"], "trainingpeaks");
@@ -648,11 +673,12 @@ async fn the_roster_suggests_members_by_name(w: &World) {
     assert_eq!(athletes[0]["provider_athlete_id"], "900001");
     assert_eq!(athletes[0]["display_name"], "Alex Athlete");
     assert_eq!(athletes[0]["connection"], Value::Null);
-    // "Alex Athlete" reads as the member "Alex Athléte": case and accents aside.
+    // "M1@Links.Test" is m1's verified email, case aside.
     assert_eq!(athletes[0]["suggested_member_user_id"], w.m1.id.to_string());
     assert_eq!(athletes[1]["suggested_member_user_id"], w.m2.id.to_string());
+    // An entry with no name at all binds by its email alone.
     assert_eq!(athletes[2]["display_name"], Value::Null);
-    assert_eq!(athletes[2]["suggested_member_user_id"], Value::Null);
+    assert_eq!(athletes[2]["suggested_member_user_id"], w.m1.id.to_string());
 }
 
 /// The read is the fourth way a coach account is learned and granted, and
@@ -988,6 +1014,173 @@ async fn the_coach_withdraws_and_revokes(w: &World) {
     assert_eq!(status, StatusCode::NOT_FOUND, "already ended");
 }
 
+/// A stored API key for `user_id`, and the full key to present.
+async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
+    let data = ApiKeyManager::new().generate_api_key(false);
+    let key = ApiKey {
+        id: Uuid::new_v4().to_string(),
+        user_id,
+        name: "consent key".to_owned(),
+        key_prefix: data.key_prefix,
+        key_hash: data.key_hash,
+        description: None,
+        tier: ApiKeyTier::Starter,
+        rate_limit_requests: 1_000,
+        rate_limit_window_seconds: 3_600,
+        is_active: true,
+        last_used_at: None,
+        expires_at: None,
+        created_at: Utc::now(),
+    };
+    res.common.repos.api_keys.create(&key).await.unwrap();
+    data.full_key
+}
+
+/// Assert the consents a link response carries, and those its platform
+/// offers: `[calendar_write, calendar_write_supported, wellness_read,
+/// wellness_read_supported]`; and that nothing skips a wellness its platform
+/// never offered.
+fn assert_consents(link: &Value, expected: [bool; 4]) {
+    let got = [
+        "calendar_write",
+        "calendar_write_supported",
+        "wellness_read",
+        "wellness_read_supported",
+    ]
+    .map(|field| {
+        link[field]
+            .as_bool()
+            .unwrap_or_else(|| panic!("{field}: {link}"))
+    });
+    assert_eq!(got, expected, "{link}");
+    assert_eq!(
+        link.get("wellness_read_skipped"),
+        Some(&Value::Null),
+        "{link}"
+    );
+}
+
+const CONSENTS_MEMBER_ONLY: &str = "Only the member a link names can change what it shares";
+
+/// No consent of a TrainingPeaks link: nothing granted, nothing offered.
+const NO_CONSENT: [bool; 4] = [false; 4];
+
+/// TrainingPeaks takes no calendar write and its coach session reads no
+/// wellness, so a link there offers neither consent: a confirm with no body,
+/// as today's clients send it, grants nothing.
+async fn a_bodyless_confirm_grants_nothing(w: &World) {
+    let link = proposed_to_m2(w).await;
+    let confirm_path = format!("{}/{link}/confirm", w.links_path());
+    let (status, body) = w
+        .send(AxumTestRequest::post(&confirm_path), &w.m2.auth, None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "confirmed");
+    assert_consents(&body, NO_CONSENT);
+    let (status, _) = w.end(&link, &w.coach).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+/// Grants the platform does not offer are ignored, never stored, at confirm
+/// and on the confirmed link, and only the member a confirmed link names may
+/// change it.
+async fn unoffered_grants_are_ignored_and_only_the_member_changes_them(w: &World) {
+    let link = proposed_to_m2(w).await;
+    let both = json!({ "calendar_write": true, "wellness_read": true });
+    let (status, body) = w
+        .post(&format!("{}/{link}/confirm", w.links_path()), &w.m2, &both)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, NO_CONSENT);
+    let stored = w.stored(&link).await;
+    assert!(!stored.calendar_write && !stored.wellness_read);
+    assert_eq!(stored.calendar_write_at, None);
+
+    let consents_path = format!("{}/{link}/consents", w.links_path());
+    let revoke = json!({ "calendar_write": false });
+    for who in [&w.coach, &w.m1, &w.outsider] {
+        assert_denied(
+            w.send(
+                AxumTestRequest::put(&consents_path),
+                &who.auth,
+                Some(&revoke),
+            )
+            .await,
+            CONSENTS_MEMBER_ONLY,
+        );
+    }
+    let (status, body) = w
+        .send(
+            AxumTestRequest::put(&consents_path),
+            &w.m2.auth,
+            Some(&both),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, NO_CONSENT);
+    let (status, _) = w.end(&link, &w.coach).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+/// A proposal takes no change, and a grant is refused over an API key before
+/// anything is written, at confirm and on the confirmed link; a revoke is
+/// not.
+async fn an_api_key_never_grants_and_a_proposal_takes_no_change(w: &World) {
+    let revoke = json!({ "calendar_write": false });
+    let link = proposed_to_m2(w).await;
+    let consents_path = format!("{}/{link}/consents", w.links_path());
+    let (status, body) = w
+        .send(
+            AxumTestRequest::put(&consents_path),
+            &w.m2.auth,
+            Some(&revoke),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let key = api_key(&w.res, w.m2.id).await;
+    let grant = json!({ "wellness_read": true });
+    assert_refused(
+        w.send(
+            AxumTestRequest::post(&format!("{}/{link}/confirm", w.links_path())),
+            &key,
+            Some(&grant),
+        )
+        .await,
+        StatusCode::FORBIDDEN,
+        "consent_grant_needs_app",
+    );
+    assert_eq!(
+        w.stored(&link).await.status,
+        DelegationStatus::Proposed,
+        "the refused grant confirmed nothing"
+    );
+    let (status, body) = w
+        .post(
+            &format!("{}/{link}/confirm", w.links_path()),
+            &w.m2,
+            &json!({}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, NO_CONSENT);
+    assert_refused(
+        w.send(AxumTestRequest::put(&consents_path), &key, Some(&grant))
+            .await,
+        StatusCode::FORBIDDEN,
+        "consent_grant_needs_app",
+    );
+    let (status, body) = w
+        .send(AxumTestRequest::put(&consents_path), &key, Some(&revoke))
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a revoke works from anywhere: {body}"
+    );
+    let (status, _) = w.end(&link, &w.coach).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
 const OFF_ROSTER_COACH_BODY: &str = "Your TrainingPeaks roster no longer lists Sam Swimmer, so \
      their link in Squad ended. Link them again once they are back on your roster.";
 const OFF_ROSTER_MEMBER_BODY: &str = "Casey Coach's TrainingPeaks roster no longer lists you, \
@@ -1146,7 +1339,7 @@ async fn a_coach_links_trainingpeaks_athletes_and_members_answer() {
     the_coach_sees_the_group(&w).await;
     only_the_coach_reads_the_roster_with_the_notice_accepted(&w).await;
     an_unread_role_never_serves_a_cached_roster(&w).await;
-    the_roster_suggests_members_by_name(&w).await;
+    the_roster_suggests_members_by_email(&w).await;
     the_roster_read_grants_the_coach_and_is_cached(&w).await;
     a_new_coach_login_drops_the_cached_roster(&w).await;
     every_proposal_rule_refuses_with_its_reason(&w).await;
@@ -1158,6 +1351,9 @@ async fn a_coach_links_trainingpeaks_athletes_and_members_answer() {
     an_own_login_supersedes_the_link(&w, &link).await;
     a_member_declines_and_the_coach_is_told(&w).await;
     the_coach_withdraws_and_revokes(&w).await;
+    a_bodyless_confirm_grants_nothing(&w).await;
+    unoffered_grants_are_ignored_and_only_the_member_changes_them(&w).await;
+    an_api_key_never_grants_and_a_proposal_takes_no_change(&w).await;
     a_roster_drop_ends_the_link_and_tells_both_sides(&w).await;
     a_live_roster_read_ends_a_proposal_off_the_roster(&w).await;
     an_inactive_group_admits_nobody(&w).await;

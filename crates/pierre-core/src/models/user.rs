@@ -20,7 +20,7 @@ use crate::intelligence::algorithms::maxhr::MaxHrAlgorithm;
 use crate::permissions::UserRole;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::{EncryptedToken, ProvenancedValue, SportType};
+use super::{EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance};
 
 /// Type-safe wrapper for user identifiers.
 ///
@@ -762,6 +762,16 @@ pub struct UserPhysiologicalProfile {
     /// speed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub d_prime_meters: Option<ProvenancedValue<f64>>,
+    /// Where [`Self::ftp_watts`], [`Self::threshold_hr`], [`Self::max_hr`]
+    /// and [`Self::threshold_pace_sec_per_km`] came from, for the ones a
+    /// provider supplied: each such value is that provider's estimate, quoted
+    /// with its origin ("intervals.icu has your FTP at 285 W"). A threshold
+    /// not listed is the athlete's own. Serialized with the profile — the
+    /// dossier and every tool that echoes the profile carry it — and left out
+    /// when every threshold is the athlete's own, so a profile no import
+    /// touched reads exactly as before.
+    #[serde(default, skip_serializing_if = "ThresholdProvenance::is_empty")]
+    pub threshold_provenance: ThresholdProvenance,
     /// Where this profile may be served (carnet#769): first-party-only when the
     /// turn that wrote it served data whose terms keep it on Dravr's own
     /// surfaces. Profiles written before the stamp read as unstamped.
@@ -794,6 +804,7 @@ impl UserPhysiologicalProfile {
             w_prime_joules: None,
             critical_speed_mps: None,
             d_prime_meters: None,
+            threshold_provenance: ThresholdProvenance::NONE,
             transport_policy: TransportPolicy::AnyTransport,
         }
     }

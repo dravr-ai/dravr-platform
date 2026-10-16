@@ -37,6 +37,7 @@ export const {
   useRefreshDelegationRoster,
   useProposeDelegatedConnection,
   useConfirmDelegatedConnection,
+  useSetDelegatedLinkConsents,
   useEndDelegatedConnection,
 } = createGroupHooks(groupsApi, WEB_GROUP_FRESHNESS);
 

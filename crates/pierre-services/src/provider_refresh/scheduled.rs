@@ -1,5 +1,5 @@
 // ABOUTME: The scheduled health-sync cycle: every connected athlete, every provider, on a jittered poll
-// ABOUTME: Scrape-backed providers wait six hours between syncs; stamps last_sync and notifies clients
+// ABOUTME: Scrape-backed providers wait six hours; coach-linked wellness syncs per link every three hours
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,10 +12,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use dravr_enforme::error::EnformeResult;
 use dravr_enforme::models::connection::ConnectedUser;
-use pierre_core::models::{OAuthNotification, SmartScheduleWeights, TenantId};
+use dravr_enforme::SyncOrchestrator;
+use dravr_equilibre_sync::{SyncResult, SyncStatus};
+use pierre_core::models::{DelegatedConnection, OAuthNotification, SmartScheduleWeights, TenantId};
+use pierre_database::repositories::WorkerRunRepository;
 use pierre_database::AuthRepos;
 use pierre_providers::backend_resolver::{is_mirror_backend, sync_backend};
+use pierre_providers::registry::global_registry;
+use pierre_providers::request_budget::in_background;
 use tokio::task::AbortHandle;
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -24,6 +30,8 @@ use uuid::Uuid;
 use super::{
     compute_smart_interval, record_sync_latency, SyncNotifier, SYNC_FAILURES, SYNC_SUCCESSES,
 };
+use crate::coach_platform::coach_platforms;
+use crate::health_sync::{delegated_sync_scope, PierreSyncStorage};
 use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices};
 
 /// Start the scheduled sync loop with post-sync SSE notifications.
@@ -37,10 +45,15 @@ use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices
 ///   notice when one lands ([`SyncFailureNotices`])
 /// - Tracks sync metrics (success/failure counts, latency)
 /// - Leaves each request to the signing app's budget, which the credentials carry
+/// - Then syncs the wellness of members read through a coach's link
+///   ([`sync_delegated_members`]) from `storage`, the store the orchestrator
+///   writes through: shared with the orchestrator and the server's context,
+///   and moved into the loop's task
 ///
 /// Returns an `AbortHandle` to cancel the background task on shutdown.
 pub fn start_scheduled_sync(
-    orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: Arc<SyncOrchestrator>,
+    storage: Arc<PierreSyncStorage>,
     repos: &AuthRepos,
     sse_manager: Arc<dyn SyncNotifier>,
     notices: SyncFailureNotices,
@@ -63,6 +76,7 @@ pub fn start_scheduled_sync(
 
             run_scheduled_sync_cycle(
                 &orchestrator,
+                &storage,
                 &repos,
                 &sse_manager,
                 &notices,
@@ -84,13 +98,16 @@ pub fn start_scheduled_sync(
 /// background sync for every later athlete and provider until the process
 /// restarted (carnet#995). dravr-enforme bounds each request (30 s); a sync
 /// is a handful of paged requests per data type, so ten minutes is far past
-/// any sync that is still making progress.
+/// any sync that is still making progress. A member's sync through their
+/// coach's link runs in the same cycle and is held to the same bound.
 const SCHEDULED_SYNC_DEADLINE: Duration = Duration::from_mins(10);
 
-/// Execute one full sync cycle across all providers and users, giving each
-/// athlete's sync of each provider at most `deadline`.
+/// Execute one full sync cycle across all providers and users: every
+/// athlete's own connections, then the wellness read through coach links,
+/// each sync of one provider given at most `deadline`.
 async fn run_scheduled_sync_cycle(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<SyncOrchestrator>,
+    storage: &PierreSyncStorage,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
@@ -126,6 +143,193 @@ async fn run_scheduled_sync_cycle(
         )
         .await;
     }
+
+    let now_ms = Utc::now().timestamp_millis();
+    for provider in delegated_wellness_providers(orchestrator) {
+        sync_delegated_members(storage, orchestrator, provider, now_ms, deadline).await;
+    }
+}
+
+/// The providers the orchestrator syncs whose coaching platform's coach
+/// credential reads a linked member's wellness (Intervals.icu): the ones the
+/// delegated pass runs for.
+fn delegated_wellness_providers(orchestrator: &SyncOrchestrator) -> Vec<&'static str> {
+    let synced = orchestrator.provider_names();
+    coach_platforms(&global_registry())
+        .iter()
+        .filter(|platform| platform.reads_member_wellness())
+        .map(|platform| platform.user_facing())
+        .filter(|provider| synced.contains(provider))
+        .collect()
+}
+
+/// How long one link's wellness waits between two syncs through its coach's
+/// key, whichever instance ran the last.
+///
+/// One sync spends three requests of the coach's key, which every athlete the
+/// coach reads shares, and wellness changes about once a day: eight syncs a
+/// day keep a morning's night current by mid-morning for 24 requests a member,
+/// where the 15-minute poll would spend 288 a member on each instance.
+const DELEGATED_WELLNESS_PERIOD: Duration = Duration::from_hours(3);
+
+/// How long one instance holds a link's sync before another may take it over.
+const DELEGATED_WELLNESS_LEASE: Duration = Duration::from_mins(15);
+
+/// Sync the `provider` wellness of every member read through a coach's
+/// confirmed link that is due at `now_ms` (Unix milliseconds), once across
+/// the server's instances.
+///
+/// Each link whose member granted it `wellness_read` and that Dravr's own
+/// rows do not exclude (`PierreSyncStorage::delegated_wellness_links`) is
+/// claimed in the worker ledger as `delegated wellness {link_id}`: due three
+/// hours after its last landed sync (`DELEGATED_WELLNESS_PERIOD`), and held
+/// for fifteen minutes while it runs. A link that is not due, or that another
+/// instance holds, spends nothing. The sync runs inside the delegated sync
+/// scope (`crate::health_sync::delegated_sync_scope`), the only place its
+/// credentials are handed out, and inside the background share of the coach
+/// key's budget ([`in_background`]); the credentials decide the rest
+/// (`crate::delegated_wellness`). A sync that landed finishes the claim; one
+/// that failed, or found no credentials, holds the link a full period, so a
+/// member the platform refuses is not asked for again on every poll. No
+/// `last_sync` is stamped and no failure notice is sent: the member holds no
+/// connection of their own to report on.
+///
+/// Each link's sync gets at most `deadline`, as an athlete's own does in the
+/// cycle: one still running then is dropped and the link held a full period,
+/// so a read that never answers cannot stop the pass or the cycle after it
+/// (carnet#995).
+///
+/// Public so an integration test can drive one pass at a chosen time:
+/// pierre-services builds without enforme's Intervals.icu provider, so the
+/// pass cannot be exercised by an inline test.
+pub async fn sync_delegated_members(
+    storage: &PierreSyncStorage,
+    orchestrator: &SyncOrchestrator,
+    provider: &str,
+    now_ms: i64,
+    deadline: Duration,
+) {
+    let links = match storage.delegated_wellness_links(provider).await {
+        Ok(links) => links,
+        Err(e) => {
+            warn!(provider, error = %e, "Failed to list the links for delegated wellness");
+            return;
+        }
+    };
+    for link in &links {
+        sync_delegated_member(storage, orchestrator, provider, link, now_ms, deadline).await;
+    }
+}
+
+/// One link's turn in the delegated pass: claimed when due, synced within
+/// `deadline`, then finished when the sync landed or held a full period when
+/// it did not.
+async fn sync_delegated_member(
+    storage: &PierreSyncStorage,
+    orchestrator: &SyncOrchestrator,
+    provider: &str,
+    link: &DelegatedConnection,
+    now_ms: i64,
+    deadline: Duration,
+) {
+    let ledger = storage.worker_runs();
+    let name = format!("delegated wellness {}", link.id);
+    if !claim_delegated_sync(ledger, link, &name, now_ms).await {
+        return;
+    }
+    let member = link.member_user_id;
+    let member_id = member.to_string();
+    let sync = delegated_sync_scope(
+        member,
+        in_background(orchestrator.sync_user(&member_id, provider)),
+    );
+    let landed = timeout(deadline, sync).await.map_or_else(
+        |_| {
+            warn!(
+                link_id = %link.id,
+                group_id = %link.group_id,
+                deadline_secs = deadline.as_secs(),
+                "Delegated wellness sync did not finish by its deadline; the link is held a full period"
+            );
+            false
+        },
+        |synced| delegated_sync_landed(link, &synced),
+    );
+    let recorded = if landed {
+        ledger.finish_worker_run(&name, now_ms).await
+    } else {
+        ledger
+            .defer_worker_run(&name, now_ms + millis(DELEGATED_WELLNESS_PERIOD))
+            .await
+    };
+    if let Err(e) = recorded {
+        warn!(link_id = %link.id, error = %e, "Could not record a delegated wellness sync");
+    }
+}
+
+/// Whether `link`'s delegated sync landed, logging what it did.
+fn delegated_sync_landed(link: &DelegatedConnection, synced: &EnformeResult<SyncResult>) -> bool {
+    match synced {
+        Ok(result) if result.status == SyncStatus::Failed => {
+            // The platform refused or failed a wellness read the credentials
+            // were handed for: a coach key it no longer honours ends up here,
+            // and is reported by this line alone (`crate::delegated_wellness`).
+            warn!(
+                link_id = %link.id,
+                group_id = %link.group_id,
+                data_types_failed = result.records_errored,
+                "Delegated wellness sync failed; the link is held a full period"
+            );
+            false
+        }
+        Ok(result) => {
+            info!(
+                link_id = %link.id,
+                group_id = %link.group_id,
+                records_created = result.records_created,
+                "Delegated wellness pass synced a link"
+            );
+            true
+        }
+        // No credentials, whose reason the decision logged, or a store that
+        // could not be read before any wellness read.
+        Err(e) => {
+            info!(
+                link_id = %link.id,
+                group_id = %link.group_id,
+                error = %e,
+                "Delegated wellness pass synced nothing for a link; it is held a full period"
+            );
+            false
+        }
+    }
+}
+
+/// Take `link`'s sync, ledgered as `name`, when it is due at `now_ms` and no
+/// instance holds it; a ledger that cannot be read takes nothing (logged).
+async fn claim_delegated_sync(
+    ledger: &dyn WorkerRunRepository,
+    link: &DelegatedConnection,
+    name: &str,
+    now_ms: i64,
+) -> bool {
+    ledger
+        .claim_worker_run(
+            name,
+            millis(DELEGATED_WELLNESS_PERIOD),
+            now_ms,
+            millis(DELEGATED_WELLNESS_LEASE),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            warn!(link_id = %link.id, error = %e, "Could not claim a delegated wellness sync");
+            false
+        })
+}
+
+/// `duration` in whole milliseconds, as the worker ledger counts time.
+fn millis(duration: Duration) -> i64 {
+    i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
 
 /// Sync all active users for a single provider.
@@ -134,7 +338,7 @@ async fn run_scheduled_sync_cycle(
 /// user's token (the credentials carry its gate), so a spent window refuses
 /// only the users counted in it.
 async fn sync_provider_users(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
@@ -193,7 +397,7 @@ async fn sync_single_user_within(
 
 /// Sync a single user for a given provider, recording metrics and sending notifications.
 async fn sync_single_user(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,

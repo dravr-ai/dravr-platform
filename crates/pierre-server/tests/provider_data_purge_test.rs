@@ -616,6 +616,113 @@ async fn a_users_provider_purge_takes_exactly_their_rows_in_that_tenant() {
     assert_removed(&garmin_left, 1, 1);
 }
 
+/// The tables of [`ONE_ROW_TABLES`] the health sync writes for a scope; a
+/// wellness purge takes these, with the scope's `data_point_series` points,
+/// and nothing else.
+const WELLNESS_TABLES: [&str; 6] = [
+    "sleep_sessions",
+    "recovery_metrics",
+    "health_snapshots",
+    "data_sources",
+    "data_point_series_archive",
+    "sync_state",
+];
+
+/// A member who withdraws a coach link's wellness consent keeps the link and
+/// the workouts it reads: the wellness purge deletes everything the health
+/// sync wrote for the provider in that one scope (the points and their
+/// rollups, the sleep, recovery and health rows, the data source they
+/// reference and the sync's cursor) and records it; every activity row and
+/// the sync state describing it, every other provider's rows and every other
+/// scope's rows stay.
+#[tokio::test]
+async fn a_wellness_purge_takes_only_that_scopes_wellness() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+
+    let purge = repos
+        .provider_data
+        .purge_user_provider_wellness(
+            athlete,
+            &tenant,
+            "whoop",
+            PurgeReason::WellnessConsentWithdrawn,
+        )
+        .await
+        .unwrap();
+    for table in WELLNESS_TABLES {
+        assert_eq!(
+            purge.removed_from(table),
+            1,
+            "{table}: {:?}",
+            purge.rows_removed
+        );
+    }
+    assert_eq!(
+        purge.removed_from("data_point_series"),
+        SEEDED_POINTS,
+        "{:?}",
+        purge.rows_removed
+    );
+    let wellness_rows = u64::try_from(WELLNESS_TABLES.len()).unwrap() + SEEDED_POINTS;
+    assert_eq!(
+        purge.total(),
+        wellness_rows,
+        "nothing else: {:?}",
+        purge.rows_removed
+    );
+    assert_eq!(sleep_sources(&world, world.athlete).await, ["garmin"]);
+    assert_eq!(sleep_sources(&world, world.teammate).await, ["whoop"]);
+    assert_eq!(
+        sleep_sources(&world, world.athlete_elsewhere).await,
+        ["whoop"]
+    );
+    let window = (night_start(), night_start() + Duration::days(1));
+    let cached = repos
+        .activity_cache
+        .get_cached_activities(athlete, &tenant, Some("whoop"), window.0, window.1, 10)
+        .await
+        .unwrap();
+    assert_eq!(cached.len(), 1, "the provider's workouts stay");
+
+    let recorded = repos
+        .provider_data
+        .list_provider_data_purges("whoop", 10)
+        .await
+        .unwrap();
+    assert_eq!(recorded.len(), 1, "{recorded:?}");
+    assert_eq!(recorded[0].reason, "wellness_consent_withdrawn");
+    assert_eq!(recorded[0].user_id, Some(athlete.to_string()));
+    assert_eq!(recorded[0].tenant_id, Some(tenant.to_string()));
+    assert_eq!(
+        u64::try_from(recorded[0].rows_removed).unwrap(),
+        wellness_rows
+    );
+
+    // What the scope still holds is its activity side, whole: the full purge
+    // finds every activity row and the sync state describing it, and no
+    // wellness.
+    let rest = repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    for table in ONE_ROW_TABLES {
+        let expected = u64::from(!WELLNESS_TABLES.contains(&table));
+        assert_eq!(
+            rest.removed_from(table),
+            expected,
+            "{table}: {:?}",
+            rest.rows_removed
+        );
+    }
+    assert_eq!(rest.removed_from("data_point_series"), 0);
+    assert_eq!(rest.removed_from("activity_backfill_jobs"), 1);
+    let activity_rows = u64::try_from(ONE_ROW_TABLES.len() - WELLNESS_TABLES.len()).unwrap() + 1;
+    assert_eq!(rest.total(), activity_rows, "{:?}", rest.rows_removed);
+}
+
 #[tokio::test]
 async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokepoint() {
     let world = world().await;

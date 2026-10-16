@@ -97,10 +97,20 @@ impl PlannedSession {
 pub struct CalendarKey;
 
 impl CalendarKey {
+    /// Root every key Dravr writes starts with, plan and prescription alike.
+    const ROOT: &'static str = "dravr:";
     /// Prefix shared by every plan-derived key.
     pub const PLAN_PREFIX: &'static str = "dravr:plan:";
     /// Prefix of every single-prescription key.
     pub const PRESCRIPTION_PREFIX: &'static str = "dravr:rx:";
+
+    /// Whether `external_id` is one of Dravr's own keys: an entry Dravr
+    /// pushed, as opposed to one the athlete, a human coach or another
+    /// platform put on the calendar.
+    #[must_use]
+    pub fn is_dravr_key(external_id: &str) -> bool {
+        external_id.starts_with(Self::ROOT)
+    }
 
     /// Key of a single prescription.
     #[must_use]
@@ -281,5 +291,28 @@ impl PrescribedWorkout {
     #[must_use]
     pub fn is_live(&self) -> bool {
         self.status == Self::STATUS_PUSHED
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CalendarKey;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    #[test]
+    fn every_key_dravr_writes_is_told_apart_from_anyone_elses() {
+        let athlete = Uuid::new_v4();
+        let day = Utc::now().date_naive();
+        for ours in [
+            CalendarKey::prescription(Uuid::new_v4()),
+            CalendarKey::plan_day(athlete, day, 0),
+            CalendarKey::plan_week_note(athlete, day),
+        ] {
+            assert!(CalendarKey::is_dravr_key(&ours), "{ours}");
+        }
+        for theirs in ["", "dravr", "DRAVR:plan:x", "tp:dravr:plan:x", "12345"] {
+            assert!(!CalendarKey::is_dravr_key(theirs), "{theirs}");
+        }
     }
 }

@@ -301,6 +301,13 @@ impl ProviderCapabilities {
         self.contains(Self::CALENDAR_WRITE)
     }
 
+    /// Check if a coach account writes the calendars of the athletes it
+    /// reads: a coaching platform whose training calendar takes writes
+    #[must_use]
+    pub const fn supports_coach_calendar_write(&self) -> bool {
+        self.contains(Self::COACH_ROSTER.union(Self::CALENDAR_WRITE))
+    }
+
     /// Check if the provider's calendar holds week notes
     #[must_use]
     pub const fn supports_calendar_week_notes(&self) -> bool {
@@ -1082,11 +1089,11 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
         // A coach's API key lists the athletes who share with them and reads
         // each at their own path (`IntervalsIcuProviderFactory::delegated_reads`).
         // It also writes its training calendar: it implements the four
-        // calendar methods on `FitnessProvider`.
-        //
-        // LIMITATION(registre#1020): `PLANNED_WORKOUTS` is not declared: the calendar is read
-        // only to reconcile Dravr's own pushes, so workouts a coach plans in intervals.icu and
-        // planned-vs-done (`paired_event_id`, `compliance`) never reach the agent.
+        // calendar methods on `FitnessProvider`, and a coach's key writes the
+        // calendar of each athlete who made them their coach
+        // (`create_delegated_calendar_writer`). The same calendar is read for
+        // the workouts and races planned on it, and the activity that
+        // completed each (`list_planned_workouts`).
         ProviderCapabilities::OAUTH
             .union(ProviderCapabilities::ACTIVITIES)
             .union(ProviderCapabilities::RECORDED_ACTIVITIES)
@@ -1097,6 +1104,7 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
             .union(ProviderCapabilities::COACH_ROSTER)
             .union(ProviderCapabilities::CALENDAR_WRITE)
             .union(ProviderCapabilities::CALENDAR_WEEK_NOTES)
+            .union(ProviderCapabilities::PLANNED_WORKOUTS)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

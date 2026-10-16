@@ -12,8 +12,10 @@
 //! human coach links one of those roster athletes to a live member of the
 //! group ([`propose`]); the member confirms ([`confirm`]), and that
 //! confirmation is their consent to having their workouts on that platform
-//! read through the coach's account. Either side can end the link ([`end`]);
-//! the group lifecycle and a disconnect end it through [`DelegationStore`].
+//! read through the coach's account. Anything beyond that read is a consent
+//! of the member's own, per link ([`crate::delegated_link_consents`]). Either
+//! side can end the link ([`end`]); the group lifecycle and a disconnect end
+//! it through [`DelegationStore`].
 //!
 //! The roster comes from the coach's stored credential ([`coach_roster`]),
 //! and only once every precondition holds: a connection of the coach's own
@@ -37,9 +39,10 @@
 //! ([`end_off_roster`]). Notices are best-effort: a step stands even when its
 //! notice cannot be addressed.
 //!
-//! The roster's athlete names are the provider's text about third parties.
-//! They are stored and shown to the two people a link concerns, and never
-//! placed in a notice or anything a model reads.
+//! Roster names, emails and ids of athletes who have not confirmed a link are
+//! shown only to the coach and the athlete the link concerns; they never go
+//! into a notice or anything a model reads. A confirmed athlete's name
+//! reaches a model only through that link's delegated read, fenced as data.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,8 +52,8 @@ use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
-    ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus,
-    ProviderAccountRole, RosterAthlete, TenantId, User, UserOAuthToken,
+    ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents,
+    ProviderAccountRole, RosterAccess, RosterAthlete, TenantId, User, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
@@ -60,11 +63,12 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use serde_json::json;
 use tracing::{info, warn};
-use unicode_normalization::char::is_combining_mark;
-use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 use crate::coach_platform::{coach_platform, CoachPlatform, RosterRead};
+use crate::delegated_link_consents::granted_at_confirm;
+use crate::delegated_link_states::{assess, Assessed, LinkState};
+use crate::delegated_read::{holds_own_connection, OwnLogins};
 use crate::delegation_refusal::Refusal;
 use crate::provider_notice::notice_in_force;
 use crate::trainingpeaks_accounts::{email_binding, link_binding, EmailBinding};
@@ -76,9 +80,10 @@ pub struct RosterEntry {
     pub athlete: RosterAthlete,
     /// The live link that holds this athlete in the group, when there is one.
     pub link: Option<DelegatedConnection>,
-    /// The live, unlinked member whose name reads as the athlete's roster
-    /// name (ignoring case and accents), when exactly one does. A hint that
-    /// preselects the picker; it never proposes on its own.
+    /// The live member of the group whose verified Dravr email is the
+    /// athlete's roster email, when no link of the coach's holds the athlete
+    /// or the member and the platform gives the coach access to the athlete.
+    /// A hint that preselects the picker; it never proposes on its own.
     pub suggested_member_user_id: Option<Uuid>,
 }
 
@@ -453,9 +458,13 @@ pub async fn describe_link(
     }))
 }
 
-/// The coach's `platform` roster as the linking picker for `group` shows it:
-/// each athlete with the live link that holds them in the group, and the
-/// member their roster name suggests.
+/// The coach's `platform` roster as the linking picker for `group` shows it.
+///
+/// One group's view of the roster's link states
+/// ([`crate::delegated_link_states`]): each athlete with the live link that
+/// holds them in the group, and the member of the group their roster email
+/// binds. An athlete a live link of the coach's holds in another group is
+/// left out: it cannot be linked here.
 ///
 /// # Errors
 ///
@@ -468,76 +477,42 @@ pub async fn roster_for_group(
     coach_tenant: TenantId,
     refresh: bool,
 ) -> AppResult<Vec<RosterEntry>> {
-    let repos = services.repos;
-    let athletes = coach_roster(services, platform, coach_user_id, coach_tenant, refresh).await?;
-    let links: Vec<DelegatedConnection> = repos
-        .delegated_connections
-        .list_live_for_coach_in_group(group.id, coach_user_id)
-        .await?
+    let assessed = assess(
+        services,
+        platform,
+        coach_user_id,
+        coach_tenant,
+        Some(group.id),
+        refresh,
+    )
+    .await?;
+    Ok(assessed
         .into_iter()
-        .filter(|link| link.provider == platform.backend())
-        .collect();
-    let candidates: Vec<Uuid> = repos
-        .groups
-        .list_members(&group.id.to_string())
-        .await?
-        .into_iter()
-        .map(|member| member.user_id)
-        .filter(|id| *id != coach_user_id && !links.iter().any(|l| l.member_user_id == *id))
-        .collect();
-    let users = repos.users.get_global_many(&candidates).await?;
-    let names: Vec<(Uuid, String)> = candidates
-        .iter()
-        .filter_map(|id| {
-            let folded = fold_name(users.get(id)?.display_name.as_deref()?);
-            (!folded.is_empty()).then_some((*id, folded))
-        })
-        .collect();
-
-    Ok(athletes
-        .into_iter()
-        .map(|athlete| {
-            let link = links
-                .iter()
-                .find(|l| l.provider_athlete_id == athlete.id)
-                .cloned();
-            let suggested_member_user_id = if link.is_none() {
-                athlete
-                    .name
-                    .as_deref()
-                    .and_then(|name| sole_match(&names, &fold_name(name)))
-            } else {
-                None
-            };
-            RosterEntry {
-                athlete,
+        .filter_map(|Assessed { view, bound }| {
+            let link = view.state.link().cloned();
+            if link.as_ref().is_some_and(|l| l.group_id != group.id) {
+                return None;
+            }
+            // A member who already holds a live link of the coach's on the
+            // platform is no unlinked member: proposing them is refused.
+            let holds_a_link = matches!(view.state, LinkState::MemberHoldsAnotherLink { .. });
+            let suggested_member_user_id = view
+                .state
+                .member()
+                .filter(|member| {
+                    bound
+                        && !holds_a_link
+                        && member.group.id == group.id
+                        && view.athlete.access != Some(RosterAccess::NoAccess)
+                })
+                .map(|member| member.user_id);
+            Some(RosterEntry {
+                athlete: view.athlete,
                 link,
                 suggested_member_user_id,
-            }
+            })
         })
         .collect())
-}
-
-/// A name folded for comparison: decomposed, accents dropped, lowercased,
-/// whitespace collapsed.
-fn fold_name(name: &str) -> String {
-    let folded: String = name
-        .nfd()
-        .filter(|c| !is_combining_mark(*c))
-        .flat_map(char::to_lowercase)
-        .collect();
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The one candidate whose folded name is `folded`; `None` when none or
-/// several are.
-fn sole_match(names: &[(Uuid, String)], folded: &str) -> Option<Uuid> {
-    if folded.is_empty() {
-        return None;
-    }
-    let mut matches = names.iter().filter(|(_, name)| name == folded);
-    let first = matches.next()?;
-    matches.next().is_none().then_some(first.0)
 }
 
 /// The coach of `group` proposes linking a roster athlete to a live member.
@@ -546,7 +521,8 @@ fn sole_match(names: &[(Uuid, String)], folded: &str) -> Option<Uuid> {
 /// # Errors
 ///
 /// Returns an invalid-input error for an unsupported provider, a malformed
-/// athlete id, an athlete off the roster, an athlete whose roster email is
+/// athlete id, an athlete off the roster, an athlete the platform gives the
+/// coach no access to (`athlete_no_access`), an athlete whose roster email is
 /// missing or is not the member's verified email, a member whose email is
 /// unverified, or the coach naming themselves; a
 /// not-found error when the member is not a live member of the group; an
@@ -586,6 +562,11 @@ pub async fn propose(
     let Some(entry) = roster.into_iter().find(|a| a.id == athlete) else {
         return Err(Refusal::AthleteNotOnRoster.error(Some(platform)));
     };
+    // The platform lists the athlete but lets the coach read nothing of
+    // theirs: a link would serve no read.
+    if entry.access == Some(RosterAccess::NoAccess) {
+        return Err(Refusal::AthleteNoAccess.error(Some(platform)));
+    }
     let binding = email_binding(repos, member, entry.email.as_deref()).await?;
     if let Some(refusal) = Refusal::proposal(binding) {
         return Err(refusal.error(Some(platform)));
@@ -629,23 +610,27 @@ pub async fn propose(
 
 /// The member confirms `link`, a proposal naming them, in `member_tenant`.
 ///
+/// It grants the `requested` consents its platform offers
+/// ([`crate::delegated_link_consents`]), and none unless requested.
 /// Their delegated connection is registered there, their other live
 /// proposals for the provider are superseded, and the coach is told.
 ///
 /// # Errors
 ///
-/// Returns an already-exists error when the member connects the platform
-/// with a login of their own here (`own_connection`) or already has a
-/// confirmed link (`already_linked`); an invalid-input error when the athlete
-/// the link names is not the member by email: the link carries no roster
-/// email, it is not the member's, or the member's email is unverified; a
-/// not-found error when `link` is no longer a proposal; or a repository
-/// error.
+/// Returns a permission-denied error (`consent_grant_needs_app`) when it
+/// requests a consent outside Dravr's own app; an already-exists error when
+/// the member connects the platform with a login of their own here
+/// (`own_connection`) or already has a confirmed link (`already_linked`); an
+/// invalid-input error when the athlete the link names is not the member by
+/// email: the link carries no roster email, it is not the member's, or the
+/// member's email is unverified; a not-found error when `link` is no longer a
+/// proposal; or a repository error.
 pub async fn confirm(
     services: DelegationServices<'_>,
     group: &CoachingGroup,
     link: &DelegatedConnection,
     member_tenant: TenantId,
+    requested: LinkConsents,
 ) -> AppResult<DelegatedConnection> {
     let DelegationServices {
         repos,
@@ -653,10 +638,12 @@ pub async fn confirm(
         notifications,
         ..
     } = services;
+    let consents = granted_at_confirm(registry, link, requested)?;
     let member = link.member_user_id;
     let platform = coach_platform(registry, &link.provider);
     let platform = platform.as_deref();
-    if holds_own_connection(repos, member, member_tenant, &link.provider).await? {
+    let logins = OwnLogins::of(repos);
+    if holds_own_connection(logins, member, Some(member_tenant), &[&link.provider]).await? {
         return Err(Refusal::OwnConnection.error(platform));
     }
     let binding = email_binding(repos, member, link.provider_athlete_email.as_deref()).await?;
@@ -665,9 +652,16 @@ pub async fn confirm(
     }
     let confirmed = repos
         .delegated_connections
-        .confirm(link.id, member, member_tenant, Utc::now())
+        .confirm(link.id, member, member_tenant, consents, Utc::now())
         .await?
         .ok_or_else(|| AppError::not_found("Pending link"))?;
+    info!(
+        link_id = %confirmed.id,
+        group_id = %group.id,
+        calendar_write = confirmed.calendar_write,
+        wellness_read = confirmed.wellness_read,
+        "Delegated link confirmed"
+    );
     supersede_other_proposals(repos, &confirmed).await?;
 
     repos
@@ -694,30 +688,6 @@ pub async fn confirm(
         .confirmed(&confirmed, &group.name)
         .await;
     Ok(confirmed)
-}
-
-/// Whether the member reads the provider through a login of their own in
-/// `tenant`: their own session, or a connection that is not a delegated one.
-async fn holds_own_connection(
-    repos: &RepositoryRegistry,
-    member: Uuid,
-    tenant: TenantId,
-    provider: &str,
-) -> AppResult<bool> {
-    if repos
-        .oauth_tokens
-        .get_token(member, tenant, provider)
-        .await?
-        .is_some()
-    {
-        return Ok(true);
-    }
-    Ok(repos
-        .provider_connections
-        .get_for_user(member, Some(tenant))
-        .await?
-        .iter()
-        .any(|c| c.provider == provider && c.connection_type != ConnectionType::Delegated))
 }
 
 /// End the member's other live proposals for the confirmed link's provider:

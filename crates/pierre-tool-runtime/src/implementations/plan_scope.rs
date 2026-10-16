@@ -46,7 +46,9 @@
 //! against the requester's tenant only.
 
 use pierre_core::errors::AppResult;
+use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
 use serde_json::json;
 use tracing::info;
@@ -106,14 +108,115 @@ pub struct PlanScopeRequest<'a> {
     pub tool_name: &'a str,
 }
 
-/// A coached athlete whose display name matched the query, with the group
-/// row that authorizes acting for them.
-struct AthleteMatch {
-    group_id: Uuid,
-    group_name: String,
-    display_name: String,
-    user_id: Uuid,
-    consented: bool,
+/// The one coached member a name query matched, with the group row that
+/// authorizes acting for them.
+pub(crate) struct CoachedMatch {
+    /// A group the requester coaches the member in: one where the member
+    /// shares with them when any does, so a refusal names the most permissive
+    /// row; else the first.
+    pub(crate) group: CoachingGroup,
+    /// The member.
+    pub(crate) user_id: Uuid,
+    /// Their display name ([`fetch_user_display_name`]).
+    pub(crate) display_name: String,
+    /// Whether the member shares with the requester in `group`.
+    pub(crate) consented: bool,
+}
+
+/// Why a name query matched no one coached member.
+pub(crate) enum MemberMiss {
+    /// The query matched only the requester.
+    Requester,
+    /// No live member of a group the requester coaches matched.
+    NoMatch,
+    /// Several distinct members matched: their display names, sorted.
+    Ambiguous(Vec<String>),
+}
+
+impl MemberMiss {
+    /// What the model relays for a query `query` that resolved to no one
+    /// member; `yourself` says what to do when it named the requester.
+    pub(crate) fn message(&self, query: &str, yourself: &str) -> String {
+        match self {
+            Self::Requester => format!("'{query}' is you — {yourself}"),
+            Self::NoMatch => format!(
+                "No athlete matching '{query}' in a group you coach — the athlete must be a \
+                 member of a group you are attached to as its coach (a coach invite), not merely \
+                 a group you belong to."
+            ),
+            Self::Ambiguous(names) => format!(
+                "'{query}' is ambiguous — several athletes you coach match: {}. Use a more \
+                 specific name.",
+                names.join(", ")
+            ),
+        }
+    }
+}
+
+/// The one live member of a group `requester` is the human coach of whose
+/// display name contains `query`, case aside.
+///
+/// Walked from the groups the requester is attached to as their coach, never
+/// from the groups they merely belong to. The same athlete in two coached
+/// groups is one person; the requester is never their own athlete.
+///
+/// The outer `Err` is a repository failure; the inner `Err` says why no one
+/// member matched.
+///
+/// # Errors
+///
+/// Returns the repository error from the group or member lookups.
+pub(crate) async fn match_coached_member(
+    data: &DataContext,
+    requester: Uuid,
+    query: &str,
+) -> AppResult<Result<CoachedMatch, MemberMiss>> {
+    let repos = data.repos();
+    let query_lower = query.to_lowercase();
+    let mut matches: Vec<CoachedMatch> = Vec::new();
+    let mut requester_matched = false;
+    for group in repos.groups.list_groups_coached_by(requester).await? {
+        if !group.is_active {
+            continue;
+        }
+        for member in repos.groups.list_members(&group.id.to_string()).await? {
+            if member.left_at.is_some() {
+                continue;
+            }
+            let display_name = fetch_user_display_name(data, member.user_id).await;
+            if !display_name.to_lowercase().contains(&query_lower) {
+                continue;
+            }
+            if member.user_id == requester {
+                requester_matched = true;
+                continue;
+            }
+            matches.push(CoachedMatch {
+                group: group.clone(),
+                user_id: member.user_id,
+                display_name,
+                consented: member.coach_sharing_consent,
+            });
+        }
+    }
+
+    let Some(first) = matches.first() else {
+        return Ok(Err(if requester_matched {
+            MemberMiss::Requester
+        } else {
+            MemberMiss::NoMatch
+        }));
+    };
+    // Ambiguous only when DISTINCT athletes match — the same athlete in two
+    // coached groups is one person.
+    if matches.iter().any(|m| m.user_id != first.user_id) {
+        let mut names: Vec<String> = matches.iter().map(|m| m.display_name.clone()).collect();
+        names.sort_unstable();
+        names.dedup();
+        return Ok(Err(MemberMiss::Ambiguous(names)));
+    }
+    let at = matches.iter().position(|m| m.consented).unwrap_or(0);
+    Ok(Ok(matches.swap_remove(at)))
 }
 
 /// An honest refusal in the tool's own error shape.
@@ -163,72 +266,26 @@ pub async fn resolve_plan_scope(
     let requester = request.context.user_id;
     let data = request.context.resources.data();
     let repos = data.repos();
-    let query_lower = query.to_lowercase();
 
     // Gate 2: the agent attachment, walked from the groups the requester is
     // attached to as agent — never from the groups they merely belong to.
-    let mut matches: Vec<AthleteMatch> = Vec::new();
-    let mut requester_matched = false;
-    for group in repos.groups.list_groups_coached_by(requester).await? {
-        if !group.is_active {
-            continue;
+    let resolved = match match_coached_member(&data, requester, query).await? {
+        Ok(resolved) => resolved,
+        Err(miss) => {
+            return Ok(Err(refusal(
+                &miss.message(query, "omit `athlete` to act on your own plan."),
+            )));
         }
-        for member in repos.groups.list_members(&group.id.to_string()).await? {
-            if member.left_at.is_some() {
-                continue;
-            }
-            let display_name = fetch_user_display_name(&data, member.user_id).await;
-            if !display_name.to_lowercase().contains(&query_lower) {
-                continue;
-            }
-            if member.user_id == requester {
-                requester_matched = true;
-                continue;
-            }
-            matches.push(AthleteMatch {
-                group_id: group.id,
-                group_name: group.name.clone(),
-                display_name,
-                user_id: member.user_id,
-                consented: member.coach_sharing_consent,
-            });
-        }
-    }
-
-    let Some(first) = matches.first() else {
-        if requester_matched {
-            return Ok(Err(refusal(&format!(
-                "'{query}' is you — omit `athlete` to act on your own plan."
-            ))));
-        }
-        return Ok(Err(refusal(&format!(
-            "No athlete matching '{query}' in a group you coach — the athlete must be a member \
-             of a group you are attached to as its coach (a coach invite), not merely a group \
-             you belong to."
-        ))));
     };
 
-    // Ambiguous only when DISTINCT athletes match — the same athlete in two
-    // coached groups is one person.
-    if matches.iter().any(|m| m.user_id != first.user_id) {
-        let mut names: Vec<&str> = matches.iter().map(|m| m.display_name.as_str()).collect();
-        names.sort_unstable();
-        names.dedup();
-        return Ok(Err(refusal(&format!(
-            "'{query}' is ambiguous — several athletes you coach match: {}. Use a more specific name.",
-            names.join(", ")
-        ))));
-    }
-
-    // Gate 3: the athlete's own grant. Prefer a group where they share with
-    // the coach so the refusal, when there is one, names the most permissive
-    // row.
-    let resolved = matches.iter().find(|m| m.consented).unwrap_or(first);
+    // Gate 3: the athlete's own grant. The match prefers a group where they
+    // share with the coach, so the refusal, when there is one, names the most
+    // permissive row.
     if !resolved.consented {
         return Ok(Err(refusal(&format!(
             "{} has stopped sharing their data with you, the coach of '{}'. They can share it \
              again with `/group consent coach yes`.",
-            resolved.display_name, resolved.group_name
+            resolved.display_name, resolved.group.name
         ))));
     }
 
@@ -272,7 +329,7 @@ pub async fn resolve_plan_scope(
     info!(
         requester = %requester,
         athlete = %athlete,
-        group_id = %resolved.group_id,
+        group_id = %resolved.group.id,
         tool = %request.tool_name,
         writer_agent = writer.agent_id.as_deref().unwrap_or("none"),
         "coach acting on a coached athlete's training plan"

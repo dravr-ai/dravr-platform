@@ -394,27 +394,66 @@ pub fn channel_linking_code_html(code: &str, channel_name: &str) -> String {
     )
 }
 
+/// How a coach-access request came to be, which the operator email states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoachAccessOrigin {
+    /// The coach asked for it, from the onboarding group step or group info.
+    Asked,
+    /// Filed for the coach, who asked nothing, because the Intervals.icu key
+    /// they linked lists athletes it coaches.
+    IntervalsIcuRoster {
+        /// How many athletes that key coaches and Intervals.icu lists as active.
+        coached_active_athletes: usize,
+    },
+}
+
 /// Generate the HTML body of the operator email announcing a coach-access
 /// request (carnet#738).
 ///
-/// Sent to every super-admin when a coach asks for coach access from the
-/// onboarding group step. The request grants nothing (ADR-018); the email
-/// says who asked, for which group, and links to the console queue where the
-/// operator grants or declines it. Requester-supplied text (the name, the
-/// group name) is escaped: it reaches an operator's inbox.
+/// Sent to every super-admin when a request opens: one a coach asked for
+/// from the onboarding group step or group info, or one filed for them from
+/// the Intervals.icu roster of a key they linked (`origin`), which is never
+/// worded as their asking. The request grants nothing (ADR-018); the email
+/// says whose it is, how it came, for which group, and links to the console
+/// queue where the operator grants or declines it. Requester-supplied text
+/// (the name, the group name) is escaped: it reaches an operator's inbox.
 #[must_use]
 pub fn coach_access_requested_html(
     requester_email: &str,
     requester_name: Option<&str>,
     group_name: Option<&str>,
     review_url: Option<&str>,
+    origin: CoachAccessOrigin,
 ) -> String {
     let who = requester_name.map_or_else(
         || encode_text(requester_email).into_owned(),
         |name| format!("{} ({})", encode_text(name), encode_text(requester_email)),
     );
+    let how = match origin {
+        CoachAccessOrigin::Asked => format!("{who} asked for coach access."),
+        CoachAccessOrigin::IntervalsIcuRoster {
+            coached_active_athletes,
+        } => {
+            let athletes = if coached_active_athletes == 1 {
+                "athlete"
+            } else {
+                "athletes"
+            };
+            format!(
+                "{who}&rsquo;s Intervals.icu account coaches {coached_active_athletes} active \
+                 {athletes}; a coach-access request was filed for them."
+            )
+        }
+    };
+    let no_group = match origin {
+        CoachAccessOrigin::Asked => "They asked without naming a group.",
+        CoachAccessOrigin::IntervalsIcuRoster { .. } => {
+            "It names no group yet: the group they make to coach is named on it, so a grant \
+             attaches them to it."
+        }
+    };
     let group = group_name.map_or_else(
-        || "They asked without naming a group.".to_owned(),
+        || no_group.to_owned(),
         |name| {
             format!(
                 "A grant also makes them the coach of their group <strong>{}</strong>.",
@@ -450,7 +489,7 @@ pub fn coach_access_requested_html(
       <td style="background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(59,130,246,0.1));border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px;">
         <h2 style="margin:0 0 16px;font-size:20px;font-weight:600;color:#ffffff;">Coach access requested</h2>
         <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
-          {who} asked for coach access. Nothing is granted until a super-admin decides.
+          {how} Nothing is granted until a super-admin decides.
         </p>
         <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">{group}</p>
         <div style="text-align:center;margin:0;">{action}</div>
@@ -478,6 +517,7 @@ mod tests {
             Some("<script>x</script>"),
             Some("A & B"),
             Some("https://app.dravr.ai/admin?tab=coach-access"),
+            CoachAccessOrigin::Asked,
         );
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt; (coach@example.com)"));
         assert!(html.contains("<strong>A &amp; B</strong>"));
@@ -487,9 +527,45 @@ mod tests {
 
     #[test]
     fn the_coach_access_email_reads_without_a_name_group_or_link() {
-        let html = coach_access_requested_html("coach@example.com", None, None, None);
+        let html = coach_access_requested_html(
+            "coach@example.com",
+            None,
+            None,
+            None,
+            CoachAccessOrigin::Asked,
+        );
         assert!(html.contains("coach@example.com asked for coach access"));
         assert!(html.contains("without naming a group"));
         assert!(html.contains("Users &rarr; Coach access"));
+    }
+
+    #[test]
+    fn a_request_filed_from_a_roster_says_it_was_filed_never_asked() {
+        let html = coach_access_requested_html(
+            "coach@example.com",
+            Some("Casey"),
+            None,
+            None,
+            CoachAccessOrigin::IntervalsIcuRoster {
+                coached_active_athletes: 3,
+            },
+        );
+        assert!(html.contains(
+            "Casey (coach@example.com)&rsquo;s Intervals.icu account coaches 3 active athletes; \
+             a coach-access request was filed for them."
+        ));
+        assert!(html.contains("the group they make to coach is named on it"));
+        assert!(!html.contains("asked"), "{html}");
+
+        let one = coach_access_requested_html(
+            "coach@example.com",
+            None,
+            None,
+            None,
+            CoachAccessOrigin::IntervalsIcuRoster {
+                coached_active_athletes: 1,
+            },
+        );
+        assert!(one.contains("coaches 1 active athlete;"));
     }
 }

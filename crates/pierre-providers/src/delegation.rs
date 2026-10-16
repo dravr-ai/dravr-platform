@@ -1,5 +1,5 @@
 // ABOUTME: Reads on behalf of a coached athlete through a coach's own provider credential, for any coach platform
-// ABOUTME: The factory capability that builds such a provider, the coach roster it reads, and the two refusals a read answers
+// ABOUTME: The factory capability that builds such a provider, the coach roster it reads, and the refusals a read answers
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,6 +23,17 @@
 //!   Only the coach can renew it, so it is not the reader's reconnect error.
 //! - [`athlete_off_roster`]: the platform no longer lets the coach read the
 //!   athlete, so the link through the coach ends.
+//!
+//! A read of the athlete's settings has a third: `settings_not_shared`, the
+//! platform keeping the athlete's settings from the coach while still
+//! serving their training. It ends nothing.
+//!
+//! A coaching platform whose calendar takes writes also lets a coach write a
+//! coached athlete's calendar through the same credential
+//! ([`ProviderRegistry::create_delegated_calendar_writer`]). Whether this
+//! coach may write this athlete's is decided before that provider is built;
+//! a write the platform still refuses is `coach_write_refused`, which ends
+//! nothing either: the coach may read the athlete without writing for them.
 
 #[cfg(feature = "provider-sciotte")]
 use dravr_sciotte::wire::ATHLETE_NOT_ACCESSIBLE;
@@ -50,6 +61,15 @@ const DELEGATION_REFUSAL_DETAIL: &str = "delegation_refusal";
 /// The [`DELEGATION_REFUSAL_DETAIL`] of an athlete the coach may no longer
 /// read.
 const OFF_ROSTER: &str = "athlete_not_accessible";
+
+/// The [`DELEGATION_REFUSAL_DETAIL`] of an athlete's settings the platform
+/// does not show the coach.
+const SETTINGS_NOT_SHARED: &str = "settings_not_shared";
+
+/// The [`DELEGATION_REFUSAL_DETAIL`] of a calendar write the platform refused
+/// the coach.
+#[cfg(feature = "provider-intervals-icu")]
+const WRITE_REFUSED: &str = "coach_write_refused";
 
 /// The athletes a coach account can read, as its platform lists them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +111,30 @@ pub trait DelegatedReads: Send + Sync {
         config: ProviderConfig,
         athlete_id: &str,
     ) -> AppResult<Box<dyn FitnessProvider>>;
+
+    /// A provider that reads `athlete_id` and writes their training calendar
+    /// through the credential the caller then sets on it, the coach's: what
+    /// a coach's write to a coached athlete's calendar goes through. Whether
+    /// the coach may write it is decided before this is built.
+    ///
+    /// Refused unless the factory says how: a platform's coach credential
+    /// writes nothing of an athlete's by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error on a platform whose coach credential
+    /// writes no athlete's calendar, the [`Self::check_athlete_id`] refusal,
+    /// or the error of building the provider.
+    fn create_delegated_calendar_writer(
+        &self,
+        config: ProviderConfig,
+        athlete_id: &str,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        let _ = (config, athlete_id);
+        Err(AppError::invalid_input(
+            "This platform does not let a coach write a coached athlete's calendar",
+        ))
+    }
 }
 
 /// The error a delegated read answers when the credential it goes through —
@@ -164,6 +208,69 @@ pub fn is_athlete_off_roster(error: &AppError) -> bool {
     marked || scraper_off_roster(error)
 }
 
+/// The refusal of a delegated read of an athlete's settings that the coach's
+/// `brand` account is not shown, though the athlete still shares their
+/// training with it.
+///
+/// It ends nothing: the athlete is still on the coach's roster, so it is
+/// deliberately not [`athlete_off_roster`], which ends the link. Only the
+/// Intervals.icu provider builds it, so a build without that provider has
+/// none.
+#[cfg(feature = "provider-intervals-icu")]
+#[must_use]
+pub(crate) fn settings_not_shared(brand: &str) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        format!("{brand} does not show this athlete's sport settings to the coach's account"),
+    );
+    let mut details = Map::new();
+    details.insert(
+        DELEGATION_REFUSAL_DETAIL.to_owned(),
+        Value::from(SETTINGS_NOT_SHARED),
+    );
+    error.details = Some(Box::new(Value::Object(details)));
+    error
+}
+
+/// Whether `error` is a delegated settings read the platform did not show the
+/// coach (`settings_not_shared`).
+#[must_use]
+pub fn is_settings_not_shared(error: &AppError) -> bool {
+    error
+        .details
+        .as_ref()
+        .and_then(|details| details.get(DELEGATION_REFUSAL_DETAIL))
+        .and_then(Value::as_str)
+        == Some(SETTINGS_NOT_SHARED)
+}
+
+/// The refusal of a write to a coached athlete's calendar that the platform
+/// turned down for the coach's `brand` account: the account reads the
+/// athlete but may not write their calendar.
+///
+/// It ends nothing: the athlete still shares their training with the coach,
+/// so it is deliberately not [`athlete_off_roster`], which ends the link.
+/// Only the Intervals.icu provider builds it, so a build without that
+/// provider has none.
+#[cfg(feature = "provider-intervals-icu")]
+#[must_use]
+pub(crate) fn coach_write_refused(brand: &str) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        format!(
+            "{brand} refused this calendar write: the coach's {brand} account reads this \
+             athlete but may not write their calendar"
+        ),
+    );
+    let mut details = Map::new();
+    details.insert(
+        DELEGATION_REFUSAL_DETAIL.to_owned(),
+        Value::from(WRITE_REFUSED),
+    );
+    error.details = Some(Box::new(Value::Object(details)));
+    error
+}
+
 /// Whether the scraper refused the athlete a `TrainingPeaks` read named.
 #[cfg(feature = "provider-sciotte")]
 fn scraper_off_roster(error: &AppError) -> bool {
@@ -202,5 +309,40 @@ mod tests {
             "intervals_icu",
             "Intervals.icu"
         )));
+    }
+
+    #[cfg(feature = "provider-intervals-icu")]
+    #[test]
+    fn settings_the_coach_is_not_shown_never_read_as_an_athlete_off_the_roster() {
+        let refused = settings_not_shared("Intervals.icu");
+        assert!(is_settings_not_shared(&refused));
+        assert!(refused.message.contains("Intervals.icu"));
+        // The athlete still shares their training: nothing may end the link.
+        assert!(!is_athlete_off_roster(&refused));
+        assert!(!is_coach_credential_expired(&refused));
+        assert!(!is_settings_not_shared(&athlete_off_roster(
+            "Intervals.icu"
+        )));
+        assert!(!is_settings_not_shared(&AppError::not_found("Activity")));
+    }
+
+    #[cfg(feature = "provider-intervals-icu")]
+    #[test]
+    fn a_refused_calendar_write_ends_nothing_and_names_the_platform() {
+        let refused = coach_write_refused("Intervals.icu");
+        assert!(refused.code == ErrorCode::PermissionDenied, "{refused:?}");
+        assert!(refused.message.contains("Intervals.icu"), "{refused}");
+        assert_eq!(
+            refused
+                .details
+                .as_deref()
+                .and_then(|details| details.get(DELEGATION_REFUSAL_DETAIL))
+                .and_then(Value::as_str),
+            Some(WRITE_REFUSED)
+        );
+        // The athlete still shares their training: the link must survive it.
+        assert!(!is_athlete_off_roster(&refused));
+        assert!(!is_coach_credential_expired(&refused));
+        assert!(!is_settings_not_shared(&refused));
     }
 }

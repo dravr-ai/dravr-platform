@@ -27,7 +27,8 @@
 //! wins over a link. The link is found through its group, so a member who
 //! left, an archived group or a replaced coach reads nothing even if the
 //! eager end of the link was missed. It reads only while the roster athlete
-//! it names is the member by email ([`link_binding`]): a link that stored no
+//! it names is the member by email ([`member_read`], the decision every read
+//! through a link shares): a link that stored no
 //! athlete email, as one confirmed before links stored it, or one whose email
 //! is not the member's verified email, is refused with the reason until the
 //! coach proposes it again and the member confirms. The link is left
@@ -51,13 +52,10 @@ use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_providers::delegation::{is_athlete_off_roster, is_coach_credential_expired};
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::CoreFitnessProvider;
-use pierre_services::coach_platform::{coach_platform, with_key_budget, CoachPlatform};
-use pierre_services::delegated_connections::{
-    coach_session_state, end_off_roster, person_name, unbound_link_reason, CoachSession,
-};
-use pierre_services::trainingpeaks_accounts::{
-    link_binding, record_trainingpeaks_role, EmailBinding,
-};
+use pierre_services::coach_platform::{coach_platform, CoachPlatform};
+use pierre_services::delegated_connections::{end_off_roster, person_name, unbound_link_reason};
+use pierre_services::delegated_read::{member_read, CoachRead, CoachReadRefusal, MemberRead};
+use pierre_services::trainingpeaks_accounts::{record_trainingpeaks_role, EmailBinding};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -155,8 +153,13 @@ impl AuthService {
     ///    reads is released and refused;
     /// 4. with neither, the ordinary path answers its missing-token refusal.
     ///
-    /// A failed read of the user's connections or token falls through as
-    /// well: the ordinary path reads them again and answers its own failure.
+    /// Steps 2 and 3 are the delegated read decision ([`member_read`]), which
+    /// every path that reads through a coach's link shares.
+    ///
+    /// A failed read of the user's connections falls through as well: the
+    /// ordinary path reads them again and answers its own failure. So does a
+    /// failed decision for a user with no delegated connection; one who has a
+    /// delegated connection is refused as unreadable just now.
     pub(crate) async fn delegated_subject(
         &self,
         provider_name: &str,
@@ -176,21 +179,39 @@ impl AuthService {
                 return Some(Err(Box::new(refusal(own_calendar_refusal))));
             }
         }
-        if !matches!(
-            self.runtime()
-                .repos()
-                .oauth_tokens
-                .get_token(user_id, tenant, platform.backend())
-                .await,
-            Ok(None)
-        ) {
-            return None;
-        }
         let delegated_row = connections
             .iter()
             .any(|connection| connection.connection_type == ConnectionType::Delegated);
-        self.linked_read(platform, user_id, tenant, delegated_row)
-            .await
+        let brand = platform.brand();
+        match member_read(
+            self.runtime().repos(),
+            self.runtime().provider_registry(),
+            platform,
+            user_id,
+            Some(tenant),
+        )
+        .await
+        {
+            Ok(MemberRead::NotLinked) if delegated_row => {
+                self.release_unreachable_link(platform, user_id, tenant)
+                    .await;
+                Some(Err(Box::new(link_ended(brand))))
+            }
+            Ok(MemberRead::OwnCredential | MemberRead::NotLinked) => None,
+            Ok(MemberRead::Refused { link, refusal }) => {
+                Some(Err(self.refused_read(platform, &link, refusal).await))
+            }
+            Ok(MemberRead::ThroughCoach(read)) => Some(self.serve_through_coach(*read).await),
+            Err(e) => {
+                warn!(
+                    user_id = %user_id,
+                    provider = platform.backend(),
+                    error = %e,
+                    "Could not decide whether the read goes through the member's coach link"
+                );
+                delegated_row.then(|| Err(Box::new(link_unreadable(brand))))
+            }
+        }
     }
 
     /// The user's `platform` connections in `tenant` — their own and a
@@ -226,110 +247,15 @@ impl AuthService {
         }
     }
 
-    /// Serve a read by `member_user_id`, who holds no credential of their
-    /// own, through their confirmed link while its athlete is the member by
-    /// email, or `None` when they have no link and no `delegated_row` says
-    /// they had one.
-    async fn linked_read(
-        &self,
-        platform: &dyn CoachPlatform,
-        member_user_id: Uuid,
-        tenant: TenantId,
-        delegated_row: bool,
-    ) -> Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
-        let brand = platform.brand();
-        match self
-            .runtime()
-            .repos()
-            .delegated_connections
-            .find_active_for_member(member_user_id, tenant, platform.backend())
-            .await
-        {
-            Ok(Some(link)) => Some(match self.refuse_unbound_link(platform, &link).await {
-                Ok(()) => self.serve_through_coach(platform, &link).await,
-                Err(refused) => Err(refused),
-            }),
-            Ok(None) if delegated_row => {
-                self.release_unreachable_link(platform, member_user_id, tenant)
-                    .await;
-                Some(Err(Box::new(link_ended(brand))))
-            }
-            Ok(None) => None,
-            Err(e) => {
-                warn!(
-                    user_id = %member_user_id,
-                    provider = platform.backend(),
-                    error = %e,
-                    "Could not read the member's delegated link"
-                );
-                Some(Err(Box::new(link_unreadable(brand))))
-            }
-        }
-    }
-
-    /// Build the provider that reads `link`'s member through the coach's own
+    /// Build the provider that reads `read`'s member through the coach's own
     /// stored credential, naming the member's athlete id on every read.
-    ///
-    /// A coach credential that needs the coach to reconnect — or one that
-    /// cannot read athletes at all — is refused in words naming the coach. A
-    /// coach who holds no credential any more ended the link's only way to
-    /// read, so the link ends ([`DelegationEndReason::CoachDisconnected`]) and
-    /// the read is refused.
     async fn serve_through_coach(
         &self,
-        platform: &dyn CoachPlatform,
-        link: &DelegatedConnection,
+        read: CoachRead,
     ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
-        let repos = self.runtime().repos();
-        let brand = platform.brand();
-        let credentials = match coach_session_state(
-            repos,
-            link.coach_user_id,
-            link.coach_tenant_id,
-            &link.provider,
-        )
-        .await
-        {
-            Ok(CoachSession::Live { token, .. }) => {
-                platform.coach_credentials(&token).map(|credentials| {
-                    with_key_budget(self.runtime().provider_registry(), &token, credentials)
-                })
-            }
-            Ok(CoachSession::NeedsReconnect) => None,
-            Ok(CoachSession::Missing) => {
-                if let Err(e) = DelegationStore::new(repos)
-                    .end_one(
-                        link.id,
-                        link.member_user_id,
-                        None,
-                        DelegationEndReason::CoachDisconnected,
-                    )
-                    .await
-                {
-                    warn!(
-                        link_id = %link.id,
-                        error = %e,
-                        "Could not end a delegated link whose coach holds no credential"
-                    );
-                }
-                return Err(Box::new(link_ended(brand)));
-            }
-            Err(e) => {
-                warn!(
-                    link_id = %link.id,
-                    error = %e,
-                    "Could not read the coach's coaching-platform credential"
-                );
-                return Err(Box::new(link_unreadable(brand)));
-            }
-        };
-        let Some(credentials) = credentials else {
-            return Err(Box::new(coach_reconnect_refusal(
-                &self.coach_name(link).await,
-                brand,
-            )));
-        };
-
+        let CoachRead {
+            link, credentials, ..
+        } = read;
         let provider = self
             .runtime()
             .provider_registry()
@@ -345,34 +271,56 @@ impl AuthService {
         Ok(provider)
     }
 
-    /// Refuse a read through `link` while the roster athlete it names is not
-    /// the member by email ([`link_binding`]), in words saying why. The link
-    /// is left standing: it reads again once the coach proposes it anew and
-    /// the member confirms.
-    async fn refuse_unbound_link(
+    /// What a read through `link` answers once the delegated read decision
+    /// refused it for `refusal`.
+    ///
+    /// - The roster athlete the link names is not the member by email: the
+    ///   words say why, and the link is left standing; it reads again once
+    ///   the coach proposes it anew and the member confirms.
+    /// - The coach's credential needs the coach to reconnect, or cannot read
+    ///   athletes at all: the words name the coach.
+    /// - The coach holds no credential any more, which ended the link's only
+    ///   way to read: the link ends ([`DelegationEndReason::CoachDisconnected`]).
+    async fn refused_read(
         &self,
         platform: &dyn CoachPlatform,
         link: &DelegatedConnection,
-    ) -> Result<(), Box<UniversalResponse>> {
-        let binding = link_binding(self.runtime().repos(), link)
-            .await
-            .map_err(|e| {
-                warn!(
+        refusal: CoachReadRefusal,
+    ) -> Box<UniversalResponse> {
+        let brand = platform.brand();
+        Box::new(match refusal {
+            CoachReadRefusal::Unbound(binding) => {
+                info!(
                     link_id = %link.id,
-                    error = %e,
-                    "Could not check the delegated link's athlete against the member"
+                    user_id = %link.member_user_id,
+                    provider = %link.provider,
+                    reason = unbound_link_reason(binding).unwrap_or_default(),
+                    "Delegated link refused: its athlete is not the member by email"
                 );
-                Box::new(link_unreadable(platform.brand()))
-            })?;
-        unbound_link_refusal(binding, platform.brand()).map_or(Ok(()), |refused| {
-            info!(
-                link_id = %link.id,
-                user_id = %link.member_user_id,
-                provider = %link.provider,
-                reason = unbound_link_reason(binding).unwrap_or_default(),
-                "Delegated link refused: its athlete is not the member by email"
-            );
-            Err(Box::new(refused))
+                // A link refused as unbound never binds, so its words exist.
+                unbound_link_refusal(binding, brand).unwrap_or_else(|| link_unreadable(brand))
+            }
+            CoachReadRefusal::CoachNeedsReconnect => {
+                coach_reconnect_refusal(&self.coach_name(link).await, brand)
+            }
+            CoachReadRefusal::CoachDisconnected => {
+                if let Err(e) = DelegationStore::new(self.runtime().repos())
+                    .end_one(
+                        link.id,
+                        link.member_user_id,
+                        None,
+                        DelegationEndReason::CoachDisconnected,
+                    )
+                    .await
+                {
+                    warn!(
+                        link_id = %link.id,
+                        error = %e,
+                        "Could not end a delegated link whose coach holds no credential"
+                    );
+                }
+                link_ended(brand)
+            }
         })
     }
 

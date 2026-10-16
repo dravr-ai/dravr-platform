@@ -435,7 +435,8 @@ async fn no_row_is_written_under_another_providers_tenant() {
     assert!(storage
         .get_credentials(&user_id.to_string(), "coros")
         .await
-        .is_err());
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -509,6 +510,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
+        repos.provider_connections.clone(),
         Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );

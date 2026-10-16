@@ -322,8 +322,11 @@ export type {
   DelegationRosterAthlete,
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
+  ConfirmDelegatedConnectionRequest,
+  UpdateDelegatedConnectionConsentsRequest,
   DelegationRefusalReason,
   DelegationReadRefusal,
+  WellnessReadSkip,
 } from './groups.js';
 
 // Feature-flag types (GET /api/me/features)

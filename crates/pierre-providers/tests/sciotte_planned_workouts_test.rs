@@ -433,7 +433,7 @@ async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
 }
 
 #[test]
-fn only_the_trainingpeaks_mirror_declares_a_planned_calendar() {
+fn the_trainingpeaks_mirror_is_the_one_scraped_target_with_a_planned_calendar() {
     let trainingpeaks = SciotteTrainingPeaksDescriptor.capabilities();
     assert!(trainingpeaks.supports_planned_workouts());
     assert!(trainingpeaks.supports_activities());
@@ -446,9 +446,15 @@ fn only_the_trainingpeaks_mirror_declares_a_planned_calendar() {
     assert!(!ProviderCapabilities::activity_only().supports_planned_workouts());
     assert_eq!(ProviderCapabilities::PLANNED_WORKOUTS.bits(), 0b1000_0000);
 
+    // Intervals.icu reads its calendar over its own API, when this build
+    // carries it.
+    let mut expected = vec!["sciotte_trainingpeaks"];
+    if cfg!(feature = "provider-intervals-icu") {
+        expected.insert(0, "intervals_icu");
+    }
     assert_eq!(
         global_registry().planned_workout_providers(),
-        vec!["sciotte_trainingpeaks"],
+        expected,
         "the registry lists exactly the providers that declare the capability"
     );
 }
