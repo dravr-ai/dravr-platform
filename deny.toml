@@ -10,6 +10,32 @@ version = 2
 # Ignored advisories with risk assessment and mitigation plans
 ignore = [
     # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0367 + RUSTSEC-2026-0368 + RUSTSEC-2026-0369: zip extraction
+    # -------------------------------------------------------------------------
+    # Severity: privilege escalation, only through `ZipArchive::extract()` and
+    # `ZipStreamReader::extract()` (SUID/SGID bits kept, symlink targets and
+    # their permissions not confined to the destination).
+    # Affected in-tree version: zip 2.4.2, a build-dependency of
+    # github-copilot-sdk 1.0.14 (via embacle's copilot-sdk feature); its
+    # runtime dependency on zip is Windows-only.
+    #
+    # Risk Assessment: NOT REACHABLE
+    # - github-copilot-sdk never calls either extract() API: its build script
+    #   opens the copilot-cli release archive with `ZipArchive::new` and reads
+    #   one entry into memory, after checking it against the release's
+    #   SHA256SUMS.txt; nothing is written to disk from the archive.
+    # - The archive is GitHub's own release asset, not attacker input.
+    #
+    # Upgrade blocked on upstream: the fix is zip >= 9.0.0. Every stable
+    # github-copilot-sdk (up to 1.0.22) pins zip ^2 or ^7.2; only the
+    # 1.0.23 previews take ^9. Remove when embacle moves onto a stable
+    # github-copilot-sdk on zip >= 9.
+    # Next Review: 2026-11-16
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+
+    # -------------------------------------------------------------------------
     # RUSTSEC-2023-0071: RSA 0.9.x - Marvin Attack (timing sidechannel)
     # -------------------------------------------------------------------------
     # Severity: 5.9/10 (Medium)
