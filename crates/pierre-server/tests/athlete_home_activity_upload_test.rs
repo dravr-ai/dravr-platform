@@ -34,7 +34,8 @@ use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
-use pierre_test_support::fit::{course_file, FitWorkout};
+use pierre_providers::fit_file::MAX_DECODED_FIELDS;
+use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -572,6 +573,84 @@ async fn deleting_an_upload_removes_it_from_every_read_and_drops_the_file() {
         StatusCode::CREATED,
         "the same file can be uploaded again: {body}"
     );
+}
+
+/// A file's other session still cached keeps the file: the delete reads the
+/// session ids the cache holds rather than decoding the file to count them,
+/// and an id of another file is never one of them.
+#[tokio::test]
+async fn the_file_stays_while_another_of_its_sessions_is_cached() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "upload-delete-multi").await;
+    let row = uploaded_ride(&resources, &athlete).await;
+    let id = row["id"].as_str().unwrap();
+    let (sha, _) = id.rsplit_once('-').unwrap();
+    let second_id = format!("{sha}-1");
+    let second_session = ActivityBuilder::new(
+        second_id.as_str(),
+        "",
+        SportType::Run,
+        yesterday_morning() + Duration::hours(1),
+        600,
+        UPLOAD,
+    )
+    .build();
+    let other_file = FitWorkout::ride(yesterday_morning() - Duration::days(1), 300).encode();
+    let (status, body) = upload(&resources, &athlete.token, other_file).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let repos = &resources.common.repos;
+    repos
+        .activity_cache
+        .upsert_activities(athlete.user_id, &athlete.tenant, UPLOAD, &[second_session])
+        .await
+        .unwrap();
+    let file_held = || async {
+        repos
+            .uploaded_activity_files
+            .get_uploaded_file(&athlete.tenant, athlete.user_id, sha)
+            .await
+            .unwrap()
+            .is_some()
+    };
+
+    let (status, body) = delete(&resources, &athlete.token, id).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(file_held().await, "its second session still reads the file");
+
+    let (status, body) = delete(&resources, &athlete.token, &second_id).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        !file_held().await,
+        "the file goes with its last session, the other file's rows aside"
+    );
+}
+
+/// A file declaring far more fields than any workout records is refused
+/// before it is decoded whole, and the refusal names why: 8 MiB of one
+/// decoded to about 1 GiB, an instance's whole memory.
+#[tokio::test]
+async fn a_file_declaring_more_fields_than_a_workout_is_refused_and_nothing_is_kept() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "upload-bloated").await;
+    let file = bloated_file(yesterday_morning(), 8 * 1024 * 1024);
+    assert!(file.len() < MAX_UPLOAD_BYTES, "under the body limit");
+
+    let (status, body) = upload(&resources, &athlete.token, file).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let message = body.to_string();
+    assert!(
+        message.contains(&format!("more than {MAX_DECODED_FIELDS} fields")),
+        "the refusal names the limit: {body}"
+    );
+    let held = resources
+        .common
+        .repos
+        .uploaded_activity_files
+        .has_uploaded_files(&athlete.tenant, athlete.user_id)
+        .await
+        .unwrap();
+    assert!(!held, "a refused upload keeps nothing");
 }
 
 #[tokio::test]

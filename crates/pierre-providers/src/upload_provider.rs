@@ -25,6 +25,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_database::repositories::{ActivityCacheRepository, UploadedActivityFileRepository};
 use ring::digest::{digest, SHA256};
+use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 use crate::constants::oauth_providers::UPLOAD;
@@ -111,9 +112,14 @@ impl UploadProvider {
             .get_uploaded_file(&self.tenant_id, self.user_id, sha)
             .await?
             .ok_or_else(not_found)?;
-        let file = FitActivityFile::parse(&bytes).map_err(|e| {
-            AppError::internal(format!("stored upload {sha} no longer decodes: {e}"))
-        })?;
+        // The decode is CPU-bound; it runs on the blocking pool so a large
+        // file does not hold a runtime worker for its length.
+        let file = spawn_blocking(move || FitActivityFile::parse(&bytes))
+            .await
+            .map_err(|e| AppError::internal(format!("decoding stored upload {sha}: {e}")))?
+            .map_err(|e| {
+                AppError::internal(format!("stored upload {sha} no longer decodes: {e}"))
+            })?;
         Ok((file, index))
     }
 }
