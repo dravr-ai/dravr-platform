@@ -12,4 +12,5 @@
 //! The command dispatch and clap surface stay binary-private in `src/main.rs`.
 
 pub mod admin_role;
+pub mod canary;
 pub mod remote;

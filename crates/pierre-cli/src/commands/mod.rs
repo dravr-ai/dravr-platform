@@ -6,6 +6,7 @@
 
 pub mod api_key;
 pub mod auth;
+pub mod canary;
 pub mod config;
 pub mod drift;
 #[cfg(feature = "tools-verification")]

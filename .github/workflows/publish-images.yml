@@ -953,6 +953,18 @@ jobs:
             JOBS="$JOBS seed-synthetic"
           fi
 
+          # sciotte-login-canary-job runs pierre-cli's canary on a schedule
+          # (infra/environments/dev/sciotte_login_canary.tf) and ships with the
+          # server image like the seeders. Terraform creates it only on a
+          # manual apply, and only with backend_sciotte_remote on, so a missing
+          # job is a warning here rather than a failure that skips the seeds.
+          CANARY="${SERVICE}-sciotte-login-canary-job"
+          if gcloud run jobs describe "${CANARY}" --region="${REGION}" --format="value(name)" >/dev/null 2>&1; then
+            JOBS="$JOBS sciotte-login-canary-job"
+          else
+            echo "::warning::${CANARY} does not exist (terraform not applied, or backend_sciotte_remote off); its image was not updated"
+          fi
+
           for JOB in $JOBS; do
             echo "Updating ${SERVICE}-${JOB} image..."
             gcloud run jobs update "${SERVICE}-${JOB}" \

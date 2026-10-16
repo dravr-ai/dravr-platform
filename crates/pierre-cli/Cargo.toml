@@ -37,6 +37,8 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 
 bcrypt = "0.16"
+# The sciotte service client the credential-login canary signs in through.
+dravr-sciotte = { workspace = true, features = ["client"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "std", "env"], default-features = false }
 dirs = "5.0"

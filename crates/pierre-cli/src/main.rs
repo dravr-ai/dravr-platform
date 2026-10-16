@@ -126,6 +126,12 @@ enum Command {
         action: commands::seed::SeedCommand,
     },
 
+    /// Canaries the scheduled Cloud Run jobs run against deployed services
+    Canary {
+        #[command(subcommand)]
+        action: commands::canary::CanaryCommand,
+    },
+
     /// Drift detection between contremaitre source files and the prod DB
     ///
     /// Background: the seed-agents Cloud Run job silently exit-1'd for 3.5
@@ -798,6 +804,10 @@ async fn main() -> Result<()> {
     if let Command::StravaPool { action } = cli.command {
         return dispatch::dispatch_strava_pool(action).await;
     }
+    // The canary talks only to the sciotte service: no database, no keys.
+    if let Command::Canary { action } = cli.command {
+        return commands::canary::dispatch(action).await;
+    }
     // StravaWebhook talks to Strava itself, with the app credentials from env;
     // it needs neither a server login nor the database.
     if let Command::StravaWebhook { action } = cli.command {
@@ -904,6 +914,7 @@ async fn main() -> Result<()> {
         Command::CheckDrift { .. } => {
             unreachable!("CheckDrift is handled in the early return above")
         }
+        Command::Canary { .. } => unreachable!("Canary is handled in the early return above"),
         Command::Key { .. } => unreachable!("Key is handled in the early return above"),
         Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
         Command::StravaPool { .. } => {
