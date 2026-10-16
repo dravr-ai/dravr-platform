@@ -18,12 +18,16 @@ import {
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
+  activityNaming,
   describeApiError,
+  formatInstant,
   isDeletableActivity,
   lapsTable,
-  splitsTable,
-  useDistanceUnit,
+  ROW_DATE,
   type SegmentTable,
+  splitsTable,
+  sportLabel,
+  useDistanceUnit,
 } from '@pierre/ui-logic';
 import { EmptyState, HeaderActions, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
@@ -36,7 +40,6 @@ import { useMessages } from '../chat/useMessages';
 import { useProviderStatus } from '../chat/useProviderStatus';
 import { useUsageStatus } from '../chat/useUsageStatus';
 import { ActivityMap } from '../home/ActivityMap';
-import { activityNaming, instantShortDate, sportLabel } from '../home/homeFormat';
 import { ActivityGearPicker } from './ActivityGearPicker';
 
 /** The figures, label over value, two to a row. */
@@ -158,7 +161,7 @@ function ActivityHeader({
     <View className="-mx-4 mb-6 gap-8" testID="activity-scroll">
       <View>
         <Text className="px-4 pb-2 text-sm text-text-secondary" testID="activity-when">
-          <Text className="font-mono tabular-nums">{instantShortDate(detail.activity.start_date, language)}</Text>
+          <Text className="font-mono tabular-nums">{formatInstant(detail.activity.start_date, language, ROW_DATE)}</Text>
           {' · '}
           {sport}
           {/* The recording device, with the attribution Garmin-sourced data owes, as served (carnet#521, carnet#711). */}

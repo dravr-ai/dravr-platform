@@ -19,7 +19,7 @@ use axum::http::StatusCode;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
-use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
+use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
 use pierre_core::models::{
     AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
     AGENT_WELCOME_FINISH_REASON, DIVIDER_FINISH_REASON,
@@ -679,4 +679,75 @@ async fn plus_after_a_reset_draws_no_second_rule_over_the_reset_alone() {
     let again = open_topic(router.clone(), &auth, json!({})).await;
     assert!(again.divider.is_none());
     assert_eq!(dividers(&messages(router, &auth, &thread).await), 1);
+}
+
+/// An agent written for coaches, owned by the athlete so they can read it.
+async fn seed_coach_facing_agent(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> String {
+    let request: CreateAgentRequest = serde_json::from_value(json!({
+        "title": "Roster Builder",
+        "system_prompt": "Plan the coach's roster.",
+        "category": "training",
+        "tags": [Agent::COACH_TOOL_TAG]
+    }))
+    .unwrap();
+    resources
+        .common
+        .repos
+        .agents
+        .create(user_id, tenant_id, &request)
+        .await
+        .unwrap()
+        .id
+        .to_string()
+}
+
+/// carnet#910: `+` with a coach-facing agent is refused to an athlete, as
+/// `/agent add` refuses it, and the thread keeps the agent it had.
+#[tokio::test]
+async fn plus_never_rebinds_an_athletes_thread_to_a_coach_facing_agent() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "athlete-910@test.com").await;
+    let own = seed_agent(&resources, user_id, tenant_id).await;
+    let coach_agent = seed_coach_facing_agent(&resources, user_id, tenant_id).await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    open_topic(router.clone(), &auth, json!({ "agent_id": own })).await;
+
+    let resp = AxumTestRequest::post("/api/chat/personal/topics")
+        .header("authorization", &auth)
+        .json(&json!({ "agent_id": coach_agent }))
+        .send(router.clone())
+        .await;
+
+    assert_eq!(resp.status_code(), StatusCode::BAD_REQUEST);
+    let thread = get_personal(router, &auth)
+        .await
+        .expect("the thread exists");
+    assert_eq!(thread.agent_id.as_deref(), Some(own.as_str()));
+}
+
+/// A coach may bind the same agent: it is written for them.
+#[tokio::test]
+async fn plus_rebinds_a_coachs_thread_to_a_coach_facing_agent() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_athlete(&resources, "coach-910@test.com").await;
+    resources
+        .common
+        .repos
+        .users
+        .set_coaches_others(user_id, true)
+        .await
+        .unwrap();
+    let coach_agent = seed_coach_facing_agent(&resources, user_id, tenant_id).await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+
+    let opened = open_topic(router, &auth, json!({ "agent_id": coach_agent })).await;
+
+    assert_eq!(
+        opened.conversation.agent_id.as_deref(),
+        Some(coach_agent.as_str())
+    );
 }

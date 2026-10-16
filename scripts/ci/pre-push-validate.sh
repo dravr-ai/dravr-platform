@@ -748,6 +748,32 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-workflow-test-targets.sh" ]] \
 fi
 
 # ----------------------------------------------------------------------------
+# Tier 1n: shipped server feature set parity (compile-free, instant)
+# ----------------------------------------------------------------------------
+#
+# carnet#928. The production `--features` string is literal in the Dockerfile's
+# builder stage (cook + build), the server-binaries action and ci-backend's
+# production clippy entry. A feature added to one ships an image CI never
+# linted, or a docker-compose image that differs from dev. Runs when any of the
+# four sites or the gate changes; not existence-guarded, so a missing gate fails.
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^(docker/images/server/Dockerfile|\.github/actions/server-binaries/action\.yml|\.github/workflows/ci-backend\.yml|scripts/ci/check-server-features(\.test)?\.sh)$'; then
+    echo "Tier 1n: Server feature set parity"
+    echo "----------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-server-features.sh"; then
+        echo ""
+        echo "FAIL: the shipped server feature set differs between its build sites!"
+        exit 1
+    fi
+    if ! "$PROJECT_ROOT/scripts/ci/check-server-features.test.sh"; then
+        echo ""
+        echo "FAIL: the server feature parity gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ----------------------------------------------------------------------------
 # Tier 1o: Merge-Risk one-way doors (compile-free, instant, every push)
 # ----------------------------------------------------------------------------
 #

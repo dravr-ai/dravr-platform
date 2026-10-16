@@ -5,29 +5,20 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import type { Agent, CoachingGroup } from '@pierre/shared-types';
 import { coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { chatApi, coachesApi, groupsApi } from '../services/api';
+import { coachesApi } from '../services/api';
+import { useCoachGroupSetup } from '../hooks/useGroups';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input } from './ui';
 import OnboardingShell from './OnboardingShell';
 import CoachAccessRequest from './CoachAccessRequest';
 
-/**
- * How long the onboarding athlete invite stays valid. Longer than the 7 days a
- * chat-issued invite gets: a coach sets up during onboarding, often before
- * the athlete is ready to sign up, and a week is easily missed.
- */
-const ONBOARDING_INVITE_DAYS = 30;
-
-/** Where the group setup stands: to name, its agent to pick, or made and ready to share. */
-type Phase =
-  | { kind: 'name' }
-  | { kind: 'agent' }
-  | { kind: 'share'; group: CoachingGroup; link: string; conversationId: string };
+/** Where the group setup stands before it is made: to name, or its agent to pick. */
+type Phase = { kind: 'name' } | { kind: 'agent' };
 
 /**
  * The coach's group step: name the group, pick its agent, then share the
@@ -54,57 +45,24 @@ export default function OnboardingCoachGroup({
   onComplete: (status: 'complete' | 'skipped') => void;
 }) {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'name' });
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [created, setCreated] = useState<CoachingGroup | null>(null);
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const { create, working, failed, group: created, conversationId, inviteCode } = useCoachGroupSetup();
 
-  const create = async () => {
-    const trimmed = name.trim();
-    if (!trimmed || !agentId || working) return;
-    setWorking(true);
-    setFailed(false);
-    try {
-      // A retry after a later call failed reuses the group already made rather
-      // than making a second one.
-      const group =
-        created ??
-        (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
-      setCreated(group);
-      const conversationId =
-        threadId ??
-        (await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id })).id;
-      setThreadId(conversationId);
-      // The chat list may already be cached: the group's thread must be on it.
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-      const invite = await groupsApi.createInvite(group.id, {
-        expires_in_days: ONBOARDING_INVITE_DAYS,
-      });
-      const link = `${window.location.origin}/groups/join/${encodeURIComponent(invite.code)}`;
-      setPhase({ kind: 'share', group, link, conversationId });
-    } catch {
-      setFailed(true);
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  if (phase.kind === 'share') {
+  if (created && conversationId && inviteCode) {
+    const link = `${window.location.origin}/groups/join/${encodeURIComponent(inviteCode)}`;
     return (
       <OnboardingShell heading={t('onboarding.groupInviteHeading')}>
         <InviteShare
-          group={phase.group}
-          link={phase.link}
+          group={created}
+          link={link}
           onDone={() => {
             // The step is recorded before the hand-off. The dashboard reads
             // `#chat/<id>` when it mounts, which opens the group's thread in
             // the Groups tab instead of Home.
             onComplete('complete');
-            window.location.hash = `#chat/${encodeURIComponent(phase.conversationId)}`;
+            window.location.hash = `#chat/${encodeURIComponent(conversationId)}`;
           }}
         />
       </OnboardingShell>
@@ -126,7 +84,9 @@ export default function OnboardingCoachGroup({
         <div className="mt-8 space-y-3">
           <Button
             variant="primary"
-            onClick={() => void create()}
+            onClick={() => {
+              if (agentId !== null) void create(name, agentId);
+            }}
             disabled={working || agentId === null}
             className="w-full"
           >

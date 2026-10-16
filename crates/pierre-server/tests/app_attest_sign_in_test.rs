@@ -25,6 +25,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{FirstPartyClient, IssuedCode, SignIn};
 use pierre_auth::oauth2_server::first_party::MOBILE_APP_ATTEST_APP_ID;
 use pierre_core::models::{AppAttestEnvironment, AppAttestKey};
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair as _, ECDSA_P256_SHA256_ASN1_SIGNING};
@@ -400,4 +401,102 @@ async fn a_key_registers_once_and_keeps_its_first_record() {
     let stored = keys.find_key(&install.key_id()).await.unwrap().unwrap();
     assert_eq!(stored.public_key, install.key.public_key().as_ref());
     assert_eq!(stored.environment, AppAttestEnvironment::Production);
+}
+
+/// How a trigger on `app_attest_keys` makes the counter write misbehave once
+/// the assertion has verified.
+#[derive(Clone, Copy)]
+enum CounterWrite {
+    /// The `UPDATE` fails: a transient database error.
+    Fails,
+    /// The `UPDATE` touches no row: what losing the counter to a concurrent
+    /// sign-in reads as.
+    Lost,
+}
+
+impl CounterWrite {
+    /// Install the trigger; every later counter write misbehaves.
+    async fn install(self, resources: &ServerContext) {
+        let (name, sqlite_body, pg_body) = match self {
+            Self::Fails => (
+                "fault_app_attest_counter_fails",
+                "SELECT RAISE(ABORT, 'counter write refused')",
+                "RAISE EXCEPTION 'counter write refused';",
+            ),
+            Self::Lost => (
+                "fault_app_attest_counter_lost",
+                "SELECT RAISE(IGNORE)",
+                "RETURN NULL;",
+            ),
+        };
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                let _ = pg_body;
+                sqlx::query(&format!(
+                    "CREATE TRIGGER {name} BEFORE UPDATE ON app_attest_keys \
+                     BEGIN {sqlite_body}; END"
+                ))
+                .execute(db.pool())
+                .await
+                .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                let _ = sqlite_body;
+                sqlx::query(&format!(
+                    "CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql \
+                     AS $$ BEGIN {pg_body} END $$"
+                ))
+                .execute(db.pool())
+                .await
+                .unwrap();
+                sqlx::query(&format!(
+                    "CREATE TRIGGER {name} BEFORE UPDATE ON app_attest_keys \
+                     FOR EACH ROW EXECUTE FUNCTION {name}()"
+                ))
+                .execute(db.pool())
+                .await
+                .unwrap();
+            }
+        }
+    }
+}
+
+/// Attestation is observe-only (carnet#914): once the code is redeemed, a
+/// counter that cannot be recorded — a failed write, or a counter a
+/// concurrent sign-in spent first — is logged and the sign-in goes on. The
+/// code is spent by then, so refusing would only leave the athlete with no
+/// session and a code that can no longer be redeemed.
+#[tokio::test]
+async fn an_unrecorded_counter_still_signs_the_athlete_in() {
+    for write in [CounterWrite::Fails, CounterWrite::Lost] {
+        let resources = create_test_server_resources().await.unwrap();
+        let email = athlete(&resources).await;
+        let install = Install::new();
+        install.register(&resources).await;
+        write.install(&resources).await;
+
+        let issued = mobile_code(&resources, &email).await;
+        let response = redeem_with(
+            &issued,
+            &[
+                ("app_attest_key_id", &install.key_id()),
+                ("app_attest_assertion", &install.assert(1, &issued.code)),
+            ],
+        )
+        .await;
+
+        assert_eq!(response.status(), 200, "{}", response.body_text());
+        let body: Value = response.json();
+        assert_eq!(body["user"]["email"], email.as_str(), "{body}");
+        assert!(
+            body["access_token"].as_str().is_some_and(|t| !t.is_empty()),
+            "a session is issued: {body}"
+        );
+        assert_eq!(
+            stored_counter(&resources, &install).await,
+            0,
+            "the counter was not recorded"
+        );
+    }
 }

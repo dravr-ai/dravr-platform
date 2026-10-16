@@ -20,10 +20,10 @@ import {
 } from '@pierre/shared-constants';
 import { projectFormTrend } from '@pierre/domain-utils';
 import { formatDecimal } from '@pierre/chat-utils';
+import { civilShortDate } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { civilShortDate } from './homeFormat';
 
 /** The chart's height, in points. Its width is the column's, measured. */
 const TREND_HEIGHT = 64;

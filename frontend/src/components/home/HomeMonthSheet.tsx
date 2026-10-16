@@ -10,12 +10,11 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, WorkoutPlan } from '@pierre/shared-types';
 import { calendarDay, firstOfMonth, lastMonday, monthGrid, shiftMonth } from '@pierre/shared-types';
+import { calendarDayLabel, DRAFT_DATE, formatCivilDate } from '@pierre/ui-logic';
 import { Sheet } from '../ui/Sheet';
 import { EmptyState } from '../ui/EmptyState';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
 import { CalendarDayDetail } from './CalendarDayDetail';
-import { calendarDayLabel } from './calendarFormat';
-import { DRAFT_DATE, formatCivilDate } from './homeFormat';
 
 interface HomeMonthSheetProps {
   plan: WorkoutPlan | null;

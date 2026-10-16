@@ -26,8 +26,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
 use chrono::{Duration, Utc};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
@@ -38,7 +36,6 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::GarminDescriptor;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
-    RefreshClientAuth,
 };
 #[cfg(feature = "provider-wahoo")]
 use pierre_providers::WahooDescriptor;
@@ -101,11 +98,9 @@ impl ProviderDescriptor for RotatoDescriptor {
         })
     }
 
-    /// Neither Strava's shape nor WHOOP's: the client in a Basic header, and a
-    /// field of its own.
+    /// Neither Strava's shape nor WHOOP's: a field of its own.
     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
         Some(OAuthRefresh {
-            client_auth: RefreshClientAuth::BasicHeader,
             extra_form: &[("audience", "rotato-api")],
         })
     }
@@ -483,9 +478,9 @@ async fn a_refresh_whose_caller_was_dropped_still_stores_the_rotated_pair() {
 }
 
 /// A provider the platform has no code for refreshes from its descriptor
-/// alone, in the shape the descriptor declares: the client in a Basic header
-/// and out of the body, the declared extra field, and the token endpoint the
-/// registry carries for it.
+/// alone, in the shape the descriptor declares: the client in the form body
+/// and no `Authorization` header, the declared extra field, and the token
+/// endpoint the registry carries for it.
 #[tokio::test]
 async fn a_provider_refreshes_from_its_registered_descriptor_alone() {
     let vendor = Arc::new(RotatingVendor::new(StdDuration::ZERO, false));
@@ -500,17 +495,14 @@ async fn a_provider_refreshes_from_its_registered_descriptor_alone() {
     let requests = vendor.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 1, "one refresh");
     let (authorization, body) = &requests[0];
-    assert_eq!(
-        authorization,
-        &format!(
-            "Basic {}",
-            BASE64.encode(format!("{CLIENT_ID}:{CLIENT_SECRET}"))
-        )
-    );
+    assert_eq!(authorization, "", "no Authorization header is sent");
     assert_eq!(
         body,
-        &format!("grant_type=refresh_token&refresh_token={FIRST_REFRESH}&audience=rotato-api"),
-        "the grant, the stored refresh token and the declared field; no client credential"
+        &format!(
+            "client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}\
+             &grant_type=refresh_token&refresh_token={FIRST_REFRESH}&audience=rotato-api"
+        ),
+        "the client, the grant, the stored refresh token and the declared field"
     );
     assert_eq!(athlete.connection().await, ConnectionStatus::Active);
 
@@ -611,9 +603,12 @@ async fn a_refused_refresh_no_winner_explains_needs_a_reconnect() {
 }
 
 /// Wahoo sends no deauthorization event, so a refusal no winner explains is
-/// the athlete revoking Dravr in their Wahoo settings: the athlete is
+/// read as the athlete revoking Dravr in their Wahoo settings: the athlete is
 /// disconnected and their Wahoo data deleted, as the agreement requires on
-/// revocation (carnet#34), rather than left waiting for a reconnect.
+/// revocation (carnet#34). One refusal is not enough to say so (carnet#918):
+/// a refresh token Dravr lost, or a winner slower than the window, is refused
+/// the same way. The first refusal flags the connection and keeps the data;
+/// a second one over the row it left flagged confirms the revocation.
 #[cfg(feature = "provider-wahoo")]
 #[tokio::test]
 async fn a_refused_wahoo_refresh_is_a_revocation_that_disconnects_the_athlete() {
@@ -640,6 +635,20 @@ async fn a_refused_wahoo_refresh_is_a_revocation_that_disconnects_the_athlete() 
         1,
         "the refresh was tried"
     );
+    assert_eq!(
+        athlete.connection().await,
+        ConnectionStatus::NeedsReauth,
+        "one refusal flags the connection and keeps it"
+    );
+    assert_eq!(
+        athlete.stored().await.access_token,
+        FIRST_ACCESS,
+        "and keeps its token row"
+    );
+
+    // A later refusal over the row the first one left flagged confirms it.
+    assert!(lookup(&resources, &athlete).await.is_none());
+    assert_eq!(vendor.calls.load(Ordering::SeqCst), 2);
     let token = athlete
         .repos
         .oauth_tokens

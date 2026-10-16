@@ -39,6 +39,19 @@ pub const PEER_FETCH_TOOL: &str = "get_group_member_activities";
 pub const PEER_GROUNDING_LEAD: &str =
     "The following consenting group member's activities have been pre-loaded for your analysis:";
 
+/// One peer block the grounding stage put in the turn's messages.
+///
+/// The platform's own record of what it injected. The recovery stages read
+/// this instead of matching the block's text in the message list, where an
+/// athlete-typed copy of the block would match as well (carnet#924).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerGroundingBlock {
+    /// The roster display name the block was fetched for.
+    pub member: String,
+    /// The consent-gated fetch's payload, as injected.
+    pub payload: String,
+}
+
 /// How far back the platform-side peer fetch reaches. Four weeks covers the
 /// multi-week comparisons group chats actually ask for ("hours per week for
 /// Phil and me"); anything older is a directed ask the model can still fetch
@@ -252,10 +265,11 @@ pub async fn fetch_peer_activities(
 /// Fetch each mentioned peer's recent activities platform-side and inject
 /// them as this-turn tool evidence, just before the latest user message.
 ///
-/// Returns `true` when at least one peer block reached the prompt — the
-/// caller records that as a [`PEER_FETCH_TOOL`] run, the same provenance
-/// contract as the startup prefetch, so the viz anti-fabrication gate
-/// accepts charts built from platform-fetched peer data.
+/// Returns the blocks that reached the prompt. A non-empty list is recorded
+/// by the caller as a [`PEER_FETCH_TOOL`] run, the same provenance contract as
+/// the startup prefetch, so the viz anti-fabrication gate accepts charts built
+/// from platform-fetched peer data; the list itself is what the recovery
+/// stages treat as this turn's pre-grounded peer evidence.
 ///
 /// Best-effort: a peer whose fetch errors (no consent, kill-switch, outage)
 /// is skipped — the tool's own honest error text is the model's signal if it
@@ -266,8 +280,8 @@ pub async fn inject_peer_grounding(
     tenant_id: TenantId,
     mentions: &[PeerMention],
     llm_messages: &mut Vec<ChatMessage>,
-) -> bool {
-    let mut grounded = false;
+) -> Vec<PeerGroundingBlock> {
+    let mut blocks = Vec::new();
     for mention in mentions {
         let Some(payload) =
             fetch_peer_activities(executor, user_id, tenant_id, &mention.display_name).await
@@ -288,7 +302,10 @@ pub async fn inject_peer_grounding(
             .rposition(|m| m.role.as_str() == "user")
             .unwrap_or(llm_messages.len());
         llm_messages.insert(insert_at, block);
-        grounded = true;
+        blocks.push(PeerGroundingBlock {
+            member: mention.display_name.clone(),
+            payload,
+        });
     }
-    grounded
+    blocks
 }

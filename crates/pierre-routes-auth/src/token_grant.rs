@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use tracing::{debug, field, field::Empty, info, Span};
+use tracing::{debug, field, field::Empty, info, warn, Span};
 
 use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
@@ -148,6 +148,11 @@ pub async fn handle_oauth2_token(
                 Err(refusal) => return Ok(refused_code(&refusal)),
             };
             if let Some(verified) = attested {
+                // The code is spent by now, so a refusal here would cost the
+                // athlete the whole sign-in. Attestation is observe-only
+                // (feature-phases.yaml `mobile-attestation-enforcement`): a
+                // record that fails is logged and the sign-in goes on, the
+                // span reading `unrecorded`.
                 if let Err(refusal) = record_evidence(
                     resources.repos.app_attest_keys.as_ref(),
                     verified,
@@ -155,7 +160,11 @@ pub async fn handle_oauth2_token(
                 )
                 .await
                 {
-                    return Ok(refused_evidence(&refusal));
+                    warn!(
+                        error = %refusal.error,
+                        "App Attest evidence verified but not recorded; signing in (observe mode)"
+                    );
+                    Span::current().record("app_attest", "unrecorded");
                 }
             }
             match auth_service
@@ -283,22 +292,15 @@ fn issue_tokens(
 /// first-party redirects.
 fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationServer {
     let repos = &resources.repos;
-    let oauth2 = &resources.config.oauth2_server;
-    OAuth2AuthorizationServer::new(
+    OAuth2AuthorizationServer::from_config(
+        &resources.config.oauth2_server,
         repos.oauth2_server.clone(),
         repos.tenants.clone(),
         repos.users.clone(),
         resources.auth_manager.clone(),
         resources.jwks_manager.clone(),
         resources.config.auth.refresh_token_expiry_days,
-        oauth2
-            .mcp_resources()
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
     )
-    .with_satellite_resources(oauth2.satellite_resources.clone())
-    .with_first_party_redirects(oauth2.first_party_redirects.clone())
 }
 
 /// Verify the device evidence a code exchange carried, before the code is
@@ -309,9 +311,12 @@ fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationSer
 /// Only Dravr's mobile app attests, so evidence from any other client is a
 /// malformed request. Verified App Attest evidence comes back to be recorded
 /// once the code is redeemed; a verified Play Integrity verdict leaves
-/// nothing to record. A refusal leaves the code unspent, so the app can
-/// retry with fresh evidence. The span records which kind of evidence the
-/// mobile sign-in carried, `absent` included: absence is accepted until
+/// nothing to record. A refusal here leaves the code unspent, so the app can
+/// retry with fresh evidence. Recording the key once the code is redeemed
+/// never refuses the exchange: while attestation is observe-only, a record
+/// that fails is logged as `app_attest=unrecorded` and the session issued.
+/// The span records which kind of evidence the mobile sign-in carried,
+/// `absent` included: absence is accepted until
 /// enforcement is switched on, and the span is where its share is read.
 async fn check_device_evidence(
     resources: &AuthRoutesContext,

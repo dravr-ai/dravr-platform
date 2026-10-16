@@ -9,7 +9,14 @@ import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import type { HomeActivity } from '@pierre/shared-types';
 import { decodePolyline, type LatLon } from '@pierre/domain-utils';
-import { useDistanceUnit } from '@pierre/ui-logic';
+import {
+  activityRowFigures,
+  formatInstant,
+  formatSyncTime,
+  ROW_DATE,
+  sportLabel,
+  useDistanceUnit,
+} from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
@@ -23,7 +30,6 @@ import { activityViewRoute } from '../activity/activityRoute';
 import { ActivityMap } from './ActivityMap';
 import { RouteSketch } from './RouteSketch';
 import { UploadActivityAction, UploadActivityStatus } from './UploadActivity';
-import { ROW_DATE, activityFigures, formatInstant, formatSyncTime, sportLabel } from './homeFormat';
 
 interface RecentActivitiesProps {
   /**
@@ -70,7 +76,7 @@ function ActivitySummary({ activity }: { activity: HomeActivity }) {
             {activity.attribution}
           </span>
         )}
-        {activityFigures(t, activity, language, unit).map((figure) => (
+        {activityRowFigures(t, activity, language, unit).map((figure) => (
           <span key={figure}>
             {' · '}
             <span className="font-mono">{figure}</span>

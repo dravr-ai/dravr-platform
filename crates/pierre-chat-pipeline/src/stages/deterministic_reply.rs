@@ -163,13 +163,7 @@ pub async fn deliver(
     )
     .await?;
 
-    finalize_session_state(
-        &ctx.data,
-        conv.session_id.as_deref(),
-        &[],
-        input.conversation_tenant_id,
-    )
-    .await;
+    finalize_session_state(&ctx.data, conv.session_id.as_deref(), &[], input).await;
 
     // Same rule as the model path: the slot is taken only once a reply exists
     // (registre#260).

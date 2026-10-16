@@ -174,6 +174,10 @@ pub struct EventEnvelope {
     pub event_type: String,
     /// Normalized event the platform applies.
     pub event: BillingEvent,
+    /// When the provider says the event happened (Stripe's `created`).
+    /// Providers neither deliver events in order nor stop retrying a failed
+    /// one, so this, not arrival, orders the events of one subscription.
+    pub occurred_at: DateTime<Utc>,
 }
 
 /// One row from a [`BillingProvider::list_invoices`] response.

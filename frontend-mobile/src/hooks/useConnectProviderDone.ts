@@ -6,6 +6,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { SESSION_ONLY_QUERY_META } from '../providers/sessionOnlyQuery';
 
 /**
  * Whether the user pressed Continue on the connect screen after connecting a
@@ -24,6 +25,8 @@ export function useConnectProviderDone(userId: string | undefined) {
     queryKey,
     queryFn: () => false,
     staleTime: Infinity,
+    // Kept off disk: the persister would otherwise restore it on the next launch.
+    meta: SESSION_ONLY_QUERY_META,
   });
 
   const complete = useCallback(() => {

@@ -8,30 +8,23 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
-import type { CoachingGroup } from '@pierre/shared-types';
 import { BOREAL_LIGHT, QUERY_KEYS, coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Button, Input, Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeColors } from '../../constants/theme';
-import { chatApi, coachesApi, groupsApi, userApi } from '../../services/api';
+import { coachesApi, userApi } from '../../services/api';
+import { useCoachGroupSetup } from '../../hooks/useGroups';
 import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { inviteLink } from '../../constants/inviteLink';
 import { CoachAccessRequest } from '../../components/CoachAccessRequest';
 import { threadHref } from '../../navigation/routes';
-
-/**
- * How long the onboarding athlete invite stays valid — the web step's value:
- * a coach sets up during onboarding, often before the athlete is ready to
- * sign up, and the 7 days a chat-issued invite gets are easily missed.
- */
-const ONBOARDING_INVITE_DAYS = 30;
 
 /** A QR is not themed: the phone camera needs dark modules on a light ground in both schemes. */
 const QR_GROUND = BOREAL_LIGHT.surfaceContainerLowest;
@@ -49,18 +42,14 @@ const QR_INK = BOREAL_LIGHT.onSurface;
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
   const router = useRouter();
   const { mark } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const progress = useOnboardingProgress('coach_group');
   const [name, setName] = useState('');
   const [pickingAgent, setPickingAgent] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [created, setCreated] = useState<CoachingGroup | null>(null);
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [link, setLink] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const { create, working, failed, group: created, conversationId: threadId, inviteCode } = useCoachGroupSetup();
+  const link = inviteCode === null ? null : inviteLink(inviteCode);
   const [copied, setCopied] = useState(false);
 
   const finish = async (status: 'complete' | 'skipped') => {
@@ -74,36 +63,6 @@ export function OnboardingCoachGroupScreen() {
   const goToGroup = async (conversationId: string) => {
     await finish('complete');
     router.replace(threadHref(conversationId));
-  };
-
-  const create = async () => {
-    const trimmed = name.trim();
-    if (!trimmed || !agentId || working) return;
-    setWorking(true);
-    setFailed(false);
-    try {
-      // A retry after a later call failed reuses the group already made.
-      const group =
-        created ??
-        (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
-      setCreated(group);
-      // Nor a second thread: the one made here is where "Go to my group" lands.
-      const conversationId =
-        threadId ??
-        (await chatApi.createConversation({ group_id: group.id, agent_id: group.agent_id })).id;
-      setThreadId(conversationId);
-      // The chat list may already be cached from sign-in: the group's thread
-      // must be on it when the coach steps back from the thread to the list.
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
-      const invite = await groupsApi.createInvite(group.id, {
-        expires_in_days: ONBOARDING_INVITE_DAYS,
-      });
-      setLink(inviteLink(invite.code));
-    } catch {
-      setFailed(true);
-    } finally {
-      setWorking(false);
-    }
   };
 
   if (created && threadId && link) {
@@ -207,7 +166,9 @@ export function OnboardingCoachGroupScreen() {
             ) : null}
             <Button
               title={working ? t('onboarding.groupCreating') : t('onboarding.groupCreate')}
-              onPress={() => void create()}
+              onPress={() => {
+                if (agentId !== null) void create(name, agentId);
+              }}
               disabled={working || agentId === null}
               testID="onboarding-group-create"
             />

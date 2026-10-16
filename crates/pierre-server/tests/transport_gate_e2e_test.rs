@@ -9,6 +9,7 @@
 
 mod common;
 
+use pierre_core::models::StatsCoverage;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -202,6 +203,7 @@ impl FitnessProvider for Relay {
             total_distance: 9_876_000.0,
             total_duration: 1_234_567,
             total_elevation_gain: 54_321.0,
+            coverage: StatsCoverage::Lifetime,
             year_to_date: None,
         })
     }
@@ -1537,7 +1539,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
 #[cfg(feature = "client-notifications")]
 #[tokio::test]
 async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_devices() {
-    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::events::push_policy;
     use pierre_notifications::models::{DeviceRegistrar, NotificationCategory};
     use pierre_notifications::{
         DispatchOutcome, DispatchRequest, NotificationService, PushTier, TenantId as CommTenantId,
@@ -1589,7 +1591,8 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
                     notification_type: "system_notice".to_owned(),
                     title: title.to_owned(),
                     body: title.to_owned(),
-                    data: stamp_data(None, policy),
+                    data: None,
+                    transport_policy: push_policy(policy),
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: true,
@@ -1631,7 +1634,8 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
                 notification_type: "system_notice".to_owned(),
                 title: "Relay split on Garmin Hills".to_owned(),
                 body: "Relay split on Garmin Hills".to_owned(),
-                data: stamp_data(None, TransportPolicy::FirstPartyOnly),
+                data: None,
+                transport_policy: push_policy(TransportPolicy::FirstPartyOnly),
                 image_url: None,
                 actions: None,
                 bypass_frequency_cap: true,
@@ -1735,7 +1739,7 @@ async fn the_feed_withholds_a_stamped_notification_and_its_push_skips_external_d
 #[cfg(feature = "client-notifications")]
 #[tokio::test]
 async fn the_external_feed_pages_readable_rows_past_one_store_page() {
-    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::events::push_policy;
     use pierre_notifications::models::NotificationCategory;
     use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 
@@ -1769,7 +1773,8 @@ async fn the_external_feed_pages_readable_rows_past_one_store_page() {
                     notification_type: "system_notice".to_owned(),
                     title: title.clone(),
                     body: title,
-                    data: stamp_data(None, policy),
+                    data: None,
+                    transport_policy: push_policy(policy),
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: true,
@@ -1918,7 +1923,7 @@ async fn an_external_callers_notification_writes_run_under_commeres_rules() {
 #[cfg(feature = "client-notifications")]
 #[tokio::test]
 async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
-    use pierre_notifications::events::stamp_data;
+    use pierre_notifications::events::push_policy;
     use pierre_notifications::models::NotificationCategory;
     use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 
@@ -1951,7 +1956,8 @@ async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
                     notification_type: "system_notice".to_owned(),
                     title: title.to_owned(),
                     body: title.to_owned(),
-                    data: stamp_data(None, policy),
+                    data: None,
+                    transport_policy: push_policy(policy),
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: true,

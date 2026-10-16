@@ -26,6 +26,7 @@ mod notification_event_locale_tests {
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::{event_params, PARAMS_DATA_KEY};
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::{
         triggers as notification_triggers, NotificationEvent, NotificationService,
         TenantId as CommereTenantId,
@@ -208,6 +209,7 @@ mod notification_event_locale_tests {
                 data: Some(serde_json::json!({ "screen": "coach", "id": "conv-legacy" })),
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ExtendedProviderStatus } from '@pierre/shared-types';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { oauthApi } from '../../../services/api';
@@ -78,6 +79,14 @@ function intervalsCard(overrides: Partial<ExtendedProviderStatus> = {}): Extende
   };
 }
 
+/** The screen's consent action is a React Query mutation, so it renders under a client. */
+function queryWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+}
+
 describe('ConnectionsScreen — Intervals.icu', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -88,7 +97,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
 
   it('opens the sheet leading with the authorization, and starts it from there', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [intervalsCard()] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
     expect(await screen.findByText('intervals-sheet:authorize')).toBeTruthy();
@@ -103,7 +112,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
 
   it('opens the key form alone, never an own-app setup, while no client resolves', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [intervalsCard({ own_app_required: true })] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
 
@@ -116,7 +125,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
     getProvidersStatus.mockResolvedValue({
       providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'manual' })],
     });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
 
@@ -128,7 +137,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
     getProvidersStatus.mockResolvedValue({
       providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'oauth' })],
     });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
 

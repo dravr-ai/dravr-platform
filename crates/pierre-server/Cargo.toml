@@ -61,7 +61,7 @@ provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-wahoo = ["pierre-providers/provider-wahoo"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "pierre-routes-auth?/provider-sciotte"]
-health-sync = ["dep:dravr-enforme", "dravr-enforme/provider-whoop", "dravr-enforme/provider-garmin", "dravr-enforme/provider-coros", "dravr-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
+health-sync = ["dep:dravr-enforme", "dravr-enforme/provider-whoop", "dravr-enforme/provider-garmin", "dravr-enforme/provider-coros", "dravr-enforme/provider-intervals-icu", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte", "provider-wahoo"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte", "provider-wahoo"]
 
@@ -240,9 +240,7 @@ dravr-contremaitre = { workspace = true }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications", "google-iam"] }
-dravr-meteo = { workspace = true }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
-dravr-equilibre-sync = { workspace = true, optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"
@@ -348,6 +346,17 @@ hex = "0.4"
 ed25519-dalek = "2.2"
 # Stripe billing webhook integration test signs payloads against StripeClient.
 dravr-stripe = { workspace = true }
+# The weather tests build dravr-meteo's types directly; production reaches it
+# through pierre-services and pierre-tool-runtime.
+dravr-meteo = { workspace = true }
+# The WHOOP webhook and provider-purge tests (health-sync + provider-whoop)
+# build dravr-equilibre's ContinuousMetricBatch; production reaches the crate
+# through pierre-services' health-sync. A dev-dependency cannot be optional,
+# so the test build always carries it.
+dravr-equilibre-sync = { workspace = true }
+# tronc's MCP test client, which the MCP end-to-end tests drive /mcp with
+# (carnet#1000).
+dravr-tronc = { workspace = true, features = ["testkit"] }
 # The Home sync-truth suite builds its scraper stand-in's answers with the
 # scraper's own types and serializer, so it can only play a shape the scraper
 # can send.

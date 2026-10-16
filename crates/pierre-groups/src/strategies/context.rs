@@ -6,7 +6,10 @@
 
 use std::fmt::Write;
 
-use pierre_core::models::groups::{CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, GROUP_CONTEXT_FOOTER,
+    GROUP_CONTEXT_HEADER,
+};
 
 /// Strategy for building group context text injected into the agent's system prompt.
 ///
@@ -36,7 +39,7 @@ impl GroupContextStrategy for IndividualFocusContext {
     fn build_group_context(&self, group: &GroupContext, members: &[MemberSummaryCard]) -> String {
         let requester_name = resolve_requester_name(group, members);
         let mut text = String::with_capacity(512);
-        let _ = writeln!(text, "\n--- Group Coaching Context ---");
+        let _ = writeln!(text, "\n--- {GROUP_CONTEXT_HEADER} ---");
         let _ = writeln!(
             text,
             "You are coaching a group of {} athletes called \"{}\".",
@@ -54,7 +57,7 @@ impl GroupContextStrategy for IndividualFocusContext {
         }
 
         write_absent_member_instructions(&mut text, group);
-        let _ = writeln!(text, "--- End Group Context ---");
+        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 
@@ -65,7 +68,7 @@ impl GroupContextStrategy for IndividualFocusContext {
         all_members: &[MemberSummaryCard],
     ) -> String {
         let mut text = String::with_capacity(512);
-        let _ = writeln!(text, "\n--- Group Coaching Context ---");
+        let _ = writeln!(text, "\n--- {GROUP_CONTEXT_HEADER} ---");
         let _ = writeln!(
             text,
             "You are coaching {} as part of a group of {} athletes called \"{}\".",
@@ -112,7 +115,7 @@ impl GroupContextStrategy for IndividualFocusContext {
             }
         }
 
-        let _ = writeln!(text, "--- End Group Context ---");
+        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 
@@ -129,7 +132,7 @@ impl GroupContextStrategy for GroupOverviewContext {
     fn build_group_context(&self, group: &GroupContext, members: &[MemberSummaryCard]) -> String {
         let requester_name = resolve_requester_name(group, members);
         let mut text = String::with_capacity(1024);
-        let _ = writeln!(text, "\n--- Group Coaching Context (Admin View) ---");
+        let _ = writeln!(text, "\n--- {GROUP_CONTEXT_HEADER} (Admin View) ---");
         let _ = writeln!(
             text,
             "You are Dravr, working with \"{}\" ({} members, {} active).",
@@ -174,7 +177,7 @@ impl GroupContextStrategy for GroupOverviewContext {
         }
 
         write_absent_member_instructions(&mut text, group);
-        let _ = writeln!(text, "--- End Group Context ---");
+        let _ = writeln!(text, "{GROUP_CONTEXT_FOOTER}");
         text
     }
 

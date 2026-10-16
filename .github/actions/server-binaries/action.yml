@@ -51,7 +51,9 @@ runs:
     - name: Build release binaries
       # The invocation of docker/images/server/Dockerfile's builder stage —
       # profile and features — so the binary CI validates is the one the image
-      # ships. RUSTFLAGS and CARGO_INCREMENTAL are step-scoped, as they were in
+      # ships. scripts/ci/check-server-features.sh fails when this --features
+      # string differs from the Dockerfile's or ci-backend's production clippy
+      # entry. RUSTFLAGS and CARGO_INCREMENTAL are step-scoped, as they were in
       # release-binary: rust-cache never hashed them, but cargo fingerprints on
       # them, so every caller must build with the same pair to reuse artifacts.
       shell: bash

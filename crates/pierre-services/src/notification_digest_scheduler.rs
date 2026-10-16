@@ -63,7 +63,7 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantId, User};
 use pierre_database::RepositoryRegistry;
-use pierre_notifications::events::{data_transport_policy, event_data, stamp_data};
+use pierre_notifications::events::{event_data, notification_policy, push_policy};
 use pierre_notifications::models::{Notification, NotificationCategory};
 use pierre_notifications::{
     to_app_error, DigestCadence, DispatchOutcome, DispatchRequest, NotificationEvent,
@@ -436,15 +436,13 @@ impl<'a> Digests<'a> {
             title: self.renderer.title(event, &params),
             body: self.renderer.body(event, &params),
             // As strict as the notifications it rolls up (carnet#769).
-            data: stamp_data(
-                Some(event_data(json!({}), Value::Object(params))),
-                TransportPolicy::strictest_of(
-                    rows.iter().map(|n| data_transport_policy(n.data.as_ref())),
-                ),
-            ),
+            data: Some(event_data(json!({}), Value::Object(params))),
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: push_policy(TransportPolicy::strictest_of(
+                rows.iter().map(|n| notification_policy(n.transport_policy)),
+            )),
         };
         // P0: the digest is the delivery the persona floor promised in
         // exchange for the pushes it withheld, so it must never gate itself.

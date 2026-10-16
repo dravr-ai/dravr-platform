@@ -34,14 +34,16 @@ import {
 } from '../utils/mmkvStorage';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
+import { SESSION_ONLY_QUERY_META } from './sessionOnlyQuery';
 
 interface QueryProviderProps {
   children: React.ReactNode;
 }
 
 /**
- * Whether a query is written to disk: every one the default keeps, except a
- * Home route answer without a route.
+ * Whether a query is written to disk: every one the default keeps, except one
+ * marked session-only (`SESSION_ONLY_QUERY_META`) and a Home route answer
+ * without a route.
  *
  * A drawn route never changes and is worth carrying across launches. An
  * answer without one can be taken back by the server — `unavailable` is a
@@ -53,6 +55,9 @@ interface QueryProviderProps {
  */
 export function persistsQuery(query: Query): boolean {
   if (!defaultShouldDehydrateQuery(query)) {
+    return false;
+  }
+  if (query.meta?.persist === SESSION_ONLY_QUERY_META.persist) {
     return false;
   }
   const [scope, resource] = query.queryKey;

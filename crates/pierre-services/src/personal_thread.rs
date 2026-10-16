@@ -32,10 +32,12 @@ use pierre_core::models::{
     CHANNEL_TYPE_WEB, DIVIDER_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
 
 use crate::agent_selection::AgentSelectionSource;
+use crate::agents::require_bindable_agent;
 use crate::conversation_forge::{
     forge_conversation, record_agent_usage, start_guided_flow, ForgeAgent, ForgeParams, SlotQuota,
 };
@@ -280,7 +282,8 @@ pub async fn open_topic(
 }
 
 /// Bind the thread to `agent_id` when it names an agent the thread is not
-/// already bound to — the rebind `/agent add` makes. Answers whether it did.
+/// already bound to — the rebind `/agent add` makes, refused like it for an
+/// agent the athlete cannot read or a coach-facing one. Answers whether it did.
 async fn rebind_agent(
     repos: &RepositoryRegistry,
     thread: &ConversationRecord,
@@ -291,6 +294,16 @@ async fn rebind_agent(
     let Some(agent_id) = agent_id.filter(|id| thread.agent_id.as_deref() != Some(id)) else {
         return Ok(false);
     };
+    // Bound only to an agent the athlete may be given, as `/agent add` binds.
+    let user = parse_uuid(user_id)?;
+    require_bindable_agent(
+        repos.agents.as_ref(),
+        repos.users.as_ref(),
+        agent_id,
+        user,
+        tenant_id,
+    )
+    .await?;
     repos
         .chat
         .set_conversation_agent_id(&thread.id, Some(agent_id), tenant_id)

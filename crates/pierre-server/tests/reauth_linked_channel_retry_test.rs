@@ -41,7 +41,8 @@ use pierre_database::backends::{
     EnqueueOutboundParams, OutboundReauthGuard, UpsertChannelConfigParams,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::backfill_notifier::{AdapterResolver, ServerBackfillNotifier};
+use pierre_mcp_server::services::adapter_resolver::AdapterResolver;
+use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -54,6 +55,11 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
 use crate::messaging_fixtures::{seed_channel_link, strings};
+
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "test-jwt-secret";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://app.test";
 
 /// A channel adapter whose sends succeed or fail on a script, recording what
 /// reached it. `render` produces a payload that keeps the recipient and the
@@ -247,6 +253,8 @@ async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixt
         Arc::clone(&context.common.repos),
         strings(),
         Arc::new(first_send) as Arc<dyn AdapterResolver>,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     )));
     let service = Arc::new(match context.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -535,7 +543,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
             || panic!("the link opens the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
         );
-    let claims = verify_link_token(&token, "test-jwt-secret", "sciotte").unwrap();
+    let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
     assert_eq!(claims.tgt, "garmin");
     assert_eq!(claims.channel, ChannelType::WhatsApp.to_string());
     assert_eq!(claims.sub, f.user_id.to_string());

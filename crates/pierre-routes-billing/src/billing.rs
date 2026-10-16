@@ -408,9 +408,19 @@ async fn webhook<C: BillingCtx>(
 
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, expected, &envelope.event).await?;
+    let applied = dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        expected,
+        envelope.occurred_at,
+        &envelope.event,
+    )
+    .await?;
 
-    if let BillingEvent::SubscriptionUpserted(payload) = &envelope.event {
+    // A superseded event changed nothing, so there is no charge to re-apply.
+    if let (EventOutcome::Applied, BillingEvent::SubscriptionUpserted(payload)) =
+        (applied, &envelope.event)
+    {
         bill_subscriber_athletes(resources.as_ref(), payload).await;
     }
 
@@ -462,7 +472,24 @@ async fn bill_subscriber_athletes<C: BillingCtx>(
     }
 }
 
-/// Apply a normalized [`BillingEvent`] to the repositories.
+/// What dispatching one provider event did to the subscription it names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventOutcome {
+    /// The event was written (or, for an ignored event, needed nothing).
+    Applied,
+    /// The subscription row had already applied a newer event, or is
+    /// canceled and the event would have revived it, so nothing was written
+    /// and no tier moved (carnet#993).
+    Superseded,
+}
+
+/// Apply a normalized [`BillingEvent`] that happened at `occurred_at` (the
+/// provider's clock) to the repositories.
+///
+/// Providers deliver events out of order and retry failed deliveries for
+/// days, so an event older than the one the subscription row last applied is
+/// refused rather than written, and a canceled subscription is never
+/// re-activated by an update for the same provider subscription.
 ///
 /// Public so integration tests can drive the dispatch path without
 /// reconstructing the signed-webhook layer (signature verification is
@@ -477,11 +504,13 @@ pub async fn dispatch_billing_event(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
+    occurred_at: DateTime<Utc>,
     event: &BillingEvent,
-) -> AppResult<()> {
+) -> AppResult<EventOutcome> {
     match event {
         BillingEvent::SubscriptionUpserted(payload) => {
-            handle_subscription_upsert(auth_repos, usage_repos, provider, payload).await
+            handle_subscription_upsert(auth_repos, usage_repos, provider, occurred_at, payload)
+                .await
         }
         BillingEvent::SubscriptionCanceled {
             provider_subscription_id,
@@ -491,6 +520,7 @@ pub async fn dispatch_billing_event(
                 auth_repos,
                 usage_repos,
                 provider,
+                occurred_at,
                 provider_subscription_id,
                 *canceled_at,
             )
@@ -498,9 +528,24 @@ pub async fn dispatch_billing_event(
         }
         BillingEvent::PaymentFailed {
             provider_subscription_id,
-        } => handle_payment_failed(usage_repos, provider, provider_subscription_id).await,
-        BillingEvent::Ignored => Ok(()),
+        } => {
+            handle_payment_failed(usage_repos, provider, occurred_at, provider_subscription_id)
+                .await
+        }
+        BillingEvent::Ignored => Ok(EventOutcome::Applied),
     }
+}
+
+/// Log an event the subscription row refused as superseded. `subscription`
+/// is the provider's subscription id, or its customer id when the event names
+/// no subscription (the row is keyed on the customer).
+fn log_superseded(provider: &str, occurred_at: DateTime<Utc>, subscription: &str) {
+    tracing::warn!(
+        billing_provider = provider,
+        occurred_at = %occurred_at,
+        subscription,
+        "billing event superseded by a newer one or a cancellation; nothing written",
+    );
 }
 
 /// Returns `true` when an admin tier override pins this user's tier, in
@@ -630,8 +675,9 @@ async fn handle_subscription_upsert(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
+    occurred_at: DateTime<Utc>,
     payload: &SubscriptionEventPayload,
-) -> AppResult<()> {
+) -> AppResult<EventOutcome> {
     let tenant_id = TenantId::parse_str(&payload.tenant_id)
         .map_err(|e| AppError::invalid_input(format!("invalid tenant_id metadata: {e}")))?;
     let user_id = Uuid::parse_str(&payload.user_id)
@@ -668,25 +714,38 @@ async fn handle_subscription_upsert(
         metadata: payload.metadata.clone(),
         created_at: now,
         updated_at: now,
+        last_event_at: Some(occurred_at),
     };
-    let stored = usage_repos.subscriptions.upsert_subscription(&sub).await?;
+    let Some(stored) = usage_repos.subscriptions.upsert_subscription(&sub).await? else {
+        log_superseded(
+            provider,
+            occurred_at,
+            payload
+                .provider_subscription_id
+                .as_deref()
+                .unwrap_or(&payload.provider_customer_id),
+        );
+        return Ok(EventOutcome::Superseded);
+    };
 
     // The subscription row is updated above; the tier flip is gated on the
     // absence of an admin override.
     if admin_override_blocks_tier_change(usage_repos, provider, stored.user_id).await? {
-        return Ok(());
+        return Ok(EventOutcome::Applied);
     }
 
-    apply_entitled_tier(auth_repos, provider, &stored, prior.as_ref()).await
+    apply_entitled_tier(auth_repos, provider, &stored, prior.as_ref()).await?;
+    Ok(EventOutcome::Applied)
 }
 
 async fn handle_subscription_canceled(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
+    occurred_at: DateTime<Utc>,
     provider_subscription_id: &str,
     canceled_at: Option<DateTime<Utc>>,
-) -> AppResult<()> {
+) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
         .subscriptions
         .get_subscription_by_provider_subscription_id(provider, provider_subscription_id)
@@ -701,15 +760,20 @@ async fn handle_subscription_canceled(
         .or(existing.canceled_at)
         .or_else(|| Some(Utc::now()));
     existing.updated_at = Utc::now();
-    let stored = usage_repos
+    existing.last_event_at = Some(occurred_at);
+    let Some(stored) = usage_repos
         .subscriptions
         .upsert_subscription(&existing)
-        .await?;
+        .await?
+    else {
+        log_superseded(provider, occurred_at, provider_subscription_id);
+        return Ok(EventOutcome::Superseded);
+    };
 
     // The subscription row is marked canceled above; a cancel event must
     // not downgrade a user whose tier is pinned by an admin override.
     if admin_override_blocks_tier_change(usage_repos, provider, stored.user_id).await? {
-        return Ok(());
+        return Ok(EventOutcome::Applied);
     }
 
     auth_repos
@@ -726,14 +790,15 @@ async fn handle_subscription_canceled(
         tenant_id = %stored.tenant_id,
         "billing subscription canceled — downgraded to starter",
     );
-    Ok(())
+    Ok(EventOutcome::Applied)
 }
 
 async fn handle_payment_failed(
     usage_repos: &UsageRepos,
     provider: &str,
+    occurred_at: DateTime<Utc>,
     provider_subscription_id: &str,
-) -> AppResult<()> {
+) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
         .subscriptions
         .get_subscription_by_provider_subscription_id(provider, provider_subscription_id)
@@ -745,15 +810,21 @@ async fn handle_payment_failed(
         })?;
     existing.status = SubscriptionStatus::PastDue;
     existing.updated_at = Utc::now();
-    usage_repos
+    existing.last_event_at = Some(occurred_at);
+    if usage_repos
         .subscriptions
         .upsert_subscription(&existing)
-        .await?;
+        .await?
+        .is_none()
+    {
+        log_superseded(provider, occurred_at, provider_subscription_id);
+        return Ok(EventOutcome::Superseded);
+    }
     tracing::warn!(
         billing_provider = provider,
         provider_subscription_id,
         user_id = %existing.user_id,
         "billing payment failed — subscription marked past_due",
     );
-    Ok(())
+    Ok(EventOutcome::Applied)
 }

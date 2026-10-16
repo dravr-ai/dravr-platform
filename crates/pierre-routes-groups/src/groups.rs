@@ -648,18 +648,18 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         authorize_group_update(&resources, &group_id, auth.user_id, tenant_id, &body).await?;
-        // Only an agent the updater can read is checked here: one they cannot
-        // (another owner's install) is the group service's to accept, as it
-        // always has been.
+        // Resolved in the scope the group's turns resolve it in — the
+        // tenant's own agents and system agents — so an admin can still
+        // resend another owner's in-tenant agent, while an id the runtime
+        // could not run is refused and a coach-facing one never binds.
         if let Some(agent_id) = body.agent_id.as_deref() {
             let agent = resources
                 .repos()
                 .agents
-                .get_by_id(agent_id, auth.user_id, tenant_id)
-                .await?;
-            if let Some(agent) = agent {
-                require_athlete_facing(&agent)?;
-            }
+                .get_in_tenant(agent_id, tenant_id)
+                .await?
+                .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
+            require_athlete_facing(&agent)?;
         }
 
         let updated = resources

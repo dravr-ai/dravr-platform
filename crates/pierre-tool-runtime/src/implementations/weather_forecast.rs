@@ -14,17 +14,18 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use dravr_meteo::{
-    CacheLimits, CachedGeocoder, CachedProvider, GeocodeError, Geocoder, InMemoryStore,
-    OpenMeteoForecastProvider, OpenMeteoGeocoder, Place, PlaceQuery, WeatherError, WeatherProvider,
-    WeatherQuery, WeatherSample,
+    CacheLimits, CachedProvider, ClientBuildError, GeocodeError, Geocoder, InMemoryStore,
+    OpenMeteoForecastProvider, Place, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
+    WeatherSample,
 };
+use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
 
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -32,21 +33,16 @@ use pierre_tools_core::ToolResult;
 /// cache dravr-meteo sizes for forecasts ([`CacheLimits::FORECAST`]): a
 /// stored sample is reused for an hour, the fastest model run a vendor
 /// ingests, and the store holds a bounded number of entries. This is the
-/// provider dravr-meteo's own `get_weather_forecast` serves from.
-static FORECAST: LazyLock<CachedProvider<OpenMeteoForecastProvider, InMemoryStore>> =
-    LazyLock::new(|| {
-        CachedProvider::new(
-            OpenMeteoForecastProvider::new(),
-            InMemoryStore::with_limits(CacheLimits::FORECAST),
-        )
-    });
-
-/// The place-name geocoder every call shares, built beside [`FORECAST`]:
-/// Open-Meteo's gazetteer behind the bounded cache dravr-meteo sizes for
-/// place lookups ([`CacheLimits::GEOCODE`]). Only resolutions are cached; an
-/// unknown name reaches the gazetteer again next time.
-static GEOCODER: LazyLock<CachedGeocoder<OpenMeteoGeocoder>> =
-    LazyLock::new(|| CachedGeocoder::new(OpenMeteoGeocoder::new(), CacheLimits::GEOCODE));
+/// provider dravr-meteo's own `get_weather_forecast` serves from. A client
+/// that could not be built is reported to every call rather than replaced by
+/// one without a deadline.
+static FORECAST: LazyLock<
+    Result<CachedProvider<OpenMeteoForecastProvider, InMemoryStore>, ClientBuildError>,
+> = LazyLock::new(|| {
+    OpenMeteoForecastProvider::new().map(|provider| {
+        CachedProvider::new(provider, InMemoryStore::with_limits(CacheLimits::FORECAST))
+    })
+});
 
 /// Longest place name accepted, in characters — dravr-meteo's bound; a longer
 /// one is not a place name.
@@ -260,7 +256,16 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
         _ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
-        tool_result_to_response(forecast(&*FORECAST, &*GEOCODER, &args).await)
+        let result = async {
+            let provider = FORECAST
+                .as_ref()
+                .map_err(|e| AppError::external_service("Open-Meteo forecast", e.to_string()))?;
+            // The platform's one place geocoder: a place resolves here exactly
+            // as it does for discover_routes and the weather backfill
+            // (carnet#920).
+            forecast(provider, place_geocoder()?, &args).await
+        };
+        tool_result_to_response(result.await)
     }
 }
 
@@ -462,10 +467,11 @@ fn parse_location(args: &Value) -> Result<Location, String> {
     } else {
         None
     };
-    Ok(Location::Place(PlaceQuery {
-        name: name.to_owned(),
-        country_code,
-    }))
+    // The gazetteer searches names alone; a region or country appended after a
+    // comma chooses among same-named places rather than failing the lookup.
+    free_text_query(name, country_code)
+        .map(Location::Place)
+        .ok_or_else(|| format!("place must be a place name of 1 to {MAX_PLACE_CHARS} characters"))
 }
 
 /// Parse and range-check `latitude` and `longitude`.

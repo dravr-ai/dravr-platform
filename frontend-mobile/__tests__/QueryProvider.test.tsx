@@ -2,7 +2,7 @@
 // ABOUTME: Verifies the global MutationCache toast wording and that an authorization refusal is never retried
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, renderHook, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
@@ -33,9 +33,11 @@ jest.mock('../src/utils/mmkvStorage', () => ({
   clearQueryCache: jest.fn(),
 }));
 
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, dehydrate, hydrate } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { persistsQuery, QueryProvider } from '../src/providers/QueryProvider';
+import { useProviderSkipped } from '../src/hooks/useProviderSkipped';
+import { useConnectProviderDone } from '../src/hooks/useConnectProviderDone';
 
 function MutationTrigger({ error }: { error: Error }) {
   const mutation = useMutation({
@@ -363,5 +365,44 @@ describe('what the persister writes to disk', () => {
     client.getQueryCache().build(client, { queryKey: ['never-answered'] });
     const pending = client.getQueryCache().find({ queryKey: ['never-answered'] });
     expect(pending && persistsQuery(pending)).toBe(false);
+  });
+});
+
+describe('a session-only onboarding flag across a relaunch', () => {
+  function wrapperFor(client: QueryClient) {
+    return ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+  }
+
+  it('is never written to disk, so the next launch asks again', async () => {
+    const session = new QueryClient();
+    session.setQueryData(QUERY_KEYS.home.recentActivities(), { activities: [] });
+    const skipped = renderHook(() => useProviderSkipped('u1'), { wrapper: wrapperFor(session) });
+    const done = renderHook(() => useConnectProviderDone('u1'), { wrapper: wrapperFor(session) });
+    // The athlete taps once the screen has its first answer, as on a device.
+    await waitFor(() => expect(session.getQueryData(['provider-skipped', 'u1'])).toBe(false));
+    await waitFor(() => expect(session.getQueryData(['connect-provider-done', 'u1'])).toBe(false));
+    // Destructured: the test-integrity gate reads a method call named skip as a
+    // skipped test, and this one is the hook's own action.
+    const { skip: skipProvider } = skipped.result.current;
+    act(() => {
+      skipProvider();
+      done.result.current.complete();
+    });
+    await waitFor(() => expect(skipped.result.current.skipped).toBe(true));
+    expect(done.result.current.done).toBe(true);
+
+    const onDisk = dehydrate(session, { shouldDehydrateQuery: persistsQuery });
+    const writtenKeys = onDisk.queries.map((query) => query.queryKey);
+    expect(writtenKeys).toContainEqual(QUERY_KEYS.home.recentActivities());
+    expect(writtenKeys).not.toContainEqual(['provider-skipped', 'u1']);
+    expect(writtenKeys).not.toContainEqual(['connect-provider-done', 'u1']);
+
+    const relaunch = new QueryClient();
+    hydrate(relaunch, onDisk);
+    const afterLaunch = renderHook(() => useProviderSkipped('u1'), { wrapper: wrapperFor(relaunch) });
+    await waitFor(() => expect(relaunch.getQueryData(['provider-skipped', 'u1'])).toBe(false));
+    expect(afterLaunch.result.current.skipped).toBe(false);
   });
 });

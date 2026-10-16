@@ -12,6 +12,7 @@ import {
   calendarDay,
   lastMonday,
   mondayOf,
+  planWeeksDayOn,
   weekDays,
   type HomeActivity,
   type PlanWeek,
@@ -25,8 +26,15 @@ import { useHomeCalendar } from '../../hooks/useHomeCalendar';
 import { WeekHeading } from '../chat/WorkoutPlanCard';
 import { CalendarDayDetail, DayMarks, PlanDayButton } from './CalendarDayDetail';
 import { HomeMonthSheet } from './HomeMonthSheet';
-import { calendarCellLabel, civilDayMonth } from './calendarFormat';
-import { civilDayOfMonth, civilLongDate, civilWeekdayNarrow } from './homeFormat';
+import {
+  calendarDayLabel,
+  civilDayMonth,
+  civilDayOfMonth,
+  civilWeekdayLong,
+  civilWeekdayNarrow,
+  DRAFT_DATE,
+  formatCivilDate,
+} from '@pierre/ui-logic';
 
 const DAYS_PER_WEEK = 7;
 
@@ -103,9 +111,12 @@ function NextWeek({
       </Pressable>
       {open ? (
         <View testID="home-next-week-days">
-          {week.days.map((day) => (
-            <PlanDayButton key={day.date} day={day} openDraft={openDraft} />
-          ))}
+          {week.days.map((day) => {
+            const lookup = planWeeksDayOn([week], day.date);
+            return lookup.kind === 'uncovered' ? null : (
+              <PlanDayButton key={day.date} lookup={lookup} openDraft={openDraft} />
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -212,7 +223,7 @@ function WeekStrip({
                   onPress={() => setSelected(date)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={calendarCellLabel(t, language, date, day, today)}
+                  accessibilityLabel={calendarDayLabel(t, `${civilWeekdayLong(date, language)} ${civilDayOfMonth(date)}`, day, today)}
                   className={`flex-1 items-center py-2 min-h-11 rounded-lg ${
                     isSelected ? 'bg-primary-container' : ''
                   } ${isToday ? 'border border-primary' : ''} ${day?.beforeHistory ? 'opacity-40' : ''}`}
@@ -244,7 +255,7 @@ function WeekStrip({
         ) : null}
         {answer !== null && historyStart !== null && monday <= historyStart ? (
           <Text className="mt-2 text-sm text-text-secondary" testID="home-week-history-start">
-            {t('home.calendar.historyStart', { date: civilLongDate(historyStart, language) })}
+            {t('home.calendar.historyStart', { date: formatCivilDate(historyStart, language, DRAFT_DATE) })}
           </Text>
         ) : null}
         {answer !== null && answer.plan_weeks === null ? (

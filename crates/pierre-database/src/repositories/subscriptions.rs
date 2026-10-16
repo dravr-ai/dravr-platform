@@ -7,7 +7,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserId, UserTier};
 use serde_json::Value;
@@ -24,8 +24,14 @@ use crate::uuid_column::UuidColumn;
 pub trait SubscriptionsRepository: Send + Sync {
     /// Insert a new subscription row or update the existing row that
     /// shares its `(provider, provider_customer_id)` key. Returns the
-    /// freshly written row.
-    async fn upsert_subscription(&self, subscription: &Subscription) -> AppResult<Subscription>;
+    /// freshly written row, or `None` when the existing row refused the
+    /// write as superseded: the write carries an event older than the one the
+    /// row last applied, or it would move a canceled subscription out of
+    /// `canceled` without naming a different provider subscription.
+    async fn upsert_subscription(
+        &self,
+        subscription: &Subscription,
+    ) -> AppResult<Option<Subscription>>;
     /// Look up the most recently updated subscription for a user.
     async fn get_subscription_by_user(&self, user_id: Uuid) -> AppResult<Option<Subscription>>;
     /// Look up a subscription by its provider-side subscription identifier.
@@ -63,7 +69,7 @@ macro_rules! subscription_columns {
         "id, tenant_id, user_id, provider, provider_customer_id, provider_subscription_id, \
          status, plan_tier, current_period_start, current_period_end, \
          cancel_at_period_end, canceled_at, trial_end, metadata, \
-         created_at, updated_at"
+         created_at, updated_at, last_event_at"
     };
 }
 
@@ -79,11 +85,20 @@ macro_rules! subscription_columns {
 /// its `INTEGER` column. `metadata` binds as an optional [`Value`]: the
 /// stored JSON is an opaque blob whose only reader is
 /// [`subscription_from_row`], which hands it back as a [`Value`].
+///
+/// The update half is guarded (carnet#993). It applies only when the write's
+/// `last_event_at` is not older than the row's — a late or retried provider
+/// event never overwrites a newer one; a write without a time (no provider
+/// event behind it) passes and keeps the row's — and never moves a canceled
+/// row out of `canceled` unless it names a different provider subscription,
+/// which is the customer subscribing again. `last_event_at` binds whole
+/// seconds, so on `SQLite` its RFC 3339 text compares in time order. A
+/// refused update affects no row.
 pub(crate) const UPSERT_SUBSCRIPTION_SQL: &str = concat!(
     "
             INSERT INTO subscriptions (",
     subscription_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             ON CONFLICT (provider, provider_customer_id) DO UPDATE SET
                 provider_subscription_id = EXCLUDED.provider_subscription_id,
                 status = EXCLUDED.status,
@@ -94,7 +109,19 @@ pub(crate) const UPSERT_SUBSCRIPTION_SQL: &str = concat!(
                 canceled_at = EXCLUDED.canceled_at,
                 trial_end = EXCLUDED.trial_end,
                 metadata = EXCLUDED.metadata,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                last_event_at = COALESCE(EXCLUDED.last_event_at, subscriptions.last_event_at)
+            WHERE (
+                    subscriptions.last_event_at IS NULL
+                    OR EXCLUDED.last_event_at IS NULL
+                    OR EXCLUDED.last_event_at >= subscriptions.last_event_at
+                )
+                AND (
+                    subscriptions.status <> 'canceled'
+                    OR EXCLUDED.status = 'canceled'
+                    OR COALESCE(EXCLUDED.provider_subscription_id, '')
+                        <> COALESCE(subscriptions.provider_subscription_id, '')
+                )
             "
 );
 
@@ -137,6 +164,13 @@ pub(crate) const GET_SUBSCRIPTION_BY_PROVIDER_CUSTOMER_ID_SQL: &str = concat!(
             WHERE provider = $1 AND provider_customer_id = $2
             "
 );
+
+/// `at` cut to whole seconds, the resolution `last_event_at` is stored at:
+/// provider event times are whole seconds, and on `SQLite` one resolution
+/// keeps the stored RFC 3339 text comparing in time order.
+pub(crate) fn whole_seconds(at: DateTime<Utc>) -> DateTime<Utc> {
+    at.trunc_subsecs(0)
+}
 
 /// How many times a provider event has been recorded (0 or 1).
 pub(crate) const COUNT_BILLING_EVENT_SQL: &str =
@@ -218,6 +252,9 @@ where
         updated_at: row
             .try_get::<DateTime<Utc>, _>("updated_at")
             .map_err(|e| map_row_err(&e))?,
+        last_event_at: row
+            .try_get::<Option<DateTime<Utc>>, _>("last_event_at")
+            .map_err(|e| map_row_err(&e))?,
     })
 }
 
@@ -236,8 +273,8 @@ macro_rules! impl_subscriptions_repository {
             async fn upsert_subscription(
                 &self,
                 subscription: &Subscription,
-            ) -> AppResult<Subscription> {
-                sqlx::query(UPSERT_SUBSCRIPTION_SQL)
+            ) -> AppResult<Option<Subscription>> {
+                let written = sqlx::query(UPSERT_SUBSCRIPTION_SQL)
                     .bind(UuidColumn(subscription.id))
                     .bind(subscription.tenant_id)
                     .bind(UserId::from_uuid(subscription.user_id))
@@ -254,11 +291,15 @@ macro_rules! impl_subscriptions_repository {
                     .bind(&subscription.metadata)
                     .bind(subscription.created_at)
                     .bind(subscription.updated_at)
+                    .bind(subscription.last_event_at.map(whole_seconds))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to upsert subscription: {e}"))
                     })?;
+                if written.rows_affected() == 0 {
+                    return Ok(None);
+                }
 
                 // Re-read to capture any DB-side defaults / coercions.
                 self.get_subscription_by_provider_customer_id(
@@ -269,6 +310,7 @@ macro_rules! impl_subscriptions_repository {
                 .ok_or_else(|| {
                     AppError::internal("upsert_subscription: row missing after insert".to_owned())
                 })
+                .map(Some)
             }
 
             async fn get_subscription_by_user(

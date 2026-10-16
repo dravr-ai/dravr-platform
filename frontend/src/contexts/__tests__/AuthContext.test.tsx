@@ -4,8 +4,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { StrictMode } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { WEB_AUTH_FAILURE_EVENT } from '@pierre/api-client/adapters/web'
+import { LANGUAGE_STORAGE_KEY } from '@pierre/i18n'
 import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
 import { PENDING_SIGN_IN_KEY, type PendingSignIn } from '../../utils/signIn'
@@ -33,6 +35,7 @@ vi.mock('../../services/api', () => ({
     completeSignIn: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     getSession: vi.fn(),
+    loginWithFirebase: vi.fn(),
   },
   adminApi: {
     endImpersonation: vi.fn(),
@@ -46,7 +49,7 @@ vi.mock('../../services/api', () => ({
 
 // Test component that uses the auth context
 function TestComponent() {
-  const { user, isAuthenticated, startSignIn, signInFailure, logout, loading } = useAuth()
+  const { user, isAuthenticated, startSignIn, signInFailure, logout, loading, loginWithFirebase } = useAuth()
 
   return (
     <div>
@@ -64,15 +67,21 @@ function TestComponent() {
       <button onClick={logout} data-testid="logout-btn">
         Logout
       </button>
+      <button onClick={() => void loginWithFirebase('google-id-token')} data-testid="google-btn">
+        Continue with Google
+      </button>
     </div>
   )
 }
 
-function renderWithAuth() {
+/** The provider clears the query cache at sign-out, so it renders under a client. */
+function renderWithAuth(client = new QueryClient()) {
   return render(
-    <AuthProvider>
-      <TestComponent />
-    </AuthProvider>
+    <QueryClientProvider client={client}>
+      <AuthProvider>
+        <TestComponent />
+      </AuthProvider>
+    </QueryClientProvider>
   )
 }
 
@@ -216,6 +225,79 @@ describe('AuthContext', () => {
     // so we only verify the logout API was called — the mock replaces the real implementation
     expect(authApi.logout).toHaveBeenCalled()
     expect(screen.queryByTestId('user-email')).not.toBeInTheDocument()
+  })
+
+  it('signs out again after a sign-out and a Google sign-in in the same tab, dropping the cached answers', async () => {
+    const user = userEvent.setup()
+    const first = { id: '1', email: 'first@example.com', display_name: 'First' }
+    const second = { id: '2', email: 'second@example.com', display_name: 'Second' }
+    localStorage.setItem('pierre_user', JSON.stringify(first))
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.getSession).mockResolvedValue({
+      user: first,
+      access_token: 'fresh-jwt',
+      csrf_token: 'fresh-csrf',
+    })
+    vi.mocked(authApi.loginWithFirebase).mockResolvedValue({
+      csrf_token: 'google-csrf',
+      jwt_token: 'google-jwt',
+      user: second,
+      is_new_user: false,
+    } as never)
+    const client = new QueryClient()
+    renderWithAuth(client)
+    await waitFor(() => {
+      expect(screen.getByTestId('user-email')).toHaveTextContent('first@example.com')
+    })
+    client.setQueryData(['chat', 'conversations'], [{ id: 'first-account-thread' }])
+
+    // Sign out: no reload, the login screen renders in the same provider.
+    await user.click(screen.getByTestId('logout-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Not Authenticated')
+    })
+    expect(client.getQueryData(['chat', 'conversations'])).toBeUndefined()
+
+    // "Continue with Google" — the popup sign-in, which never reloads either.
+    await user.click(screen.getByTestId('google-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('user-email')).toHaveTextContent('second@example.com')
+    })
+    expect(mockAuthStorage.setCsrfToken).toHaveBeenLastCalledWith('google-csrf')
+    client.setQueryData(['chat', 'conversations'], [{ id: 'second-account-thread' }])
+
+    // The second Sign out must reach the server, or the session cookie survives it.
+    await user.click(screen.getByTestId('logout-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Not Authenticated')
+    })
+    expect(authApi.logout).toHaveBeenCalledTimes(2)
+    expect(client.getQueryData(['chat', 'conversations'])).toBeUndefined()
+  })
+
+  it('forgets the language picked in this browser on logout, and keeps the last account\'s', async () => {
+    const user = userEvent.setup()
+    const mockUser = { id: '1', email: 'test@example.com', display_name: 'Test User' }
+    localStorage.setItem('pierre_user', JSON.stringify(mockUser))
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'de')
+    localStorage.setItem(`${LANGUAGE_STORAGE_KEY}_account`, 'de')
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.getSession).mockResolvedValue({
+      user: mockUser,
+      access_token: 'fresh-jwt',
+      csrf_token: 'fresh-csrf',
+    })
+
+    renderWithAuth()
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Authenticated')
+    })
+    await user.click(screen.getByTestId('logout-btn'))
+
+    await waitFor(() => {
+      expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull()
+    })
+    expect(localStorage.getItem(`${LANGUAGE_STORAGE_KEY}_account`)).toBe('de')
   })
 
   it('should sign out when the transport reports an auth failure', async () => {
@@ -452,9 +534,11 @@ describe('AuthContext', () => {
 
       render(
         <StrictMode>
-          <AuthProvider>
-            <TestComponent />
-          </AuthProvider>
+          <QueryClientProvider client={new QueryClient()}>
+            <AuthProvider>
+              <TestComponent />
+            </AuthProvider>
+          </QueryClientProvider>
         </StrictMode>,
       )
 

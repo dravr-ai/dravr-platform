@@ -17,7 +17,7 @@ use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::upload_provider::UploadProvider;
-use pierre_providers::{CoreFitnessProvider, CredentialKind, OAuth2Credentials};
+use pierre_providers::{credential_kind, CoreFitnessProvider, CredentialKind, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -241,7 +241,7 @@ impl AuthService {
             provider_user_id: oauth_token.provider_user_id,
             oauth_app_client_id: oauth_token.oauth_app_client_id,
             row_id: oauth_token.id,
-            kind: CredentialKind::from_token_type(&oauth_token.token_type),
+            kind: credential_kind(&oauth_token.token_type),
         }
     }
 

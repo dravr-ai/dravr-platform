@@ -26,7 +26,10 @@ use crate::models::{Activity, ActivityBuilder, ActivityComment, SportType, TimeS
 /// activity already carries, not a separate report.
 #[derive(Debug, Deserialize)]
 pub(super) struct IntervalsIcuActivity {
-    id: String,
+    /// The activity's id: what its streams and comment thread are read by,
+    /// once [`IntervalsIcuProvider::fetch_activity`](super::IntervalsIcuProvider)
+    /// has checked the activity belongs to the reader.
+    pub(super) id: String,
     #[serde(default)]
     name: Option<String>,
     #[serde(default, rename = "type")]

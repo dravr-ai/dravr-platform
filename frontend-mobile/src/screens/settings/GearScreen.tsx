@@ -23,11 +23,12 @@ import {
   formatGearDistance,
   gearChanges,
   gearDistanceLimit,
-  gearDraftOf,
-  splitGear,
-  useDistanceUnit,
   type GearDraft,
   type GearDraftErrors,
+  gearDraftOf,
+  splitGear,
+  sportLabel,
+  useDistanceUnit,
 } from '@pierre/ui-logic';
 import { spacing, useThemeColors } from '../../constants/theme';
 import {
@@ -41,7 +42,6 @@ import {
   TextTabs,
 } from '../../components/ui';
 import { useGearChanges, useGearLedger } from '../../hooks/useGear';
-import { sportLabel } from '../home/homeFormat';
 import { GearWarning } from './GearWarning';
 
 /** The HTTP status the server refuses a delete with while activities count on the pair. */

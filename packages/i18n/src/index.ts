@@ -32,7 +32,7 @@ export type {
 } from './switcherCore';
 export { useTranslation } from './types';
 export type { TranslationKeys, TranslationHandle, TFunction } from './types';
-export { useLanguageSwitcher } from './useLanguageSwitcher';
+export { forgetLanguageChoice, useLanguageSwitcher } from './useLanguageSwitcher';
 
 // Re-export core i18next types for convenience
 export type { i18n as I18nInstance, TOptions } from 'i18next';

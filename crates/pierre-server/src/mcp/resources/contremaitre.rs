@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::narration_vocab::install_pinned_narration_vocab;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::sync::{full_sync, ContremaitreRegistries};
 use pierre_contremaitre::{
@@ -184,6 +185,23 @@ pub(super) fn init_contremaitre_registries(
     let evidence_registry = Arc::new(EvidenceRegistry::new());
     let messaging_strings_registry = Arc::new(MessagingStringsRegistry::new());
     let training_catalogue_registry = Arc::new(TrainingCatalogueRegistry::new());
+
+    // The narration vocabulary starts from the overlay the pinned
+    // contremaitre rev carries, like every other registry starts from its
+    // compiled-in defaults, so the scrubs do not run on the bare built-in
+    // tables until the first sync lands.
+    match install_pinned_narration_vocab() {
+        Ok(counts) => info!(
+            capability_failure = counts.capability_failure,
+            internal_narration = counts.internal_narration,
+            identity = counts.identity,
+            "installed the pinned narration vocabulary overlay"
+        ),
+        Err(e) => warn!(
+            error = %e,
+            "the pinned narration vocabulary overlay was refused; built-in tables only"
+        ),
+    }
 
     if let Some(config) = ContremaitreConfig::from_env() {
         // The poll owns the config and Arc clones of the live registries; its

@@ -170,6 +170,11 @@ pub(crate) const FIND_SLEEP_SESSION_TENANT_SQL: &str =
 // ============================================================================
 
 /// Insert or refresh one day's recovery metrics.
+///
+/// `training_load` (WHOOP's day strain) keeps its stored value when the
+/// refreshed row carries none: enforme reads strain from a separate request
+/// that a spent request budget or a failed call leaves unread, and a strain
+/// that was not read is not a strain of nothing (carnet#996).
 pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
             INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_ms, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at, hrv_rmssd, body_battery, spo2, athlete_note, training_load)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
@@ -182,7 +187,7 @@ pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
                 body_battery = EXCLUDED.body_battery,
                 spo2 = EXCLUDED.spo2,
                 athlete_note = EXCLUDED.athlete_note,
-                training_load = EXCLUDED.training_load,
+                training_load = COALESCE(EXCLUDED.training_load, recovery_metrics.training_load),
                 stress_level = EXCLUDED.stress_level,
                 resting_heart_rate = EXCLUDED.resting_heart_rate,
                 body_temperature = EXCLUDED.body_temperature,

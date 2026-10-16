@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { oauthApi } from '../../../services/api';
 import * as WebBrowser from 'expo-web-browser';
@@ -54,6 +55,14 @@ function whoopRow(consent_required: boolean, connected = false, own_app_required
   };
 }
 
+/** The screen's consent action is a React Query mutation, so it renders under a client. */
+function queryWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+}
+
 describe('ConnectionsScreen — WHOOP owner authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -63,7 +72,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('states the owner authorization first and starts WHOOP with its acceptance', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(true)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
     expect(await screen.findByText('Before you connect WHOOP')).toBeTruthy();
@@ -85,7 +94,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('starts nothing when the notice is dismissed', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(true)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
     fireEvent.press(await screen.findByTestId('provider-notice-cancel'));
@@ -97,7 +106,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('goes straight to the WHOOP setup once the account has accepted the notice', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(false)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
     expect(screen.queryByText('Before you connect WHOOP')).toBeNull();
@@ -110,7 +119,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('starts WHOOP with no setup sheet while an app of the server can authorize it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(false, false, false)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
     await waitFor(() =>
@@ -121,7 +130,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('asks a connected WHOOP that owes the authorization to give it, then reconnects with it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(true, true)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     expect(await screen.findByText('Authorize WHOOP to keep syncing')).toBeTruthy();
     expect(screen.queryByText('Connected')).toBeNull();
@@ -139,7 +148,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
 
   it('reads a connected WHOOP that gave it as Connected', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoopRow(false, true)] });
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     expect(await screen.findByText('Connected')).toBeTruthy();
     expect(screen.queryByText('Authorize WHOOP to keep syncing')).toBeNull();

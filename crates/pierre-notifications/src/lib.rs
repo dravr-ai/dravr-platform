@@ -402,16 +402,14 @@ impl NotificationService {
             notification_type: dispatch.event.wire().to_owned(),
             title: text.title,
             body: text.body,
-            data: events::stamp_data(
-                Some(events::event_data(
-                    dispatch.route.clone(),
-                    dispatch.params.clone(),
-                )),
-                dispatch.transport_policy,
-            ),
+            data: Some(events::event_data(
+                dispatch.route.clone(),
+                dispatch.params.clone(),
+            )),
             image_url: None,
             actions,
             bypass_frequency_cap: dispatch.bypass_frequency_cap,
+            transport_policy: events::push_policy(dispatch.transport_policy),
         };
         self.route(&request, tier, fan_out).await
     }
@@ -502,18 +500,18 @@ impl NotificationService {
         tier: PushTier,
         fan_out: ChannelFanOut,
     ) -> CommereResult<Delivery> {
-        // The stored row carries the stamp of what it was derived from: the
-        // caller's, tightened to the derivation this dispatch runs in. The
-        // upstream pipeline reads the same stamp to keep a stamped push off
-        // every device an external caller registered (carnet#789).
-        let caller_policy = events::data_transport_policy(request.data.as_ref());
+        // The stored row carries the restriction of what it was derived from:
+        // the caller's, tightened to the derivation this dispatch runs in. The
+        // upstream pipeline reads the same typed field to keep a restricted
+        // push off every device an external caller registered (carnet#789).
+        let caller_policy = events::notification_policy(request.transport_policy);
         let policy = caller_policy.strictest(self.derived_policy());
         let stamped;
         let request = if policy == caller_policy {
             request
         } else {
             stamped = DispatchRequest {
-                data: events::stamp_data(request.data.clone(), policy),
+                transport_policy: events::push_policy(policy),
                 ..request.clone()
             };
             &stamped
@@ -572,6 +570,7 @@ impl NotificationService {
             data: Some(data),
             image_url: request.image_url.clone(),
             actions: request.actions.clone(),
+            transport_policy: request.transport_policy,
         };
         let notification = self.inner.create_notification(&params).await?;
         info!(

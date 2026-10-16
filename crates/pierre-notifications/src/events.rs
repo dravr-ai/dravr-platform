@@ -24,8 +24,9 @@ use serde_json::{json, Map, Value};
 
 use uuid::Uuid;
 
-use crate::constants::FIRST_PARTY_ONLY_DATA_KEY;
-use crate::models::{is_first_party_only, NotificationActionType, NotificationCategory};
+use crate::models::{
+    NotificationActionType, NotificationCategory, TransportPolicy as PushTransportPolicy,
+};
 use crate::TenantId;
 
 /// Key under a notification's `data` object holding the event's parameters.
@@ -300,40 +301,29 @@ pub fn action_label_key(id: &str) -> Option<&'static str> {
     }
 }
 
-/// `data` stamped with `policy`.
+/// The push restriction `dravr-commere` routes a notification by, for a
+/// platform [`TransportPolicy`].
 ///
 /// A notification derived from data whose terms keep it on Dravr's own
-/// surfaces (carnet#769) carries [`FIRST_PARTY_ONLY_DATA_KEY`] set to `true`
-/// in its own `data` object, the key `dravr-commere` reads to push it only to
-/// devices Dravr's own app registered (carnet#789). Anything else is returned
-/// as it was. A non-object payload is kept under `"payload"`, the way the
-/// persona gate keeps one.
+/// surfaces (carnet#769) is pushed only to devices Dravr's own app registered
+/// (carnet#789). The restriction is the notification's own typed field, stored
+/// in its `first_party_only` column; its `data` carries the deep link alone.
 #[must_use]
-pub fn stamp_data(data: Option<Value>, policy: TransportPolicy) -> Option<Value> {
-    if !policy.is_first_party_only() {
-        return data;
+pub const fn push_policy(policy: TransportPolicy) -> PushTransportPolicy {
+    match policy {
+        TransportPolicy::FirstPartyOnly => PushTransportPolicy::FirstPartyOnly,
+        TransportPolicy::AnyTransport => PushTransportPolicy::AnyTransport,
     }
-    let mut object = match data {
-        Some(Value::Object(map)) => map,
-        Some(other) => {
-            let mut map = Map::new();
-            map.insert("payload".to_owned(), other);
-            map
-        }
-        None => Map::new(),
-    };
-    object.insert(FIRST_PARTY_ONLY_DATA_KEY.to_owned(), Value::Bool(true));
-    Some(Value::Object(object))
 }
 
-/// The stamp a stored notification's `data` carries.
-///
-/// It is the reading `dravr-commere`'s push routing applies, so the feed and
-/// the push agree on which rows are stamped. A row written before stamping
-/// existed reads as unstamped.
+/// The platform [`TransportPolicy`] a stored notification's push restriction
+/// names, so the feed and the push agree on which rows are restricted.
 #[must_use]
-pub fn data_transport_policy(data: Option<&Value>) -> TransportPolicy {
-    TransportPolicy::from_first_party_only(is_first_party_only(data))
+pub const fn notification_policy(policy: PushTransportPolicy) -> TransportPolicy {
+    match policy {
+        PushTransportPolicy::FirstPartyOnly => TransportPolicy::FirstPartyOnly,
+        PushTransportPolicy::AnyTransport => TransportPolicy::AnyTransport,
+    }
 }
 
 /// Merge an event's parameters into its deep-link routing payload, producing
@@ -444,40 +434,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_first_party_only_stamp_rides_in_the_data_and_reads_back() {
-        let route = json!({ "screen": "coach", "id": "c1" });
-        let stamped = stamp_data(Some(route.clone()), TransportPolicy::FirstPartyOnly);
-        assert_eq!(
-            data_transport_policy(stamped.as_ref()),
-            TransportPolicy::FirstPartyOnly
-        );
-        assert_eq!(
-            stamped.as_ref().and_then(|d| d.get("screen")),
-            Some(&json!("coach")),
-            "the routing payload is kept"
-        );
-
-        let unstamped = stamp_data(Some(route.clone()), TransportPolicy::AnyTransport);
-        assert_eq!(unstamped, Some(route), "an open row is left as it was");
-        assert_eq!(
-            data_transport_policy(unstamped.as_ref()),
-            TransportPolicy::AnyTransport
-        );
-
-        let from_nothing = stamp_data(None, TransportPolicy::FirstPartyOnly);
-        assert_eq!(
-            from_nothing,
-            Some(json!({ FIRST_PARTY_ONLY_DATA_KEY: true }))
-        );
-        let from_scalar = stamp_data(Some(json!(7)), TransportPolicy::FirstPartyOnly);
-        assert_eq!(
-            from_scalar,
-            Some(json!({ "payload": 7, FIRST_PARTY_ONLY_DATA_KEY: true }))
-        );
-        assert_eq!(
-            data_transport_policy(None),
+    fn a_push_restriction_round_trips_between_the_platform_and_commere() {
+        for policy in [
+            TransportPolicy::FirstPartyOnly,
             TransportPolicy::AnyTransport,
-            "a row written before stamping is unstamped"
+        ] {
+            assert_eq!(notification_policy(push_policy(policy)), policy);
+        }
+        assert_eq!(
+            push_policy(TransportPolicy::FirstPartyOnly),
+            PushTransportPolicy::FirstPartyOnly
+        );
+        assert_eq!(
+            push_policy(TransportPolicy::AnyTransport),
+            PushTransportPolicy::AnyTransport
         );
     }
 }

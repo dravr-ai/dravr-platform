@@ -23,15 +23,19 @@ import {
   volumeMetric,
   volumeSports,
   weekTotals,
-  type VolumeMetric,
   type VolumeTotals,
 } from '@pierre/domain-utils';
-import { formatElevation, type DistanceUnit } from '@pierre/chat-utils';
-import { useDistanceUnit } from '@pierre/ui-logic';
+import { formatElevation } from '@pierre/chat-utils';
+import {
+  civilShortDate,
+  formatActivityDistance,
+  sportLabel,
+  useDistanceUnit,
+  volumeMetricText,
+} from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section, TextTabs } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
-import { civilShortDate, rowDistance, sportLabel, type Translate } from './homeFormat';
 
 /** The chart's height, in points. Its width is the column's, measured. */
 const CHART_HEIGHT = 72;
@@ -48,17 +52,12 @@ interface HomeVolumeProps {
   onRetry: () => void;
 }
 
-/** A week's figure for the metric the bars stand for, in the reader's notation and units. */
-function metricText(t: Translate, metric: VolumeMetric, value: number, language: string, unit: DistanceUnit): string {
-  return metric === 'distance' ? rowDistance(value, unit, language) : formatDuration(t, weekMinutesSeconds(value));
-}
-
 /** This week's three figures and its session count, for the selected sport or all of them. */
 function ThisWeek({ totals }: { totals: VolumeTotals }) {
   const { t, language } = useTranslation();
   const unit = useDistanceUnit();
   const figures = [
-    { key: 'distance', label: t(TRAINING_VOLUME_KEY.distance), value: rowDistance(totals.distance_meters, unit, language) },
+    { key: 'distance', label: t(TRAINING_VOLUME_KEY.distance), value: formatActivityDistance(totals.distance_meters, unit, language) },
     { key: 'time', label: t(TRAINING_VOLUME_KEY.time), value: formatDuration(t, weekMinutesSeconds(totals.duration_seconds)) },
     {
       key: 'elevation',
@@ -137,8 +136,8 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
         accessibilityLabel={t(TRAINING_VOLUME_KEY.chartAlt, {
           label,
           from: civilShortDate(starts[0], language),
-          first: metricText(t, metric, values[0], language, unit),
-          last: metricText(t, metric, values[last], language, unit),
+          first: volumeMetricText(t, metric, values[0], language, unit),
+          last: volumeMetricText(t, metric, values[last], language, unit),
         })}
         testID="home-volume-trend"
       >
@@ -175,7 +174,7 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
       <Text className="mt-2 text-xs text-text-secondary" testID="home-volume-readout">
         {t(TRAINING_VOLUME_KEY.weekReadout, {
           date: civilShortDate(starts[shown], language),
-          value: metricText(t, metric, values[shown], language, unit),
+          value: volumeMetricText(t, metric, values[shown], language, unit),
         })}
       </Text>
     </View>

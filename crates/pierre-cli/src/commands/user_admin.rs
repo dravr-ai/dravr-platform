@@ -252,11 +252,11 @@ pub struct DisconnectArgs {
     pub provider: String,
 
     /// Server base URL (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_SERVER")]
     pub server: Option<String>,
 
     /// Admin token (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 }
 
@@ -277,11 +277,11 @@ pub struct DeleteArgs {
     pub yes: bool,
 
     /// Server base URL (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_SERVER")]
     pub server: Option<String>,
 
     /// Admin token (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 }
 
@@ -307,11 +307,11 @@ pub struct ResetOnboardingArgs {
     pub yes: bool,
 
     /// Server base URL (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_SERVER")]
     pub server: Option<String>,
 
     /// Admin token (defaults to the cached login)
-    #[arg(long)]
+    #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 }
 

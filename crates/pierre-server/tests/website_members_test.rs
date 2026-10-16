@@ -15,7 +15,8 @@
 mod common;
 mod helpers;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 use anyhow::Result;
 use common::create_test_server_resources;
@@ -29,11 +30,24 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_services::link_token::generate_link_token;
 use serde_json::{json, Value};
 use serial_test::serial;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
-/// The admin-token mount, as the composition root builds it.
+/// The work the send route leaves running after it answers, shared by every
+/// router this file builds; the tests are serial, so one tracker serves them.
+static SENDS: LazyLock<TaskTracker> = LazyLock::new(TaskTracker::new);
+
+/// Wait until every link send a request started has finished.
+async fn sends_settled() {
+    SENDS.close();
+    SENDS.wait().await;
+    SENDS.reopen();
+}
+
+/// The admin-token mount, as the composition root builds it, its background
+/// work on [`SENDS`].
 fn website_api(resources: &Arc<ServerContext>) -> axum::Router {
-    AdminRoutes::routes(AdminApiContext::new(AdminApiContextInit {
+    let mut context = AdminApiContext::new(AdminApiContextInit {
         database: resources.agent.database.clone(),
         repos: resources.common.repos.clone(),
         jwt_secret: resources.auth.admin_jwt_secret.to_string(),
@@ -51,7 +65,9 @@ fn website_api(resources: &Arc<ServerContext>) -> axum::Router {
         training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
         contremaitre_config: None,
         app_behavior: resources.common.config.app_behavior.clone(),
-    }))
+    });
+    context.background = SENDS.clone();
+    AdminRoutes::routes(context)
 }
 
 /// `"Bearer <jwt>"` for a fresh service token holding `permissions`.
@@ -106,6 +122,9 @@ async fn post(
         .json(body)
         .send(website_api(resources))
         .await;
+    // The send route answers before it mints; what a test reads back is what
+    // the request did once its work has finished.
+    sends_settled().await;
     let status = response.status();
     let text = response.text();
     let json = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -336,6 +355,76 @@ async fn an_account_gets_at_most_five_links_an_hour() -> Result<()> {
         token_rows(&resources, active.id).await,
         5,
         "the sixth request in the hour minted nothing"
+    );
+    Ok(())
+}
+
+/// Make every sign-in token write take a second or more, standing in for the
+/// work an active account costs and an unknown address does not.
+async fn slow_token_writes(resources: &Arc<ServerContext>) {
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            // SQLite cannot sleep, and a trigger body takes no CTE: a cross
+            // join over the schema table spends the time instead.
+            sqlx::query(
+                "CREATE TRIGGER slow_website_token BEFORE INSERT ON website_sign_in_tokens \
+                 BEGIN SELECT count(*) FROM sqlite_schema a, sqlite_schema b, sqlite_schema c \
+                 WHERE c.rowid <= 3; END",
+            )
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(
+                "CREATE FUNCTION slow_website_token() RETURNS trigger LANGUAGE plpgsql \
+                 AS $$ BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$",
+            )
+            .execute(db.pool())
+            .await
+            .unwrap();
+            sqlx::query(
+                "CREATE TRIGGER slow_website_token BEFORE INSERT ON website_sign_in_tokens \
+                 FOR EACH ROW EXECUTE FUNCTION slow_website_token()",
+            )
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+    }
+}
+
+/// The answer leaves before the address is looked up (carnet#913): an active
+/// account's mint and mail run after the route has answered, so the response
+/// time is the same for an address with an account and one without.
+#[tokio::test]
+#[serial]
+async fn the_answer_leaves_before_the_link_is_minted() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let token = website_token(&resources).await;
+    let active = account(&resources, "timing@example.com", UserStatus::Active).await;
+    slow_token_writes(&resources).await;
+
+    let started = Instant::now();
+    let response = AxumTestRequest::post("/admin/website/sign-in-link")
+        .header("authorization", &token)
+        .json(&json!({ "email": active.email, "next": "/docs", "lang": "en" }))
+        .send(website_api(&resources))
+        .await;
+    let answered_in = started.elapsed();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        SENDS.len(),
+        1,
+        "the link is still being minted when the answer leaves (answered in {answered_in:?})"
+    );
+    sends_settled().await;
+    assert_eq!(
+        token_rows(&resources, active.id).await,
+        1,
+        "the link is minted once the route has answered"
     );
     Ok(())
 }

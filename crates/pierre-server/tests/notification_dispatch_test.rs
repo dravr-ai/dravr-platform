@@ -24,6 +24,7 @@ mod dispatch_tests {
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{
         CreateNotificationParams, Notification, NotificationCategory,
         UpsertNotificationPreferenceParams,
@@ -124,6 +125,7 @@ mod dispatch_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: PushTransportPolicy::AnyTransport,
         }
     }
 
@@ -354,6 +356,7 @@ mod dispatch_tests {
                     data: None,
                     image_url: None,
                     actions: None,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();
@@ -479,6 +482,7 @@ mod dispatch_tests {
                     data: None,
                     image_url: None,
                     actions: None,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();
@@ -496,6 +500,7 @@ mod dispatch_tests {
                 data: None,
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -1075,6 +1080,7 @@ mod dispatch_tests {
                 data: None,
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -1091,6 +1097,7 @@ mod dispatch_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: PushTransportPolicy::AnyTransport,
         };
         let regular_outcome = service
             .dispatch_with_tier(&regular_request, PushTier::P1)
@@ -1116,6 +1123,7 @@ mod dispatch_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: true,
+            transport_policy: PushTransportPolicy::AnyTransport,
         };
         let bypass_outcome = service
             .dispatch_with_tier(&bypass_request, PushTier::P1)
@@ -1177,6 +1185,7 @@ mod dispatch_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: true,
+            transport_policy: PushTransportPolicy::AnyTransport,
         };
         let outcome = service
             .dispatch_with_tier(&request, PushTier::P1)
@@ -1236,6 +1245,7 @@ mod dispatch_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: true,
+            transport_policy: PushTransportPolicy::AnyTransport,
         };
         let outcome = service
             .dispatch_with_tier(&request, PushTier::P1)
@@ -1295,6 +1305,7 @@ mod dispatch_tests {
                 data: None,
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

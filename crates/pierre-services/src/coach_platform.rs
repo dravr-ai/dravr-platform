@@ -44,7 +44,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 #[cfg(doc)]
 use pierre_providers::spi::ProviderCapabilities;
-use pierre_providers::{CredentialKind, OAuth2Credentials};
+use pierre_providers::{credential_kind, CredentialKind, OAuth2Credentials};
 use uuid::Uuid;
 
 use crate::delegation_refusal::Refusal;
@@ -248,17 +248,15 @@ impl CoachPlatform for IntervalsIcuPlatform {
             .provider_user_id
             .as_deref()
             .filter(|id| !id.is_empty())?;
-        (CredentialKind::from_token_type(&token.token_type) == CredentialKind::ApiKey).then(|| {
-            OAuth2Credentials {
-                client_id: athlete_id.to_owned(),
-                client_secret: String::new(),
-                access_token: Some(token.access_token.clone()),
-                refresh_token: None,
-                expires_at: None,
-                scopes: vec![],
-                kind: CredentialKind::ApiKey,
-                request_budget: None,
-            }
+        (credential_kind(&token.token_type) == CredentialKind::ApiKey).then(|| OAuth2Credentials {
+            client_id: athlete_id.to_owned(),
+            client_secret: String::new(),
+            access_token: Some(token.access_token.clone()),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+            kind: CredentialKind::ApiKey,
+            request_budget: None,
         })
     }
 
@@ -345,7 +343,7 @@ fn stored_credentials(token: &UserOAuthToken) -> OAuth2Credentials {
         refresh_token: None,
         expires_at: token.expires_at,
         scopes: vec![],
-        kind: CredentialKind::from_token_type(&token.token_type),
+        kind: credential_kind(&token.token_type),
         request_budget: None,
     }
 }

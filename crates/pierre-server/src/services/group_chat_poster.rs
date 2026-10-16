@@ -46,7 +46,7 @@ use pierre_routes_groups::GroupChatPoster;
 use pierre_services::messaging_broadcast::proactive_rich_text;
 use tracing::{info, warn};
 
-use crate::services::backfill_notifier::{config_adapter_resolver, AdapterResolver};
+use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out};
 
 /// Posts into a group's bound chat through the tenant's channel adapter.

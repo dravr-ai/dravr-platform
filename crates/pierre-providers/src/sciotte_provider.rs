@@ -12,6 +12,7 @@
 //! and forwards it to the service on each fetch, which scrapes the fitness
 //! platform (Strava, Garmin Connect, etc.) and returns activities.
 
+use crate::models::StatsCoverage;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_sciotte::client::SciotteClient;
@@ -892,6 +893,7 @@ impl FitnessProvider for SciotteProvider {
             total_distance,
             total_duration,
             total_elevation_gain: total_elevation,
+            coverage: StatsCoverage::recent(&activities),
             year_to_date: None,
         })
     }

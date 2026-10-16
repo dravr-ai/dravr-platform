@@ -95,7 +95,7 @@ export function ActivitySketch({ activity }: { activity: HomeActivity }) {
     [polyline],
   );
   const needsRoute = decoded === null && activity.has_gps;
-  const { route } = useActivityRoute(activity.provider, activity.id, needsRoute, { burst: true });
+  const route = useActivityRoute(activity.provider, activity.id, needsRoute, { burst: true }).data?.route ?? null;
   const points = decoded ?? route?.coordinates ?? NO_POINTS;
 
   return <RouteSketch points={points} testID={`home-activity-sketch-${activity.provider}-${activity.id}`} />;

@@ -5,14 +5,25 @@
 // ABOUTME: Changes chrome language and the agent's reply language in one call
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSwitcherCore, type LanguageSwitcherOptions, type LanguageSwitcherResult } from './switcherCore';
+import {
+  forgetStoredLanguageChoice,
+  useSwitcherCore,
+  type LanguageSwitcherOptions,
+  type LanguageSwitcherResult,
+} from './switcherCore';
 
 // Module-level so the identity is stable across renders — the restore effect
 // takes the storage object as a dependency.
 const nativeLocaleStorage = {
   read: (key: string): Promise<string | null> => AsyncStorage.getItem(key),
   write: (key: string, value: string): Promise<void> => AsyncStorage.setItem(key, value),
+  remove: (key: string): Promise<void> => AsyncStorage.removeItem(key),
 };
+
+/** Forget the language chosen on this phone; the mobile sign-out calls it (see `forgetStoredLanguageChoice`). */
+export function forgetLanguageChoiceNative(): Promise<void> {
+  return forgetStoredLanguageChoice(nativeLocaleStorage);
+}
 
 /**
  * Manage the mobile app's language.

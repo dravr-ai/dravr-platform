@@ -4,8 +4,8 @@
 // ABOUTME: The web client's binding of the shared group hooks — its groups API and its read freshness
 // ABOUTME: The hooks themselves live in @pierre/ui-logic, one definition for web and mobile
 
-import { createGroupHooks, type GroupFreshness } from '@pierre/ui-logic';
-import { groupsApi } from '../services/api';
+import { createCoachGroupSetupHook, createGroupHooks, type GroupFreshness } from '@pierre/ui-logic';
+import { chatApi, groupsApi } from '../services/api';
 
 /** The web client's freshness for the group reads the two clients set differently. */
 const WEB_GROUP_FRESHNESS: GroupFreshness = {
@@ -39,3 +39,18 @@ export const {
   useConfirmDelegatedConnection,
   useEndDelegatedConnection,
 } = createGroupHooks(groupsApi, WEB_GROUP_FRESHNESS);
+
+/**
+ * The coach's onboarding group setup: the group, its thread and the athlete
+ * invite. The APIs are reached when the setup runs, so importing it touches
+ * no client.
+ */
+export const useCoachGroupSetup = createCoachGroupSetupHook({
+  groupsApi: {
+    createGroup: (request) => groupsApi.createGroup(request),
+    createInvite: (groupId, request) => groupsApi.createInvite(groupId, request),
+  },
+  chatApi: {
+    createConversation: (options) => chatApi.createConversation(options),
+  },
+});

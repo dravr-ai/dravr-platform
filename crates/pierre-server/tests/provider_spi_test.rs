@@ -19,8 +19,6 @@ use pierre_providers::ProviderDescriptor;
 use pierre_providers::StravaDescriptor;
 
 #[cfg(feature = "provider-garmin")]
-use pierre_providers::spi::RefreshClientAuth;
-#[cfg(feature = "provider-garmin")]
 use pierre_providers::GarminDescriptor;
 
 #[cfg(feature = "provider-whoop")]
@@ -99,11 +97,10 @@ fn test_garmin_oauth_params() {
         assert!(params.additional_auth_params.is_empty());
     }
 
-    // Garmin's refresh grant: the client in the form body, no other field.
+    // Garmin's refresh grant: no field beyond the standard ones.
     let refresh = desc
         .oauth_refresh()
         .expect("Garmin declares its refresh grant");
-    assert_eq!(refresh.client_auth, RefreshClientAuth::RequestBody);
     assert!(refresh.extra_form.is_empty());
     assert!(
         desc.owner_id_from_api(),

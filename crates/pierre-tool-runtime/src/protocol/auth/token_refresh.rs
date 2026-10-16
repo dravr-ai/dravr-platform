@@ -98,8 +98,10 @@ static REFRESHES_IN_FLIGHT: LazyLock<SingleFlight<Connection, RefreshOutcome>> =
 /// another instance's flight, and at the next expiry when it is a provider
 /// client, whose write-back stores the pair and no status. A winner that never
 /// writes at all (its process died, or its caller was dropped inside a
-/// provider client's own refresh, which is not spawned) is not a slow winner
-/// but a lost pair, and no window recovers it: the refusal is then the truth.
+/// provider client's own refresh that is not spawned; Wahoo's is) is not a
+/// slow winner but a lost pair, and no window recovers it: the refusal is then
+/// the truth. That is why a provider whose refusal reads as a revocation is
+/// disconnected only on a second refusal, never on the first.
 const WINNER_WINDOW: [Duration; 3] = [
     Duration::from_millis(250),
     Duration::from_millis(500),
@@ -111,7 +113,7 @@ const WINNER_WINDOW: [Duration; 3] = [
 struct RefreshPlan<'a> {
     /// The provider's registered slug.
     provider: &'a str,
-    /// Client authentication and extra form fields, as the descriptor declares.
+    /// The extra form fields, as the descriptor declares them.
     grant: OAuthRefresh,
     token_url: &'a str,
     refresh_token: &'a str,
@@ -442,7 +444,10 @@ impl AuthService {
     /// stored meanwhile is returned, and the refusal of what it replaced is no
     /// verdict on it. Only over a row still as it was read does the user have
     /// to reconnect: the connection flips to `needs_reauth`, guarded once more
-    /// on `stored` being its token as read.
+    /// on `stored` being its token as read. A refusal over a connection an
+    /// earlier refusal already flipped is the confirmation a provider whose
+    /// refusal is a revocation waits for before disconnecting
+    /// ([`Self::disconnect_if_refusal_revokes`]).
     async fn refresh_failed(
         &self,
         user_id: Uuid,
@@ -471,7 +476,8 @@ impl AuthService {
         }
         if self.flip_to_needs_reauth(stored, error_code).await {
             notify_needs_reauth(&self.resources, user_id, tenant, provider).await;
-            self.disconnect_if_refusal_revokes(user_id, tenant, provider)
+        } else {
+            self.disconnect_if_refusal_revokes(user_id, tenant, provider, stored)
                 .await;
         }
         // The flip is guarded on the row: one that changed between the last
@@ -619,19 +625,44 @@ impl AuthService {
     /// Only for a provider whose descriptor says a refused refresh is one
     /// ([`refused_refresh_is_revocation`]): with no deauthorization notice,
     /// that refusal is the only word the athlete withdrew the grant (Wahoo),
-    /// and the provider's terms require their data deleted when they do. Runs
-    /// once, on the refusal that flipped the connection, so a row a reconnect
-    /// replaced is never touched. Best-effort, like the flip: a failure is
-    /// logged and the athlete's request goes on.
+    /// and the provider's terms require their data deleted when they do.
+    ///
+    /// One refusal is not that word: a refresh token Dravr lost (a rotated
+    /// pair never written back) or a winner slower than [`WINNER_WINDOW`] is
+    /// refused exactly as a revoked grant is. The first refusal only flips the
+    /// connection to `needs_reauth` and tells the athlete; this runs on a
+    /// later refusal, over a connection that refusal left flagged and a token
+    /// row still as `stored` read it. A winner that landed since replaced the
+    /// row, and a reconnect re-armed the connection, so neither is touched.
+    /// Best-effort, like the flip: a failure is logged and the athlete's
+    /// request goes on.
     ///
     /// [`refused_refresh_is_revocation`]: pierre_providers::spi::ProviderDescriptor::refused_refresh_is_revocation
-    async fn disconnect_if_refusal_revokes(&self, user_id: Uuid, tenant: TenantId, provider: &str) {
+    async fn disconnect_if_refusal_revokes(
+        &self,
+        user_id: Uuid,
+        tenant: TenantId,
+        provider: &str,
+        stored: &UserOAuthToken,
+    ) {
         let revokes = self
             .resources
             .provider_registry()
             .get_descriptor(provider)
             .is_some_and(ProviderDescriptor::refused_refresh_is_revocation);
         if !revokes {
+            return;
+        }
+        let flagged = self
+            .connection_flagged(user_id, tenant, provider)
+            .await
+            .unwrap_or(false);
+        let unchanged = matches!(
+            self.superseding_token(user_id, tenant, provider, stored)
+                .await,
+            Ok(None)
+        );
+        if !(flagged && unchanged) {
             return;
         }
         let service = OAuthService::new(self.resources.data(), self.resources.config().clone());
@@ -710,7 +741,7 @@ impl AuthService {
             .map_err(OAuthError::TokenRefreshFailed)?;
 
         // The same refresh the provider's own client sends, through the one
-        // refresh shell: its vendor's client authentication and extra fields.
+        // refresh shell: its vendor's extra fields.
         let refreshed = refresh_oauth_token(
             api_client(),
             &RefreshRequest::described(

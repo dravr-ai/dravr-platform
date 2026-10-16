@@ -49,7 +49,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::NotificationScreen;
 use pierre_core::models::{ReauthMark, TenantId};
 #[cfg(feature = "client-notifications")]
-use pierre_notifications::models::NotificationCategory;
+use pierre_notifications::models::{NotificationCategory, TransportPolicy as PushTransportPolicy};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId as CommTenantId};
 #[cfg(feature = "client-notifications")]
@@ -252,6 +252,7 @@ async fn suppressed_in_app(
         image_url: None,
         actions: None,
         bypass_frequency_cap: false,
+        transport_policy: PushTransportPolicy::AnyTransport,
     };
     match service
         .dispatch_in_app_with_tier(&request, PushTier::P1)

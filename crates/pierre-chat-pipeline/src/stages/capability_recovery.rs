@@ -46,10 +46,11 @@ use super::claim_density::{
     previous_reply_asserted_athlete_facts, previous_reply_asserted_unsupplied_facts,
 };
 use super::peer_grounding::{
-    fetch_peer_activities_outcome, mentioned_peers, PeerMention, PEER_FETCH_TOOL,
-    PEER_GROUNDING_LEAD,
+    fetch_peer_activities_outcome, mentioned_peers, PeerGroundingBlock, PeerMention,
+    PEER_FETCH_TOOL,
 };
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use super::turn_evidence::collect_turn_evidence;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
@@ -142,6 +143,9 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// Group roster snapshots (empty outside a group conversation), matched
     /// against the reply to catch unverified claims about a named peer.
     pub peer_roster: &'a [MemberFitnessSnapshot],
+    /// The peer blocks the grounding stage injected this turn — the
+    /// platform's own record, never a match on the messages' text.
+    pub peer_blocks: &'a [PeerGroundingBlock],
     /// The turn's resolved locale, so a repair completion is told which
     /// language to write in rather than left to infer it from a request whose
     /// last message this stage wrote in English.
@@ -480,7 +484,7 @@ fn recovery_trigger(
     if narration::is_degenerate_reply(&result.content)
         && (result.tool_calls_count > 0
             || turn_carries_activity_block(deps.llm_messages)
-            || turn_carries_peer_block(deps.llm_messages))
+            || !deps.peer_blocks.is_empty())
     {
         return Some(RecoveryTrigger::DegenerateReply);
     }
@@ -564,17 +568,6 @@ pub(crate) fn turn_carries_activity_block(llm_messages: &[ChatMessage]) -> bool 
     llm_messages.iter().any(|m| {
         m.content.contains(STARTUP_GROUNDING_LEAD) || m.content.contains(REFRESH_GROUNDING_LEAD)
     })
-}
-
-/// Whether the peer-grounding stage put a roster member's activities in this
-/// turn's messages. Counts as "data was injected" for the degenerate-reply
-/// gate only: a turn that has a PEER's rows and none of the requester's is
-/// still ungrounded on the requester's side, so it never exempts the
-/// ungrounded-ask trigger.
-fn turn_carries_peer_block(llm_messages: &[ChatMessage]) -> bool {
-    llm_messages
-        .iter()
-        .any(|m| m.content.contains(PEER_GROUNDING_LEAD))
 }
 
 /// What one verification fetch concluded about the model's claim.
@@ -722,17 +715,6 @@ pub(super) fn repair_messages(
 // ════════════════════════════════════════════════════════════════════════
 // Peer-claim verification (the checking half of the fabrication gate)
 // ════════════════════════════════════════════════════════════════════════
-
-/// Cap on the evidence text handed to the claim verifier.
-const EVIDENCE_CHAR_CAP: usize = 12_000;
-
-/// Header of the injected group roster section inside the system prompt; the
-/// slice starting here carries the member snapshot rows the verifier may
-/// treat as evidence.
-const GROUP_CONTEXT_HEADER: &str = "Group Coaching Context";
-
-/// How much of the system prompt's group section counts as evidence.
-const GROUP_CONTEXT_SLICE_CAP: usize = 4_000;
 
 /// Build the repair prompt for one peer re-ask.
 ///
@@ -1004,41 +986,6 @@ fn turn_evidence_with(llm_messages: &[ChatMessage], extra: &str) -> String {
         evidence.push_str(extra);
     }
     evidence
-}
-
-/// This turn's evidence: every tool-result or platform-injected data block in
-/// the message list, plus the group roster section of the system prompt.
-pub(super) fn collect_turn_evidence(llm_messages: &[ChatMessage]) -> String {
-    let mut evidence = String::new();
-    for message in llm_messages {
-        let content = &message.content;
-        if message.role.as_str() == "system" {
-            if let Some(at) = content.find(GROUP_CONTEXT_HEADER) {
-                let slice = &content[at..];
-                evidence.push_str(truncate_chars(slice, GROUP_CONTEXT_SLICE_CAP));
-                evidence.push('\n');
-            }
-            continue;
-        }
-        if content.contains("[Tool Result for ")
-            || content.contains(STARTUP_GROUNDING_LEAD)
-            || content.contains(REFRESH_GROUNDING_LEAD)
-            || content.contains(PEER_GROUNDING_LEAD)
-        {
-            evidence.push_str(content);
-            evidence.push('\n');
-        }
-    }
-    truncate_chars(&evidence, EVIDENCE_CHAR_CAP).to_owned()
-}
-
-/// The longest prefix of `s` holding at most `cap` characters, cut on a char
-/// boundary.
-fn truncate_chars(s: &str, cap: usize) -> &str {
-    match s.char_indices().nth(cap) {
-        Some((at, _)) => &s[..at],
-        None => s,
-    }
 }
 
 /// Ask the verifier model which claims about `peer` the evidence fails to

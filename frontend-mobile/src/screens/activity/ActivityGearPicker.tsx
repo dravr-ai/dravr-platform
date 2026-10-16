@@ -9,13 +9,18 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError, formatGearDistance, gearChoices, useDistanceUnit } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  formatGearDistance,
+  gearChoices,
+  sportLabel,
+  useDistanceUnit,
+} from '@pierre/ui-logic';
 import { EmptyState, Row, Sheet } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useActivityGear, useGearLedger } from '../../hooks/useGear';
 import { GEAR_ROUTE } from '../../navigation/routes';
 import { GearWarning } from '../settings/GearWarning';
-import { sportLabel } from '../home/homeFormat';
 
 interface ActivityGearPickerProps {
   /** The activity as the screen was opened on it: the choice is recorded on this copy. */

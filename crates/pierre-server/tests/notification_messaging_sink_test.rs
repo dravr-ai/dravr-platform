@@ -36,6 +36,7 @@ mod sink_tests {
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_database::backends::{CreateChannelLinkParams, UpsertChannelConfigParams};
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
     use pierre_notifications::{
         DispatchOutcome, DispatchRequest, EventDispatch, NotificationChannelSink,
@@ -87,6 +88,7 @@ mod sink_tests {
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: PushTransportPolicy::AnyTransport,
         }
     }
 

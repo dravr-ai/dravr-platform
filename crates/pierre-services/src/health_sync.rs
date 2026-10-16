@@ -11,9 +11,7 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
-use dravr_enforme::models::connection::{
-    ConnectedUser, CredentialKind as EnformeCredentialKind, ProviderCredentials,
-};
+use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
 use dravr_enforme::models::cursor::SyncCursor;
 use dravr_enforme::models::deletion::DeletionPolicy;
 use dravr_enforme::providers::build_provider_registry_with_reader;
@@ -34,8 +32,8 @@ use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
+use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
-use pierre_providers::CredentialKind;
 use tracing::info;
 use uuid::Uuid;
 
@@ -245,19 +243,28 @@ impl PierreSyncStorage {
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     /// The scrape-backed providers read their daily summaries on the dedicated
     /// sciotte service (ADR-021): no browser runs in this pod.
-    #[must_use]
-    pub fn build_orchestrator(self: &Arc<Self>) -> Arc<dravr_enforme::SyncOrchestrator> {
+    ///
+    /// # Errors
+    ///
+    /// When a provider's HTTP client cannot be built: enforme bounds every
+    /// vendor call with timeouts and never builds an untimed client instead.
+    pub fn build_orchestrator(
+        self: &Arc<Self>,
+    ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader);
         self.build_orchestrator_with_reader(&reader)
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
     /// providers read their daily summaries through `reader`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// When a provider's HTTP client cannot be built.
     pub fn build_orchestrator_with_reader(
         self: &Arc<Self>,
         reader: &Arc<dyn DailySummaryReader>,
-    ) -> Arc<dravr_enforme::SyncOrchestrator> {
+    ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
         let deps = Arc::new(dravr_enforme::SyncDeps {
             sleep: storage.clone(),
@@ -271,11 +278,11 @@ impl PierreSyncStorage {
         });
 
         let config = dravr_enforme::SyncConfig::from_env();
-        let providers = build_provider_registry_with_reader(reader);
+        let providers = build_provider_registry_with_reader(reader)?;
 
-        Arc::new(dravr_enforme::SyncOrchestrator::new(
+        Ok(Arc::new(dravr_enforme::SyncOrchestrator::new(
             deps, providers, config,
-        ))
+        )))
     }
 
     /// The token row that serves `provider` for this user: the row of its
@@ -602,16 +609,6 @@ pub fn request_gate(budget: RequestBudget) -> RequestGateHandle {
     RequestGateHandle(Arc::new(BudgetGate(budget)))
 }
 
-/// The enforme credential kind of a platform credential: an OAuth token goes
-/// out as a bearer, a pasted API key (intervals.icu) as HTTP Basic.
-#[must_use]
-pub const fn enforme_credential_kind(kind: CredentialKind) -> EnformeCredentialKind {
-    match kind {
-        CredentialKind::OAuthBearer => EnformeCredentialKind::OAuthBearer,
-        CredentialKind::ApiKey => EnformeCredentialKind::ApiKey,
-    }
-}
-
 #[async_trait]
 impl CredentialStore for PierreSyncStorage {
     /// LIMITATION(registre#1019): `get_credentials` resolves the athlete's own token row only,
@@ -660,7 +657,7 @@ impl CredentialStore for PierreSyncStorage {
                 user_id: t.user_id.to_string(),
                 provider: t.provider,
                 provider_user_id: t.provider_user_id,
-                kind: enforme_credential_kind(CredentialKind::from_token_type(&t.token_type)),
+                kind: credential_kind(&t.token_type),
                 // Only the refresher resolves the signing app; this stored-row
                 // read serves the startup window before it is installed.
                 request_gate: None,
@@ -833,18 +830,13 @@ fn sync_cursor_to_row(cursor: &SyncCursor, tenant_id: &TenantId) -> SyncCursorRo
 mod tests {
     use super::*;
     use pierre_core::models::API_KEY_TOKEN_TYPE;
+    use pierre_providers::CredentialKind;
 
     #[test]
     fn a_pasted_api_key_reaches_enforme_as_an_api_key() {
         // intervals.icu sends an API key as HTTP Basic and an OAuth token as a
         // bearer; the stored token_type is all that tells them apart.
-        assert_eq!(
-            enforme_credential_kind(CredentialKind::from_token_type(API_KEY_TOKEN_TYPE)),
-            EnformeCredentialKind::ApiKey
-        );
-        assert_eq!(
-            enforme_credential_kind(CredentialKind::from_token_type("Bearer")),
-            EnformeCredentialKind::OAuthBearer
-        );
+        assert_eq!(credential_kind(API_KEY_TOKEN_TYPE), CredentialKind::ApiKey);
+        assert_eq!(credential_kind("Bearer"), CredentialKind::OAuthBearer);
     }
 }

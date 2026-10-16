@@ -21,8 +21,15 @@ import { EmptyState, Sheet } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
 import { CalendarDayDetail, DayMarks } from './CalendarDayDetail';
-import { calendarCellLabel, civilMonthTitle } from './calendarFormat';
-import { civilDayOfMonth, civilLongDate, civilWeekdayNarrow } from './homeFormat';
+import {
+  calendarDayLabel,
+  civilDayOfMonth,
+  civilMonthTitle,
+  civilWeekdayLong,
+  civilWeekdayNarrow,
+  DRAFT_DATE,
+  formatCivilDate,
+} from '@pierre/ui-logic';
 
 interface HomeMonthSheetProps {
   visible: boolean;
@@ -122,7 +129,7 @@ function MonthBody({
                     onPress={() => setSelected(date)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: isSelected }}
-                    accessibilityLabel={calendarCellLabel(t, language, date, day, today)}
+                    accessibilityLabel={calendarDayLabel(t, `${civilWeekdayLong(date, language)} ${civilDayOfMonth(date)}`, day, today)}
                     className={`flex-1 items-center py-1.5 min-h-11 rounded-lg ${
                       isSelected ? 'bg-primary-container' : ''
                     } ${isToday ? 'border border-primary' : ''} ${
@@ -152,7 +159,7 @@ function MonthBody({
       ) : null}
       {answer !== null && historyStart !== null && first <= historyStart ? (
         <Text className="mt-2 text-sm text-text-secondary" testID="home-month-history-start">
-          {t('home.calendar.historyStart', { date: civilLongDate(historyStart, language) })}
+          {t('home.calendar.historyStart', { date: formatCivilDate(historyStart, language, DRAFT_DATE) })}
         </Text>
       ) : null}
       {answer !== null && answer.plan_weeks === null ? (

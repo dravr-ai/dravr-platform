@@ -126,7 +126,7 @@ async fn subscription_upserted_flips_tier_and_plan() {
 
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &event)
+    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, Utc::now(), &event)
         .await
         .expect("dispatch should succeed");
 
@@ -190,18 +190,30 @@ async fn subscription_canceled_downgrades_to_starter() {
     )));
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
-        .await
-        .unwrap();
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &upsert,
+    )
+    .await
+    .unwrap();
 
     let cancel = BillingEvent::SubscriptionCanceled {
         provider_subscription_id: subscription_id.clone(),
         canceled_at: Some(Utc::now()),
     };
 
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &cancel)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &cancel,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
     assert_eq!(user_after.tier, UserTier::Starter);
@@ -237,16 +249,28 @@ async fn payment_failed_flips_status_to_past_due() {
     )));
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
-        .await
-        .unwrap();
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &upsert,
+    )
+    .await
+    .unwrap();
 
     let payment_failed = BillingEvent::PaymentFailed {
         provider_subscription_id: subscription_id.clone(),
     };
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &payment_failed)
-        .await
-        .expect("payment_failed dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &payment_failed,
+    )
+    .await
+    .expect("payment_failed dispatch should succeed");
 
     let row = repos
         .subscriptions
@@ -304,9 +328,15 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
         "professional",
         "active",
     )));
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &overridden_event)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &overridden_event,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     // Tier unchanged (override respected) but the subscription row still landed.
     let overridden_after = repos
@@ -333,9 +363,15 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
         "professional",
         "active",
     )));
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &plain_event)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &plain_event,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     let plain_after = repos.users.get_global(plain_user).await.unwrap().unwrap();
     assert_eq!(plain_after.tier, UserTier::Professional);
@@ -380,17 +416,29 @@ async fn admin_tier_override_blocks_cancel_downgrade() {
         "professional",
         "active",
     )));
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &upsert)
-        .await
-        .unwrap();
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &upsert,
+    )
+    .await
+    .unwrap();
 
     let cancel = BillingEvent::SubscriptionCanceled {
         provider_subscription_id: subscription_id.clone(),
         canceled_at: Some(Utc::now()),
     };
-    dispatch_billing_event(&auth_repos, &usage_repos, TEST_PROVIDER, &cancel)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        TEST_PROVIDER,
+        Utc::now(),
+        &cancel,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     // Override respected — no downgrade — but the subscription is canceled.
     let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
@@ -444,6 +492,7 @@ async fn ignored_event_is_a_noop() {
         &auth_repos,
         &usage_repos,
         TEST_PROVIDER,
+        Utc::now(),
         &BillingEvent::Ignored,
     )
     .await

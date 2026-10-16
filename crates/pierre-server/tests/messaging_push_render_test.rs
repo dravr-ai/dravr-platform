@@ -35,6 +35,11 @@ use messaging_fixtures::{
     CapturingChannel, FakeResolver,
 };
 
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "test-jwt-secret";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://app.test";
+
 /// Build a cached activity with a caller-chosen `SportType` so a render test can
 /// assert the push emits the canonical display label, not the CamelCase enum
 /// token. Mirrors `messaging_fixtures::cached_activity` (same provider/duration)
@@ -114,7 +119,13 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
         channel.clone() as Arc<dyn MessagingChannel>
     ));
     // No re-entry handle → the push takes the Rust-rendered list fallback.
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // `after_ts` = 30 days ago, so the 5- and 8-day-old activities fall inside the
     // `[after_ts, now]` warmed window the notifier reads.
@@ -211,7 +222,13 @@ async fn push_empty_cache_nudge_honors_default_locale() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
@@ -354,7 +371,13 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
     notifier
         .push_backfill_complete(
             user_uuid,

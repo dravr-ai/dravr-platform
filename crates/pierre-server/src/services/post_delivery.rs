@@ -33,8 +33,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::adapter_resolver::AdapterResolver;
 use crate::services::backfill_delivery::{ChannelDelivery, ResolvedRoute};
-use crate::services::backfill_notifier::AdapterResolver;
 use crate::services::commitment_reporter::channel_allows_proactive;
 use crate::services::messaging_ingress::block_render::render_reply;
 use crate::services::messaging_ingress::fresh_title_fallback;

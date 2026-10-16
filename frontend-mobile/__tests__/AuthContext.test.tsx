@@ -8,6 +8,8 @@ import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import * as WebBrowser from 'expo-web-browser';
 import { authApi, onAuthFailure } from '../src/services/api';
 import { releasePushDevice, unregisterPushDevice } from '../src/services/pushNotifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '@pierre/i18n';
 
 // Mock the api service
 jest.mock('../src/services/api', () => ({
@@ -504,6 +506,40 @@ describe('AuthContext', () => {
       expect(authApi.logout).toHaveBeenCalled();
     });
 
+    it('forgets the language picked on this phone, and keeps the last account\'s for the login screen', async () => {
+      const mockUser = {
+        user_id: '123',
+        email: 'stored@example.com',
+        is_admin: false,
+        role: 'user',
+        user_status: 'active',
+      };
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(mockUser);
+      (authApi.logout as jest.Mock).mockResolvedValue(undefined);
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'de');
+      await AsyncStorage.setItem(`${LANGUAGE_STORAGE_KEY}_account`, 'de');
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+      await waitFor(() => {
+        expect(getByTestId('authenticated').children[0]).toBe('authenticated');
+      });
+
+      await act(async () => {
+        fireEvent.press(getByTestId('logout-btn'));
+      });
+      await waitFor(() => {
+        expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      });
+
+      expect(await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull();
+      expect(await AsyncStorage.getItem(`${LANGUAGE_STORAGE_KEY}_account`)).toBe('de');
+    });
+
     it('takes the phone off the push list before the server ends the session', async () => {
       const mockUser = {
         user_id: '123',
@@ -693,6 +729,30 @@ describe('AuthContext', () => {
 
       expect(releasePushDevice).toHaveBeenCalledTimes(1);
       expect(unregisterPushDevice).not.toHaveBeenCalled();
+    });
+
+    // A session the server refused ends like a Sign out: the next account
+    // signed in on this phone must not inherit the language picked here.
+    it('forgets the language picked on this phone when the listener fires', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'de');
+      await AsyncStorage.setItem(`${LANGUAGE_STORAGE_KEY}_account`, 'de');
+
+      render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+
+      const notifyAuthFailure = (onAuthFailure as jest.Mock).mock.calls[0][0] as () => void;
+      await act(async () => {
+        notifyAuthFailure();
+      });
+
+      await waitFor(async () => {
+        expect(await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull();
+      });
+      expect(await AsyncStorage.getItem(`${LANGUAGE_STORAGE_KEY}_account`)).toBe('de');
     });
   });
 });

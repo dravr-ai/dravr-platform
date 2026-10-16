@@ -183,20 +183,42 @@ eval "$(python3 "$SCRIPT_DIR/parse-validation-patterns.py" "$VALIDATION_PATTERNS
 
 # Anti-Pattern Detection
 # Scans of src/ that count calls legitimate in tests read production lines only:
-# prod_src_matches drops matches inside a file's trailing #[cfg(test)] module
+# prod-src-scan.sh drops matches inside a file's trailing #[cfg(test)] module
 # through .build's shared filter, the one validate.sh uses (ADR-027). The layout
 # it relies on is enforced by validate.sh, which this repo's
 # validation-patterns.local.toml opts into with enforce_layout = true.
+# These gates pass on zero lines, so a scan that crashed (rg exit >= 2, or the
+# filter failing) stops the run instead of reading as zero (carnet#927).
 TEST_MODULE_LINES="$PROJECT_ROOT/.build/validation/test-module-lines.sh"
 if [ ! -x "$TEST_MODULE_LINES" ]; then
     echo -e "${RED}❌ $TEST_MODULE_LINES missing — run: git submodule update --init --recursive${NC}"
     exit 1
 fi
+export TEST_MODULE_LINES
+PROD_SRC_SCAN="$PROJECT_ROOT/scripts/ci/prod-src-scan.sh"
 prod_src_matches() { # $1 = pattern, remaining = rg paths/flags
-    local pattern="$1"; shift
-    { rg -n --with-filename "$pattern" "$@" 2>/dev/null || true; } | "$TEST_MODULE_LINES"
+    "$PROD_SRC_SCAN" "$@"
 }
-NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
+scan_crashed() { # $1 = what the scan was looking for
+    echo -e "${RED}❌ ARCHITECTURAL VALIDATION FAILED${NC}"
+    echo -e "${RED}The $1 scan crashed, so it verified nothing${NC}"
+    exit 1
+}
+# drop_matching PATTERN: the stdin lines that do not match PATTERN. rg's exit 1
+# (every line dropped) is a clean result; anything above it is a crash.
+drop_matching() {
+    local rc=0
+    rg -v "$1" || rc=$?
+    [ "$rc" -le 1 ]
+}
+count_lines() { # $1 = text; prints how many of its lines are non-empty
+    awk 'NF { n++ } END { print n + 0 }' <<< "$1"
+}
+first_location_of() { # $1 = captured `path:line:content` matches; prints the first path:line
+    truncate_text "$(awk 'NF { print; exit }' <<< "$1" | cut -d: -f1-2)" 37
+}
+NULL_UUID_LINES=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/) || scan_crashed "NULL UUID"
+NULL_UUIDS=$(count_lines "$NULL_UUID_LINES")
 RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/mcp/resources.rs" -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 FAKE_RESOURCES=$(rg "Arc::new\(ServerResources\s*[\{\:]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" 2>/dev/null | wc -l | awk '{print $1+0}')
 OBSOLETE_FUNCTIONS=$(rg "fn.*run_http_server\(" crates/pierre-server/src/ 2>/dev/null | wc -l | awk '{print $1+0}')
@@ -209,20 +231,28 @@ ANYHOW_TYPES=$(rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/
 ANYHOW_METHODS=$(rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 # Code Quality Analysis
-PROBLEMATIC_UNWRAPS=$(prod_src_matches "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PROBLEMATIC_EXPECTS=$(prod_src_matches "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe|ServerResources.*required" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PANICS=$(prod_src_matches "panic!\(" crates/pierre-server/src/ | wc -l | tr -d ' ')
+UNWRAP_LINES=$(prod_src_matches "\.unwrap\(\)" crates/pierre-server/src/) || scan_crashed "unwrap"
+UNWRAP_LINES=$(printf '%s\n' "$UNWRAP_LINES" | drop_matching "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000") || scan_crashed "unwrap exemption"
+PROBLEMATIC_UNWRAPS=$(count_lines "$UNWRAP_LINES")
+EXPECT_LINES=$(prod_src_matches "\.expect\(" crates/pierre-server/src/) || scan_crashed "expect"
+EXPECT_LINES=$(printf '%s\n' "$EXPECT_LINES" | drop_matching "// Safe|ServerResources.*required") || scan_crashed "expect exemption"
+PROBLEMATIC_EXPECTS=$(count_lines "$EXPECT_LINES")
+PANIC_LINES=$(prod_src_matches "panic!\(" crates/pierre-server/src/) || scan_crashed "panic"
+PANICS=$(count_lines "$PANIC_LINES")
 TODOS_SRC=$(rg "TODO|FIXME|XXX" crates/pierre-server/src/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_TESTS=$(rg "TODO|FIXME|XXX" crates/pierre-server/tests/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_SDK=$(rg "TODO|FIXME|XXX" sdk/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_FRONTEND=$(rg "TODO|FIXME|XXX" frontend/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS=$((TODOS_SRC + TODOS_TESTS + TODOS_SDK + TODOS_FRONTEND))
-PRODUCTION_MOCKS=$(prod_src_matches "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+MOCK_LINES=$(prod_src_matches "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*") || scan_crashed "production mock"
+PRODUCTION_MOCKS=$(count_lines "$MOCK_LINES")
 # Magic input anti-patterns: tools that generate fake data based on special input values
 # Excludes: synthetic_provider.rs (legitimate provider), registry.rs (provider registration), spi.rs (provider interface),
 #           auth.rs (AuthService legitimately bypasses OAuth for the synthetic provider behind the provider-synthetic feature flag)
 MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" -g "!**/protocol/auth.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-PROBLEMATIC_UNDERSCORE_NAMES=$(prod_src_matches "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+UNDERSCORE_LINES=$(prod_src_matches "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/) || scan_crashed "underscore-name"
+UNDERSCORE_LINES=$(printf '%s\n' "$UNDERSCORE_LINES" | drop_matching "let _[[:space:]]*=|let _result|let _response|let _output") || scan_crashed "underscore-name exemption"
+PROBLEMATIC_UNDERSCORE_NAMES=$(count_lines "$UNDERSCORE_LINES")
 CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' -o -r '$0' --no-line-number 2>/dev/null \
     | sed -E 's/^.*#!?\[allow\(//; s/\)\].*$//' \
     | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
@@ -376,10 +406,9 @@ if [ -n "$AI_POLICY_BYPASS" ]; then
 fi
 
 # NULL UUID detection (absolute blocker)
-NULL_UUIDS=$(prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ | wc -l | tr -d ' ')
 if [ "$NULL_UUIDS" -gt 0 ]; then
     echo -e "${RED}❌ CRITICAL: Found $NULL_UUIDS null UUIDs (test/placeholder code)${NC}"
-    prod_src_matches "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/
+    printf '%s\n' "$NULL_UUID_LINES"
     fail_validation "Null UUIDs indicate incomplete implementation"
     exit 1
 fi
@@ -1231,7 +1260,7 @@ printf "│ %-35s │ %5d │ " "Problematic unwraps" "$PROBLEMATIC_UNWRAPS"
 if [ "$PROBLEMATIC_UNWRAPS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_UNWRAP=$(get_first_location 'prod_src_matches "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe"')
+    FIRST_UNWRAP=$(first_location_of "$UNWRAP_LINES")
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_UNWRAP"
     VALIDATION_FAILED=true
 fi
@@ -1240,7 +1269,7 @@ printf "│ %-35s │ %5d │ " "Problematic expects" "$PROBLEMATIC_EXPECTS"
 if [ "$PROBLEMATIC_EXPECTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_EXPECT=$(get_first_location 'prod_src_matches "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe"')
+    FIRST_EXPECT=$(first_location_of "$EXPECT_LINES")
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_EXPECT"
     VALIDATION_FAILED=true
 fi
@@ -1249,7 +1278,7 @@ printf "│ %-35s │ %5d │ " "Panic calls" "$PANICS"
 if [ "$PANICS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No panic! found"
 else
-    FIRST_PANIC=$(get_first_location 'prod_src_matches "panic!\(" crates/pierre-server/src/')
+    FIRST_PANIC=$(first_location_of "$PANIC_LINES")
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PANIC"
     VALIDATION_FAILED=true
 fi
@@ -1267,7 +1296,7 @@ printf "│ %-35s │ %5d │ " "Production mock implementations" "$PRODUCTION_M
 if [ "$PRODUCTION_MOCKS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No mock code in production"
 else
-    FIRST_MOCK=$(get_first_location 'prod_src_matches "mock_|get_mock|stub implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*"')
+    FIRST_MOCK=$(first_location_of "$MOCK_LINES")
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_MOCK"
 fi
 
@@ -1284,7 +1313,7 @@ printf "│ %-35s │ %5d │ " "Underscore-prefixed names" "$PROBLEMATIC_UNDERS
 if [ "$PROBLEMATIC_UNDERSCORE_NAMES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Good naming conventions"
 else
-    FIRST_UNDERSCORE=$(get_first_location 'prod_src_matches "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*="')
+    FIRST_UNDERSCORE=$(first_location_of "$UNDERSCORE_LINES")
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_UNDERSCORE"
 fi
 

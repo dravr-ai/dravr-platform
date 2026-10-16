@@ -16,10 +16,13 @@
 //! Version gate mirrors `notify_routing`: an unsupported `version` rejects
 //! the document and the previous snapshot stays live (last-good-wins).
 
+use dravr_contremaitre::config::NARRATION_YAML;
 use pierre_core::narration::{
     NarrationOverlayCounts, NarrationVocabOverlay, GLOBAL_NARRATION_VOCAB,
 };
 use serde::Deserialize;
+
+use crate::manifest::compute_sha256;
 
 /// Overlay document version this build understands.
 pub const NARRATION_OVERLAY_VERSION: u32 = 1;
@@ -108,6 +111,23 @@ pub fn reload_narration_vocab(
             .collect(),
     };
     GLOBAL_NARRATION_VOCAB.apply_overlay(&overlay, sha256)
+}
+
+/// Install the overlay the pinned dravr-contremaitre rev carries.
+///
+/// `config::NARRATION_YAML` is the vocabulary the scrubs and the boundary
+/// detector run on until the first sync lands, and for as long as the store
+/// is unreachable (carnet#973).
+///
+/// Recorded under the document's own SHA-256, so a sync that finds the same
+/// overlay at HEAD skips it as unchanged and a different one replaces it.
+///
+/// # Errors
+///
+/// As [`reload_narration_vocab`]: the pinned document failed to parse or
+/// validate, and the compiled-in tables alone stay live.
+pub fn install_pinned_narration_vocab() -> Result<NarrationOverlayCounts, String> {
+    reload_narration_vocab(NARRATION_YAML, compute_sha256(NARRATION_YAML.as_bytes()))
 }
 
 /// SHA-256 of the installed overlay, or `None` before the first apply.

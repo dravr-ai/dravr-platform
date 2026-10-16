@@ -5,6 +5,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
+import { forgetLanguageChoiceNative } from '@pierre/i18n/native';
 import { signInWithHostedPage } from '../utils/hostedSignIn';
 import { releasePushDevice, unregisterPushDevice } from '../services/pushNotifications';
 import type { User, FirebaseLoginResponse } from '../types';
@@ -138,6 +139,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const unsubscribe = onAuthFailure(() => {
       setUser(null);
       void releasePushDevice();
+      // Ends the session as Sign out does, so it forgets this phone's language
+      // choice too: the next sign-in may be another account (web's 401 goes
+      // through logout() and already does).
+      void forgetLanguageChoiceNative();
     });
     return unsubscribe;
   }, []);
@@ -186,6 +191,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.warn('Server logout request failed:', error);
     }
     await signOutFromFirebase();
+    // The language picked on this phone belonged to this account; left behind
+    // it would be written onto the next account signed in here.
+    await forgetLanguageChoiceNative();
     setUser(null);
   }, []);
 

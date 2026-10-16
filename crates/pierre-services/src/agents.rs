@@ -25,6 +25,7 @@ use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::database::repositories::TenantRepository;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::repositories::CoachTools;
+use pierre_groups::group_agent::require_athlete_facing;
 use uuid::Uuid;
 
 /// A missing prerequisite for an agent, protocol-agnostic
@@ -578,4 +579,55 @@ pub async fn is_hidden_coach_tool(
         .await?
         .is_some_and(|agent| agent.is_coach_facing());
     Ok(coach_facing && !user_sees_coach_tools(users, user_id).await)
+}
+
+/// The agent `agent_id` names, when `user_id` may bind a conversation to it.
+///
+/// An agent they can read, and a coach-facing one only when they coach
+/// others ([`user_sees_coach_tools`]) — the rule `/agent add`
+/// and the activate tool already apply.
+///
+/// # Errors
+///
+/// Returns [`AppError::not_found`] for an agent the user cannot read,
+/// [`AppError::invalid_input`] for a coach-facing agent named by an athlete,
+/// or the repository error if the lookup fails.
+pub async fn require_bindable_agent(
+    agents: &dyn AgentsRepository,
+    users: &dyn UserRepository,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<Agent> {
+    let agent = agents
+        .get_by_id(agent_id, user_id, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
+    if agent.is_coach_facing() && !user_sees_coach_tools(users, user_id).await {
+        return Err(AppError::invalid_input(
+            "A coach-facing agent answers coaches only",
+        ));
+    }
+    Ok(agent)
+}
+
+/// [`require_bindable_agent`] for a group room's conversation.
+///
+/// A room's turns reach every member, so no coach-facing agent answers there, whoever binds
+/// it — the rule every path that sets a group's agent applies.
+///
+/// # Errors
+///
+/// As [`require_bindable_agent`], plus [`AppError::invalid_input`] for any
+/// coach-facing agent.
+pub async fn require_room_agent(
+    agents: &dyn AgentsRepository,
+    users: &dyn UserRepository,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<Agent> {
+    let agent = require_bindable_agent(agents, users, agent_id, user_id, tenant_id).await?;
+    require_athlete_facing(&agent)?;
+    Ok(agent)
 }

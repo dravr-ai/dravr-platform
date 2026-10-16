@@ -9,6 +9,7 @@
 
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
+use pierre_core::models::StatsCoverage;
 use pierre_core::models::{
     Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals, PowerZone,
     SegmentEffort, SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
@@ -137,6 +138,7 @@ fn test_stats_creation() {
         total_distance: 1_500_000.0, // 1500 km
         total_duration: 540_000,     // 150 hours
         total_elevation_gain: 25000.0,
+        coverage: StatsCoverage::Lifetime,
         year_to_date: Some(PeriodTotals {
             total_activities: 40,
             total_distance: 400_000.0, // 400 km this year
@@ -166,6 +168,7 @@ fn test_stats_serialization() {
         total_distance: 1_000_000.0,
         total_duration: 360_000,
         total_elevation_gain: 15000.0,
+        coverage: StatsCoverage::Lifetime,
         year_to_date: Some(PeriodTotals {
             total_activities: 30,
             total_distance: 300_000.0,
@@ -178,6 +181,10 @@ fn test_stats_serialization() {
     assert!(
         json.contains("year_to_date"),
         "ytd breakdown must be present in serialized stats: {json}"
+    );
+    assert!(
+        json.contains(r#""coverage":{"kind":"lifetime"}"#),
+        "the coverage the get_stats description tells the model to read: {json}"
     );
     let deserialized: Stats = serde_json::from_str(&json).expect("Failed to deserialize stats");
 
@@ -774,4 +781,31 @@ fn test_activity_without_detailed_fields() {
     assert_eq!(deserialized.id(), activity.id());
     assert!(deserialized.workout_type().is_none());
     assert!(deserialized.segment_efforts().is_none());
+}
+
+/// A sampled rollup serializes the count and the oldest start the `get_stats`
+/// description tells the model to report, and reads back (carnet#919).
+#[test]
+fn test_stats_coverage_of_a_recent_page_round_trips() {
+    let coverage = StatsCoverage::RecentActivities {
+        count: 30,
+        oldest: Some("2026-09-01T07:30:00Z".parse().unwrap()),
+    };
+    let json = serde_json::to_value(&coverage).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "kind": "recent_activities",
+            "count": 30,
+            "oldest": "2026-09-01T07:30:00Z"
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<StatsCoverage>(json).unwrap(),
+        coverage
+    );
+    assert_eq!(
+        serde_json::to_value(StatsCoverage::Window { days: 90 }).unwrap(),
+        serde_json::json!({ "kind": "window", "days": 90 })
+    );
 }

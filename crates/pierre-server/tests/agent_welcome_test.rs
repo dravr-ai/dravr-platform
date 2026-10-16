@@ -493,8 +493,9 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
     );
 }
 
-/// No agent, no welcome — and an agent the athlete cannot see is no agent:
-/// the thread is still created, empty, and no introduction is recorded.
+/// No agent, no welcome — and an agent the athlete cannot see is refused
+/// outright (carnet#910): no thread is bound to it and no introduction is
+/// recorded.
 #[tokio::test]
 async fn a_thread_without_a_visible_agent_stays_empty() {
     let resources = setup().await;
@@ -512,9 +513,13 @@ async fn a_thread_without_a_visible_agent_stays_empty() {
     let plain = create_conversation(&resources, &cleo, None).await;
     assert!(messages(&resources, &cleo, &plain).await.is_empty());
 
-    let foreign = create_conversation(&resources, &cleo, Some(&theirs)).await;
-    assert!(messages(&resources, &cleo, &foreign).await.is_empty());
-    assert!(!introduced(&resources, &foreign, &theirs, cleo.tenant_id).await);
+    let refused = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &cleo.auth)
+        .json(&json!({ "agent_id": &theirs }))
+        .send(ChatRoutes::routes(Arc::clone(&resources)))
+        .await;
+    assert_eq!(refused.status_code(), StatusCode::NOT_FOUND);
+    assert!(!introduced(&resources, &plain, &theirs, cleo.tenant_id).await);
 }
 
 /// `/agent add` in an empty thread: the command's two rows, then the agent's

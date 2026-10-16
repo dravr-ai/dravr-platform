@@ -415,22 +415,15 @@ impl OAuth2Routes {
     /// The authorization server every route checks, mints and validates
     /// through, minting for the configured MCP resource and satellites.
     fn authorization_server(context: &OAuth2Context) -> OAuth2AuthorizationServer {
-        OAuth2AuthorizationServer::new(
+        OAuth2AuthorizationServer::from_config(
+            &context.config,
             context.oauth2_server.clone(),
             context.tenants.clone(),
             context.users.clone(),
             context.auth_manager.clone(),
             context.jwks_manager.clone(),
             context.refresh_token_expiry_days,
-            context
-                .config
-                .mcp_resources()
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
         )
-        .with_satellite_resources(context.config.satellite_resources.clone())
-        .with_first_party_redirects(context.config.first_party_redirects.clone())
     }
 
     /// Mint an authorization code and redirect back to the client.

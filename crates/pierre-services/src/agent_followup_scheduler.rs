@@ -50,7 +50,7 @@ use tracing::{debug, error, info};
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchRequest,
+    events::push_policy, models::NotificationCategory as CommNotifCategory, DispatchRequest,
     NotificationService, PushTier, TenantId as CommTenantId,
 };
 
@@ -266,7 +266,8 @@ async fn dispatch_notification(
         body: followup.content.clone(),
         // The followup's body is the agent's own text: it carries the
         // followup's stamp (carnet#769).
-        data: stamp_data(None, followup.transport_policy),
+        data: None,
+        transport_policy: push_policy(followup.transport_policy),
         image_url: None,
         actions: None,
         bypass_frequency_cap: false,

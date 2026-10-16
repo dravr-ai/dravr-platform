@@ -110,10 +110,6 @@ WORKDIR /app
 # packages stale in the image. Bump this date whenever Trivy flags a fixed
 # base-package CVE to force a fresh `apt-get update && upgrade` that pulls the
 # patched version, and when a pulled package is itself broken.
-#
-# The image installed chromium for in-process sciotte scraping until
-# 2026-10-15 (carnet#978); scraping runs in the separate sciotte service since
-# the Phase 4 cutover, and the entries for chromium CVE batches went with it.
 # util-linux 2.41.5-0+deb13u1 closes CVE-2026-53615, an integer overflow in
 # libblkid's DOS partition parser (libblkid/src/partitions/dos.c). Trivy reports
 # it once per binary package the source ships — bsdutils, libblkid1,
@@ -214,7 +210,10 @@ ARG CLAUDE_CODE_CLI_VERSION=2.1.258
 # all fixed in 0.6.1). The trivy gate fails the image on it. adm-zip has no
 # dependencies and 0.6.1 is a patch release, so every vendored copy is swapped
 # for the fixed release after extraction, and the build fails if any other
-# version is still there.
+# version is still there — or if there is no copy to swap: the version check
+# would then read nothing and pass, so a CLI that moved or renamed its copy
+# would ship the vulnerable one through a green build (carnet#992, the
+# pattern of dravr-sciotte's docker/swap-adm-zip.sh).
 ARG ADM_ZIP_VERSION=0.6.1
 # The copilot binary is a Node SEA bootstrap: on first run it extracts its
 # package (app.js + prebuilds/linux-x64/runtime.node, ~150 MB) into
@@ -242,6 +241,8 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && test -s "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/runtime.node" \
     && test -x "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/copilot-runtime" \
     && npm install --prefix /tmp/adm-zip --no-save --ignore-scripts "adm-zip@${ADM_ZIP_VERSION}" \
+    && if [ "$(find /opt/copilot-pkg -type d -path '*/node_modules/adm-zip' -prune -print | wc -l)" -eq 0 ]; then \
+        echo "no vendored adm-zip under /opt/copilot-pkg: the swap would verify nothing" >&2; exit 1; fi \
     && find /opt/copilot-pkg -type d -path '*/node_modules/adm-zip' -prune \
         -exec rm -rf {} \; -exec cp -R /tmp/adm-zip/node_modules/adm-zip {} \; \
     && rm -rf /tmp/adm-zip \

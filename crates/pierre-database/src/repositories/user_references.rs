@@ -186,6 +186,7 @@ user_owned_tables!(
     "oauth2_states",
     "api_keys" where "id IN (SELECT l.api_key_id FROM a2a_client_api_keys l JOIN a2a_clients c ON c.client_id = l.client_id WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_clients",
+    "push_receipts_pending",
     "device_tokens",
     "notifications",
     "notification_preferences",

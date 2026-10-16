@@ -5,19 +5,14 @@
 
 import React from 'react';
 import { Alert, Switch, Text, View } from 'react-native';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AI_CONSENT_KEYS, QUERY_KEYS, aiConsentCards } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-
-/** One consent change: `allow` gives it, `!allow` withdraws it. */
-interface AiConsentChange {
-  provider: string;
-  allow: boolean;
-}
+import { useAiConsent } from '../../hooks/useAiConsent';
 
 /**
  * One switch per connected provider whose consent to AI use the athlete can
@@ -28,18 +23,12 @@ export function AiConsentSection(): React.JSX.Element | null {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const { isAuthenticated } = useAuth();
-  const queryClient = useQueryClient();
   const { data } = useQuery({
     queryKey: QUERY_KEYS.user.providerConnections(),
     queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
   });
-  const consent = useMutation({
-    mutationFn: ({ provider, allow }: AiConsentChange) =>
-      allow ? oauthApi.grantAiConsent(provider) : oauthApi.withdrawAiConsent(provider),
-    onError: () => Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
-  });
+  const consent = useAiConsent();
   const cards = aiConsentCards(data?.providers ?? []);
 
   if (cards.length === 0) {
@@ -58,7 +47,12 @@ export function AiConsentSection(): React.JSX.Element | null {
                 testID={`ai-consent-switch-${card.provider}`}
                 accessibilityLabel={label}
                 value={card.ai_consent === true}
-                onValueChange={(allow) => consent.mutate({ provider: card.provider, allow })}
+                onValueChange={(allow) =>
+                  consent.mutate(
+                    { provider: card.provider, allow },
+                    { onError: () => Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed)) },
+                  )
+                }
                 trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
                 disabled={consent.isPending}
               />

@@ -500,3 +500,11 @@ const SHOE_SPORTS: ReadonlySet<string> = new Set([...ON_FOOT_SPORTS, 'virtual_ru
 export function sportTakesShoes(sport: string): boolean {
   return SHOE_SPORTS.has(canonicalActivitySport(sport));
 }
+
+/**
+ * How long, in days, the athlete invite a coach leaves onboarding with stays
+ * valid. Longer than the 7 days a chat-issued invite gets: a coach sets up
+ * during onboarding, often before the athlete is ready to sign up, and a week
+ * is easily missed.
+ */
+export const ONBOARDING_INVITE_DAYS = 30;

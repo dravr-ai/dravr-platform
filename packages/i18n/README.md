@@ -51,6 +51,11 @@ signed in and nothing chosen on the device, the restore uses the last signed-in
 account's locale, which it keeps under its own key
 (`pierre_app_language_account`) so it never outranks or overwrites the next
 account — that is what keeps the login screen in the account's language.
+The device choice belongs to the session that made it: both clients' sign-out
+calls `forgetLanguageChoice` / `forgetLanguageChoiceNative`, which removes it
+(the account already holds it in `users.locale`) and leaves the last account's
+key alone, so one person's choice is never written onto the next account
+signed in on that browser or phone.
 
 `SUPPORTED_LANGUAGES` is therefore exactly the server's `SUPPORTED_LOCALES`
 (`pierre_core::models`), and `DEFAULT_LANGUAGE` is exactly `DEFAULT_LOCALE`:

@@ -106,6 +106,7 @@ impl Fixture {
             metadata: None,
             created_at: now,
             updated_at: now,
+            last_event_at: None,
         };
         let stored = self
             .resources
@@ -114,7 +115,8 @@ impl Fixture {
             .subscriptions
             .upsert_subscription(&sub)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("the write is applied");
         assert_eq!(
             stored.provider_customer_id, customer_id,
             "seeded row round-trips"

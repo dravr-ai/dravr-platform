@@ -25,6 +25,7 @@ mod notification_routes_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{CreateNotificationParams, NotificationCategory};
     use pierre_notifications::NotificationService;
     use pierre_notifications::TenantId as CommereTenantId;
@@ -516,6 +517,7 @@ mod notification_routes_tests {
                     data: None,
                     image_url: None,
                     actions: None,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();
@@ -533,6 +535,7 @@ mod notification_routes_tests {
                 data: None,
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();
@@ -601,6 +604,7 @@ mod notification_routes_tests {
                     data: None,
                     image_url: None,
                     actions: None,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 })
                 .await
                 .unwrap();

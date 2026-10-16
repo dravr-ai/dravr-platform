@@ -19,6 +19,7 @@ use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, DelegatedGrant};
+use crate::config::OAuth2ServerConfig;
 use crate::refresh_rotation::{
     consume_or_revoke_family, generate_refresh_token, refresh_token_lifetime,
 };
@@ -122,6 +123,40 @@ impl OAuth2AuthorizationServer {
             satellites: Vec::new(),
             first_party: FirstPartyRedirects::default(),
         }
+    }
+
+    /// The authorization server this deployment's configuration describes:
+    /// minting for its MCP resource and satellites, and sending Dravr's own
+    /// apps their codes only where its first-party redirects allow.
+    ///
+    /// Every route that issues or redeems a code builds the server here, so
+    /// the issuer (`/oauth2/authorize`) and the redeemer (`/oauth/token`)
+    /// cannot disagree on a policy one of them was built without.
+    #[must_use]
+    pub fn from_config(
+        config: &OAuth2ServerConfig,
+        oauth2_server: Arc<dyn OAuth2ServerRepository>,
+        tenants: Arc<dyn TenantRepository>,
+        users: Arc<dyn UserRepository>,
+        auth_manager: Arc<AuthManager>,
+        jwks_manager: Arc<JwksManager>,
+        refresh_token_expiry_days: i64,
+    ) -> Self {
+        Self::new(
+            oauth2_server,
+            tenants,
+            users,
+            auth_manager,
+            jwks_manager,
+            refresh_token_expiry_days,
+            config
+                .mcp_resources()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        )
+        .with_satellite_resources(config.satellite_resources.clone())
+        .with_first_party_redirects(config.first_party_redirects.clone())
     }
 
     /// Also mint for the satellite MCP servers `satellites` names

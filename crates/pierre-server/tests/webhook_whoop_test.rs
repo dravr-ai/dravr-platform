@@ -254,7 +254,7 @@ impl SyncProvider for MockWhoop {
         })
     }
 
-    async fn validate_webhook(&self, headers: &HeaderMap, body: &[u8]) -> EnformeResult<bool> {
+    async fn validate_webhook(&self, headers: &HeaderMap, body: &[u8]) -> EnformeResult<()> {
         let header = |name: &str| {
             headers
                 .get(name)
@@ -266,7 +266,7 @@ impl SyncProvider for MockWhoop {
         };
         // The real WHOOP check, so the route is exercised against it.
         verify_whoop_signature(
-            self.secret.as_bytes(),
+            &self.secret,
             header("x-whoop-signature-timestamp")?,
             body,
             header("x-whoop-signature")?,
@@ -386,7 +386,7 @@ impl SyncProvider for ProviderHandle {
     fn webhook_config(&self) -> Option<WebhookConfig> {
         self.0.webhook_config()
     }
-    async fn validate_webhook(&self, headers: &HeaderMap, body: &[u8]) -> EnformeResult<bool> {
+    async fn validate_webhook(&self, headers: &HeaderMap, body: &[u8]) -> EnformeResult<()> {
         self.0.validate_webhook(headers, body).await
     }
     async fn parse_webhook(&self, body: &[u8]) -> EnformeResult<Vec<WebhookEvent>> {

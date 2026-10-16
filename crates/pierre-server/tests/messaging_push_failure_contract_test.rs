@@ -33,6 +33,11 @@ use messaging_fixtures::{
     seed_user, strings, CapturingChannel, FailingChannel, FakeResolver,
 };
 
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "test-jwt-secret";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://app.test";
+
 /// A backfill-completion push whose channel send FAILS must persist + enqueue the
 /// dropped notice for the background retry worker — exactly as the synchronous
 /// reply path does (`dispatch::send_outbound_response` on a send error) — instead
@@ -76,7 +81,13 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     let resolver = Arc::new(FakeResolver::new(
         failing.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // `after_ts` = 30 days ago so the 2-day-old cached activity is in-window.
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
@@ -155,7 +166,13 @@ async fn successful_push_does_not_enqueue() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
@@ -237,7 +254,13 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     let resolver = Arc::new(FakeResolver::new(
         failing.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")

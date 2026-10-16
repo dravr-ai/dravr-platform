@@ -49,6 +49,7 @@ mod digest_tests {
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::events::{event_params, SubjectAthlete};
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{
         CreateNotificationParams, Notification, NotificationCategory,
         UpsertNotificationPreferenceParams,
@@ -219,6 +220,7 @@ personas:
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: false,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 },
                 tier,
             )
@@ -556,6 +558,7 @@ personas:
                     image_url: None,
                     actions: None,
                     bypass_frequency_cap: true,
+                    transport_policy: PushTransportPolicy::AnyTransport,
                 },
                 PushTier::P1,
             )
@@ -1192,6 +1195,7 @@ personas:
                 data: Some(json!({ "persona_gated": true })),
                 image_url: None,
                 actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
             })
             .await
             .unwrap();

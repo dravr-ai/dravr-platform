@@ -27,7 +27,7 @@ describe('HomeVolume', () => {
     const screen = renderVolume(VOLUME_RESPONSE);
 
     expect(screen.getByTestId('home-volume')).toHaveTextContent(/Weekly volume/);
-    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('55.0 km');
+    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('55.00 km');
     // 12 630 s rounds to 3 h 31 min: a week's time is never read in seconds.
     expect(screen.getByTestId('home-volume-time')).toHaveTextContent('3h 31m');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('530 m');
@@ -42,9 +42,9 @@ describe('HomeVolume', () => {
     );
     layOut(screen);
 
-    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('34.2 mi');
+    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('34.18 mi');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('1739 ft');
-    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 34.2 mi');
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 34.18 mi');
   });
 
   it('draws one bar per week the server sent, this week in full ink and read out', () => {
@@ -58,9 +58,9 @@ describe('HomeVolume', () => {
     expect(bars[2].props.fillOpacity).toBe(1);
     expect(bars[0].props.fillOpacity).toBeLessThan(1);
     expect(screen.getByTestId('home-volume-trend-label')).toHaveTextContent('Distance per week, last 3 weeks');
-    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 55.0 km');
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 55.00 km');
     expect(screen.getByTestId('home-volume-trend').props.accessibilityLabel).toBe(
-      'Distance per week, last 3 weeks: from 21.0 km in the week of Sep 7 to 55.0 km this week',
+      'Distance per week, last 3 weeks: from 21.00 km in the week of Sep 7 to 55.00 km this week',
     );
   });
 
@@ -69,7 +69,7 @@ describe('HomeVolume', () => {
     layOut(screen);
 
     fireEvent.press(screen.getByTestId('home-volume-trend'), { nativeEvent: { locationX: 10 } });
-    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 7: 21.0 km');
+    expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 7: 21.00 km');
   });
 
   it('filters every figure to one sport, offered most time first', () => {
@@ -79,7 +79,7 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-filter-run')).toBeTruthy();
     fireEvent.press(screen.getByTestId('home-volume-filter-ride'));
 
-    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('40.0 km');
+    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('40.00 km');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('450 m');
     expect(screen.getByTestId('home-volume-count')).toHaveTextContent('1 activity');
   });

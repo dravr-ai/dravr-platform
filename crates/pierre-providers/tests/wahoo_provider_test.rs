@@ -13,6 +13,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::str::from_utf8;
+use std::sync::{Arc, Mutex};
+use std::time::Duration as StdDuration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -21,14 +23,19 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::errors::ErrorCode;
-use pierre_providers::models::{PlannedSession, PlannedSessionKind, SportType, WorkoutStep};
+use pierre_providers::models::{
+    PlannedSession, PlannedSessionKind, SportType, StatsCoverage, WorkoutStep,
+};
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::wahoo_plan::opaque_id;
 use pierre_providers::wahoo_provider::WahooProvider;
-use pierre_providers::ProviderRegistry;
+use pierre_providers::{ProviderRegistry, TokenRefreshCallback};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::select;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 /// One request the stub received.
 #[derive(Debug)]
@@ -397,6 +404,32 @@ async fn an_activity_fetch_walks_past_pages_of_scheduled_workouts() {
     assert_eq!(requests[2].path, "/v1/workouts?page=3&per_page=50");
 }
 
+/// Wahoo has no aggregate endpoint, so its stats are summed over the recent
+/// workouts the listing returns — and say so, rather than passing for
+/// lifetime totals (carnet#919).
+#[tokio::test]
+async fn stats_are_a_recent_sample_and_say_so() {
+    let (base, stub) = stub(vec![(
+        "200 OK",
+        r#"{"workouts":[
+            {"id":12,"starts":"2026-10-03T09:00:00.000Z","workout_type_id":0,"workout_summary":{"duration_total_accum":"1800.0"}},
+            {"id":11,"starts":"2026-10-02T09:00:00.000Z","workout_type_id":1,"workout_summary":{"duration_total_accum":"2400.0"}}
+        ],"total":2}"#,
+    )])
+    .await;
+    let stats = provider(&base).await.get_stats().await.unwrap();
+    assert_eq!(stats.total_activities, 2);
+    assert_eq!(stats.total_duration, 4200);
+    assert_eq!(
+        stats.coverage,
+        StatsCoverage::RecentActivities {
+            count: 2,
+            oldest: Some("2026-10-02T09:00:00Z".parse().unwrap()),
+        }
+    );
+    assert_eq!(stub.await.unwrap().len(), 1);
+}
+
 /// A cursor page asks Wahoo for the caller's limit, so no listed workout is
 /// passed over, and its cursor keeps counting pages of that size.
 #[tokio::test]
@@ -455,6 +488,81 @@ async fn a_rejected_access_token_asks_the_athlete_to_reconnect() {
         Some("wahoo")
     );
     stub.await.unwrap();
+}
+
+/// Wahoo spends the refresh token the moment it answers, so a caller dropped
+/// between that answer and the write-back must not lose the rotated pair
+/// (carnet#918): the refresh and its write-back finish on their own.
+#[tokio::test]
+async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
+    let (base, stub) = stub(vec![(
+        "200 OK",
+        r#"{"access_token":"rotated-access","refresh_token":"rotated-refresh","expires_in":7200}"#,
+    )])
+    .await;
+    let registry = ProviderRegistry::new();
+    let mut config: ProviderConfig = registry
+        .default_config("wahoo")
+        .cloned()
+        .expect("wahoo is registered");
+    config.token_url = format!("{base}/oauth/token");
+    let provider = WahooProvider::with_config(config);
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: "client".to_owned(),
+            client_secret: "secret".to_owned(),
+            access_token: Some(TOKEN.to_owned()),
+            refresh_token: Some("refresh".to_owned()),
+            // Inside the ten minutes before expiry: the call refreshes first.
+            expires_at: Some(Utc::now() + Duration::minutes(1)),
+            scopes: vec![],
+            kind: pierre_providers::CredentialKind::OAuthBearer,
+            request_budget: None,
+        })
+        .await
+        .unwrap();
+
+    // The write-back says when it starts, then takes a while: the window in
+    // which the caller is dropped.
+    let (started, started_rx) = oneshot::channel::<()>();
+    let started = Arc::new(Mutex::new(Some(started)));
+    let written: Arc<Mutex<Option<OAuth2Credentials>>> = Arc::new(Mutex::new(None));
+    let sink = Arc::clone(&written);
+    let callback: TokenRefreshCallback = Arc::new(move |creds| {
+        let started = started.lock().unwrap().take();
+        let sink = Arc::clone(&sink);
+        Box::pin(async move {
+            if let Some(started) = started {
+                let _ = started.send(());
+            }
+            sleep(StdDuration::from_millis(200)).await;
+            *sink.lock().unwrap() = Some(creds);
+        })
+    });
+    provider.set_token_refresh_callback(callback);
+
+    select! {
+        result = provider.refresh_token_if_needed() => {
+            panic!("the refresh outran its write-back: {result:?}");
+        }
+        _ = started_rx => {}
+    }
+    // The caller is gone; the write-back it started is not.
+    sleep(StdDuration::from_millis(600)).await;
+
+    let written = written
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("the rotated pair was written back");
+    assert_eq!(written.access_token.as_deref(), Some("rotated-access"));
+    assert_eq!(written.refresh_token.as_deref(), Some("rotated-refresh"));
+    let requests = stub.await.unwrap();
+    assert_eq!(requests.len(), 1, "one refresh");
+    assert_eq!(
+        requests[0].field("refresh_token").as_deref(),
+        Some("refresh")
+    );
 }
 
 #[test]

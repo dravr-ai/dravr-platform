@@ -14,6 +14,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{NaiveTime, Utc};
+use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
 use pierre_notifications::models::{
     CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform, DeviceRegistrar,
     NotificationCategory, UpsertNotificationPreferenceParams,
@@ -220,6 +221,7 @@ async fn test_pg_notification_service_round_trips_every_table() {
             data: Some(json!({"screen": "coach"})),
             image_url: None,
             actions: None,
+            transport_policy: PushTransportPolicy::AnyTransport,
         })
         .await
         .unwrap();

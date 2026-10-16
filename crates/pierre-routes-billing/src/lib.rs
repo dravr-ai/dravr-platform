@@ -24,4 +24,6 @@
 /// Billing endpoints + webhook dispatcher.
 pub mod billing;
 
-pub use billing::{billing_routes, dispatch_billing_event, plan_catalog, PlanView, PlansResponse};
+pub use billing::{
+    billing_routes, dispatch_billing_event, plan_catalog, EventOutcome, PlanView, PlansResponse,
+};

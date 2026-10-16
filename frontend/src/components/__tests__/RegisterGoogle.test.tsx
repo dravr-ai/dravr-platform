@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import type { FirebaseLoginResponse } from '@pierre/shared-types'
 import Register from '../Register'
@@ -93,10 +94,12 @@ function SignedInAs() {
 async function renderRegister() {
   await act(async () => {
     render(
-      <AuthProvider>
-        <Register onNavigateToLogin={() => {}} onRegistrationSuccess={() => {}} />
-        <SignedInAs />
-      </AuthProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <Register onNavigateToLogin={() => {}} onRegistrationSuccess={() => {}} />
+          <SignedInAs />
+        </AuthProvider>
+      </QueryClientProvider>,
     )
   })
 }

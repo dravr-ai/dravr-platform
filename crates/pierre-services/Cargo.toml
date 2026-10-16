@@ -98,6 +98,9 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 [dev-dependencies]
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+# The header type dravr-enforme's SyncProvider::validate_webhook takes, for
+# the scheduled-sync test's stand-in provider.
+http = "1"
 
 [lints]
 workspace = true

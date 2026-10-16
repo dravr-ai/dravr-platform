@@ -100,6 +100,45 @@ impl From<RunnerError> for AppError {
     }
 }
 
+/// Whether `error` is an LLM provider's fault.
+///
+/// The `AppError` image of embacle's [`ErrorKind::is_provider_fault`], the
+/// rule embacle's `FallbackProvider` falls through on under
+/// `ResponsePolicy::strict()`.
+///
+/// A call that runs through the chain is classified by embacle on the
+/// `RunnerError` itself. A tool loop converses with the chain's head directly
+/// and only ever holds the [`AppError`] the conversion above made, so it asks
+/// this instead. Living beside that conversion, the two cannot drift apart
+/// unnoticed: the unit test below walks every [`ErrorKind`].
+///
+/// The codes are the ones every provider-fault kind maps to
+/// (`ResourceUnavailable` for a timeout or an unavailable model,
+/// `ExternalServiceError` for a vendor fault, `AuthInvalid` for an auth
+/// failure, `InternalError` for a runner bug or a missing binary,
+/// `ExternalRateLimited` for a rate limit, a spent quota or an HTTP 402 credit
+/// exhaustion — the next tier holds its own account) plus the platform's own
+/// auth and availability codes (`ExternalAuthFailed`, `AuthExpired`,
+/// `ExternalServiceUnavailable`). Deterministic failures — a rejected request
+/// (`InvalidInput`), a config error — are not faults: a second tier would
+/// answer them the same way. The athlete's own budget (`RateLimitExceeded`,
+/// `QuotaExceeded`) is refused by the ingress gate before dispatch and is
+/// never a provider's fault.
+#[must_use]
+pub const fn is_llm_provider_fault(error: &AppError) -> bool {
+    matches!(
+        error.code,
+        ErrorCode::ExternalAuthFailed
+            | ErrorCode::ExternalServiceUnavailable
+            | ErrorCode::ExternalServiceError
+            | ErrorCode::ExternalRateLimited
+            | ErrorCode::ResourceUnavailable
+            | ErrorCode::AuthInvalid
+            | ErrorCode::AuthExpired
+            | ErrorCode::InternalError
+    )
+}
+
 // ============================================================================
 // Provider Trait
 // ============================================================================
@@ -189,5 +228,76 @@ impl LlmProviderRegistry {
 impl Default for LlmProviderRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every embacle error kind. The `match` has no wildcard, so a kind embacle
+    /// adds fails to compile here until it is listed — and so classified by
+    /// the test below.
+    fn every_error_kind() -> [ErrorKind; 11] {
+        let all = [
+            ErrorKind::Internal,
+            ErrorKind::ExternalService,
+            ErrorKind::Timeout,
+            ErrorKind::BinaryNotFound,
+            ErrorKind::AuthFailure,
+            ErrorKind::Config,
+            ErrorKind::Guardrail,
+            ErrorKind::ContextLength,
+            ErrorKind::ModelUnavailable,
+            ErrorKind::RateLimit,
+            ErrorKind::InvalidRequest,
+        ];
+        for kind in all {
+            match kind {
+                ErrorKind::Internal
+                | ErrorKind::ExternalService
+                | ErrorKind::Timeout
+                | ErrorKind::BinaryNotFound
+                | ErrorKind::AuthFailure
+                | ErrorKind::Config
+                | ErrorKind::Guardrail
+                | ErrorKind::ContextLength
+                | ErrorKind::ModelUnavailable
+                | ErrorKind::RateLimit
+                | ErrorKind::InvalidRequest => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn a_provider_fault_is_exactly_what_embacle_calls_one() {
+        for kind in every_error_kind() {
+            let error = AppError::from(RunnerError {
+                kind,
+                message: "scripted".to_owned(),
+            });
+            assert_eq!(
+                is_llm_provider_fault(&error),
+                kind.is_provider_fault(),
+                "{kind:?} -> {:?} must be a provider fault exactly when embacle says so",
+                error.code
+            );
+        }
+    }
+
+    #[test]
+    fn the_athletes_own_budget_and_a_rejected_request_are_not_provider_faults() {
+        assert!(!is_llm_provider_fault(&AppError::new(
+            ErrorCode::RateLimitExceeded,
+            "quota"
+        )));
+        assert!(!is_llm_provider_fault(&AppError::invalid_input(
+            "malformed request"
+        )));
+        assert!(is_llm_provider_fault(&AppError::new(
+            ErrorCode::ExternalAuthFailed,
+            "token revoked"
+        )));
     }
 }

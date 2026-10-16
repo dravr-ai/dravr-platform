@@ -31,6 +31,7 @@ use crate::constants::oauth_providers::UPLOAD;
 use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use crate::errors::{AppError, AppResult};
 use crate::fit_file::{FitActivityFile, Position};
+use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 
@@ -275,6 +276,7 @@ impl FitnessProvider for UploadProvider {
                 .sum(),
             total_duration: activities.iter().map(Activity::duration_seconds).sum(),
             total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
+            coverage: StatsCoverage::Lifetime,
             year_to_date: None,
         })
     }

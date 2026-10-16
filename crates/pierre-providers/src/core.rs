@@ -50,7 +50,7 @@
 //!
 //! ```rust,no_run
 //! use pierre_providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
-//! use pierre_core::models::{Activity, Athlete, Stats};
+//! use pierre_core::models::{Activity, Athlete, Stats, StatsCoverage};
 //! use pierre_core::errors::AppResult;
 //! use async_trait::async_trait;
 //!
@@ -106,7 +106,7 @@
 //! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
 //! #   async fn get_stats(&self) -> AppResult<Stats> {
-//! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0, year_to_date: None })
+//! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0, coverage: StatsCoverage::Lifetime, year_to_date: None })
 //! #   }
 //! }
 //! ```
@@ -179,31 +179,19 @@ pub struct OAuth2Credentials {
     pub request_budget: Option<RequestBudget>,
 }
 
-/// What a stored credential's `access_token` is.
-///
-/// A provider that links both ways (intervals.icu takes an OAuth grant or the
-/// athlete's personal API key) presents each differently, so the kind travels
-/// with the token rather than being inferred from the provider.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CredentialKind {
-    /// An OAuth access token, sent as `Authorization: Bearer`
-    #[default]
-    OAuthBearer,
-    /// A personal API key the athlete pasted, stored with
-    /// [`API_KEY_TOKEN_TYPE`] as its token type
-    ApiKey,
-}
+/// What a stored credential's `access_token` is: dravr-enforme's type, the
+/// one owner of how intervals.icu presents each kind (carnet#997), so the
+/// activity path here and enforme's wellness path cannot diverge.
+pub use dravr_enforme::CredentialKind;
 
-impl CredentialKind {
-    /// The kind a stored row's `token_type` names.
-    #[must_use]
-    pub fn from_token_type(token_type: &str) -> Self {
-        if token_type == API_KEY_TOKEN_TYPE {
-            Self::ApiKey
-        } else {
-            Self::OAuthBearer
-        }
+/// The kind a stored row's `token_type` names: a personal API key is stored
+/// with [`API_KEY_TOKEN_TYPE`], anything else is an OAuth access token.
+#[must_use]
+pub fn credential_kind(token_type: &str) -> CredentialKind {
+    if token_type == API_KEY_TOKEN_TYPE {
+        CredentialKind::ApiKey
+    } else {
+        CredentialKind::OAuthBearer
     }
 }
 

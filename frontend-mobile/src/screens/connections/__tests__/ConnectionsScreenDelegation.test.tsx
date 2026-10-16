@@ -7,6 +7,7 @@
 import React from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { oauthApi } from '../../../services/api';
 import type { ExtendedProviderStatus, ProviderDelegation } from '@pierre/shared-types';
@@ -67,8 +68,16 @@ function trainingPeaks(overrides: Partial<ExtendedProviderStatus>): ExtendedProv
 
 async function renderWith(row: ExtendedProviderStatus) {
   getProvidersStatus.mockResolvedValue({ providers: [row] });
-  render(<ConnectionsScreen />);
+  render(<ConnectionsScreen />, { wrapper: queryWrapper() });
   await waitFor(() => expect(screen.getByTestId(`provider-row-${ID}`)).toBeTruthy());
+}
+
+/** The screen's consent action is a React Query mutation, so it renders under a client. */
+function queryWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
 }
 
 describe('ConnectionsScreen — TrainingPeaks through a coach', () => {

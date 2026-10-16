@@ -71,7 +71,7 @@ describe('the week strip', () => {
     expect(screen.getByTestId('home-section-week')).toHaveTextContent(/^Week of September 14/);
 
     const sunday = screen.getByTestId('home-week-day-2026-09-20');
-    expect(sunday.props.accessibilityLabel).toBe(`Sunday 20, Done: ${ACTIVITIES[0].name}`);
+    expect(sunday.props.accessibilityLabel).toBe(`Sunday 20 — Done: ${ACTIVITIES[0].name}`);
     expect(within(sunday).getByTestId('home-week-mark-done')).toBeTruthy();
 
     fireEvent.press(sunday);
@@ -90,7 +90,7 @@ describe('the week strip', () => {
     await weekOf(screen, '2026-09-07');
 
     expect(screen.getByTestId('home-week-day-2026-09-08').props.accessibilityLabel).toBe(
-      'Tuesday 8, This day is older than your stored activities.',
+      'Tuesday 8 — This day is older than your stored activities.',
     );
     expect(screen.getByTestId('home-week-history-start')).toHaveTextContent(
       "Your stored activities start on Wednesday, September 9; earlier days aren't kept.",

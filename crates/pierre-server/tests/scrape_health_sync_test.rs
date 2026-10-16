@@ -253,7 +253,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
-    let orchestrator = storage.build_orchestrator_with_reader(&reader);
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "coros")
@@ -314,7 +314,7 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
-    let orchestrator = storage.build_orchestrator_with_reader(&reader);
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -361,7 +361,7 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(dead_session);
-    let orchestrator = storage.build_orchestrator_with_reader(&reader);
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "coros")
@@ -509,7 +509,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     let service = RefreshService::new(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
-        Some(storage.build_orchestrator_with_reader(&reader)),
+        Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );
 

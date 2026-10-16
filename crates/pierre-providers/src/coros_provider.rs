@@ -54,10 +54,10 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
+use crate::models::StatsCoverage;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
-use crate::spi::RefreshClientAuth;
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -446,7 +446,6 @@ impl FitnessProvider for CorosProvider {
                 refresh_token: &refresh_token,
                 provider_name: oauth_providers::COROS,
                 extra_form: &[],
-                client_auth: RefreshClientAuth::RequestBody,
             },
         )
         .await?;
@@ -644,6 +643,7 @@ impl FitnessProvider for CorosProvider {
             total_distance: 0.0,
             total_duration: 0,
             total_elevation_gain: 0.0,
+            coverage: StatsCoverage::recent(&[]),
             year_to_date: None,
         })
     }

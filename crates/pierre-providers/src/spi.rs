@@ -21,7 +21,6 @@
 //! ```rust,no_run
 //! use pierre_providers::spi::{
 //!     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
-//!     RefreshClientAuth,
 //! };
 //!
 //! pub struct WhoopDescriptor;
@@ -59,7 +58,6 @@
 //!     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
 //!         // WHOOP only returns a new refresh token when `scope=offline` is sent.
 //!         Some(OAuthRefresh {
-//!             client_auth: RefreshClientAuth::RequestBody,
 //!             extra_form: &[("scope", "offline")],
 //!         })
 //!     }
@@ -127,29 +125,19 @@ pub struct OAuthParams {
     pub additional_auth_params: &'static [(&'static str, &'static str)],
 }
 
-/// How a refresh request presents the client's credentials to the token
-/// endpoint. RFC 6749 section 2.3.1 allows both and leaves the choice to the
-/// vendor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefreshClientAuth {
-    /// `client_id` and `client_secret` as fields of the form body.
-    RequestBody,
-    /// `Authorization: Basic base64(client_id:client_secret)`, with neither
-    /// credential in the form body.
-    BasicHeader,
-}
-
 /// The refresh grant a provider's token endpoint takes: what the platform
 /// posts to renew an expired access token, beyond the standard
 /// `grant_type=refresh_token` and `refresh_token` fields.
+///
+/// The client's credentials always travel as `client_id` and `client_secret`
+/// fields of the form body (RFC 6749 section 2.3.1), the shape every shipped
+/// vendor takes.
 ///
 /// The token endpoint itself is the descriptor's
 /// [`OAuthEndpoints::token_url`], as the registry's default configuration
 /// carries it after the `PIERRE_<PROVIDER>_TOKEN_URL` override.
 #[derive(Debug, Clone, Copy)]
 pub struct OAuthRefresh {
-    /// Where the client credentials travel.
-    pub client_auth: RefreshClientAuth,
     /// Form fields the vendor requires beyond the standard ones.
     pub extra_form: &'static [(&'static str, &'static str)],
 }
@@ -157,10 +145,7 @@ pub struct OAuthRefresh {
 impl OAuthRefresh {
     /// The `OAuth2` default: client credentials in the form body and no
     /// vendor field.
-    pub const STANDARD: Self = Self {
-        client_auth: RefreshClientAuth::RequestBody,
-        extra_form: &[],
-    };
+    pub const STANDARD: Self = Self { extra_form: &[] };
 }
 
 bitflags::bitflags! {
@@ -727,7 +712,6 @@ impl ProviderDescriptor for WhoopDescriptor {
 
     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
         Some(OAuthRefresh {
-            client_auth: RefreshClientAuth::RequestBody,
             extra_form: WHOOP_REFRESH_EXTRA_FORM,
         })
     }

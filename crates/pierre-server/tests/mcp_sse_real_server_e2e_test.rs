@@ -10,6 +10,8 @@
 mod common;
 
 use anyhow::Result;
+use dravr_tronc::testkit::assert::assert_rpc_error;
+use dravr_tronc::testkit::McpTestClient;
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
@@ -251,87 +253,11 @@ impl TestServer {
     }
 }
 
-/// MCP client for testing
-struct McpTestClient {
-    http_client: Client,
-    base_url: String,
-    jwt_token: String,
-}
-
-impl McpTestClient {
-    fn new(port: u16, jwt_token: String) -> Self {
-        Self {
-            http_client: Client::builder()
-                .timeout(Duration::from_secs(10))
-                .build()
-                .unwrap(),
-            base_url: format!("http://127.0.0.1:{port}"),
-            jwt_token,
-        }
-    }
-
-    /// Send MCP request via HTTP POST
-    async fn send_mcp_request(&self, request: Value) -> Result<Value> {
-        let response = self
-            .http_client
-            .post(format!("{}/mcp", self.base_url))
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.jwt_token))
-            .json(&request)
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            Ok(response.json().await?)
-        } else {
-            Err(anyhow::anyhow!("MCP request failed: {}", response.status()))
-        }
-    }
-
-    /// Initialize MCP session
-    async fn initialize(&self) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "sse-e2e-test",
-                    "version": "1.0.0"
-                }
-            }
-        });
-
-        self.send_mcp_request(request).await
-    }
-
-    /// List available tools
-    async fn list_tools(&self) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list"
-        });
-
-        self.send_mcp_request(request).await
-    }
-
-    /// Call a specific tool
-    async fn call_tool(&self, tool_name: &str, params: Value) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": params
-            }
-        });
-
-        self.send_mcp_request(request).await
-    }
+/// tronc's MCP test client for `/mcp` on the server at `port`, presenting
+/// `jwt_token` — the client every dravr MCP host's tests drive
+/// (carnet#1000), here over a real socket.
+fn mcp_client(port: u16, jwt_token: String) -> McpTestClient {
+    McpTestClient::http(format!("http://127.0.0.1:{port}/mcp")).with_bearer(jwt_token)
 }
 
 // ============================================================================
@@ -346,15 +272,13 @@ async fn test_real_server_mcp_http_post() -> Result<()> {
     let (_user_id, jwt_token) = server
         .create_test_user("test@example.com", "password123")
         .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
+    let client = mcp_client(server.port, jwt_token);
 
     // Test 1: Initialize
-    let init_response = client.initialize().await?;
-    assert_eq!(init_response["jsonrpc"], "2.0");
-    assert_eq!(init_response["id"], 1);
-    assert!(init_response["result"].is_object());
+    let init_result = client.initialize().await?;
+    assert!(init_result.is_object());
     // Protocol version can be any supported version (backward compat)
-    let protocol_version = init_response["result"]["protocolVersion"].as_str().unwrap();
+    let protocol_version = init_result["protocolVersion"].as_str().unwrap();
     assert!(
         protocol_version == "2025-11-25"
             || protocol_version == "2025-06-18"
@@ -362,13 +286,16 @@ async fn test_real_server_mcp_http_post() -> Result<()> {
         "Expected supported MCP protocol version, got: {protocol_version}"
     );
 
-    // Test 2: List tools
-    let tools_response = client.list_tools().await?;
-    assert_eq!(tools_response["jsonrpc"], "2.0");
-    assert_eq!(tools_response["id"], 2);
-    assert!(tools_response["result"]["tools"].is_array());
-    let tools = tools_response["result"]["tools"].as_array().unwrap();
+    // Test 2: List tools — decoded as tool definitions, named as registered
+    let tools = client.list_tools().await?;
     assert!(!tools.is_empty(), "Should have at least one tool");
+    assert!(
+        tools
+            .iter()
+            .any(|tool| tool.name == "get_connection_status"),
+        "the provider-connection tool is listed: {:?}",
+        tools.iter().map(|tool| &tool.name).collect::<Vec<_>>()
+    );
 
     println!(
         "✅ Test passed: Real server MCP HTTP POST - {} tools available",
@@ -394,15 +321,15 @@ async fn test_mcp_post_creates_session() -> Result<()> {
     let (_user_id, jwt_token) = server
         .create_test_user("session@example.com", "password123")
         .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
+    let client = mcp_client(server.port, jwt_token);
 
     // Make MCP request which should create a session
-    let init_response = client.initialize().await?;
-    assert!(init_response["result"].is_object());
+    let init_result = client.initialize().await?;
+    assert!(init_result.is_object());
 
     // Make another request to verify session persists
-    let tools_response = client.list_tools().await?;
-    assert!(tools_response["result"]["tools"].is_array());
+    let tools = client.list_tools().await?;
+    assert!(!tools.is_empty());
 
     println!("✅ Test passed: MCP POST requests create and maintain sessions");
 
@@ -425,15 +352,15 @@ async fn test_concurrent_mcp_clients() -> Result<()> {
         let (_user_id, jwt_token) = server
             .create_test_user(&format!("user{i}@example.com"), "password123")
             .await?;
-        let client = McpTestClient::new(server.port, jwt_token);
+        let client = mcp_client(server.port, jwt_token);
 
         let handle = tokio::spawn(async move {
             // Each client initializes and lists tools
             let init_result = client.initialize().await;
-            assert!(init_result.is_ok());
+            assert!(init_result.is_ok(), "{init_result:?}");
 
-            let tools_result = client.list_tools().await;
-            assert!(tools_result.is_ok());
+            let tools = client.list_tools().await.unwrap();
+            assert!(!tools.is_empty());
 
             i
         });
@@ -549,12 +476,12 @@ async fn test_multiple_sequential_mcp_requests() -> Result<()> {
     let (_user_id, jwt_token) = server
         .create_test_user("seq@example.com", "password123")
         .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
+    let client = mcp_client(server.port, jwt_token);
 
     // Make 10 sequential requests
     for i in 0..10 {
-        let response = client.list_tools().await?;
-        assert!(response["result"]["tools"].is_array());
+        let tools = client.list_tools().await?;
+        assert!(!tools.is_empty());
         println!("Request {}/10 completed", i + 1);
     }
 
@@ -575,22 +502,12 @@ async fn test_mcp_error_handling() -> Result<()> {
     let (_user_id, jwt_token) = server
         .create_test_user("error@example.com", "password123")
         .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
+    let client = mcp_client(server.port, jwt_token);
 
     // Test: Invalid method should return JSON-RPC error
-    let invalid_method = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "invalid/method"
-    });
-
-    let response = client.send_mcp_request(invalid_method).await?;
-    assert!(response["error"].is_object(), "Should return error object");
-    assert_eq!(
-        response["error"]["code"], -32601,
-        "Should be method not found error code"
-    );
-    println!("MCP error response: {:?}", response["error"]);
+    let response = client.request("invalid/method", None).await?;
+    let message = assert_rpc_error(&response, -32601);
+    println!("MCP error response: {message}");
 
     println!("✅ Test passed: MCP error handling works correctly");
 
@@ -609,7 +526,7 @@ async fn test_mcp_tool_call_with_params() -> Result<()> {
     let (_user_id, jwt_token) = server
         .create_test_user("tool@example.com", "password123")
         .await?;
-    let client = McpTestClient::new(server.port, jwt_token);
+    let client = mcp_client(server.port, jwt_token);
 
     // Initialize first
     let _ = client.initialize().await?;
@@ -624,16 +541,10 @@ async fn test_mcp_tool_call_with_params() -> Result<()> {
         )
         .await;
 
-    // The call might succeed or fail depending on OAuth setup, but it should return a valid response
-    match result {
-        Ok(response) => {
-            assert_eq!(response["jsonrpc"], "2.0");
-            println!("✅ Tool call succeeded: {response:?}");
-        }
-        Err(e) => {
-            println!("✅ Tool call returned expected error: {e}");
-        }
-    }
+    // The tool runs with no provider linked: its answer is a tool result the
+    // client decodes (a failure would be `is_error`, never a protocol error).
+    let response = result?;
+    println!("✅ Tool call answered: is_error={:?}", response.is_error);
 
     println!("✅ Test passed: MCP tool calls can be made with parameters");
 

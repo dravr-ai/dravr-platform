@@ -86,9 +86,17 @@ export {
 // genuinely platform-specific (the API instance, a freshness the two clients
 // set differently, how a key event is read) stays there.
 export { type GroupFreshness, createGroupHooks } from './groupHooks';
+// The coach-group onboarding sequence: group, thread, then the athlete invite, resumed on a retry.
+export {
+  type CoachGroupSetupApis,
+  type UseCoachGroupSetupResult,
+  createCoachGroupSetupHook,
+} from './coachGroupSetupHook';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
+// Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
+export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
 // How often the coach checks in on its own: the onboarding step and Settings write it (carnet#831).
 export { type UseCheckInResult, CHECK_IN_OPTIONS, createCheckInHook } from './checkInHook';
 // The athlete's units, metric unless Settings chose imperial, and the context every distance a surface prints reads (carnet#835).
@@ -129,8 +137,16 @@ export {
   createMentionPaletteHook,
 } from './mentionPalette';
 
-// Home route reads: followed through the server's `pending` answers.
-export { readActivityRoute } from './activityRoute';
+// Home's reads: recent activities and their stale-answer schedule, a route, the plan, status and volume.
+export {
+  type ActivityRouteOptions,
+  type ActivityRouteState,
+  type HomeReadApi,
+  type HomeReadPlatform,
+  type RecentActivitiesState,
+  type StaleRefetchPhase,
+  createHomeReadHooks,
+} from './homeReadHooks';
 
 // One activity's view: its figures, its split and lap tables, the questions it offers.
 export {
@@ -150,6 +166,32 @@ export {
   speedForm,
   splitsTable,
 } from './activityView';
+// Home's words and figures: calendar days, instants, sports, row figures and the plan drafts, one rule on both clients.
+export {
+  type PlanWindow,
+  type Translate,
+  DRAFT_DATE,
+  ROW_DATE,
+  activityNaming,
+  activityRowFigures,
+  calendarDayLabel,
+  civilDayMonth,
+  civilDayOfMonth,
+  civilMonthTitle,
+  civilShortDate,
+  civilWeekdayLong,
+  civilWeekdayNarrow,
+  formatCivilDate,
+  formatInstant,
+  formatSyncTime,
+  phaseWeekLabel,
+  planDayDraft,
+  planDayRouteDraft,
+  planWindow,
+  sessionFacts,
+  sportLabel,
+  volumeMetricText,
+} from './homeFormat';
 export { type ActivityDetailState, createActivityDetailHook } from './activityDetailHook';
 export { type ActivityConversationState, createActivityConversationHook } from './activityConversation';
 

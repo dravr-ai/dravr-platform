@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::PostgresDatabase;
 use crate::repositories::subscriptions::{
-    impl_subscriptions_repository, subscription_from_row, SubscriptionsRepository,
+    impl_subscriptions_repository, subscription_from_row, whole_seconds, SubscriptionsRepository,
     COUNT_BILLING_EVENT_SQL, GET_SUBSCRIPTION_BY_PROVIDER_CUSTOMER_ID_SQL,
     GET_SUBSCRIPTION_BY_PROVIDER_SUBSCRIPTION_ID_SQL, GET_SUBSCRIPTION_BY_USER_SQL,
     MARK_BILLING_EVENT_SQL, UPSERT_SUBSCRIPTION_SQL,

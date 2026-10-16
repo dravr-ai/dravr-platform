@@ -54,14 +54,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
-use dravr_canot::factory::create_adapter_from_config;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::format_local_day;
-use pierre_core::models::messaging::{ChannelConfig, ChannelType, OutgoingMessage};
+use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::transport::Transport;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
@@ -85,6 +84,7 @@ use uuid::Uuid;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 
+use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
 use crate::services::backfill_window::read_warmed_window;
 use crate::services::messaging_ingress::addressing::reply_recipient;
@@ -130,78 +130,6 @@ struct ReconnectNotice {
     body: String,
     /// See [`ReconnectLink::send_by`].
     send_by: Option<DateTime<Utc>>,
-}
-
-/// Resolves a `(tenant, channel)` to an outbound adapter + its config.
-///
-/// Extracted as a seam so the routing logic in
-/// [`ServerBackfillNotifier::push_backfill_complete`] can be exercised against a
-/// fake adapter that captures the [`OutgoingMessage`](pierre_core::models::messaging::OutgoingMessage) without touching a channel
-/// API. The production [`ConfigAdapterResolver`] loads the tenant's stored
-/// channel config and builds the real adapter exactly like the approval
-/// notifier does.
-#[async_trait]
-pub trait AdapterResolver: Send + Sync {
-    /// Resolve the channel adapter and its config for an outbound send, or
-    /// `None` (logged) when the channel is unconfigured or undeserializable.
-    async fn resolve(
-        &self,
-        tenant_id: TenantId,
-        channel_str: &str,
-        channel_type: ChannelType,
-    ) -> Option<(Arc<dyn MessagingChannel>, ChannelConfig)>;
-}
-
-/// Production [`AdapterResolver`]: loads the tenant's stored channel config and
-/// builds the real channel adapter from it.
-///
-/// Shared with the commitment reporter, which needs the same
-/// `(tenant, channel) -> adapter + config` resolution and the same fake-adapter
-/// test seam. Reach it through [`config_adapter_resolver`].
-pub(crate) struct ConfigAdapterResolver {
-    /// Shared repository registry — the channel-config lookup goes through
-    /// `repos.messaging`. Arc so the resolver is cheap to share with the
-    /// notifier and any future caller.
-    pub(crate) repos: Arc<RepositoryRegistry>,
-}
-
-/// Build the production adapter resolver.
-pub(crate) fn config_adapter_resolver(repos: Arc<RepositoryRegistry>) -> Arc<dyn AdapterResolver> {
-    Arc::new(ConfigAdapterResolver { repos })
-}
-
-#[async_trait]
-impl AdapterResolver for ConfigAdapterResolver {
-    async fn resolve(
-        &self,
-        tenant_id: TenantId,
-        channel_str: &str,
-        channel_type: ChannelType,
-    ) -> Option<(Arc<dyn MessagingChannel>, ChannelConfig)> {
-        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
-        let raw_config = match db.get_channel_config(tenant_id, channel_str).await {
-            Ok(Some(cfg)) => cfg,
-            Ok(None) => {
-                warn!(channel = %channel_str, "No channel config for outbound notice");
-                return None;
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to load channel config for outbound notice");
-                return None;
-            }
-        };
-        let adapter = create_adapter_from_config(channel_type, &raw_config)
-            .inspect_err(|e| {
-                warn!(error = %e, channel = %channel_str, "Failed to build adapter for outbound notice");
-            })
-            .ok()?;
-        let channel_config: ChannelConfig = serde_json::from_value(raw_config)
-            .inspect_err(|e| {
-                warn!(error = %e, "Failed to deserialize channel config for outbound notice");
-            })
-            .ok()?;
-        Some((adapter, channel_config))
-    }
 }
 
 /// Where a completed backfill's notice is delivered.
@@ -286,19 +214,24 @@ impl ServerBackfillNotifier {
     /// Test seam so the resolve + route + templated-list path can run against a
     /// fake adapter that captures the outbound message instead of hitting a
     /// channel API.
+    ///
+    /// The caller supplies the secret that signs reconnect-link tokens and
+    /// the server root the links point at: no signing key is compiled in.
     #[must_use]
     pub fn with_resolver(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
         resolver: Arc<dyn AdapterResolver>,
+        admin_jwt_secret: Arc<str>,
+        base_url: String,
     ) -> Self {
         Self {
             repos,
             strings,
             resolver,
             platform_post: Arc::new(OnceLock::new()),
-            admin_jwt_secret: Arc::from("test-jwt-secret"),
-            base_url: "https://app.test".to_owned(),
+            admin_jwt_secret,
+            base_url,
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
@@ -308,13 +241,16 @@ impl ServerBackfillNotifier {
     /// Build a notifier with an explicit adapter resolver and a pre-installed
     /// platform post. Test seam for the agent-answer path: inject a fake
     /// [`PlatformPost`] and assert the notifier delivers its reply instead of
-    /// the templated list.
+    /// the templated list. The link secret and server root are the caller's,
+    /// as in [`with_resolver`](Self::with_resolver).
     #[must_use]
     pub fn with_resolver_and_platform_post(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
         resolver: Arc<dyn AdapterResolver>,
         platform_post: Arc<dyn PlatformPost>,
+        admin_jwt_secret: Arc<str>,
+        base_url: String,
     ) -> Self {
         let slot = Arc::new(OnceLock::new());
         // Infallible: a freshly-created slot is empty.
@@ -324,8 +260,8 @@ impl ServerBackfillNotifier {
             strings,
             resolver,
             platform_post: slot,
-            admin_jwt_secret: Arc::from("test-jwt-secret"),
-            base_url: "https://app.test".to_owned(),
+            admin_jwt_secret,
+            base_url,
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,

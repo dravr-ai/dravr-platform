@@ -17,7 +17,8 @@ import type {
 } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { RecentActivities } from '../RecentActivities';
-import { formatNameList, formatSyncTime } from '../homeFormat';
+import { formatSyncTime } from '@pierre/ui-logic';
+import { formatNameList } from '../../../utils/formatNameList';
 import { activity, providerStatus, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
 
 const api = vi.hoisted(() => ({

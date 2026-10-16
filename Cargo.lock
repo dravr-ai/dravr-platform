@@ -1429,8 +1429,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.29.3"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.29.3#6535bfa20dc94fd5663ea7f61081d95fff5b5de4"
+version = "0.30.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.30.0#9cc9f7af6fa613268cb3363f0437232906483028"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1475,8 +1475,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.5.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.5.0#ed4c8b5db66727e64ae62f709921511b6297ffdf"
+version = "0.6.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.6.0#97707874c5c2f41382303ad228c563f49c036b1b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1499,8 +1499,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=10113dd0183
 
 [[package]]
 name = "dravr-enforme"
-version = "0.9.3"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.9.3#989ede9abea646a6c6461f57522b54f216d28074"
+version = "0.10.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.10.0#a6cd89aebe3d78dcbd452f90830d05f1dc2dd57d"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1534,8 +1534,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-meteo"
-version = "0.6.0"
-source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.6.0#e93cd84aa45479beb68ed1720b11ce2e7bfcb5af"
+version = "0.7.0"
+source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.7.0#f7937c72ac90f7b4c730371fdc0c4ccb0d7aad6f"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1589,8 +1589,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.6.0"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.6.0#385c90574b19697bb875009d05f60f713944943c"
+version = "0.7.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.7.0#2caa853d117b6e7505cdd1669924b36e9b0ef1e6"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1620,6 +1620,7 @@ dependencies = [
  "futures",
  "getrandom 0.3.4",
  "hex",
+ "http-body-util",
  "hyper",
  "jsonwebtoken",
  "reqwest 0.12.28",
@@ -1629,6 +1630,7 @@ dependencies = [
  "subtle",
  "tokio",
  "tokio-util",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4261,6 +4263,7 @@ name = "pierre-notifications"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "dravr-commere",
  "pierre-core",
  "pierre-test-support",
@@ -4283,7 +4286,7 @@ dependencies = [
  "chrono",
  "dashmap 5.5.3",
  "dravr-cageux",
- "dravr-equilibre",
+ "dravr-enforme",
  "dravr-sciotte",
  "dravr-tronc",
  "fitparser",
@@ -4350,6 +4353,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-util",
  "tracing",
  "urlencoding",
  "uuid",
@@ -4579,6 +4583,7 @@ dependencies = [
  "embacle",
  "futures-util",
  "hex",
+ "http",
  "photograveur",
  "pierre-agui",
  "pierre-auth",

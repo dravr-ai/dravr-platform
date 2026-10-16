@@ -59,7 +59,7 @@ function setup() {
 describe('createActivityUploadHook', () => {
   beforeEach(() => uploadActivityFile.mockReset());
 
-  it('sends the bytes, says the workout was added and refreshes every Home read it joins', async () => {
+  it('sends the bytes, says the workout was added and refreshes every read it joins', async () => {
     uploadActivityFile.mockResolvedValue(STORED);
     const { invalidate, wrapper } = setup();
     const { result } = renderHook(() => useActivityUpload(), { wrapper });
@@ -76,6 +76,7 @@ describe('createActivityUploadHook', () => {
         ['home', 'calendar'],
         ['home', 'training-volume'],
         ['home', 'training-status'],
+        ['gear'],
       ]),
     );
   });

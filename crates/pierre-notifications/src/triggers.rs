@@ -537,7 +537,7 @@ mod tests {
         use pierre_core::transport::TransportPolicy;
 
         use super::super::trigger_agent_message;
-        use crate::events::data_transport_policy;
+        use crate::events::notification_policy;
         use crate::models::TenantId;
         use crate::NotificationService;
 
@@ -570,7 +570,7 @@ mod tests {
         }
 
         /// A trigger fired inside a derivation that served first-party-only
-        /// data is stamped with it, though its dispatch runs on another task;
+        /// data is restricted by it, though its dispatch runs on another task;
         /// one fired outside any is left open (carnet#769).
         #[tokio::test]
         async fn a_trigger_carries_the_stamp_of_the_derivation_it_fired_from() {
@@ -599,9 +599,17 @@ mod tests {
                     .unwrap();
                 assert_eq!(total, 1, "{probe:?}");
                 assert_eq!(
-                    data_transport_policy(rows[0].data.as_ref()),
+                    notification_policy(rows[0].transport_policy),
                     expected,
                     "{probe:?}"
+                );
+                assert!(
+                    rows[0]
+                        .data
+                        .as_ref()
+                        .is_none_or(|data| data.get("first_party_only").is_none()),
+                    "the restriction is the row's own field, never a key in its data: {:?}",
+                    rows[0].data
                 );
             }
         }

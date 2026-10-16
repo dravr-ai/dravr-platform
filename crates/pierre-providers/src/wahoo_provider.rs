@@ -38,6 +38,7 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
+use crate::models::StatsCoverage;
 use crate::models::{
     Activity, ActivityBuilder, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind,
     Stats, TimeSeriesData,
@@ -663,26 +664,43 @@ impl FitnessProvider for WahooProvider {
             .refresh_token
             .clone()
             .ok_or_else(|| AppError::provider_auth_required(oauth_providers::WAHOO))?;
-        let mut refreshed = utils::refresh_oauth_token(
-            &self.client,
-            &utils::RefreshRequest::form_fields(
+        // Wahoo spends the refresh token the moment it answers, so the POST
+        // and the write-back of the pair it returns run as one task of their
+        // own: a caller dropped in between (a timeout around a workout walk,
+        // a client that disconnected) cannot stop the task between the two,
+        // where the rotated pair would be lost and the next refresh refused.
+        let client = self.client.clone();
+        let token_url = self.config.token_url.clone();
+        let callback = self.token_refresh_callback.get().cloned();
+        let refresh = tokio::spawn(async move {
+            let mut refreshed = utils::refresh_oauth_token(
+                &client,
+                &utils::RefreshRequest::form_fields(
+                    oauth_providers::WAHOO,
+                    &token_url,
+                    &credentials.client_id,
+                    &credentials.client_secret,
+                    &refresh_token,
+                ),
+            )
+            .await?;
+            // Wahoo returns a new refresh token on every refresh; the stored
+            // scopes and the signing app's budget carry over.
+            refreshed.refresh_token = refreshed.refresh_token.or(Some(refresh_token));
+            refreshed.scopes = credentials.scopes;
+            refreshed.request_budget = credentials.request_budget;
+            if let Some(callback) = callback {
+                callback(refreshed.clone()).await;
+            }
+            Ok::<_, AppError>(refreshed)
+        });
+        let refreshed = refresh.await.map_err(|e| {
+            AppError::external_service(
                 oauth_providers::WAHOO,
-                &self.config.token_url,
-                &credentials.client_id,
-                &credentials.client_secret,
-                &refresh_token,
-            ),
-        )
-        .await?;
-        // Wahoo returns a new refresh token on every refresh; the stored
-        // scopes and the signing app's budget carry over.
-        refreshed.refresh_token = refreshed.refresh_token.or(Some(refresh_token));
-        refreshed.scopes = credentials.scopes;
-        refreshed.request_budget = credentials.request_budget;
-        *self.credentials.write().await = Some(refreshed.clone());
-        if let Some(callback) = self.token_refresh_callback.get() {
-            callback(refreshed).await;
-        }
+                format!("the token refresh task ended without an outcome: {e}"),
+            )
+        })??;
+        *self.credentials.write().await = Some(refreshed);
         Ok(())
     }
 
@@ -821,6 +839,7 @@ impl FitnessProvider for WahooProvider {
                 .sum(),
             total_duration: activities.iter().map(Activity::duration_seconds).sum(),
             total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
+            coverage: StatsCoverage::recent(&activities),
             year_to_date: None,
         })
     }

@@ -418,6 +418,7 @@ impl ProviderToolRouter {
             admin_context
                 .website_base_url
                 .clone_from(&resources.common.config.website_base_url);
+            admin_context.background = resources.common.turns.tracker();
             #[cfg(feature = "client-messaging")]
             {
                 admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));

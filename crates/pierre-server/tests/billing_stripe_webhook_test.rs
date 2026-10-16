@@ -16,12 +16,12 @@ use std::collections::HashMap;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use pierre_core::billing::stripe::{StripePriceConfig, StripeProvider};
-use pierre_core::billing::{BillingProvider, WebhookPayload};
+use pierre_core::billing::{BillingProvider, EventEnvelope, WebhookPayload};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
-use pierre_routes_billing::dispatch_billing_event;
+use pierre_routes_billing::{dispatch_billing_event, EventOutcome};
 use pierre_test_support::db::create_test_db;
 use sha2::Sha256;
 use uuid::Uuid;
@@ -121,6 +121,7 @@ async fn stripe_subscription_created_webhook_flips_tier() {
     let body = serde_json::to_vec(&serde_json::json!({
         "id": event_id,
         "type": "customer.subscription.created",
+        "created": 1_700_000_100_i64,
         "data": { "object": {
             "id": subscription_id,
             "customer": customer_id,
@@ -156,9 +157,15 @@ async fn stripe_subscription_created_webhook_flips_tier() {
     // Dispatch through the same pipeline the route uses.
     let auth_repos = repos.auth_repos();
     let usage_repos = repos.usage_repos();
-    dispatch_billing_event(&auth_repos, &usage_repos, STRIPE_PROVIDER, &envelope.event)
-        .await
-        .expect("dispatch should succeed");
+    dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        STRIPE_PROVIDER,
+        envelope.occurred_at,
+        &envelope.event,
+    )
+    .await
+    .expect("dispatch should succeed");
 
     // Tier + plan flipped.
     let user_after = repos.users.get_global(user_id).await.unwrap().unwrap();
@@ -211,4 +218,203 @@ async fn stripe_webhook_missing_signature_header_is_rejected() {
         })
         .await;
     assert!(result.is_err(), "missing signature header must be rejected");
+}
+
+/// A signed Stripe subscription event for `subscription_id`, created at
+/// `created` (Unix seconds), parsed the way the webhook route parses it.
+async fn deliver_subscription_event(
+    event_type: &str,
+    status: &str,
+    created: i64,
+    (customer_id, subscription_id): (&str, &str),
+    (user_id, tenant_id): (Uuid, TenantId),
+) -> EventEnvelope {
+    let body = serde_json::to_vec(&serde_json::json!({
+        "id": format!("evt_{}", Uuid::new_v4().simple()),
+        "type": event_type,
+        "created": created,
+        "data": { "object": {
+            "id": subscription_id,
+            "customer": customer_id,
+            "status": status,
+            "current_period_start": 1_700_000_000_i64,
+            "current_period_end": 1_702_592_000_i64,
+            "cancel_at_period_end": status == "active",
+            "canceled_at": (status == "canceled").then_some(created),
+            "metadata": {
+                "tenant_id": tenant_id.to_string(),
+                "user_id": user_id.to_string(),
+                "plan_tier": "professional"
+            }
+        }}
+    }))
+    .unwrap();
+    let headers = HashMap::from([("stripe-signature".to_owned(), signed_header(&body))]);
+    provider()
+        .parse_webhook(WebhookPayload {
+            headers: &headers,
+            body: &body,
+        })
+        .await
+        .expect("a signed event parses")
+}
+
+// carnet#993: Stripe neither orders deliveries nor stops retrying, so an
+// update created before the deletion can land after it. It must not bring the
+// canceled subscription, or its paid tier, back.
+#[tokio::test]
+async fn a_late_update_never_revives_a_canceled_subscription() {
+    let db = create_test_db().await.unwrap();
+    let identity = seed_starter_user_and_tenant(&db).await;
+    let (user_id, tenant_id) = identity;
+    let repos = db.repositories();
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    let customer_id = format!("cus_{}", Uuid::new_v4().simple());
+    let subscription_id = format!("sub_{}", Uuid::new_v4().simple());
+    let ids = (customer_id.as_str(), subscription_id.as_str());
+    let (t0, t1, t2) = (1_700_000_000_i64, 1_700_000_500_i64, 1_700_001_000_i64);
+
+    for (event_type, status, created) in [
+        ("customer.subscription.created", "active", t0),
+        ("customer.subscription.deleted", "canceled", t2),
+    ] {
+        let envelope = deliver_subscription_event(event_type, status, created, ids, identity).await;
+        let outcome = dispatch_billing_event(
+            &auth_repos,
+            &usage_repos,
+            STRIPE_PROVIDER,
+            envelope.occurred_at,
+            &envelope.event,
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, EventOutcome::Applied, "{event_type}");
+    }
+
+    // The retried update: a different evt_ id, created before the deletion.
+    let late =
+        deliver_subscription_event("customer.subscription.updated", "active", t1, ids, identity)
+            .await;
+    let outcome = dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        STRIPE_PROVIDER,
+        late.occurred_at,
+        &late.event,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, EventOutcome::Superseded);
+
+    let row = repos
+        .subscriptions
+        .get_subscription_by_user(user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, SubscriptionStatus::Canceled);
+    assert_eq!(row.last_event_at.map(|at| at.timestamp()), Some(t2));
+    let user = repos.users.get_global(user_id).await.unwrap().unwrap();
+    assert_eq!(
+        user.tier,
+        UserTier::Starter,
+        "the paid tier stays withdrawn"
+    );
+    let tenant = repos.tenants.get_by_id(tenant_id).await.unwrap();
+    assert_eq!(tenant.plan, "starter");
+
+    // An update for the same subscription created after the deletion still
+    // cannot revive it: a deleted Stripe subscription stays deleted.
+    let after = deliver_subscription_event(
+        "customer.subscription.updated",
+        "active",
+        t2 + 60,
+        ids,
+        identity,
+    )
+    .await;
+    let outcome = dispatch_billing_event(
+        &auth_repos,
+        &usage_repos,
+        STRIPE_PROVIDER,
+        after.occurred_at,
+        &after.event,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, EventOutcome::Superseded);
+}
+
+// The canceled guard keys on the provider subscription: the same customer
+// subscribing again is a new subscription, and it is applied.
+#[tokio::test]
+async fn a_new_subscription_for_a_canceled_customer_is_applied() {
+    let db = create_test_db().await.unwrap();
+    let identity = seed_starter_user_and_tenant(&db).await;
+    let (user_id, _tenant_id) = identity;
+    let repos = db.repositories();
+    let auth_repos = repos.auth_repos();
+    let usage_repos = repos.usage_repos();
+    let customer_id = format!("cus_{}", Uuid::new_v4().simple());
+    let first = format!("sub_{}", Uuid::new_v4().simple());
+    let second = format!("sub_{}", Uuid::new_v4().simple());
+
+    for (event_type, status, created, subscription_id) in [
+        (
+            "customer.subscription.created",
+            "active",
+            1_700_000_000_i64,
+            &first,
+        ),
+        (
+            "customer.subscription.deleted",
+            "canceled",
+            1_700_001_000_i64,
+            &first,
+        ),
+        (
+            "customer.subscription.created",
+            "active",
+            1_700_002_000_i64,
+            &second,
+        ),
+    ] {
+        let envelope = deliver_subscription_event(
+            event_type,
+            status,
+            created,
+            (customer_id.as_str(), subscription_id.as_str()),
+            identity,
+        )
+        .await;
+        let outcome = dispatch_billing_event(
+            &auth_repos,
+            &usage_repos,
+            STRIPE_PROVIDER,
+            envelope.occurred_at,
+            &envelope.event,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            outcome,
+            EventOutcome::Applied,
+            "{event_type} {subscription_id}"
+        );
+    }
+
+    let row = repos
+        .subscriptions
+        .get_subscription_by_user(user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, SubscriptionStatus::Active);
+    assert_eq!(
+        row.provider_subscription_id.as_deref(),
+        Some(second.as_str())
+    );
+    let user = repos.users.get_global(user_id).await.unwrap().unwrap();
+    assert_eq!(user.tier, UserTier::Professional);
 }

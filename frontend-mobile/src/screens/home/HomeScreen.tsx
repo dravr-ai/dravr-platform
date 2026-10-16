@@ -145,21 +145,21 @@ export function HomeScreen() {
         testID="home-scroll"
       >
         <HomePlan
-          response={plan.response}
+          response={plan.data ?? null}
           isError={plan.isError}
           onRetry={() => void refetchPlan()}
           openDraft={openDraft}
         />
-        <HomeWeek response={plan.response} openDraft={openDraft} openActivity={openActivity} />
-        <HomeStatus response={status.response} isError={status.isError} onRetry={() => void refetchStatus()} />
-        <HomeVolume response={volume.response} isError={volume.isError} onRetry={() => void refetchVolume()} />
+        <HomeWeek response={plan.data ?? null} openDraft={openDraft} openActivity={openActivity} />
+        <HomeStatus response={status.data ?? null} isError={status.isError} onRetry={() => void refetchStatus()} />
+        <HomeVolume response={volume.data ?? null} isError={volume.isError} onRetry={() => void refetchVolume()} />
         <RecentActivities
-          activities={recent.activities}
-          hasData={recent.hasData}
+          activities={recent.data?.activities ?? []}
+          hasData={recent.data !== undefined}
           isError={recent.isError}
           sync={recent.sync}
-          asOf={recent.asOf}
-          syncFailure={recent.syncFailure}
+          asOf={recent.data?.as_of ?? null}
+          syncFailure={recent.data?.sync_failure ?? null}
           onRetry={() => void refetchRecent()}
           onRetrySync={recent.retry}
           providerConnected={provider.connected}

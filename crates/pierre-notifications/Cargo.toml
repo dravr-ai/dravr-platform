@@ -29,7 +29,8 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [dev-dependencies]
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
-tokio = { version = "1.50", features = ["rt", "macros"] }
+tokio = { version = "1.50", features = ["rt", "macros", "net", "io-util"] }
+chrono = "0.4"
 
 [lints]
 workspace = true

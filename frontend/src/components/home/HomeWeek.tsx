@@ -11,15 +11,14 @@ import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import type { CalendarDay, PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
 import { activityMinutes, addCivilDays, calendarDay, lastMonday, mondayOf, weekDays } from '@pierre/shared-types';
+import { calendarDayLabel, DRAFT_DATE, formatCivilDate, sportLabel } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { WeekHeading } from '../chat/WorkoutPlanCard';
 import { useTrainingPlan } from '../../hooks/useHome';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
 import { CalendarDayDetail } from './CalendarDayDetail';
-import { calendarDayLabel } from './calendarFormat';
 import { HomeMonthSheet } from './HomeMonthSheet';
-import { DRAFT_DATE, formatCivilDate, sportLabel } from './homeFormat';
 
 interface HomeWeekProps {
   onOpenChatDraft: (text: string) => void;

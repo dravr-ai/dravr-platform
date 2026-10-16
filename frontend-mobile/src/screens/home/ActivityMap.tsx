@@ -54,21 +54,23 @@ export function ActivityMap({
 }) {
   const { t } = useTranslation();
   const route = useActivityRoute(activity.provider, activity.id, activity.has_gps, { burst });
+  const reason = route.data?.reason ?? null;
+  const drawn = route.data?.route ?? null;
   const { flags } = useFeatureFlags();
   const unit = useDistanceUnit();
   const markerUnit = flags[FEATURE_KEYS.routeKmMarkers] && sportIsOnFoot(activity.sport_type) ? unit : null;
 
-  if (!activity.has_gps || route.reason === 'no_gps') {
+  if (!activity.has_gps || reason === 'no_gps') {
     return <MapNote testID={`${testIDPrefix}-no-track`}>{t('chat.routeNoTrack')}</MapNote>;
   }
-  if (route.reason === 'too_short') {
+  if (reason === 'too_short') {
     return <MapNote testID={`${testIDPrefix}-too-short`}>{t('home.activities.routeTooShort')}</MapNote>;
   }
-  if (route.route !== null) {
+  if (drawn !== null) {
     return (
       <View className="px-4" testID={`${testIDPrefix}-map`}>
         <LazyRouteView
-          route={route.route}
+          route={drawn}
           markerUnit={markerUnit}
           fallback={<MapNote testID={`${testIDPrefix}-map-loading`}>{t('home.activities.mapLoading')}</MapNote>}
           unavailable={
@@ -83,7 +85,7 @@ export function ActivityMap({
   // anything about whether the activity recorded a route. While a read is in
   // flight — the retry's included — the map says it is loading, so a retry
   // is seen to do something.
-  if ((route.isError || route.reason === 'unavailable') && !route.isFetching) {
+  if ((route.isError || reason === 'unavailable') && !route.isFetching) {
     return (
       <EmptyState
         action={{ label: t('common.retry'), onPress: route.retry, testID: `${testIDPrefix}-map-retry` }}

@@ -8,8 +8,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HomeToday } from '../HomeToday';
-import { planWindow, DRAFT_DATE, formatCivilDate } from '../homeFormat';
 import { homePlan, TODAY } from './homeFixtures';
+import {
+  DRAFT_DATE,
+  formatCivilDate,
+  planWindow,
+} from '@pierre/ui-logic';
 
 function calendarFor(today: string) {
   const calendar = planWindow(today);

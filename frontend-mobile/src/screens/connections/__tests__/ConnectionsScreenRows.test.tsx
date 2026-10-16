@@ -7,6 +7,8 @@
 import React from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { InitialsAvatar } from '../../../components/ui';
 import { oauthApi } from '../../../services/api';
@@ -99,10 +101,21 @@ function classNamesUnder(root: ReturnType<typeof screen.getByTestId>): string[] 
     .map((node: Instance) => node.props.className as string);
 }
 
-async function renderWith(providers: ExtendedProviderStatus[]) {
+async function renderWith(providers: ExtendedProviderStatus[], client = newQueryClient()) {
   getProvidersStatus.mockResolvedValue({ providers });
-  render(<ConnectionsScreen />);
+  render(<ConnectionsScreen />, { wrapper: queryWrapper(client) });
   await waitFor(() => expect(screen.getByTestId(`provider-row-${providers[0].provider}`)).toBeTruthy());
+}
+
+/** The screen's consent action is a React Query mutation, so it renders under a client. */
+function newQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+function queryWrapper(client = newQueryClient()) {
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
 }
 
 describe('ConnectionsScreen rows', () => {
@@ -228,6 +241,25 @@ describe('ConnectionsScreen rows', () => {
     expect(oauthApi.disconnectProvider).not.toHaveBeenCalled();
   });
 
+  it('a withdrawal from the card rereads the Privacy switch and the provider status', async () => {
+    (Platform as { OS: string }).OS = 'ios';
+    (oauthApi.withdrawAiConsent as jest.Mock).mockResolvedValue(undefined);
+    const client = newQueryClient();
+    // What the Privacy screen and Home read before the athlete came here.
+    client.setQueryData(QUERY_KEYS.user.providerConnections(), { providers: [{ ...connectedWhoop, ai_consent: true }] });
+    client.setQueryData(QUERY_KEYS.providers.status(), { providers: [] });
+    await renderWith([{ ...connectedWhoop, ai_consent: true }], client);
+
+    fireEvent(screen.getByTestId('provider-row-whoop'), 'longPress');
+    const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
+    (spy.mock.calls[0][1] as (index: number) => void)(0);
+
+    await waitFor(() =>
+      expect(client.getQueryState(QUERY_KEYS.user.providerConnections())?.isInvalidated).toBe(true),
+    );
+    expect(client.getQueryState(QUERY_KEYS.providers.status())?.isInvalidated).toBe(true);
+  });
+
   it('a disconnected row has no menu to long-press', async () => {
     (Platform as { OS: string }).OS = 'ios';
     await renderWith([disconnectedStrava]);
@@ -258,7 +290,7 @@ describe('ConnectionsScreen rows', () => {
   it('a failed load is one error line with an inline retry that reloads', async () => {
     getProvidersStatus.mockRejectedValueOnce(networkFailure());
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
 
     const retry = await screen.findByTestId('connections-retry');
     expect(screen.getByText('Network error. Check your connection.').props.className).toContain('text-error');

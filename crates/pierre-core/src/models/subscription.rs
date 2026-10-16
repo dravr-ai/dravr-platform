@@ -116,6 +116,11 @@ pub struct Subscription {
     pub created_at: DateTime<Utc>,
     /// Last-touched timestamp; bumped on every webhook upsert.
     pub updated_at: DateTime<Utc>,
+    /// When the provider event last applied to this row happened, by the
+    /// provider's clock; `None` before any event carried a time. An upsert
+    /// carrying an older event is refused, so a late or retried delivery
+    /// never overwrites what a newer one wrote.
+    pub last_event_at: Option<DateTime<Utc>>,
 }
 
 impl Subscription {

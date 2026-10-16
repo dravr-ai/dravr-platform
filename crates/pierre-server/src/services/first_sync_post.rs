@@ -63,7 +63,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::backfill_notifier::{config_adapter_resolver, AdapterResolver};
+use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::platform_post::{PlatformPost, PostPurpose, PostSurface};
 use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
 use crate::services::training_status::request_status_depth;

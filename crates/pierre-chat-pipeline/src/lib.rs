@@ -780,6 +780,7 @@ async fn run_turn(
         provider_name,
         activities_prefetched,
         tool_rounds,
+        peer_blocks,
     } = dispatch_stage(
         DispatchStageArgs {
             hooks,
@@ -800,10 +801,9 @@ async fn run_turn(
     )
     .await?;
 
-    // Stages 14a–18: the bounded identity re-ask, the provider re-auth recovery
-    // short-circuit, then either skip post-processing (recovery content is
-    // already canonical) or run the standard guardrails/verification/hook chain
-    // on LLM-produced text.
+    // Stages 14a–18: the bounded identity re-ask, the provider re-auth recovery short-circuit,
+    // then either skip post-processing (recovery content is already canonical) or run the
+    // standard guardrails/verification/hook chain on LLM-produced text.
     let (post_processed, reconnect) = run_recovery_and_post_process(
         RecoveryAndPostProcessInputs {
             ctx,
@@ -815,6 +815,7 @@ async fn run_turn(
             llm_messages: &llm_messages,
             active_model: &active_model,
             peer_roster: &group_roster,
+            peer_blocks: &peer_blocks,
             guided_walk: onboarding_turn.as_ref().map(|turn| &turn.state),
         },
         &mut result,
@@ -941,7 +942,7 @@ async fn run_turn(
         &ctx.data,
         conv.session_id.as_deref(),
         &pending_followup_ids,
-        input.conversation_tenant_id,
+        &input,
     )
     .await;
 
@@ -968,11 +969,10 @@ async fn run_turn(
     // message id, so there is nothing to sign before the row exists.
     let scene_images = publish_scenes(hooks, profile, &input, &assistant_message);
 
-    // A surface without an activity panel has the list folded into its prose,
-    // and a raw 186-row history folded into a chat bubble is unreadable — so
-    // the list is shaped for the fold here. Both this and the block-or-fold
-    // decision below read `activity_list_card`: one capability, two
-    // consequences.
+    // A surface without an activity panel has the list folded into its prose, and a raw
+    // 186-row history folded into a chat bubble is unreadable — so the list is shaped for the
+    // fold here. Both this and the block-or-fold decision below read `activity_list_card`: one
+    // capability, two consequences.
     // Captured before the fold consumes the list: this is the honest "the model
     // asked for activities and got them" signal, which `tools_called` cannot be
     // because the platform injects the tool name when it prefetches.

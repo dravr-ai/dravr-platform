@@ -152,10 +152,14 @@ async fn deliver(event: &Value) -> EventEnvelope {
         .unwrap()
 }
 
+/// When every fixture event was created, by Stripe's clock (Unix seconds).
+const EVENT_CREATED: i64 = 1_700_000_100;
+
 fn subscription_event(id: &str, event_type: &str, status: &str) -> Value {
     json!({
         "id": id,
         "type": event_type,
+        "created": EVENT_CREATED,
         "data": { "object": {
             "id": "sub_1",
             "customer": "cus_1",
@@ -216,6 +220,11 @@ async fn normalize_subscription_created_maps_to_upserted() {
     ))
     .await;
     assert_eq!(envelope.event_id, "evt_1");
+    assert_eq!(
+        envelope.occurred_at.timestamp(),
+        EVENT_CREATED,
+        "the envelope is ordered by the event's own created time"
+    );
     let BillingEvent::SubscriptionUpserted(payload) = envelope.event else {
         unreachable!("expected SubscriptionUpserted")
     };
@@ -251,6 +260,7 @@ async fn normalize_invoice_payment_failed_maps_to_payment_failed() {
     let envelope = deliver(&json!({
         "id": "evt_3",
         "type": "invoice.payment_failed",
+        "created": EVENT_CREATED,
         "data": { "object": { "id": "in_1", "subscription": "sub_9" } }
     }))
     .await;
@@ -268,6 +278,7 @@ async fn normalize_unknown_event_is_ignored() {
     let envelope = deliver(&json!({
         "id": "evt_4",
         "type": "charge.refunded",
+        "created": EVENT_CREATED,
         "data": { "object": { "id": "ch_1" } }
     }))
     .await;
@@ -279,6 +290,7 @@ async fn invoice_payment_failed_without_subscription_is_ignored() {
     let envelope = deliver(&json!({
         "id": "evt_5",
         "type": "invoice.payment_failed",
+        "created": EVENT_CREATED,
         "data": { "object": { "id": "in_2" } }
     }))
     .await;

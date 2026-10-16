@@ -28,11 +28,10 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
-use dravr_meteo::{WeatherProvider, WeatherQuery};
+use dravr_meteo::{Geocoder, PlacePreference, PlaceQuery, WeatherProvider, WeatherQuery};
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use pierre_core::http_client::api_client;
 use pierre_core::models::Activity;
-use serde::Deserialize;
+use pierre_fitness_compute::geocoding::place_geocoder;
 use tracing::{debug, info, warn};
 
 /// Default ceiling on concurrent weather lookups during a backfill pass.
@@ -228,12 +227,58 @@ fn location_cache_key(a: &Activity) -> String {
 }
 
 /// Resolve every unique location-signal referenced by `activities` to a
-/// `(lat, lng)` pair via Open-Meteo's free geocoding API. We query the
-/// city name alone (the API rejects "City, Region" as a single query)
-/// and use the activity's `region` to disambiguate when multiple
-/// continents share a city name. Best-effort: locations that fail to
-/// resolve simply don't appear in the returned map.
+/// `(lat, lng)` pair through the platform's one place geocoder — the one
+/// `discover_routes` and `get_weather_forecast` resolve through
+/// (carnet#920). The gazetteer searches the city name alone, and the
+/// activity's region and country choose among same-named places. Best-effort:
+/// locations that fail to resolve simply don't appear in the returned map.
 async fn geocode_unique_cities(activities: &[&Activity]) -> HashMap<String, (f64, f64)> {
+    let geocoder = match place_geocoder() {
+        Ok(geocoder) => geocoder,
+        Err(e) => {
+            warn!(error = %e, "geocode: no place geocoder; city-only activities keep no weather");
+            return HashMap::new();
+        }
+    };
+    let unique = unique_locations(activities);
+    let mut resolved = HashMap::with_capacity(unique.len());
+    for (key, region, country) in unique {
+        if key.is_empty() {
+            continue;
+        }
+        if let Some(coords) = resolve_city(geocoder, &key, region, country).await {
+            resolved.insert(key, coords);
+        }
+    }
+    resolved
+}
+
+/// The coordinates of the city a location key names, chosen among same-named
+/// places by the activity's region and country; `None` when it resolves to
+/// nothing.
+async fn resolve_city(
+    geocoder: &dyn Geocoder,
+    key: &str,
+    region: Option<String>,
+    country: Option<String>,
+) -> Option<(f64, f64)> {
+    let city = key.split(',').next().unwrap_or(key).trim();
+    match geocoder.resolve(&city_query(city, region, country)).await {
+        Ok(resolution) => {
+            let coords = (resolution.place.latitude, resolution.place.longitude);
+            debug!(query = %key, city, lat = coords.0, lng = coords.1, "geocode: hit");
+            Some(coords)
+        }
+        Err(e) => {
+            debug!(query = %key, city, error = %e, "geocode: no result");
+            None
+        }
+    }
+}
+
+/// Each distinct location signal among `activities` once: its cache key, and
+/// the region and country it was recorded with.
+fn unique_locations(activities: &[&Activity]) -> Vec<(String, Option<String>, Option<String>)> {
     let mut unique: Vec<(String, Option<String>, Option<String>)> = activities
         .iter()
         .map(|a| {
@@ -250,94 +295,18 @@ async fn geocode_unique_cities(activities: &[&Activity]) -> HashMap<String, (f64
         .collect();
     unique.sort_by(|a, b| a.0.cmp(&b.0));
     unique.dedup_by(|a, b| a.0 == b.0);
-
-    let mut resolved = HashMap::with_capacity(unique.len());
-    for (key, region, country) in unique {
-        if key.is_empty() {
-            continue;
-        }
-        let city = key.split(',').next().unwrap_or(&key).trim();
-        match geocode_via_open_meteo(city, region.as_deref(), country.as_deref()).await {
-            Some(coords) => {
-                debug!(query = %key, city, lat = coords.0, lng = coords.1, "geocode: hit");
-                resolved.insert(key, coords);
-            }
-            None => {
-                debug!(query = %key, city, "geocode: no result");
-            }
-        }
-    }
-    resolved
+    unique
 }
 
-/// Geocoding response shape from
-/// `https://geocoding-api.open-meteo.com/v1/search`. Open-Meteo returns
-/// results sorted by population + query relevance, plus `admin1` (state
-/// or province) and `country` so we can disambiguate same-named cities.
-#[derive(Debug, Deserialize)]
-struct GeocodeResponse {
-    #[serde(default)]
-    results: Vec<GeocodeHit>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeocodeHit {
-    latitude: f64,
-    longitude: f64,
-    #[serde(default)]
-    admin1: Option<String>,
-    #[serde(default)]
-    country: Option<String>,
-}
-
-/// Hit Open-Meteo's geocoding API with just the city name; if the
-/// caller supplied a region or country, prefer the hit whose `admin1` /
-/// `country` matches. Free, no API key required, ~10K requests/day per
-/// IP — well above any single user's activity volume.
-async fn geocode_via_open_meteo(
-    city: &str,
-    expected_region: Option<&str>,
-    expected_country: Option<&str>,
-) -> Option<(f64, f64)> {
-    let url = format!(
-        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=10&language=en&format=json",
-        urlencoding::encode(city)
-    );
-    let response = api_client().get(&url).send().await.ok()?;
-    if !response.status().is_success() {
-        warn!(city, status = %response.status(), "geocode: non-2xx");
-        return None;
+/// The gazetteer query for an activity's city, preferring the region and
+/// country the activity recorded among places that share the city's name.
+fn city_query(city: &str, region: Option<String>, country: Option<String>) -> PlaceQuery {
+    PlaceQuery {
+        name: city.to_owned(),
+        country_code: None,
+        prefer: PlacePreference {
+            admin1: region,
+            country,
+        },
     }
-    let body: GeocodeResponse = response.json().await.ok()?;
-    if body.results.is_empty() {
-        return None;
-    }
-    let matches_expected = |hit: &GeocodeHit| -> bool {
-        if let Some(region) = expected_region {
-            if hit
-                .admin1
-                .as_deref()
-                .is_some_and(|a| a.eq_ignore_ascii_case(region))
-            {
-                return true;
-            }
-        }
-        if let Some(country) = expected_country {
-            if hit
-                .country
-                .as_deref()
-                .is_some_and(|c| c.eq_ignore_ascii_case(country))
-            {
-                return true;
-            }
-        }
-        false
-    };
-
-    let best = body
-        .results
-        .iter()
-        .find(|h| matches_expected(h))
-        .or_else(|| body.results.first())?;
-    Some((best.latitude, best.longitude))
 }

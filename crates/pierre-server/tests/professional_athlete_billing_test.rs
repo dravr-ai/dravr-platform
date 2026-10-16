@@ -128,6 +128,7 @@ impl BillingProvider for RecordingBilling {
                 trial_end: None,
                 metadata: None,
             })),
+            occurred_at: period_start,
         })
     }
 
@@ -227,6 +228,7 @@ impl Coach {
                 metadata: None,
                 created_at: now,
                 updated_at: now,
+                last_event_at: None,
             })
             .await
             .unwrap();

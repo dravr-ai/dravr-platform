@@ -29,7 +29,7 @@ use pierre_core::models::messaging::{
 };
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::{factory::Database, CreateChannelLinkParams, CreateSessionParams};
-use pierre_mcp_server::services::backfill_notifier::AdapterResolver;
+use pierre_mcp_server::services::adapter_resolver::AdapterResolver;
 use serde_json::Value;
 use tokio::time::sleep;
 use uuid::Uuid;

@@ -7,10 +7,9 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
-import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup } from '@pierre/shared-types';
-import { useDistanceUnit } from '@pierre/ui-logic';
+import type { CalendarDay, HomeActivity, PlanDayLookup } from '@pierre/shared-types';
+import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
 import { DayRow, Figure } from '../chat/WorkoutPlanCard';
-import { activityFigures, planDayDraft, sportLabel } from './homeFormat';
 
 /**
  * The marks under a cell's date: a dot for a workout done, then a filled bar
@@ -35,16 +34,25 @@ export function DayMarks({ day }: { day: CalendarDay }) {
 }
 
 /** A plan day drawn the way the chat card draws it, pressable into a drafted chat about it. */
-export function PlanDayButton({ day, openDraft }: { day: PlanDay; openDraft: (draft: string) => void }) {
+export function PlanDayButton({
+  lookup,
+  openDraft,
+}: {
+  lookup: Exclude<PlanDayLookup, { kind: 'uncovered' }>;
+  openDraft: (draft: string) => void;
+}) {
   const { t, language } = useTranslation();
+  const draft = planDayDraft(t, language, lookup.day.date, lookup);
   return (
     <Pressable
-      onPress={() => openDraft(planDayDraft(t, day, language))}
+      onPress={() => {
+        if (draft !== null) openDraft(draft);
+      }}
       accessibilityRole="button"
       className="min-h-11 pb-2"
-      testID={`home-plan-day-${day.date}`}
+      testID={`home-plan-day-${lookup.day.date}`}
     >
-      <DayRow day={day} />
+      <DayRow day={lookup.day} />
     </Pressable>
   );
 }
@@ -70,7 +78,7 @@ function ActivityLine({
         {activity.name}
       </Text>
       <Text className="text-xs text-text-secondary" numberOfLines={1}>
-        {[sportLabel(t, activity.sport_type), ...activityFigures(t, activity, language, unit)].join(' · ')}
+        {[sportLabel(t, activity.sport_type), ...activityRowFigures(t, activity, language, unit)].join(' · ')}
       </Text>
     </Pressable>
   );
@@ -129,7 +137,7 @@ export function CalendarDayDetail({ day, today, testID, openDraft, openActivity 
               <Figure>{day.date}</Figure> {t('home.plan.notCovered')}
             </Text>
           ) : (
-            <PlanDayButton day={lookup.day} openDraft={openDraft} />
+            <PlanDayButton lookup={lookup} openDraft={openDraft} />
           )}
         </View>
       ) : null}

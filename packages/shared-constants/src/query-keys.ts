@@ -41,6 +41,12 @@ export const QUERY_KEYS = {
     checkIn: () => ['user-check-in'] as const,
   },
 
+  // ==================== ACCOUNT ====================
+  account: {
+    /** What deleting the account would remove, read before the athlete confirms. */
+    deletionPreview: () => ['account-deletion-preview'] as const,
+  },
+
   // ==================== OAUTH ====================
   oauth: {
     all: ['oauth'] as const,

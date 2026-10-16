@@ -27,6 +27,7 @@ use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
+use pierre_services::agents::{require_bindable_agent, require_room_agent};
 use pierre_services::conversation_forge::{
     counterpart_title, create_conversation_slot, dated_title, resolve_conversation_model,
     selected_or_system_agent, SlotQuota,
@@ -116,6 +117,21 @@ pub async fn create_conversation(
     // or one they are the human coach of.
     if let Some(gid) = request.group_id.as_deref() {
         verify_group_membership(&resources, gid, auth.user_id, tenant_id).await?;
+    }
+
+    // A named agent must be one the caller may bind: readable, coach-facing
+    // only for a coach, and never coach-facing in a room, whose turns reach
+    // every member.
+    if let Some(agent_id) = request.agent_id.as_deref() {
+        let (agents, users) = (
+            resources.common.repos.agents.as_ref(),
+            resources.common.repos.users.as_ref(),
+        );
+        if request.group_id.is_some() {
+            require_room_agent(agents, users, agent_id, auth.user_id, tenant_id).await?;
+        } else {
+            require_bindable_agent(agents, users, agent_id, auth.user_id, tenant_id).await?;
+        }
     }
 
     // A title the caller typed wins; otherwise the thread is named the way a

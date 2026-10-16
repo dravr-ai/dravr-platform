@@ -27,6 +27,10 @@ function storageWith(stored: string | null): LocaleStorage {
       values.set(key, value);
       return Promise.resolve();
     },
+    remove: (key) => {
+      values.delete(key);
+      return Promise.resolve();
+    },
   };
 }
 

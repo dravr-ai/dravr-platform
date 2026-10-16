@@ -65,7 +65,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// One user's rows for one provider under one tenant, on a table whose ids
@@ -491,7 +491,10 @@ impl PurgeReason {
 
 /// One attestation row: that a provider's data was deleted, for whom, why,
 /// how much and when. It holds no provider data.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+///
+/// `pierre-cli provider purges` reads it back from the admin route in this
+/// same shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderDataPurgeRecord {
     /// Row id.
     pub id: String,

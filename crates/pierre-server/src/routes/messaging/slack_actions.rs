@@ -15,7 +15,7 @@ use dravr_canot::channels::slack::transport::{
 };
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_chat_pipeline::suggestions::is_postback;
-use pierre_core::constant_time::{configured_secret, is_unset_secret};
+use pierre_core::constant_time::configured_secret;
 use pierre_core::models::TenantId;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -184,20 +184,14 @@ pub(crate) async fn handle_slack_action(
 /// a 300 s replay window, a constant-time compare) for its own webhook
 /// transport; the interactive route verifies with the same function.
 ///
-/// An unset `signing_secret` (empty or whitespace only, [`is_unset_secret`])
-/// verifies nothing. canot keys the HMAC with whatever it is handed, and anyone
-/// can compute a signature under the empty key or a lone newline, so one made
-/// with it proves no one.
+/// canot also owns the blank-secret rule: an empty or whitespace-only
+/// `signing_secret` verifies nothing, since anyone can compute a signature
+/// under the empty key or a lone newline.
 pub(crate) fn verify_slack_signature(
     signing_secret: &str,
     headers: &HeaderMap,
     body: &[u8],
 ) -> AppResult<()> {
-    if is_unset_secret(signing_secret.as_bytes()) {
-        return Err(AppError::auth_invalid(
-            "Slack signature verification failed: no signing secret is configured",
-        ));
-    }
     verify_slack_v0(signing_secret, headers, body)
         .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
 }
@@ -735,6 +729,10 @@ mod tests {
 
     const BODY: &[u8] = b"payload=%7B%22type%22%3A%22block_actions%22%7D";
 
+    /// The reason canot's `refuse_blank_secret` gives: seeing it proves canot,
+    /// not this wrapper, refused the blank secret.
+    const CANOT_BLANK_SECRET_REASON: &str = "no verification secret is configured";
+
     /// Headers carrying Slack's v0 signature of [`BODY`], made now under `key`.
     fn headers_signed_with(key: &str) -> HeaderMap {
         let timestamp = Utc::now().timestamp().to_string();
@@ -772,7 +770,11 @@ mod tests {
     fn an_empty_signing_secret_verifies_nothing() {
         // The signature is a correct one under the empty key: anyone can make it.
         let headers = headers_signed_with("");
-        assert!(verify_slack_signature("", &headers, BODY).is_err());
+        let err = verify_slack_signature("", &headers, BODY).unwrap_err();
+        assert!(
+            err.to_string().contains(CANOT_BLANK_SECRET_REASON),
+            "canot must refuse the empty key, got: {err}"
+        );
     }
 
     #[test]
@@ -781,9 +783,10 @@ mod tests {
         // as forgeable as one under the empty key.
         for blank in ["\n", " ", "\r\n", " \t "] {
             let headers = headers_signed_with(blank);
+            let err = verify_slack_signature(blank, &headers, BODY).unwrap_err();
             assert!(
-                verify_slack_signature(blank, &headers, BODY).is_err(),
-                "a signature under {blank:?} must not verify"
+                err.to_string().contains(CANOT_BLANK_SECRET_REASON),
+                "canot must refuse a signature under {blank:?}, got: {err}"
             );
         }
     }

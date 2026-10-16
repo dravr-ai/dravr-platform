@@ -437,9 +437,13 @@ describe('the week strip', () => {
       'home-week-day-2026-09-27',
     ]);
     expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityState).toEqual({ selected: true });
-    expect(screen.getByTestId('home-week-day-2026-09-22').props.accessibilityLabel).toBe('Tuesday 22, Rest');
+    expect(screen.getByTestId('home-week-day-2026-09-22').props.accessibilityLabel).toBe('Tuesday 22 — Rest');
+    // The spoken label carries the session's sport, minutes and intensity, as on the web.
+    expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityLabel).toBe(
+      'Thursday 24 — Tempo run · Run · 50 min · Z3',
+    );
     expect(screen.getByTestId('home-week-day-2026-09-27').props.accessibilityLabel).toBe(
-      "Sunday 27, Your plan doesn't cover this day.",
+      "Sunday 27 — Your plan doesn't cover this day.",
     );
     expect(within(screen.getByTestId('home-week-day-2026-09-22')).getByTestId('home-week-mark-rest')).toBeTruthy();
     expect(within(screen.getByTestId('home-week-day-2026-09-24')).getByTestId('home-week-mark-session')).toBeTruthy();
@@ -541,9 +545,9 @@ describe('recent activities', () => {
 
     const latest = await screen.findByTestId('home-activity-strava-9001');
     expect(latest).toHaveTextContent(/^Long ride/);
-    expect(latest).toHaveTextContent(/Sun, Sep 20 · Ride · 92\.0 km · 3h 41m 5s · \+850 m/);
+    expect(latest).toHaveTextContent(/Sun, Sep 20 · Ride · 92\.00 km · 3h 41m 5s · \+850 m/);
     const indoor = screen.getByTestId('home-activity-strava-8999');
-    expect(indoor).toHaveTextContent(/Indoor ride · 30\.0 km · 1h$/);
+    expect(indoor).toHaveTextContent(/Indoor ride · 30\.00 km · 1h$/);
     // A strength session has no distance, and none is invented for it.
     const gym = screen.getByTestId('home-activity-strava-8998');
     expect(gym).toHaveTextContent(/Strength training · 45m$/);

@@ -8,13 +8,21 @@ import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import type { HomeActivity, SyncFailure } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { useDistanceUnit, type RecentActivitiesSync, type UseActivityUploadResult } from '@pierre/ui-logic';
+import {
+  activityRowFigures,
+  formatInstant,
+  formatSyncTime,
+  type RecentActivitiesSync,
+  ROW_DATE,
+  sportLabel,
+  type UseActivityUploadResult,
+  useDistanceUnit,
+} from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { ActivityMap } from './ActivityMap';
 import { ActivitySketch, SKETCH_SIZE } from './RouteSketch';
 import { UploadActivityAction, UploadActivityStatus } from './UploadActivity';
-import { activityFigures, instantShortDate, sportLabel, syncedAtLabel } from './homeFormat';
 
 type OpenActivity = (activity: HomeActivity) => void;
 
@@ -24,12 +32,12 @@ function ActivityFacts({ activity }: { activity: HomeActivity }) {
   const unit = useDistanceUnit();
   return (
     <Text className="text-sm text-text-secondary" numberOfLines={1}>
-      <Text className="font-mono tabular-nums">{instantShortDate(activity.start_date, language)}</Text>
+      <Text className="font-mono tabular-nums">{formatInstant(activity.start_date, language, ROW_DATE)}</Text>
       {' · '}
       {sportLabel(t, activity.sport_type)}
       {/* The attribution a Garmin-recorded activity carries, as served (carnet#521). */}
       {activity.attribution && <Text testID="activity-attribution">{` · ${activity.attribution}`}</Text>}
-      {activityFigures(t, activity, language, unit).map((figure, index) => (
+      {activityRowFigures(t, activity, language, unit).map((figure, index) => (
         // Positional: the figures are distance, time and climb, in that order.
         <Text key={index}>
           {' · '}
@@ -83,7 +91,7 @@ function SyncLine({ asOf }: { asOf: string | null }) {
   }
   return (
     <Text className="px-4 pb-2 text-sm text-text-secondary" testID="home-activities-synced-at">
-      {t('home.activities.syncedAt', { time: syncedAtLabel(asOf, language) })}
+      {t('home.activities.syncedAt', { time: formatSyncTime(asOf, language) })}
     </Text>
   );
 }

@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_cache::Cache;
-use pierre_fitness_compute::location::{ForwardGeocodeResult, LocationService};
+use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
 use pierre_fitness_compute::osm_routes::{
     DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
 };
@@ -27,9 +27,9 @@ use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to
 use crate::route_store::{self, StoredRoute};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_meteo::{GeocodeError, Geocoder, Place};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::errors::ErrorCode;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, SportType, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -324,7 +324,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
     ) -> ToolResponse {
         let (tenant_id, user_id) = route_owner(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let resolved = match resolve_center(&args).await {
+            let resolved = match resolve_center(place_geocoder()?, &args).await {
                 Ok(center) => center,
                 Err(err) => return Ok(ToolResult::error(err)),
             };
@@ -406,52 +406,63 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 
 /// Resolved query center for a `discover_routes` call.
 ///
-/// Carries the Nominatim display name when the caller passed a `place`
-/// string so we can echo the canonical resolution back to the LLM — the
-/// agent then has something it can safely quote to the user (e.g.
-/// "I found running trails near Prévost, QC").
+/// Carries the gazetteer's name for the place when the caller passed a
+/// `place` string so we can echo the canonical resolution back to the LLM —
+/// the agent then has something it can safely quote to the user (e.g.
+/// "I found running trails near Prévost, Quebec, Canada").
 struct ResolvedCenter {
     latitude: f64,
     longitude: f64,
     display_name: Option<String>,
 }
 
+/// The name a resolved place is quoted by: its own name, region and country.
+fn display_name(place: &Place) -> String {
+    [
+        Some(place.name.as_str()),
+        place.admin1.as_deref(),
+        place.country.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
 /// Resolve the search center from the tool arguments.
 ///
 /// Resolution priority:
-/// 1. If `place` is a non-empty string, forward-geocode it via Nominatim
-///    and return the first match. Forward geocoding is the preferred path
-///    — the LLM should not have to guess coordinates.
+/// 1. If `place` is a non-empty string, resolve it through `geocoder` — the
+///    platform's one place geocoder, the one `get_weather_forecast` resolves
+///    through, so one place name lands on one place in both tools
+///    (carnet#920). The text before the first comma is the name; what follows
+///    chooses among same-named places. Forward geocoding is the preferred
+///    path — the LLM should not have to guess coordinates.
 /// 2. Otherwise, require both `latitude` and `longitude` numeric params
 ///    within valid WGS84 ranges.
 ///
 /// Returns an LLM-facing JSON error payload when neither path works, so
 /// the agent gets a structured message it can act on instead of a panic.
-async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
-    if let Some(place) = args
+async fn resolve_center(geocoder: &dyn Geocoder, args: &Value) -> Result<ResolvedCenter, Value> {
+    if let Some((place, query)) = args
         .get("place")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|p| !p.is_empty())
+        .and_then(|p| free_text_query(p, None).map(|query| (p, query)))
     {
-        let location_service = LocationService::new();
-        return match location_service.forward_geocode(place).await {
-            Ok(ForwardGeocodeResult {
-                latitude,
-                longitude,
-                display_name,
-            }) => Ok(ResolvedCenter {
-                latitude,
-                longitude,
-                display_name: Some(display_name),
+        return match geocoder.resolve(&query).await {
+            Ok(resolution) => Ok(ResolvedCenter {
+                latitude: resolution.place.latitude,
+                longitude: resolution.place.longitude,
+                display_name: Some(display_name(&resolution.place)),
             }),
-            Err(e) if e.code == ErrorCode::ResourceNotFound => {
+            Err(GeocodeError::NotFound { .. }) => {
                 warn!(
                     place,
-                    "discover_routes: Nominatim returned no matches for place"
+                    "discover_routes: the gazetteer has no place by that name"
                 );
                 Err(json!({
-                    "error": format!("no place matched '{place}'. Try a more specific name (city, region, country) or pass latitude/longitude directly."),
+                    "error": format!("no place matched '{place}'. Try the place's own name, optionally followed by its region and country (\"Prévost, Quebec, Canada\"), or pass latitude/longitude directly."),
                 }))
             }
             Err(e) => {
@@ -713,8 +724,108 @@ crate::declare_security!(DiscoverRoutesTool => UNTRUSTED_OUTPUT);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    use dravr_meteo::{
+        CacheLimits, CachedGeocoder, DummyWeatherProvider, Geocoded, PlacePreference, PlaceQuery,
+    };
     use pierre_cache::CacheConfig;
     use pierre_fitness_compute::osm_routes::{RouteSource, RouteType};
+
+    use super::super::weather_forecast::forecast;
+
+    /// A gazetteer holding two places named Paris, counting its lookups and
+    /// keeping the last query it was asked. Both are shared (`Arc`) so the
+    /// test reads them while the geocoder sits inside its cache.
+    #[derive(Default, Clone)]
+    struct TwoParises {
+        lookups: Arc<AtomicUsize>,
+        last: Arc<Mutex<Option<PlaceQuery>>>,
+    }
+
+    #[async_trait]
+    impl Geocoder for TwoParises {
+        async fn resolve(&self, query: &PlaceQuery) -> Result<Geocoded, GeocodeError> {
+            self.lookups.fetch_add(1, Ordering::SeqCst);
+            *self.last.lock().unwrap() = Some(query.clone());
+            let france = Place {
+                name: "Paris".to_owned(),
+                admin1: Some("Île-de-France".to_owned()),
+                country: Some("France".to_owned()),
+                country_code: Some("FR".to_owned()),
+                latitude: 48.853_41,
+                longitude: 2.3488,
+            };
+            let texas = Place {
+                name: "Paris".to_owned(),
+                admin1: Some("Texas".to_owned()),
+                country: Some("United States".to_owned()),
+                country_code: Some("US".to_owned()),
+                latitude: 33.660_94,
+                longitude: -95.555_51,
+            };
+            let place = if query
+                .prefer
+                .fit(texas.admin1.as_deref(), texas.country.as_deref())
+                > query
+                    .prefer
+                    .fit(france.admin1.as_deref(), france.country.as_deref())
+            {
+                texas
+            } else {
+                france
+            };
+            Ok(Geocoded { place, matches: 2 })
+        }
+
+        fn name(&self) -> &'static str {
+            "two-parises"
+        }
+    }
+
+    // carnet#920: one place string lands on one place in discover_routes and
+    // get_weather_forecast, and the second tool reads it from the cache.
+    #[tokio::test]
+    async fn routes_and_the_forecast_resolve_one_place_through_one_cache() {
+        let inner = TwoParises::default();
+        let geocoder = CachedGeocoder::new(inner.clone(), CacheLimits::GEOCODE);
+        let args = json!({ "place": "Paris, Texas" });
+
+        let center = resolve_center(&geocoder, &args).await.unwrap();
+        assert!((center.latitude - 33.660_94).abs() < 1e-9);
+        assert!((center.longitude + 95.555_51).abs() < 1e-9);
+        assert_eq!(
+            center.display_name.as_deref(),
+            Some("Paris, Texas, United States")
+        );
+
+        let weather_args = json!({
+            "place": "Paris, Texas",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        let weather = forecast(&DummyWeatherProvider::temperate(), &geocoder, &weather_args)
+            .await
+            .unwrap();
+        assert!(!weather.is_error, "{:?}", weather.content);
+        assert_eq!(weather.content["latitude"], json!(center.latitude));
+        assert_eq!(weather.content["longitude"], json!(center.longitude));
+
+        assert_eq!(
+            inner.lookups.load(Ordering::SeqCst),
+            1,
+            "the second tool's lookup is a cache hit"
+        );
+        let asked = inner.last.lock().unwrap().clone().unwrap();
+        assert_eq!(asked.name, "Paris", "the gazetteer is asked the name alone");
+        assert_eq!(
+            asked.prefer,
+            PlacePreference {
+                admin1: Some("Texas".to_owned()),
+                country: Some("Texas".to_owned()),
+            }
+        );
+    }
 
     /// Degrees of latitude in a kilometre, near enough for test lines.
     const DEGREES_PER_KM: f64 = 1.0 / 111.195;

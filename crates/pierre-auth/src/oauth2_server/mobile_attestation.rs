@@ -1,5 +1,5 @@
 // ABOUTME: The mobile app's attestation on its code exchange: App Attest (iOS) or Play Integrity (Android), read and verified
-// ABOUTME: Verified before the code is redeemed, an App Attest key recorded after, so a refusal leaves the code for a retry
+// ABOUTME: Verified before the code is redeemed, so a refusal leaves the code for a retry; the App Attest key is recorded after
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,7 +26,11 @@
 //! PKCE ties the code to the app that started the flow. Evidence that is
 //! present must verify. Evidence that is absent — or a Play Integrity token
 //! Google could not be asked about — is still accepted: enforcement waits
-//! until both apps attest in production.
+//! until both apps attest in production. For the same reason, evidence that
+//! verified but could not be recorded once the code was redeemed (a failed
+//! key write, a counter a concurrent sign-in spent first) does not fail the
+//! sign-in: the code is spent by then, and the exchange is logged as
+//! unrecorded.
 
 use std::time::Duration;
 
@@ -259,6 +263,10 @@ pub async fn verify_evidence(
 
 /// Record evidence that verified, once the code it was for has been
 /// redeemed: register the new key, or store the assertion's counter.
+///
+/// The code is spent when this runs, so the caller does not refuse the
+/// exchange on its error while attestation is observe-only: the error says
+/// why the record is missing, and the sign-in goes on.
 ///
 /// # Errors
 /// `invalid_client` when the key was registered already or the counter was

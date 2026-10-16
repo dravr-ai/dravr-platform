@@ -64,6 +64,11 @@ pub mod messaging_ingress;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod user_approval_notifier;
 
+/// Resolves a tenant's messaging channel to an outbound adapter and its config —
+/// the seam every proactive sender shares.
+#[cfg(feature = "client-messaging")]
+pub mod adapter_resolver;
+
 /// Backfill-completion notifier: pushes a "your history is ready" notice back to
 /// the channel that triggered a historical activity backfill.
 #[cfg(feature = "client-messaging")]

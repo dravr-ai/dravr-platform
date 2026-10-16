@@ -6,6 +6,7 @@
 
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
+import { planWindow } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { useHomePreferences, useTrainingPlan } from '../../hooks/useHome';
@@ -14,7 +15,6 @@ import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
-import { planWindow } from './homeFormat';
 
 interface HomeBriefingProps {
   /** Dashboard route navigator, `tab[/subview]`. */

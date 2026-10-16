@@ -32,7 +32,9 @@ use crate::{call_type_for_profile, ChatPipelineContext};
 use embacle_tool_host::ToolSession;
 
 use super::compaction::apply_tier1_compaction;
-use super::peer_grounding::{inject_peer_grounding, mentioned_peers, PEER_FETCH_TOOL};
+use super::peer_grounding::{
+    inject_peer_grounding, mentioned_peers, PeerGroundingBlock, PEER_FETCH_TOOL,
+};
 use super::prefetch::{
     inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs, PREFETCH_TOOL,
 };
@@ -117,6 +119,9 @@ pub(crate) struct DispatchedTurn {
     /// with the tool loop, which records into it while the turn holds it to
     /// write what was held.
     pub tool_rounds: Arc<ChatRepoToolMessageRecorder>,
+    /// The peer blocks the grounding stage injected (Stage 12c): the
+    /// provenance the recovery stages read pre-grounded peer data from.
+    pub peer_blocks: Vec<PeerGroundingBlock>,
 }
 
 #[tracing::instrument(
@@ -240,15 +245,18 @@ pub(crate) async fn dispatch_llm_with_tools(
         peer_roster,
         parse_uuid(&input.user_id).unwrap_or_default(),
     );
-    let peer_grounded = !peer_mentions.is_empty()
-        && inject_peer_grounding(
+    let peer_blocks = if peer_mentions.is_empty() {
+        Vec::new()
+    } else {
+        inject_peer_grounding(
             &executor,
             &input.user_id,
             input.tool_tenant_id,
             &peer_mentions,
             llm_messages,
         )
-        .await;
+        .await
+    };
 
     // Cross the surface's transport half with the provider's producer half.
     // A delta sink is installed only where both answer yes: the surface reads
@@ -448,7 +456,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // Same provenance contract for the peer grounding: the platform ran the
     // consent-gated peer fetch on the model's behalf, so downstream gates
     // (viz `source_tool`, the peer-claim verifier) must see it as a real run.
-    if peer_grounded && !result.tools_called.iter().any(|t| t == PEER_FETCH_TOOL) {
+    if !peer_blocks.is_empty() && !result.tools_called.iter().any(|t| t == PEER_FETCH_TOOL) {
         result.tools_called.push(PEER_FETCH_TOOL.to_owned());
     }
     let dispatch_ms = u64::try_from(loop_start.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -492,5 +500,6 @@ pub(crate) async fn dispatch_llm_with_tools(
         provider_name,
         activities_prefetched: prefetched_activities,
         tool_rounds,
+        peer_blocks,
     })
 }

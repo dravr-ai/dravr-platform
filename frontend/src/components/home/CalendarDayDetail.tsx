@@ -6,10 +6,9 @@
 
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, HomeActivity } from '@pierre/shared-types';
-import { useDistanceUnit } from '@pierre/ui-logic';
+import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
 import { DayRow } from '../chat/WorkoutPlanCard';
 import { activityViewRoute } from '../activity/activityRoute';
-import { activityFigures, planDayDraft, sportLabel } from './homeFormat';
 
 interface CalendarDayDetailProps {
   day: CalendarDay;
@@ -34,7 +33,7 @@ function ActivityLine({ activity, onNavigate }: { activity: HomeActivity; onNavi
       >
         <span className="min-w-0 truncate font-medium text-on-surface">{activity.name}</span>
         <span className="shrink-0 text-on-surface-variant">
-          {[sportLabel(t, activity.sport_type), ...activityFigures(t, activity, language, unit)].join(' · ')}
+          {[sportLabel(t, activity.sport_type), ...activityRowFigures(t, activity, language, unit)].join(' · ')}
         </span>
       </button>
     </li>

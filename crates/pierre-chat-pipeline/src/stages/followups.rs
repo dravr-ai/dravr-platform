@@ -27,6 +27,8 @@ use pierre_database::database::ConversationRecord;
 use pierre_core::models::TenantId;
 use pierre_runtime_context::DataContext;
 
+use crate::TurnInput;
+
 /// Ensure the conversation has an agent session attached.
 ///
 /// Idempotent — returns the original conversation untouched when there is
@@ -134,18 +136,20 @@ pub async fn inject_pending_followups(
 ///
 /// Touches the active agent session (so "continue where you left off" UI
 /// surfaces a fresh timestamp) and marks any followups we surfaced this
-/// turn as delivered. Errors are logged and swallowed.
+/// turn as delivered. The session lives under the conversation's tenant;
+/// followups under the athlete's own workspace, the tool tenant they were
+/// written and read under. Errors are logged and swallowed.
 pub async fn finalize_session_state(
     data: &DataContext,
     session_id: Option<&str>,
     delivered_followup_ids: &[String],
-    tenant_id: TenantId,
+    input: &TurnInput,
 ) {
     if let Some(session_id) = session_id {
         if let Err(e) = data
             .repos()
             .memory
-            .touch_agent_session(session_id, tenant_id)
+            .touch_agent_session(session_id, input.conversation_tenant_id)
             .await
         {
             tracing::warn!(error = %e, "failed to touch coach session");
@@ -155,7 +159,7 @@ pub async fn finalize_session_state(
         if let Err(e) = data
             .repos()
             .memory
-            .mark_followup_delivered(followup_id, tenant_id)
+            .mark_followup_delivered(followup_id, input.tool_tenant_id)
             .await
         {
             tracing::warn!(error = %e, followup_id, "failed to mark followup delivered");

@@ -23,8 +23,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_contremaitre::config::NARRATION_YAML;
+use pierre_contremaitre::manifest::compute_sha256;
 use pierre_contremaitre::manifest::parse_manifest;
-use pierre_contremaitre::narration_vocab::{current_sha256, reload_narration_vocab};
+use pierre_contremaitre::narration_vocab::{
+    current_sha256, install_pinned_narration_vocab, reload_narration_vocab,
+};
 use pierre_core::narration::{
     contains_capability_failure, contains_identity_leak, scrub_internal_narration,
     scrub_replayed_narration,
@@ -181,4 +185,25 @@ fn manifest_without_narration_entry_still_parses() {
     let manifest = parse_manifest(manifest_json).expect("older manifest parses");
     assert!(manifest.config.narration.is_none());
     assert!(manifest.config.cageux.is_some());
+}
+
+// carnet#973: the overlay the pinned contremaitre rev carries is what the
+// server starts from, so it must install within the overlay's validation
+// limits, under its own hash (which a sync finding the same document at HEAD
+// reads as unchanged), and take effect: the 2026-08-11 phrase it carries is
+// caught before any sync has run.
+#[test]
+#[serial]
+fn the_pinned_overlay_installs_and_takes_effect() {
+    let phrase = "Désolé, je n'ai toujours pas accès à tes données d'activité en ce moment.";
+    let counts = install_pinned_narration_vocab().expect("the pinned overlay validates");
+    assert!(counts.capability_failure > 0, "{counts:?}");
+    assert_eq!(
+        current_sha256(),
+        Some(compute_sha256(NARRATION_YAML.as_bytes()))
+    );
+    assert!(
+        contains_capability_failure(phrase),
+        "the pinned overlay's phrase is detected"
+    );
 }

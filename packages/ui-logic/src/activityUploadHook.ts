@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query hooks that upload a completed workout's .fit file and delete an uploaded activity, per client's athlete API
-// ABOUTME: Says what happened in words keyed by the refusal's status, and refreshes every Home read the activity joins or leaves
+// ABOUTME: Says what happened in words keyed by the refusal's status, and refreshes every read the activity joins or leaves
 
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -79,15 +79,17 @@ export interface UseActivityUploadResult {
 }
 
 /**
- * Refresh every Home read an uploaded activity joins or leaves: the recent
- * list, the calendar, the weekly volume and the training status.
+ * Refresh every read an uploaded activity joins or leaves: the recent list,
+ * the calendar, the weekly volume, the training status, and the shoe ledger
+ * (the server counts a run on its sport's default pair at the next read).
  */
-function refreshHomeReads(queryClient: QueryClient): void {
+function refreshActivityReads(queryClient: QueryClient): void {
   for (const queryKey of [
     QUERY_KEYS.home.recentActivities().slice(0, 2),
     QUERY_KEYS.home.calendars,
     QUERY_KEYS.home.trainingVolume(),
     QUERY_KEYS.home.trainingStatus(),
+    QUERY_KEYS.gear.all,
   ]) {
     void queryClient.invalidateQueries({ queryKey });
   }
@@ -96,9 +98,10 @@ function refreshHomeReads(queryClient: QueryClient): void {
 /**
  * Build `useActivityUpload` over one client's athlete API.
  *
- * A stored upload refreshes every Home read it joins — the recent list, the
- * calendar, the weekly volume and the training status — so the new workout
- * shows wherever the athlete looks next.
+ * A stored upload refreshes every read it joins — the recent list, the
+ * calendar, the weekly volume, the training status and the shoe ledger — so
+ * the new workout shows wherever the athlete looks next, and a pair it pushes
+ * past its warning distance says so.
  */
 export function createActivityUploadHook(athleteApi: Pick<AthleteApi, 'uploadActivityFile'>) {
   return function useActivityUpload(): UseActivityUploadResult {
@@ -108,7 +111,7 @@ export function createActivityUploadHook(athleteApi: Pick<AthleteApi, 'uploadAct
       mutationFn: (bytes: ArrayBuffer | Uint8Array) => athleteApi.uploadActivityFile(bytes),
       onSuccess: (response) => {
         setOutcome({ kind: 'uploaded', response });
-        refreshHomeReads(queryClient);
+        refreshActivityReads(queryClient);
       },
       onError: (error) => setOutcome({ kind: 'refused', failure: activityUploadFailure(error) }),
     });
@@ -194,8 +197,7 @@ export function createDeleteUploadedActivityHook(athleteApi: Pick<AthleteApi, 'd
       onSuccess: (_, activityId) => {
         queryClient.removeQueries({ queryKey: QUERY_KEYS.home.activityDetail(UPLOAD_PROVIDER, activityId) });
         queryClient.removeQueries({ queryKey: QUERY_KEYS.gear.activity(UPLOAD_PROVIDER, activityId) });
-        refreshHomeReads(queryClient);
-        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gear.all });
+        refreshActivityReads(queryClient);
         onDeleted();
       },
     });

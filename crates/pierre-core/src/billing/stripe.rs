@@ -206,7 +206,7 @@ impl BillingProvider for StripeProvider {
             .construct_event(signature, payload.body)
             .map_err(map_stripe_err)?;
 
-        Ok(normalize_event(event))
+        normalize_event(event)
     }
 
     async fn list_invoices(&self, provider_customer_id: &str) -> AppResult<Vec<Invoice>> {
@@ -263,7 +263,18 @@ fn map_stripe_err(err: StripeError) -> AppError {
 /// for `customer.subscription.deleted`), a failed invoice with a subscription id
 /// becomes `PaymentFailed`, and everything else is `Ignored`. Private, so the
 /// only way in is `parse_webhook`, which verifies the signature first.
-fn normalize_event(event: StripeEvent) -> EventEnvelope {
+///
+/// # Errors
+///
+/// Invalid input when the event's `created` time is not a representable
+/// instant: without it the event cannot be ordered against the others.
+fn normalize_event(event: StripeEvent) -> AppResult<EventEnvelope> {
+    let occurred_at = unix_to_datetime(event.created).ok_or_else(|| {
+        AppError::invalid_input(format!(
+            "Stripe event {} has an invalid created time {}",
+            event.id, event.created
+        ))
+    })?;
     let billing_event = match (&event.event_type, event.data) {
         (event_type, StripeEventData::Subscription(sub))
             if event_type == "customer.subscription.deleted" =>
@@ -284,11 +295,12 @@ fn normalize_event(event: StripeEvent) -> EventEnvelope {
         (_, StripeEventData::Other(_)) => BillingEvent::Ignored,
     };
 
-    EventEnvelope {
+    Ok(EventEnvelope {
         event_id: event.id,
         event_type: event.event_type,
         event: billing_event,
-    }
+        occurred_at,
+    })
 }
 
 /// Build a [`SubscriptionEventPayload`] from a parsed Stripe subscription.

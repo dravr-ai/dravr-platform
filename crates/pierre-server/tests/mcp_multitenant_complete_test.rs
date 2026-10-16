@@ -13,6 +13,7 @@ mod common;
 mod helpers;
 
 use anyhow::Result;
+use dravr_tronc::testkit::McpTestClient;
 use helpers::first_party_sign_in::{
     authorize_uri, callback_param, fresh_state, FirstPartyClient, Pkce,
 };
@@ -460,55 +461,32 @@ impl MultiTenantMcpClient {
         }
     }
 
-    /// Send MCP request via HTTP transport (to MCP server on base port)
-    async fn send_mcp_request(&self, request: Value) -> Result<Value> {
-        let request_with_auth = request;
-
-        // After consolidation, both OAuth and MCP are on the same HTTP server
-        let mcp_url = format!("{}/mcp", self.base_url);
-
-        let mut request_builder = self
-            .http_client
-            .post(mcp_url)
-            .header("Content-Type", "application/json")
-            .header("Origin", "http://localhost");
-
-        // The client's own credential: the API key, never the session.
-        if let Some(token) = &self.mcp_credential {
-            request_builder = request_builder.header("Authorization", format!("Bearer {token}"));
+    /// tronc's MCP test client for `/mcp` on this server (carnet#1000),
+    /// presenting this client's own credential — the API key, never the
+    /// session — when it holds one.
+    fn mcp(&self) -> McpTestClient {
+        let client = McpTestClient::http(format!("{}/mcp", self.base_url))
+            .with_header("Origin", "http://localhost");
+        match &self.mcp_credential {
+            Some(token) => client.with_bearer(token.clone()),
+            None => client,
         }
+    }
 
-        let response = timeout(
-            Duration::from_secs(10),
-            request_builder.json(&request_with_auth).send(),
-        )
-        .await??;
-
-        if response.status() == 200 || response.status() == 202 {
-            Ok(response.json().await?)
-        } else if response.status() == 401 {
-            // Convert HTTP 401 to JSON-RPC error for test compatibility
-            Ok(json!({
-                "jsonrpc": "2.0",
-                "id": request_with_auth.get("id").unwrap_or(&json!(null)),
-                "error": {
-                    "code": -32603,
-                    "message": "Authentication required",
-                    "data": null
-                }
-            }))
-        } else {
-            Err(anyhow::anyhow!("MCP request failed: {}", response.status()))
-        }
+    /// Send one JSON-RPC request to `/mcp` and return the whole response,
+    /// error included, as JSON. A server that refuses the caller answers with
+    /// its own JSON-RPC error body, read as it arrived.
+    async fn mcp_request(&self, method: &str, params: Option<Value>) -> Result<Value> {
+        let response =
+            timeout(Duration::from_secs(10), self.mcp().request(method, params)).await??;
+        Ok(serde_json::to_value(response)?)
     }
 
     /// Initialize MCP connection
     async fn initialize_mcp(&self) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
+        self.mcp_request(
+            "initialize",
+            Some(json!({
                 "protocolVersion": "2025-11-25",
                 "capabilities": {
                     "roots": {"listChanged": true},
@@ -518,36 +496,23 @@ impl MultiTenantMcpClient {
                     "name": "multitenant-test-client",
                     "version": "1.0.0"
                 }
-            }
-        });
-
-        self.send_mcp_request(request).await
+            })),
+        )
+        .await
     }
 
     /// List available MCP tools
     async fn list_tools(&self) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list"
-        });
-
-        self.send_mcp_request(request).await
+        self.mcp_request("tools/list", None).await
     }
 
     /// Call an MCP tool
     async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments
-            }
-        });
-
-        self.send_mcp_request(request).await
+        self.mcp_request(
+            "tools/call",
+            Some(json!({ "name": tool_name, "arguments": arguments })),
+        )
+        .await
     }
 }
 
@@ -693,14 +658,12 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     // Test 4: MCP Protocol - Initialize
     let init_response = client.initialize_mcp().await?;
     assert_eq!(init_response["jsonrpc"], "2.0");
-    assert_eq!(init_response["id"], 1);
     assert!(!init_response["result"]["serverInfo"]["name"].is_null());
     assert_eq!(init_response["result"]["protocolVersion"], "2025-11-25");
 
     // Test 5: MCP Protocol - List Tools
     let tools_response = client.list_tools().await?;
     assert_eq!(tools_response["jsonrpc"], "2.0");
-    assert_eq!(tools_response["id"], 2);
 
     let tools = tools_response["result"]["tools"].as_array().unwrap();
     assert!(!tools.is_empty());
@@ -720,7 +683,6 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     let connection_response = client.call_tool("get_connection_status", json!({})).await?;
 
     assert_eq!(connection_response["jsonrpc"], "2.0");
-    assert_eq!(connection_response["id"], 3);
 
     // Check if there's an error in the response
     if connection_response.get("error").is_some() {
@@ -899,8 +861,8 @@ async fn test_mcp_authentication_required() -> Result<()> {
     // Note: No login, so no JWT token
 
     // Try to list tools without authentication. Per the MCP authorization spec,
-    // a protected resource server rejects unauthenticated requests with a 401,
-    // which the test client surfaces as a JSON-RPC auth error.
+    // a protected resource server rejects unauthenticated requests with a 401
+    // whose body is the transport's JSON-RPC auth error (-32001).
     let tools_response = client.list_tools().await?;
 
     println!(
@@ -908,12 +870,11 @@ async fn test_mcp_authentication_required() -> Result<()> {
         serde_json::to_string_pretty(&tools_response)?
     );
     assert_eq!(tools_response["jsonrpc"], "2.0");
-    assert_eq!(tools_response["id"], 2);
     assert!(
         !tools_response["error"].is_null(),
         "Unauthenticated tools/list must be rejected"
     );
-    assert_eq!(tools_response["error"]["code"], -32603);
+    assert_eq!(tools_response["error"]["code"], -32001);
 
     // Try to call a tool without authentication (this should also fail)
     let tool_call_response = client
@@ -923,7 +884,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
     // Should return an authentication error for tool call
     assert_eq!(tool_call_response["jsonrpc"], "2.0");
     assert!(!tool_call_response["error"].is_null());
-    assert_eq!(tool_call_response["error"]["code"], -32603);
+    assert_eq!(tool_call_response["error"]["code"], -32001);
 
     println!(
         "Authentication requirement test passed - both tools/list and tools/call require auth!"
@@ -1002,7 +963,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
 
     // The server is a protected resource: every request, including the initialize
     // handshake, must carry a valid bearer token. An unauthenticated initialize is
-    // rejected (surfaced by the test client as a JSON-RPC auth error).
+    // rejected with a 401 whose body is the transport's JSON-RPC auth error.
     let init_response = client.initialize_mcp().await?;
 
     println!(
@@ -1010,12 +971,11 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
         serde_json::to_string_pretty(&init_response)?
     );
     assert_eq!(init_response["jsonrpc"], "2.0");
-    assert_eq!(init_response["id"], 1);
     assert!(
         !init_response["error"].is_null(),
         "Unauthenticated initialize must be rejected"
     );
-    assert_eq!(init_response["error"]["code"], -32603);
+    assert_eq!(init_response["error"]["code"], -32001);
 
     println!("MCP unauthenticated-initialize rejection test passed!");
 

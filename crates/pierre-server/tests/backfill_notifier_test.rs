@@ -43,6 +43,11 @@ use messaging_fixtures::{
     seed_session, seed_user, strings, CapturingChannel, FakeResolver,
 };
 
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "notifier-link-secret-915";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://notifier.example";
+
 /// A chat-triggered backfill push resolves the originating channel + `chat_id`
 /// and routes the notice to that exact channel conversation (never a user
 /// broadcast), with the activity count interpolated into the body.
@@ -68,7 +73,13 @@ async fn push_routes_to_originating_chat() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(
@@ -131,7 +142,13 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(
@@ -192,8 +209,13 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
 
     let channel = Arc::new(CapturingChannel::default());
     let resolver = Arc::new(FakeResolver::new(channel.clone()));
-    let notifier =
-        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
@@ -216,7 +238,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         // The nudge now carries a short, dot-free `<base>/r/<code>` link (the raw
         // JWT's dots break WhatsApp linkification) — not the full hosted-login URL.
         assert!(
-            body.contains("https://app.test/r/"),
+            body.contains(&format!("{BASE_URL}/r/")),
             "carries the short reconnect link: {body}"
         );
         assert!(
@@ -291,8 +313,13 @@ async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() 
 
     let channel = Arc::new(CapturingChannel::default());
     let resolver = Arc::new(FakeResolver::new(channel.clone()));
-    let notifier =
-        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
     notifier
         .push_provider_reauth(
             user_uuid,
@@ -333,8 +360,17 @@ async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() 
             || panic!("short link resolves to the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
         );
-    let claims = verify_link_token(&token, "test-jwt-secret", "sciotte")
-        .expect("the nudge's token verifies under the notifier secret");
+    let claims = verify_link_token(&token, LINK_SECRET, "sciotte")
+        .expect("the nudge's token verifies under the secret the notifier was given");
+    assert_eq!(
+        claims.sub,
+        user_uuid.to_string(),
+        "the link is the athlete's"
+    );
+    assert!(
+        target.starts_with(BASE_URL),
+        "the link opens on the server root the notifier was given: {target}"
+    );
     assert_eq!(
         claims.tgt, "trainingpeaks",
         "the reconnect link must open the TrainingPeaks login, not Strava's"
@@ -368,8 +404,13 @@ async fn push_provider_reauth_sends_nothing_for_a_provider_with_no_hosted_login(
 
     let channel = Arc::new(CapturingChannel::default());
     let resolver = Arc::new(FakeResolver::new(channel.clone()));
-    let notifier =
-        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
     notifier
         .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "whoop")
         .await;
@@ -423,7 +464,13 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // Push runs under the USER tenant — exactly what the backfill job carries.
     notifier
@@ -590,8 +637,14 @@ async fn push_sends_the_chart_and_never_its_marker() {
         seen_prompt: Mutex::new(None),
         seen_surface: Mutex::new(None),
     });
-    let notifier =
-        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        repos,
+        strings(),
+        resolver,
+        post,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(
@@ -710,6 +763,8 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
         strings(),
         resolver,
         post.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     );
 
     notifier
@@ -819,6 +874,8 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
         strings(),
         resolver,
         post.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     );
 
     notifier
@@ -913,8 +970,14 @@ async fn push_prepends_activity_list_to_agent_reply() {
         &format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
         true,
     ));
-    let notifier =
-        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        repos,
+        strings(),
+        resolver,
+        post,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(
@@ -1009,8 +1072,14 @@ async fn push_caps_long_activity_list_for_small_screens() {
     let folded =
         shape_for_fold(Some(&list), &strings(), "fr").expect("a long list must shape into prose");
     let post = Arc::new(FakePost::prose(&format!("{folded}\n\nAnalyse."), true));
-    let notifier =
-        ServerBackfillNotifier::with_resolver_and_platform_post(repos, strings(), resolver, post);
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        repos,
+        strings(),
+        resolver,
+        post,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(
@@ -1077,7 +1146,13 @@ async fn push_for_moved_session_sends_nothing() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // Push for the OLD conversation C — the session no longer points at it.
     notifier
@@ -1139,7 +1214,13 @@ async fn push_is_tenant_scoped() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver.clone());
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // Push tenant A's conversation under tenant B — must resolve nothing.
     notifier
@@ -1206,7 +1287,13 @@ async fn push_sends_warmed_activity_list() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     // `after_ts` = 30 days ago, so the 2- and 5-day-old activities fall inside
     // the `[after_ts, now]` window the notifier reads. `activity_count` here is
@@ -1273,7 +1360,13 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
@@ -1335,7 +1428,13 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
@@ -1432,6 +1531,8 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
         strings(),
         resolver,
         post.clone(),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     );
 
     notifier
@@ -1516,6 +1617,8 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
         strings(),
         resolver,
         post,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     );
 
     notifier
@@ -1574,7 +1677,13 @@ async fn push_still_drops_a_reset_messaging_thread() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
@@ -1636,7 +1745,13 @@ async fn push_body_is_rendered_in_the_users_locale() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier

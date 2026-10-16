@@ -6,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 import { useProviderConnection } from '../hooks/useHome';
-import { formatNameList } from './home/homeFormat';
+import { formatNameList } from '../utils/formatNameList';
 import { Button } from './ui';
 
 /**

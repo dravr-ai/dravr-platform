@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The follow-up reads a stale Home activity list earns — on the HOME_STALE_REFETCH_DELAYS_MS schedule, only while the app is in use
+// ABOUTME: The follow-up reads a stale Home activity list earns on both clients — on HOME_STALE_REFETCH_DELAYS_MS, only while the app is in use
 // ABOUTME: A fresh answer ends the schedule, the last delay ends it whatever the answer, and a stale answer after that starts another
 
-import React from 'react';
-import { act, renderHook } from '@testing-library/react-native';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createElement, type ReactNode } from 'react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import {
   QueryClient,
   QueryClientProvider,
@@ -14,19 +15,54 @@ import {
   notifyManager,
 } from '@tanstack/react-query';
 import { HOME_STALE_REFETCH_DELAYS_MS, QUERY_KEYS } from '@pierre/shared-constants';
-import type { RecentActivitiesResponse } from '@pierre/shared-types';
+import type { HomeActivity, RecentActivitiesResponse } from '@pierre/shared-types';
+import { createHomeReadHooks } from '../src/homeReadHooks';
 
-import { ACTIVITIES, recentResponse } from '../integration/app/helpers/homeFixtures';
+const mockGetRecentActivities = vi.fn<(options?: { retry?: boolean }) => Promise<RecentActivitiesResponse>>();
 
-const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [{ retry?: boolean }?]>();
-jest.mock('../src/services/api', () => ({
-  athleteApi: {
+/** A read this suite never makes: the hook under test is the recent list's. */
+const notReadHere = () => Promise.reject(new Error('not read in this suite'));
+
+const { useRecentActivities } = createHomeReadHooks(
+  {
     getRecentActivities: (_limit?: number, options?: { retry?: boolean }) =>
       options === undefined ? mockGetRecentActivities() : mockGetRecentActivities(options),
+    getActivityRoute: notReadHere,
+    getTrainingPlan: notReadHere,
+    getTrainingStatus: notReadHere,
+    getTrainingVolume: notReadHere,
   },
-}));
+  { useLanguage: () => 'en' },
+);
 
-import { useRecentActivities } from '../src/hooks/useHome';
+function activity(id: string, name: string, start_date: string): HomeActivity {
+  return {
+    id,
+    provider: 'strava',
+    name,
+    sport_type: 'ride',
+    start_date,
+    duration_seconds: 3_600,
+    distance_meters: 30_000,
+    elevation_gain_meters: 120,
+    has_gps: true,
+    summary_polyline: null,
+    attribution: null,
+  };
+}
+
+/** The list the server holds: five activities, newest first. */
+const ACTIVITIES: HomeActivity[] = [
+  activity('9001', 'Sunday long ride', '2026-09-20T09:00:00Z'),
+  activity('8999', 'Hill repeats', '2026-09-18T17:00:00Z'),
+  activity('8997', 'Easy spin', '2026-09-16T07:00:00Z'),
+  activity('8995', 'Tempo', '2026-09-14T07:00:00Z'),
+  activity('8993', 'Recovery', '2026-09-12T07:00:00Z'),
+];
+
+function recentResponse(overrides: Partial<RecentActivitiesResponse> = {}): RecentActivitiesResponse {
+  return { activities: ACTIVITIES, as_of: '2026-09-24T08:30:00Z', sync_failure: null, stale: false, ...overrides };
+}
 
 const [FIRST_DELAY, SECOND_DELAY] = HOME_STALE_REFETCH_DELAYS_MS;
 /** The whole schedule, first answer to last follow-up. */
@@ -42,16 +78,14 @@ function newClient() {
 
 function renderRecent(client: QueryClient = newClient()) {
   return renderHook(() => useRecentActivities(), {
-    wrapper: ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    ),
+    wrapper: ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children),
   });
 }
 
 /** Let the clock run, and whatever falls due in that time settle: the read, its answer, the render after it. */
 async function elapse(ms: number) {
   await act(async () => {
-    await jest.advanceTimersByTimeAsync(ms);
+    await vi.advanceTimersByTimeAsync(ms);
   });
 }
 
@@ -77,7 +111,7 @@ function heldAnswer() {
 beforeEach(() => {
   // The clock is faked with the timers: an answer is told from the one before
   // it by when it arrived.
-  jest.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   // React Query batches its notifications on a zero-delay timeout, which a
   // fake clock runs a millisecond late when it is set from inside another
   // timer. Run them inline, so the clock only drives the hook's own delays
@@ -88,9 +122,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Vitest runs without globals here, so Testing Library cannot register its
+  // own unmount; a hook left mounted would keep its schedule running into the
+  // next test and ask the shared mock.
+  cleanup();
   focusManager.setFocused(undefined);
   notifyManager.setScheduler(defaultScheduler);
-  jest.useRealTimers();
+  vi.useRealTimers();
 });
 
 describe('the retry after a failed sync', () => {
@@ -182,7 +220,7 @@ describe('the stale follow-up schedule', () => {
 
     await settle();
     expect(result.current.staleRefetch).toBe('pending');
-    expect(result.current.stale).toBe(true);
+    expect(result.current.data?.stale === true).toBe(true);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(1);
 
     await elapse(FIRST_DELAY - 1);
@@ -191,8 +229,8 @@ describe('the stale follow-up schedule', () => {
     await elapse(1);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     expect(result.current.staleRefetch).toBe('done');
-    expect(result.current.stale).toBe(false);
-    expect(result.current.asOf).toBe('2026-09-24T09:00:00Z');
+    expect(result.current.data?.stale === true).toBe(false);
+    expect((result.current.data?.as_of ?? null)).toBe('2026-09-24T09:00:00Z');
   });
 
   it('stops at the first answer that is not stale, and shows its rows', async () => {
@@ -210,15 +248,15 @@ describe('the stale follow-up schedule', () => {
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     // Still stale: a follow-up is still owed, and the old rows stay.
     expect(result.current.staleRefetch).toBe('pending');
-    expect(result.current.activities.map((activity) => activity.id)).toEqual(ACTIVITIES.map((a) => a.id));
+    expect((result.current.data?.activities ?? []).map((row) => row.id)).toEqual(ACTIVITIES.map((a) => a.id));
 
     await elapse(SECOND_DELAY - 1);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     await elapse(1);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(3);
     expect(result.current.staleRefetch).toBe('done');
-    expect(result.current.stale).toBe(false);
-    expect(result.current.activities.map((activity) => activity.id)).toEqual(caughtUp.map((a) => a.id));
+    expect(result.current.data?.stale === true).toBe(false);
+    expect((result.current.data?.activities ?? []).map((row) => row.id)).toEqual(caughtUp.map((a) => a.id));
 
     // The rest of the schedule is not walked.
     await elapse(SCHEDULE_MS * 2);
@@ -242,7 +280,7 @@ describe('the stale follow-up schedule', () => {
 
     expect(reads).toBe(1 + HOME_STALE_REFETCH_DELAYS_MS.length);
     // Still stale, and nothing more is owed: the list shows when it last synced.
-    expect(result.current.stale).toBe(true);
+    expect(result.current.data?.stale === true).toBe(true);
     expect(result.current.staleRefetch).toBe('done');
 
     await elapse(SCHEDULE_MS * 2);
@@ -254,7 +292,7 @@ describe('the stale follow-up schedule', () => {
     const { result } = renderRecent();
 
     await settle();
-    expect(result.current.hasData).toBe(true);
+    expect((result.current.data !== undefined)).toBe(true);
     await elapse(SCHEDULE_MS * 2);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(1);
     expect(result.current.staleRefetch).toBe('none');
@@ -286,8 +324,8 @@ describe('the stale follow-up schedule', () => {
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
     // The stale rows it followed are still the list, and a follow-up is still owed.
     expect(result.current.isError).toBe(true);
-    expect(result.current.hasData).toBe(true);
-    expect(result.current.stale).toBe(true);
+    expect((result.current.data !== undefined)).toBe(true);
+    expect(result.current.data?.stale === true).toBe(true);
     expect(result.current.staleRefetch).toBe('pending');
 
     // Not asked again at once: the failure took the first delay's place.
@@ -477,7 +515,7 @@ describe('an answer from outside the schedule', () => {
       void result.current.refetch();
     });
     await settle();
-    expect(result.current.stale).toBe(false);
+    expect(result.current.data?.stale === true).toBe(false);
     expect(result.current.staleRefetch).toBe('done');
 
     await elapse(SCHEDULE_MS * 2);
@@ -544,7 +582,7 @@ describe('an answer the cache already holds', () => {
   const RESTORED_AT = Date.parse('2026-09-24T08:00:00Z');
 
   beforeEach(() => {
-    jest.setSystemTime(RESTORED_AT + 60 * 60 * 1000);
+    vi.setSystemTime(RESTORED_AT + 60 * 60 * 1000);
   });
 
   it('is followed up when it is stale, on one schedule with the read that follows it', async () => {
@@ -579,7 +617,7 @@ describe('an answer the cache already holds', () => {
 
     await settle();
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(1);
-    expect(result.current.stale).toBe(true);
+    expect(result.current.data?.stale === true).toBe(true);
     expect(result.current.staleRefetch).toBe('pending');
 
     await elapse(FIRST_DELAY);

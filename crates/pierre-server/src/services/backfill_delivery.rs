@@ -28,7 +28,7 @@ use pierre_database::RepositoryRegistry;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::services::backfill_notifier::AdapterResolver;
+use crate::services::adapter_resolver::AdapterResolver;
 use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out, RenderedReply};
 use crate::services::messaging_ingress::outbound_retry::{
     enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
@@ -36,7 +36,7 @@ use crate::services::messaging_ingress::outbound_retry::{
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchRequest,
+    events::push_policy, models::NotificationCategory as CommNotifCategory, DispatchRequest,
     NotificationService, PushTier, TenantId as CommTenantId,
 };
 #[cfg(feature = "client-notifications")]
@@ -303,7 +303,8 @@ impl InAppDelivery<'_> {
                 .strings
                 .render(KEY_BACKFILL_PUSH_BODY, locale, &[&rendered_count]),
             // The count is an aggregate of the backfilled provider's data.
-            data: stamp_data(None, transport_policy),
+            data: None,
+            transport_policy: push_policy(transport_policy),
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,

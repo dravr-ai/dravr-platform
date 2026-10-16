@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsScreen } from '../ConnectionsScreen';
 import { oauthApi } from '../../../services/api';
 import * as WebBrowser from 'expo-web-browser';
@@ -73,6 +74,14 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
+/** The screen's consent action is a React Query mutation, so it renders under a client. */
+function queryWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+}
+
 describe('ConnectionsScreen — TrainingPeaks', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -89,7 +98,7 @@ describe('ConnectionsScreen — TrainingPeaks', () => {
     consent_required: true,
   }] });
 
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
     expect(await screen.findByText('sciotte-modal:trainingpeaks:consent')).toBeTruthy();
@@ -108,7 +117,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     // Keep the browser session pending so we only assert the launch.
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
 
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 
@@ -119,7 +128,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
   it('opens the Sciotte modal directly (no OAuth) once the pool is exhausted', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
 
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 
@@ -132,7 +141,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
 
-    render(<ConnectionsScreen />);
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 

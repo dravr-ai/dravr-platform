@@ -1,4 +1,4 @@
-// ABOUTME: Live route discovery against the public Overpass and Nominatim APIs
+// ABOUTME: Live route discovery against the public Overpass and Open-Meteo geocoding APIs
 // ABOUTME: Built only with the live-e2e feature; fails, never skips, when either API is unreachable
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! Live route-discovery tests: real requests to the public Overpass API
-//! (routes) and Nominatim (forward geocoding). Nothing here skips
+//! (routes) and Open-Meteo's gazetteer (forward geocoding). Nothing here skips
 //! (carnet#805): an unreachable service or a failed request fails the test.
 //! Run with:
 //!
@@ -18,9 +18,10 @@
 
 use std::time::{Duration, Instant};
 
+use dravr_meteo::Geocoder;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::SportType;
-use pierre_fitness_compute::location::LocationService;
+use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
 use pierre_fitness_compute::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -159,64 +160,62 @@ async fn test_discover_routes_for_sport_dispatches_by_type() {
 
 #[tokio::test]
 async fn test_forward_geocode_prevost_resolves_into_quebec() {
-    let service = LocationService::new();
-    let result = service
-        .forward_geocode("Prévost, QC")
+    let query = free_text_query("Prévost, Quebec", Some("CA".to_owned())).unwrap();
+    let resolution = place_geocoder()
+        .unwrap()
+        .resolve(&query)
         .await
-        .expect("Nominatim should resolve 'Prévost, QC'");
+        .expect("the gazetteer should resolve 'Prévost, Quebec'");
+    let place = resolution.place;
 
     // Prévost is in the Laurentides region of Québec; expect a roughly
-    // +45.8 lat, -74.1 lon area. Allow a generous tolerance because
-    // Nominatim may return the administrative centroid or a nearby node.
+    // +45.8 lat, -74.1 lon area, with a generous tolerance for the gazetteer's
+    // choice of centroid.
     assert!(
-        (45.5..=46.2).contains(&result.latitude),
+        (45.5..=46.2).contains(&place.latitude),
         "latitude {} outside expected Laurentides range",
-        result.latitude
+        place.latitude
     );
     assert!(
-        (-74.5..=-73.5).contains(&result.longitude),
+        (-74.5..=-73.5).contains(&place.longitude),
         "longitude {} outside expected Laurentides range",
-        result.longitude
+        place.longitude
     );
-    assert!(
-        result.display_name.to_lowercase().contains("québec")
-            || result.display_name.to_lowercase().contains("quebec"),
-        "display name '{}' should include Québec",
-        result.display_name
-    );
+    assert_eq!(place.country_code.as_deref(), Some("CA"));
 }
 
 #[tokio::test]
-async fn test_forward_geocode_cache_survives_a_new_service_instance() {
-    let first = LocationService::new()
-        .forward_geocode("Saint-Alexis-des-Monts")
+async fn test_forward_geocode_cache_is_process_wide() {
+    let first = place_geocoder()
+        .unwrap()
+        .resolve(&free_text_query("Saint-Alexis-des-Monts", None).unwrap())
         .await
         .expect("first geocode call should succeed");
 
-    // The second call goes through a DIFFERENT service instance, because that
-    // is what production does: every tool call constructs its own
-    // LocationService. A cache owned by the instance would miss here and open
-    // a second request against an API that allows one per second.
+    // The second call reads the one process-wide geocoder again, as every
+    // tool call does, with the name in a different case: a cache keyed per
+    // caller or by the raw spelling would miss and open a second request.
     //
     // We can't directly assert "didn't hit network", so assert the result is
     // identical and the call completes in <50ms (round-trips take longer).
     let before = Instant::now();
-    let second = LocationService::new()
-        .forward_geocode("saint-alexis-des-monts") // different case to prove cache key normalization
+    let second = place_geocoder()
+        .unwrap()
+        .resolve(&free_text_query("saint-alexis-des-monts", None).unwrap())
         .await
         .expect("second geocode call should succeed");
     let elapsed = before.elapsed();
 
     assert!(
-        (first.latitude - second.latitude).abs() < f64::EPSILON,
+        (first.place.latitude - second.place.latitude).abs() < f64::EPSILON,
         "cached call returned different latitude"
     );
     assert!(
-        (first.longitude - second.longitude).abs() < f64::EPSILON,
+        (first.place.longitude - second.place.longitude).abs() < f64::EPSILON,
         "cached call returned different longitude"
     );
     assert!(
         elapsed < Duration::from_millis(50),
-        "cached call took {elapsed:?} — the cache is not shared across instances"
+        "cached call took {elapsed:?} — the cache is not shared across calls"
     );
 }

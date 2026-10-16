@@ -8,6 +8,7 @@ import { Text, View } from 'react-native';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import type { AccountDeletionBlocker } from '@pierre/shared-types';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
@@ -16,8 +17,6 @@ import {
 import { Button, Input, Section, Sheet } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-
-const PREVIEW_QUERY_KEY = ['account-deletion-preview'] as const;
 
 export function AccountDeletionSection(): React.JSX.Element {
   const { t } = useTranslation();
@@ -29,7 +28,7 @@ export function AccountDeletionSection(): React.JSX.Element {
   const [refusedBlockers, setRefusedBlockers] = useState<AccountDeletionBlocker[]>([]);
 
   const preview = useQuery({
-    queryKey: PREVIEW_QUERY_KEY,
+    queryKey: QUERY_KEYS.account.deletionPreview(),
     queryFn: () => userApi.getAccountDeletionPreview(),
     enabled: open,
     staleTime: 0,

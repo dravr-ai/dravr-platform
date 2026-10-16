@@ -64,8 +64,8 @@ pub mod route_compose;
 pub mod threshold_estimation;
 pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};
 
-/// Location and geographic context (geocoding, elevation, address parsing via OSM Nominatim).
-pub mod location;
+/// The one place-name geocoder (dravr-meteo's Open-Meteo gazetteer behind its cache).
+pub mod geocoding;
 /// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).
 pub mod osm_routes;
 /// Weather impact analysis + provider factory (delegates vendor logic to dravr-meteo).

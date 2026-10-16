@@ -1904,6 +1904,7 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
         metadata: None,
         created_at: now,
         updated_at: now,
+        last_event_at: None,
     };
     repos
         .subscriptions

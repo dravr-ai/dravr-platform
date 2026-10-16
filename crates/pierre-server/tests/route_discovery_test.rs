@@ -24,7 +24,7 @@ use pierre_chat_pipeline::stages::viz_route::{read_route_tracks, RouteTracks};
 use pierre_chat_pipeline::{InputSource, QuotaState, TurnInput, TurnOrigin};
 use pierre_core::models::{ConversationTurnId, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_fitness_compute::location::LocationService;
+use pierre_fitness_compute::geocoding::free_text_query;
 use pierre_fitness_compute::route_compose;
 use pierre_fitness_compute::{
     build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
@@ -60,16 +60,9 @@ async fn test_unsupported_sport_returns_empty() {
 
 #[tokio::test]
 async fn test_forward_geocode_empty_query_rejected() {
-    // No live test needed — empty input is rejected before the HTTP call.
-    let service = LocationService::new();
-    let err = service
-        .forward_geocode("   ")
-        .await
-        .expect_err("empty query should be rejected");
-    assert!(
-        err.to_string().to_lowercase().contains("empty"),
-        "error message should mention empty input, got: {err}"
-    );
+    // No live test needed — a blank place is no query, so nothing is sent.
+    assert!(free_text_query("   ", None).is_none());
+    assert!(free_text_query(" , ", None).is_none());
 }
 
 // ============================================================================

@@ -11,9 +11,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CalendarResponse, TrainingPlanResponse, WorkoutPlan } from '@pierre/shared-types';
 import { HomeWeek } from '../HomeWeek';
 import { activityViewRoute } from '../../activity/activityRoute';
-import { DRAFT_DATE, formatCivilDate } from '../homeFormat';
 import { homePlan, TODAY } from './homeFixtures';
 import { calendarAnswer, HISTORY_START } from './calendarFixtures';
+import {
+  DRAFT_DATE,
+  formatCivilDate,
+} from '@pierre/ui-logic';
 
 const api = vi.hoisted(() => ({
   getTrainingPlan: vi.fn<(locale?: string) => Promise<TrainingPlanResponse>>(),

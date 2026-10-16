@@ -14,7 +14,7 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{
-    AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
+    Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
 use pierre_core::models::groups::UpdateGroupRequest;
 use pierre_core::models::{CreateGroupRequest, GroupMember, GroupSummary};
@@ -1829,4 +1829,67 @@ async fn test_members_are_named_by_display_name_else_email() {
     };
     assert_eq!(name_of(fx.owner_id), "Olivia Owner");
     assert_eq!(name_of(fx.member_id), "roster-member@test.com");
+}
+
+/// A group owner cannot rebind the group to a coach-facing agent another user
+/// of the tenant owns: the owner cannot read it, but the group's turns would
+/// run it (carnet#910).
+#[tokio::test]
+async fn test_update_group_refuses_another_users_coach_facing_agent() {
+    let (router, auth1, auth2, _u1, _u2, agent_id, doors) = Box::pin(setup_two_users()).await;
+    let (group_id, _code) = create_group_with_invite(&doors, &router, &auth1, &agent_id).await;
+    let (user2, shared_tenant) = doors.caller(&auth2);
+    let request: CreateAgentRequest = serde_json::from_value(json!({
+        "title": "Roster Builder",
+        "system_prompt": "Plan the coach's roster.",
+        "category": "training",
+        "tags": [Agent::COACH_TOOL_TAG],
+    }))
+    .unwrap();
+    let coach_agent = doors
+        .res
+        .common
+        .repos
+        .agents
+        .create(user2, shared_tenant, &request)
+        .await
+        .unwrap()
+        .id
+        .to_string();
+
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth1)
+        .json(&json!({ "agent_id": coach_agent }))
+        .send(router.clone())
+        .await;
+
+    assert_eq!(resp.status_code(), StatusCode::BAD_REQUEST);
+    let group: Value = AxumTestRequest::get(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth1)
+        .send(router)
+        .await
+        .json();
+    assert_eq!(
+        group["agent_id"],
+        agent_id.as_str(),
+        "the group keeps its agent"
+    );
+}
+
+/// An id the group's turns could not resolve is refused, not stored.
+#[tokio::test]
+async fn test_update_group_refuses_an_unknown_agent() {
+    let (router, auth, _user_id, agent_id, doors) = Box::pin(setup_single_user()).await;
+    let group = doors
+        .group(&auth, json!({ "name": "Tempo", "agent_id": &agent_id }))
+        .await;
+    let group_id = group["id"].as_str().unwrap();
+
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", &auth)
+        .json(&json!({ "agent_id": Uuid::new_v4().to_string() }))
+        .send(router)
+        .await;
+
+    assert_eq!(resp.status_code(), StatusCode::NOT_FOUND);
 }

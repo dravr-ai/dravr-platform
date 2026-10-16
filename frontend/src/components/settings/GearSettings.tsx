@@ -22,14 +22,14 @@ import {
   formatGearDistance,
   gearChanges,
   gearDistanceLimit,
-  gearDraftOf,
-  splitGear,
-  useDistanceUnit,
   type GearDraft,
   type GearDraftErrors,
+  gearDraftOf,
+  splitGear,
+  sportLabel,
+  useDistanceUnit,
 } from '@pierre/ui-logic';
 import { Badge, Button, Checkbox, ConfirmDialog, Input, Section, Select } from '../ui';
-import { sportLabel } from '../home/homeFormat';
 import { useGearChanges, useGearLedger } from '../../hooks/useGear';
 import { GearWarning } from './GearWarning';
 

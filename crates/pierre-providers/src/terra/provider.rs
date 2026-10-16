@@ -24,6 +24,7 @@ use crate::core::{
 };
 use crate::errors::provider::ProviderError;
 use crate::errors::AppResult;
+use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -283,6 +284,7 @@ impl FitnessProvider for TerraProvider {
             total_distance,
             total_duration,
             total_elevation_gain,
+            coverage: StatsCoverage::recent(&activities),
             year_to_date: None,
         })
     }

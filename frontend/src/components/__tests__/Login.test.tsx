@@ -3,6 +3,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { PENDING_SIGN_IN_KEY } from '../../utils/signIn'
 import Login from '../Login'
@@ -55,9 +56,11 @@ async function renderLogin() {
   await act(async () => {
     result = render(
       <ThemeProvider>
-        <AuthProvider>
-          <Login onNavigateToForgotPassword={() => {}} onNavigateToRegister={() => {}} />
-        </AuthProvider>
+        <QueryClientProvider client={new QueryClient()}>
+          <AuthProvider>
+            <Login onNavigateToForgotPassword={() => {}} onNavigateToRegister={() => {}} />
+          </AuthProvider>
+        </QueryClientProvider>
       </ThemeProvider>
     );
   });

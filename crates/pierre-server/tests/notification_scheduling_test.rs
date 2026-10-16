@@ -25,6 +25,7 @@ mod notification_scheduling_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
@@ -396,6 +397,7 @@ mod notification_scheduling_tests {
             data: None,
             image_url: None,
             actions: None,
+            transport_policy: PushTransportPolicy::AnyTransport,
         };
         let notification = service.create_notification(&params).await.unwrap();
 

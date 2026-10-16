@@ -19,6 +19,7 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
+use crate::models::StatsCoverage;
 use crate::models::{
     activity::{Lap, Split},
     resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
@@ -869,6 +870,7 @@ impl FitnessProvider for StravaProvider {
             total_distance: all_time.total_distance,
             total_duration: all_time.total_duration,
             total_elevation_gain: all_time.total_elevation_gain,
+            coverage: StatsCoverage::Lifetime,
             year_to_date: Some(year_to_date),
         })
     }

@@ -65,13 +65,13 @@ use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::services::backfill_notifier::{config_adapter_resolver, AdapterResolver};
+use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use pierre_services::messaging_broadcast::proactive_text;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    events::stamp_data, models::NotificationCategory as CommNotifCategory, DispatchOutcome,
+    events::push_policy, models::NotificationCategory as CommNotifCategory, DispatchOutcome,
     DispatchRequest, NotificationService, PushTier, TenantId as CommTenantId,
 };
 
@@ -353,7 +353,8 @@ impl ServerCommitmentReporter {
             body,
             // The verdict carries the commitment's stamp, which the sweep
             // tightened to the sessions it counted (carnet#769).
-            data: stamp_data(None, commitment.transport_policy),
+            data: None,
+            transport_policy: push_policy(commitment.transport_policy),
             image_url: None,
             actions: None,
             // The sweep already caps itself at one verdict per athlete per day,

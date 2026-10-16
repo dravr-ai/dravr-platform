@@ -36,6 +36,7 @@ use crate::recorders::{
     PEER_CLAIM_VERIFIER_CALL_TYPE,
 };
 use crate::stages;
+use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::{chat_provider_from_resources_arc, ChatPipelineContext};
@@ -195,6 +196,8 @@ pub struct RecoveryAndPostProcessInputs<'a> {
     pub active_model: &'a str,
     /// Group roster (empty outside a group conversation) for the claim verifier.
     pub peer_roster: &'a [MemberFitnessSnapshot],
+    /// The peer blocks the grounding stage injected this turn.
+    pub peer_blocks: &'a [PeerGroundingBlock],
     /// The guided flow that owns this turn, as loaded at its start, when one
     /// does — an interview turn is judged differently by capability recovery.
     pub guided_walk: Option<&'a OnboardingState>,
@@ -224,6 +227,7 @@ pub async fn run_recovery_and_post_process(
         llm_messages,
         active_model,
         peer_roster,
+        peer_blocks,
         guided_walk,
     } = inputs;
     // Guardian short-circuits take precedence over re-auth: a tool blocked by
@@ -279,6 +283,7 @@ pub async fn run_recovery_and_post_process(
             llm_messages,
             active_model,
             peer_roster,
+            peer_blocks,
             locale: &profile.locale,
             guided_walk,
             reask_recorder: &reask_recorder,

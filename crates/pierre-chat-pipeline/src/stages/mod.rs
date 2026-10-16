@@ -71,6 +71,8 @@ pub mod persona_conformance;
 /// Stage 15.7 — the workout_plan block on the turn that saved a plan.
 pub mod plan_block;
 pub mod platform_grounding;
+/// The platform's own message framings, and their defang for athlete text.
+pub mod platform_markers;
 /// Post-LLM content processing: canary scan, guardrails, verification, hook.
 pub mod post_process;
 pub mod prefetch;
@@ -90,6 +92,8 @@ pub mod subject_context;
 pub mod tool_dispatch;
 /// The turn clock, sent after the cache breakpoints (carnet#895).
 pub mod turn_clock;
+/// What the peer-claim verifier may treat as evidence: platform-framed data only.
+mod turn_evidence;
 /// Post-turn memory extraction, recorded before it runs
 pub mod turn_extraction;
 /// The unit system the reader writes in (prompt stage 7b.1).

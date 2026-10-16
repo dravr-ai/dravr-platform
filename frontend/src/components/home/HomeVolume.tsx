@@ -6,7 +6,6 @@
 
 import { useMemo, useState, type PointerEvent } from 'react';
 import { useTranslation } from '@pierre/i18n';
-import type { TFunction } from '@pierre/i18n';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
 import {
   ALL_SPORTS,
@@ -24,16 +23,20 @@ import {
   volumeSports,
   weekTotals,
   type SketchBox,
-  type VolumeMetric,
   type VolumeTotals,
 } from '@pierre/domain-utils';
-import { formatElevation, type DistanceUnit } from '@pierre/chat-utils';
-import { formatActivityDistance, useDistanceUnit } from '@pierre/ui-logic';
+import { formatElevation } from '@pierre/chat-utils';
+import {
+  formatActivityDistance,
+  formatCivilDate,
+  sportLabel,
+  useDistanceUnit,
+  volumeMetricText,
+} from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { Tabs } from '../ui/Tabs';
 import { useTrainingVolume } from '../../hooks/useHome';
-import { formatCivilDate, sportLabel } from './homeFormat';
 
 /**
  * The chart's own coordinate space, stretched to the column's width. Bars are
@@ -44,13 +47,6 @@ const VOLUME_BOX: SketchBox = { width: 240, height: 72, padding: VOLUME_PADDING 
 
 /** A week's Monday as the readout and the axis ends print it: "20 Jul". */
 const WEEK_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
-
-/** A week's figure for the metric the bars stand for, in the reader's notation and units. */
-function metricText(t: TFunction, metric: VolumeMetric, value: number, language: string, unit: DistanceUnit): string {
-  return metric === 'distance'
-    ? formatActivityDistance(value, unit, language)
-    : formatDuration(t, weekMinutesSeconds(value));
-}
 
 /** This week's three figures and its session count, for the selected sport or all of them. */
 function ThisWeek({ totals }: { totals: VolumeTotals }) {
@@ -140,8 +136,8 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
           aria-label={t(TRAINING_VOLUME_KEY.chartAlt, {
             label,
             from: day(starts[0]),
-            first: metricText(t, metric, values[0], language, unit),
-            last: metricText(t, metric, values[last], language, unit),
+            first: volumeMetricText(t, metric, values[0], language, unit),
+            last: volumeMetricText(t, metric, values[last], language, unit),
           })}
           data-testid="home-volume-trend"
           className="block h-full w-full"
@@ -174,7 +170,7 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
         <span>{day(starts[last])}</span>
       </div>
       <p data-testid="home-volume-readout" className="mt-2 text-xs text-on-surface-variant">
-        {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: metricText(t, metric, values[shown], language, unit) })}
+        {t(TRAINING_VOLUME_KEY.weekReadout, { date: day(starts[shown]), value: volumeMetricText(t, metric, values[shown], language, unit) })}
       </p>
     </div>
   );

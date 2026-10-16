@@ -36,6 +36,7 @@ fn sample_subscription() -> Subscription {
         metadata: Some(serde_json::json!({"source": "checkout"})),
         created_at: Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap(),
         updated_at: Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap(),
+        last_event_at: None,
     }
 }
 
@@ -45,7 +46,12 @@ async fn upsert_subscription_inserts_then_reads_back_via_every_lookup() {
     let repos = db.repositories();
     let sub = sample_subscription();
 
-    let inserted = repos.subscriptions.upsert_subscription(&sub).await.unwrap();
+    let inserted = repos
+        .subscriptions
+        .upsert_subscription(&sub)
+        .await
+        .unwrap()
+        .expect("the write is applied");
     assert_eq!(inserted.id, sub.id);
     assert_eq!(inserted.provider, TEST_PROVIDER);
     assert_eq!(inserted.provider_customer_id, sub.provider_customer_id);
@@ -103,7 +109,12 @@ async fn upsert_subscription_updates_existing_row_on_status_change() {
 
     sub.status = SubscriptionStatus::PastDue;
     sub.updated_at = Utc.with_ymd_and_hms(2026, 4, 15, 12, 0, 0).unwrap();
-    let updated = repos.subscriptions.upsert_subscription(&sub).await.unwrap();
+    let updated = repos
+        .subscriptions
+        .upsert_subscription(&sub)
+        .await
+        .unwrap()
+        .expect("the write is applied");
     assert_eq!(updated.status, SubscriptionStatus::PastDue);
     assert!(!updated.is_entitled());
 
@@ -117,6 +128,58 @@ async fn upsert_subscription_updates_existing_row_on_status_change() {
         .expect("the subscription reads back by its user");
     assert_eq!(stored.id, sub.id);
     assert_eq!(stored.status, SubscriptionStatus::PastDue);
+}
+
+// carnet#993: the time guard alone, on a row that was never canceled. The
+// late write is a fraction of a second before the applied one and on the
+// other side of a month boundary, so the stored times must compare in time
+// order (on SQLite, as text) for it to be refused.
+#[tokio::test]
+async fn an_older_provider_event_never_overwrites_a_newer_one() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let applied_at = Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap();
+    let mut sub = sample_subscription();
+    sub.last_event_at = Some(applied_at);
+    repos
+        .subscriptions
+        .upsert_subscription(&sub)
+        .await
+        .unwrap()
+        .expect("the first event is applied");
+
+    let mut late = sub.clone();
+    late.status = SubscriptionStatus::PastDue;
+    late.last_event_at = Some(applied_at - chrono::Duration::milliseconds(1));
+    let refused = repos
+        .subscriptions
+        .upsert_subscription(&late)
+        .await
+        .unwrap();
+    assert!(
+        refused.is_none(),
+        "an older event is superseded: {refused:?}"
+    );
+    let stored = repos
+        .subscriptions
+        .get_subscription_by_user(sub.user_id)
+        .await
+        .unwrap()
+        .expect("the subscription reads back by its user");
+    assert_eq!(stored.status, SubscriptionStatus::Active);
+    assert_eq!(stored.last_event_at, Some(applied_at));
+
+    let mut newer = sub.clone();
+    newer.status = SubscriptionStatus::PastDue;
+    newer.last_event_at = Some(applied_at + chrono::Duration::seconds(1));
+    let written = repos
+        .subscriptions
+        .upsert_subscription(&newer)
+        .await
+        .unwrap()
+        .expect("a newer event is applied");
+    assert_eq!(written.status, SubscriptionStatus::PastDue);
+    assert_eq!(written.last_event_at, newer.last_event_at);
 }
 
 #[tokio::test]

@@ -31,6 +31,7 @@ use pierre_email::ResendEmailService;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use tokio_util::task::TaskTracker;
 use tracing::info;
 
 use crate::auth::service::AdminAuthService;
@@ -67,6 +68,11 @@ pub struct AdminApiContext {
     /// (`ServerConfig::website_base_url`; the default until the composition
     /// root copies the configured value in)
     pub website_base_url: String,
+    /// Work a route starts and does not await: the docs sign-in link's mint
+    /// and mail, which run after the route has answered. The composition root
+    /// hands in the server's in-flight tracker, so shutdown drains this work
+    /// with the messaging turns; a tracker of its own until then.
+    pub background: TaskTracker,
     /// Notifier that emails and messages a just-approved user across their
     /// linked channels (injected by the composition root; `None` until wired).
     pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
@@ -176,6 +182,7 @@ impl AdminApiContext {
             email_service: None,
             frontend_url: None,
             website_base_url: DEFAULT_WEBSITE_BASE_URL.to_owned(),
+            background: TaskTracker::new(),
             approval_notifier: None,
             provider_disconnector: None,
             sign_in_limiter: Arc::new(OAuth2RateLimiter::new(

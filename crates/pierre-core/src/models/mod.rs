@@ -141,7 +141,7 @@ pub use dravr_equilibre::{
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
-pub use athlete::{Athlete, PeriodTotals, Stats};
+pub use athlete::{Athlete, PeriodTotals, Stats, StatsCoverage};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
 };

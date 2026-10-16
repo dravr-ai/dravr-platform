@@ -59,7 +59,10 @@ dravr-cageux = { workspace = true, optional = true }
 # Activity FIT files: an athlete's uploaded workout, and the samples Wahoo
 # serves only as a FIT file — both decoded by fit_file.rs.
 fitparser = "0.11"
-dravr-equilibre = { workspace = true }
+# The intervals.icu auth rule and the credential kind it keys on, owned by
+# dravr-enforme so its wellness path and this provider's activity path share
+# one rule (carnet#997).
+dravr-enforme = { workspace = true, features = ["provider-intervals-icu"] }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 

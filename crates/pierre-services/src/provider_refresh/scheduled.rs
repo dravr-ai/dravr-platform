@@ -17,6 +17,7 @@ use pierre_core::models::{OAuthNotification, SmartScheduleWeights, TenantId};
 use pierre_database::AuthRepos;
 use pierre_providers::backend_resolver::{is_mirror_backend, sync_backend};
 use tokio::task::AbortHandle;
+use tokio::time::timeout;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -60,7 +61,14 @@ pub fn start_scheduled_sync(
             let sleep_duration = with_jitter(poll_interval);
             sleep(sleep_duration).await;
 
-            run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager, &notices).await;
+            run_scheduled_sync_cycle(
+                &orchestrator,
+                &repos,
+                &sse_manager,
+                &notices,
+                SCHEDULED_SYNC_DEADLINE,
+            )
+            .await;
         }
     });
 
@@ -69,12 +77,24 @@ pub fn start_scheduled_sync(
     abort_handle
 }
 
-/// Execute one full sync cycle across all providers and users.
+/// Longest one athlete's scheduled sync of one provider may run.
+///
+/// The cycle syncs athletes one after another, so a sync that never returns —
+/// a vendor that accepts the connection and never answers — would stop
+/// background sync for every later athlete and provider until the process
+/// restarted (carnet#995). dravr-enforme bounds each request (30 s); a sync
+/// is a handful of paged requests per data type, so ten minutes is far past
+/// any sync that is still making progress.
+const SCHEDULED_SYNC_DEADLINE: Duration = Duration::from_mins(10);
+
+/// Execute one full sync cycle across all providers and users, giving each
+/// athlete's sync of each provider at most `deadline`.
 async fn run_scheduled_sync_cycle(
     orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
+    deadline: Duration,
 ) {
     for provider_name in orchestrator.provider_names() {
         let users = match orchestrator
@@ -102,6 +122,7 @@ async fn run_scheduled_sync_cycle(
             notices,
             &users,
             provider_name,
+            deadline,
         )
         .await;
     }
@@ -119,21 +140,54 @@ async fn sync_provider_users(
     notices: &SyncFailureNotices,
     users: &[ConnectedUser],
     provider_name: &str,
+    deadline: Duration,
 ) {
     for user in users {
         if !user.is_active || scrape_sync_not_due(repos, user, provider_name).await {
             continue;
         }
 
-        sync_single_user(
+        sync_single_user_within(
             orchestrator,
             repos,
             sse_manager,
             notices,
             user,
             provider_name,
+            deadline,
         )
         .await;
+    }
+}
+
+/// Sync a single user for a given provider within `deadline`. A sync still
+/// running then is dropped and counted as a failure, and the cycle moves on
+/// to the next athlete.
+async fn sync_single_user_within(
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    repos: &AuthRepos,
+    sse_manager: &Arc<dyn SyncNotifier>,
+    notices: &SyncFailureNotices,
+    user: &ConnectedUser,
+    provider_name: &str,
+    deadline: Duration,
+) {
+    let sync = sync_single_user(
+        orchestrator,
+        repos,
+        sse_manager,
+        notices,
+        user,
+        provider_name,
+    );
+    if timeout(deadline, sync).await.is_err() {
+        SYNC_FAILURES.fetch_add(1, Ordering::Relaxed);
+        warn!(
+            user_id = user.user_id,
+            provider = provider_name,
+            deadline_secs = deadline.as_secs(),
+            "Scheduled sync did not finish by its deadline; moving on to the next athlete"
+        );
     }
 }
 
@@ -320,5 +374,248 @@ async fn send_sync_notification(
         let _ = sse_manager
             .send_notification(user_uuid, &notification)
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::future::pending;
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+    use dravr_enforme::error::EnformeResult;
+    use dravr_enforme::models::connection::ProviderCredentials;
+    use dravr_enforme::models::cursor::{SyncBatch, SyncCursor};
+    use dravr_enforme::models::webhook::{WebhookConfig, WebhookEvent};
+    use dravr_enforme::traits::sync_provider::{DataType, SyncProvider};
+    use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
+    use dravr_equilibre_sync::ContinuousMetricBatch;
+    use http::HeaderMap;
+    use pierre_core::errors::AppError;
+    use pierre_core::models::{
+        StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, Tenant, UserOAuthToken,
+    };
+    use pierre_database::RepositoryRegistry;
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::server::create_test_user;
+
+    use super::*;
+    use crate::health_sync::PierreSyncStorage;
+
+    /// A WHOOP stand-in whose sleep read never answers for one athlete — a
+    /// vendor that accepts the connection and never replies — and answers
+    /// every other athlete with nothing new. It records whose sleep it read,
+    /// in a list the test keeps a handle to (`Arc`) while the orchestrator
+    /// owns the provider.
+    struct StallsFor {
+        stalled: String,
+        read: Arc<Mutex<Vec<String>>>,
+    }
+
+    fn empty<T>(creds: &ProviderCredentials, data: &str) -> SyncBatch<T> {
+        SyncBatch::empty(SyncCursor::new(creds.user_id.clone(), "whoop", data))
+    }
+
+    #[async_trait]
+    impl SyncProvider for StallsFor {
+        fn name(&self) -> &'static str {
+            "whoop"
+        }
+
+        fn supported_data_types(&self) -> &[DataType] {
+            &[DataType::Sleep]
+        }
+
+        async fn fetch_sleep(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredSleepSession>> {
+            self.read.lock().unwrap().push(creds.user_id.clone());
+            if creds.user_id == self.stalled {
+                pending::<()>().await;
+            }
+            Ok(empty(creds, "sleep"))
+        }
+
+        async fn fetch_recovery(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredRecoveryMetrics>> {
+            Ok(empty(creds, "recovery"))
+        }
+
+        async fn fetch_health(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<StoredHealthMetrics>> {
+            Ok(empty(creds, "health"))
+        }
+
+        async fn fetch_continuous(
+            &self,
+            creds: &ProviderCredentials,
+            _cursor: Option<&SyncCursor>,
+        ) -> EnformeResult<SyncBatch<ContinuousMetricBatch>> {
+            Ok(empty(creds, "continuous"))
+        }
+
+        async fn on_connected(
+            &self,
+            _creds: &ProviderCredentials,
+            _webhook_url: &str,
+        ) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        async fn on_disconnected(&self, _creds: &ProviderCredentials) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        fn webhook_config(&self) -> Option<WebhookConfig> {
+            None
+        }
+
+        async fn validate_webhook(&self, _headers: &HeaderMap, _body: &[u8]) -> EnformeResult<()> {
+            Ok(())
+        }
+
+        async fn parse_webhook(&self, _body: &[u8]) -> EnformeResult<Vec<WebhookEvent>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Clients with no stream: the cycle's notification is best-effort.
+    struct NoStreams;
+
+    #[async_trait]
+    impl SyncNotifier for NoStreams {
+        async fn send_notification(
+            &self,
+            _user_id: Uuid,
+            _notification: &OAuthNotification,
+        ) -> Result<(), AppError> {
+            Ok(())
+        }
+    }
+
+    /// Seed an athlete with a WHOOP token in their own tenant.
+    async fn whoop_athlete(repos: &Arc<RepositoryRegistry>) -> (Uuid, TenantId) {
+        let user = create_test_user(&format!("{}@example.com", Uuid::new_v4()), None);
+        repos.users.create(&user).await.unwrap();
+        let tenant_id = TenantId::generate();
+        let now = Utc::now();
+        repos
+            .tenants
+            .create(&Tenant {
+                id: tenant_id,
+                name: format!("Tenant {tenant_id}"),
+                slug: format!("tenant-{tenant_id}"),
+                domain: None,
+                plan: "starter".to_owned(),
+                owner_user_id: user.id,
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+        repos
+            .oauth_tokens
+            .upsert_token(&UserOAuthToken {
+                id: Uuid::new_v4().to_string(),
+                user_id: user.id,
+                tenant_id: tenant_id.to_string(),
+                provider: "whoop".to_owned(),
+                access_token: "whoop_access_token".to_owned(),
+                refresh_token: Some("whoop_refresh".to_owned()),
+                token_type: "Bearer".to_owned(),
+                expires_at: Some(now + chrono::Duration::hours(1)),
+                scope: Some("read:sleep".to_owned()),
+                provider_user_id: None,
+                oauth_app_client_id: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+        (user.id, tenant_id)
+    }
+
+    // carnet#995: one athlete's sync that never returns used to stop the
+    // cycle, and with it background sync for every later athlete.
+    #[tokio::test]
+    async fn a_stalled_sync_is_dropped_at_its_deadline_and_the_next_athlete_syncs() {
+        let db = create_test_db().await.unwrap();
+        let repos = Arc::clone(db.repositories());
+        let (stalled, _) = whoop_athlete(&repos).await;
+        let (next, next_tenant) = whoop_athlete(&repos).await;
+
+        let read = Arc::new(Mutex::new(Vec::new()));
+        let storage = Arc::new(PierreSyncStorage::new(&repos));
+        let deps = Arc::new(SyncDeps {
+            sleep: storage.clone(),
+            recovery: storage.clone(),
+            health: storage.clone(),
+            time_series: storage.clone(),
+            data_sources: storage.clone(),
+            cursors: storage.clone(),
+            credentials: storage.clone(),
+            connections: storage,
+        });
+        let provider: Box<dyn SyncProvider> = Box::new(StallsFor {
+            stalled: stalled.to_string(),
+            read: Arc::clone(&read),
+        });
+        let providers = HashMap::from([("whoop".to_owned(), provider)]);
+        let orchestrator = Arc::new(SyncOrchestrator::new(
+            deps,
+            providers,
+            SyncConfig::from_env(),
+        ));
+
+        let auth_repos = repos.auth_repos();
+        let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
+        let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
+        let athletes: Vec<ConnectedUser> = [stalled, next]
+            .iter()
+            .map(|id| ConnectedUser {
+                user_id: id.to_string(),
+                provider: "whoop".to_owned(),
+                connected_at: Utc::now(),
+                is_active: true,
+            })
+            .collect();
+
+        // Without a deadline this never returns; the outer bound turns that
+        // hang into a failure.
+        timeout(
+            Duration::from_secs(30),
+            sync_provider_users(
+                &orchestrator,
+                &auth_repos,
+                &notifier,
+                &notices,
+                &athletes,
+                "whoop",
+                Duration::from_millis(300),
+            ),
+        )
+        .await
+        .expect("the cycle moves past the stalled athlete");
+
+        assert_eq!(
+            *read.lock().unwrap(),
+            vec![stalled.to_string(), next.to_string()],
+            "the stalled athlete was read first, then the next one"
+        );
+        let landed = auth_repos
+            .oauth_tokens
+            .get_provider_last_sync(next, next_tenant, "whoop")
+            .await
+            .unwrap();
+        assert!(landed.is_some(), "the next athlete's sync landed");
     }
 }

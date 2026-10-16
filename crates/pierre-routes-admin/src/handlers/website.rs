@@ -18,7 +18,9 @@
 //! The send route answers the same `{"status":"ok"}` for every valid request,
 //! whether or not anything was sent, and redemption answers one uniform 404
 //! for every failure: the Worker relays what it is told to a visitor, so no
-//! response body may tell a visitor whether an address has an account.
+//! response body may tell a visitor whether an address has an account. The
+//! send route answers before it looks the address up, so its response time
+//! does not tell either.
 
 use std::sync::Arc;
 
@@ -116,7 +118,8 @@ fn is_docs_path(next: &str) -> bool {
 /// `POST /admin/website/sign-in-link` — mail a docs sign-in link.
 ///
 /// The link goes out only when the address belongs to an active account that
-/// is within its send budget; every valid request gets the same answer.
+/// is within its send budget; every valid request gets the same answer, sent
+/// before the lookup, mint and mail run, so its timing says nothing either.
 ///
 /// # Errors
 ///
@@ -137,12 +140,31 @@ pub async fn handle_send_sign_in_link(
         return Err(AppError::invalid_input("lang must be en or fr"));
     }
 
-    send_sign_in_link(&context, &email, &request.next, &request.lang).await;
+    spawn_sign_in_link(context, email, request.next, request.lang);
     Ok(ok_status())
 }
 
+/// Mint and mail the link on a task of its own, so the answer leaves before
+/// any of it runs.
+///
+/// An unknown address costs one lookup; an active one costs a count, a token
+/// write and a round trip to the email provider. Awaiting that work would let
+/// a visitor tell the two apart by response time, so the route answers first
+/// and the work happens after, on [`AdminApiContext::background`] so shutdown
+/// drains it. A panic in the task is logged from its `JoinHandle`, never lost.
+fn spawn_sign_in_link(context: Arc<AdminApiContext>, email: String, next: String, lang: String) {
+    let background = context.background.clone();
+    let task =
+        background.spawn(async move { send_sign_in_link(&context, &email, &next, &lang).await });
+    tokio::spawn(async move {
+        if let Err(e) = task.await {
+            error!(error = %e, "Website sign-in link: send task failed");
+        }
+    });
+}
+
 /// Mint and mail a link when the address earns one. Best-effort throughout:
-/// the caller answers the same whatever happens here.
+/// the caller has already answered, the same whatever happens here.
 async fn send_sign_in_link(context: &AdminApiContext, email: &str, next: &str, lang: &str) {
     match mint_sign_in_url(context, email, next, lang).await {
         Ok(Some((user, url))) => deliver_sign_in_link(context, &user, &url).await,

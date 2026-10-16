@@ -511,11 +511,15 @@ impl ServerContext {
         #[cfg(all(feature = "health-sync", not(feature = "client-notifications")))]
         let sync_notice_service = None;
         #[cfg(feature = "health-sync")]
-        let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) = Self::init_health_sync(
-            &repos,
-            &sse_manager,
-            SyncFailureNotices::new(Arc::clone(&repos.provider_connections), sync_notice_service),
-        );
+        let (sync_storage, sync_orchestrator, sync_scheduler_abort_handle) =
+            Self::init_health_sync(
+                &repos,
+                &sse_manager,
+                SyncFailureNotices::new(
+                    Arc::clone(&repos.provider_connections),
+                    sync_notice_service,
+                ),
+            )?;
 
         // Cache-backed nonce store for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
@@ -897,27 +901,35 @@ impl ServerContext {
     /// Returns the storage adapter (kept for post-Arc injection of the
     /// credential refresher), the orchestrator, and the abort handle for the
     /// scheduler task.
+    ///
+    /// # Errors
+    ///
+    /// When a health provider's HTTP client cannot be built; enforme never
+    /// replaces one with a client that has no timeout.
     #[cfg(feature = "health-sync")]
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
-    ) -> (
+    ) -> AppResult<(
         Arc<PierreSyncStorage>,
         Arc<dravr_enforme::SyncOrchestrator>,
         AbortHandle,
-    ) {
+    )> {
+        use pierre_core::errors::AppError;
         use pierre_services::provider_refresh::start_scheduled_sync;
 
         use pierre_services::provider_refresh::SyncNotifier;
         let adapter = Arc::new(PierreSyncStorage::new(repos));
-        let orchestrator = adapter.build_orchestrator();
+        let orchestrator = adapter.build_orchestrator().map_err(|e| {
+            AppError::internal(format!("health sync providers could not be built: {e}"))
+        })?;
         let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
         let auth_repos = repos.auth_repos();
         let abort_handle =
             start_scheduled_sync(Arc::clone(&orchestrator), &auth_repos, notifier, notices);
         info!("Health data sync scheduler started (Pierre-aware)");
-        (adapter, orchestrator, abort_handle)
+        Ok((adapter, orchestrator, abort_handle))
     }
 
     /// Create and initialize the tool registry with all built-in tools

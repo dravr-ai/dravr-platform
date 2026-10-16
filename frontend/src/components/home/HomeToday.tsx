@@ -8,17 +8,17 @@ import { MapPin } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
 import { planDayOn } from '@pierre/shared-types';
-import { useDistanceUnit } from '@pierre/ui-logic';
-import { Section } from '../ui/Section';
 import {
   DRAFT_DATE,
   formatCivilDate,
   phaseWeekLabel,
   planDayDraft,
   planDayRouteDraft,
-  sessionFacts,
   type PlanWindow,
-} from './homeFormat';
+  sessionFacts,
+  useDistanceUnit,
+} from '@pierre/ui-logic';
+import { Section } from '../ui/Section';
 
 interface HomeTodayProps {
   plan: WorkoutPlan;

@@ -236,11 +236,11 @@ enum AuthCommand {
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Super-admin token authorizing the approval (defaults to cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 
@@ -250,11 +250,11 @@ enum AuthCommand {
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Super-admin token authorizing the denial (defaults to cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 }
@@ -386,11 +386,11 @@ enum UserCommand {
         format: String,
 
         /// Server base URL (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Admin token (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 
@@ -417,11 +417,11 @@ enum UserCommand {
         note: Option<String>,
 
         /// Server base URL (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Admin token (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 
@@ -482,11 +482,11 @@ enum UserCommand {
         send_invite: bool,
 
         /// Server base URL (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Admin token (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 
@@ -497,11 +497,11 @@ enum UserCommand {
         email: String,
 
         /// Server base URL (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Admin token (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 
@@ -512,11 +512,11 @@ enum UserCommand {
         format: String,
 
         /// Server base URL (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
 
         /// Admin token (defaults to the cached login)
-        #[arg(long)]
+        #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
         token: Option<String>,
     },
 

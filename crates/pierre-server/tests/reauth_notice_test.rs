@@ -45,6 +45,11 @@ use crate::messaging_fixtures::{
     seed_channel_link, seed_conversation, seed_session, strings, CapturingChannel, FakeResolver,
 };
 
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "test-jwt-secret";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://app.test";
+
 /// One athlete, a runtime whose chat sends are captured, and the notification
 /// service it dispatches through.
 struct Fixture {
@@ -79,6 +84,8 @@ async fn fixture() -> Fixture {
         Arc::clone(&context.common.repos),
         strings(),
         Arc::new(FakeResolver::new(channel.clone())),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
     )));
     let service = Arc::new(match context.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -303,7 +310,7 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
             || panic!("the link opens the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
         );
-    let claims = verify_link_token(&token, "test-jwt-secret", "sciotte").unwrap();
+    let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
     assert_eq!(claims.tgt, "garmin", "opens the Garmin login");
     assert_eq!(
         claims.channel,

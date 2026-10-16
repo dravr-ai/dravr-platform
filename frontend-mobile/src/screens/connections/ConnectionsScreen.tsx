@@ -25,6 +25,7 @@ import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAiConsent } from '../../hooks/useAiConsent';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import {
@@ -48,6 +49,7 @@ export function ConnectionsScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const aiConsent = useAiConsent();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -229,12 +231,13 @@ export function ConnectionsScreen() {
 
   /**
    * Withdraw the consent to AI use of a provider's data in one call
-   * (carnet#726). The connection stays; the row then asks for the
-   * authorization again, which gives it back.
+   * (carnet#726), through the same mutation as the Privacy switch so both
+   * read the server's answer. The connection stays; the row then asks for
+   * the authorization again, which gives it back.
    */
   const handleWithdrawAiConsent = async (providerId: string, providerName: string) => {
     try {
-      await oauthApi.withdrawAiConsent(providerId);
+      await aiConsent.mutateAsync({ provider: providerId, allow: false });
       await loadConnectionStatus();
       Alert.alert(t('common.success'), t(AI_CONSENT_KEYS.withdrawn, { provider: providerName }));
     } catch (err) {

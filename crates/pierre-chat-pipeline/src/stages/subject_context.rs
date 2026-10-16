@@ -75,10 +75,13 @@ pub async fn inject_subject_context(
 
     // Stage 7e: Render the per-user OKF context bundle (North Star + pillar +
     // medical facts) from the read-time Dossier into the prompt. Single
-    // fact->prompt surface; user-wide (agent-agnostic) facts.
+    // fact->prompt surface; user-wide (agent-agnostic) facts. Scoped to the
+    // TOOL tenant — the athlete's own workspace, where every turn kind stamps
+    // their facts (`turn_extraction::ExtractionTenants`), so a room turn reads
+    // the goals the athlete gave in their walk or their DM.
     let base_prompt = inject_okf_bundle(
         ctx.repos.dossier.as_ref(),
-        input.conversation_tenant_id,
+        input.tool_tenant_id,
         user_uuid,
         base_prompt,
         SentenceRenderer::new(&ctx.messaging_strings_registry, &profile.locale),
@@ -112,10 +115,11 @@ pub async fn inject_subject_context(
     .await;
 
     // Stage 7f: Render pending agent followups. Surfaced IDs are marked
-    // delivered after the turn succeeds.
+    // delivered after the turn succeeds. Scoped to the TOOL tenant — the
+    // tenant the followup tool writes under.
     let (base_prompt, pending_followup_ids) = inject_pending_followups(
         &ctx.data,
-        input.conversation_tenant_id,
+        input.tool_tenant_id,
         &input.user_id,
         turn_agent_id,
         base_prompt,

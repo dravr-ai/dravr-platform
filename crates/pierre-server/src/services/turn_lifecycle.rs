@@ -131,8 +131,10 @@ impl InFlightTurns {
     /// `pierre-notifications` cannot name this type, so its service is built
     /// with this handle and spawns every trigger dispatch onto it: a push and
     /// linked-chat message fired just before SIGTERM is counted here and
-    /// awaited by [`Self::drain`] like a turn. Clones share one count.
-    #[cfg(feature = "client-notifications")]
+    /// awaited by [`Self::drain`] like a turn. The admin routes' context holds
+    /// one too, for the docs sign-in link mailed after its route answered.
+    /// Clones share one count.
+    #[cfg(any(feature = "client-notifications", feature = "client-admin-api"))]
     #[must_use]
     pub(crate) fn tracker(&self) -> TaskTracker {
         self.tracker.clone()

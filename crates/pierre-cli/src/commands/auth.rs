@@ -98,8 +98,19 @@ pub async fn resolve(
     Ok(())
 }
 
-/// Resolve the client used to approve/deny: an explicit `--token` (+`--server`
-/// or the cached server) wins; otherwise the cached super-admin login is used.
+/// Resolve the client a remote admin command calls through: an explicit
+/// `--token` / `PIERRE_TOKEN` (with `--server` / `PIERRE_SERVER`, or the cached
+/// server) wins; otherwise the cached login is used.
+///
+/// The cached login's token goes to the server that issued it and nowhere
+/// else: a `--server` naming another server, with no token of its own, is
+/// refused before any request is sent, so a bearer minted by one environment
+/// is never handed to another.
+///
+/// # Errors
+/// Returns an error when no token is available for the server, when the
+/// cached login belongs to a different server, or when the client cannot be
+/// built.
 pub fn admin_client(server: Option<String>, token: Option<String>) -> AppResult<RemoteClient> {
     if let Some(token) = token {
         let server = server
@@ -113,9 +124,21 @@ pub fn admin_client(server: Option<String>, token: Option<String>) -> AppResult<
     }
     let creds = CachedCredentials::require(Utc::now().timestamp())?;
     match server {
-        Some(server) => RemoteClient::new(&server, Some(creds.access_token)),
-        None => RemoteClient::from_cached(&creds),
+        Some(server) if !same_server(&server, &creds.server) => {
+            Err(AppError::auth_invalid(format!(
+                "The cached login is for {}, not {server}. Pass --token (or PIERRE_TOKEN) \
+                 for {server}, or run `pierre-cli auth login --server {server}`.",
+                creds.server
+            )))
+        }
+        _ => RemoteClient::from_cached(&creds),
     }
+}
+
+/// Whether two server base URLs name the same server, as [`RemoteClient`]
+/// addresses it: a trailing slash makes no difference.
+fn same_server(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/') == b.trim_end_matches('/')
 }
 
 fn message_of(response: &Value) -> String {

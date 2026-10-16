@@ -23,10 +23,11 @@
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::llm::is_llm_provider_fault;
 use pierre_llm::{ChatMessage, ChatProvider};
 
 use crate::tool_execution::{run_api_tool_loop, run_headless_tool_loop, run_tool_loop};
-use crate::tool_loop_io::{reroutes_to_tail, HeadlessRoute, ToolLoopParams, ToolLoopResult};
+use crate::tool_loop_io::{HeadlessRoute, ToolLoopParams, ToolLoopResult};
 use crate::tool_loop_telemetry::{note_tool_loop_cooldown_skip, note_tool_loop_fallback};
 
 /// The API loop's label on a fallback line.
@@ -73,7 +74,7 @@ impl ApiLoopError {
 /// The loop converses with the head alone (see [`run_api_tool_loop`]), so the
 /// chain's own fallbacks never fire for it; both are re-created here as they
 /// are for the headless loop. A head inside a quota cooldown is not asked: the
-/// turn goes to the tail. A provider fault ([`reroutes_to_tail`], which covers
+/// turn goes to the tail. A provider fault ([`is_llm_provider_fault`], which covers
 /// a spent quota or credit) re-runs the turn on the tail from wherever the head
 /// stopped, with the tool results already gathered in `llm_messages`, and a
 /// quota refusal starts the head's cooldown first. A lost turn — nothing to
@@ -104,7 +105,7 @@ pub async fn run_api_turn(
             run_tail_fallback(params, llm_messages, error, Some(r), API_LOOP).await
         }
         Ok(result) => Ok(result),
-        Err(ApiLoopError::Head { error, prior }) if reroutes_to_tail(&error) => {
+        Err(ApiLoopError::Head { error, prior }) if is_llm_provider_fault(&error) => {
             run_tail_fallback(params, llm_messages, error, Some(*prior), API_LOOP).await
         }
         Err(other) => Err(other.into_error()),

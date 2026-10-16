@@ -34,7 +34,6 @@ use pierre_database::repositories::PurgeReason;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
-use pierre_providers::spi::RefreshClientAuth;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
@@ -648,7 +647,6 @@ async fn live_access_token(
             refresh_token: &refresh,
             provider_name: backend,
             extra_form: &[],
-            client_auth: RefreshClientAuth::RequestBody,
         },
     )
     .await

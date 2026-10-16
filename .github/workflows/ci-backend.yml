@@ -71,6 +71,9 @@ on:
       - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
       - '.github/actions/server-binaries/**'
+      # check-server-features.sh compares the builder stage's --features with the
+      # action above and the production clippy entry (carnet#928).
+      - 'docker/images/server/Dockerfile'
   pull_request:
     branches: [ main ]
     paths:
@@ -134,6 +137,9 @@ on:
       - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
       - '.github/actions/server-binaries/**'
+      # check-server-features.sh compares the builder stage's --features with the
+      # action above and the production clippy entry (carnet#928).
+      - 'docker/images/server/Dockerfile'
   schedule:
     # Daily at 08:00 UTC (04:00 EDT / 03:00 EST) — runs the SQLite shard job.
     - cron: '0 8 * * *'
@@ -388,7 +394,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -429,6 +435,9 @@ jobs:
           ./scripts/ci/check-merge-risk.test.sh
           ./scripts/ci/sweep-landed-branches.test.sh
           bash .build/validation/test-test-module-lines.sh
+          ./scripts/ci/prod-src-scan.test.sh
+          ./scripts/ci/check-server-features.test.sh
+          ./scripts/ci/check-server-features.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # A `cargo test --test <name>` in a workflow whose target a push moved or

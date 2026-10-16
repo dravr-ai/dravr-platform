@@ -176,6 +176,42 @@ fn recovery(user_id: Uuid, source: &str, ds: &str, date: NaiveDate) -> StoredRec
     }
 }
 
+// carnet#996: a refresh whose strain read was refused (a spent request
+// budget, a failed /cycle call) carries no strain; it must not erase the
+// strain an earlier sync stored, while a new strain still replaces it.
+#[tokio::test]
+async fn a_refresh_without_strain_keeps_the_stored_strain() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = connected_user(&executor).await?;
+    let ds = data_source(&executor, user_id, &tenant, "whoop").await?;
+    let repos = executor.resources.repos();
+    let today = Utc::now().date_naive();
+    let window = (
+        Utc::now() - Duration::days(2),
+        Utc::now() + Duration::hours(1),
+    );
+
+    let mut day = recovery(user_id, "whoop", &ds, today);
+    for (strain, expected) in [
+        (Some(14.2), Some(14.2)),
+        (None, Some(14.2)),
+        (Some(9.0), Some(9.0)),
+    ] {
+        day.daily_strain = strain;
+        repos
+            .recovery
+            .upsert_recovery_metrics(&tenant, &day)
+            .await?;
+        let read = repos
+            .recovery
+            .get_recovery_metrics(user_id, &tenant, window.0, window.1)
+            .await?;
+        assert_eq!(read.len(), 1, "one row per day");
+        assert_eq!(read[0].daily_strain, expected, "after upserting {strain:?}");
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn every_stored_recovery_and_sleep_metric_survives_the_database() -> Result<()> {
     let executor = executor().await?;

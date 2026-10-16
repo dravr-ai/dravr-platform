@@ -34,6 +34,27 @@ export interface LocaleStorage {
   read: (key: string) => Promise<string | null>;
   /** Remember `value` under `key` for the next session. */
   write: (key: string, value: string) => Promise<void>;
+  /** Forget whatever is stored under `key`. */
+  remove: (key: string) => Promise<void>;
+}
+
+/**
+ * Forget the language chosen on this device, at sign-out.
+ *
+ * The choice outranks the signed-in account and is written back to it, so a
+ * choice left behind by one person would be pushed onto the next account
+ * signed in on the same browser or phone. The outgoing account loses nothing:
+ * `changeLanguage` and the restore write-back already saved the choice to its
+ * `users.locale`. The last account's locale (`ACCOUNT_LANGUAGE_STORAGE_KEY`)
+ * stays, so the login screen keeps reading in that account's language, and a
+ * choice made later on the signed-out screens is still written back to the
+ * next sign-in.
+ */
+export function forgetStoredLanguageChoice(
+  storage: LocaleStorage,
+  storageKey: string = LANGUAGE_STORAGE_KEY,
+): Promise<void> {
+  return storage.remove(storageKey).catch(() => undefined);
 }
 
 /** Progress of the write to `users.locale` behind the last language change. */

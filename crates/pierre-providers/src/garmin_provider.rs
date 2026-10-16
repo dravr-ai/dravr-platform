@@ -18,6 +18,7 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
+use crate::models::StatsCoverage;
 use crate::models::{
     activity::{Lap, Split},
     Activity, ActivityBuilder, Athlete, SportType, Stats,
@@ -891,6 +892,7 @@ impl FitnessProvider for GarminProvider {
             total_distance,
             total_duration,
             total_elevation_gain,
+            coverage: StatsCoverage::Lifetime,
             year_to_date: None,
         })
     }

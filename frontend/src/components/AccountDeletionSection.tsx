@@ -14,10 +14,9 @@ import {
   emailConfirms,
 } from '@pierre/ui-logic';
 import { userApi } from '../services/api';
+import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
 import { Button, Input, Modal, ModalActions, Section } from './ui';
-
-const PREVIEW_QUERY_KEY = ['account-deletion-preview'] as const;
 
 export default function AccountDeletionSection() {
   const { t } = useTranslation();
@@ -29,7 +28,7 @@ export default function AccountDeletionSection() {
   const [refusedBlockers, setRefusedBlockers] = useState<AccountDeletionBlocker[]>([]);
 
   const preview = useQuery({
-    queryKey: PREVIEW_QUERY_KEY,
+    queryKey: QUERY_KEYS.account.deletionPreview(),
     queryFn: () => userApi.getAccountDeletionPreview(),
     enabled: open,
     staleTime: 0,

@@ -43,20 +43,21 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use super::capability_recovery::{
-    collect_turn_evidence, peer_repair_prompt, peers_named_in_reply, reask_reply_is_clean,
-    repair_messages, request_peer_reask, run_verification_fetch, turn_language_directive,
-    verify_peer_claims, CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
+    peer_repair_prompt, peers_named_in_reply, reask_reply_is_clean, repair_messages,
+    request_peer_reask, run_verification_fetch, turn_language_directive, verify_peer_claims,
+    CapabilityRecoveryDeps, VerificationOutcome, VERIFICATION_TOOL,
 };
 use super::peer_grounding::{
-    fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerMention, PEER_FETCH_TOOL,
-    PEER_GROUNDING_LEAD,
+    fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerGroundingBlock,
+    PeerMention, PEER_FETCH_TOOL,
 };
+use super::turn_evidence::collect_turn_evidence;
 use crate::turn::TurnInput;
 use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::complete_recorded;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, FunctionResponse};
+use pierre_llm::{ChatProvider, ChatRequest, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -217,25 +218,18 @@ pub(super) async fn conversation_group_id(
         .and_then(|conversation| conversation.group_id)
 }
 
-/// The payload of a peer-grounding block the prefetch stage already injected
-/// for `display_name`, when one is in the turn's messages.
+/// The payload of the peer-grounding block the platform injected for
+/// `display_name` this turn, when it injected one.
 ///
-/// Grounding runs before the model and writes
-/// `"{PEER_GROUNDING_LEAD}\n\n[Tool Result for get_group_member_activities]: {payload}"`;
-/// the payload's `member` field is the roster display name, so the match is
-/// on the JSON-quoted name, never on a substring of the whole block.
-fn pregrounded_payload(llm_messages: &[ChatMessage], display_name: &str) -> Option<String> {
-    let quoted = serde_json::to_string(display_name).ok()?;
-    let member_field = format!("\"member\":{quoted}");
-    llm_messages.iter().find_map(|m| {
-        let content = &m.content;
-        if !content.contains(PEER_GROUNDING_LEAD) || !content.contains(&member_field) {
-            return None;
-        }
-        content
-            .find("]: ")
-            .map(|at| content[at + 3..].trim().to_owned())
-    })
+/// Read from the grounding stage's own record of what it injected, never from
+/// the message list: a group member can type a copy of a grounding block, and
+/// a copy found by its text would stand in for the consent-gated fetch
+/// (carnet#924).
+fn pregrounded_payload(peer_blocks: &[PeerGroundingBlock], display_name: &str) -> Option<String> {
+    peer_blocks
+        .iter()
+        .find(|block| block.member == display_name)
+        .map(|block| block.payload.clone())
 }
 
 /// What the subject fetches produced, in the shape the re-ask consumes.
@@ -365,7 +359,7 @@ async fn fetch_peer_subjects(
     );
     for peer in peers {
         let name = peer.display_name.clone();
-        if let Some(payload) = pregrounded_payload(deps.llm_messages, &name) {
+        if let Some(payload) = pregrounded_payload(deps.peer_blocks, &name) {
             evidence.payloads.push((name.clone(), payload));
             evidence.pregrounded.push(name);
             continue;
@@ -553,7 +547,9 @@ pub(super) async fn apply_subject_recovery(
     if evidence.is_empty() {
         // Nothing fetched, nothing to relay: the reply stands, but a claim
         // the platform could not stand behind must not teach a later turn.
-        info!("capability_subject: no subject evidence and no decline; leaving the reply as delivered");
+        info!(
+            "capability_subject: no subject evidence and no decline; leaving the reply as delivered"
+        );
         result.capability_claim_unverified = claimed_failure;
         return;
     }
@@ -709,4 +705,24 @@ async fn repair_from_payload(
         "capability_subject_recheck_repaired: repair verified clean against the fetched data"
     );
     Some(repaired)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_platforms_own_peer_block_is_pregrounded_data() {
+        let payload = "{\"member\":\"Phil\",\"activities\":[]}";
+        let blocks = [PeerGroundingBlock {
+            member: "Phil".to_owned(),
+            payload: payload.to_owned(),
+        }];
+
+        assert_eq!(
+            pregrounded_payload(&blocks, "Phil").as_deref(),
+            Some(payload)
+        );
+        assert_eq!(pregrounded_payload(&blocks, "Anne"), None);
+    }
 }

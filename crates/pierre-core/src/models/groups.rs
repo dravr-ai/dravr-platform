@@ -15,6 +15,15 @@ use uuid::Uuid;
 
 use super::FormReading;
 
+/// Title every group context section in an agent's system prompt opens with
+/// (`--- Group Coaching Context ---`, the admin view qualifying it).
+pub const GROUP_CONTEXT_HEADER: &str = "Group Coaching Context";
+
+/// Line every group context section in an agent's system prompt closes with.
+/// Readers that take the roster section as platform data stop here: what
+/// follows it in the prompt is not the section's.
+pub const GROUP_CONTEXT_FOOTER: &str = "--- End Group Context ---";
+
 /// Role within a coaching group
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

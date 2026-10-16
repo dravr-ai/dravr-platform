@@ -19,12 +19,11 @@ import {
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { useDistanceUnit } from '@pierre/ui-logic';
+import { planDayDraft, planDayRouteDraft, sportLabel, type Translate, useDistanceUnit } from '@pierre/ui-logic';
 import { EmptyState, Section } from '../../components/ui';
 import { useHomePreferences } from '../../hooks/useHome';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Figure } from '../chat/WorkoutPlanCard';
-import { planDayDraft, planDayRouteDraft, sportLabel } from './homeFormat';
 
 /** Everything the plan sections read, derived once from the plan and the athlete's today. */
 interface HomeCalendar {
@@ -118,6 +117,18 @@ function TomorrowValue({ lookup }: { lookup: PlanDayLookup }) {
 /** Opens a new chat with the given text in its composer. */
 type OpenDraft = (draft: string) => void;
 
+/** Open the draft about a plan day; a day the plan does not cover has none. */
+function openPlanDayDraft(
+  t: Translate,
+  language: string,
+  lookup: PlanDayLookup,
+  openDraft: OpenDraft,
+): void {
+  if (lookup.kind === 'uncovered') return;
+  const draft = planDayDraft(t, language, lookup.day.date, lookup);
+  if (draft !== null) openDraft(draft);
+}
+
 /**
  * Today, enlarged: the session with its sport, length and intensity, the
  * phase and its week, and tomorrow on one line underneath. A rest day says
@@ -138,7 +149,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
         });
 
   const routeDraft =
-    todayLookup.kind === 'session' ? planDayRouteDraft(t, todayLookup.day, language, unit) : null;
+    todayLookup.kind === 'session' ? planDayRouteDraft(t, language, todayLookup.day.date, todayLookup, unit) : null;
 
   const today =
     todayLookup.kind === 'uncovered' ? (
@@ -147,7 +158,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
       </Text>
     ) : (
       <Pressable
-        onPress={() => openDraft(planDayDraft(t, todayLookup.day, language))}
+        onPress={() => openPlanDayDraft(t, language, todayLookup, openDraft)}
         accessibilityRole="button"
         className="min-h-11 justify-center"
         testID="home-today-day"
@@ -188,7 +199,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
         onPress={
           tomorrowLookup.kind === 'uncovered'
             ? undefined
-            : () => openDraft(planDayDraft(t, tomorrowLookup.day, language))
+            : () => openPlanDayDraft(t, language, tomorrowLookup, openDraft)
         }
         disabled={tomorrowLookup.kind === 'uncovered'}
         accessibilityRole={tomorrowLookup.kind === 'uncovered' ? undefined : 'button'}

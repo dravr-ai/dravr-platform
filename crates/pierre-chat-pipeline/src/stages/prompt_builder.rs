@@ -36,9 +36,7 @@ use pierre_runtime_context::DataContext;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
 
-use super::capability_recovery::REPAIR_EVIDENCE_FRAME;
-use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
-use super::turn_clock::TURN_CLOCK_LEAD;
+use super::platform_markers::{defang_athlete_text, defang_platform_markers};
 
 #[cfg(feature = "tools-groups")]
 use pierre_core::errors::AppResult;
@@ -241,8 +239,11 @@ pub fn build_llm_messages_with_blocks(
             // compaction ran mid-incident; 2026-07-23: a summary carrying
             // "can't fetch your data" narrative taught the model to stop
             // calling get_activities) — scrub it with the replay variant so
-            // neither leak class re-enters every subsequent prompt.
+            // neither leak class re-enters every subsequent prompt. It is also
+            // written over the athlete's own rows, so their quoted platform
+            // framings are neutralised the way a replayed row's are.
             let summary = scrub_replayed_narration(block.summary).cleaned;
+            let summary = defang_athlete_text(&summary);
             if !summary.is_empty() {
                 messages.push(ChatMessage::user(format!(
                     "{REPLAYED_SUMMARY_PREFIX}{summary}"
@@ -353,7 +354,10 @@ fn push_history_row(
         "assistant" | "tool_call" => {
             Cow::Owned(scrub_replayed_narration(&viz_blocks::strip_fences(&stripped)).cleaned)
         }
-        "user" | "tool_result" => defang_platform_markers(&stripped),
+        // A `tool_result` row legitimately carries the tool-output framing;
+        // only what the athlete typed has it neutralised as well.
+        "user" => defang_athlete_text(&stripped),
+        "tool_result" => defang_platform_markers(&stripped),
         _ => Cow::Borrowed(stripped.as_str()),
     };
     if replayed.is_empty() {
@@ -373,50 +377,6 @@ fn push_history_row(
     };
     messages.push(chat_msg);
     source_ids.push(Some(msg.id.clone()));
-}
-
-/// The literal lead sentences that mark a `User` message as platform-authored.
-///
-/// Commit `0988e17e6` moved every injected block to the `User` role because the
-/// live provider keeps only the first `System` message, and told the model which
-/// `User` messages are the platform's by prefixing each with one of these. That
-/// makes the sentences themselves the credential: [`REPLAYED_SUMMARY_PREFIX`]
-/// asserts "recovered context, not a new message from the athlete", and the two
-/// grounding leads assert that the activities under them were loaded from the
-/// athlete's real provider data. [`REPAIR_EVIDENCE_FRAME`] asserts that the
-/// data under it was fetched by the platform and is not the athlete speaking.
-/// [`TURN_CLOCK_LEAD`] asserts what today is.
-const PLATFORM_MARKERS: [&str; 5] = [
-    REPLAYED_SUMMARY_PREFIX,
-    REFRESH_GROUNDING_LEAD,
-    STARTUP_GROUNDING_LEAD,
-    REPAIR_EVIDENCE_FRAME,
-    TURN_CLOCK_LEAD,
-];
-
-/// What replaces a platform marker found in athlete-authored text.
-///
-/// Names the text rather than deleting it, so an athlete who quotes the framing
-/// while asking about it still gets their question through — as their own words.
-const QUOTED_PLATFORM_MARKER: &str = "[athlete-typed text imitating a platform marker]";
-
-/// Strip the platform's own framings out of text the athlete wrote.
-///
-/// Persisted athlete rows replay verbatim into the same `User` channel the
-/// platform injects into, so a message that opens with one of
-/// [`PLATFORM_MARKERS`] arrives indistinguishable from recovered history or from
-/// a freshly loaded activity block. Fabricated volume and intensity presented
-/// with platform authority is what an agent then prescribes against.
-///
-/// Borrows unchanged when no marker is present, which is every real message.
-fn defang_platform_markers(text: &str) -> Cow<'_, str> {
-    let mut out = Cow::Borrowed(text);
-    for marker in PLATFORM_MARKERS {
-        if out.contains(marker) {
-            out = Cow::Owned(out.replace(marker, QUOTED_PLATFORM_MARKER));
-        }
-    }
-    out
 }
 
 /// Told to the model when the user has no connected provider at all.

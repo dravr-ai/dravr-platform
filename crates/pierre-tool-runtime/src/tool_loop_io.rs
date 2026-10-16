@@ -23,7 +23,8 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
 
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
+use pierre_core::llm::is_llm_provider_fault;
 use pierre_core::models::TenantId;
 
 use crate::protocol::UniversalExecutor;
@@ -459,48 +460,13 @@ impl ToolLoopResult {
     }
 }
 
-/// Whether a tool loop's error from the chain's head re-runs the turn against
-/// the chain's tail.
-///
-/// The tool loops converse with the chain's head directly — the headless loop
-/// through its turn provider, the API loop through
-/// `ChatProvider::complete_with_tools_on_head` — so embacle's fall-through
-/// policy never sees their errors; this is that policy's `AppError` image —
-/// the codes `ErrorKind::is_provider_fault` maps to
-/// (`ResourceUnavailable` for a timeout or an unavailable model,
-/// `ExternalServiceError` for a vendor fault, `AuthInvalid` for an auth
-/// failure, `InternalError` for a runner bug or a missing binary) plus the
-/// platform's own auth and availability codes (`ExternalAuthFailed`,
-/// `AuthExpired`, `ExternalServiceUnavailable`), and a provider's rate limit
-/// or spent quota (`ExternalRateLimited`, which an HTTP 402 credit exhaustion
-/// maps to as well) — the next tier holds its own account. Deterministic
-/// failures — a rejected request (`InvalidInput`), a config error — do not
-/// reroute: a second tier would answer them the same
-/// way, and the athlete would see its rejection instead of the real one. The
-/// athlete's own budget (`RateLimitExceeded`, `QuotaExceeded`) is refused by
-/// the ingress gate before dispatch and never reaches this predicate.
-#[must_use]
-pub fn reroutes_to_tail(error: &AppError) -> bool {
-    matches!(
-        error.code,
-        ErrorCode::ExternalAuthFailed
-            | ErrorCode::ExternalServiceUnavailable
-            | ErrorCode::ExternalServiceError
-            | ErrorCode::ExternalRateLimited
-            | ErrorCode::ResourceUnavailable
-            | ErrorCode::AuthInvalid
-            | ErrorCode::AuthExpired
-            | ErrorCode::InternalError
-    )
-}
-
 /// Where a headless (Copilot) turn's outcome goes next.
 ///
 /// The headless loop converses with the chain's head directly, outside
 /// embacle's fallback walk, so neither of the chain's fall-throughs fires for
 /// it — not the empty-completion one, not the provider-fault one. This is
 /// where both are re-created, from [`ToolLoopResult::is_lost_turn`] and
-/// [`reroutes_to_tail`]; the loop only acts on the route it is handed.
+/// [`is_llm_provider_fault`]; the loop only acts on the route it is handed.
 pub(crate) enum HeadlessRoute {
     /// The head answered, left a deliberate empty reply the chat pipeline is
     /// about to replace, or spent its iteration budget calling tools: serve
@@ -526,7 +492,7 @@ impl HeadlessRoute {
                 Self::Reroute(result.lost_turn_error(provider))
             }
             Ok(result) => Self::Serve(Box::new(result)),
-            Err(err) if reroutes_to_tail(&err) => Self::Reroute(err),
+            Err(err) if is_llm_provider_fault(&err) => Self::Reroute(err),
             Err(err) => Self::Fail(err),
         }
     }
@@ -582,9 +548,10 @@ fn sum_usage(first: Option<TokenUsage>, second: Option<TokenUsage>) -> Option<To
 mod tests {
     //! The tool loop's results, and the headless turn's routing as the loop acts on it.
     //!
-    //! `is_lost_turn` and `reroutes_to_tail` are pinned on their own in
-    //! `tests/`; these pin that [`HeadlessRoute`] actually sends what they
-    //! flag to the chain's tail. Without the lost-turn arm a head that
+    //! `is_lost_turn` is pinned on its own in `tests/` and
+    //! `is_llm_provider_fault` beside the error conversion in `pierre-core`;
+    //! these pin that [`HeadlessRoute`] actually sends what they flag to the
+    //! chain's tail. Without the lost-turn arm a head that
     //! answers nothing is served as-is, and the athlete gets the empty-turn
     //! apology while a configured fallback tier sits unused (carnet#108).
 

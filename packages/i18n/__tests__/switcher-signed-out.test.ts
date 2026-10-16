@@ -15,10 +15,11 @@ import { registerLocalePersister } from '../src/localeSync';
 import {
   ACCOUNT_LANGUAGE_STORAGE_KEY,
   LANGUAGE_STORAGE_KEY,
+  forgetStoredLanguageChoice,
   useSwitcherCore,
   type LocaleStorage,
 } from '../src/switcherCore';
-import { useLanguageSwitcher } from '../src/useLanguageSwitcher';
+import { forgetLanguageChoice, useLanguageSwitcher } from '../src/useLanguageSwitcher';
 
 /** In-memory storage that outlives a mounted hook, as `localStorage` outlives a reload. */
 function memoryStorage(initial: Record<string, string> = {}): LocaleStorage & { values: Map<string, string> } {
@@ -28,6 +29,10 @@ function memoryStorage(initial: Record<string, string> = {}): LocaleStorage & { 
     read: (key) => Promise.resolve(values.get(key) ?? null),
     write: (key, value) => {
       values.set(key, value);
+      return Promise.resolve();
+    },
+    remove: (key) => {
+      values.delete(key);
       return Promise.resolve();
     },
   };
@@ -128,5 +133,35 @@ describe('signed-out restore — the login screen keeps the account language', (
     });
     expect(result.current.currentLanguage).toBe('fr');
     expect(storage.values.size).toBe(0);
+  });
+});
+
+describe('sign-out — one person\'s device choice never reaches the next account', () => {
+  it('forgets the choice, so the next account keeps its own language and nothing is written to it', async () => {
+    // Account A picked German on this device, then signed out.
+    const storage = memoryStorage({ [LANGUAGE_STORAGE_KEY]: 'de', [ACCOUNT_LANGUAGE_STORAGE_KEY]: 'de' });
+    await forgetStoredLanguageChoice(storage);
+
+    // Account B, whose record says English, signs in on the same device.
+    const { result } = renderHook(() => useSwitcherCore(storage, { serverLocale: 'en' }));
+
+    await waitFor(() => {
+      expect(result.current.currentLanguage).toBe('en');
+    });
+    await waitFor(() => {
+      expect(storage.values.get(ACCOUNT_LANGUAGE_STORAGE_KEY)).toBe('en');
+    });
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('removes only the choice from localStorage, keeping the last account for the login screen', async () => {
+    localStorage.clear();
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'de');
+    localStorage.setItem(ACCOUNT_LANGUAGE_STORAGE_KEY, 'de');
+
+    await forgetLanguageChoice();
+
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(ACCOUNT_LANGUAGE_STORAGE_KEY)).toBe('de');
   });
 });

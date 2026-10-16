@@ -4,7 +4,12 @@
 // ABOUTME: Web language switcher hook backed by localStorage
 // ABOUTME: Changes chrome language and the agent's reply language in one call
 
-import { useSwitcherCore, type LanguageSwitcherOptions, type LanguageSwitcherResult } from './switcherCore';
+import {
+  forgetStoredLanguageChoice,
+  useSwitcherCore,
+  type LanguageSwitcherOptions,
+  type LanguageSwitcherResult,
+} from './switcherCore';
 
 // Module-level so the identity is stable across renders — the restore effect
 // takes the storage object as a dependency.
@@ -14,7 +19,16 @@ const webLocaleStorage = {
     localStorage.setItem(key, value);
     return Promise.resolve();
   },
+  remove: (key: string): Promise<void> => {
+    localStorage.removeItem(key);
+    return Promise.resolve();
+  },
 };
+
+/** Forget the language chosen in this browser; the web sign-out calls it (see `forgetStoredLanguageChoice`). */
+export function forgetLanguageChoice(): Promise<void> {
+  return forgetStoredLanguageChoice(webLocaleStorage);
+}
 
 /**
  * Manage the web app's language.

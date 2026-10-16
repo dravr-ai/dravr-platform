@@ -2,6 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { classifyApiError, type SignInFailure } from '@pierre/ui-logic';
 import { readSignInCallback } from '@pierre/api-client';
 import type { LoginResponse } from '@pierre/shared-types';
@@ -16,7 +17,7 @@ import {
   takePendingSignIn,
   webPkceCrypto,
 } from '../utils/signIn';
-import { i18n } from '@pierre/i18n';
+import { forgetLanguageChoice, i18n } from '@pierre/i18n';
 
 const STORAGE_KEYS = {
   USER: 'pierre_user',
@@ -29,6 +30,13 @@ const defaultImpersonationState: ImpersonationState = {
   sessionId: null,
   originalUser: null,
 };
+
+/** What every sign-in hands the session: its CSRF token, its JWT when it carries one, and the user. */
+interface SessionGrant {
+  csrfToken: string;
+  accessToken: string | undefined;
+  user: User;
+}
 
 /**
  * Read the browser's IANA timezone via `Intl.DateTimeFormat` and PUT it
@@ -126,10 +134,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [impersonation, setImpersonation] = useState<ImpersonationState>(defaultImpersonationState);
   const [signInFailure, setSignInFailure] = useState<SignInFailure | null>(null);
+  const queryClient = useQueryClient();
 
   // Guard against re-entrant logout calls (prevents infinite loop when
   // the logout POST itself returns 401 and fires another auth failure event)
   const isLoggingOutRef = useRef(false);
+
+  // Every cached answer belonged to the account whose session just ended —
+  // a sign-out, or a dead session found on load or by a 401. Kept, the next
+  // account signed in on this tab (a Google sign-in never reloads the page)
+  // would be shown them until each refetched. Cleared once the signed-out
+  // screen has replaced the signed-in one, so no mounted read refetches into
+  // the emptied cache; the same rule as the mobile QueryProvider.
+  const hadUserRef = useRef(false);
+  useEffect(() => {
+    if (user) {
+      hadUserRef.current = true;
+      return;
+    }
+    if (hadUserRef.current) {
+      hadUserRef.current = false;
+      queryClient.clear();
+    }
+  }, [user, queryClient]);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,7 +216,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // reload never replays a spent code.
         restoreDeepLink(outcome.deepLink);
         if (outcome.ok) {
-          await establishSession(outcome.response);
+          const { access_token, csrf_token, user: signedIn } = outcome.response;
+          await establishSession({ csrfToken: csrf_token, accessToken: access_token, user: signedIn });
           setIsLoading(false);
           return;
         }
@@ -223,25 +251,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
-   * Establish the session a redeemed sign-in code produced: the same response,
-   * and the same state, the password grant's sign-in used to leave behind.
+   * Establish a session a sign-in produced — a redeemed hosted sign-in code or
+   * a Google (Firebase) sign-in alike — so every sign-in leaves the same state
+   * behind and re-arms the same guards.
    */
-  async function establishSession(response: LoginResponse) {
+  async function establishSession({ csrfToken, accessToken, user: userData }: SessionGrant) {
     // Re-arm the logout guard for this new session. logout() latches it and
     // never releases it, so that a burst of 401s from a dead session collapses
     // into a single logout; a successful login is what makes a future logout
     // meaningful again.
     isLoggingOutRef.current = false;
     setSignInFailure(null);
-    // The token endpoint's first-party response: access_token, csrf_token, user
-    const { access_token, csrf_token, user: userData } = response;
 
     // Store CSRF token via pierreApi's auth storage (writes to localStorage)
-    await pierreApi.adapter.authStorage.setCsrfToken(csrf_token);
+    await pierreApi.adapter.authStorage.setCsrfToken(csrfToken);
 
     // Keep JWT in React state only (for WebSocket auth) — httpOnly cookie handles REST
-    if (access_token) {
-      setToken(access_token);
+    if (accessToken) {
+      setToken(accessToken);
     }
 
     // Store user info in state and localStorage (for instant UI render on refresh)
@@ -275,25 +302,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithFirebase = async (idToken: string) => {
     const response = await authApi.loginWithFirebase({ idToken });
+    // The popup sign-in never reloads the page, so a tab that signed out and
+    // back in with Google keeps this provider: it must re-arm the logout
+    // guard exactly as the hosted sign-in does, or the next Sign out is
+    // swallowed and the session cookie survives it.
     const { csrf_token, jwt_token, user: userData } = response;
-
-    // Store CSRF token via pierreApi's auth storage (writes to localStorage)
-    await pierreApi.adapter.authStorage.setCsrfToken(csrf_token);
-
-    // Keep JWT in React state only (for WebSocket auth) — httpOnly cookie handles REST
-    if (jwt_token) {
-      setToken(jwt_token);
-    }
-
-    // Store user info in state and localStorage (for instant UI render on refresh)
-    setUser(userData);
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
-    consumeDeepLink();
-
-    // Best-effort: capture the browser's IANA timezone (see notes in
-    // establishSession above).
-    void captureUserTimezone(userData.user_status);
-
+    await establishSession({ csrfToken: csrf_token, accessToken: jwt_token, user: userData });
     return response;
   };
 
@@ -316,6 +330,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // address bar it survived onto the login screen, and the next sign-in —
     // password or Google alike — reopened it (#chat) instead of Home.
     endSessionRoute();
+    // The language picked in this browser belonged to this account; left
+    // behind it would be written onto the next account signed in here.
+    void forgetLanguageChoice();
 
     // Send logout request first (while CSRF token is still available),
     // then clear local storage. authApi.logout() also clears authStorage

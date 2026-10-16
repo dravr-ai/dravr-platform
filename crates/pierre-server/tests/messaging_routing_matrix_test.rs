@@ -33,6 +33,11 @@ use messaging_fixtures::{
     FakeResolver,
 };
 
+/// The secret the notifier under test signs reconnect-link tokens with.
+const LINK_SECRET: &str = "test-jwt-secret";
+/// The server root the notifier under test builds its links on.
+const BASE_URL: &str = "https://app.test";
+
 /// Pure unit table-test of the consolidated reply-recipient rule.
 ///
 /// `reply_recipient` is the single source of truth shared by the synchronous
@@ -104,7 +109,13 @@ async fn route_recipient_for(
     let resolver = Arc::new(FakeResolver::new(
         capture.clone() as Arc<dyn MessagingChannel>
     ));
-    let notifier = ServerBackfillNotifier::with_resolver(repos, strings(), resolver);
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos,
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
 
     notifier
         .push_backfill_complete(

@@ -35,6 +35,7 @@ mod persona_gate_tests {
     use pierre_core::models::{CoachingPersona, User};
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{Notification, NotificationCategory};
     use pierre_notifications::{
         DigestCadence, DispatchOutcome, DispatchRequest, EventDispatch, NotificationChannelSink,
@@ -140,6 +141,7 @@ personas:
             image_url: None,
             actions: None,
             bypass_frequency_cap: false,
+            transport_policy: PushTransportPolicy::AnyTransport,
         }
     }
 

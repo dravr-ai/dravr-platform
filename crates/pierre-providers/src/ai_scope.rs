@@ -507,6 +507,9 @@ pub fn filter_activities(lookup: &dyn ProviderTerms, activities: Vec<Activity>) 
 
 /// Planned workouts as a model, or a caller over an external transport, may
 /// see them; unchanged when no gate applies.
+///
+/// A plan is keyed on its provider alone: no provider relays another
+/// service's plans, so a plan names no upstream source (carnet#1001).
 #[must_use]
 pub fn filter_planned_workouts(
     lookup: &dyn ProviderTerms,
@@ -515,7 +518,7 @@ pub fn filter_planned_workouts(
     filter_typed(
         lookup,
         workouts,
-        |w| (w.provider().to_owned(), w.source().map(str::to_owned)),
+        |w| (w.provider().to_owned(), None),
         &["title"],
     )
 }

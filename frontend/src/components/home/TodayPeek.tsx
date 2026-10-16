@@ -12,9 +12,9 @@ import { useTranslation } from '@pierre/i18n';
 import { planDayOn } from '@pierre/shared-types';
 import { FORM_BAND_LABEL_KEY, formLine } from '@pierre/shared-constants';
 import { decodePolyline } from '@pierre/domain-utils';
+import { planWindow } from '@pierre/ui-logic';
 import { recentActivitiesQuery, useTrainingPlan, useTrainingStatus } from '../../hooks/useHome';
 import { RouteSketch } from './RouteSketch';
-import { planWindow } from './homeFormat';
 
 interface TodayPeekProps {
   /** Open the whole of Today — a drawer on a tablet, a sheet on a phone. */

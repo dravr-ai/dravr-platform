@@ -6,6 +6,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { SESSION_ONLY_QUERY_META } from '../providers/sessionOnlyQuery';
 
 /**
  * Whether the user chose to continue past the provider gate without connecting.
@@ -30,6 +31,8 @@ export function useProviderSkipped(userId: string | undefined) {
     // No AsyncStorage read: absence IS the answer at the start of a session.
     queryFn: () => false,
     staleTime: Infinity,
+    // Kept off disk: the persister would otherwise restore it on the next launch.
+    meta: SESSION_ONLY_QUERY_META,
   });
 
   const skip = useCallback(() => {

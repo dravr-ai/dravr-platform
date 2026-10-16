@@ -13,7 +13,10 @@ import { i18n } from '@pierre/i18n';
 import type { PendingComposerAction } from '../../ChatTab';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import ActivityView from '../ActivityView';
-import { DRAFT_DATE, formatInstant } from '../../home/homeFormat';
+import {
+  DRAFT_DATE,
+  formatInstant,
+} from '@pierre/ui-logic';
 
 const api = vi.hoisted(() => ({
   getActivityDetail: vi.fn<(provider: string, id: string) => Promise<ActivityDetailResponse>>(),

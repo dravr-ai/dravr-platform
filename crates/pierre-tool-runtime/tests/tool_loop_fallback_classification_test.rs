@@ -1,5 +1,5 @@
 // ABOUTME: Pins which AppErrors reroute a tool loop's turn from the chain's head to its tail, and the tail handle
-// ABOUTME: The API and headless loops bypass the chain, so this is the one place the fall-through classification exists on AppError
+// ABOUTME: The API and headless loops bypass the chain, so they classify the head's AppError with pierre-core's is_llm_provider_fault
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,12 +7,13 @@
 //! The headless (Copilot) and API (native function calling) tool loops
 //! converse with the chain's head directly, so the chain's own fallback never
 //! fires for them. `pierre-tool-runtime` re-creates that fallback by
-//! classifying the head's error with `reroutes_to_tail` and, when it
+//! classifying the head's error with `is_llm_provider_fault` and, when it
 //! reroutes, re-running the turn against `ChatProvider::fallback_tail`.
 //!
 //! These tests pin the pieces that gate that behavior:
-//! 1. `reroutes_to_tail` is the `AppError` image of
-//!    `ErrorKind::is_provider_fault`: an ACP prompt timeout (`Timeout` →
+//! 1. `is_llm_provider_fault` (pinned kind by kind against
+//!    `ErrorKind::is_provider_fault` beside the conversion in `pierre-core`)
+//!    reroutes the codes the tool loops meet: an ACP prompt timeout (`Timeout` →
 //!    `ResourceUnavailable`) and a tier's spent quota or credit (`RateLimit`
 //!    → `ExternalRateLimited`, an HTTP 402 included) reroute; a rejected
 //!    request (`InvalidRequest` → `InvalidInput`) and the athlete's own budget
@@ -24,12 +25,12 @@
 
 use async_trait::async_trait;
 use embacle::types::{
-    ChatRequest, ChatResponse, ChatStream, ErrorKind, LlmCapabilities,
-    LlmProvider as EmbacleLlmProvider, RunnerError,
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
+    RunnerError,
 };
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::llm::is_llm_provider_fault;
 use pierre_llm::{ChatProvider, EmbacleProvider, LlmProvider, QuotaCooldowns};
-use pierre_tool_runtime::tool_loop_io::reroutes_to_tail;
 
 #[test]
 fn an_acp_timeout_reroutes() {
@@ -38,38 +39,9 @@ fn an_acp_timeout_reroutes() {
     let timeout: AppError = RunnerError::timeout("copilot-acp: prompt timed out after 150s").into();
     assert_eq!(timeout.code, ErrorCode::ResourceUnavailable);
     assert!(
-        reroutes_to_tail(&timeout),
+        is_llm_provider_fault(&timeout),
         "an ACP prompt timeout must re-run the turn against the tail"
     );
-}
-
-#[test]
-fn every_provider_fault_kind_reroutes_and_no_other_does() {
-    for kind in [
-        ErrorKind::Timeout,
-        ErrorKind::ExternalService,
-        ErrorKind::AuthFailure,
-        ErrorKind::Internal,
-        ErrorKind::BinaryNotFound,
-        ErrorKind::ModelUnavailable,
-        ErrorKind::Config,
-        ErrorKind::Guardrail,
-        ErrorKind::ContextLength,
-        ErrorKind::RateLimit,
-        ErrorKind::InvalidRequest,
-    ] {
-        let runner_error = RunnerError {
-            kind,
-            message: "scripted".to_owned(),
-        };
-        let app_error: AppError = runner_error.into();
-        assert_eq!(
-            reroutes_to_tail(&app_error),
-            kind.is_provider_fault(),
-            "{kind:?} -> {:?} must reroute exactly when embacle calls it a provider fault",
-            app_error.code
-        );
-    }
 }
 
 #[test]
@@ -84,23 +56,23 @@ fn the_platform_auth_codes_reroute_and_invalid_input_does_not() {
         ErrorCode::InternalError,
     ] {
         assert!(
-            reroutes_to_tail(&AppError::new(code, "transient")),
+            is_llm_provider_fault(&AppError::new(code, "transient")),
             "{code:?} should reroute to the tail"
         );
     }
     // Deterministic failures must NOT burn a second provider call.
     assert!(
-        !reroutes_to_tail(&AppError::invalid_input("malformed request")),
+        !is_llm_provider_fault(&AppError::invalid_input("malformed request")),
         "InvalidInput is deterministic and must not reroute"
     );
     assert!(
-        !reroutes_to_tail(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
+        !is_llm_provider_fault(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
         "the athlete's own budget is the ingress gate's refusal, never a reason to spend another tier"
     );
     // A provider's rate limit or spent quota is that tier's account failing to
     // serve; the next tier holds its own account, so the turn moves on.
     assert!(
-        reroutes_to_tail(&AppError::new(
+        is_llm_provider_fault(&AppError::new(
             ErrorCode::ExternalRateLimited,
             "copilot-sdk: You have exceeded your monthly quota"
         )),
@@ -185,7 +157,7 @@ fn a_spent_credit_reroutes() {
     )
     .into();
     assert_eq!(spent.code, ErrorCode::ExternalRateLimited);
-    assert!(reroutes_to_tail(&spent));
+    assert!(is_llm_provider_fault(&spent));
     assert!(
         spent.message.contains("anthropic#2:"),
         "the tier-quota alert labels the line from the tier named in the message: {}",

@@ -21,10 +21,10 @@ import {
 } from '@pierre/shared-constants';
 import { nearestTrendIndex, projectFormTrend, type SketchBox } from '@pierre/domain-utils';
 import { formatDecimal } from '@pierre/chat-utils';
+import { formatCivilDate, ROW_DATE } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { useTrainingStatus } from '../../hooks/useHome';
-import { ROW_DATE, formatCivilDate } from './homeFormat';
 
 /**
  * The chart's own coordinate space. The element is stretched to the column's

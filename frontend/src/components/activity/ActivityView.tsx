@@ -12,11 +12,15 @@ import {
   ACTIVITY_PROMPTS,
   activityFigures,
   activityFirstLine,
+  DRAFT_DATE,
+  formatInstant,
   isDeletableActivity,
   lapsTable,
-  splitsTable,
-  useDistanceUnit,
+  ROW_DATE,
   type SegmentTable,
+  splitsTable,
+  sportLabel,
+  useDistanceUnit,
 } from '@pierre/ui-logic';
 import type { ActivityDetailResponse } from '@pierre/shared-types';
 import ChatTab, { type PendingComposerAction } from '../ChatTab';
@@ -24,7 +28,6 @@ import { Button, IconButton, Input } from '../ui';
 import { EmptyState } from '../ui/EmptyState';
 import { Section } from '../ui/Section';
 import { ActivityMap } from '../home/ActivityMap';
-import { DRAFT_DATE, ROW_DATE, formatInstant, sportLabel } from '../home/homeFormat';
 import { useActivityConversation } from '../../hooks/useActivityConversation';
 import { useActivityDetail } from '../../hooks/useActivityDetail';
 import type { ActivityRef } from './activityRoute';
