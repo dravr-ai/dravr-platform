@@ -225,6 +225,47 @@ async fn a_token_owner_is_resolved_directly() {
     );
 }
 
+/// Two stored tokens carry one provider account (the same athlete linked from
+/// two Dravr accounts): the id is ambiguous and names nobody, every time,
+/// rather than whichever row the planner yields first (carnet#906).
+#[tokio::test]
+async fn an_id_two_token_holders_carry_is_dropped() {
+    let f = fixture().await;
+    let (first, _, first_tenant) =
+        create_test_user_with_plan(&f.db, "first-holder@webhook-owner.test", "starter")
+            .await
+            .unwrap();
+    let (second, _, second_tenant) =
+        create_test_user_with_plan(&f.db, "second-holder@webhook-owner.test", "starter")
+            .await
+            .unwrap();
+    f.own_token(first, first_tenant, PROVIDER, "5151").await;
+    f.own_token(second, second_tenant, PROVIDER, "5151").await;
+
+    let holders = f
+        .repos
+        .oauth_tokens
+        .list_users_by_provider_user_id(PROVIDER, "5151")
+        .await
+        .unwrap();
+    assert_eq!(holders.len(), 2, "both holders are listed: {holders:?}");
+    for _ in 0..20 {
+        assert_eq!(
+            f.resolve(PROVIDER, "5151").await,
+            None,
+            "an ambiguous provider id is never routed to an arbitrary holder"
+        );
+    }
+
+    // A confirmed link naming the same id does not make the ambiguity land
+    // on a member instead.
+    let group = f.group("Squad").await;
+    let (member, member_tenant) = f.member("ambiguous@webhook-owner.test", group).await;
+    let link = f.proposed(group, member, "5151").await;
+    f.confirm(&link, member_tenant).await;
+    assert_eq!(f.resolve(PROVIDER, "5151").await, None);
+}
+
 #[tokio::test]
 async fn a_token_owner_wins_over_a_confirmed_link_naming_the_same_id() {
     let f = fixture().await;

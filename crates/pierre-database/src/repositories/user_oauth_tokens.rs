@@ -137,12 +137,13 @@ pub(crate) const GET_TOKENS_IN_TENANT_SQL: &str = token_select_sql!(
 pub(crate) const GET_TOKENS_SQL: &str =
     token_select_sql!("user_id = $1", " ORDER BY created_at DESC");
 
-/// The owner of a provider-side account id (a webhook's `owner_id`).
-pub(crate) const FIND_USER_BY_PROVIDER_USER_ID_SQL: &str = r"
+/// Every holder of a provider-side account id (a webhook's `owner_id`),
+/// newest token first.
+pub(crate) const LIST_USERS_BY_PROVIDER_USER_ID_SQL: &str = r"
             SELECT user_id, tenant_id
             FROM user_oauth_tokens
             WHERE provider = $1 AND provider_user_id = $2
-            LIMIT 1
+            ORDER BY updated_at DESC, user_id, tenant_id
             ";
 
 /// The conditions under which a token `t`'s grant is still authorized at the
@@ -762,30 +763,31 @@ macro_rules! impl_oauth_token_repository {
                 rows.iter().map(|row| self.token_from_row(row)).collect()
             }
 
-            async fn find_user_by_provider_user_id(
+            async fn list_users_by_provider_user_id(
                 &self,
                 provider: &str,
                 provider_user_id: &str,
-            ) -> AppResult<Option<(Uuid, String)>> {
-                let row = sqlx::query(FIND_USER_BY_PROVIDER_USER_ID_SQL)
+            ) -> AppResult<Vec<(Uuid, String)>> {
+                let rows = sqlx::query(LIST_USERS_BY_PROVIDER_USER_ID_SQL)
                     .bind(provider)
                     .bind(provider_user_id)
-                    .fetch_optional(self.pool())
+                    .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!(
-                            "Failed to look up user by provider_user_id: {e}"
+                            "Failed to look up users by provider_user_id: {e}"
                         ))
                     })?;
 
-                row.map(|row| {
-                    let user_id = $ids::read(&row, "user_id")?;
-                    let tenant_id: String = row
-                        .try_get("tenant_id")
-                        .map_err(|e| AppError::database(format!("Failed to get tenant_id: {e}")))?;
-                    Ok((user_id, tenant_id))
-                })
-                .transpose()
+                rows.iter()
+                    .map(|row| {
+                        let user_id = $ids::read(row, "user_id")?;
+                        let tenant_id: String = row.try_get("tenant_id").map_err(|e| {
+                            AppError::database(format!("Failed to get tenant_id: {e}"))
+                        })?;
+                        Ok((user_id, tenant_id))
+                    })
+                    .collect()
             }
 
             async fn list_strava_pool_apps(

@@ -237,15 +237,18 @@ async fn token_exchange_captures_the_whoop_user_id() {
         "the WHOOP user id is stored with the token"
     );
 
-    let owner = resources
+    let holders = resources
         .common
         .repos
         .oauth_tokens
-        .find_user_by_provider_user_id("whoop", "12345")
+        .list_users_by_provider_user_id("whoop", "12345")
         .await
-        .unwrap()
-        .expect("a WHOOP webhook naming 12345 now resolves to this user");
-    assert_eq!(owner, (user_id, tenant_id.to_string()));
+        .unwrap();
+    assert_eq!(
+        holders,
+        vec![(user_id, tenant_id.to_string())],
+        "a WHOOP webhook naming 12345 now resolves to this user"
+    );
 }
 
 /// Seed an expired WHOOP token so the next lookup refreshes it.

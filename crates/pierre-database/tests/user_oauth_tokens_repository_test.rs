@@ -385,10 +385,10 @@ async fn recording_an_owner_id_leaves_a_newer_token_pair_alone() {
     assert_eq!(
         repos
             .oauth_tokens
-            .find_user_by_provider_user_id("whoop", "12345")
+            .list_users_by_provider_user_id("whoop", "12345")
             .await
             .unwrap(),
-        Some((user_id, tenant_id.to_string()))
+        vec![(user_id, tenant_id.to_string())]
     );
 
     // A reconnect replaces the row: the id read for the old grant is not
@@ -670,14 +670,16 @@ async fn a_sync_stamp_is_absent_until_written_and_scoped_to_its_row() {
         "the stamp lands on one provider's row only"
     );
 
-    let (owner, owner_tenant) = repos
+    let holders = repos
         .oauth_tokens
-        .find_user_by_provider_user_id("strava", &format!("athlete-{user_id}"))
+        .list_users_by_provider_user_id("strava", &format!("athlete-{user_id}"))
         .await
-        .unwrap()
-        .expect("the provider-side id maps back to its owner");
-    assert_eq!(owner, user_id);
-    assert_eq!(owner_tenant, tenant_id.to_string());
+        .unwrap();
+    assert_eq!(
+        holders,
+        vec![(user_id, tenant_id.to_string())],
+        "the provider-side id maps back to its owner"
+    );
 
     repos
         .oauth_tokens
