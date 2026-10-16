@@ -30,7 +30,7 @@ use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
     SlackConfig,
 };
-use dravr_tronc::notify::{AnalyticsProvider, NotifyEnricher, NotifyLayer};
+use dravr_tronc::notify::{AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
@@ -168,6 +168,21 @@ static NOTIFY_ENRICHER: OnceLock<Arc<dyn NotifyEnricher>> = OnceLock::new();
 /// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
 pub fn set_notify_enricher(enricher: Arc<dyn NotifyEnricher>) {
     let _ = NOTIFY_ENRICHER.set(enricher);
+}
+
+/// Process-wide [`NotifyActions`] for the `NotifyLayer`.
+///
+/// Set once at startup (before [`init_from_env`]) by the binary, which owns
+/// the Slack interactivity route the buttons are answered by. The layer posts
+/// the elements it returns under an event's immediate Slack post — the
+/// Approve and Reject buttons under `user.pending_approval`.
+static NOTIFY_ACTIONS: OnceLock<Arc<dyn NotifyActions>> = OnceLock::new();
+
+/// Register the [`NotifyActions`] used by the `NotifyLayer`.
+///
+/// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
+pub fn set_notify_actions(actions: Arc<dyn NotifyActions>) {
+    let _ = NOTIFY_ACTIONS.set(actions);
 }
 
 /// Host identity for outbound alerts: the Cloud Run revision name when
@@ -756,6 +771,12 @@ impl LoggingConfig {
         // both sinks, so it is wired regardless of whether PostHog is enabled.
         if let Some(enricher) = NOTIFY_ENRICHER.get().cloned() {
             builder = builder.with_enricher(enricher);
+        }
+
+        // The buttons an event asks an operator to press, posted under its
+        // immediate Slack post.
+        if let Some(actions) = NOTIFY_ACTIONS.get().cloned() {
+            builder = builder.with_actions(actions);
         }
 
         // Attach the PostHog analytics sink when a project key is set and a

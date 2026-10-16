@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use dravr_canot::channels::slack::transport::{
     parse_slack_body, verify_slack_signature as verify_slack_v0,
 };
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
+use dravr_tronc::notify::NotifyActions;
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constant_time::configured_secret;
@@ -87,10 +89,9 @@ impl ActionRoute {
 ///   the messaging webhook path as the message the button spells, so it
 ///   reaches the athlete's turn under the tenant whose Slack config verifies
 ///   it — the same session, gates and turn a typed message gets.
-/// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
-///   notifications, authorized by the ops channel they are tapped in.
-///   LIMITATION(registre#1067): `ActionRoute::Ops` approve/reject has no producer —
-///   the buttons need tronc 5.1's `NotifyActions`, and the platform is on 4.4.
+/// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from the
+///   buttons [`PendingApprovalActions`] posts under `user.pending_approval`,
+///   authorized by the ops channel they are tapped in.
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
@@ -435,6 +436,7 @@ pub struct SlackAction {
     pub message_ts: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActionType {
     Approve,
     Reject,
@@ -519,14 +521,20 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
     })
 }
 
+/// `action_id` prefix of the Approve button; the account's id follows it.
+const APPROVE_USER_PREFIX: &str = "approve_user:";
+
+/// `action_id` prefix of the Reject button; the account's id follows it.
+const REJECT_USER_PREFIX: &str = "reject_user:";
+
 /// Parse `action_id` format `approve_user:{uuid}` or `reject_user:{uuid}`
 fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
     action_id
-        .strip_prefix("approve_user:")
+        .strip_prefix(APPROVE_USER_PREFIX)
         .map(|id| (ActionType::Approve, id))
         .or_else(|| {
             action_id
-                .strip_prefix("reject_user:")
+                .strip_prefix(REJECT_USER_PREFIX)
                 .map(|id| (ActionType::Reject, id))
         })
         .ok_or_else(|| AppError::invalid_input(format!("Unknown action: {action_id}")))
@@ -535,6 +543,38 @@ fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
 /// The notify event the Approve and Reject buttons go out under; its routing
 /// rule names the room they are honoured in.
 const PENDING_APPROVAL_EVENT: &str = "user.pending_approval";
+
+/// Posts the Approve and Reject buttons under `user.pending_approval`.
+///
+/// Registered once at startup via [`pierre_logging::set_notify_actions`]. The
+/// `NotifyLayer` calls it on the tracing thread, so it reads only the event's
+/// fields. Each button's `action_id` is a prefix [`parse_action_id`] reads
+/// followed by the waiting account's `user_id`; an event without one gets no
+/// buttons, since a tap could not say whom it acts on.
+pub struct PendingApprovalActions;
+
+impl NotifyActions for PendingApprovalActions {
+    fn actions_for(&self, event: &str, fields: &HashMap<String, String>) -> Option<Vec<Value>> {
+        if event != PENDING_APPROVAL_EVENT {
+            return None;
+        }
+        let user_id = fields.get("user_id")?;
+        Some(vec![
+            json!({
+                "type": "button",
+                "action_id": format!("{APPROVE_USER_PREFIX}{user_id}"),
+                "text": { "type": "plain_text", "text": "Approve" },
+                "style": "primary",
+            }),
+            json!({
+                "type": "button",
+                "action_id": format!("{REJECT_USER_PREFIX}{user_id}"),
+                "text": { "type": "plain_text", "text": "Reject" },
+                "style": "danger",
+            }),
+        ])
+    }
+}
 
 /// Authorize an ops action by trusting the approvals room.
 ///
@@ -710,18 +750,96 @@ async fn reject_user(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use axum::http::{HeaderMap, HeaderValue};
     use chrono::Utc;
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
+    use uuid::Uuid;
 
     use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
-    use dravr_tronc::notify::RoutingProvider;
+    use dravr_tronc::notify::{NotifyActions, RoutingProvider};
 
     use super::{
-        verify_ops_channel, verify_slack_signature, ActionRoute, ContremaitreRoutingProvider,
-        SlackAction,
+        parse_action_id, verify_ops_channel, verify_slack_signature, ActionRoute, ActionType,
+        ContremaitreRoutingProvider, PendingApprovalActions, SlackAction, PENDING_APPROVAL_EVENT,
     };
+
+    /// The `action_id`s of the buttons posted for an account waiting for approval.
+    fn button_action_ids(event: &str, fields: &HashMap<String, String>) -> Option<Vec<String>> {
+        PendingApprovalActions
+            .actions_for(event, fields)
+            .map(|buttons| {
+                buttons
+                    .iter()
+                    .map(|button| button["action_id"].as_str().unwrap_or_default().to_owned())
+                    .collect()
+            })
+    }
+
+    #[test]
+    fn the_pending_approval_buttons_parse_back_to_the_waiting_account() {
+        let user_id = Uuid::new_v4();
+        let fields = HashMap::from([("user_id".to_owned(), user_id.to_string())]);
+        let ids = button_action_ids(PENDING_APPROVAL_EVENT, &fields).unwrap();
+        assert_eq!(ids.len(), 2, "{ids:?}");
+
+        let parsed: Vec<(ActionType, Uuid)> = ids
+            .iter()
+            .map(|id| {
+                let (action, raw) = parse_action_id(id).unwrap();
+                (action, Uuid::parse_str(raw).unwrap())
+            })
+            .collect();
+        assert_eq!(
+            parsed,
+            [
+                (ActionType::Approve, user_id),
+                (ActionType::Reject, user_id)
+            ]
+        );
+        for id in &ids {
+            assert_eq!(ActionRoute::of(id), ActionRoute::Ops, "{id}");
+        }
+    }
+
+    #[test]
+    fn approve_is_the_primary_button_and_reject_the_danger_one() {
+        let fields = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
+        let buttons = PendingApprovalActions
+            .actions_for(PENDING_APPROVAL_EVENT, &fields)
+            .unwrap();
+        let styles: Vec<(ActionType, &str, &str, &str)> = buttons
+            .iter()
+            .map(|button| {
+                let (action, _) = parse_action_id(button["action_id"].as_str().unwrap()).unwrap();
+                (
+                    action,
+                    button["type"].as_str().unwrap(),
+                    button["style"].as_str().unwrap(),
+                    button["text"]["text"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            styles,
+            [
+                (ActionType::Approve, "button", "primary", "Approve"),
+                (ActionType::Reject, "button", "danger", "Reject"),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_buttons_for_another_event_or_an_event_naming_no_account() {
+        let fields = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
+        assert_eq!(button_action_ids("user.signed_up", &fields), None);
+        assert_eq!(
+            button_action_ids(PENDING_APPROVAL_EVENT, &HashMap::new()),
+            None
+        );
+    }
 
     #[test]
     fn a_suggestion_or_a_proposal_pick_is_the_athletes_turn() {

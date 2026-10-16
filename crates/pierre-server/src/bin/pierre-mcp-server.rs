@@ -31,6 +31,8 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
+#[cfg(feature = "client-messaging")]
+use pierre_mcp_server::routes::messaging::slack_actions::PendingApprovalActions;
 use pierre_mcp_server::services::turn_lifecycle::{
     run_to_exit, serve_until_drained, shutdown_signal,
 };
@@ -178,6 +180,10 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     // Register the notify enricher so every Slack/PostHog event carries the
     // user's email (from the identity cache) and a display emoji.
     pierre_logging::set_notify_enricher(Arc::new(PierreNotifyEnricher));
+    // Register the Approve/Reject buttons posted under user.pending_approval;
+    // the Slack interactivity route that answers them is a messaging route.
+    #[cfg(feature = "client-messaging")]
+    pierre_logging::set_notify_actions(Arc::new(PendingApprovalActions));
     pierre_logging::init_from_env()?;
     info!("Starting Dravr API - Production Mode");
     info!("{}", config.summary());
