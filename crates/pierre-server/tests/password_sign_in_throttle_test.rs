@@ -18,6 +18,7 @@ mod helpers;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_email};
+use futures_util::future::join_all;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{
     first_party_router, fresh_state, is_redirect, submit_login, FirstPartyClient, Pkce, SignIn,
@@ -122,6 +123,42 @@ async fn guesses_at_one_account_past_its_window_are_refused_with_429() {
     }
 
     assert_throttled(&setup.sign_in([198, 51, 100, 1], &email, PASSWORD).await);
+}
+
+/// Guesses fired at once are each counted before any password is checked:
+/// only the account's allowance is checked and refused with 401, and the rest
+/// of the burst gets 429, rather than every guess in flight reading the same
+/// pre-burst count and reaching the password check (carnet#908).
+#[tokio::test]
+async fn a_concurrent_burst_of_guesses_is_checked_only_as_often_as_the_window_admits() {
+    let setup = Setup::new().await;
+    let email = setup.athlete().await;
+    let burst = PASSWORD_LOGIN_ACCOUNT_RPM * 3;
+
+    let guesses = (0..burst).map(|attempt| {
+        // A fresh address per guess: the account's window, not the address's.
+        let peer = [203, 0, 113, u8::try_from(attempt).unwrap()];
+        let email = email.clone();
+        let setup = &setup;
+        async move {
+            setup
+                .sign_in(peer, &email, &format!("guess-{attempt}"))
+                .await
+        }
+    });
+    let responses = join_all(guesses).await;
+
+    let checked = responses.iter().filter(|r| r.status() == 401).count();
+    let throttled: Vec<_> = responses.iter().filter(|r| r.status() == 429).collect();
+    assert_eq!(
+        checked,
+        usize::try_from(PASSWORD_LOGIN_ACCOUNT_RPM).unwrap(),
+        "only the window's allowance is checked"
+    );
+    assert_eq!(checked + throttled.len(), responses.len());
+    for response in throttled {
+        assert_throttled(response);
+    }
 }
 
 /// The account window is keyed by the email named, not by an account found:

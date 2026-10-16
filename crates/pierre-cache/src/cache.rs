@@ -182,6 +182,20 @@ impl Cache {
         }
     }
 
+    /// Take back one hit counted at `key`, never below zero
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot be reached, or if `key` holds a
+    /// value that is not a window counter
+    pub async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()> {
+        match &self.inner {
+            CacheBackend::InMemory(cache) => cache.uncount_in_window(key).await,
+            #[cfg(feature = "redis")]
+            CacheBackend::Redis(cache) => cache.uncount_in_window(key).await,
+        }
+    }
+
     /// Verify cache backend is healthy
     ///
     /// # Errors
@@ -250,6 +264,10 @@ impl CacheProvider for Cache {
 
     async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount> {
         Self::count_in_window(self, key, window).await
+    }
+
+    async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()> {
+        Self::uncount_in_window(self, key).await
     }
 
     async fn health_check(&self) -> AppResult<()> {

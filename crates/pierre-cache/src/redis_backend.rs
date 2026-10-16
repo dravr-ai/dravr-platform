@@ -39,6 +39,26 @@ return {hits, redis.call('PTTL', KEYS[1])}
     )
 });
 
+/// Takes back one hit from the window at `KEYS[1]`, never below zero.
+///
+/// `DECR` keeps the key's expiry, so the window closes when it would have; a
+/// missing key (a window already closed) is left missing rather than created
+/// at -1. One script, so no hit lands between the read and the decrement.
+static UNCOUNT_IN_WINDOW: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"
+local hits = tonumber(redis.call('GET', KEYS[1]) or '0')
+if hits == nil then
+  return redis.error_reply('not a window counter')
+end
+if hits > 0 then
+  redis.call('DECR', KEYS[1])
+end
+return 0
+",
+    )
+});
+
 /// Redis cache implementation with connection pooling
 ///
 /// Uses Redis `ConnectionManager` for automatic reconnection and connection pooling.
@@ -316,6 +336,21 @@ impl CacheProvider for RedisCache {
             hits,
             resets_in: Duration::from_millis(u64::try_from(remaining_ms).unwrap_or(0)),
         })
+    }
+
+    async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()> {
+        let redis_key = Self::build_key(key);
+        let mut conn = self.manager.clone();
+
+        let _: i64 = UNCOUNT_IN_WINDOW
+            .key(&redis_key)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| {
+                error!("Redis window uncount failed: {}", e);
+                AppError::internal(format!("Cache error: {e}"))
+            })?;
+        Ok(())
     }
 
     async fn health_check(&self) -> AppResult<()> {
