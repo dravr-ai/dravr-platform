@@ -39,6 +39,7 @@
 //! A turn with no agent bound is Dravr answering in its own voice under the
 //! identity anchor, as it always has, and carries no introduction.
 
+use pierre_core::chunking::split_sentences;
 use pierre_core::models::{AgentRuntimeContext, ConversationRecord, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::repositories::ChatRepository;
@@ -67,6 +68,12 @@ impl PendingIntroduction {
     /// The system-prompt line asking for the introduction.
     pub(crate) fn directive(&self) -> String {
         introduction_directive(&self.title)
+    }
+
+    /// Where `reply`'s introduction of this agent ends; see
+    /// [`introduction_end`].
+    pub(crate) fn end_in(&self, reply: &str) -> Option<usize> {
+        introduction_end(reply, &self.title)
     }
 }
 
@@ -180,6 +187,33 @@ pub fn reply_names_agent(reply: &str, title: &str) -> bool {
             spoken.sort_unstable();
             spoken == wanted_words
         })
+}
+
+/// Byte offset in `reply` just past the sentence that introduces the agent
+/// titled `title`, or `None` when the reply's opening does not name it.
+///
+/// The shortest run of whole opening sentences that [`reply_names_agent`]
+/// accepts, so the same test that records the introduction also bounds it: a
+/// greeting ahead of the introducing sentence stays with it (« Salut ! Je suis
+/// … »), and the sentence after it does not. The offset includes the
+/// whitespace that followed the sentence, and always falls on a character
+/// boundary of `reply`.
+#[must_use]
+pub(crate) fn introduction_end(reply: &str, title: &str) -> Option<usize> {
+    if !reply_names_agent(reply, title) {
+        return None;
+    }
+    let mut end = 0;
+    for sentence in split_sentences(reply) {
+        end += sentence.len();
+        if reply
+            .get(..end)
+            .is_some_and(|opening| reply_names_agent(opening, title))
+        {
+            return Some(end);
+        }
+    }
+    Some(reply.len())
 }
 
 /// `text`'s words, case-folded, split on anything not a letter or a digit.
@@ -307,4 +341,59 @@ fn fold(text: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::introduction_end;
+
+    /// A folded activity list goes after the introduction, so the introduction has
+    /// to know where it stops: at the end of the sentence that named the agent,
+    /// with a greeting ahead of it kept and the analysis after it left out
+    /// (carnet#1039).
+    #[test]
+    fn the_introduction_ends_with_the_sentence_that_named_the_agent() {
+        let reply = "Je suis l'Agent Semi-Marathon de Dravr, là pour préparer ton 21,1 km. \
+                     Mars a été un mois de fond.";
+        let end = introduction_end(reply, "Agent Semi-Marathon").expect("the reply introduced it");
+        assert_eq!(
+            &reply[..end],
+            "Je suis l'Agent Semi-Marathon de Dravr, là pour préparer ton 21,1 km. "
+        );
+
+        let greeted = "Salut ! Je suis l'Agent Semi-Marathon de Dravr. Mars a été un mois de fond.";
+        let end =
+            introduction_end(greeted, "Agent Semi-Marathon").expect("the reply introduced it");
+        assert_eq!(
+            greeted[..end].trim_end(),
+            "Salut ! Je suis l'Agent Semi-Marathon de Dravr.",
+            "a greeting before the introduction is part of the opening, not the place to stop"
+        );
+
+        let paragraphs = "Je suis l'Agent Semi-Marathon de Dravr\n\nMars a été un mois de fond.";
+        let end =
+            introduction_end(paragraphs, "Agent Semi-Marathon").expect("the reply introduced it");
+        assert_eq!(
+            paragraphs[..end].trim_end(),
+            "Je suis l'Agent Semi-Marathon de Dravr"
+        );
+    }
+
+    /// A reply that never introduced the agent has no introduction to keep ahead
+    /// of the list, so the fold leaves it in its usual place.
+    #[test]
+    fn a_reply_that_named_nobody_has_no_introduction_to_end() {
+        assert_eq!(
+            introduction_end(
+                "Mars a été un mois de fond plutôt que de spécifique semi.",
+                "Agent Semi-Marathon"
+            ),
+            None
+        );
+        let reply = format!(
+            "{} Au fait, l'Agent Semi-Marathon peut aussi t'aider.",
+            "Mars a été un mois de fond. ".repeat(20)
+        );
+        assert_eq!(introduction_end(&reply, "Agent Semi-Marathon"), None);
+    }
 }

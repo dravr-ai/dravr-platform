@@ -169,6 +169,12 @@ fn repair_prompt_is_chat_shaped() {
         prompt.contains("dravr-viz"),
         "the chart-preservation ask survives the reshape"
     );
+    // The checker's verdict can be wrong, so a flagged claim the payload
+    // confirms is kept rather than retracted (carnet#1038).
+    assert!(
+        prompt.contains("keep a claim the data confirms"),
+        "the repair must check each flagged claim against the payload, not drop it"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════

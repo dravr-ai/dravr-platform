@@ -358,6 +358,7 @@ async fn stopped_envelope(
             content,
             finish_reason: Some(STOPPED_TURN_FINISH_REASON.to_owned()),
             activity_list: None,
+            introduction_end: None,
             telemetry: TurnTelemetry {
                 model: STOPPED_MODEL.to_owned(),
                 provider_name: STOPPED_PROVIDER.to_owned(),

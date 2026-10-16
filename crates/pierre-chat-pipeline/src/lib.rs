@@ -1003,6 +1003,7 @@ async fn run_turn(
             user_message,
             assistant_message,
             conversation: updated_conversation,
+            introduction_end: intro.and_then(|i| i.end_in(&persisted_assistant_content)),
             content: persisted_assistant_content,
             finish_reason: result.finish_reason,
             activity_list,

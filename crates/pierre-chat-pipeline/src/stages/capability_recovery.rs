@@ -726,6 +726,11 @@ pub(super) fn repair_messages(
 /// corrected reply now, reply with the message text only") keeps it in
 /// chat-output behavior. English on purpose, like the access-failure re-ask.
 ///
+/// The flagged claims are the checker's verdict, not a fact: it can miss
+/// evidence the turn did read, and a re-ask that told the model to drop every
+/// flagged claim had it retract a correct start time under challenge
+/// (carnet#1038). So the model checks each one against the payload first.
+///
 /// `language_directive` is the turn's resolved locale rendered by
 /// [`turn_language_directive`], appended last. The prompt used to close with
 /// "in their language" and leave the rest to inference; a repair is the last
@@ -739,12 +744,13 @@ pub fn peer_repair_prompt(
 ) -> String {
     format!(
         "Here are {peer_name}'s verified activities for the last four weeks, fetched just \
-         now:\n{payload}\n\nYour previous answer contained these unsupported claims about \
-         {peer_name}: {claims}.\n\nWrite the corrected reply to the athlete's last question \
-         now. Use only the data above and the roster context; where a claim cannot be \
-         confirmed, say so plainly instead of restating it. If your original reply included a \
-         dravr-viz chart or table, produce the corrected block again from this data. Reply \
-         with the message text only.\n\n{language_directive}",
+         now:\n{payload}\n\nA check found no support for these claims your previous \
+         answer made about {peer_name}: {claims}.\n\nCheck each of them against the data above \
+         before you change it: keep a claim the data confirms, correct one it contradicts, and \
+         say plainly only what it cannot confirm. Then write the corrected reply to the \
+         athlete's last question now, using only the data above and the roster context. If \
+         your original reply included a dravr-viz chart or table, produce the corrected block \
+         again from this data. Reply with the message text only.\n\n{language_directive}",
         claims = unsupported.join("; "),
     )
 }

@@ -148,6 +148,7 @@ fn turn_state() -> TurnState {
         content: REPLY.to_owned(),
         finish_reason: Some("stop".to_owned()),
         activity_list: Some(ACTIVITY_LIST.to_owned()),
+        introduction_end: None,
         telemetry: telemetry(None),
         quota: QuotaState::Ok,
         reconnect: None,
@@ -274,6 +275,53 @@ fn messaging_surface_folds_what_it_cannot_draw() {
         !blocks.iter().any(|b| matches!(b, ReplyBlock::Scene { .. })),
         "a channel that cannot draw a spec must not be handed one"
     );
+}
+
+/// The agent's introduction, the sentence the first reply in a thread is asked
+/// to open with.
+const INTRODUCTION: &str = "Je suis Marathon Agent de Dravr, là pour préparer ton marathon.";
+
+/// A first reply: the introduction, then the analysis.
+fn introduced_turn_state() -> TurnState {
+    let mut state = turn_state();
+    state.content = format!("{INTRODUCTION} {REPLY}");
+    state.introduction_end = Some(INTRODUCTION.len() + 1);
+    state
+}
+
+/// A first reply on a channel with no panel opens with the agent's
+/// introduction, then the list, then the analysis that refers to it — never a
+/// list dump ahead of « Je suis … » (carnet#1039).
+#[test]
+fn a_folded_list_follows_the_introduction_it_would_otherwise_precede() {
+    let envelope = build_envelope(&telegram_profile(), introduced_turn_state());
+    let prose = prose_of(&envelope.assistant.blocks);
+
+    let introduction = prose
+        .find(INTRODUCTION)
+        .expect("the introduction is delivered");
+    let list = prose.find("1. [Run] Tempo").expect("the list is folded in");
+    let analysis = prose.find(REPLY).expect("the analysis is delivered");
+    assert_eq!(introduction, 0, "the introduction opens the reply: {prose}");
+    assert!(
+        introduction < list && list < analysis,
+        "introduction, then the list, then the analysis: {prose}"
+    );
+    assert_eq!(
+        prose,
+        format!("{INTRODUCTION}\n\n{}\n\n{REPLY}", ACTIVITY_LIST.trim_end()),
+        "the fold adds paragraph breaks around the list and rewrites none of the words"
+    );
+}
+
+/// Where the list is its own panel, the introduction changes nothing: the
+/// prose is the agent's sentences verbatim, in the order it wrote them.
+#[test]
+fn an_introduction_leaves_an_in_app_reply_as_written() {
+    let state = introduced_turn_state();
+    let content = state.content.clone();
+    let envelope = build_envelope(&in_app_profile(), state);
+    assert_eq!(prose_of(&envelope.assistant.blocks), content);
 }
 
 /// The agent's own sentences are byte-identical on both surfaces.

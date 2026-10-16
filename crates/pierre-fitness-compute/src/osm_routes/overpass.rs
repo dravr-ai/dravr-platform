@@ -692,8 +692,14 @@ mod tests {
         let elapsed = started.elapsed();
 
         assert_eq!(err.code, ErrorCode::ExternalServiceUnavailable);
+        // The budget itself is pinned by `unreached` never being asked and by
+        // the error naming it as not tried. This bound catches the walk that
+        // ignores its attempt timeout and waits on the hung instance forever;
+        // a 250 ms margin also caught a loaded CI runner's scheduling jitter
+        // (main, 3202e3d3d), so the margin is wide enough for a busy runner
+        // and still far short of a hang.
         assert!(
-            elapsed < timing.total_budget + Duration::from_millis(250),
+            elapsed < timing.total_budget + Duration::from_secs(2),
             "the walk overran its budget: {elapsed:?}"
         );
         assert_eq!(busy.hits(), 2);

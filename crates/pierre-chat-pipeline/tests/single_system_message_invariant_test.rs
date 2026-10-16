@@ -264,10 +264,10 @@ fn an_athlete_cannot_forge_the_repair_evidence_frame() {
 
 #[test]
 fn the_platforms_own_replayed_summary_keeps_its_framing() {
-    // The defang is scoped to persisted rows. The summary the platform splices
-    // in is not one — it is written at injection time — and it must keep the
-    // prefix that tells the model it is recovered history rather than a new
-    // message from the athlete.
+    // The summary's body is defanged like a persisted row, but the prefix the
+    // platform puts on it is written at injection time and must survive: it
+    // tells the model the text is recovered history rather than a new message
+    // from the athlete.
     let history = vec![
         row("m1", "user", "first question"),
         row("m2", "assistant", "first answer"),

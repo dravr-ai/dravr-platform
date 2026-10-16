@@ -184,6 +184,7 @@ pub async fn deliver(
             content,
             finish_reason: Some(DETERMINISTIC_FINISH_REASON.to_owned()),
             activity_list: None,
+            introduction_end: None,
             telemetry: TurnTelemetry {
                 model: active_model,
                 provider_name: DETERMINISTIC_PROVIDER.to_owned(),

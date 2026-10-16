@@ -97,7 +97,12 @@ fn push_trimmed(chunks: &mut Vec<String>, buffer: &str) {
 /// Split `text` into sentence-sized units, each carrying the whitespace that
 /// followed it so the packer can drop that whitespace at a split point and
 /// keep it everywhere else.
-fn split_sentences(text: &str) -> Vec<&str> {
+///
+/// The units are contiguous and cover `text` exactly — concatenated, they are
+/// `text` — so the running sum of their byte lengths is every sentence
+/// boundary as a byte offset into `text`. A line end is a boundary too.
+#[must_use]
+pub fn split_sentences(text: &str) -> Vec<&str> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut units = Vec::new();
     let mut start = 0usize;

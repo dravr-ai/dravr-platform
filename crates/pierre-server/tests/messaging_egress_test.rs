@@ -146,6 +146,7 @@ fn turn_state(content: &str) -> TurnState {
         content: content.to_owned(),
         finish_reason: Some("stop".to_owned()),
         activity_list: None,
+        introduction_end: None,
         telemetry: telemetry(),
         quota: QuotaState::Ok,
         reconnect: None,
