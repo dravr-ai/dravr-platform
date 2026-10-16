@@ -27,7 +27,8 @@ use crate::models::PlannedWorkout;
 
 impl IntervalsIcuProvider {
     /// The workouts and races the calendar plans over `[after, before]`,
-    /// each naming the activity that completed it.
+    /// each naming the activity that completed it, as the calendar shows the
+    /// provider's reader (the athlete, or a coach reading them).
     ///
     /// The pairing is a second request, spent only when an event was kept
     /// and the window can hold a workout already done. A refused or
@@ -47,7 +48,7 @@ impl IntervalsIcuProvider {
         let entries: Vec<Value> = self
             .get_events(after, before, Some(&planned_categories()))
             .await?;
-        let events = planned_events(entries);
+        let events = planned_events(entries, self.planned_reader);
         let completed =
             if !events.is_empty() && may_hold_done_workouts(after, Utc::now().date_naive()) {
                 completed_by_event(self.list_activity_pairing(after, before).await?)

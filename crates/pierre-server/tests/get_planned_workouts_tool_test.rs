@@ -567,7 +567,10 @@ fn the_athlete_facing_agent_can_call_it_and_it_is_untrusted_output() {
     let properties = definition.input_schema["properties"].as_object().unwrap();
     let mut declared: Vec<&str> = properties.keys().map(String::as_str).collect();
     declared.sort_unstable();
-    assert_eq!(declared, vec!["end_date", "provider", "start_date"]);
+    assert_eq!(
+        declared,
+        vec!["athlete", "end_date", "provider", "start_date"]
+    );
     assert!(
         definition.output_schema.is_some(),
         "the reply declares the shape it answers with"

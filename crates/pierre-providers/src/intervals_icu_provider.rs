@@ -39,7 +39,13 @@
 //! A coach's API key writes the calendar of an athlete who made them their
 //! coach, at that athlete's path, through a provider built for the write
 //! ([`DelegatedReads::create_delegated_calendar_writer`]); one built to read
-//! a coached athlete refuses every write before it is sent.
+//! a coached athlete refuses every write before it is sent. The coach's own
+//! read of that athlete's planned calendar goes through a provider built for
+//! the coach as its reader ([`DelegatedReads::create_delegated_coach_reader`]),
+//! which keeps the events the coach hides from the athlete, titled as hidden.
+//!
+//! [`DelegatedReads::create_delegated_calendar_writer`]: crate::delegation::DelegatedReads::create_delegated_calendar_writer
+//! [`DelegatedReads::create_delegated_coach_reader`]: crate::delegation::DelegatedReads::create_delegated_coach_reader
 //!
 //! ## Authentication
 //!
@@ -77,20 +83,21 @@ use serde_json::{json, Value};
 
 use super::core::{
     no_recorded_samples, ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
-    ProviderConfig, ProviderFactory, TokenRefreshCallback,
+    ProviderConfig, TokenRefreshCallback,
 };
 use crate::activity_paging::pages_for;
 use crate::constants::api_provider_limits;
 use crate::constants::oauth::INTERVALS_ICU;
 use crate::delegation::{
     athlete_off_roster, coach_credential_expired, coach_write_refused, settings_not_shared,
-    CoachRoster, DelegatedReads,
+    CoachRoster,
 };
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, SharedRequestBuilder};
 use crate::intervals_icu_calendar::{
     event_body, event_id_segment, CreatedEvent, DeleteEventsResponse, IntervalsIcuEvent,
 };
+use crate::intervals_icu_planned::PlannedReader;
 use crate::intervals_icu_roster::{check_athlete_id, coach_roster, IntervalsIcuRosterEntry};
 use crate::intervals_icu_self_report::{
     comments_from_messages, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
@@ -109,8 +116,13 @@ use crate::utils::auth_error_for_status;
 
 /// The activity payload and its mapping onto [`Activity`].
 mod activity;
+/// The factory the registry builds the provider with, and the coach-key
+/// builders fixed to one coached athlete.
+mod factory;
 /// The planned-workout read: the events request, then the pairing request.
 mod planned;
+
+pub use factory::IntervalsIcuProviderFactory;
 
 pub(crate) use activity::parse_local_dt;
 use activity::{map_activity, IntervalsIcuActivity};
@@ -335,6 +347,9 @@ pub struct IntervalsIcuProvider {
     /// What a delegated provider writes of its subject's: only one built by
     /// [`Self::delegated_calendar_writer`] writes their calendar.
     subject_writes: SubjectWrites,
+    /// Who the planned calendar is read for: the athlete, save on a provider
+    /// built by [`Self::delegated_coach_reader`].
+    planned_reader: PlannedReader,
 }
 
 impl IntervalsIcuProvider {
@@ -353,6 +368,7 @@ impl IntervalsIcuProvider {
             http: shared_client().clone(),
             subject: None,
             subject_writes: SubjectWrites::Nothing,
+            planned_reader: PlannedReader::Athlete,
         }
     }
 
@@ -391,6 +407,24 @@ impl IntervalsIcuProvider {
     fn delegated_calendar_writer(config: ProviderConfig, athlete_id: &str) -> AppResult<Self> {
         Ok(Self {
             subject_writes: SubjectWrites::Calendar,
+            ..Self::delegated(config, athlete_id)?
+        })
+    }
+
+    /// A [`Self::delegated`] provider whose reader is `athlete_id`'s human
+    /// coach rather than the athlete: its planned calendar keeps the events
+    /// the coach hides from the athlete, titled as hidden
+    /// ([`PlannedReader::Coach`]). Whether this coach may read this
+    /// athlete's calendar is decided before the provider is built, and it
+    /// writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for an id Intervals.icu could not have
+    /// issued.
+    fn delegated_coach_reader(config: ProviderConfig, athlete_id: &str) -> AppResult<Self> {
+        Ok(Self {
+            planned_reader: PlannedReader::Coach,
             ..Self::delegated(config, athlete_id)?
         })
     }
@@ -1145,52 +1179,5 @@ impl FitnessProvider for IntervalsIcuProvider {
             )
         })?;
         Ok(deleted.events_deleted)
-    }
-}
-
-/// Factory that builds [`IntervalsIcuProvider`] instances for the
-/// [`ProviderRegistry`](crate::registry::ProviderRegistry).
-pub struct IntervalsIcuProviderFactory;
-
-impl ProviderFactory for IntervalsIcuProviderFactory {
-    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(IntervalsIcuProvider::with_config(config)))
-    }
-
-    fn supported_providers(&self) -> &'static [&'static str] {
-        &["intervals_icu"]
-    }
-
-    // A coach's API key reads every athlete who shares with the coach.
-    fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
-        Some(self)
-    }
-}
-
-impl DelegatedReads for IntervalsIcuProviderFactory {
-    fn check_athlete_id(&self, athlete_id: &str) -> AppResult<()> {
-        check_athlete_id(athlete_id)
-    }
-
-    fn create_delegated(
-        &self,
-        config: ProviderConfig,
-        athlete_id: &str,
-    ) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(IntervalsIcuProvider::delegated(
-            config, athlete_id,
-        )?))
-    }
-
-    // A coach's API key writes the calendar of an athlete who made them
-    // their coach.
-    fn create_delegated_calendar_writer(
-        &self,
-        config: ProviderConfig,
-        athlete_id: &str,
-    ) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(IntervalsIcuProvider::delegated_calendar_writer(
-            config, athlete_id,
-        )?))
     }
 }
