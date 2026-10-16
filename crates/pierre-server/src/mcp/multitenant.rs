@@ -510,7 +510,7 @@ impl ProviderToolRouter {
                 rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
                 refresh_token_expiry_days: resources.common.config.auth.refresh_token_expiry_days,
                 csrf_manager: resources.auth.csrf_manager.clone(),
-                accounts: resources.oauth2_accounts(),
+                accounts: resources.account_service(),
                 google_sign_in: resources.oauth2_google_sign_in(),
                 strings: resources.mcp.messaging_strings_registry.clone(),
             };

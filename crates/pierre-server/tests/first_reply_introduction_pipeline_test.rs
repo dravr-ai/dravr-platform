@@ -30,7 +30,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use futures_util::stream;
 use uuid::Uuid;
 
@@ -38,8 +38,8 @@ use common::{create_test_server_resources_with_llm, create_test_user_with_plan};
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{
-    CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile, SurfaceRequest,
-    TurnOrigin, TurnRequest,
+    CommandPersistence, InputSource, PipelineHooks, ReplyBlock, ServedTurn, SurfaceId,
+    SurfaceProfile, SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -50,12 +50,14 @@ use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
+use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{
-    AddMessageParams, ConversationTurnId, GuidedFlow, OnboardingState, TenantId,
-    COMMAND_FINISH_REASON,
+    ActivityBuilder, AddMessageParams, ConnectionType, ConversationTurnId, GuidedFlow,
+    OnboardingState, SportType, TenantId, COMMAND_FINISH_REASON,
 };
 use pierre_database::seed_models::{SeedAgent, SeedAgentTranslation};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_request;
 
 /// The 2026-09-21 reply: straight into analysis, naming nobody.
 const UNINTRODUCED_REPLY: &str = "Mars a été un mois de fond plutôt que de spécifique semi.";
@@ -82,10 +84,12 @@ const TRAIL_COACH: &str = "Coach Trail Laurentides";
 const CYCLING_COACH: &str = "Coach Vélo Outaouais";
 
 /// Records the system prompt of every completion, in call order, and answers
-/// with whatever reply the test last set.
+/// with whatever reply the test last set — after a tool call, when the test
+/// queued one for the next coaching call.
 struct CapturingProvider {
     system_prompts: Mutex<Vec<String>>,
     reply: Mutex<String>,
+    tool_call: Mutex<Option<String>>,
 }
 
 impl CapturingProvider {
@@ -95,6 +99,14 @@ impl CapturingProvider {
 
     fn answer_with(&self, reply: &str) {
         reply.clone_into(&mut self.reply.lock().unwrap());
+    }
+
+    /// Have the next coaching call ask for `tool_call`, a text `<tool_call>`
+    /// block, before the reply. This provider has no native function calling,
+    /// so the turn runs the text tool loop, which parses the block and runs the
+    /// tool for real.
+    fn call_tool_first(&self, tool_call: &str) {
+        *self.tool_call.lock().unwrap() = Some(tool_call.to_owned());
     }
 
     /// The system prompt of the first call after `from` carrying `marker`.
@@ -136,9 +148,14 @@ impl LlmProvider for CapturingProvider {
             .map(|m| m.content.clone())
             .collect::<Vec<_>>()
             .join("\n");
+        let tool_call = if system.contains(COACHING_CALL_MARKER) {
+            self.tool_call.lock().unwrap().take()
+        } else {
+            None
+        };
         self.system_prompts.lock().unwrap().push(system);
         Ok(ChatResponse {
-            content: self.reply.lock().unwrap().clone(),
+            content: tool_call.unwrap_or_else(|| self.reply.lock().unwrap().clone()),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),
             finish_reason: Some("stop".to_owned()),
@@ -172,6 +189,7 @@ async fn setup(email: &str) -> Fixture {
     let provider = Arc::new(CapturingProvider {
         system_prompts: Mutex::new(Vec::new()),
         reply: Mutex::new(UNINTRODUCED_REPLY.to_owned()),
+        tool_call: Mutex::new(None),
     });
     let resources = create_test_server_resources_with_llm(provider.clone())
         .await
@@ -811,5 +829,174 @@ async fn an_agent_that_welcomed_the_thread_is_not_introduced_again() {
     assert!(
         !first.contains(INTRODUCTION_MARKER),
         "the welcome already introduced the agent; its first reply must not again"
+    );
+}
+
+/// The text tool call a model makes for the athlete's recent activities.
+const GET_ACTIVITIES_CALL: &str = "<tool_call>\n{\"name\": \"get_activities\", \"arguments\": {\"limit\": 10, \"mode\": \"summary\"}}\n</tool_call>";
+
+/// The first line of a `get_activities` list once the fold has dropped the
+/// panel header: the date anchor every list opens with.
+const LIST_OPENING: &str = "[Today]";
+
+/// The athlete's two recent sessions, in the durable cache behind a Strava
+/// connection, plus a Garmin connection with no session — registered last, so
+/// it is the primary the tool tries first. Its failure is what lets a test
+/// with no live provider reach real rows: `get_activities` answers from the
+/// healthy sibling's cache and the turn stays the agent's.
+async fn athlete_with_cached_activities(fx: &Fixture) {
+    let connections = &fx.resources.common.repos.provider_connections;
+    connections
+        .register_connection(
+            fx.user_id,
+            fx.tenant_id,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    let long_run = ActivityBuilder::new(
+        "strava-run-long".to_owned(),
+        "Sortie longue".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(2),
+        7_200,
+        "strava".to_owned(),
+    )
+    .distance_meters(24_000.0)
+    .build();
+    let tempo_run = ActivityBuilder::new(
+        "strava-run-tempo".to_owned(),
+        "Tempo".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(4),
+        3_600,
+        "strava".to_owned(),
+    )
+    .distance_meters(14_000.0)
+    .build();
+    fx.resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(fx.user_id, &fx.tenant_id, "strava", &[long_run, tempo_run])
+        .await
+        .unwrap();
+    connections
+        .register_connection(
+            fx.user_id,
+            fx.tenant_id,
+            "garmin",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+}
+
+/// carnet#1039.
+///
+/// Live on Telegram: an agent's first reply opened with the athlete's activity
+/// table, and « Salut, je suis … » came after it. A surface with no activity
+/// panel has the turn's list folded into the reply's prose, and the fold put
+/// it ahead of everything the agent wrote — its introduction included.
+///
+/// The fold splits the reply where its introduction ends, and that offset
+/// is computed in the pipeline's last step, from the introduction the turn
+/// asked for and the reply as persisted. So this runs a real turn on the real
+/// Telegram profile, with a real `get_activities` round over cached rows, and
+/// reads the prose the surface is handed: the agent says who it is, then the
+/// list, then the analysis that refers to it.
+#[tokio::test]
+async fn a_first_reply_on_a_surface_without_a_list_panel_introduces_the_agent_before_the_list() {
+    let fx = setup("intro-folded-list@test.com").await;
+    athlete_with_cached_activities(&fx).await;
+    let agent = custom_agent(&fx, TRAIL_COACH).await;
+    let conv = conversation(&fx, fx.user_id, Some(&agent), None).await;
+    fx.provider.call_tool_first(GET_ACTIVITIES_CALL);
+    fx.provider.answer_with(&introduced_reply(TRAIL_COACH));
+
+    let telegram = SurfaceProfile::resolve(&messaging_surface_request(
+        ChannelType::Telegram,
+        "fr".to_owned(),
+        None,
+    ));
+    assert!(
+        !telegram.render.blocks.activity_list_card,
+        "premise: Telegram has no activity panel, so the list is folded into the prose"
+    );
+
+    let served = pierre_chat_pipeline::execute(
+        &fx.resources.chat_pipeline_context(),
+        TurnRequest {
+            origin: TurnOrigin::Athlete,
+            input_source: InputSource::Typed,
+            conversation_id: conv.clone(),
+            user_id: fx.user_id,
+            conversation_tenant_id: fx.tenant_id,
+            tool_tenant_id: fx.tenant_id,
+            content: "Montre-moi mes dernières sorties.".to_owned(),
+            turn_id: ConversationTurnId::new(),
+            ambient_context: None,
+            channel_type: "telegram",
+            transport: Transport::Messaging,
+            is_direct_message: true,
+            ambient_group_fallback: false,
+            command_persistence: CommandPersistence::Always,
+            sender_id: None,
+            hooks: PipelineHooks::none(),
+        },
+        &telegram,
+    )
+    .await
+    .expect("the turn is served");
+    let ServedTurn::Pipeline(envelope) = served else {
+        panic!("a coaching question is answered by the pipeline, not a command");
+    };
+
+    assert!(
+        envelope.telemetry.activity_list_captured,
+        "premise: the turn's get_activities round produced a list — tools called: {:?}",
+        envelope.telemetry.tools_called
+    );
+    let prose = envelope
+        .assistant
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            ReplyBlock::Prose { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .expect("the reply is delivered as prose");
+    assert!(
+        !envelope
+            .assistant
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ReplyBlock::ActivityList { .. })),
+        "a surface with no panel gets no list block: the list is in the prose"
+    );
+
+    let introduction = prose
+        .find("Salut, je suis Coach Trail Laurentides de Dravr")
+        .unwrap_or_else(|| panic!("the reply introduces the agent: {prose}"));
+    let list = prose
+        .find(LIST_OPENING)
+        .unwrap_or_else(|| panic!("the activity list is folded into the prose: {prose}"));
+    let analysis = prose
+        .find(UNINTRODUCED_REPLY)
+        .unwrap_or_else(|| panic!("the agent's analysis is delivered: {prose}"));
+    assert!(
+        prose[list..analysis].contains("Sortie longue"),
+        "the folded block is the athlete's own list: {prose}"
+    );
+    assert!(
+        introduction < list,
+        "the agent says who it is before the athlete reads the list: {prose}"
+    );
+    assert!(
+        list < analysis,
+        "the list precedes the analysis that refers to it: {prose}"
     );
 }

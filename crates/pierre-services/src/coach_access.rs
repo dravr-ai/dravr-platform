@@ -30,7 +30,6 @@ use std::collections::HashMap;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachAccessRequest, CoachAccessStatus, TenantId, User};
-use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
 use pierre_email::templates::CoachAccessOrigin;
 use pierre_email::ResendEmailService;
@@ -40,6 +39,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::admin_ops::set_user_manages_roster;
+use crate::operator_mail::{console_users_url, super_admin_emails};
 
 /// What [`request_access`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +98,7 @@ pub async fn request_access(
     let request = CoachAccessRequest::pending(user_id, group.clone(), Utc::now());
     if repos.coach_access_requests.open(&request).await? {
         // LIMITATION(registre#1060): `coach_access.requested` is the only coach-access event; no referral attribution (`coach_referral.*`, `referral_id`) exists.
+        // LIMITATION(registre#1072): `coach_access.requested` carries ids only (no display name, group name, origin or console link; `PierreNotifyEnricher` adds `user_email` only when this pod cached the requester's login), so its Slack notice cannot drive the approval.
         info!(
             target: "notify",
             event = "coach_access.requested",
@@ -228,7 +229,7 @@ pub async fn email_super_admins(
         warn!(request_id = %request.id, "Email service not configured — skipping coach access emails");
         return;
     };
-    let Some(recipients) = super_admin_emails(repos, request.id).await else {
+    let Some(recipients) = recipients(repos, request.id).await else {
         return;
     };
     let Some(requester) = repos.users.get_global(request.user_id).await.ok().flatten() else {
@@ -236,7 +237,7 @@ pub async fn email_super_admins(
         return;
     };
     let group_name = requested_group_name(repos, request).await;
-    let review_url = frontend_url.map(|base| format!("{}/#users", base.trim_end_matches('/')));
+    let review_url = frontend_url.map(console_users_url);
 
     for to in &recipients {
         let sent = email
@@ -255,15 +256,9 @@ pub async fn email_super_admins(
 
 /// The addresses of every active super-admin; `None` (logged) when they
 /// cannot be read.
-async fn super_admin_emails(repos: &RepositoryRegistry, request_id: Uuid) -> Option<Vec<String>> {
-    match repos.users.list_admins().await {
-        Ok(admins) => Some(
-            admins
-                .into_iter()
-                .filter(|a| a.is_active && matches!(a.role, UserRole::SuperAdmin))
-                .map(|a| a.email)
-                .collect(),
-        ),
+async fn recipients(repos: &RepositoryRegistry, request_id: Uuid) -> Option<Vec<String>> {
+    match super_admin_emails(repos.users.as_ref()).await {
+        Ok(recipients) => Some(recipients),
         Err(e) => {
             warn!(%request_id, error = %e, "Could not list super-admins for a coach access request");
             None

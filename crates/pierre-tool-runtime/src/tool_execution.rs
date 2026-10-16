@@ -932,7 +932,7 @@ pub async fn run_planned_tool_loop(
 /// Returns error if the headless runner cannot be extracted, or the ACP call fails.
 pub(crate) async fn run_headless_tool_loop(
     params: &ToolLoopParams<'_>,
-    llm_messages: &[ChatMessage],
+    llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
     // The Copilot turn provider behind the ChatProvider, whichever transport it is
     let embacle_provider = params.provider.as_embacle_provider().ok_or_else(|| {
@@ -963,7 +963,7 @@ pub(crate) async fn run_headless_tool_loop(
     // consumed) by the converse/stream call, so the degenerate-turn retry
     // below reuses the same request.
     let request = {
-        let req = ChatRequest::new(llm_messages.to_vec())
+        let req = ChatRequest::new(llm_messages.clone())
             .with_model(params.model)
             .with_mcp_servers(params.mcp_servers.clone());
         match params.temperature {
@@ -1057,6 +1057,7 @@ pub(crate) async fn run_headless_tool_loop(
         &request,
         params,
         &prompt_text,
+        llm_messages,
     )
     .await
 }

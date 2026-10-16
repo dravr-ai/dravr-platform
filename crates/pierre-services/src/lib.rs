@@ -37,6 +37,8 @@ pub mod coach_access;
 pub mod coach_access_evidence;
 /// A coach's after-the-fact review of the agent's group replies: flags, corrections, the weekly count (carnet#847)
 pub mod coach_replies;
+/// Email to the operators: the super-admin recipients and the pending sign-up alert (carnet#1056)
+pub mod operator_mail;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;

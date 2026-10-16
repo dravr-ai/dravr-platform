@@ -5509,6 +5509,17 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
     .completed_activity_id("i101".to_owned())
     .build();
 
+    // A coach's read of an athlete's Intervals.icu calendar: a session the
+    // coach keeps hidden from the athlete, titled as hidden.
+    let draft = PlannedWorkoutBuilder::new(
+        "intervals_icu",
+        "46",
+        day(30),
+        SportType::Ride,
+        "Hidden from athlete: Coach draft",
+    )
+    .build();
+
     let tool =
         <GetPlannedWorkoutsTool as McpTool<dyn ToolRuntime>>::definition(&GetPlannedWorkoutsTool);
     assert_eq!(tool.name, "get_planned_workouts");
@@ -5517,6 +5528,7 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
         tool.output_schema.clone(),
         &derived,
         &GetPlannedWorkoutsResult {
+            athlete: None,
             providers: vec!["intervals_icu".to_owned(), "trainingpeaks".to_owned()],
             unavailable: vec![],
             start_date: day(28),
@@ -5527,9 +5539,24 @@ fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
         "get_planned_workouts",
     );
     assert_declares_and_accepts(
+        tool.output_schema.clone(),
+        &derived,
+        &GetPlannedWorkoutsResult {
+            athlete: Some("Alex Athlete".to_owned()),
+            providers: vec!["intervals_icu".to_owned()],
+            unavailable: vec![],
+            start_date: day(28),
+            end_date: day(30),
+            count: 1,
+            planned_workouts: vec![draft],
+        },
+        "get_planned_workouts",
+    );
+    assert_declares_and_accepts(
         tool.output_schema,
         &derived,
         &GetPlannedWorkoutsResult {
+            athlete: None,
             providers: vec!["trainingpeaks".to_owned()],
             unavailable: vec![UnavailableCalendar {
                 provider: "intervals_icu".to_owned(),

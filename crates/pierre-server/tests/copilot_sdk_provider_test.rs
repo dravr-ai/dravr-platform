@@ -212,9 +212,16 @@ async fn finish(reply: HeadlessToolResponse) -> ToolLoopResult {
         stream_sink: None,
         mcp_servers: Vec::new(),
     };
-    finalize_headless_turn(reply, &runner, &request, &params, "prompt")
-        .await
-        .expect("a complete reply finishes without a retry")
+    finalize_headless_turn(
+        reply,
+        &runner,
+        &request,
+        &params,
+        "prompt",
+        &mut request.messages.clone(),
+    )
+    .await
+    .expect("a complete reply finishes without a retry")
 }
 
 #[tokio::test]

@@ -13,7 +13,6 @@ use pierre_core::constants::error_messages;
 use pierre_core::errors::AppError;
 use pierre_core::models::UserStatus;
 use pierre_database::backends::UserRepository;
-use pierre_services::auth::AuthService;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -130,7 +129,8 @@ async fn verify_credentials(
 
 /// Register a new user through the link page and return their id and status.
 ///
-/// The account is created by [`AuthService::register`], the same rules every
+/// The account is created by
+/// [`pierre_services::auth::AuthService::register`], the same rules every
 /// other signup follows — email and password validation, the approval posture
 /// (pre-approved address, auto-approved domain, or pending admin approval) and
 /// the personal tenant — so a code the bot handed out is not a way around them.
@@ -139,12 +139,7 @@ async fn register_user(
     resources: &ServerContext,
     form: &ChannelLinkAuthForm,
 ) -> Result<(Uuid, UserStatus), String> {
-    let auth_service = AuthService::new(
-        resources.auth.auth_manager.clone(),
-        resources.auth.jwks_manager.clone(),
-        resources.common.config.clone(),
-        resources.data(),
-    );
+    let auth_service = resources.account_service();
     let display_name = form
         .display_name
         .as_deref()

@@ -1011,9 +1011,16 @@ async fn finish_headless_turn_with(
         stream_sink: None,
         mcp_servers: Vec::new(),
     };
-    finalize_headless_turn(reply, &runner, &request, &params, "prompt")
-        .await
-        .expect("a non-degenerate ACP reply finishes without a retry")
+    finalize_headless_turn(
+        reply,
+        &runner,
+        &request,
+        &params,
+        "prompt",
+        &mut request.messages.clone(),
+    )
+    .await
+    .expect("a non-degenerate ACP reply finishes without a retry")
 }
 
 /// A chain that answers every ask with the agent's reply.
@@ -1199,6 +1206,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
         content: result.content.clone(),
         finish_reason: result.finish_reason.clone(),
         activity_list: result.activity_list.clone(),
+        introduction_end: None,
         telemetry: TurnTelemetry {
             model: HEADLESS_MODEL.to_owned(),
             provider_name: "copilot_headless".to_owned(),

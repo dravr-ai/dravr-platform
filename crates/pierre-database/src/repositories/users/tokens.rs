@@ -78,7 +78,8 @@ pub trait EmailVerificationRepository: Send + Sync {
     async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
     /// Stamp `users.email_verified_at`. Idempotent — a second call leaves the
     /// original timestamp in place, so re-verifying never rewrites history.
-    async fn mark_verified(&self, user_id: Uuid) -> AppResult<()>;
+    /// Returns `true` only when this call made the first proof.
+    async fn mark_verified(&self, user_id: Uuid) -> AppResult<bool>;
     /// Whether this user's address has been proven.
     async fn is_verified(&self, user_id: Uuid) -> AppResult<bool>;
 }

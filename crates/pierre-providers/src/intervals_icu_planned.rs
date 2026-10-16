@@ -12,9 +12,13 @@
 //! - **Which events.** `WORKOUT` events, and `RACE_A` / `RACE_B` / `RACE_C`
 //!   ones as a workout titled with the race's priority ("A race: …"). Dravr's
 //!   own pushes (an `external_id` [`CalendarKey::is_dravr_key`] knows) are left out:
-//!   they are the athlete's Dravr plan, not something planned elsewhere. An
-//!   event hidden from the athlete is left out too — every reader of a planned
-//!   calendar is the athlete whose calendar it is, own key or delegated link.
+//!   they are the athlete's Dravr plan, not something planned elsewhere.
+//! - **Who reads** ([`PlannedReader`]). An event the athlete's coach hides
+//!   from the athlete is left out of the athlete's own read, through their
+//!   own key or a delegated link. Their human coach, reading the calendar
+//!   with the coach's own key, sees it, titled "Hidden from athlete: …" so it
+//!   is never taken for a session on the athlete's calendar: the coach's key
+//!   shows it on Intervals.icu all the same.
 //! - **Planned-vs-done.** The pairing lives on the activity, not the event:
 //!   `GET /activities?fields=id,paired_event_id` names the event each activity
 //!   completed, and [`completed_by_event`] inverts it. A failed pairing read
@@ -26,8 +30,9 @@
 //!   decoded on its own and each field reads as absent when its value is
 //!   `null` or of an unexpected type: one odd entry never costs the athlete
 //!   the rest of their calendar. The hidden-from-athlete flag is the one
-//!   field read closed: only an absent, `null` or `false` value shows the
-//!   event, so an odd value never reveals a coach's draft.
+//!   field read closed: only an absent, `null` or `false` value reads as
+//!   shown, so an odd value never reveals a coach's draft to the athlete, and
+//!   labels it hidden on the coach's read.
 //!
 //! Titles and descriptions cross verbatim: they are untrusted third-party
 //! text, which the planned-workouts tool fences before a model reads it.
@@ -47,6 +52,21 @@ use crate::models::{CalendarKey, PlannedWorkout, PlannedWorkoutBuilder};
 /// The `fields` a pairing read asks `GET /activities` for: the activity's id
 /// and the planned event it completed.
 pub const PAIRING_FIELDS: &str = "id,paired_event_id";
+
+/// The words a hidden event's title starts with on a coach's read.
+const HIDDEN_LABEL: &str = "Hidden from athlete";
+
+/// Who reads a planned calendar, which decides what it shows of the events
+/// the athlete's coach keeps hidden from the athlete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlannedReader {
+    /// The athlete whose calendar it is, through their own key or a
+    /// delegated link: an event hidden from them is left out.
+    Athlete,
+    /// The athlete's human coach, through the coach's own key: an event
+    /// hidden from the athlete is kept, titled with [`HIDDEN_LABEL`].
+    Coach,
+}
 
 /// What a planned read keeps of an event's category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,12 +164,15 @@ struct IntervalsIcuPlannedEvent {
 }
 
 /// A calendar event a planned read keeps: a workout or a race with an id and
-/// a civil date, neither Dravr's own nor hidden from the athlete.
+/// a civil date, not Dravr's own, and shown to its reader.
 #[derive(Debug)]
 pub struct PlannedEvent {
     id: i64,
     date: NaiveDate,
     entry: Entry,
+    /// The coach keeps it hidden from the athlete; kept only on the coach's
+    /// read.
+    hidden: bool,
     event: IntervalsIcuPlannedEvent,
 }
 
@@ -160,13 +183,14 @@ pub struct PlannedEvent {
 // kind or compliance field, `workout_doc`'s step shape is undocumented, and planned load needs a
 // Methodology rule.
 /// The events of a planned read's raw `GET /events` array that a planned
-/// calendar shows, in the order they arrived.
+/// calendar shows `reader`, in the order they arrived.
 ///
 /// An entry that is not an event object, or an event with no id or no civil
 /// date, is left out with a warning naming no content; one outside
 /// [`PLANNED_CATEGORIES`] (the upstream filter is not relied on), one of
-/// Dravr's own pushes, and one hidden from the athlete are left out silently.
-pub fn planned_events(entries: Vec<Value>) -> Vec<PlannedEvent> {
+/// Dravr's own pushes, and, on the athlete's read, one hidden from the
+/// athlete are left out silently.
+pub fn planned_events(entries: Vec<Value>, reader: PlannedReader) -> Vec<PlannedEvent> {
     entries
         .into_iter()
         .enumerate()
@@ -179,20 +203,20 @@ pub fn planned_events(entries: Vec<Value>) -> Vec<PlannedEvent> {
                     );
                     None
                 },
-                PlannedEvent::kept,
+                |event| PlannedEvent::kept(event, reader),
             )
         })
         .collect()
 }
 
 impl PlannedEvent {
-    /// `event` when a planned calendar shows it.
-    fn kept(event: IntervalsIcuPlannedEvent) -> Option<Self> {
+    /// `event` when a planned calendar shows it to `reader`.
+    fn kept(event: IntervalsIcuPlannedEvent, reader: PlannedReader) -> Option<Self> {
         let entry = Entry::of(event.category.as_deref())?;
         // Read closed: a flag of any other type than `false` is a coach's
-        // draft as far as the athlete's reader goes.
+        // draft, left out of the athlete's read and labelled on the coach's.
         let hidden = !matches!(event.hide_from_athlete, None | Some(Value::Bool(false)));
-        if hidden
+        if (hidden && reader == PlannedReader::Athlete)
             || event
                 .external_id
                 .as_deref()
@@ -215,12 +239,14 @@ impl PlannedEvent {
             id,
             date,
             entry,
+            hidden,
             event,
         })
     }
 
     /// The event as a [`PlannedWorkout`], completed by the activity
-    /// `completed` names for its id, if any.
+    /// `completed` names for its id, if any. An event hidden from the
+    /// athlete, which only the coach's read keeps, is titled as hidden.
     ///
     /// A zero planned duration or distance states nothing and reads as
     /// absent. The start time is not set: Intervals.icu states a naive
@@ -228,12 +254,17 @@ impl PlannedEvent {
     /// athlete's offset.
     pub fn into_workout(self, completed: &HashMap<i64, String>) -> PlannedWorkout {
         let event = self.event;
+        let title = self.entry.title(event.name.as_deref());
         PlannedWorkoutBuilder::new(
             INTERVALS_ICU,
             self.id.to_string(),
             self.date,
             event_sport(event.event_type.as_deref()),
-            self.entry.title(event.name.as_deref()),
+            if self.hidden {
+                hidden_title(&title)
+            } else {
+                title
+            },
         )
         .description_opt(event.description.filter(|text| !text.trim().is_empty()))
         .planned_duration_seconds_opt(event.moving_time.filter(|seconds| *seconds > 0))
@@ -244,6 +275,15 @@ impl PlannedEvent {
         )
         .completed_activity_id_opt(completed.get(&self.id).cloned())
         .build()
+    }
+}
+
+/// `title` as the coach's read shows an event hidden from the athlete.
+fn hidden_title(title: &str) -> String {
+    if title.is_empty() {
+        HIDDEN_LABEL.to_owned()
+    } else {
+        format!("{HIDDEN_LABEL}: {title}")
     }
 }
 
@@ -296,14 +336,45 @@ mod tests {
         NaiveDate::from_ymd_opt(2026, 10, d).expect("a calendar date")
     }
 
-    fn workouts(entries: Value, completed: &HashMap<i64, String>) -> Vec<PlannedWorkout> {
+    fn read_by(
+        reader: PlannedReader,
+        entries: Value,
+        completed: &HashMap<i64, String>,
+    ) -> Vec<PlannedWorkout> {
         let Value::Array(entries) = entries else {
             panic!("an array of events");
         };
-        planned_events(entries)
+        planned_events(entries, reader)
             .into_iter()
             .map(|event| event.into_workout(completed))
             .collect()
+    }
+
+    fn workouts(entries: Value, completed: &HashMap<i64, String>) -> Vec<PlannedWorkout> {
+        read_by(PlannedReader::Athlete, entries, completed)
+    }
+
+    /// Dravr's own pushes, then one event per value the hidden flag can
+    /// carry on the wire.
+    fn hidden_flag_calendar() -> Value {
+        json!([
+            { "id": 1, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "external_id": "dravr:plan:4b0f3c1e:2026-10-05:0" },
+            { "id": 2, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "external_id": "dravr:rx:9c3e" },
+            { "id": 3, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Draft", "hide_from_athlete": true },
+            { "id": 4, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Shown", "hide_from_athlete": false, "external_id": null },
+            { "id": 5, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Shown", "hide_from_athlete": null },
+            { "id": 6, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Draft", "hide_from_athlete": "yes" },
+            { "id": 7, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Draft", "hide_from_athlete": 1 },
+            { "id": 8, "category": "WORKOUT", "start_date_local": "2026-10-05",
+              "name": "Draft", "hide_from_athlete": "false" }
+        ])
     }
 
     #[test]
@@ -384,27 +455,7 @@ mod tests {
 
     #[test]
     fn dravrs_own_pushes_and_hidden_events_are_left_out() {
-        let planned = workouts(
-            json!([
-                { "id": 1, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "external_id": "dravr:plan:4b0f3c1e:2026-10-05:0" },
-                { "id": 2, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "external_id": "dravr:rx:9c3e" },
-                { "id": 3, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": true },
-                { "id": 4, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": false, "external_id": null },
-                { "id": 5, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": null },
-                { "id": 6, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": "yes" },
-                { "id": 7, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": 1 },
-                { "id": 8, "category": "WORKOUT", "start_date_local": "2026-10-05",
-                  "hide_from_athlete": "false" }
-            ]),
-            &HashMap::new(),
-        );
+        let planned = workouts(hidden_flag_calendar(), &HashMap::new());
         let ids: Vec<&str> = planned
             .iter()
             .map(PlannedWorkout::provider_workout_id)
@@ -413,6 +464,58 @@ mod tests {
             ids,
             ["4", "5"],
             "only an absent, null or false flag shows the event: an odd one keeps the draft hidden"
+        );
+    }
+
+    #[test]
+    fn the_coachs_read_keeps_hidden_events_titled_as_hidden() {
+        let planned = read_by(
+            PlannedReader::Coach,
+            hidden_flag_calendar(),
+            &HashMap::from([(3, "i101".to_owned())]),
+        );
+        let read: Vec<(&str, &str)> = planned
+            .iter()
+            .map(|workout| (workout.provider_workout_id(), workout.title()))
+            .collect();
+        assert_eq!(
+            read,
+            [
+                ("3", "Hidden from athlete: Draft"),
+                ("4", "Shown"),
+                ("5", "Shown"),
+                ("6", "Hidden from athlete: Draft"),
+                ("7", "Hidden from athlete: Draft"),
+                ("8", "Hidden from athlete: Draft"),
+            ],
+            "Dravr's own pushes stay out; an odd flag reads as hidden, never as shown"
+        );
+        assert_eq!(
+            planned[0].completed_activity_id(),
+            Some("i101"),
+            "a hidden session the athlete did still names the activity"
+        );
+    }
+
+    #[test]
+    fn a_hidden_race_or_untitled_draft_keeps_the_hidden_label_first() {
+        let planned = read_by(
+            PlannedReader::Coach,
+            json!([
+                { "id": 1, "category": "RACE_A", "name": "Ironman Quebec",
+                  "start_date_local": "2026-10-10", "hide_from_athlete": true },
+                { "id": 2, "category": "WORKOUT", "name": "  ",
+                  "start_date_local": "2026-10-11", "hide_from_athlete": true }
+            ]),
+            &HashMap::new(),
+        );
+        let titles: Vec<&str> = planned.iter().map(PlannedWorkout::title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Hidden from athlete: A race: Ironman Quebec",
+                "Hidden from athlete"
+            ]
         );
     }
 

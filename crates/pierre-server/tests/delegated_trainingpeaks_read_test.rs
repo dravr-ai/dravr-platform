@@ -13,7 +13,9 @@
 //! confirms. From then on the member's `get_activities` and
 //! `get_planned_workouts` read through the coach's stored session with the
 //! member's athlete id on the wire, write through under the member's own
-//! keys, and report the coach on the status surfaces.
+//! keys, and report the coach on the status surfaces. The coach, in turn,
+//! reads the member's plan with `get_planned_workouts(athlete=…)` through the
+//! same session, once the member shares with them.
 //!
 //! The refusals are the other half of the contract:
 //!
@@ -733,6 +735,61 @@ async fn get_planned_workouts_reads_through_the_coach(w: &World) {
     assert_eq!(reads[0].athlete.as_deref(), Some(M1_ATHLETE));
 }
 
+/// The coach reads the member's plan with `get_planned_workouts(athlete=…)`
+/// through the coach's own session naming the member's athlete id, once the
+/// member shares with them: the link alone does not carry it (carnet#1066).
+async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
+    w.scraper.clear();
+    let today = Utc::now().date_naive();
+    let end = today.checked_add_days(Days::new(14)).unwrap();
+    let args = json!({
+        "athlete": "Alex",
+        "start_date": today.format("%Y-%m-%d").to_string(),
+        "end_date": end.format("%Y-%m-%d").to_string(),
+    });
+
+    let refused = GetPlannedWorkoutsTool
+        .execute(&w.runtime, &ctx(&w.coach), args.clone())
+        .await;
+    let body = payload(&refused);
+    assert!(refused.is_error, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("stopped sharing")),
+        "{body}"
+    );
+    assert!(w.scraper.hits_on("/api/planned-workouts").is_empty());
+
+    let groups = &w.res.common.repos.groups;
+    assert!(groups
+        .update_coach_sharing_consent(&w.group.to_string(), w.m1.id, true)
+        .await
+        .unwrap());
+    let response = GetPlannedWorkoutsTool
+        .execute(&w.runtime, &ctx(&w.coach), args)
+        .await;
+    let body = payload(&response);
+    assert!(!response.is_error, "{body}");
+    assert_eq!(body["athlete"], "Alex Athlete", "{body}");
+    assert_eq!(body["providers"], json!(["trainingpeaks"]), "{body}");
+    let planned = body["planned_workouts"]
+        .as_array()
+        .expect("planned_workouts");
+    assert_eq!(planned.len(), 1, "{body}");
+    assert_eq!(planned[0]["title"], "Sweet spot 3x15");
+    let reads = w.scraper.hits_on("/api/planned-workouts");
+    assert_eq!(reads.len(), 1, "{reads:?}");
+    assert_eq!(reads[0].session, COACH_SESSION);
+    assert_eq!(reads[0].athlete.as_deref(), Some(M1_ATHLETE));
+
+    // The later steps read as a member who does not share with the coach.
+    assert!(groups
+        .update_coach_sharing_consent(&w.group.to_string(), w.m1.id, false)
+        .await
+        .unwrap());
+}
+
 /// Both status surfaces say the member's TrainingPeaks is connected through
 /// the coach.
 async fn the_status_names_the_coach(w: &World) {
@@ -1012,6 +1069,7 @@ async fn a_linked_member_reads_trainingpeaks_through_the_coach() {
 
     get_activities_reads_through_the_coach(&w).await;
     get_planned_workouts_reads_through_the_coach(&w).await;
+    the_coach_reads_the_members_plan_once_they_share(&w).await;
     the_status_names_the_coach(&w).await;
     the_detail_fence_holds(&w).await;
     the_coachs_own_read_is_refused_in_words(&w).await;

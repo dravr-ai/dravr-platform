@@ -48,6 +48,9 @@ pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for c
 pub const SUBJECT_COACH_ACCESS_FILED: &str =
     "Dravr: a coach-access request was filed from an Intervals.icu roster";
 
+/// Subject line of the operator email announcing a sign-up awaiting approval.
+pub const SUBJECT_SIGNUP_AWAITING_APPROVAL: &str = "Dravr: a new account is waiting for approval";
+
 /// Email service backed by the Resend transactional email API.
 ///
 /// Sends through dravr-tronc's [`ResendClient`], the one Resend send path the
@@ -246,6 +249,29 @@ impl ResendEmailService {
             CoachAccessOrigin::IntervalsIcuRoster { .. } => SUBJECT_COACH_ACCESS_FILED,
         };
         self.send_email(to, subject, &html).await
+    }
+
+    /// Tell a super-admin that a new account is waiting for approval
+    /// (carnet#1056). The Slack ping can be silenced by an outage, a bot
+    /// dropped from the room or a renamed channel; this email cannot.
+    ///
+    /// `review_url` links to the console's user list; without one the email
+    /// names where to find it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_signup_awaiting_approval(
+        &self,
+        to: &str,
+        applicant_email: &str,
+        applicant_name: Option<&str>,
+        review_url: Option<&str>,
+    ) -> AppResult<()> {
+        let html =
+            templates::signup_awaiting_approval_html(applicant_email, applicant_name, review_url);
+        self.send_email(to, SUBJECT_SIGNUP_AWAITING_APPROVAL, &html)
+            .await
     }
 
     /// Send a channel linking verification code email

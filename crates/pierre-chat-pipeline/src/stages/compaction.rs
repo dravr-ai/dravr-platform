@@ -20,6 +20,7 @@ use pierre_services::conversation_compaction::{
 };
 
 use crate::recorders::turn_call_recorder;
+use crate::stages::prompt_builder::replayable_summary;
 use crate::{ChatPipelineContext, TurnInput};
 
 /// Run conversation compaction in place. Failures log and continue — a
@@ -49,6 +50,7 @@ pub async fn apply_tier1_compaction(
         conversation_id: &input.conversation_id,
         source_ids,
         llm_messages,
+        summary_for_prompt: replayable_summary,
     };
     match compactor.compact_if_needed(compaction).await {
         Ok(outcome) => {

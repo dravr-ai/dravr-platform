@@ -379,14 +379,15 @@ impl ConversationCompactor {
         // message and filters the rest, so a mid-list system summary never
         // reached the model at all. Framed with REPLAYED_SUMMARY_PREFIX — not
         // COMPACTION_MARKER, which is a UI-only render artifact — so the model
-        // reads it as recovered history rather than as an athlete turn, and so
-        // this splice matches the later-turn replay in `prompt_builder` byte
-        // for byte.
+        // reads it as recovered history rather than as an athlete turn. The
+        // summary in it goes through `summary_for_prompt`, the caller's replay
+        // rendering, while the persisted block keeps the raw text.
         let rendered = format!(
-            "{REPLAYED_SUMMARY_PREFIX}Earlier conversation summary ({} turns, ~{} → ~{} tokens):\n{summary}",
+            "{REPLAYED_SUMMARY_PREFIX}Earlier conversation summary ({} turns, ~{} → ~{} tokens):\n{}",
             plan.range.end - plan.range.start,
             original_tokens,
             summary_tokens,
+            (ctx.summary_for_prompt)(summary),
         );
         replace_range(ctx.llm_messages, &plan.range, ChatMessage::user(&rendered));
 
@@ -613,6 +614,12 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     pub source_ids: &'a [Option<String>],
     /// The LLM message list being assembled; the compactor mutates it in place.
     pub llm_messages: &'a mut Vec<ChatMessage>,
+    /// Renders the summary for the message spliced into `llm_messages`; the
+    /// persisted block keeps the raw text. A caller that replays persisted
+    /// blocks on later turns passes the rendering it replays them with, so
+    /// the turn that writes a summary shows the model the same summary text
+    /// every later turn does.
+    pub summary_for_prompt: fn(&str) -> String,
 }
 
 /// Sum-of-content token estimate across all chat messages.

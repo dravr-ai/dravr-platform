@@ -136,8 +136,8 @@ macro_rules! impl_email_verification_repository {
                     .map_err(|e| AppError::database(format!("Failed to get cnt: {e}")))
             }
 
-            async fn mark_verified(&self, user_id: Uuid) -> AppResult<()> {
-                sqlx::query(MARK_EMAIL_VERIFIED_SQL)
+            async fn mark_verified(&self, user_id: Uuid) -> AppResult<bool> {
+                let done = sqlx::query(MARK_EMAIL_VERIFIED_SQL)
                     .bind(Utc::now())
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
@@ -146,7 +146,7 @@ macro_rules! impl_email_verification_repository {
                         AppError::database(format!("Failed to mark email verified: {e}"))
                     })?;
 
-                Ok(())
+                Ok(done.rows_affected() > 0)
             }
 
             async fn is_verified(&self, user_id: Uuid) -> AppResult<bool> {

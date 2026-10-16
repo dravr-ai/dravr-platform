@@ -46,6 +46,14 @@ use pierre_services::conversation_compaction::{
 /// the reconstructed prompt.
 const STUB_SUMMARY: &str = "SUMMARY: earlier turns covered the user's training week.";
 
+/// What [`mark_for_prompt`] puts ahead of a summary it is handed.
+const FOR_PROMPT_MARK: &str = "[for prompt] ";
+
+/// A `summary_for_prompt` whose work is visible in the spliced message.
+fn mark_for_prompt(summary: &str) -> String {
+    format!("{FOR_PROMPT_MARK}{summary}")
+}
+
 /// Number of messages seeded into the conversation — over the default 40-message
 /// cap so compaction routes through the summarize path.
 const MESSAGE_COUNT: usize = 50;
@@ -269,6 +277,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         conversation_id: &conversation.id,
         source_ids: &source_ids,
         llm_messages: &mut llm_messages,
+        summary_for_prompt: mark_for_prompt,
     };
 
     let outcome = ConversationCompactor::new(CompactionConfig::default())
@@ -379,6 +388,16 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     assert!(
         summary_msgs[0].content.starts_with(REPLAYED_SUMMARY_PREFIX),
         "the spliced summary must be framed as recovered history"
+    );
+    // The turn that writes the summary sends it through the replay's
+    // treatment too: left raw, a platform framing the summariser was talked
+    // into writing reached the model as the platform's on that one turn.
+    assert!(
+        summary_msgs[0]
+            .content
+            .contains(&format!("{FOR_PROMPT_MARK}{STUB_SUMMARY}")),
+        "the spliced summary must go through summary_for_prompt: {}",
+        summary_msgs[0].content
     );
     assert!(
         !summary_msgs[0].content.contains(COMPACTION_MARKER),
@@ -562,6 +581,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
             conversation_id: &conversation.id,
             source_ids: &source_ids,
             llm_messages: &mut llm_messages,
+            summary_for_prompt: str::to_owned,
         })
         .await
         .expect("compaction should succeed");

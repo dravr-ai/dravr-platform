@@ -10,7 +10,7 @@ use pierre_core::errors::AppError;
 use pierre_core::llm::tool_simulation;
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::{ChatRequest, ChatResponse, TokenUsage};
+use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
 use tracing::{info, warn};
 
 use crate::guardian::HeadlessBlock;
@@ -64,6 +64,7 @@ pub async fn finalize_headless_turn(
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
     prompt_text: &str,
+    llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
     if headless_response.tool_calls.is_empty() {
         let text_tool_calls = parse_lenient_tool_call_blocks(&headless_response.content);
@@ -83,9 +84,13 @@ pub async fn finalize_headless_turn(
                 warnings: None,
                 tool_calls: None,
             };
-            let mut llm_messages = request.messages.clone();
-            let mut result =
-                run_cli_tool_loop(params, &mut llm_messages, Some(first_reply)).await?;
+            // The turn's own messages, not a copy: the rounds the text loop
+            // appends — the reply's calls and their results — are the
+            // evidence the pipeline's claim checks read after the loop. On a
+            // copy they were lost, the peer-claim check judged a start time
+            // the agent read from a tool result as unsupported, and its re-ask
+            // had the agent retract it (carnet#1038).
+            let mut result = run_cli_tool_loop(params, llm_messages, Some(first_reply)).await?;
             // What the text loop's own executor raised stands; the loopback's
             // record fills only what it left unset.
             let signals = take_loopback_signals(params);

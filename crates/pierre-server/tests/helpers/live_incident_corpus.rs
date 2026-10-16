@@ -40,6 +40,7 @@ use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::intake::{record_steps, STATUS_COMPLETE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::task::spawn_blocking;
@@ -100,10 +101,17 @@ const FIXTURE_WEEKS: i64 = 4;
 /// The day offsets inside each seeded week that carry one of the athlete's
 /// ordinary runs.
 const ATHLETE_RUN_DAYS: [i64; 3] = [1, 3, 5];
+/// The time of day, `(hour, minute)` UTC, of the athlete's run on each of
+/// [`ATHLETE_RUN_DAYS`] in the most recent week.
+const ATHLETE_RUN_TIMES: [(u32, u32); 3] = [(6, 40), (12, 15), (18, 5)];
 /// The day offsets inside each seeded week that carry one of the peer's own
 /// runs. Distinct from the athlete's so a comparison turn has two different
 /// weeks to compare rather than one duplicated.
 const PEER_RUN_DAYS: [i64; 2] = [2, 4];
+/// The time of day of the peer's run on each of [`PEER_RUN_DAYS`].
+const PEER_RUN_TIMES: [(u32, u32); 2] = [(7, 20), (17, 45)];
+/// The time of day of the peer's run yesterday.
+const PEER_YESTERDAY_TIME: (u32, u32) = (19, 10);
 
 /// The distance of the athlete's ordinary run on `day`, in metres. Read
 /// only through [`athlete_runs`], the one list every reader of the fixture
@@ -117,6 +125,31 @@ fn athlete_run_metres(day: i64) -> f64 {
 fn peer_run_metres(day: i64) -> f64 {
     (day as f64).mul_add(1_500.0, 7_000.0)
 }
+
+/// The athlete's display name, on the roster and in the judge's ledger.
+pub const ATHLETE_DISPLAY: &str = "JF";
+/// The peer the group turns name, by his canonical roster spelling.
+pub const PEER_DISPLAY: &str = "Philippe Tremblay";
+/// The peer's second, short-form roster identity.
+pub const PHIL_ALIAS_DISPLAY: &str = "Phil";
+
+/// The athlete's provider connections, in registration order.
+///
+/// The order is load-bearing: the activity-source election takes the last
+/// registration as the primary, and [`ATHLETE_LIVE_CONNECTION`] is the only
+/// one with a credential behind it (see `seed_fixture`).
+pub const ATHLETE_CONNECTIONS: &[&str] = &["whoop", "strava", "sciotte"];
+/// The one connection the fixture holds a credential for: the athlete's
+/// sciotte session, seeded against the scraper stand-in.
+pub const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
+/// The connections each peer-side roster identity holds — Philippe and his
+/// «Phil» alias alike — none with a token behind it.
+///
+/// One list, read by the seed and by [`ground_truth`]. The ledger once spoke
+/// only of JF's connections, so when a fetch of Philippe's tokenless Strava
+/// flagged it and the group context told the agent he had to reconnect, the
+/// judge graded that true statement as invented (carnet#1037).
+pub const PEER_CONNECTIONS: &[&str] = &["strava"];
 
 /// The name every seeded run carries, in the activity cache, the scraper
 /// stand-in and the judge's ledger alike.
@@ -140,10 +173,28 @@ fn fixture_clock() -> DateTime<Utc> {
     *ANCHOR.get_or_init(Utc::now)
 }
 
-/// When a seeded activity `days_ago` started, on [`fixture_clock`].
-pub fn seeded_start(days_ago: i64) -> DateTime<Utc> {
-    fixture_clock() - ChronoDuration::days(days_ago)
+/// `hour:minute` UTC on the calendar day `days_ago` before [`fixture_clock`].
+///
+/// Each seeded activity starts at its own time of day. When every one was
+/// `fixture_clock` minus whole days, the whole history started at the minute
+/// the lane happened to run, and the judge read «every activity started at
+/// 14:54 UTC» as the fixture's only fact about a start (carnet#1038).
+fn seeded_day_at(days_ago: i64, hour: u32, minute: u32) -> DateTime<Utc> {
+    (fixture_clock() - ChronoDuration::days(days_ago))
+        .date_naive()
+        .and_hms_opt(hour, minute, 0)
+        .unwrap_or_else(|| panic!("{hour:02}:{minute:02} is not a time of day"))
+        .and_utc()
 }
+
+/// When the Sunday ride twin started, on both providers that recorded it.
+pub fn sunday_ride_start() -> DateTime<Utc> {
+    seeded_day_at(days_since_sunday(), 7, 30)
+}
+
+/// How much later each older week's runs start than the week after it, so
+/// no two weeks share a start time either.
+const WEEKLY_START_SHIFT_MINUTES: u32 = 11;
 
 /// One seeded run, as every reader of the fixture sees it.
 ///
@@ -156,6 +207,7 @@ pub fn seeded_start(days_ago: i64) -> DateTime<Utc> {
 pub struct SeededRun {
     pub id: String,
     pub days_ago: i64,
+    pub start: DateTime<Utc>,
     pub seconds: u64,
     pub metres: f64,
 }
@@ -166,6 +218,7 @@ pub fn athlete_runs() -> Vec<SeededRun> {
     weekly_runs(
         "eval-run",
         &ATHLETE_RUN_DAYS,
+        &ATHLETE_RUN_TIMES,
         athlete_run_metres,
         3_600,
         600,
@@ -178,12 +231,14 @@ pub fn peer_runs() -> Vec<SeededRun> {
     let mut runs = vec![SeededRun {
         id: "eval-peer-run".to_owned(),
         days_ago: 1,
+        start: seeded_day_at(1, PEER_YESTERDAY_TIME.0, PEER_YESTERDAY_TIME.1),
         seconds: PEER_RUN_SECONDS,
         metres: PEER_RUN_METRES,
     }];
     runs.extend(weekly_runs(
         "eval-peer-run",
         &PEER_RUN_DAYS,
+        &PEER_RUN_TIMES,
         peer_run_metres,
         2_700,
         300,
@@ -194,6 +249,7 @@ pub fn peer_runs() -> Vec<SeededRun> {
 fn weekly_runs(
     prefix: &str,
     days: &[i64],
+    times: &[(u32, u32)],
     metres: fn(i64) -> f64,
     base_seconds: u64,
     seconds_per_day: u64,
@@ -201,14 +257,17 @@ fn weekly_runs(
     let sunday_offset = days_since_sunday();
     let mut runs = Vec::new();
     for week in 0..FIXTURE_WEEKS {
-        for &day in days {
+        let shift = u32::try_from(week).unwrap_or(0) * WEEKLY_START_SHIFT_MINUTES;
+        for (&day, &(hour, minute)) in days.iter().zip(times) {
             let days_ago = week * 7 + day;
             if days_ago % 7 == sunday_offset % 7 {
                 continue;
             }
+            let minutes = hour * 60 + minute + shift;
             runs.push(SeededRun {
                 id: format!("{prefix}-{week}-{day}"),
                 days_ago,
+                start: seeded_day_at(days_ago, minutes / 60, minutes % 60),
                 seconds: base_seconds + day as u64 * seconds_per_day,
                 metres: metres(day),
             });
@@ -682,6 +741,14 @@ pub struct Fixture {
     /// The seeded athlete every episode speaks as.
     pub athlete: Uuid,
     pub athlete_tenant: TenantId,
+    /// [`PEER_DISPLAY`], the peer the group turns name.
+    pub peer: Uuid,
+    /// [`PHIL_ALIAS_DISPLAY`], the peer's second roster identity.
+    pub phil_alias: Uuid,
+    /// The group all three belong to.
+    pub group: Uuid,
+    /// The agent the group is bound to.
+    pub group_agent: Uuid,
     pub dm_channel: String,
     pub group_channel: String,
 }
@@ -818,11 +885,13 @@ async fn wire_slack(
 ///   "Philippe Tremblay", which is what the first live gate turn hit within
 ///   one minute of going up.
 pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
-    let (athlete, tenant) = create_athlete(resources, "eval-athlete@dravr.test", "JF").await;
-    let (peer, _) = create_athlete(resources, "eval-peer@dravr.test", "Philippe Tremblay").await;
+    let (athlete, tenant) =
+        create_athlete(resources, "eval-athlete@dravr.test", ATHLETE_DISPLAY).await;
+    let (peer, _) = create_athlete(resources, "eval-peer@dravr.test", PEER_DISPLAY).await;
     // The second, short-form identity for the same human. A roster with one
     // canonical spelling cannot reproduce the ambiguity a real one carries.
-    let (phil_alias, _) = create_athlete(resources, "eval-phil@dravr.test", "Phil").await;
+    let (phil_alias, _) =
+        create_athlete(resources, "eval-phil@dravr.test", PHIL_ALIAS_DISPLAY).await;
 
     // A connection with no token behind it is the documented dead-provider
     // state — `create_authenticated_provider` signals reauth, every live
@@ -857,13 +926,16 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     // `two_provider_day` never sees the Strava twin it exists to merge.
     // `get_activities_multi_provider_test` orders the same pair the same way
     // for the same reason.
-    for (user, provider) in [
-        (athlete, "whoop"),
-        (athlete, "strava"),
-        (athlete, "sciotte"),
-        (peer, "strava"),
-        (phil_alias, "strava"),
-    ] {
+    let registrations = ATHLETE_CONNECTIONS
+        .iter()
+        .map(|provider| (athlete, *provider))
+        .chain(PEER_CONNECTIONS.iter().map(|provider| (peer, *provider)))
+        .chain(
+            PEER_CONNECTIONS
+                .iter()
+                .map(|provider| (phil_alias, *provider)),
+        );
+    for (user, provider) in registrations {
         resources
             .common
             .repos
@@ -916,9 +988,9 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
         .unwrap();
 
     for (user, role, display) in [
-        (athlete, GroupRole::Owner, "JF"),
-        (peer, GroupRole::Member, "Philippe Tremblay"),
-        (phil_alias, GroupRole::Member, "Phil"),
+        (athlete, GroupRole::Owner, ATHLETE_DISPLAY),
+        (peer, GroupRole::Member, PEER_DISPLAY),
+        (phil_alias, GroupRole::Member, PHIL_ALIAS_DISPLAY),
     ] {
         resources
             .common
@@ -947,6 +1019,10 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     Fixture {
         athlete,
         athlete_tenant: tenant,
+        peer,
+        phil_alias,
+        group: group_id,
+        group_agent: agent,
         dm_channel,
         group_channel,
     }
@@ -1055,7 +1131,7 @@ async fn seed_activities(
     tenant: TenantId,
     peer_id: Uuid,
 ) {
-    let sunday = seeded_start(days_since_sunday());
+    let sunday = sunday_ride_start();
 
     let strava_twin = ActivityBuilder::new(
         "eval-sunday-strava",
@@ -1130,7 +1206,7 @@ fn seeded_run_activity(run: &SeededRun) -> Activity {
         run.id.clone(),
         SEEDED_RUN_NAME,
         SportType::Run,
-        seeded_start(run.days_ago),
+        run.start,
         run.seconds,
         "strava",
     )
@@ -1162,10 +1238,11 @@ pub fn days_since_sunday() -> i64 {
 ///
 /// Every seeded activity is listed with its date and start, because a judge
 /// shown ranges cannot tell a correctly dated figure from an invented one. The
-/// connection state and activity names are stated too: the agent sees both,
-/// and a judge that has not been told them reads them as invention.
+/// connection state of every roster member and the activity names are stated
+/// too: the agent sees both, and a judge that has not been told them reads
+/// them as invention.
 pub fn ground_truth() -> String {
-    let sunday = days_ago_label(days_since_sunday());
+    let sunday = start_label(days_since_sunday(), sunday_ride_start());
     let mut truth = format!(
         "Today is {today}. Every activity the fixture holds, and nothing else:\n\
          Athlete JF, {sunday}: ONE session recorded twice — Strava has a \
@@ -1183,13 +1260,65 @@ pub fn ground_truth() -> String {
     truth.push_str(
         "No heart rate, elevation, power or cadence is recorded on ANY of these \
          activities. Totals, paces, weekly hours and training-load figures computed from \
-         this list are facts, not inventions; check them against it.\n\
-         JF's connections: Strava and WHOOP are connected but hold no token, so a live \
-         fetch from either asks to re-authenticate; the runs above reach the agent through \
-         sciotte, a live capture of the Strava account.\n\
-         The roster holds both \"Phil\" and \"Philippe Tremblay\".",
+         this list are facts, not inventions; check them against it.\n",
+    );
+    truth.push_str(&connections_line(
+        ATHLETE_DISPLAY,
+        ATHLETE_CONNECTIONS,
+        Some(ATHLETE_LIVE_CONNECTION),
+    ));
+    truth.push_str(&connections_line(PEER_DISPLAY, PEER_CONNECTIONS, None));
+    truth.push_str(&connections_line(
+        PHIL_ALIAS_DISPLAY,
+        PEER_CONNECTIONS,
+        None,
+    ));
+    let _ = write!(
+        truth,
+        "{ATHLETE_DISPLAY}'s runs above reach the agent through {ATHLETE_LIVE_CONNECTION}, a \
+         live capture of the Strava account; {PEER_DISPLAY}'s come from the activity cache, \
+         never from a live fetch; no activity is seeded for {PHIL_ALIAS_DISPLAY}.\n\
+         A connection with no token fails every live fetch and asks to re-authenticate. The \
+         first such fetch in a run flags it for reconnection, and from then on the group \
+         context lists that member under Connection alerts: «{peer_alert}». Saying that a \
+         connection listed above with no token needs reconnecting, {ATHLETE_DISPLAY}'s or a \
+         peer's, is a fact, not an invention.\n\
+         The roster holds both \"{PHIL_ALIAS_DISPLAY}\" and \"{PEER_DISPLAY}\".",
+        peer_alert = reconnect_alert(PEER_DISPLAY, PEER_CONNECTIONS),
     );
     truth
+}
+
+/// One member's connections as the ledger states them: «Connections of
+/// Philippe Tremblay: Strava connected, no token.» `live` names the one
+/// connection with a credential behind it, if any.
+pub fn connections_line(display: &str, connections: &[&str], live: Option<&str>) -> String {
+    let states: Vec<String> = connections
+        .iter()
+        .map(|provider| connection_state(provider, live == Some(*provider)))
+        .collect();
+    format!("Connections of {display}: {}.\n", states.join("; "))
+}
+
+/// One connection as the ledger states it.
+pub fn connection_state(provider: &str, holds_token: bool) -> String {
+    let label = match provider {
+        "strava" => "Strava",
+        "whoop" => "WHOOP",
+        other => other,
+    };
+    if holds_token {
+        format!("{label} connected, holds a live session")
+    } else {
+        format!("{label} connected, no token")
+    }
+}
+
+/// The line the group context's Connection alerts carry for a member whose
+/// `providers` were flagged for reconnection — the format
+/// `pierre_groups::context_alerts` renders.
+pub fn reconnect_alert(display: &str, providers: &[&str]) -> String {
+    format!("{display} needs to reconnect: {}", providers.join(", "))
 }
 
 /// One ledger row: who, the date and start, distance, duration and pace.
@@ -1199,7 +1328,7 @@ fn ledger_line(who: &str, run: &SeededRun) -> String {
     format!(
         "{who}, {date}: run «{SEEDED_RUN_NAME}», {km} km in {hours}h{minutes:02} ({seconds} s), \
          pace {pace_min}min{pace_sec:02}/km.\n",
-        date = days_ago_label(run.days_ago),
+        date = start_label(run.days_ago, run.start),
         hours = run.seconds / 3_600,
         minutes = run.seconds % 3_600 / 60,
         seconds = run.seconds,
@@ -1208,10 +1337,10 @@ fn ledger_line(who: &str, run: &SeededRun) -> String {
     )
 }
 
-/// `days_ago` as the judge reads a date and start: «yesterday, Tuesday
-/// 2026-10-13, started 09:52 UTC».
-fn days_ago_label(days_ago: i64) -> String {
-    let date = seeded_start(days_ago).format("%A %Y-%m-%d, started %H:%M UTC");
+/// A start `days_ago` as the judge reads a date and time: «yesterday,
+/// Tuesday 2026-10-13, started 19:10 UTC».
+fn start_label(days_ago: i64, start: DateTime<Utc>) -> String {
+    let date = start.format("%A %Y-%m-%d, started %H:%M UTC");
     match days_ago {
         1 => format!("yesterday, {date}"),
         n => format!("{n} days ago, {date}"),

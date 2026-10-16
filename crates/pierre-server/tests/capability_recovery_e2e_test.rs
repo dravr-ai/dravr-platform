@@ -1640,9 +1640,7 @@ mod capability_recovery {
             let mock = Arc::new(ScriptedGroupLlm::new(|request| {
                 if request.contains("strict fact checker") {
                     verifier_verdict(request, "999 km")
-                } else if request
-                    .contains("Your previous answer contained these unsupported claims")
-                {
+                } else if request.contains("A check found no support for these claims") {
                     REPAIRED_PEER_REPLY.to_owned()
                 } else if request.contains(SUBJECT_FETCHED_MARKER) {
                     FABRICATED_PEER_REPLY.to_owned()

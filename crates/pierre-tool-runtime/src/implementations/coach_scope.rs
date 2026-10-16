@@ -122,7 +122,7 @@ pub(super) async fn room_refusal(
 
 /// [`room_refusal`] for a call whose conversation, read under the caller's
 /// own tenant, is `conversation`.
-fn room_refusal_in(
+pub(super) fn room_refusal_in(
     context: &ToolExecutionContext,
     conversation: Option<&ConversationRecord>,
     act: &str,

@@ -1181,11 +1181,18 @@ async fn a_text_tool_call_from_the_copilot_sdk_runs_the_tool_instead_of_falling_
         "GitHub Copilot (SDK)",
     ));
 
-    let (result, _) = run_turn(&chain).await;
+    let (result, messages) = run_turn(&chain).await;
 
     assert_eq!(
         result.content, TAIL_ANSWER,
         "the turn is answered from the tool's result, not stripped to empty"
+    );
+    assert!(
+        messages.iter().any(|m| m
+            .content
+            .contains("<tool_result name=\"get_connection_status\">")),
+        "the tool's result lands in the turn's own messages, where the claim checks read \
+         their evidence; on a copy it was lost (carnet#1038)"
     );
     assert!(
         result.tools_called.iter().any(|t| t == ROUND_TRIP_TOOL),

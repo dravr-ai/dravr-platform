@@ -135,6 +135,28 @@ pub trait DelegatedReads: Send + Sync {
             "This platform does not let a coach write a coached athlete's calendar",
         ))
     }
+
+    /// A provider that reads `athlete_id` for their human coach through the
+    /// credential the caller then sets on it, the coach's: what the coach's
+    /// own read of a coached athlete's planned calendar goes through. Whether
+    /// the coach may read it is decided before this is built.
+    ///
+    /// It reads what [`Self::create_delegated`] reads unless the factory
+    /// says how a coach's read differs: a coach never sees less of the
+    /// calendar than the athlete, and more only where the platform shows the
+    /// coach what it hides from the athlete.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Self::check_athlete_id`] refusal, or the error of
+    /// building the provider.
+    fn create_delegated_coach_reader(
+        &self,
+        config: ProviderConfig,
+        athlete_id: &str,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        self.create_delegated(config, athlete_id)
+    }
 }
 
 /// The error a delegated read answers when the credential it goes through —

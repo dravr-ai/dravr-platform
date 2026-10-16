@@ -2194,6 +2194,7 @@
       "loginFailed": "No se pudo iniciar sesión",
       "signInRejected": "{0} no ha aceptado ese inicio de sesión. Comprueba tus datos e inténtalo de nuevo.",
       "signInUnavailable": "Ahora mismo no hemos podido iniciar sesión en {0}. Suele ser algo temporal: inténtalo de nuevo en unos minutos.",
+      "signInChallenged": "{0} ha pedido una comprobación de seguridad adicional que ahora mismo no podemos completar automáticamente. Inténtalo de nuevo dentro de un rato.",
       "signInExpired": "Este inicio de sesión ya no está activo. Empieza de nuevo.",
       "tryAgain": "Reintentar"
     },

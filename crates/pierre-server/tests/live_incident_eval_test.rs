@@ -37,8 +37,10 @@ mod live_incident_corpus;
 mod live_incident_eval {
     use crate::common::create_test_server_resources;
     use crate::live_incident_corpus::{
-        athlete_runs, classify_findings, ground_truth, peer_runs, seed_fixture, seeded_start,
-        turn_timeout, Expect, Finding, CORPUS, PEER_RUN_METRES, PEER_RUN_PACE, PEER_RUN_SECONDS,
+        athlete_runs, classify_findings, connection_state, ground_truth, peer_runs,
+        reconnect_alert, seed_fixture, sunday_ride_start, turn_timeout, Expect, Finding,
+        ATHLETE_DISPLAY, ATHLETE_LIVE_CONNECTION, CORPUS, PEER_DISPLAY, PEER_RUN_METRES,
+        PEER_RUN_PACE, PEER_RUN_SECONDS, PHIL_ALIAS_DISPLAY,
     };
     use chrono::{Duration as ChronoDuration, Utc};
     use dravr_canot::channels::slack::transport::SlackTransport;
@@ -47,13 +49,19 @@ mod live_incident_eval {
     use pierre_chat_pipeline::stages::viz_blocks::granted_visuals;
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
+    use pierre_providers::core::ActivityQueryParams;
     use pierre_providers::registry::global_registry;
     use pierre_services::agent_selection::AgentSelectionSource;
     use pierre_services::conversation_forge::{
         forge_conversation, selected_or_system_agent, ForgeAgent, ForgeParams, SlotQuota,
     };
+    use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
+    use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
+    use pierre_tool_runtime::runtime::ToolRuntime;
     use serial_test::serial;
+    use std::collections::BTreeSet;
     use std::env;
+    use std::sync::Arc;
 
     /// The ground truth's stated pace must be what the seeded run arithmetically
     /// is.
@@ -97,9 +105,7 @@ mod live_incident_eval {
             ("Peer Philippe Tremblay", peer_runs()),
         ] {
             for run in runs {
-                let date = seeded_start(run.days_ago)
-                    .format("%Y-%m-%d, started %H:%M UTC")
-                    .to_string();
+                let date = run.start.format("%Y-%m-%d, started %H:%M UTC").to_string();
                 let km = run.metres / 1_000.0;
                 assert!(
                     evidence.lines().any(|line| line.starts_with(who)
@@ -110,6 +116,25 @@ mod live_incident_eval {
                     run.id
                 );
             }
+        }
+    }
+
+    /// No two seeded activities start at the same time of day.
+    ///
+    /// When every start was the fixture clock minus whole days, the whole
+    /// history began at the minute the lane ran, and a challenged agent
+    /// retracting its correct «14 h 54» was graded against a ledger whose
+    /// one start time was every row's (carnet#1038).
+    #[test]
+    fn every_seeded_activity_starts_at_its_own_time_of_day() {
+        let mut starts = BTreeSet::from([sunday_ride_start().format("%H:%M").to_string()]);
+        for run in athlete_runs().into_iter().chain(peer_runs()) {
+            let time = run.start.format("%H:%M").to_string();
+            assert!(
+                starts.insert(time.clone()),
+                "{} starts at {time} UTC, the time of day another seeded activity starts",
+                run.id
+            );
         }
     }
 
@@ -251,7 +276,7 @@ mod live_incident_eval {
 
         assert_eq!(
             with_tokens,
-            vec!["sciotte"],
+            vec![ATHLETE_LIVE_CONNECTION],
             "the fixture seeds exactly one provider token; seeding another is fine, but the \
              connection registered LAST in `seed_fixture` still has to be one of them"
         );
@@ -261,6 +286,155 @@ mod live_incident_eval {
              for {with_tokens:?} — every live fetch resolves to re-auth and the corpus grades \
              the reconnect sentence instead of the coach",
             primary.provider
+        );
+    }
+
+    /// The ledger states every roster member's connections as the fixture
+    /// seeds them, and quotes the reconnect alert the agent is shown for the
+    /// peer word for word.
+    ///
+    /// Read back from the store, not from the constants the ledger is built
+    /// from, so a seed that registers or credentials a connection the ledger
+    /// does not name fails here. The alert half drives the peer fetch
+    /// `get_group_member_activities` makes — every one of his connections,
+    /// through `fetch_provider_activities` — and reads the group snapshot
+    /// after it: a tokenless connection is flagged on that fetch, and the
+    /// snapshot's `needs_reauth_providers` is what the group context renders
+    /// under Connection alerts. In the 2026-10-15 run the agent said
+    /// Philippe's Strava needed reconnecting, which was exactly that alert,
+    /// and the judge, told only about JF's connections, graded it invented
+    /// (carnet#1037).
+    #[tokio::test]
+    #[serial]
+    async fn the_ground_truth_states_every_members_connections_as_seeded() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fixture = seed_fixture(&resources).await;
+        let evidence = ground_truth();
+        let repos = &resources.common.repos;
+
+        for (display, user) in [
+            (ATHLETE_DISPLAY, fixture.athlete),
+            (PEER_DISPLAY, fixture.peer),
+            (PHIL_ALIAS_DISPLAY, fixture.phil_alias),
+        ] {
+            let connections = repos
+                .provider_connections
+                .get_for_user(user, None)
+                .await
+                .unwrap();
+            let tokens: Vec<String> = repos
+                .oauth_tokens
+                .get_tokens(user, None)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|token| token.provider)
+                .collect();
+            let seeded: BTreeSet<String> = connections
+                .iter()
+                .map(|c| connection_state(&c.provider, tokens.contains(&c.provider)))
+                .collect();
+            assert!(!seeded.is_empty(), "{display} has no seeded connection");
+
+            let prefix = format!("Connections of {display}: ");
+            let line = evidence
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .unwrap_or_else(|| {
+                    panic!("the ledger states no connections for {display}:\n{evidence}")
+                });
+            let stated: BTreeSet<String> = line
+                .trim_end_matches('.')
+                .split("; ")
+                .map(str::to_owned)
+                .collect();
+            assert_eq!(
+                stated, seeded,
+                "the ledger states {display}'s connections as {stated:?} but the fixture \
+                 seeds {seeded:?}"
+            );
+        }
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let before =
+            fetch_member_snapshots(&runtime, &[fixture.peer], fixture.athlete_tenant).await;
+        assert!(
+            before[0].needs_reauth_providers.is_empty(),
+            "the peer's connections read as needing reconnection before anything fetched \
+             them: {:?}",
+            before[0].needs_reauth_providers
+        );
+        let params = ActivityQueryParams {
+            limit: Some(10),
+            offset: None,
+            before: None,
+            after: None,
+        };
+        for conn in repos
+            .provider_connections
+            .get_for_user(fixture.peer, None)
+            .await
+            .unwrap()
+        {
+            fetch_provider_activities(
+                &runtime,
+                &conn.provider,
+                fixture.peer,
+                &conn.tenant_id,
+                &params,
+            )
+            .await;
+        }
+        let after = fetch_member_snapshots(&runtime, &[fixture.peer], fixture.athlete_tenant).await;
+        let flagged: Vec<&str> = after[0]
+            .needs_reauth_providers
+            .iter()
+            .map(String::as_str)
+            .collect();
+        assert!(
+            !flagged.is_empty(),
+            "fetching the peer flagged none of his tokenless connections; the ledger tells \
+             the judge the agent is shown a reconnect alert for him"
+        );
+        // The alert as the production group context renders it for the
+        // athlete, not as `reconnect_alert` restates it: a reword on either
+        // side fails here rather than leaving the ledger quoting a line the
+        // agent is never shown.
+        let context = resources
+            .common
+            .group_service
+            .inject_group_context(
+                "",
+                &fixture.group_agent.to_string(),
+                fixture.athlete,
+                fixture.athlete_tenant,
+                Some(&fixture.group.to_string()),
+                &after,
+            )
+            .await
+            .unwrap();
+        let alerts = context
+            .split_once("## Connection alerts\n")
+            .map_or("", |(_, section)| {
+                section.split("\n\n##").next().unwrap_or(section)
+            });
+        let rendered = alerts
+            .lines()
+            .filter_map(|line| line.strip_prefix("- "))
+            .find(|line| line.starts_with(PEER_DISPLAY))
+            .unwrap_or_else(|| {
+                panic!("the group context shows no Connection alert for {PEER_DISPLAY}:\n{context}")
+            });
+        assert_eq!(
+            rendered,
+            reconnect_alert(&after[0].display_name, &flagged),
+            "the ledger's alert format has drifted from the group context's"
+        );
+        let alert = format!("«{rendered}»");
+        assert!(
+            evidence.contains(&alert),
+            "once the peer is fetched the agent is shown {alert}, which the ledger does not \
+             quote:\n{evidence}"
         );
     }
 

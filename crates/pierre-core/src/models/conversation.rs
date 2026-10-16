@@ -214,6 +214,10 @@ pub fn is_in_app_channel(channel_type: &str) -> bool {
 }
 
 /// Database representation of a chat conversation
+///
+/// LIMITATION(registre#1070): `ConversationRecord` carries no subject
+/// athlete, so a human coach's plan thread repeats `athlete=` on every call
+/// that acts for the athlete, and its prompt holds none of their context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationRecord {
     /// Unique conversation ID

@@ -29,10 +29,10 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_PEER_SHARING_OFF,
 };
 use pierre_core::models::agents::{AgentCategory, AgentHandle, CreateAgentRequest};
-use pierre_core::models::groups::{CreateGroupRequest, GroupInviteKind, GroupRole};
+use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInviteKind, GroupRole};
 use pierre_core::models::{
-    default_locale, AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
-    COMMAND_FINISH_REASON,
+    default_locale, AddMessageParams, CoachAccessRequest, CoachAccessStatus, ConnectionType,
+    Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -107,7 +107,6 @@ async fn seed_user_tenant(
     (user_id, tenant_id, auth)
 }
 
-/// A plain member of an existing tenant — no owner or admin role, so the
 /// The admin-config repository for whichever backend the test database is.
 fn admin_config_repository(db: &Database) -> Box<dyn AdminConfigRepository> {
     match db.backend() {
@@ -119,6 +118,7 @@ fn admin_config_repository(db: &Database) -> Box<dyn AdminConfigRepository> {
     }
 }
 
+/// A plain member of an existing tenant — no owner or admin role, so the
 /// tenant's `group_creation_policy` decides whether they may create groups.
 /// `manages_roster` marks a roster-managing agent account.
 async fn seed_tenant_member(
@@ -1024,6 +1024,137 @@ async fn group_create_is_refused_by_the_policy_for_a_plain_member_until_the_tena
         .unwrap()
         .expect("filed under the member's tenant");
     assert_eq!(group.owner_id, member_id);
+}
+
+/// The group a `/group create` sent in the fresh thread `conv` made: the
+/// command binds that thread to it.
+async fn group_bound_to(
+    resources: &Arc<ServerContext>,
+    conv: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> CoachingGroup {
+    let repos = &resources.common.repos;
+    let thread = repos
+        .chat
+        .get_conversation(conv, &user_id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    repos
+        .groups
+        .get_group(
+            thread
+                .group_id
+                .as_deref()
+                .expect("the thread became the room"),
+            tenant_id,
+        )
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+/// A coach who creates a group is its human coach at once, with no coach
+/// invite to redeem, and still its owner.
+#[tokio::test]
+async fn group_create_by_a_coach_attaches_them_as_its_human_coach() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "group-coach@test.com", "professional").await;
+    let repos = &resources.common.repos;
+    repos.users.set_manages_roster(user_id, true).await.unwrap();
+    seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv = create_conversation(router.clone(), &auth).await;
+
+    send(router, &auth, &conv, "/group create Les Rouleurs").await;
+
+    let group = group_bound_to(&resources, &conv, user_id, tenant_id).await;
+    assert_eq!(group.coach_user_id, Some(user_id));
+    let owner = repos
+        .groups
+        .get_member(&group.id.to_string(), user_id)
+        .await
+        .unwrap()
+        .expect("the creator is a member");
+    assert_eq!(owner.role, GroupRole::Owner);
+    assert_eq!(
+        repos
+            .groups
+            .list_groups_coached_by(user_id)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "the group is on the coach's roster"
+    );
+}
+
+/// Neither an athlete nor a platform admin who is no coach takes the coach
+/// seat by creating a group: it waits for a coach to redeem a coach invite.
+#[tokio::test]
+async fn group_create_by_a_non_coach_leaves_the_group_coachless() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    for (email, is_admin) in [
+        ("group-athlete@test.com", false),
+        ("group-operator@test.com", true),
+    ] {
+        let (user_id, tenant_id, auth) = seed_user_tenant(&resources, email, "professional").await;
+        repos
+            .users
+            .set_admin_status(user_id, is_admin)
+            .await
+            .unwrap();
+        seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+        let router = ChatRoutes::routes(Arc::clone(&resources));
+        let conv = create_conversation(router.clone(), &auth).await;
+
+        send(router, &auth, &conv, "/group create Sunday Runners").await;
+
+        let group = group_bound_to(&resources, &conv, user_id, tenant_id).await;
+        assert_eq!(group.coach_user_id, None, "{email} is not its coach");
+    }
+}
+
+/// A coach whose coach access is still waiting gets the group they create
+/// named on that request, so the grant attaches them to it.
+#[tokio::test]
+async fn group_create_by_a_coach_awaiting_access_names_it_on_their_request() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "group-pending@test.com", "professional").await;
+    let repos = &resources.common.repos;
+    assert!(repos
+        .coach_access_requests
+        .open(&CoachAccessRequest::pending(
+            user_id,
+            None,
+            chrono::Utc::now()
+        ))
+        .await
+        .unwrap());
+    seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv = create_conversation(router.clone(), &auth).await;
+
+    send(router, &auth, &conv, "/group create Les Rouleurs").await;
+
+    let group = group_bound_to(&resources, &conv, user_id, tenant_id).await;
+    assert_eq!(group.coach_user_id, None, "asking grants nothing");
+    let request = repos
+        .coach_access_requests
+        .latest_for_user(user_id)
+        .await
+        .unwrap()
+        .expect("the request stands");
+    assert_eq!(request.status, CoachAccessStatus::Pending);
+    assert_eq!(request.group_id, Some(group.id));
+    assert_eq!(
+        request.group_tenant_id.as_deref(),
+        Some(tenant_id.to_string().as_str())
+    );
 }
 
 // ============================================================================

@@ -187,6 +187,21 @@ impl ContremaitreRoutingProvider {
         self.read().overlay_sha256.clone()
     }
 
+    /// The channel `event`'s own rule names, or `None` when the routing has no
+    /// rule for it or the rule names no channel.
+    ///
+    /// Never the default room: [`RoutingProvider::route_for`] falls back to the
+    /// firehose for an event with no rule, which is right for delivery and
+    /// wrong for a caller that trusts a channel's membership, such as the
+    /// Slack approvals check.
+    #[must_use]
+    pub fn event_channel(&self, event: &str) -> Option<String> {
+        self.snapshot()
+            .overrides
+            .get(event)
+            .and_then(|rule| rule.channel.clone())
+    }
+
     fn read(&self) -> RwLockReadGuard<'_, Arc<RoutingTable>> {
         self.table.read().unwrap_or_else(PoisonError::into_inner)
     }
@@ -441,4 +456,42 @@ fn merge_rule(defaults: &RoutingRule, override_entry: Option<&EventOverride>) ->
         }
     }
     merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_events_channel_is_only_the_one_its_own_rule_names() {
+        let provider = ContremaitreRoutingProvider::new_empty();
+        provider
+            .reload(
+                r##"
+version: 1
+defaults:
+  channel: "#firehose"
+  enabled: true
+events:
+  user.pending_approval:
+    channel: "C0USERS"
+  embacle.call_started:
+    enabled_envs: [dev]
+"##,
+            )
+            .unwrap();
+
+        assert_eq!(
+            provider.event_channel("user.pending_approval").as_deref(),
+            Some("C0USERS")
+        );
+        // A rule that names no channel, and an event with no rule at all,
+        // are both delivered to the default room; neither names it here.
+        assert_eq!(provider.event_channel("embacle.call_started"), None);
+        assert_eq!(provider.event_channel("user.signed_up"), None);
+        assert_eq!(
+            provider.route_for("user.signed_up").unwrap().channel,
+            "#firehose"
+        );
+    }
 }

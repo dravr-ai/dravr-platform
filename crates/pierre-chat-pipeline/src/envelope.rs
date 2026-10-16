@@ -482,6 +482,12 @@ pub struct TurnState {
     pub conversation: ConversationRecord,
     /// Final assistant text after every post-processing stage.
     pub content: String,
+    /// Byte offset in [`Self::content`] just past the opening that introduces
+    /// the agent, on the turn whose reply was asked to introduce it and did
+    /// (`stages::introduction::introduction_end`). `None` on every
+    /// other turn. A folded activity list goes after this opening rather than
+    /// ahead of it, so the introduction is still what the athlete reads first.
+    pub introduction_end: Option<usize>,
     /// Finish reason from the LLM provider.
     pub finish_reason: Option<String>,
     /// Formatted activity list captured from the tool loop.
@@ -563,6 +569,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         assistant_message,
         conversation,
         content,
+        introduction_end,
         finish_reason,
         activity_list,
         telemetry,
@@ -581,17 +588,14 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
     let mut blocks = Vec::new();
 
     // Prose first, with everything the surface cannot render as its own block
-    // folded in ahead of the coaching text. The list goes first because it is
-    // what the agent's analysis refers to.
-    let mut prose = String::new();
-    if let (Some(list), false) = (
+    // folded into the coaching text.
+    let mut prose = match (
         activity_list.as_deref(),
         render.renders(ReplyBlockKind::ActivityList),
     ) {
-        prose.push_str(list.trim_end());
-        prose.push_str("\n\n");
-    }
-    prose.push_str(&content);
+        (Some(list), false) => fold_activity_list(&content, list, introduction_end),
+        _ => content,
+    };
     if let (Some(prompt), false) = (
         reconnect.as_ref(),
         render.renders(ReplyBlockKind::Reconnect),
@@ -655,6 +659,27 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         answered_by,
         posted: true,
     }
+}
+
+/// The reply's prose with the activity list folded in.
+///
+/// The list goes ahead of the agent's analysis, because it is what that
+/// analysis refers to. The one thing that goes ahead of the list is the
+/// agent's introduction, on the turn that carries one: the agent was asked to
+/// open its reply with it, and an athlete who reads a list dump first and then
+/// « Je suis … » has been greeted by the data, not the agent (carnet#1039).
+/// An `introduction_end` that does not split `content` on a character
+/// boundary leaves the list first, since it cannot be told where the
+/// introduction stops.
+fn fold_activity_list(content: &str, list: &str, introduction_end: Option<usize>) -> String {
+    let (introduction, analysis) = introduction_end
+        .and_then(|end| content.split_at_checked(end))
+        .unwrap_or(("", content));
+    let mut prose = String::new();
+    append_paragraph(&mut prose, introduction.trim());
+    append_paragraph(&mut prose, list.trim_end());
+    append_paragraph(&mut prose, analysis.trim_start());
+    prose
 }
 
 /// Push whichever chart affordance the surface has, or neither.
@@ -836,6 +861,37 @@ mod tests {
             [ReplyBlock::Prose {
                 text: "Hi.\n\nYou can ask me:\nHow do I carb load?\nPlan: /plan".to_owned(),
             }]
+        );
+    }
+
+    /// Without an introduction the list leads; with one it follows the
+    /// introduction; with an offset that splits no character it leads again,
+    /// because where the introduction stops is unknown (carnet#1039).
+    #[test]
+    fn the_list_folds_after_the_introduction_and_nowhere_else() {
+        let list = "1. [Run] Tempo\n";
+        let content = "Je suis Élan. Ta semaine est chargée.";
+        assert_eq!(
+            fold_activity_list(content, list, None),
+            "1. [Run] Tempo\n\nJe suis Élan. Ta semaine est chargée."
+        );
+        assert_eq!(
+            fold_activity_list(content, list, Some("Je suis Élan. ".len())),
+            "Je suis Élan.\n\n1. [Run] Tempo\n\nTa semaine est chargée."
+        );
+        let inside_the_accent = "Je suis É".len() - 1;
+        assert_eq!(
+            fold_activity_list(content, list, Some(inside_the_accent)),
+            fold_activity_list(content, list, None)
+        );
+        assert_eq!(
+            fold_activity_list(content, list, Some(content.len() + 1)),
+            fold_activity_list(content, list, None)
+        );
+        assert_eq!(
+            fold_activity_list(content, list, Some(content.len())),
+            "Je suis Élan. Ta semaine est chargée.\n\n1. [Run] Tempo",
+            "a reply that is all introduction is followed by the list"
         );
     }
 

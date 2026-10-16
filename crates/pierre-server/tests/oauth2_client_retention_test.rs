@@ -546,7 +546,7 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
         accounts: common::create_test_server_resources()
             .await
             .unwrap()
-            .oauth2_accounts(),
+            .account_service(),
         google_sign_in: None,
         strings: Arc::new(MessagingStringsRegistry::new()),
         rate_limiter: Arc::new(OAuth2RateLimiter::new(

@@ -189,6 +189,7 @@ pub(crate) fn withheld_platform_reply(
             content: draft.content.to_owned(),
             finish_reason: draft.result.finish_reason.clone(),
             activity_list: None,
+            introduction_end: None,
             telemetry: TurnTelemetry {
                 model: draft.active_model.to_owned(),
                 provider_name: draft.provider_name.to_owned(),
