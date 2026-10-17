@@ -185,10 +185,11 @@ pub(crate) async fn handle_set_signup_settings(
     )
     .await?;
     let settings = signup_settings(&context).await?;
+    let self_activation = settings.activate_on_verified_email;
     info!(
         open = settings.open,
         daily_limit = settings.daily_limit,
-        activate_on_verified_email = settings.activate_on_verified_email,
+        self_activation,
         token_id = %admin_token.token_id,
         "Sign-up settings updated"
     );
