@@ -198,7 +198,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&seen);
         let app = Router::new().route(
-            "/siteverify",
+            "/",
             post(move |Json(body): Json<Value>| {
                 let recorded = Arc::clone(&recorded);
                 let answer = answer.clone();
@@ -211,7 +211,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        (format!("http://{addr}/siteverify"), seen)
+        (format!("http://{addr}/"), seen)
     }
 
     #[tokio::test]
