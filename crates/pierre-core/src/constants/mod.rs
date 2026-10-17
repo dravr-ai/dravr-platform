@@ -659,9 +659,10 @@ pub mod oauth_rate_limiting {
     /// Refused password sign-ins naming one account per window, from any
     /// address: guessing one athlete's password from many addresses stops here
     pub const PASSWORD_LOGIN_ACCOUNT_RPM: u32 = 10;
-    /// Self-serve account sign-ups, and verification-mail resends, one client
-    /// address may make per window (carnet#1063): a script minting accounts
-    /// from one address stops here, a household or a gym's network does not
+    /// Self-serve sign-ups and verification resends per client address per window.
+    ///
+    /// A script minting accounts from one address stops here (carnet#1063);
+    /// a household or a gym's network does not.
     pub const SIGN_UP_RPM: u32 = 5;
     /// Rate limit window duration in seconds
     pub const WINDOW_SECS: u64 = 60;

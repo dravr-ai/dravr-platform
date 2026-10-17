@@ -29,11 +29,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::extract::connect_info::MockConnectInfo;
+use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
-use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict, TurnstileCheck};
+use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict, TurnstileCheck, MAX_TOKEN_LEN};
 use pierre_config::constants::oauth_rate_limiting::SIGN_UP_RPM;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -49,6 +50,7 @@ use pierre_services::link_token::generate_link_token;
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const PASSWORD: &str = "securePassword123";
@@ -464,8 +466,8 @@ async fn cloudflare_out_of_reach_does_not_close_sign_up() {
 
 /// Serve `answer` as Cloudflare's siteverify, at a local URL, recording the
 /// body each request carried.
-async fn siteverify(answer: Value, status: u16) -> (String, Arc<tokio::sync::Mutex<Vec<Value>>>) {
-    let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+async fn siteverify(answer: Value, status: u16) -> (String, Arc<Mutex<Vec<Value>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&seen);
     let app = Router::new().route(
         "/siteverify",
@@ -475,7 +477,7 @@ async fn siteverify(answer: Value, status: u16) -> (String, Arc<tokio::sync::Mut
             async move {
                 recorded.lock().await.push(body);
                 (
-                    axum::http::StatusCode::from_u16(status).unwrap(),
+                    StatusCode::from_u16(status).unwrap(),
                     Json(answer),
                 )
             }
@@ -535,7 +537,7 @@ async fn turnstile_refusing_the_token_fails_and_refusing_the_secret_is_an_outage
 async fn turnstile_refuses_an_oversized_token_without_asking() {
     let (url, seen) = siteverify(json!({ "success": true }), 200).await;
     let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "secret");
-    let oversized = "x".repeat(pierre_auth::human_check::MAX_TOKEN_LEN + 1);
+    let oversized = "x".repeat(MAX_TOKEN_LEN + 1);
     assert_eq!(check.verify(&oversized, None).await, HumanCheckVerdict::Failed);
     assert!(seen.lock().await.is_empty(), "nothing was sent to Cloudflare");
 }
@@ -729,7 +731,7 @@ async fn the_admin_route_reads_and_writes_every_knob() {
         .header("authorization", &bearer)
         .send(admin_api(&resources, true))
         .await
-        .assert_status(axum::http::StatusCode::OK)
+        .assert_status(StatusCode::OK)
         .json();
     assert_eq!(shown["data"]["open"], true);
     assert_eq!(shown["data"]["activate_on_verified_email"], false);
@@ -741,7 +743,7 @@ async fn the_admin_route_reads_and_writes_every_knob() {
         .json(&json!({ "open": false, "daily_limit": 0, "activate_on_verified_email": true }))
         .send(admin_api(&resources, true))
         .await
-        .assert_status(axum::http::StatusCode::OK)
+        .assert_status(StatusCode::OK)
         .json();
     assert_eq!(updated["data"]["open"], false);
     assert_eq!(updated["data"]["daily_limit"], 0);
@@ -753,7 +755,7 @@ async fn the_admin_route_reads_and_writes_every_knob() {
         .json(&json!({ "open": true }))
         .send(admin_api(&resources, true))
         .await
-        .assert_status(axum::http::StatusCode::OK)
+        .assert_status(StatusCode::OK)
         .json();
     assert_eq!(partial["data"]["open"], true);
     assert_eq!(partial["data"]["daily_limit"], 0);

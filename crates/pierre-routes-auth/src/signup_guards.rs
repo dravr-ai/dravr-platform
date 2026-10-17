@@ -119,7 +119,7 @@ pub async fn meter_sign_up(
 ///
 /// Returns a permission-denied error reading [`HUMAN_CHECK_FAILED`] when the
 /// token is missing or Cloudflare refused it.
-pub(crate) async fn pass_human_check(
+pub async fn pass_human_check(
     check: Option<&dyn HumanCheck>,
     token: Option<&str>,
     client: Option<IpAddr>,
