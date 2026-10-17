@@ -1475,7 +1475,8 @@
       "description": "Deine Zeitzone festlegen, damit Aktivitäten in Ortszeit erscheinen",
       "invalid": "Ungültige Zeitzone. Gib einen IANA-Namen an, z. B. `/timezone America/Toronto`.",
       "set": "Zeitzone auf **{0}** gesetzt. Die Startzeiten deiner Aktivitäten werden jetzt in dieser Zeitzone angezeigt."
-    }
+    },
+    "walk_plan_thread": "Diese Unterhaltung ist für die Arbeit am Plan von {0} gedacht, deshalb läuft `{1}` hier nicht — nutze den Befehl in deiner eigenen Unterhaltung mit mir."
   },
   "common": {
     "about": "Über",

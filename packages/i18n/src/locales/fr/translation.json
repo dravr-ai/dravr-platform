@@ -1475,7 +1475,8 @@
       "description": "Régler ton fuseau horaire pour afficher tes activités à l'heure locale",
       "invalid": "Fuseau horaire invalide. Donne un nom IANA, par exemple : `/timezone America/Toronto`.",
       "set": "Fuseau horaire réglé sur **{0}**. Les heures de départ de tes activités s'afficheront désormais dans ce fuseau."
-    }
+    },
+    "walk_plan_thread": "Ce fil sert à travailler sur le plan de {0}, alors `{1}` ne s'y lance pas — lance-le dans ta propre conversation avec moi."
   },
   "common": {
     "about": "À propos",

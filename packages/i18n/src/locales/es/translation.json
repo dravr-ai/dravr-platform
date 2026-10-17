@@ -1475,7 +1475,8 @@
       "description": "Ajustar tu zona horaria para ver tus actividades en hora local",
       "invalid": "Zona horaria no válida. Indica un nombre IANA, por ejemplo `/timezone America/Toronto`.",
       "set": "Zona horaria establecida en **{0}**. Las horas de inicio de tus actividades se mostrarán ahora en esta zona horaria."
-    }
+    },
+    "walk_plan_thread": "Este hilo es para trabajar en el plan de {0}, así que `{1}` no se usa aquí — úsalo en tu propia conversación conmigo."
   },
   "common": {
     "about": "Acerca de",

@@ -1475,7 +1475,8 @@
       "description": "Definir o teu fuso horário para ver as atividades na hora local",
       "invalid": "Fuso horário inválido. Indica um nome IANA, por exemplo `/timezone America/Toronto`.",
       "set": "Fuso horário definido para **{0}**. As horas de início das tuas atividades passam a aparecer neste fuso horário."
-    }
+    },
+    "walk_plan_thread": "Esta conversa é para trabalhar no plano de {0}, por isso `{1}` não se usa aqui — usa-o na tua própria conversa comigo."
   },
   "common": {
     "about": "Sobre",

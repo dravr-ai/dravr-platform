@@ -1475,7 +1475,8 @@
       "description": "Set your timezone for local activity times",
       "invalid": "Invalid timezone. Provide an IANA name, e.g. `/timezone America/Toronto`.",
       "set": "Timezone set to **{0}**. Your activity start times will now display in this timezone."
-    }
+    },
+    "walk_plan_thread": "This thread is for working on {0}'s plan, so it doesn't run `{1}` — run it in your own conversation with me."
   },
   "common": {
     "about": "About",
