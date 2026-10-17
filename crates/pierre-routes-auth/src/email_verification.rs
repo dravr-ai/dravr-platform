@@ -30,8 +30,8 @@ use tracing::{error, info, warn};
 use crate::signup_guards::{client_address, meter_sign_up};
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
-use pierre_middleware::PeerAddress;
 use pierre_core::models::UserStatus;
+use pierre_middleware::PeerAddress;
 use pierre_services::email_verification::resolve_settings;
 use pierre_services::link_token::{generate_link_token, split_link_token};
 

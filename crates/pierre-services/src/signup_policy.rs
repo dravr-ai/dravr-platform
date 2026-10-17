@@ -105,12 +105,13 @@ async fn resolve_flag(db: &Database, key: &str, default: bool) -> bool {
 /// stays open, because a database hiccup must not close sign-up by itself, and
 /// activation stays off, so the same hiccup never opens it either.
 pub async fn resolve_signup_policy(db: &Database) -> SignupPolicy {
+    let fallback = SignupPolicy::default();
     SignupPolicy {
-        open: resolve_flag(db, SETTING_SIGNUP_OPEN, true).await,
+        open: resolve_flag(db, SETTING_SIGNUP_OPEN, fallback.open).await,
         daily_limit: resolve_clamped(
             db,
             SETTING_SIGNUP_DAILY_LIMIT,
-            defaults::DEFAULT_DAILY_LIMIT,
+            fallback.daily_limit,
             defaults::MIN_DAILY_LIMIT,
             defaults::MAX_DAILY_LIMIT,
         )
@@ -118,7 +119,7 @@ pub async fn resolve_signup_policy(db: &Database) -> SignupPolicy {
         activate_on_verified_email: resolve_flag(
             db,
             SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL,
-            false,
+            fallback.activate_on_verified_email,
         )
         .await,
     }
@@ -176,16 +177,55 @@ pub async fn created_last_24h(users: &dyn UserRepository) -> AppResult<i64> {
 /// Whether `policy` admits one more self-serve sign-up, with `recent` accounts
 /// created in the last 24 hours: refused when the switch is closed or the
 /// ceiling is reached.
-#[must_use]
-pub const fn admits(policy: &SignupPolicy, recent: i64) -> bool {
+const fn admits(policy: &SignupPolicy, recent: i64) -> bool {
     policy.open && (policy.daily_limit == 0 || recent < policy.daily_limit)
 }
 
-/// Admit one self-serve sign-up, or refuse it.
+/// Why the operator's bounds refuse a self-serve sign-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignupRefusal {
+    /// The kill switch is closed
+    Closed,
+    /// `recent` accounts were created in the last 24 hours, `daily_limit` or more
+    CeilingReached {
+        /// Accounts created in the last 24 hours
+        recent: i64,
+        /// The ceiling in force
+        daily_limit: i64,
+    },
+}
+
+/// What the operator's bounds say to one more self-serve sign-up right now:
+/// `None` admits it.
 ///
 /// A count that fails admits the sign-up: the account write that follows
 /// fails on the same database anyway, and a refusal would misreport an outage
 /// as an operator's pause.
+pub async fn signup_refusal(db: &Database, users: &dyn UserRepository) -> Option<SignupRefusal> {
+    let policy = resolve_signup_policy(db).await;
+    if !policy.open {
+        return Some(SignupRefusal::Closed);
+    }
+    if policy.daily_limit == 0 {
+        return None;
+    }
+    let recent = match created_last_24h(users).await {
+        Ok(recent) => recent,
+        Err(e) => {
+            error!(error = %e, "Could not count recent accounts; admitting the sign-up");
+            return None;
+        }
+    };
+    if admits(&policy, recent) {
+        return None;
+    }
+    Some(SignupRefusal::CeilingReached {
+        recent,
+        daily_limit: policy.daily_limit,
+    })
+}
+
+/// Admit one self-serve sign-up, or refuse it ([`signup_refusal`]).
 ///
 /// # Errors
 ///
@@ -193,30 +233,23 @@ pub const fn admits(policy: &SignupPolicy, recent: i64) -> bool {
 /// switch is closed or the ceiling is reached: a refusal the client is told
 /// about in words, and no server fault.
 pub async fn admit_self_signup(db: &Database, users: &dyn UserRepository) -> AppResult<()> {
-    let policy = resolve_signup_policy(db).await;
-    if !policy.open {
-        warn!("Self-serve sign-up refused: sign-up is closed by an operator");
-        return Err(paused());
-    }
-    if policy.daily_limit == 0 {
-        return Ok(());
-    }
-    let recent = match created_last_24h(users).await {
-        Ok(recent) => recent,
-        Err(e) => {
-            error!(error = %e, "Could not count recent accounts; admitting the sign-up");
-            return Ok(());
+    match signup_refusal(db, users).await {
+        None => Ok(()),
+        Some(SignupRefusal::Closed) => {
+            warn!("Self-serve sign-up refused: sign-up is closed by an operator");
+            Err(paused())
         }
-    };
-    if admits(&policy, recent) {
-        return Ok(());
+        Some(SignupRefusal::CeilingReached {
+            recent,
+            daily_limit,
+        }) => {
+            warn!(
+                recent,
+                daily_limit, "Self-serve sign-up refused: the 24-hour ceiling is reached"
+            );
+            Err(paused())
+        }
     }
-    warn!(
-        recent,
-        daily_limit = policy.daily_limit,
-        "Self-serve sign-up refused: the 24-hour ceiling is reached"
-    );
-    Err(paused())
 }
 
 #[cfg(test)]
@@ -253,7 +286,9 @@ mod tests {
     fn the_default_is_open_bounded_and_not_self_activating() {
         let default = SignupPolicy::default();
         assert!(default.open);
-        assert_eq!(default.daily_limit, defaults::DEFAULT_DAILY_LIMIT);
+        // Bounded: the ceiling admits up to the default limit and no further.
+        assert!(admits(&default, defaults::DEFAULT_DAILY_LIMIT - 1));
+        assert!(!admits(&default, defaults::DEFAULT_DAILY_LIMIT));
         assert!(!default.activate_on_verified_email);
     }
 }

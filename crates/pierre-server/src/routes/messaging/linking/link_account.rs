@@ -191,7 +191,8 @@ fn registration_refusal(error: &AppError) -> String {
     } else if message.ends_with(SIGNUP_PAUSED) {
         SIGNUP_PAUSED.to_owned()
     } else if error.code == ErrorCode::RateLimitExceeded {
-        "Too many sign-ups from this network. Wait a minute, then try again.".to_owned()
+        // The sign-up window's own sentence, written for the person refused.
+        message.to_owned()
     } else {
         error!(error = %error, "Failed to register user during link auth");
         "An error occurred. Please try again.".to_owned()

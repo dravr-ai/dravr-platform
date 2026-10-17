@@ -26,17 +26,18 @@ use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::PeerAddress;
-use pierre_services::signup_policy::{admits, created_last_24h, resolve_signup_policy};
+use pierre_services::signup_policy::signup_refusal;
 use serde::{Deserialize, Serialize};
 use tracing::{error, warn};
 
 use crate::AuthRoutesContext;
 
 /// What a sign-up past its address's window reads.
-const TOO_MANY_SIGN_UPS: &str = "Too many sign-ups from this network. Wait a minute, then try again.";
+const TOO_MANY_SIGN_UPS: &str =
+    "Too many sign-ups from this network. Wait a minute, then try again.";
 
 /// What a sign-up whose bot check failed reads.
-pub const HUMAN_CHECK_FAILED: &str =
+const HUMAN_CHECK_FAILED: &str =
     "We could not confirm you are not a bot. Complete the check again, then retry.";
 
 /// `POST /api/auth/register`'s body: the account, plus the token the form's
@@ -84,10 +85,7 @@ pub fn client_address(
 /// Returns a rate-limit error with its `Retry-After` past the window's
 /// allowance, and a resource-unavailable error when the limiter cannot count
 /// the request: an uncounted sign-up is refused rather than let through.
-pub async fn meter_sign_up(
-    limiter: &OAuth2RateLimiter,
-    client: Option<IpAddr>,
-) -> AppResult<()> {
+pub async fn meter_sign_up(limiter: &OAuth2RateLimiter, client: Option<IpAddr>) -> AppResult<()> {
     let Some(client) = client else {
         return Ok(());
     };
@@ -103,8 +101,10 @@ pub async fn meter_sign_up(
             limit = status.limit,
             "Sign-up refused: too many from one address"
         );
-        return Err(AppError::new(ErrorCode::RateLimitExceeded, TOO_MANY_SIGN_UPS)
-            .with_retry_after(u64::from(status.retry_after_seconds.unwrap_or(1))));
+        return Err(
+            AppError::new(ErrorCode::RateLimitExceeded, TOO_MANY_SIGN_UPS)
+                .with_retry_after(u64::from(status.retry_after_seconds.unwrap_or(1))),
+        );
     }
     Ok(())
 }
@@ -129,13 +129,19 @@ pub async fn pass_human_check(
     };
     let Some(token) = token.filter(|t| !t.is_empty()) else {
         warn!("Sign-up refused: no bot-check token");
-        return Err(AppError::new(ErrorCode::PermissionDenied, HUMAN_CHECK_FAILED));
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            HUMAN_CHECK_FAILED,
+        ));
     };
     match check.verify(token, client).await {
         HumanCheckVerdict::Passed => Ok(()),
         HumanCheckVerdict::Failed => {
             warn!("Sign-up refused: the bot check failed");
-            Err(AppError::new(ErrorCode::PermissionDenied, HUMAN_CHECK_FAILED))
+            Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                HUMAN_CHECK_FAILED,
+            ))
         }
         HumanCheckVerdict::Unavailable => {
             error!("Bot check unavailable; admitting the sign-up on the other guards");
@@ -146,25 +152,14 @@ pub async fn pass_human_check(
 
 /// Tell the register form whether sign-up is open and which widget to render.
 ///
-/// `open` is the operator's bounds as a sign-up would meet them now. A count
-/// that fails reads as open, as the sign-up itself would be admitted.
+/// `open` is the operator's bounds as a sign-up would meet them now
+/// ([`signup_refusal`], the decision the sign-up itself takes).
 pub async fn handle_signup_config(
     State(resources): State<AuthRoutesContext>,
 ) -> Json<SignupConfigResponse> {
-    let policy = resolve_signup_policy(resources.data.database()).await;
-    let open = if !policy.open {
-        false
-    } else if policy.daily_limit == 0 {
-        true
-    } else {
-        match created_last_24h(resources.repos.users.as_ref()).await {
-            Ok(recent) => admits(&policy, recent),
-            Err(e) => {
-                error!(error = %e, "Could not count recent accounts for the sign-up config");
-                true
-            }
-        }
-    };
+    let open = signup_refusal(resources.data.database(), resources.repos.users.as_ref())
+        .await
+        .is_none();
     Json(SignupConfigResponse {
         open,
         turnstile_site_key: resources

@@ -26,9 +26,9 @@ use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
-use pierre_middleware::PeerAddress;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
+use pierre_middleware::PeerAddress;
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,

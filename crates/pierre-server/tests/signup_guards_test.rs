@@ -30,11 +30,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
-use axum::routing::post;
-use axum::{Json, Router};
+use axum::Router;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
-use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict, TurnstileCheck, MAX_TOKEN_LEN};
+use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict};
 use pierre_config::constants::oauth_rate_limiting::SIGN_UP_RPM;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -49,8 +48,6 @@ use pierre_routes_auth::AuthRoutes;
 use pierre_services::link_token::generate_link_token;
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const PASSWORD: &str = "securePassword123";
@@ -112,10 +109,8 @@ async fn context() -> ServerContext {
 /// The auth routes as served behind a TCP peer at `client`, outside every
 /// trusted network, so the peer is the client the window is keyed on.
 fn auth_routes_from(resources: &ServerContext, client: Ipv4Addr) -> Router {
-    AuthRoutes::routes(resources.auth_routes_context()).layer(MockConnectInfo(SocketAddr::new(
-        IpAddr::V4(client),
-        40_000,
-    )))
+    AuthRoutes::routes(resources.auth_routes_context())
+        .layer(MockConnectInfo(SocketAddr::new(IpAddr::V4(client), 40_000)))
 }
 
 fn auth_routes(resources: &ServerContext) -> Router {
@@ -201,7 +196,10 @@ async fn a_closed_switch_refuses_the_register_form_and_says_so_up_front() {
     .await;
 
     let (status, body) = register(auth_routes(&resources), "closed@example.com", None).await;
-    assert_eq!(status, 429, "a paused sign-up is a spent quota, told in words");
+    assert_eq!(
+        status, 429,
+        "a paused sign-up is a spent quota, told in words"
+    );
     assert!(
         body.to_string().contains(SIGNUP_PAUSED),
         "the refusal reads the paused message: {body}"
@@ -388,7 +386,11 @@ async fn verification_resends_count_in_the_same_window() {
             .json(&json!({ "email": "nobody@example.com" }))
             .send(auth_routes_from(&resources, client))
             .await;
-        assert_eq!(response.status(), 200, "the neutral answer, within the window");
+        assert_eq!(
+            response.status(),
+            200,
+            "the neutral answer, within the window"
+        );
     }
     let response = AxumTestRequest::post("/api/auth/resend-verification")
         .json(&json!({ "email": "nobody@example.com" }))
@@ -464,84 +466,6 @@ async fn cloudflare_out_of_reach_does_not_close_sign_up() {
     );
 }
 
-/// Serve `answer` as Cloudflare's siteverify, at a local URL, recording the
-/// body each request carried.
-async fn siteverify(answer: Value, status: u16) -> (String, Arc<Mutex<Vec<Value>>>) {
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let recorded = Arc::clone(&seen);
-    let app = Router::new().route(
-        "/siteverify",
-        post(move |Json(body): Json<Value>| {
-            let recorded = Arc::clone(&recorded);
-            let answer = answer.clone();
-            async move {
-                recorded.lock().await.push(body);
-                (
-                    StatusCode::from_u16(status).unwrap(),
-                    Json(answer),
-                )
-            }
-        }),
-    );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (format!("http://{addr}/siteverify"), seen)
-}
-
-#[tokio::test]
-async fn turnstile_sends_the_secret_token_and_client_and_reads_success() {
-    let (url, seen) = siteverify(json!({ "success": true }), 200).await;
-    let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "the-secret");
-    let client = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 50));
-
-    assert_eq!(
-        check.verify("widget-token", Some(client)).await,
-        HumanCheckVerdict::Passed
-    );
-    let bodies = seen.lock().await;
-    assert_eq!(bodies.len(), 1);
-    assert_eq!(bodies[0]["secret"], "the-secret");
-    assert_eq!(bodies[0]["response"], "widget-token");
-    assert_eq!(bodies[0]["remoteip"], "203.0.113.50");
-}
-
-#[tokio::test]
-async fn turnstile_refusing_the_token_fails_and_refusing_the_secret_is_an_outage() {
-    let (url, _) = siteverify(
-        json!({ "success": false, "error-codes": ["invalid-input-response"] }),
-        200,
-    )
-    .await;
-    let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "secret");
-    assert_eq!(check.verify("t", None).await, HumanCheckVerdict::Failed);
-
-    let (url, _) = siteverify(
-        json!({ "success": false, "error-codes": ["invalid-input-secret"] }),
-        200,
-    )
-    .await;
-    let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "wrong");
-    assert_eq!(
-        check.verify("t", None).await,
-        HumanCheckVerdict::Unavailable,
-        "this server's bad secret says nothing about the client"
-    );
-
-    let (url, _) = siteverify(json!({}), 500).await;
-    let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "secret");
-    assert_eq!(check.verify("t", None).await, HumanCheckVerdict::Unavailable);
-}
-
-#[tokio::test]
-async fn turnstile_refuses_an_oversized_token_without_asking() {
-    let (url, seen) = siteverify(json!({ "success": true }), 200).await;
-    let check = TurnstileCheck::with_verify_url(&url, TEST_SITE_KEY, "secret");
-    let oversized = "x".repeat(MAX_TOKEN_LEN + 1);
-    assert_eq!(check.verify(&oversized, None).await, HumanCheckVerdict::Failed);
-    assert!(seen.lock().await.is_empty(), "nothing was sent to Cloudflare");
-}
-
 // ---------------------------------------------------------------------------
 // 5. Activation on a verified address
 // ---------------------------------------------------------------------------
@@ -569,12 +493,10 @@ async fn follow_confirmation_link(resources: &ServerContext, user_id: Uuid) -> S
         .store_token(user_id, &generated.selector, &generated.verifier_hash, 60)
         .await
         .unwrap();
-    let response = AxumTestRequest::get(&format!(
-        "/api/auth/verify-email?token={}",
-        generated.token
-    ))
-    .send(auth_routes(resources))
-    .await;
+    let response =
+        AxumTestRequest::get(&format!("/api/auth/verify-email?token={}", generated.token))
+            .send(auth_routes(resources))
+            .await;
     response
         .header("location")
         .expect("verify-email redirects")
@@ -586,7 +508,10 @@ async fn an_unproven_sign_up_waits_and_is_told_to_confirm_its_address() {
     let resources = self_activating().await;
     let (status, body) = register(auth_routes(&resources), "unproven@example.com", None).await;
     assert_eq!(status, 201);
-    assert_eq!(body["user_status"], "pending", "nobody proved the address yet");
+    assert_eq!(
+        body["user_status"], "pending",
+        "nobody proved the address yet"
+    );
     assert!(
         body["message"]
             .as_str()

@@ -417,8 +417,7 @@ impl AdminRoutes {
             )
             .route(
                 "/api/admin/settings/signup",
-                get(settings::handle_get_signup_settings)
-                    .put(settings::handle_set_signup_settings),
+                get(settings::handle_get_signup_settings).put(settings::handle_set_signup_settings),
             )
             .route("/api/admin/pending-users", get(users::handle_pending_users))
             .route(
@@ -493,8 +492,7 @@ impl AdminRoutes {
             )
             .route(
                 "/admin/settings/signup",
-                get(settings::handle_get_signup_settings)
-                    .put(settings::handle_set_signup_settings),
+                get(settings::handle_get_signup_settings).put(settings::handle_set_signup_settings),
             )
             .route(
                 "/admin/settings/harness",

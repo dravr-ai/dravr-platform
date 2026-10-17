@@ -332,6 +332,32 @@ test.describe('Registration Page - API Interaction', () => {
   });
 });
 
+test.describe('Registration Page - Sign-up paused', () => {
+  test('a closed sign-up shows the paused notice instead of the form', async ({ page }) => {
+    await setupBasicMocks(page);
+    // Registered after the open mock, so this answer wins: an operator paused sign-up.
+    await page.route('**/api/auth/signup-config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ open: false, turnstile_site_key: null }),
+      });
+    });
+    await page.goto('/');
+    await waitForLoginScreen(page, 10000);
+    await page.getByText("Don't have an account?").click();
+
+    const paused = page.getByTestId('signup-paused');
+    await expect(paused).toBeVisible();
+    await expect(paused).toHaveText('Sign-up is paused right now. Please try again later.');
+    await expect(page.locator('input[name="email"]')).toHaveCount(0);
+
+    // The way back to sign-in stays.
+    await page.getByText('Already have an account?').click();
+    await waitForLoginScreen(page, 10000);
+  });
+});
+
 test.describe('Registration Page - Accessibility', () => {
   test('form fields have proper labels', async ({ page }) => {
     await navigateToRegistration(page);

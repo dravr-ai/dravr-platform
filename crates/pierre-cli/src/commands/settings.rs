@@ -423,7 +423,10 @@ async fn signup_set(
 
 fn print_signup(response: &Value) {
     let field = |name: &str| display_value(response.pointer(&format!("/data/{name}")));
-    let daily_limit = match response.pointer("/data/daily_limit").and_then(Value::as_i64) {
+    let daily_limit = match response
+        .pointer("/data/daily_limit")
+        .and_then(Value::as_i64)
+    {
         Some(0) => "none".to_owned(),
         _ => field("daily_limit"),
     };
@@ -435,7 +438,11 @@ fn print_signup(response: &Value) {
         "activate_on_verified_email",
         field("activate_on_verified_email")
     );
-    println!("  {:<28}  {}", "created_last_24h", field("created_last_24h"));
+    println!(
+        "  {:<28}  {}",
+        "created_last_24h",
+        field("created_last_24h")
+    );
     println!(
         "  {:<28}  {}",
         "turnstile_configured",
