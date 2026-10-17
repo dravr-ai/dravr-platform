@@ -286,6 +286,10 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           HTTP_PORT: "8081"
+          # The e2e control process registers each fresh account from this
+          # runner's one address; the per-address sign-up window (5 a minute)
+          # is pinned by the server's own tests, not by this lane.
+          SIGN_UP_RATE_LIMIT_RPM: "100000"
           RUST_LOG: "info"
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"

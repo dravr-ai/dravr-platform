@@ -21,15 +21,17 @@
 //! calling [`issue_verification_email`] once.
 
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Json;
 use serde_json::json;
 use tracing::{error, info, warn};
 
+use crate::signup_guards::{client_address, meter_sign_up};
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::UserStatus;
+use pierre_middleware::PeerAddress;
 use pierre_services::email_verification::resolve_settings;
 use pierre_services::link_token::{generate_link_token, split_link_token};
 
@@ -296,17 +298,26 @@ pub struct ResendVerificationRequest {
 /// or not the address exists, is already verified, or has tripped its hourly
 /// cap — the response must not let a caller probe which addresses are registered.
 ///
+/// Counted in the client address's sign-up window (carnet#1063), so one
+/// address cannot spread resends across many accounts' hourly caps.
+///
 /// # Errors
 ///
-/// Returns `AppError` only for a malformed email; every account-state outcome is
-/// a 200 with the neutral message.
+/// Returns `AppError` for a malformed email and for a request past its
+/// address's window; every account-state outcome is a 200 with the neutral
+/// message.
 pub async fn handle_resend_verification(
     State(resources): State<AuthRoutesContext>,
+    peer: PeerAddress,
+    headers: HeaderMap,
     Json(request): Json<ResendVerificationRequest>,
 ) -> Result<Response, AppError> {
     let neutral = json!({
         "message": "If that address needs confirming, we've sent a new link."
     });
+
+    let client = client_address(&resources.rate_limiter, peer, &headers);
+    meter_sign_up(&resources.rate_limiter, client).await?;
 
     if !request.email.contains('@') || request.email.len() < 5 {
         return Err(AppError::invalid_input("Invalid email format"));

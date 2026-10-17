@@ -18,6 +18,9 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
+use crate::signup_guards::{
+    client_address, meter_sign_up, pass_human_check, PublicRegisterRequest,
+};
 use crate::AuthRoutesContext;
 use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
@@ -25,6 +28,7 @@ use pierre_config::constants::error_messages;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachingPersona, ColorScheme, TenantId, UserStatus, SUPPORTED_LOCALES};
+use pierre_middleware::PeerAddress;
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
@@ -38,6 +42,7 @@ use pierre_email::ResendEmailService;
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
 use pierre_services::link_token::{generate_link_token, split_link_token};
+use pierre_services::signup_policy::resolve_signup_policy;
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -107,7 +112,7 @@ pub async fn handle_register(
                 source = "admin",
                 "user account created"
             );
-            send_post_registration_email(&resources, &request.email, &response).await;
+            send_post_registration_email(&resources, &request.email, &response, false).await;
             Ok((StatusCode::CREATED, Json(response)).into_response())
         }
         Err(e) => {
@@ -125,13 +130,20 @@ pub async fn handle_register(
 ///
 /// Sends a "pending review" email for new accounts in Pending status, or a
 /// "welcome / account approved" email for accounts that were auto-approved at
-/// registration time. Never fails the parent request — missing Resend config
-/// or transient delivery errors are logged as warnings only.
+/// registration time. A Pending account that `self_activates` — sign-up open
+/// to verified addresses — is under no review, so it gets no mail here: the
+/// confirmation link that follows is what activates it. Never fails the parent
+/// request — missing Resend config or transient delivery errors are logged as
+/// warnings only.
 async fn send_post_registration_email(
     resources: &AuthRoutesContext,
     email: &str,
     response: &RegisterResponse,
+    self_activates: bool,
 ) {
+    if self_activates && response.user_status == UserStatus::Pending {
+        return;
+    }
     let Some(email_svc) = resources.email_service.as_ref() else {
         warn!(
             user_id = %response.user_id,
@@ -179,20 +191,37 @@ async fn send_registration_email(
 ///
 /// This endpoint allows users to register themselves without admin authentication.
 /// New users are created in "Pending" status by default and require admin approval,
-/// unless `AUTO_APPROVE_USERS` is true or the email domain is in `AUTO_APPROVE_DOMAINS`.
+/// unless `AUTO_APPROVE_USERS` is true or the email domain is in `AUTO_APPROVE_DOMAINS`,
+/// or sign-up is open to verified addresses and the confirmation link activates them.
+///
+/// The sign-up guards apply first, cheapest first (carnet#1063): the client
+/// address's window, then the bot check, then the operator's bounds inside
+/// [`pierre_services::auth::AuthService::self_register`].
 #[tracing::instrument(
-    skip(resources, request),
+    skip(resources, headers, body),
     fields(route = "public_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
 pub async fn handle_public_register(
     State(resources): State<AuthRoutesContext>,
-    Json(request): Json<RegisterRequest>,
+    peer: PeerAddress,
+    headers: HeaderMap,
+    Json(body): Json<PublicRegisterRequest>,
 ) -> Result<Response, AppError> {
     info!("Public self-registration attempt");
 
+    let client = client_address(&resources.rate_limiter, peer, &headers);
+    meter_sign_up(&resources.rate_limiter, client).await?;
+    pass_human_check(
+        resources.human_check.as_deref(),
+        body.turnstile_token.as_deref(),
+        client,
+    )
+    .await?;
+    let request = body.account;
+
     let auth_service = resources.account_service();
 
-    match auth_service.register(request.clone()).await {
+    match auth_service.self_register(request.clone()).await {
         Ok(response) => {
             // notify: record the new user on the current span so the NotifyLayer can
             // attribute the user.signed_up event without re-passing the id. The
@@ -207,7 +236,11 @@ pub async fn handle_public_register(
                 source = "web",
                 "user account created"
             );
-            send_post_registration_email(&resources, &request.email, &response).await;
+            let self_activates = resolve_signup_policy(resources.data.database())
+                .await
+                .activate_on_verified_email;
+            send_post_registration_email(&resources, &request.email, &response, self_activates)
+                .await;
 
             // Prove the address. Deliberately after the status email and
             // deliberately best-effort: registration has already succeeded, so a

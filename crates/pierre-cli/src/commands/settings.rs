@@ -1,14 +1,15 @@
-// ABOUTME: `pierre-cli settings` — remote GET/PUT over /admin/settings/{guardian,harness}
-// ABOUTME: Guardian gets typed flags with read-modify-write; harness takes a whole JSON document
+// ABOUTME: `pierre-cli settings` — remote GET/PUT over /admin/settings/{guardian,harness,signup}
+// ABOUTME: Guardian and sign-up get typed flags; harness takes a whole JSON document
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Remote management of server settings: the Guardian security policy and
-//! the chat harness configuration.
+//! Remote management of server settings: the Guardian security policy, the
+//! chat harness configuration and the self-serve sign-up bounds.
 //!
 //! Thin HTTP wrappers over the admin-token twins of the settings endpoints
-//! (`/admin/settings/guardian`, `/admin/settings/harness`), authenticated
+//! (`/admin/settings/guardian`, `/admin/settings/harness`,
+//! `/admin/settings/signup`), authenticated
 //! with the cached device-login token from `pierre-cli auth login`. The
 //! guardian `set` verb is read-modify-write: it GETs the persisted document,
 //! applies only the flags given, and PUTs the result — so concurrent fields
@@ -28,6 +29,7 @@ use pierre_tool_runtime::guardian::{ExternalSendAllowlist, GuardianConfigDocumen
 
 const GUARDIAN_PATH: &str = "/admin/settings/guardian";
 const HARNESS_PATH: &str = "/admin/settings/harness";
+const SIGNUP_PATH: &str = "/admin/settings/signup";
 
 /// The six guardian document fields, in display order. `--clear` values are
 /// validated against this list so a typo errors instead of silently no-oping.
@@ -55,6 +57,33 @@ pub enum SettingsCommand {
         /// Verb to run against the harness settings
         #[command(subcommand)]
         action: HarnessAction,
+    },
+    /// Self-serve sign-up: the kill switch, the 24-hour ceiling, activation
+    /// on a verified email
+    Signup {
+        /// Verb to run against the sign-up settings
+        #[command(subcommand)]
+        action: SignupAction,
+    },
+}
+
+/// Verbs for `settings signup`.
+#[non_exhaustive]
+#[derive(Subcommand)]
+pub enum SignupAction {
+    /// Show the sign-up settings and the accounts created in the last 24 hours
+    Show,
+    /// Update settings; unset flags leave their settings unchanged
+    Set {
+        /// The kill switch: `true` admits self-serve sign-ups, `false` refuses them all
+        #[arg(long)]
+        open: Option<bool>,
+        /// The most accounts admitted in any 24 hours (0 sets no ceiling)
+        #[arg(long)]
+        daily_limit: Option<i64>,
+        /// Whether confirming the email activates a self-registered account
+        #[arg(long)]
+        activate_on_verified_email: Option<bool>,
     },
 }
 
@@ -141,6 +170,14 @@ pub async fn dispatch(command: SettingsCommand) -> AppResult<()> {
         SettingsCommand::Harness { action } => match action {
             HarnessAction::Show => harness_show().await,
             HarnessAction::Set { json } => harness_set(json).await,
+        },
+        SettingsCommand::Signup { action } => match action {
+            SignupAction::Show => signup_show().await,
+            SignupAction::Set {
+                open,
+                daily_limit,
+                activate_on_verified_email,
+            } => signup_set(open, daily_limit, activate_on_verified_email).await,
         },
     }
 }
@@ -355,4 +392,60 @@ async fn harness_set(json: String) -> AppResult<()> {
         .unwrap_or("?");
     println!("  Harness config updated ({updated}).");
     Ok(())
+}
+
+async fn signup_show() -> AppResult<()> {
+    let response = client()?.get_json(SIGNUP_PATH).await?;
+    print_signup(&response);
+    Ok(())
+}
+
+async fn signup_set(
+    open: Option<bool>,
+    daily_limit: Option<i64>,
+    activate_on_verified_email: Option<bool>,
+) -> AppResult<()> {
+    if open.is_none() && daily_limit.is_none() && activate_on_verified_email.is_none() {
+        return Err(AppError::invalid_input(
+            "nothing to change — pass --open, --daily-limit or --activate-on-verified-email",
+        ));
+    }
+    let body = serde_json::json!({
+        "open": open,
+        "daily_limit": daily_limit,
+        "activate_on_verified_email": activate_on_verified_email,
+    });
+    let response = client()?.put_json(SIGNUP_PATH, &body).await?;
+    println!("  Sign-up settings updated.");
+    print_signup(&response);
+    Ok(())
+}
+
+fn print_signup(response: &Value) {
+    let field = |name: &str| display_value(response.pointer(&format!("/data/{name}")));
+    let daily_limit = match response
+        .pointer("/data/daily_limit")
+        .and_then(Value::as_i64)
+    {
+        Some(0) => "none".to_owned(),
+        _ => field("daily_limit"),
+    };
+    println!("  Self-serve sign-up");
+    println!("  {:<28}  {}", "open", field("open"));
+    println!("  {:<28}  {daily_limit}", "daily_limit");
+    println!(
+        "  {:<28}  {}",
+        "activate_on_verified_email",
+        field("activate_on_verified_email")
+    );
+    println!(
+        "  {:<28}  {}",
+        "created_last_24h",
+        field("created_last_24h")
+    );
+    println!(
+        "  {:<28}  {}",
+        "turnstile_configured",
+        field("turnstile_configured")
+    );
 }

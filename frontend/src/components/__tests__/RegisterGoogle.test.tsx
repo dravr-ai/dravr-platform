@@ -34,6 +34,7 @@ const { mockAuthStorage } = vi.hoisted(() => ({
 // trip is covered by e2e/sign-in-landing.spec.ts.
 vi.mock('../../services/api', () => ({
   authApi: {
+    getSignupConfig: vi.fn().mockResolvedValue({ open: true, turnstile_site_key: null }),
     register: vi.fn(),
     loginWithFirebase: vi.fn(),
     beginSignIn: vi.fn(),

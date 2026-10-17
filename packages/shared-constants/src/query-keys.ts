@@ -41,6 +41,12 @@ export const QUERY_KEYS = {
     checkIn: () => ['user-check-in'] as const,
   },
 
+  // ==================== SIGN-UP ====================
+  signup: {
+    /** Whether sign-up is open and which bot-check site key the form renders (public). */
+    config: () => ['signup-config'] as const,
+  },
+
   // ==================== ACCOUNT ====================
   account: {
     /** What deleting the account would remove, read before the athlete confirms. */
@@ -194,6 +200,8 @@ export const QUERY_KEYS = {
   adminSettings: {
     all: ['admin-settings'] as const,
     autoApproval: () => ['auto-approval-setting'] as const,
+    /** The sign-up guards: kill switch, daily ceiling, activate-on-verified-email. */
+    signup: () => ['signup-setting'] as const,
   },
 
   // ==================== ADMIN - TOOLS ====================

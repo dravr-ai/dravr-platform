@@ -1,14 +1,17 @@
 // ABOUTME: User registration page for new account creation
-// ABOUTME: Matches Login.tsx design with Pierre brand aesthetic
+// ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { authApi } from '../services/api';
 import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { TurnstileWidget, type TurnstileWidgetHandle } from './TurnstileWidget';
+import { QUERY_KEYS } from '../constants/queryKeys';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
@@ -27,6 +30,20 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
+
+  // Whether sign-up is open and which bot check to render. A server that does
+  // not answer this keeps the plain form: it is the one that enforces the
+  // guards, and the form must not vanish because a read failed.
+  const signupConfigQuery = useQuery({
+    queryKey: QUERY_KEYS.signup.config(),
+    queryFn: () => authApi.getSignupConfig(),
+    retry: 1,
+  });
+  const signupPaused = signupConfigQuery.data?.open === false;
+  const turnstileSiteKey = signupConfigQuery.data?.turnstile_site_key ?? null;
+  const awaitingTurnstile = turnstileSiteKey !== null && turnstileToken === null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,11 +64,21 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
     setIsLoading(true);
 
     try {
-      const response = await authApi.register({ email, password, display_name: displayName || undefined });
+      const response = await authApi.register({
+        email,
+        password,
+        display_name: displayName || undefined,
+        turnstile_token: turnstileToken ?? undefined,
+      });
       onRegistrationSuccess(response.message, email);
     } catch (err: unknown) {
+      // The server's sentence covers each guard: paused or past the day's
+      // ceiling (429 QuotaExceeded), too many sign-ups from this network
+      // (429 RateLimitExceeded), the human check failed (403).
       const apiError = err as { response?: { data?: { message?: string; error?: string } } };
       setError(apiError.response?.data?.message || apiError.response?.data?.error || t('app.registrationFailedRetry'));
+      // A Turnstile token is single-use: the next attempt needs a fresh one.
+      turnstileRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -76,7 +103,27 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
               </p>
             </div>
 
-            {/* Registration form */}
+            {signupPaused ? (
+              <div className="space-y-5">
+                <div
+                  role="status"
+                  className="bg-surface-container-low border ghost-border text-on-surface px-4 py-3 rounded-lg text-sm"
+                  data-testid="signup-paused"
+                >
+                  {t('auth.signupPaused')}
+                </div>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={onNavigateToLogin}
+                    className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
+                  >
+                    {t('auth.haveAccountSignIn')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+            /* Registration form */
             <form className="space-y-5" onSubmit={handleSubmit}>
               {error && (
                 <div
@@ -148,10 +195,21 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 />
               </div>
 
+              {turnstileSiteKey && (
+                <TurnstileWidget
+                  ref={turnstileRef}
+                  siteKey={turnstileSiteKey}
+                  onToken={setTurnstileToken}
+                  onLoadError={() => setError(t('errors.network'))}
+                  className="flex justify-center"
+                />
+              )}
+
               <Button size="lg"
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
+                disabled={signupConfigQuery.isLoading || awaitingTurnstile}
                 className="w-full"
               >
                 {isLoading ? t('auth.creatingAccount') : t('auth.createAccountButton')}
@@ -177,6 +235,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       </div>

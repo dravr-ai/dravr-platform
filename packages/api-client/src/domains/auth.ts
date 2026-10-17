@@ -5,7 +5,14 @@
 // ABOUTME: Platform-agnostic auth logic using the adapter for token storage
 
 import type { AxiosInstance } from 'axios';
-import type { User, LoginResponse, RegisterResponse, FirebaseLoginResponse, SessionResponse } from '@pierre/shared-types';
+import type {
+  User,
+  LoginResponse,
+  RegisterResponse,
+  FirebaseLoginResponse,
+  SessionResponse,
+  SignupConfig,
+} from '@pierre/shared-types';
 import type { AuthStorage, PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
 import { createPkcePair, type PkceCrypto } from '../core/pkce';
@@ -98,6 +105,8 @@ export interface RegisterCredentials {
   email: string;
   password: string;
   display_name?: string;
+  /** The Cloudflare Turnstile token, sent when `SignupConfig.turnstile_site_key` is set. */
+  turnstile_token?: string;
 }
 
 export interface FirebaseLoginData {
@@ -243,6 +252,15 @@ export function createAuthApi(
      */
     async register(credentials: RegisterCredentials): Promise<RegisterResponse> {
       const response = await axios.post<RegisterResponse>(ENDPOINTS.AUTH.REGISTER, credentials);
+      return response.data;
+    },
+
+    /**
+     * Whether sign-up is open, and the Turnstile site key the register form
+     * must render a widget for. Public: read before anyone is signed in.
+     */
+    async getSignupConfig(): Promise<SignupConfig> {
+      const response = await axios.get<SignupConfig>(ENDPOINTS.AUTH.SIGNUP_CONFIG);
       return response.data;
     },
 

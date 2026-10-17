@@ -399,8 +399,11 @@ impl AuthService {
     }
 
     /// Create a new account for `identity`, under the registration approval
-    /// posture, with its personal workspace.
+    /// posture and the operator's sign-up bounds, with its personal workspace.
+    /// A first Google sign-in is a self-serve door like the register form, so
+    /// a closed kill switch or a reached ceiling refuses it.
     async fn create_federated_user(&self, identity: &FederatedIdentity<'_>) -> AppResult<User> {
+        self.admit_self_signup().await?;
         let email = identity.email.as_str();
         let (user_status, approved_at, approved_by) = self.determine_approval_status(email).await;
         let user_id = Uuid::new_v4();
@@ -456,7 +459,8 @@ impl AuthService {
             source = identity.signup_source.as_str(),
             "account created"
         );
-        Self::announce_if_pending(&new_user, tenant_id);
+        let self_activates = self.activates_on_verified_email().await;
+        Self::announce_if_pending(&new_user, tenant_id, self_activates);
 
         Ok(new_user)
     }

@@ -73,6 +73,9 @@ pub trait UserRepository: Send + Sync {
     async fn update_last_active(&self, user_id: Uuid) -> AppResult<()>;
     /// Get total number of users
     async fn count(&self) -> AppResult<i64>;
+    /// How many accounts were created at or after `since`, whatever created
+    /// them: the count the sign-up ceiling is measured against
+    async fn count_created_since(&self, since: DateTime<Utc>) -> AppResult<i64>;
     /// Get users by status (pending, active, suspended), optionally scoped to a tenant
     async fn get_by_status(
         &self,
@@ -394,6 +397,10 @@ pub(crate) const UPDATE_LAST_ACTIVE_SQL: &str =
 
 /// How many accounts exist.
 pub(crate) const COUNT_USERS_SQL: &str = "SELECT COUNT(*) AS count FROM users";
+
+/// How many accounts were created at or after `$1`.
+pub(crate) const COUNT_USERS_CREATED_SINCE_SQL: &str =
+    "SELECT COUNT(*) AS count FROM users WHERE created_at >= $1";
 
 /// Every account in a status, newest first. A row whose status was never set
 /// counts as active.
@@ -777,6 +784,18 @@ macro_rules! impl_user_repository {
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to get user count: {e}")))?;
+                row.try_get("count")
+                    .map_err(|e| AppError::database(format!("Failed to get count: {e}")))
+            }
+
+            async fn count_created_since(&self, since: DateTime<Utc>) -> AppResult<i64> {
+                let row = sqlx::query(COUNT_USERS_CREATED_SINCE_SQL)
+                    .bind(since)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count recent accounts: {e}"))
+                    })?;
                 row.try_get("count")
                     .map_err(|e| AppError::database(format!("Failed to get count: {e}")))
             }

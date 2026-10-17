@@ -96,6 +96,10 @@ async function startServer(config) {
     // approval). Auto-approve so the issued token belongs to an Active user and
     // authenticates against /mcp (which rejects non-Active users with 401, RFC 9728).
     AUTO_APPROVE_USERS: 'true',
+    // Every suite registers its users from this one loopback address, so the
+    // per-address sign-up window (5 a minute in production) would refuse most
+    // of them; the window itself is pinned by the server's own tests.
+    SIGN_UP_RATE_LIMIT_RPM: '100000',
     PIERRE_MASTER_ENCRYPTION_KEY: encryptionKey,
     PIERRE_JWT_SECRET: config.jwtSecret || 'test_jwt_secret_for_automated_tests_only',
     PIERRE_RSA_KEY_SIZE: '2048', // Use smaller key size for faster test startup

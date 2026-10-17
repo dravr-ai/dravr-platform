@@ -876,9 +876,9 @@ async fn handle_signup_confirm_step(
 /// link to the address they just proved.
 ///
 /// The account is created Active or Pending by the same
-/// [`pierre_services::auth::AuthService::register`] rules every other signup
-/// uses, so the approval posture stays in one place rather than being
-/// special-cased per surface.
+/// [`pierre_services::auth::AuthService::self_register`] rules every other
+/// self-serve signup uses, so the approval posture and the operator's sign-up
+/// bounds stay in one place rather than being special-cased per surface.
 async fn create_chat_originated_user(
     resources: &ServerContext,
     email: &str,
@@ -890,7 +890,7 @@ async fn create_chat_originated_user(
     // real password.
     let unusable = format!("chat-signup-{}", Uuid::new_v4());
     auth_service
-        .register(RegisterRequest {
+        .self_register(RegisterRequest {
             email: email.to_owned(),
             password: unusable,
             display_name: None,

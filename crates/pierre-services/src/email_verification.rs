@@ -62,7 +62,13 @@ impl Default for VerificationSettings {
 
 /// Read one numeric setting, falling back to `default` when the row is absent,
 /// unreadable, or not an integer, then pull it into `[min, max]`.
-async fn resolve_clamped(db: &Database, key: &str, default: i64, min: i64, max: i64) -> i64 {
+pub(crate) async fn resolve_clamped(
+    db: &Database,
+    key: &str,
+    default: i64,
+    min: i64,
+    max: i64,
+) -> i64 {
     let stored = match db.get_system_setting(key).await {
         Ok(Some(setting)) => setting.value.trim().parse::<i64>().unwrap_or_else(|_| {
             tracing::warn!(

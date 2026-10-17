@@ -38,6 +38,9 @@ use crate::operator_mail::PendingSignupMail;
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
 
+/// The operator's bounds on a stranger's sign-up, and activation on a proven address
+mod self_signup;
+
 pub use federated::{FederatedIdentity, SignupSource};
 
 // ---------------------------------------------------------------------------
@@ -118,10 +121,12 @@ impl AuthService {
     /// `user.pending_approval` is routed to the users room, the only room whose
     /// Approve and Reject taps the Slack interactivity route honours. An
     /// account that is already Active raises nothing here: `user.signed_up`
-    /// counts every sign-up. The super-admins' email waits for the address to
-    /// be proven ([`Self::mail_admins_if_pending`]).
-    fn announce_if_pending(user: &User, tenant_id: TenantId) {
-        if user.user_status != UserStatus::Pending {
+    /// counts every sign-up. Nor does one that `self_activates`: with sign-up
+    /// open to verified addresses, proving the address is what admits it, so
+    /// there is nothing for an operator to decide. The super-admins' email
+    /// waits for the address to be proven ([`Self::mail_admins_if_pending`]).
+    fn announce_if_pending(user: &User, tenant_id: TenantId, self_activates: bool) {
+        if user.user_status != UserStatus::Pending || self_activates {
             return;
         }
         // The enricher resolves the subject's address from this cache, so the
@@ -166,12 +171,27 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
-    /// LIMITATION(registre#1063): `register` has no per-IP limit, bot check or kill switch, so self-activating sign-up stays off.
+    /// This is the operator's door too (the admin register route), so it
+    /// applies no sign-up bound; a stranger's door goes through
+    /// [`Self::self_register`].
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
     #[tracing::instrument(skip(self, request), fields(route = "register"))]
     pub async fn register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
+        self.register_through(request, false).await
+    }
+
+    /// Register `request`'s account. `self_serve` says a stranger's door
+    /// created it: only such an account activates itself by proving its
+    /// address, so only it skips the operators' review and is told to confirm
+    /// its email. An operator's door sends no confirmation link, so its
+    /// Pending account stays in review whatever the sign-up settings say.
+    async fn register_through(
+        &self,
+        request: RegisterRequest,
+        self_serve: bool,
+    ) -> AppResult<RegisterResponse> {
         info!("User registration attempt");
 
         // One form for the address from here on: the uniqueness check, the
@@ -197,14 +217,24 @@ impl AuthService {
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
         let approval = self.determine_approval_status(&email).await;
+        let self_activates = self_serve && self.activates_on_verified_email().await;
         let (user_id, user) = self
-            .create_account(&email, request.password, request.display_name, approval)
+            .create_account(
+                &email,
+                request.password,
+                request.display_name,
+                approval,
+                self_activates,
+            )
             .await?;
 
         info!(user_id = %user_id, "User registered successfully");
 
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()
+        } else if self_activates {
+            "User registered successfully. Confirm your email address to activate your account."
+                .to_owned()
         } else {
             "User registered successfully. Your account is pending admin approval.".to_owned()
         };
@@ -265,7 +295,7 @@ impl AuthService {
         let approved_by = self.existing_operator(invitation.invited_by).await;
         let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
         let (user_id, user) = self
-            .create_account(&invitation.email, password, display_name, approval)
+            .create_account(&invitation.email, password, display_name, approval, false)
             .await?;
 
         // Best-effort: the account exists and is active either way, and an
@@ -287,7 +317,8 @@ impl AuthService {
 
     /// Create a password account in the given approval state, with its
     /// personal tenant. Shared by every path that creates one: registration
-    /// and an accepted invitation.
+    /// and an accepted invitation. `self_activates` says a proven address
+    /// will activate it, so a Pending one is not announced for review.
     ///
     /// # Errors
     ///
@@ -303,6 +334,7 @@ impl AuthService {
             Option<chrono::DateTime<Utc>>,
             Option<uuid::Uuid>,
         ),
+        self_activates: bool,
     ) -> AppResult<(uuid::Uuid, User)> {
         let password_hash = Self::hash_password(password).await?;
 
@@ -339,7 +371,7 @@ impl AuthService {
                 AppError::database(format!("Failed to assign tenant: {e}"))
             })?;
 
-        Self::announce_if_pending(&user, tenant_id);
+        Self::announce_if_pending(&user, tenant_id, self_activates);
 
         Ok((user_id, user))
     }
@@ -841,12 +873,18 @@ impl AuthService {
     /// login if their email now qualifies, attributing `approved_by` to the
     /// allow-listing operator when the promotion comes from a per-email
     /// pre-approval.
+    ///
+    /// With sign-up open to verified addresses, a proven address qualifies
+    /// too ([`Self::verified_and_self_activating`]); an unproven one never
+    /// does, at login or anywhere else.
     async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
         if user.user_status != UserStatus::Pending {
             return Ok(());
         }
 
-        if !self.should_auto_approve_email(&user.email).await {
+        if !self.should_auto_approve_email(&user.email).await
+            && !self.verified_and_self_activating(user.id).await
+        {
             return Ok(());
         }
 
@@ -867,50 +905,6 @@ impl AuthService {
         user.approved_at = updated.approved_at;
 
         Ok(())
-    }
-
-    /// Apply the approval decision to a user who has just proven their address.
-    ///
-    /// Verification and approval are separate gates on purpose. Confirming an
-    /// address proves the person owns the inbox; it does not decide whether this
-    /// deployment lets them in. So a verified user is promoted to `Active` only
-    /// when the auto-approval decision already says yes — the global switch, a
-    /// per-email pre-approval, or a domain on the allow-list.
-    ///
-    /// That keeps one code path working in both postures. While the deployment is
-    /// invite-only the user stays `Pending`, but *verified* pending, so the waiting
-    /// screen can say the address is confirmed and review is what's outstanding.
-    /// Flip `AUTO_APPROVE_USERS` on and the same call promotes them immediately,
-    /// with no second implementation for "open signup".
-    ///
-    /// `first_proof` is what the repository's `mark_verified`
-    /// returned: when this proof is the address's first and the account still
-    /// waits, the super-admins are emailed.
-    ///
-    /// Returns the status the user now holds.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the user cannot be loaded or the status write fails.
-    pub async fn apply_approval_after_verification(
-        &self,
-        user_id: uuid::Uuid,
-        first_proof: bool,
-    ) -> AppResult<UserStatus> {
-        let Some(mut user) = self.data.repos().users.get_global(user_id).await? else {
-            return Err(AppError::not_found("User not found"));
-        };
-
-        // Suspended accounts are never revived by confirming an email.
-        if user.user_status != UserStatus::Pending {
-            return Ok(user.user_status);
-        }
-
-        self.auto_approve_if_eligible(&mut user).await?;
-        if first_proof {
-            self.mail_admins_if_pending(&user);
-        }
-        Ok(user.user_status)
     }
 
     /// Open a refresh-token family for a device that just logged in.

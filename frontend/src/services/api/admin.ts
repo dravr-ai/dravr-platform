@@ -63,6 +63,28 @@ export interface AutoApprovalSetting {
   description: string;
 }
 
+/// The sign-up guards an operator controls (carnet#1063). `open` is the kill
+/// switch; `daily_limit` caps accounts created per rolling 24 h (0 = no
+/// ceiling); `activate_on_verified_email` makes confirming the address
+/// activate the account. `created_last_24h` and `turnstile_configured` are
+/// read-only: what the ceiling is measured against, and whether the server
+/// holds a Turnstile secret to check the bot-check token with.
+export interface SignupSetting {
+  open: boolean;
+  daily_limit: number;
+  activate_on_verified_email: boolean;
+  created_last_24h: number;
+  turnstile_configured: boolean;
+  description: string;
+}
+
+/// The fields `PUT /api/admin/settings/signup` changes; an absent one is kept.
+export interface SignupSettingUpdate {
+  open?: boolean;
+  daily_limit?: number;
+  activate_on_verified_email?: boolean;
+}
+
 /// A one-time password reset token, returned once. The user redeems it at
 /// `POST /api/auth/complete-reset` with their new password before it expires.
 /** A `manages_roster` grant an operator made; a TrainingPeaks disconnect leaves it in place. */
@@ -494,6 +516,16 @@ export const adminApi = {
 
   async updateAutoApprovalSetting(enabled: boolean): Promise<AutoApprovalSetting> {
     const response = await axios.put('/api/admin/settings/auto-approval', { enabled });
+    return response.data.data;
+  },
+
+  async getSignupSetting(): Promise<SignupSetting> {
+    const response = await axios.get('/api/admin/settings/signup');
+    return response.data.data;
+  },
+
+  async updateSignupSetting(update: SignupSettingUpdate): Promise<SignupSetting> {
+    const response = await axios.put('/api/admin/settings/signup', update);
     return response.data.data;
   },
 

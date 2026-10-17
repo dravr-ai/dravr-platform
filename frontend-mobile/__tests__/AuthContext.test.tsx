@@ -603,6 +603,8 @@ describe('AuthContext', () => {
         email: 'new@example.com',
         password: 'password123',
         display_name: 'New User',
+        // No bot check on this call: the token is absent, not invented.
+        turnstile_token: undefined,
       });
     });
   });

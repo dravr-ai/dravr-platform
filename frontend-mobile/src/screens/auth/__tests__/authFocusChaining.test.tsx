@@ -6,7 +6,8 @@
 
 import React, { createRef } from 'react';
 import { Alert, TextInput } from 'react-native';
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { fireEvent, render as rntlRender, waitFor, type RenderResult } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 jest.mock('nativewind', () => ({
   useColorScheme: () => ({ colorScheme: 'light', setColorScheme: jest.fn() }),
@@ -35,8 +36,10 @@ jest.mock('../../../contexts/AuthContext', () => ({
 
 const mockForgotPassword = jest.fn();
 const mockResetPassword = jest.fn();
+const mockGetSignupConfig = jest.fn();
 jest.mock('../../../services/api', () => ({
   authApi: {
+    getSignupConfig: (...args: unknown[]) => mockGetSignupConfig(...args),
     forgotPassword: (...args: unknown[]) => mockForgotPassword(...args),
     resetPassword: (...args: unknown[]) => mockResetPassword(...args),
   },
@@ -58,6 +61,12 @@ describe('Input ref forwarding', () => {
   });
 });
 
+/** RegisterScreen reads the sign-up config through React Query, so every screen renders inside a client. */
+function render(element: React.ReactElement): RenderResult {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rntlRender(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
+}
+
 const RESET_CODE = 'abcd1234EFGH5678.abcd1234EFGH5678ijkl9012MNOP3456';
 
 /**
@@ -71,6 +80,10 @@ const FORMS: Array<{
   fields: Array<[testID: string, value: string]>;
   submit: jest.Mock;
   submittedWith: unknown[];
+  /** What the submit call resolves with; the screen reads it on success. */
+  resolvesWith?: unknown;
+  /** Waits until the form accepts a submit (RegisterScreen holds it until the sign-up config is in). */
+  ready?: (view: RenderResult) => Promise<void>;
 }> = [
   {
     name: 'RegisterScreen',
@@ -82,7 +95,12 @@ const FORMS: Array<{
       ['register-confirm-password-input', 'ValidPassword123'],
     ],
     submit: mockRegister,
-    submittedWith: ['jean@example.com', 'ValidPassword123', 'Jean'],
+    // No Turnstile site key in the config, so no token rides along.
+    submittedWith: ['jean@example.com', 'ValidPassword123', 'Jean', undefined],
+    resolvesWith: { message: 'Registration received.' },
+    ready: async (view) => {
+      await waitFor(() => expect(view.getByTestId('register-submit-button')).toBeEnabled());
+    },
   },
   {
     name: 'ResetPasswordScreen',
@@ -128,7 +146,7 @@ function pressReturn(view: RenderResult, testID: string): void {
  * `ref={x}` in a screen's source says nothing about WHICH field a ref lands
  * on: an email field wired to focus itself passes it.
  */
-describe.each(FORMS)('$name focus chain', ({ Screen, fields, submit, submittedWith }) => {
+describe.each(FORMS)('$name focus chain', ({ Screen, fields, submit, submittedWith, resolvesWith, ready }) => {
   const ids = fields.map(([testID]) => testID);
   const handoffs = ids.slice(0, -1).map((id, index) => [id, ids[index + 1]]);
   const last = ids[ids.length - 1];
@@ -136,7 +154,8 @@ describe.each(FORMS)('$name focus chain', ({ Screen, fields, submit, submittedWi
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    submit.mockResolvedValue(undefined);
+    submit.mockResolvedValue(resolvesWith);
+    mockGetSignupConfig.mockResolvedValue({ open: true, turnstile_site_key: null });
   });
 
   if (handoffs.length > 0) {
@@ -158,6 +177,7 @@ describe.each(FORMS)('$name focus chain', ({ Screen, fields, submit, submittedWi
 
   it('the last field submits rather than handing off', async () => {
     const view = render(<Screen />);
+    await ready?.(view);
     for (const [testID, value] of fields) fireEvent.changeText(view.getByTestId(testID), value);
 
     expect(view.getByTestId(last).props.returnKeyType).toBe('go');

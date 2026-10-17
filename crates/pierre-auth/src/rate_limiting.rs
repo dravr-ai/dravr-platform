@@ -207,6 +207,10 @@ pub enum OAuth2Endpoint {
     /// A refused password sign-in, metered per account named rather than per
     /// address
     PasswordLoginAccount,
+    /// A self-serve account sign-up (`POST /api/auth/register`, the messaging
+    /// link page's register form) or a verification-mail resend, metered per
+    /// client address
+    SignUp,
 }
 
 impl OAuth2Endpoint {
@@ -220,6 +224,7 @@ impl OAuth2Endpoint {
             Self::PasswordConfirm => "password_confirm",
             Self::PasswordLogin => "password_login",
             Self::PasswordLoginAccount => "password_login_account",
+            Self::SignUp => "sign_up",
         }
     }
 }
@@ -239,6 +244,8 @@ pub struct OAuth2RateLimitConfig {
     pub password_login_rpm: u32,
     /// Refused password sign-ins per account named per window
     pub password_login_account_rpm: u32,
+    /// Self-serve sign-ups and verification resends per client address per window
+    pub sign_up_rpm: u32,
 }
 
 impl OAuth2RateLimitConfig {
@@ -253,6 +260,7 @@ impl OAuth2RateLimitConfig {
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
             password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
             password_login_account_rpm: oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM,
+            sign_up_rpm: oauth_rate_limiting::SIGN_UP_RPM,
         }
     }
 
@@ -266,6 +274,7 @@ impl OAuth2RateLimitConfig {
             password_confirm_rpm: config.password_confirm_rpm,
             password_login_rpm: config.password_login_rpm,
             password_login_account_rpm: config.password_login_account_rpm,
+            sign_up_rpm: config.sign_up_rpm,
         }
     }
 
@@ -278,6 +287,7 @@ impl OAuth2RateLimitConfig {
         password_confirm_rpm: u32,
         password_login_rpm: u32,
         password_login_account_rpm: u32,
+        sign_up_rpm: u32,
     ) -> Self {
         Self {
             authorize_rpm,
@@ -286,6 +296,7 @@ impl OAuth2RateLimitConfig {
             password_confirm_rpm,
             password_login_rpm,
             password_login_account_rpm,
+            sign_up_rpm,
         }
     }
 
@@ -299,6 +310,7 @@ impl OAuth2RateLimitConfig {
             OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
             OAuth2Endpoint::PasswordLogin => self.password_login_rpm,
             OAuth2Endpoint::PasswordLoginAccount => self.password_login_account_rpm,
+            OAuth2Endpoint::SignUp => self.sign_up_rpm,
         }
     }
 }

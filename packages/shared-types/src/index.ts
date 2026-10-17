@@ -47,6 +47,7 @@ export type {
   AdminUser,
   LoginResponse,
   RegisterResponse,
+  SignupConfig,
   FirebaseLoginResponse,
   SessionResponse,
   ExtendedProviderStatus,

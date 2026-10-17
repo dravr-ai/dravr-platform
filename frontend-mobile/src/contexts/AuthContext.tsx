@@ -8,7 +8,7 @@ import { signOutFromFirebase } from '../firebase';
 import { forgetLanguageChoiceNative } from '@pierre/i18n/native';
 import { signInWithHostedPage } from '../utils/hostedSignIn';
 import { releasePushDevice, unregisterPushDevice } from '../services/pushNotifications';
-import type { User, FirebaseLoginResponse } from '../types';
+import type { User, FirebaseLoginResponse, RegisterResponse } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -22,7 +22,12 @@ interface AuthContextType {
   signIn: () => Promise<boolean>;
   loginWithFirebase: (idToken: string) => Promise<FirebaseLoginResponse>;
   logout: () => Promise<void>;
-  register: (email: string, password: string, displayName?: string) => Promise<void>;
+  /**
+   * Create an account. Resolves with the server's response, whose `message`
+   * says what happens next; `turnstileToken` is the bot-check token when the
+   * sign-up config names a Turnstile site key.
+   */
+  register: (email: string, password: string, displayName?: string, turnstileToken?: string) => Promise<RegisterResponse>;
   updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
@@ -197,9 +202,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
   }, []);
 
-  const register = useCallback(async (email: string, password: string, displayName?: string) => {
-    await authApi.register({ email, password, display_name: displayName });
+  const register = useCallback(async (
+    email: string,
+    password: string,
+    displayName?: string,
+    turnstileToken?: string,
+  ): Promise<RegisterResponse> => {
     // After registration, user needs to log in (or wait for approval if pending)
+    return authApi.register({ email, password, display_name: displayName, turnstile_token: turnstileToken });
   }, []);
 
   const updateUser = useCallback(async (patch: Partial<User>) => {

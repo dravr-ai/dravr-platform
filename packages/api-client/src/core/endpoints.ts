@@ -21,6 +21,8 @@ export const ENDPOINTS = {
     LOGOUT: '/api/auth/logout',
     /** User registration */
     REGISTER: '/api/auth/register',
+    /** Public sign-up configuration: whether sign-up is open, and the bot-check site key */
+    SIGNUP_CONFIG: '/api/auth/signup-config',
     /** Restore session from httpOnly cookie */
     SESSION: '/api/auth/session',
     /** Self-service forgot password (send reset code) */

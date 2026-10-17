@@ -115,6 +115,10 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           HTTP_PORT: "8081"
+          # The e2e control process registers each fresh account from this
+          # runner's one address; the per-address sign-up window (5 a minute)
+          # is pinned by the server's own tests, not by this lane.
+          SIGN_UP_RATE_LIMIT_RPM: "100000"
           # The web app signs in through the hosted login page and receives its
           # code at <FRONTEND_URL>/auth/callback, which the server accepts only
           # on its configured web origin (carnet#787): the SPA Vite serves.
@@ -171,6 +175,10 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
           HTTP_PORT: "8081"
+          # The e2e control process registers each fresh account from this
+          # runner's one address; the per-address sign-up window (5 a minute)
+          # is pinned by the server's own tests, not by this lane.
+          SIGN_UP_RATE_LIMIT_RPM: "100000"
           # The web app signs in through the hosted login page and receives its
           # code at <FRONTEND_URL>/auth/callback, which the server accepts only
           # on its configured web origin (carnet#787): the SPA Vite serves.

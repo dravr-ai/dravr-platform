@@ -58,6 +58,7 @@ crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submi
 crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted from a signed-in session
 crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed by another operator
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
+crates/pierre-routes-auth/src/signup_guards.rs:We could not confirm you are not a bot. Complete the check again, then retry.
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can change what it shares

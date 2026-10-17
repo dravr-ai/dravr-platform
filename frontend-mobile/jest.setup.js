@@ -279,6 +279,15 @@ jest.mock('expo-linear-gradient', () => {
   };
 });
 
+// Mock react-native-webview: its native module is absent under jest, and the
+// register form imports it for the Turnstile check. A test that drives the
+// page's messages mocks it itself, with the props it needs to reach.
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const View = require('react-native').View;
+  return { WebView: ({ testID }) => React.createElement(View, { testID }) };
+});
+
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const React = require('react');
