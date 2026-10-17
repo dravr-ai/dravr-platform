@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     normalize_email, CoachingPersona, OperatorRosterGrant, TenantId, User, UserDeletion,
@@ -34,7 +34,7 @@ use crate::repositories::user_references::{
 };
 use crate::repositories::users::{
     impl_user_repository, listing_status_filter, user_from_row, user_status_filter,
-    users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_SQL, CREATE_USER_SQL, DELETE_USER_SQL,
+    users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_CREATED_SINCE_SQL, COUNT_USERS_SQL, CREATE_USER_SQL, DELETE_USER_SQL,
     FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL, GET_USER_BY_ID_SQL,
     GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL, SET_USER_ADMIN_STATUS_SQL, SET_USER_TENANT_SQL,
     SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL, UPDATE_USER_DISPLAY_NAME_SQL,

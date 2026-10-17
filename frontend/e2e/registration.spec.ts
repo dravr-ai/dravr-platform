@@ -21,6 +21,14 @@ async function setupBasicMocks(page: import('@playwright/test').Page) {
       }),
     });
   });
+  // Sign-up open, no bot check: the form holds submit until this answers.
+  await page.route('**/api/auth/signup-config', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ open: true, turnstile_site_key: null }),
+    });
+  });
 }
 
 // Helper to navigate to registration page from login

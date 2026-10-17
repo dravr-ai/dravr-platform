@@ -1,5 +1,5 @@
 // ABOUTME: Admin system settings route handlers
-// ABOUTME: Handles the auto-approval configuration endpoints for the CLI and the console
+// ABOUTME: Handles the auto-approval and sign-up configuration endpoints for the CLI and the console
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,11 +13,24 @@ use tracing::info;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::AppResult;
 use pierre_services::admin_settings::{get_auto_approval_settings, set_auto_approval};
+use pierre_services::signup_policy::{
+    created_last_24h, resolve_signup_policy, set_signup_policy, SignupPolicyUpdate,
+};
 
 use super::api_keys::json_response;
-use super::types::{AdminResponse, AutoApprovalResponse, UpdateAutoApprovalRequest};
+use super::types::{
+    AdminResponse, AutoApprovalResponse, SignupSettingsResponse, UpdateAutoApprovalRequest,
+    UpdateSignupSettingsRequest,
+};
 use super::users::deny_without_manage_users;
 use crate::context::AdminApiContext;
+
+/// What the sign-up settings mean, returned with every read and write.
+const SIGNUP_DESCRIPTION: &str = "open is the kill switch for every self-serve sign-up \
+     (the register form, the messaging link page, in-chat sign-up, a first Google sign-in). \
+     daily_limit caps the accounts created in any 24 hours (0 sets no ceiling). \
+     activate_on_verified_email lets a self-registered account activate itself by \
+     confirming its email address.";
 
 /// What the setting means, returned with every read and write.
 const AUTO_APPROVAL_DESCRIPTION: &str = "When enabled, all new registrations are auto-approved. \
@@ -111,6 +124,79 @@ pub(crate) async fn handle_set_auto_approval(
                 description: AUTO_APPROVAL_DESCRIPTION.to_owned(),
             })
             .ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// The sign-up settings in force, with the 24-hour count they bound.
+async fn signup_settings(context: &AdminApiContext) -> AppResult<SignupSettingsResponse> {
+    let policy = resolve_signup_policy(&context.database).await;
+    let created_last_24h = created_last_24h(context.repos.users.as_ref()).await?;
+    Ok(SignupSettingsResponse {
+        open: policy.open,
+        daily_limit: policy.daily_limit,
+        activate_on_verified_email: policy.activate_on_verified_email,
+        created_last_24h,
+        turnstile_configured: context.human_check_configured,
+        description: SIGNUP_DESCRIPTION.to_owned(),
+    })
+}
+
+/// Handle getting the self-serve sign-up settings (carnet#1063).
+pub(crate) async fn handle_get_signup_settings(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+    let settings = signup_settings(&context).await?;
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: "Sign-up settings retrieved".to_owned(),
+            data: to_value(settings).ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// Handle changing the self-serve sign-up settings: the kill switch, the
+/// 24-hour ceiling, activation on a verified email. Fields the request leaves
+/// out keep their stored values; the response reads them all back.
+pub(crate) async fn handle_set_signup_settings(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Json(request): Json<UpdateSignupSettingsRequest>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+    set_signup_policy(
+        &context.database,
+        SignupPolicyUpdate {
+            open: request.open,
+            daily_limit: request.daily_limit,
+            activate_on_verified_email: request.activate_on_verified_email,
+        },
+    )
+    .await?;
+    let settings = signup_settings(&context).await?;
+    info!(
+        open = settings.open,
+        daily_limit = settings.daily_limit,
+        activate_on_verified_email = settings.activate_on_verified_email,
+        token_id = %admin_token.token_id,
+        "Sign-up settings updated"
+    );
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: "Sign-up settings updated".to_owned(),
+            data: to_value(settings).ok(),
         },
         StatusCode::OK,
     )

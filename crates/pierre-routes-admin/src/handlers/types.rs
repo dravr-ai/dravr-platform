@@ -137,6 +137,35 @@ pub struct AutoApprovalResponse {
     pub description: String,
 }
 
+/// Request to change the self-serve sign-up settings; an absent field keeps
+/// its stored value
+#[derive(Debug, Deserialize)]
+pub struct UpdateSignupSettingsRequest {
+    /// The kill switch: `false` refuses every self-serve sign-up
+    pub open: Option<bool>,
+    /// The most accounts admitted in any 24 hours; zero sets no ceiling
+    pub daily_limit: Option<i64>,
+    /// Whether proving the address activates an account no rule admitted
+    pub activate_on_verified_email: Option<bool>,
+}
+
+/// Response for the self-serve sign-up settings
+#[derive(Debug, Serialize)]
+pub struct SignupSettingsResponse {
+    /// Whether the kill switch admits self-serve sign-ups
+    pub open: bool,
+    /// The most accounts admitted in any 24 hours; zero sets no ceiling
+    pub daily_limit: i64,
+    /// Whether proving the address activates an account no rule admitted
+    pub activate_on_verified_email: bool,
+    /// Accounts created in the last 24 hours, the count the ceiling meets
+    pub created_last_24h: i64,
+    /// Whether the register form's bot check (Turnstile) is configured
+    pub turnstile_configured: bool,
+    /// What the settings do
+    pub description: String,
+}
+
 /// Query parameters for listing users
 #[derive(Debug, Deserialize)]
 pub struct ListUsersQuery {

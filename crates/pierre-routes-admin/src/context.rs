@@ -121,6 +121,10 @@ pub struct AdminApiContext {
     /// the effective setting from it, since `AUTO_APPROVE_USERS` in the
     /// environment outranks the stored row.
     pub app_behavior: AppBehaviorConfig,
+    /// Whether the self-serve register form's bot check is configured, as the
+    /// sign-up settings report it (copied in by the composition root; `false`
+    /// until then).
+    pub human_check_configured: bool,
 }
 
 /// Initial wiring required to construct an [`AdminApiContext`].
@@ -202,6 +206,7 @@ impl AdminApiContext {
             training_catalogue_registry: init.training_catalogue_registry,
             contremaitre_config: init.contremaitre_config,
             app_behavior: init.app_behavior,
+            human_check_configured: false,
         }
     }
 }

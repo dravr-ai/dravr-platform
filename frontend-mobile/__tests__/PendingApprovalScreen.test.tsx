@@ -5,9 +5,11 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+let mockParams: { message?: string } = {};
 jest.mock('expo-router', () => ({
   ...jest.requireActual('expo-router'),
   useRouter: () => mockRouter,
+  useLocalSearchParams: () => mockParams,
 }));
 
 const mockResendVerification = jest.fn();
@@ -28,6 +30,7 @@ describe('PendingApprovalScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUser = { email: 'jean@example.com', email_verified: true };
+    mockParams = {};
   });
 
   function renderComponent() {
@@ -54,6 +57,17 @@ describe('PendingApprovalScreen', () => {
 
       fireEvent.press(link);
       expect(mockRouter.replace).toHaveBeenCalledWith('/(auth)/login');
+    });
+  });
+
+  describe('arriving from the register form', () => {
+    it("shows the server's sentence rather than assuming a review", () => {
+      mockParams = { message: 'Confirm your email to activate your account.' };
+      const { getByTestId, queryByText } = renderComponent();
+      expect(getByTestId('pending-register-message').props.children).toBe(
+        'Confirm your email to activate your account.',
+      );
+      expect(queryByText(/Thank you for registering with Dravr/)).toBeNull();
     });
   });
 

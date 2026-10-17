@@ -1,7 +1,7 @@
 // ABOUTME: Registration screen for new user signup
-// ABOUTME: Plain page on the app canvas — no card shell; BrandLockup is the product's own mark, not an icon tile
+// ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed; no card shell
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,33 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { describeApiError, useAsyncAction } from '@pierre/ui-logic';
+import { useQuery } from '@tanstack/react-query';
+import { classifyApiError, describeApiError, useAsyncAction } from '@pierre/ui-logic';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, FormScrollView, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
+import { TurnstileWebView, type TurnstileWebViewHandle } from '../../components/auth/TurnstileWebView';
+import { authApi } from '../../services/api';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+
+/**
+ * The sentence an alert shows for a failed registration.
+ *
+ * The sign-up guards answer with a sentence of their own — paused (503),
+ * too many sign-ups from this network (429), the human check failed (403) —
+ * and `describeApiError` would replace the first two with a generic
+ * "unavailable" or "failed", which is wrong for a deliberate pause.
+ */
+function describeRegisterError(error: unknown, t: (key: string) => string): string {
+  const { status, detail } = classifyApiError(error);
+  if (detail && (status === 503 || status === 429)) {
+    return detail;
+  }
+  return describeApiError(error, { t, fallbackKey: 'app.registrationFailedLower' });
+}
 
 export function RegisterScreen() {
   const { t } = useTranslation();
@@ -33,6 +53,23 @@ export function RegisterScreen() {
     password?: string;
     confirmPassword?: string;
   }>({});
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWebViewHandle>(null);
+
+  // Whether sign-up is open and which bot check to render. A server that does
+  // not answer this keeps the plain form: it is the one that enforces the
+  // guards, and the form must not vanish because a read failed.
+  const signupConfigQuery = useQuery({
+    queryKey: QUERY_KEYS.signup.config(),
+    queryFn: () => authApi.getSignupConfig(),
+    retry: 1,
+  });
+  const signupPaused = signupConfigQuery.data?.open === false;
+  const turnstileSiteKey = signupConfigQuery.data?.turnstile_site_key ?? null;
+  const awaitingTurnstile = turnstileSiteKey !== null && turnstileToken === null;
+  const handleTurnstileLoadError = useCallback(() => {
+    Alert.alert(t('app.registrationFailedTitle'), t('errors.network'));
+  }, [t]);
 
   const validateForm = () => {
     const newErrors: typeof errors = {};
@@ -65,13 +102,16 @@ export function RegisterScreen() {
 
   // Delegate registration loading lifecycle to @pierre/ui-logic
   const registerAction = useAsyncAction({
-    action: () => register(email.trim(), password, displayName.trim()),
-    onSuccess: () => {
-      router.replace('/(auth)/pending-approval');
+    action: () => register(email.trim(), password, displayName.trim(), turnstileToken ?? undefined),
+    onSuccess: (response) => {
+      // The server's sentence (awaiting review, or confirm the address to
+      // activate) goes to the waiting screen rather than a fixed one.
+      router.replace({ pathname: '/(auth)/pending-approval', params: { message: response.message } });
     },
     onError: (error: unknown) => {
-      const message = describeApiError(error, { t, fallbackKey: 'app.registrationFailedLower' });
-      Alert.alert(t('app.registrationFailedTitle'), message);
+      Alert.alert(t('app.registrationFailedTitle'), describeRegisterError(error, t));
+      // A Turnstile token is single-use: the next attempt needs a fresh one.
+      turnstileRef.current?.reset();
     },
     successResetDelay: 0,
     errorResetDelay: 0,
@@ -85,6 +125,7 @@ export function RegisterScreen() {
   const confirmRef = useRef<TextInput>(null);
 
   const handleRegister = () => {
+    if (signupConfigQuery.isLoading || awaitingTurnstile) return;
     if (!validateForm()) return;
     registerAction.execute();
   };
@@ -116,7 +157,17 @@ export function RegisterScreen() {
               </Text>
             </View>
 
-            {/* Registration Form */}
+            {signupPaused ? (
+              <View
+                className="mb-4 rounded-xl border border-border-faint bg-background-tertiary px-4 py-3"
+                testID="register-signup-paused"
+              >
+                <Text className="text-sm text-text-primary text-center leading-[20px]">
+                  {t('auth.signupPaused')}
+                </Text>
+              </View>
+            ) : (
+            /* Registration Form */
             <View className="mb-4">
               <Input
                 label={t('app.displayName')}
@@ -176,15 +227,26 @@ export function RegisterScreen() {
                 testID="register-confirm-password-input"
               />
 
+              {turnstileSiteKey && (
+                <TurnstileWebView
+                  ref={turnstileRef}
+                  siteKey={turnstileSiteKey}
+                  onToken={setTurnstileToken}
+                  onLoadError={handleTurnstileLoadError}
+                />
+              )}
+
               <Button
                 title={t('app.createAccount')}
                 onPress={handleRegister}
                 loading={registerAction.isLoading}
+                disabled={signupConfigQuery.isLoading || awaitingTurnstile}
                 fullWidth
                 style={submitButtonStyle}
                 testID="register-submit-button"
               />
             </View>
+            )}
 
             {/* Login Link */}
             <View className="flex-row justify-center items-center gap-1 pt-2">

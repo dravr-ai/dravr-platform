@@ -20,6 +20,15 @@ pub const SETTING_EMAIL_VERIFICATION_TTL_MINUTES: &str = "email_verification_ttl
 /// Maximum verification emails a single user can trigger per hour. Operator-scoped
 /// and clamped on read, so a malformed row cannot disable the throttle.
 pub const SETTING_EMAIL_VERIFICATION_MAX_PER_HOUR: &str = "email_verification_max_per_hour";
+/// Whether self-serve sign-up admits new accounts: the operator's kill switch.
+/// `"false"` refuses every self-serve sign-up; an absent row leaves it open.
+pub const SETTING_SIGNUP_OPEN: &str = "signup_open";
+/// The most accounts self-serve sign-up admits in any 24 hours; `"0"` sets no
+/// ceiling. Clamped on read, like the verification knobs.
+pub const SETTING_SIGNUP_DAILY_LIMIT: &str = "signup_daily_limit";
+/// Whether proving the address activates a self-registered account that no
+/// auto-approval rule admitted. `"true"` opens sign-up to verified addresses.
+pub const SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL: &str = "signup_activate_on_verified_email";
 
 /// A system setting entry
 #[derive(Debug, Clone, Serialize, Deserialize)]

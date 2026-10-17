@@ -77,6 +77,9 @@ pub mod refresh_rotation;
 /// Secure cookies and CSRF protection
 pub mod security;
 
+/// The bot check on the self-serve sign-up form (Cloudflare Turnstile)
+pub mod human_check;
+
 /// Strava shared-app OAuth pool selection + credential resolution.
 pub mod strava_pool;
 

@@ -27,6 +27,9 @@ pub struct RateLimitConfig {
     pub password_login_rpm: u32,
     /// Refused password sign-ins naming one account per window, from any address
     pub password_login_account_rpm: u32,
+    /// Self-serve sign-ups and verification resends one client address may make
+    /// per window
+    pub sign_up_rpm: u32,
     /// Rate limit window duration in seconds
     pub rate_limit_window_secs: u64,
     /// The proxies whose `X-Forwarded-For` entries the OAuth endpoint limiter
@@ -46,6 +49,7 @@ impl Default for RateLimitConfig {
             password_confirm_rpm: oauth_rate_limiting::PASSWORD_CONFIRM_RPM,
             password_login_rpm: oauth_rate_limiting::PASSWORD_LOGIN_RPM,
             password_login_account_rpm: oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM,
+            sign_up_rpm: oauth_rate_limiting::SIGN_UP_RPM,
             rate_limit_window_secs: oauth_rate_limiting::WINDOW_SECS,
             trusted_proxies: TrustedProxies::internal(),
             admin_provisioned_api_key_monthly_limit: system_config::STARTER_MONTHLY_LIMIT,
@@ -82,6 +86,10 @@ impl RateLimitConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(oauth_rate_limiting::PASSWORD_LOGIN_ACCOUNT_RPM),
+            sign_up_rpm: env::var("SIGN_UP_RATE_LIMIT_RPM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(oauth_rate_limiting::SIGN_UP_RPM),
             rate_limit_window_secs: env::var("OAUTH2_RATE_LIMIT_WINDOW_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())

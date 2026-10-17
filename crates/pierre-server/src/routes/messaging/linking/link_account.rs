@@ -10,9 +10,11 @@ use pierre_auth::dto::auth::RegisterRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::password::verify_password;
 use pierre_core::constants::error_messages;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::UserStatus;
 use pierre_database::backends::UserRepository;
+use pierre_routes_auth::meter_sign_up;
+use pierre_services::signup_policy::SIGNUP_PAUSED;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -54,7 +56,7 @@ pub(super) async fn resolve_user_from_form(
     client: Option<IpAddr>,
 ) -> Result<(Uuid, UserStatus), String> {
     match form.action.as_str() {
-        "register" => register_user(resources, form).await,
+        "register" => register_user(resources, form, client).await,
         _ => authenticate_user(resources, &form.email, &form.password, client).await,
     }
 }
@@ -137,15 +139,21 @@ async fn verify_credentials(
 /// Register a new user through the link page and return their id and status.
 ///
 /// The account is created by
-/// [`pierre_services::auth::AuthService::register`], the same rules every
-/// other signup follows — email and password validation, the approval posture
-/// (pre-approved address, auto-approved domain, or pending admin approval) and
-/// the personal tenant — so a code the bot handed out is not a way around them.
+/// [`pierre_services::auth::AuthService::self_register`], the same rules every
+/// other self-serve signup follows — the operator's sign-up bounds, email and
+/// password validation, the approval posture (pre-approved address,
+/// auto-approved domain, or pending admin approval) and the personal tenant —
+/// so a code the bot handed out is not a way around them. It is counted in
+/// `client`'s sign-up window first, as the app's register form is.
 /// Returns a user-facing error on failure.
 async fn register_user(
     resources: &ServerContext,
     form: &ChannelLinkAuthForm,
+    client: Option<IpAddr>,
 ) -> Result<(Uuid, UserStatus), String> {
+    meter_sign_up(&resources.auth.oauth2_rate_limiter, client)
+        .await
+        .map_err(|e| registration_refusal(&e))?;
     let auth_service = resources.account_service();
     let display_name = form
         .display_name
@@ -154,7 +162,7 @@ async fn register_user(
         .map(String::from);
 
     let registered = auth_service
-        .register(RegisterRequest {
+        .self_register(RegisterRequest {
             email: form.email.clone(),
             password: form.password.clone(),
             display_name,
@@ -180,6 +188,10 @@ fn registration_refusal(error: &AppError) -> String {
         "Please enter a valid email address.".to_owned()
     } else if message.ends_with(error_messages::PASSWORD_TOO_WEAK) {
         format!("{}.", error_messages::PASSWORD_TOO_WEAK)
+    } else if message.ends_with(SIGNUP_PAUSED) {
+        SIGNUP_PAUSED.to_owned()
+    } else if error.code == ErrorCode::RateLimitExceeded {
+        "Too many sign-ups from this network. Wait a minute, then try again.".to_owned()
     } else {
         error!(error = %error, "Failed to register user during link auth");
         "An error occurred. Please try again.".to_owned()

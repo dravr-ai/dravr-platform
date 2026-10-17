@@ -34,6 +34,7 @@ use crate::analytics::cache_user_email;
 use crate::default_agent::first_athlete_facing;
 use crate::link_token::split_link_token;
 use crate::operator_mail::PendingSignupMail;
+use crate::signup_policy::{admit_self_signup, resolve_signup_policy};
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
@@ -118,10 +119,12 @@ impl AuthService {
     /// `user.pending_approval` is routed to the users room, the only room whose
     /// Approve and Reject taps the Slack interactivity route honours. An
     /// account that is already Active raises nothing here: `user.signed_up`
-    /// counts every sign-up. The super-admins' email waits for the address to
-    /// be proven ([`Self::mail_admins_if_pending`]).
-    fn announce_if_pending(user: &User, tenant_id: TenantId) {
-        if user.user_status != UserStatus::Pending {
+    /// counts every sign-up. Nor does one that `self_activates`: with sign-up
+    /// open to verified addresses, proving the address is what admits it, so
+    /// there is nothing for an operator to decide. The super-admins' email
+    /// waits for the address to be proven ([`Self::mail_admins_if_pending`]).
+    fn announce_if_pending(user: &User, tenant_id: TenantId, self_activates: bool) {
+        if user.user_status != UserStatus::Pending || self_activates {
             return;
         }
         // The enricher resolves the subject's address from this cache, so the
@@ -166,7 +169,9 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
-    /// LIMITATION(registre#1063): `register` has no per-IP limit, bot check or kill switch, so self-activating sign-up stays off.
+    /// This is the operator's door too (the admin register route), so it
+    /// applies no sign-up bound; a stranger's door goes through
+    /// [`Self::self_register`].
     ///
     /// # Errors
     /// Returns error if user validation fails or database operation fails
@@ -205,6 +210,9 @@ impl AuthService {
 
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()
+        } else if self.activates_on_verified_email().await {
+            "User registered successfully. Confirm your email address to activate your account."
+                .to_owned()
         } else {
             "User registered successfully. Your account is pending admin approval.".to_owned()
         };
@@ -215,6 +223,36 @@ impl AuthService {
             display_name: user.display_name,
             message,
         })
+    }
+
+    /// Register an account through a door any stranger can reach: the public
+    /// form, the messaging link page, in-chat sign-up.
+    ///
+    /// The operator's bounds apply first ([`admit_self_signup`]): a closed
+    /// kill switch or a reached 24-hour ceiling refuses before anything is
+    /// validated or written. Then it is [`Self::register`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a quota-exceeded error when sign-up is paused, and every
+    /// error [`Self::register`] returns.
+    pub async fn self_register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
+        self.admit_self_signup().await?;
+        self.register(request).await
+    }
+
+    /// Refuse a self-serve sign-up the operator's bounds do not admit
+    /// ([`admit_self_signup`]).
+    async fn admit_self_signup(&self) -> AppResult<()> {
+        admit_self_signup(self.data.database(), self.data.repos().users.as_ref()).await
+    }
+
+    /// Whether proving the address activates an account no auto-approval rule
+    /// admitted: sign-up open to verified addresses (carnet#1063).
+    async fn activates_on_verified_email(&self) -> bool {
+        resolve_signup_policy(self.data.database())
+            .await
+            .activate_on_verified_email
     }
 
     /// Create the account an invitation was mailed for, with the password the
@@ -339,7 +377,8 @@ impl AuthService {
                 AppError::database(format!("Failed to assign tenant: {e}"))
             })?;
 
-        Self::announce_if_pending(&user, tenant_id);
+        let self_activates = self.activates_on_verified_email().await;
+        Self::announce_if_pending(&user, tenant_id, self_activates);
 
         Ok((user_id, user))
     }
@@ -841,12 +880,18 @@ impl AuthService {
     /// login if their email now qualifies, attributing `approved_by` to the
     /// allow-listing operator when the promotion comes from a per-email
     /// pre-approval.
+    ///
+    /// With sign-up open to verified addresses, a proven address qualifies
+    /// too ([`Self::verified_and_self_activating`]); an unproven one never
+    /// does, at login or anywhere else.
     async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
         if user.user_status != UserStatus::Pending {
             return Ok(());
         }
 
-        if !self.should_auto_approve_email(&user.email).await {
+        if !self.should_auto_approve_email(&user.email).await
+            && !self.verified_and_self_activating(user.id).await
+        {
             return Ok(());
         }
 
@@ -869,6 +914,28 @@ impl AuthService {
         Ok(())
     }
 
+    /// Whether `user_id` has proven their address while sign-up is open to
+    /// verified addresses. A verification state that cannot be read counts as
+    /// unproven, so a database hiccup never activates an account.
+    async fn verified_and_self_activating(&self, user_id: uuid::Uuid) -> bool {
+        if !self.activates_on_verified_email().await {
+            return false;
+        }
+        match self
+            .data
+            .repos()
+            .email_verification
+            .is_verified(user_id)
+            .await
+        {
+            Ok(verified) => verified,
+            Err(e) => {
+                warn!(user_id = %user_id, error = %e, "Could not read the verification state; the account stays pending");
+                false
+            }
+        }
+    }
+
     /// Apply the approval decision to a user who has just proven their address.
     ///
     /// Verification and approval are separate gates on purpose. Confirming an
@@ -880,8 +947,9 @@ impl AuthService {
     /// That keeps one code path working in both postures. While the deployment is
     /// invite-only the user stays `Pending`, but *verified* pending, so the waiting
     /// screen can say the address is confirmed and review is what's outstanding.
-    /// Flip `AUTO_APPROVE_USERS` on and the same call promotes them immediately,
-    /// with no second implementation for "open signup".
+    /// Open sign-up to verified addresses (`signup_activate_on_verified_email`)
+    /// and the same call promotes them immediately, with no second
+    /// implementation for "open signup".
     ///
     /// `first_proof` is what the repository's `mark_verified`
     /// returned: when this proof is the address's first and the account still

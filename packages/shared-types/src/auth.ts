@@ -176,6 +176,19 @@ export interface RegisterResponse {
   message: string;
 }
 
+/**
+ * Response from `GET /api/auth/signup-config`, read before the register form renders.
+ *
+ * `open` is false while an operator has paused sign-up (the kill switch, or the
+ * daily ceiling reached). A non-null `turnstile_site_key` means the server checks
+ * a Cloudflare Turnstile token on every registration, so the form must render
+ * the widget and send its token as `turnstile_token`.
+ */
+export interface SignupConfig {
+  open: boolean;
+  turnstile_site_key: string | null;
+}
+
 /** Response from Firebase login */
 export interface FirebaseLoginResponse {
   csrf_token: string;

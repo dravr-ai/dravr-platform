@@ -13,6 +13,17 @@ vi.mock('../../services/api', () => ({
   adminApi: {
     getAutoApprovalSetting: vi.fn(),
     updateAutoApprovalSetting: vi.fn(),
+    getSignupSetting: vi.fn(() =>
+      Promise.resolve({
+        open: true,
+        daily_limit: 0,
+        activate_on_verified_email: false,
+        created_last_24h: 0,
+        turnstile_configured: false,
+        description: 'Sign-up guards',
+      }),
+    ),
+    updateSignupSetting: vi.fn(),
     updateConfig: vi.fn(),
   },
 }));
@@ -60,7 +71,7 @@ describe('AdminSettings auto-approval toggle', () => {
 
     renderSettings();
 
-    const toggle = await screen.findByRole('switch');
+    const toggle = await screen.findByRole('switch', { name: 'Auto-Approve Registrations' });
     await waitFor(() => expect(toggle).toBeDisabled());
 
     const lockNote = screen.getByTestId('auto-approval-env-lock');
@@ -84,7 +95,7 @@ describe('AdminSettings auto-approval toggle', () => {
 
     renderSettings();
 
-    const toggle = await screen.findByRole('switch');
+    const toggle = await screen.findByRole('switch', { name: 'Auto-Approve Registrations' });
     await waitFor(() => expect(toggle).toBeEnabled());
     expect(screen.queryByTestId('auto-approval-env-lock')).toBeNull();
 

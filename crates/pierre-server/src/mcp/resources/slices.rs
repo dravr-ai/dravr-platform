@@ -68,6 +68,7 @@ use dravr_canot::ChannelRegistry;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::human_check::HumanCheck;
 use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
@@ -213,6 +214,9 @@ pub struct AuthSlice {
     /// Decodes the Android app's Play Integrity token at Google, on the
     /// mobile sign-in's code exchange.
     pub play_integrity: Arc<dyn PlayIntegrityDecoder>,
+    /// The bot check on the self-serve sign-up form; `None` when Turnstile's
+    /// keys are not configured, and sign-up then runs unchecked.
+    pub human_check: Option<Arc<dyn HumanCheck>>,
     /// Secret key for admin JWT token generation.
     pub admin_jwt_secret: Arc<str>,
     /// Cache-backed one-time nonce store for link-token page loads.

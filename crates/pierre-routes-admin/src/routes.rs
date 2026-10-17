@@ -415,6 +415,11 @@ impl AdminRoutes {
                 "/api/admin/settings/auto-approval",
                 get(settings::handle_get_auto_approval).put(settings::handle_set_auto_approval),
             )
+            .route(
+                "/api/admin/settings/signup",
+                get(settings::handle_get_signup_settings)
+                    .put(settings::handle_set_signup_settings),
+            )
             .route("/api/admin/pending-users", get(users::handle_pending_users))
             .route(
                 "/api/admin/approve-user/{user_id}",
@@ -471,7 +476,7 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// System settings routes — admin-token mounts of the auto-approval,
+    /// System settings routes — admin-token mounts of the auto-approval, sign-up,
     /// harness, and guardian handlers, which the console reaches through
     /// [`Self::console_user_routes`], [`Self::harness_config_routes`] and
     /// [`Self::guardian_config_routes`]. These are what `pierre-cli settings`
@@ -485,6 +490,11 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/auto-approval",
                 put(settings::handle_set_auto_approval),
+            )
+            .route(
+                "/admin/settings/signup",
+                get(settings::handle_get_signup_settings)
+                    .put(settings::handle_set_signup_settings),
             )
             .route(
                 "/admin/settings/harness",

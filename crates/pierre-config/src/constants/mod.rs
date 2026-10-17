@@ -240,3 +240,23 @@ pub mod email_verification {
     /// Ceiling for the send cap — past this the throttle is not a throttle.
     pub const MAX_MAX_SENDS_PER_HOUR: i64 = 100;
 }
+
+/// Bounds on self-serve sign-up (carnet#1063).
+///
+/// The ceiling is an operator knob in `system_settings`, clamped on read like
+/// the verification knobs, and deliberately not in the runtime configuration
+/// catalog: a tenant that could lift its own sign-up ceiling would be lifting
+/// everyone's.
+pub mod signup {
+    /// Default ceiling on accounts self-serve sign-up admits in any 24 hours.
+    ///
+    /// Well above today's rate, low enough that a scripted burst stops within
+    /// a day's free allowance of a hundred accounts.
+    pub const DEFAULT_DAILY_LIMIT: i64 = 100;
+
+    /// A configured ceiling of zero sets no ceiling.
+    pub const MIN_DAILY_LIMIT: i64 = 0;
+
+    /// Ceiling for the configured ceiling, so a typo cannot retire the bound.
+    pub const MAX_DAILY_LIMIT: i64 = 100_000;
+}

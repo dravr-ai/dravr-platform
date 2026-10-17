@@ -7,6 +7,7 @@
 import React from 'react';
 import { ScrollView, Text, TextInput } from 'react-native';
 import { render, screen, within } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 jest.mock('nativewind', () => ({
@@ -30,7 +31,11 @@ jest.mock('../../../contexts/AuthContext', () => ({
 }));
 
 jest.mock('../../../services/api', () => ({
-  authApi: { forgotPassword: jest.fn(), resetPassword: jest.fn() },
+  authApi: {
+    forgotPassword: jest.fn(),
+    resetPassword: jest.fn(),
+    getSignupConfig: jest.fn().mockResolvedValue({ open: true, turnstile_site_key: null }),
+  },
 }));
 
 import { FormScrollView, FORM_KEYBOARD_GAP } from '../FormScrollView';
@@ -114,9 +119,19 @@ const AUTH_SCREENS: Array<[string, React.ComponentType]> = [
  * `KeyboardAvoidingView` were read as text here too; they are rendered in
  * __tests__/ChatLanding.test.tsx and __tests__/ChatScreenNewThreadTitle.test.tsx.
  */
+/** RegisterScreen reads the sign-up config through React Query, so each screen renders inside a client. */
+function renderScreen(Screen: React.ComponentType) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Screen />
+    </QueryClientProvider>,
+  );
+}
+
 describe.each(AUTH_SCREENS)('%s', (_name, Screen) => {
   it('scrolls every field through FormScrollView, and through nothing else', () => {
-    const view = render(<Screen />);
+    const view = renderScreen(Screen);
 
     const scrolls = view.UNSAFE_getAllByType(ScrollView);
     // One container: a second, bare ScrollView around a field is the gap.
@@ -131,7 +146,7 @@ describe.each(AUTH_SCREENS)('%s', (_name, Screen) => {
   });
 
   it('carries no per-screen copy of the iOS-only inset prop the container replaced', () => {
-    const view = render(<Screen />);
+    const view = renderScreen(Screen);
     for (const scroll of view.UNSAFE_getAllByType(ScrollView)) {
       expect(scroll.props.automaticallyAdjustKeyboardInsets).toBeUndefined();
     }

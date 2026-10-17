@@ -50,6 +50,7 @@ use axum::{
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
+use pierre_auth::human_check::HumanCheck;
 use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
@@ -97,6 +98,9 @@ mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 mod short_link;
+mod signup_guards;
+
+pub use signup_guards::meter_sign_up;
 /// The RFC 6749 §5.2 error bodies of the password and refresh-token grant.
 mod token_errors;
 /// The first-party `OAuth2` token endpoint: the password and refresh grants
@@ -208,6 +212,9 @@ pub struct AuthRoutesContext {
     /// Decodes the Android app's Play Integrity token at Google, on the
     /// mobile code exchange (carnet#810).
     pub play_integrity: Arc<dyn PlayIntegrityDecoder>,
+    /// The bot check the public register form passes (carnet#1063); `None`
+    /// when Turnstile's keys are not configured.
+    pub human_check: Option<Arc<dyn HumanCheck>>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
@@ -247,6 +254,12 @@ impl AuthRoutes {
     pub fn routes(context: AuthRoutesContext) -> Router {
         let router = Router::new()
             .route("/api/auth/register", post(login::handle_public_register))
+            // What the register form needs before it is shown: whether
+            // sign-up is open, and the bot check's site key.
+            .route(
+                "/api/auth/signup-config",
+                get(signup_guards::handle_signup_config),
+            )
             // Opened by a mail client following a link, so it answers with a
             // redirect to the SPA rather than JSON.
             .route(

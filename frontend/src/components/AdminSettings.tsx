@@ -1,19 +1,51 @@
 // ABOUTME: Admin settings tab for system configuration
-// ABOUTME: Provides the auto-approval toggle, group creation policy, and feature flags
+// ABOUTME: Provides the auto-approval toggle, the sign-up guards, group creation policy, and feature flags
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import type { AutoApprovalSetting } from '../services/api/admin';
+import type { AutoApprovalSetting, SignupSetting, SignupSettingUpdate } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
-import { Card, Select } from './ui';
+import { Button, Card, Input, Select } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { featureFlagsQuery } from './featureFlagsQuery';
+
+interface SettingSwitchProps {
+  checked: boolean;
+  label: string;
+  onToggle: () => void;
+  disabled?: boolean;
+  title?: string;
+}
+
+/** The on/off switch every toggle on this page draws. */
+function SettingSwitch({ checked, label, onToggle, disabled = false, title }: SettingSwitchProps) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      title={title}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface-container ${
+        checked ? 'bg-activity' : 'bg-surface-container-high'
+      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
@@ -35,6 +67,38 @@ export default function AdminSettings() {
     },
   });
 
+  // Sign-up guards (carnet#1063): the kill switch, the daily ceiling and
+  // activate-on-verified-email.
+  const signupQuery = useQuery<SignupSetting>({
+    queryKey: QUERY_KEYS.adminSettings.signup(),
+    queryFn: () => adminApi.getSignupSetting(),
+    retry: 1,
+  });
+  const signupData = signupQuery.data;
+
+  const updateSignupMutation = useMutation({
+    mutationFn: (update: SignupSettingUpdate) => adminApi.updateSignupSetting(update),
+    onSuccess: (updated, update) => {
+      queryClient.setQueryData(QUERY_KEYS.adminSettings.signup(), updated);
+      // Only a saved limit clears the field; flipping a toggle keeps a half-typed one.
+      if (update.daily_limit !== undefined) setDailyLimitDraft(null);
+    },
+  });
+
+  // The ceiling being typed, or null while the field shows the saved value.
+  const [dailyLimitDraft, setDailyLimitDraft] = useState<string | null>(null);
+  const dailyLimitValue = dailyLimitDraft ?? String(signupData?.daily_limit ?? 0);
+  const parsedDailyLimit = /^\d+$/.test(dailyLimitValue.trim()) ? Number(dailyLimitValue.trim()) : null;
+  const dailyLimitInvalid = parsedDailyLimit === null;
+  const dailyLimitDirty = signupData !== undefined && parsedDailyLimit !== signupData.daily_limit;
+
+  const handleSaveDailyLimit = (e: FormEvent) => {
+    e.preventDefault();
+    if (parsedDailyLimit !== null && dailyLimitDirty) {
+      updateSignupMutation.mutate({ daily_limit: parsedDailyLimit });
+    }
+  };
+
   // Group creation policy
   const { policy: groupCreationPolicy, isLoading: groupPolicyLoading } = useGroupPermissions();
 
@@ -49,7 +113,7 @@ export default function AdminSettings() {
   });
 
   // Hold the page for its first load until the flags, the auto-approval
-  // setting and the group policy are all in: drawn as each landed, the flags
+  // setting, the sign-up guards and the group policy are all in: drawn as each landed, the flags
   // panel at the top could arrive last and push both cards below it off
   // screen (layout shift 0.50 on a phone).
   const flagsQuery = useQuery({
@@ -57,7 +121,7 @@ export default function AdminSettings() {
     enabled: Boolean(adminTenantId),
   });
   const [revealed, setRevealed] = useState(false);
-  if (!revealed && !isLoading && !groupPolicyLoading && !flagsQuery.isLoading) {
+  if (!revealed && !isLoading && !signupQuery.isLoading && !groupPolicyLoading && !flagsQuery.isLoading) {
     setRevealed(true);
   }
 
@@ -117,29 +181,17 @@ export default function AdminSettings() {
               ) : error ? (
                 <span className="text-xs text-error">Error loading</span>
               ) : (
-                <button
-                  onClick={handleToggleAutoApproval}
+                <SettingSwitch
+                  checked={autoApprovalData?.enabled === true}
+                  label="Auto-Approve Registrations"
+                  onToggle={handleToggleAutoApproval}
                   disabled={updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv}
                   title={
                     autoApprovalLockedByEnv
                       ? 'Set by the AUTO_APPROVE_USERS environment variable — not editable here'
                       : undefined
                   }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface-container ${
-                    autoApprovalData?.enabled
-                      ? 'bg-activity'
-                      : 'bg-surface-container-high'
-                  } ${updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  role="switch"
-                  aria-checked={autoApprovalData?.enabled}
-                  aria-label="Auto-Approve Registrations"
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      autoApprovalData?.enabled ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
+                />
               )}
             </div>
           </div>
@@ -177,6 +229,123 @@ export default function AdminSettings() {
               Failed to update setting. Please try again.
             </div>
           )}
+
+          {/* Sign-up guards (carnet#1063) */}
+          <div className="pt-4 border-t ghost-border space-y-4" data-testid="signup-settings">
+            <div>
+              <h3 className="font-medium text-on-surface">Sign-up</h3>
+              <p className="text-sm text-on-surface-variant mt-1">
+                {signupData?.description ??
+                  'Controls whether new accounts can be created, how many per day, and whether confirming the email activates them.'}
+              </p>
+            </div>
+
+            {signupQuery.isError ? (
+              <p className="text-sm text-error">Error loading the sign-up settings.</p>
+            ) : signupData ? (
+              <>
+                <div className="flex items-start justify-between p-4 bg-surface-container-low rounded-lg border ghost-border">
+                  <div className="flex-1 mr-4">
+                    <h4 className="font-medium text-on-surface">Sign-up open</h4>
+                    <p className="text-sm text-on-surface-variant mt-1">
+                      {signupData.open
+                        ? 'New accounts can be created.'
+                        : 'Sign-up is paused: the register form tells visitors to try again later.'}
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <SettingSwitch
+                      checked={signupData.open}
+                      label="Sign-up open"
+                      onToggle={() => updateSignupMutation.mutate({ open: !signupData.open })}
+                      disabled={updateSignupMutation.isPending}
+                    />
+                  </div>
+                </div>
+
+                <form
+                  onSubmit={handleSaveDailyLimit}
+                  className="p-4 bg-surface-container-low rounded-lg border ghost-border"
+                >
+                  <div className="flex items-end gap-3">
+                    <div className="w-40">
+                      <Input
+                        id="signup-daily-limit"
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        label="Daily sign-up limit"
+                        value={dailyLimitValue}
+                        onChange={(e) => setDailyLimitDraft(e.target.value)}
+                        error={dailyLimitInvalid ? 'Enter a whole number, 0 or more.' : undefined}
+                        disabled={updateSignupMutation.isPending}
+                        variant="dark"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      disabled={dailyLimitInvalid || !dailyLimitDirty || updateSignupMutation.isPending}
+                    >
+                      Save limit
+                    </Button>
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-2">
+                    Accounts allowed per rolling 24 hours. 0 means no ceiling.
+                  </p>
+                </form>
+
+                <div className="flex items-start justify-between p-4 bg-surface-container-low rounded-lg border ghost-border">
+                  <div className="flex-1 mr-4">
+                    <h4 className="font-medium text-on-surface">Activate on verified email</h4>
+                    <p className="text-sm text-on-surface-variant mt-1">
+                      When enabled, confirming the email address activates the account without an admin approval.
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <SettingSwitch
+                      checked={signupData.activate_on_verified_email}
+                      label="Activate on verified email"
+                      onToggle={() =>
+                        updateSignupMutation.mutate({
+                          activate_on_verified_email: !signupData.activate_on_verified_email,
+                        })
+                      }
+                      disabled={updateSignupMutation.isPending}
+                    />
+                  </div>
+                </div>
+
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
+                    <dt className="text-on-surface-variant">Accounts created in the last 24 h</dt>
+                    <dd className="mt-1 font-medium text-on-surface" data-testid="signup-created-24h">
+                      {signupData.created_last_24h}
+                      {signupData.daily_limit > 0 ? ` / ${signupData.daily_limit}` : ''}
+                    </dd>
+                  </div>
+                  <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
+                    <dt className="text-on-surface-variant">Bot check configured</dt>
+                    <dd className="mt-1 font-medium text-on-surface" data-testid="signup-turnstile-configured">
+                      {signupData.turnstile_configured ? 'Yes' : 'No'}
+                    </dd>
+                  </div>
+                </dl>
+
+                {updateSignupMutation.isSuccess && (
+                  <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
+                    Sign-up settings updated.
+                  </div>
+                )}
+                {updateSignupMutation.isError && (
+                  <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
+                    Failed to update the sign-up settings. Please try again.
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
         </div>
       </Card>
 

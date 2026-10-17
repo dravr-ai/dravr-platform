@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { authApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
@@ -52,12 +52,18 @@ const stepBadgeStyle: ViewStyle = {
  * `email_verified` is optional deliberately: absent means the server did not
  * resolve it, not that the address is unconfirmed. Only an explicit `false`
  * switches to confirm-your-email mode.
+ *
+ * Arriving straight from the register form, nobody is signed in yet, so the
+ * form passes the server's own sentence as `message` — awaiting review, or
+ * confirm the address to activate — and the screen shows it instead of
+ * assuming a review.
  */
 export function PendingApprovalScreen() {
   const colors = useThemeColors();
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
+  const { message: registerMessage } = useLocalSearchParams<{ message?: string }>();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const needsEmailConfirmation = user?.email_verified === false;
 
@@ -94,6 +100,10 @@ export function PendingApprovalScreen() {
           {needsEmailConfirmation ? (
             <Text className="text-sm text-text-secondary text-center leading-5 mb-4">
               {t('app.sentConfirmationLink')}
+            </Text>
+          ) : registerMessage ? (
+            <Text className="text-sm text-text-secondary text-center leading-5 mb-4" testID="pending-register-message">
+              {registerMessage}
             </Text>
           ) : (
             <>

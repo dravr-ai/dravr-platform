@@ -250,6 +250,7 @@ impl ServerContext {
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
             rate_limiter: self.auth.oauth2_rate_limiter.clone(),
             play_integrity: self.auth.play_integrity.clone(),
+            human_check: self.auth.human_check.clone(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }

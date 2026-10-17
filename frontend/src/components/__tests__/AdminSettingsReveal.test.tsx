@@ -24,6 +24,17 @@ vi.mock('../../services/api', () => ({
     ),
     getTenantFeatureFlags: vi.fn(() => flags.promise),
     updateAutoApprovalSetting: vi.fn(),
+    getSignupSetting: vi.fn(() =>
+      Promise.resolve({
+        open: true,
+        daily_limit: 0,
+        activate_on_verified_email: false,
+        created_last_24h: 0,
+        turnstile_configured: false,
+        description: 'Sign-up guards',
+      }),
+    ),
+    updateSignupSetting: vi.fn(),
     updateConfig: vi.fn(),
   },
 }));
