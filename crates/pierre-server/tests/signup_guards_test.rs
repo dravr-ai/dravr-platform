@@ -550,6 +550,26 @@ async fn without_self_activation_a_proven_address_still_waits_for_review() {
     );
 }
 
+#[tokio::test]
+async fn an_operator_made_account_stays_in_review_while_sign_up_self_activates() {
+    let resources = self_activating().await;
+    let response = resources
+        .account_service()
+        .register(RegisterRequest {
+            email: "operator-pending@example.com".to_owned(),
+            password: PASSWORD.to_owned(),
+            display_name: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.user_status, UserStatus::Pending);
+    assert!(
+        response.message.contains("pending admin approval"),
+        "the operator's door sends no confirmation link, so it is not told to confirm one: {}",
+        response.message
+    );
+}
+
 async fn login(resources: &ServerContext, email: &str) -> Value {
     let request: LoginRequest =
         serde_json::from_value(json!({ "email": email, "password": PASSWORD })).unwrap();

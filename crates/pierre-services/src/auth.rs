@@ -177,6 +177,19 @@ impl AuthService {
     /// Returns error if user validation fails or database operation fails
     #[tracing::instrument(skip(self, request), fields(route = "register"))]
     pub async fn register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
+        self.register_through(request, false).await
+    }
+
+    /// Register `request`'s account. `self_serve` says a stranger's door
+    /// created it: only such an account activates itself by proving its
+    /// address, so only it skips the operators' review and is told to confirm
+    /// its email. An operator's door sends no confirmation link, so its
+    /// Pending account stays in review whatever the sign-up settings say.
+    async fn register_through(
+        &self,
+        request: RegisterRequest,
+        self_serve: bool,
+    ) -> AppResult<RegisterResponse> {
         info!("User registration attempt");
 
         // One form for the address from here on: the uniqueness check, the
@@ -202,15 +215,22 @@ impl AuthService {
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
         let approval = self.determine_approval_status(&email).await;
+        let self_activates = self_serve && self.activates_on_verified_email().await;
         let (user_id, user) = self
-            .create_account(&email, request.password, request.display_name, approval)
+            .create_account(
+                &email,
+                request.password,
+                request.display_name,
+                approval,
+                self_activates,
+            )
             .await?;
 
         info!(user_id = %user_id, "User registered successfully");
 
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()
-        } else if self.activates_on_verified_email().await {
+        } else if self_activates {
             "User registered successfully. Confirm your email address to activate your account."
                 .to_owned()
         } else {
@@ -230,7 +250,8 @@ impl AuthService {
     ///
     /// The operator's bounds apply first ([`admit_self_signup`]): a closed
     /// kill switch or a reached 24-hour ceiling refuses before anything is
-    /// validated or written. Then it is [`Self::register`].
+    /// validated or written. Then it is [`Self::register`], as a self-serve
+    /// account.
     ///
     /// # Errors
     ///
@@ -238,7 +259,7 @@ impl AuthService {
     /// error [`Self::register`] returns.
     pub async fn self_register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
         self.admit_self_signup().await?;
-        self.register(request).await
+        self.register_through(request, true).await
     }
 
     /// Refuse a self-serve sign-up the operator's bounds do not admit
@@ -303,7 +324,7 @@ impl AuthService {
         let approved_by = self.existing_operator(invitation.invited_by).await;
         let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
         let (user_id, user) = self
-            .create_account(&invitation.email, password, display_name, approval)
+            .create_account(&invitation.email, password, display_name, approval, false)
             .await?;
 
         // Best-effort: the account exists and is active either way, and an
@@ -325,7 +346,8 @@ impl AuthService {
 
     /// Create a password account in the given approval state, with its
     /// personal tenant. Shared by every path that creates one: registration
-    /// and an accepted invitation.
+    /// and an accepted invitation. `self_activates` says a proven address
+    /// will activate it, so a Pending one is not announced for review.
     ///
     /// # Errors
     ///
@@ -341,6 +363,7 @@ impl AuthService {
             Option<chrono::DateTime<Utc>>,
             Option<uuid::Uuid>,
         ),
+        self_activates: bool,
     ) -> AppResult<(uuid::Uuid, User)> {
         let password_hash = Self::hash_password(password).await?;
 
@@ -377,7 +400,6 @@ impl AuthService {
                 AppError::database(format!("Failed to assign tenant: {e}"))
             })?;
 
-        let self_activates = self.activates_on_verified_email().await;
         Self::announce_if_pending(&user, tenant_id, self_activates);
 
         Ok((user_id, user))
