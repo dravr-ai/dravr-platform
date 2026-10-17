@@ -8,6 +8,10 @@
  * days with their session steps. The platform is the one authority on that
  * shape, so this crate neither validates nor reshapes it — doing either would
  * make photograveur a second authority on a projection the platform owns.
+ *
+ * The block around the plan is carried the same way: whatever else the
+ * platform wrote on it serializes back beside `plan`, so a client reads it off
+ * the resolved block as it would off the stored one.
  */
 export type WorkoutPlanView = { 
 /**
@@ -18,4 +22,4 @@ plan: unknown,
 /**
  * The tool whose call produced the plan.
  */
-source_tool: string, };
+source_tool: string, [key: string]: unknown };
