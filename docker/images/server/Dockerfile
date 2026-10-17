@@ -158,7 +158,14 @@ WORKDIR /app
 # uncleared): six HIGH findings, each CVE once for curl, libcurl3t64-gnutls and
 # libcurl4t64. The 2026-10-14 deploy of a2d6c608d, which touched no Docker
 # file, was gated with deb13u5 installed under "apt security epoch: 2026-10-12".
-ARG APT_SECURITY_EPOCH=2026-10-14
+# expat 2.9.0-1~deb13u1 closes CVE-2026-66046 and CVE-2026-76956 (denial of
+# service through quadratic parsing and hash flooding), CVE-2026-76957 (memory
+# corruption), CVE-2026-77214 (heap over-read in XML_ParseBuffer) and
+# CVE-2026-93990 (XML injection through malformed UTF-16): five HIGH findings,
+# one per CVE, all on libexpat1. The 2026-10-17 deploy of
+# 64f8c89b1, which touched no Docker file, was gated with 2.8.3-1~deb13u1
+# installed under "apt security epoch: 2026-10-14".
+ARG APT_SECURITY_EPOCH=2026-10-17
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
