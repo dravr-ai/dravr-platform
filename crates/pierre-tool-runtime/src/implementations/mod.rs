@@ -244,10 +244,13 @@ pub mod playbooks;
 pub mod training_plan_authorship;
 /// The compliance rail — a saved week measured against its phase and flavour, Log-only.
 pub mod training_plan_compliance;
-/// The goal-race fact a saved plan converges on, and the superseded ones it retires.
-pub mod training_plan_goal;
+/// A coach's draft on the tool path: the save into it, the read of it, and
+/// `publish_training_plan` with the publish entry point the routes share.
+pub mod training_plan_drafts;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
+/// The rails every write to an athlete's live plan runs once it commits.
+pub mod training_plan_rails;
 /// The opening week's ramp against the athlete's recent load, on the save path.
 pub mod training_plan_ramp;
 pub mod training_plan_readiness;

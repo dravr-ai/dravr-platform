@@ -49,6 +49,21 @@ pub mod analytics;
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
 
+/// The one display-name rule a member is rendered by, on every build.
+pub mod athlete_display_name;
+
+/// Whether a group's human coach may act for one athlete, by id (carnet#1070).
+pub mod coached_athlete;
+
+/// A human coach's draft of an athlete's plan: the view, publish and discard (carnet#1069).
+pub mod coach_plan_draft;
+
+/// The notices an athlete gets when their human coach publishes or pushes their plan (carnet#1069).
+pub mod coach_plan_notice;
+
+/// The goal-race fact a live plan converges on, and the superseded ones it retires.
+pub mod plan_goal_fact;
+
 /// The athlete's state as the use-case starters read it (carnet#828).
 pub mod athlete_state;
 
@@ -423,6 +438,9 @@ pub mod delegated_read;
 /// Whether a linked member's wellness syncs through their human coach's key, decided at each sync.
 #[cfg(feature = "health-sync")]
 pub mod delegated_wellness;
+
+/// What a human coach reads of a coached athlete's wellness: only what their link filed under `wellness_read`.
+pub mod linked_wellness;
 
 /// The coaching platforms a coach's own account reads group athletes through: `TrainingPeaks`, Intervals.icu.
 pub mod coach_platform;

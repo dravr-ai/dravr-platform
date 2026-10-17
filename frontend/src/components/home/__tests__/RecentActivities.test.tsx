@@ -18,7 +18,6 @@ import type {
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { RecentActivities } from '../RecentActivities';
 import { formatSyncTime } from '@pierre/ui-logic';
-import { formatNameList } from '../../../utils/formatNameList';
 import { activity, providerStatus, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
 
 const api = vi.hoisted(() => ({
@@ -494,14 +493,6 @@ describe('RecentActivities', () => {
     await settled();
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
     expect(screen.queryByTestId('home-activity-latest')).toBeNull();
-  });
-
-  it('joins provider names the way the language does', () => {
-    expect(formatNameList(['Garmin'], 'en')).toBe('Garmin');
-    expect(formatNameList(['Garmin', 'Strava'], 'en')).toBe('Garmin and Strava');
-    expect(formatNameList(['Garmin', 'Strava', 'COROS'], 'en')).toBe('Garmin, Strava, and COROS');
-    expect(formatNameList(['Garmin', 'Strava'], 'fr')).toBe('Garmin et Strava');
-    expect(formatNameList(['Garmin', 'Strava', 'COROS'], 'de')).toBe('Garmin, Strava und COROS');
   });
 
   it('says the activities could not be loaded, and offers a retry', async () => {

@@ -1,4 +1,4 @@
-// ABOUTME: TrainingPlanRepository trait — persistence for the athlete's one training plan, authored by agents
+// ABOUTME: TrainingPlanRepository trait — persistence for the athlete's one training plan and a human coach's draft of it
 // ABOUTME: One implementation, emitted per backend by impl_training_plan_repository!. Tenant-scoped throughout.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -15,8 +15,19 @@ use pierre_memory::training_plans::{
 mod codec;
 
 pub(crate) use codec::{
-    built_plan_week, built_training_plan, phase_index_column, plan_insert_values,
-    plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek,
+    built_plan_week, built_training_plan, phase_index_column, plan_draft_from_row,
+    plan_insert_values, plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan,
+    BuiltWeek, WeekInsertValues,
+};
+pub(crate) use draft::{
+    draft_insert_error, draft_outline_params, impl_training_plan_draft_helpers, CLAIM_DRAFT_SQL,
+    DISCARD_DRAFT_SQL, DRAFT_PLAN_SQL, DRAFT_WEEK_CONFLICTS_SQL, INSERT_DRAFT_FROM_LIVE_SQL,
+    INSERT_DRAFT_SQL, LIST_DRAFT_WEEKS_SQL, LIVE_WEEK_ID_SQL, PUBLISHED_DRAFT_SQL,
+    RELAY_DRAFT_OUTLINE_SQL,
+};
+pub use draft::{
+    DraftConflicts, DraftOwner, DraftPreview, DraftPublish, PlanDraft, PublishDraftParams,
+    PublishedDraft, SaveDraftParams, SavedDraftBundle,
 };
 
 /// A new plan outline to persist. Saving supersedes the athlete's current
@@ -272,6 +283,52 @@ pub trait TrainingPlanRepository: Send + Sync {
         plan_id: &str,
         include_superseded: bool,
     ) -> AppResult<Vec<PlanWeek>>;
+
+    /// Fetch the coach's open draft of the athlete's plan, or `None` when the
+    /// coach holds none.
+    async fn get_draft_plan(&self, owner: DraftOwner<'_>) -> AppResult<Option<PlanDraft>>;
+
+    /// List the weeks the coach saved into their open draft `draft_id`, in
+    /// calendar order: the draft's own version of each, never the live one.
+    /// Empty when `draft_id` is not the coach's open draft of this athlete.
+    async fn list_draft_weeks(
+        &self,
+        owner: DraftOwner<'_>,
+        draft_id: &str,
+    ) -> AppResult<Vec<PlanWeek>>;
+
+    /// Save into the coach's draft of the athlete's plan in one transaction,
+    /// opening the draft when the coach holds none.
+    ///
+    /// A draft opens with the outline the save carries, or — a weeks-only
+    /// save — a verbatim copy of the athlete's live outline; a weeks-only
+    /// save with no live season to copy is invalid input. An outline saved
+    /// into an open draft re-lays the draft's outline in place. Each week
+    /// supersedes the draft's own version of its `week_start` and records the
+    /// live version it was written over, which is how publishing tells a week
+    /// the athlete changed since. Nothing the athlete reads changes.
+    async fn save_draft_bundle(&self, params: &SaveDraftParams<'_>) -> AppResult<SavedDraftBundle>;
+
+    /// The coach's open draft and what publishing it now would overwrite, or
+    /// `None` when the coach holds none. Reads only.
+    async fn preview_draft_publish(&self, owner: DraftOwner<'_>)
+        -> AppResult<Option<DraftPreview>>;
+
+    /// Make the coach's draft the athlete's live plan, in one transaction.
+    ///
+    /// The conflicts are read first, inside the transaction: with any and no
+    /// [`PublishDraftParams::overwrite`] nothing is written. Otherwise the
+    /// draft replays through the live save path — a re-laid outline
+    /// supersedes the live season and carries its weeks, a copied one leaves
+    /// the season as it is — each drafted week supersedes the live week of
+    /// its `week_start`, and the draft is marked `published`. Weeks the coach
+    /// never drafted keep the athlete's version.
+    async fn publish_draft(&self, params: &PublishDraftParams<'_>) -> AppResult<DraftPublish>;
+
+    /// Throw the coach's open draft away (status `discarded`), returning its
+    /// id, or `None` when the coach holds none. The athlete's plan is
+    /// untouched.
+    async fn discard_draft(&self, owner: DraftOwner<'_>) -> AppResult<Option<String>>;
 }
 
 // ============================================================================
@@ -317,6 +374,13 @@ pub struct TrainingPlanRow {
     pub updated_at: i64,
     /// `first_party_only` stamp (carnet#769).
     pub first_party_only: bool,
+    /// `drafted_by_user_id` column: the coach owning a draft row, `None` on a
+    /// row of the athlete's season.
+    pub drafted_by_user_id: Option<String>,
+    /// `draft_base_plan_id` column: the live season a draft began from.
+    pub draft_base_plan_id: Option<String>,
+    /// `outline_drafted` column: whether a draft re-laid the outline.
+    pub outline_drafted: bool,
 }
 
 /// Raw `training_plan_weeks` row as read from either backend.
@@ -355,7 +419,7 @@ pub struct PlanWeekRow {
     pub updated_at: i64,
 }
 
-/// The eighteen columns every outline read returns, in the order
+/// The twenty-one columns every outline read returns, in the order
 /// [`plan_row`] reads them. One list after `SELECT`, inside `INSERT (...)`
 /// and after `RETURNING`, so a column added to [`TrainingPlanRow`] reaches
 /// every statement at once.
@@ -363,7 +427,19 @@ macro_rules! plan_columns {
     () => {
         "id, tenant_id, user_id, author_agent_id, goal_fact_id, goal_race_json, \
          races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
-         created_at, updated_at, flavour_json, season_start, season_end, first_party_only"
+         created_at, updated_at, flavour_json, season_start, season_end, first_party_only, \
+         drafted_by_user_id, draft_base_plan_id, outline_drafted"
+    };
+}
+
+/// The condition a week read adds so that only the weeks of the athlete's
+/// season and its history come back — never a coach's draft (`draft`) nor
+/// what remains of one (`published`, `discarded`). `$1`, `$2` and `$3` are
+/// the tenant, user and plan the read names.
+macro_rules! season_parent {
+    () => {
+        "EXISTS (SELECT 1 FROM training_plans p WHERE p.id = $3 AND p.tenant_id = $1 \
+         AND p.user_id = $2 AND p.status IN ('active', 'superseded', 'completed', 'abandoned'))"
     };
 }
 
@@ -376,6 +452,10 @@ macro_rules! week_columns {
          author_agent_id"
     };
 }
+
+/// A human coach's draft: its types, statements and in-transaction helpers.
+/// Declared after the column macros, which its statements are built from.
+mod draft;
 
 /// Mark the athlete's active outline superseded, whoever laid it, returning
 /// its id and the calendar the replacement inherits. The statement for a save
@@ -406,7 +486,8 @@ pub(crate) const SUPERSEDE_OWN_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
 pub(crate) const INSERT_PLAN_SQL: &str = concat!(
     "INSERT INTO training_plans (",
     plan_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, $13, $14, $15, $16)"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, $13, $14, $15, $16, \
+     NULL, NULL, FALSE)"
 );
 
 /// Mark the active row for one `week_start` superseded, returning its id.
@@ -457,22 +538,26 @@ pub(crate) const CLAIM_ACTIVE_PLAN_SQL: &str = concat!(
     plan_columns!()
 );
 
-/// Every week of one outline, superseded rows included, in supersession order.
+/// Every week of one outline of the athlete's season, superseded rows
+/// included, in supersession order. A draft's weeks never come back.
 pub(crate) const LIST_ALL_PLAN_WEEKS_SQL: &str = concat!(
     "SELECT ",
     week_columns!(),
     " FROM training_plan_weeks \
-     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 \
-     ORDER BY week_start ASC, created_at ASC"
+     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 AND ",
+    season_parent!(),
+    " ORDER BY week_start ASC, created_at ASC"
 );
 
-/// The active weeks of one outline.
+/// The active weeks of one outline of the athlete's season. A draft's weeks
+/// never come back.
 pub(crate) const LIST_ACTIVE_PLAN_WEEKS_SQL: &str = concat!(
     "SELECT ",
     week_columns!(),
     " FROM training_plan_weeks \
-     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 AND status = 'active' \
-     ORDER BY week_start ASC"
+     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 AND status = 'active' AND ",
+    season_parent!(),
+    " ORDER BY week_start ASC"
 );
 
 fn plan_column_error(column: &str, e: &sqlx::Error) -> AppError {
@@ -525,6 +610,11 @@ where
         first_party_only: row
             .try_get("first_party_only")
             .map_err(|e| plan_column_error("first_party_only", &e))?,
+        drafted_by_user_id: opt("drafted_by_user_id")?,
+        draft_base_plan_id: opt("draft_base_plan_id")?,
+        outline_drafted: row
+            .try_get("outline_drafted")
+            .map_err(|e| plan_column_error("outline_drafted", &e))?,
     })
 }
 
@@ -569,6 +659,20 @@ where
             .try_get("phase_index")
             .map_err(|e| plan_column_error("phase_index", &e))?,
     })
+}
+
+/// Where a week row is written: the plan it attaches to, under one tenant and
+/// user, and the agent that wrote it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WeekTarget<'a> {
+    /// Owning tenant.
+    pub(crate) tenant_id: &'a str,
+    /// Athlete the week is for.
+    pub(crate) user_id: &'a str,
+    /// The plan — a live outline or a coach's draft — the week attaches to.
+    pub(crate) plan_id: &'a str,
+    /// Who wrote this version of the week.
+    pub(crate) author: PlanAuthor<'a>,
 }
 
 /// Emit the whole [`TrainingPlanRepository`] implementation for one backend
@@ -778,26 +882,41 @@ macro_rules! impl_training_plan_repository {
         /// an in-transaction connection. The caller resolves `plan_id` from a plan it
         /// created or claimed for this tenant + user in the same transaction, so the
         /// week can never attach to another athlete's (or tenant's) plan. The week is
-        /// authored by this save's writer; the row it supersedes keeps its own author
-        /// in the history.
+        /// authored by `author`; the row it supersedes keeps its own author in the
+        /// history.
         async fn supersede_and_insert_week(
             conn: &mut <$db as sqlx::Database>::Connection,
-            params: &SavePlanBundleParams<'_>,
-            plan_id: &str,
+            target: WeekTarget<'_>,
             week: &PlanWeekInput<'_>,
         ) -> AppResult<PlanWeek> {
-            let tenant_id = params.tenant_id;
-            let user_id = params.user_id;
             let v = week_insert_values(week.days)?;
             let superseded: Option<String> = sqlx::query_scalar(SUPERSEDE_ACTIVE_WEEK_SQL)
                 .bind(v.now)
-                .bind(tenant_id)
-                .bind(user_id)
-                .bind(plan_id)
+                .bind(target.tenant_id)
+                .bind(target.user_id)
+                .bind(target.plan_id)
                 .bind(week.week_start)
                 .fetch_optional(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("supersede active week: {e}")))?;
+            insert_week(conn, target, week, superseded, v).await
+        }
+
+        /// Insert one active week row naming the row it supersedes, on an
+        /// in-transaction connection.
+        async fn insert_week(
+            conn: &mut <$db as sqlx::Database>::Connection,
+            target: WeekTarget<'_>,
+            week: &PlanWeekInput<'_>,
+            superseded: Option<String>,
+            v: WeekInsertValues,
+        ) -> AppResult<PlanWeek> {
+            let WeekTarget {
+                tenant_id,
+                user_id,
+                plan_id,
+                author,
+            } = target;
             sqlx::query(INSERT_WEEK_SQL)
                 .bind(&v.id)
                 .bind(tenant_id)
@@ -810,7 +929,7 @@ macro_rules! impl_training_plan_repository {
                 .bind(week.adjustment_reason)
                 .bind(v.now)
                 .bind(phase_index_column(week.phase_index)?)
-                .bind(params.author.stored())
+                .bind(author.stored())
                 .execute(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;
@@ -825,7 +944,7 @@ macro_rules! impl_training_plan_repository {
                 superseded,
                 adjustment_reason: week.adjustment_reason,
                 phase_index: week.phase_index,
-                author_agent_id: params.author.agent_id(),
+                author_agent_id: author.agent_id(),
                 now: v.now,
             })
         }
@@ -909,9 +1028,15 @@ macro_rules! impl_training_plan_repository {
                     (plan, None)
                 };
 
+                let target = WeekTarget {
+                    tenant_id: params.tenant_id,
+                    user_id: params.user_id,
+                    plan_id: &plan.id,
+                    author: params.author,
+                };
                 let mut weeks = Vec::with_capacity(params.weeks.len());
                 for w in params.weeks {
-                    weeks.push(supersede_and_insert_week(&mut tx, params, &plan.id, w).await?);
+                    weeks.push(supersede_and_insert_week(&mut tx, target, w).await?);
                 }
 
                 tx.commit()
@@ -961,6 +1086,63 @@ macro_rules! impl_training_plan_repository {
                 rows.iter()
                     .map(|r| week_row(r).and_then(plan_week_from_row))
                     .collect()
+            }
+
+            async fn get_draft_plan(&self, owner: DraftOwner<'_>) -> AppResult<Option<PlanDraft>> {
+                let mut conn = self
+                    .pool()
+                    .acquire()
+                    .await
+                    .map_err(|e| AppError::database(format!("acquire for draft read: {e}")))?;
+                read_draft(&mut conn, owner)
+                    .await?
+                    .map(plan_draft_from_row)
+                    .transpose()
+            }
+
+            async fn list_draft_weeks(
+                &self,
+                owner: DraftOwner<'_>,
+                draft_id: &str,
+            ) -> AppResult<Vec<PlanWeek>> {
+                let mut conn = self
+                    .pool()
+                    .acquire()
+                    .await
+                    .map_err(|e| AppError::database(format!("acquire for draft weeks: {e}")))?;
+                draft_weeks(&mut conn, owner, draft_id).await
+            }
+
+            async fn save_draft_bundle(
+                &self,
+                params: &SaveDraftParams<'_>,
+            ) -> AppResult<SavedDraftBundle> {
+                save_draft_on(self.pool(), params).await
+            }
+
+            async fn preview_draft_publish(
+                &self,
+                owner: DraftOwner<'_>,
+            ) -> AppResult<Option<DraftPreview>> {
+                preview_draft_on(self.pool(), owner).await
+            }
+
+            async fn publish_draft(
+                &self,
+                params: &PublishDraftParams<'_>,
+            ) -> AppResult<DraftPublish> {
+                publish_draft_on(self.pool(), params).await
+            }
+
+            async fn discard_draft(&self, owner: DraftOwner<'_>) -> AppResult<Option<String>> {
+                sqlx::query_scalar(DISCARD_DRAFT_SQL)
+                    .bind(owner.tenant_id)
+                    .bind(owner.user_id)
+                    .bind(owner.coach_user_id)
+                    .bind(Utc::now().timestamp())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("discard draft: {e}")))
             }
         }
     };

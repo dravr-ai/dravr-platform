@@ -63,6 +63,26 @@ describe('ConversationRow', () => {
     expect(queryByTestId('conversation-mention-conv-1')).toBeNull();
   });
 
+  it("marks a coach's plan thread with the clipboard glyph, says so aloud, and names its athlete", () => {
+    const { getByTestId, queryByTestId } = renderRow(
+      row({
+        title: 'Marathon Coach',
+        agent_id: 'coach-1',
+        agent_handle: 'marathon-coach',
+        agent_title: 'Marathon Coach',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-1',
+        subject_display_name: 'Alice Runner',
+      }),
+    );
+
+    expect(getByTestId('conversation-kind-conv-1').props.accessibilityLabel).toBe('Athlete plan');
+    expect(getByTestId('conversation-row-conv-1').props.accessibilityLabel).toContain('Athlete plan, Marathon Coach');
+    expect(getByTestId('conversation-subject-conv-1')).toHaveTextContent('Alice Runner');
+    // Every plan thread of a group runs on its agent: the handle names none of them apart.
+    expect(queryByTestId('conversation-handle-conv-1')).toBeNull();
+  });
+
   it('is a 72-point row around a 48-point avatar, with the hairline inset to the text column', () => {
     const { getByTestId, UNSAFE_getAllByType } = renderRow(row());
     // The touchable's className lives on the composite, not the host view.

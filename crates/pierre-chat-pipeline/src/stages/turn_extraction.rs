@@ -13,8 +13,10 @@ use pierre_services::memory_dedup::DedupConfig;
 use pierre_services::memory_extraction::{
     spawn_extract_for_turn, ExtractionJobPayload, SpawnedExtractionRequest,
 };
+use tracing::debug;
 
 use crate::stages::onboarding::{extraction_params_or_default, GuidedTarget};
+use crate::stages::subject_athlete::files_on_sender;
 use crate::{ChatPipelineContext, TurnInput};
 
 /// The two tenants one turn's extraction runs under.
@@ -60,6 +62,11 @@ impl ExtractionTenants {
 /// `answered` is the guided topic the athlete's inbound message replies to (see
 /// [`stages::onboarding::answered_target`]), which is what extraction reads —
 /// never the topic this turn goes on to ask.
+///
+/// Every extraction a turn owes is spawned here — after the reply, on a
+/// scope-rail answer and on a guided walk's closing answer — so a coach's
+/// thread about one athlete is refused here, once: what it says is filed on
+/// nobody's account ([`files_on_sender`]).
 pub(crate) async fn spawn_turn_extraction(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -69,6 +76,10 @@ pub(crate) async fn spawn_turn_extraction(
     answered: Option<GuidedTarget>,
     plan_was_saved: bool,
 ) {
+    if !files_on_sender(conv) {
+        debug!("coach's athlete thread: nothing it says is extracted as a fact");
+        return;
+    }
     let (pillar, source, force_kind) = extraction_params_or_default(answered);
     let tenants = ExtractionTenants::for_turn(input);
     // The de-dup tunables are read per turn, so a threshold change through

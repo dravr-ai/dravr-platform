@@ -156,7 +156,9 @@ macro_rules! user_owned_tables {
         /// before the conversation's and find it still there.
         ///
         /// Each is the user's own data: memberships, provider tokens and
-        /// connections, health and activity rows, plans, facts, notifications,
+        /// connections, health and activity rows, plans (and the drafts a coach
+        /// wrote of their athletes' plans, which live beside those athletes'
+        /// seasons), facts, notifications,
         /// messaging history, device tokens, OAuth server grants, A2A client
         /// keys, usage records. A row attributing an act to the user in
         /// someone else's record is not here: those that do not cascade block
@@ -213,8 +215,8 @@ user_owned_tables!(
     "user_physiological_profiles",
     "user_llm_credentials_audit",
     "fitness_configurations",
-    "training_plan_weeks",
-    "training_plans",
+    "training_plan_weeks" where "CAST(user_id AS TEXT) = $1 OR plan_id IN (SELECT p.id FROM training_plans p WHERE p.drafted_by_user_id = $1)",
+    "training_plans" where "CAST(user_id AS TEXT) = $1 OR drafted_by_user_id = $1",
     "training_history",
     "prescribed_workouts",
     "workout_templates",

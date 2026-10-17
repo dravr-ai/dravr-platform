@@ -10,8 +10,9 @@ import { Alert } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CoachingGroup, GroupMember, GroupRole } from '@pierre/shared-types';
 
+const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn() }),
+  useRouter: () => ({ push: mockPush, replace: jest.fn(), back: jest.fn(), navigate: jest.fn() }),
 }));
 
 const GROUP: CoachingGroup = {
@@ -75,6 +76,9 @@ jest.mock('../src/services/api', () => ({
     getCoachAccessRequest: jest.fn(),
     requestCoachAccess: jest.fn(),
   },
+  chatApi: {
+    openAthleteThread: jest.fn(),
+  },
 }));
 
 let mockCallerId = 'user-owner';
@@ -85,7 +89,8 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { GroupInfoSheet } from '../src/screens/groups/GroupInfoSheet';
-import { coachesApi, groupsApi, userApi } from '../src/services/api';
+import { chatApi, coachesApi, groupsApi, userApi } from '../src/services/api';
+import { threadHref } from '../src/navigation/routes';
 
 /** The onboarding status, answering whether the caller coaches others. */
 function onboardingStatus(coachesOthers: boolean) {
@@ -478,6 +483,124 @@ describe('GroupInfoSheet', () => {
     // Stats and invites refuse a non-member, so the coach never asks for them.
     expect(groupsApi.getStats).not.toHaveBeenCalled();
     expect(groupsApi.listInvites).not.toHaveBeenCalled();
+  });
+
+  it("offers the group's coach a way into each member's plan, and opens that thread", async () => {
+    mockCallerId = 'user-coach';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    (chatApi.openAthleteThread as jest.Mock).mockResolvedValue({
+      id: 'conv-plan-phil',
+      title: 'Phil',
+      subject_user_id: 'user-phil',
+      subject_group_id: 'group-1',
+      subject_display_name: 'Phil',
+      message_count: 0,
+      created_at: '2026-10-16T12:00:00Z',
+      updated_at: '2026-10-16T12:00:00Z',
+    });
+    const { findByTestId, getByTestId, handlers } = renderSheet();
+
+    const action = await findByTestId('member-work-on-plan-user-phil');
+    expect(action.props.accessibilityLabel).toBe("Work on Phil's plan");
+    expect(getByTestId('member-work-on-plan-user-owner').props.accessibilityLabel).toBe(
+      "Work on ChefFamille's plan",
+    );
+    await act(async () => {
+      fireEvent.press(action);
+    });
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(threadHref('conv-plan-phil')));
+    expect(chatApi.openAthleteThread).toHaveBeenCalledWith('user-phil', 'group-1');
+    expect(handlers.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a coach who is also a member every other member's plan, never their own", async () => {
+    // The caller owns the group, holds its membership row, and coaches it:
+    // the server admits them for every other member and refuses them for
+    // themselves.
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue({
+      ...GROUP,
+      coach_user_id: 'user-owner',
+      coach_display_name: 'ChefFamille',
+    });
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+    expect((await findByTestId('member-work-on-plan-user-phil')).props.accessibilityLabel).toBe("Work on Phil's plan");
+    expect(getByTestId('group-member-user-owner')).toBeTruthy();
+    expect(queryByTestId('member-work-on-plan-user-owner')).toBeNull();
+  });
+
+  describe('when the server refuses the plan thread', () => {
+    beforeEach(() => {
+      mockCallerId = 'user-coach';
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+      (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    });
+
+    it('says the athlete stopped sharing, which no retry changes, and stays put', async () => {
+      // The coaching gate refuses with its reason in `details`, as every
+      // platform refusal carries it.
+      (chatApi.openAthleteThread as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const { findByTestId, handlers } = renderSheet();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('member-work-on-plan-user-phil'));
+      });
+
+      await waitFor(() =>
+        expect(Alert.alert).toHaveBeenCalledWith('Error', "Phil stopped sharing with you, so their plan can't be changed."),
+      );
+      expect(Alert.alert).not.toHaveBeenCalledWith('Error', "We couldn't open this plan thread. Please try again.");
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(handlers.onClose).not.toHaveBeenCalled();
+    });
+
+    it('asks the coach to try again on any other refusal, and stays put', async () => {
+      (chatApi.openAthleteThread as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 404'), {
+          response: { status: 404, data: { code: 'ResourceNotFound', details: { reason: 'not_a_member' } } },
+        }),
+      );
+      const { findByTestId, handlers } = renderSheet();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('member-work-on-plan-user-phil'));
+      });
+
+      await waitFor(() =>
+        expect(Alert.alert).toHaveBeenCalledWith('Error', "We couldn't open this plan thread. Please try again."),
+      );
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(handlers.onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  it("never offers a member, even the owner, a way into another member's plan", async () => {
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const { findByTestId, queryByTestId } = renderSheet();
+
+    await findByTestId('group-member-user-phil');
+    expect(queryByTestId('member-work-on-plan-user-phil')).toBeNull();
+    expect(queryByTestId('member-work-on-plan-user-owner')).toBeNull();
+  });
+
+  it("never offers a plain member a way into anyone's plan", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const { findByTestId, queryByTestId } = renderSheet();
+
+    await findByTestId('group-member-user-owner');
+    expect(queryByTestId('member-work-on-plan-user-phil')).toBeNull();
+    expect(queryByTestId('member-work-on-plan-user-owner')).toBeNull();
   });
 
   it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {

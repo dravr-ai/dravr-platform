@@ -278,7 +278,8 @@ impl RecommendPlanFlavourTool {
         p.insert(
             "athlete".to_owned(),
             string_prop(
-                "A human coach reading a consenting athlete's profile from their own direct chat.",
+                "A human coach reading a consenting athlete's profile from their own direct chat. \
+                 In the coach's thread about one athlete it defaults to that athlete.",
             ),
         );
         p

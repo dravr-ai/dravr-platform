@@ -32,15 +32,16 @@ import {
   useUpdateMemberRole,
   useUpdatePeerConsent,
 } from '../../hooks/useGroups';
+import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
-import { CONNECTIONS_ROUTE } from '../../navigation/routes';
+import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError, useDistanceUnit } from '@pierre/ui-logic';
+import { describeApiError, openThreadRefusalText, useDistanceUnit } from '@pierre/ui-logic';
 import { inviteLink } from '../../constants/inviteLink';
 
 /** How long an invite created from this sheet stays redeemable. */
@@ -139,6 +140,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
+  const { openThread, pendingAthleteId } = useOpenAthleteThread();
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
@@ -300,6 +302,28 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     [updateConsent, t],
   );
 
+  /**
+   * Open the coach's plan thread for one member and go to it. The server
+   * checks the coaching link by id; a refusal leaves the coach where they
+   * are, told that the athlete stopped sharing when that is why, else asked
+   * to try again.
+   */
+  const handleWorkOnPlan = useCallback(
+    async (member: GroupMember) => {
+      try {
+        const thread = await openThread(member.user_id, groupId);
+        onClose();
+        router.push(threadHref(thread.id));
+      } catch (error) {
+        Alert.alert(
+          t('common.error'),
+          openThreadRefusalText(error, member.display_name ?? t('app.unknownMember'), t),
+        );
+      }
+    },
+    [groupId, onClose, openThread, router, t],
+  );
+
   const openConnections = useCallback(() => {
     onClose();
     router.push(CONNECTIONS_ROUTE as never);
@@ -404,6 +428,16 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 isRemoving={removingMemberId === member.user_id}
                 isChangingRole={roleChangingUserId === member.user_id}
                 last={index === members.length - 1}
+                // Only the group's coach works on an athlete's plan, whether
+                // or not they also hold a membership row, and never on their
+                // own row: the server refuses a coach acting for themselves.
+                // A member's view of the roster never carries the action.
+                onWorkOnPlan={
+                  isGroupCoach && member.user_id !== user?.id
+                    ? (picked) => void handleWorkOnPlan(picked)
+                    : undefined
+                }
+                isOpeningPlan={pendingAthleteId === member.user_id}
               />
             ))
           )}

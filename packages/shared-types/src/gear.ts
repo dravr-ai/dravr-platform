@@ -4,6 +4,8 @@
 // ABOUTME: The gear ledger wire shapes — the shoes the athlete declares, their distance, and the pair one activity was run in
 // ABOUTME: With their parsers and the bounds the server holds a declaration to, so a client refuses a bad field before sending it
 
+import { isInstant } from './instant.js';
+
 /**
  * The sports a pair of shoes is declared for, as the server spells them
  * (`shoe_sport_slug` in pierre-core). A `run` pair also takes treadmill runs,
@@ -111,10 +113,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDistance(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
-}
-
-function isInstant(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
 }
 
 function isNullableInstant(value: unknown): value is string | null {

@@ -2,6 +2,7 @@
 // ABOUTME: Mirrors the pierre-server `/api/me/...` handlers; each parser rejects a body of any other shape instead of rendering half of it
 
 import type { RouteView } from '@pierre/scene-types';
+import { isInstant } from './instant.js';
 import { isWorkoutPlan, type PlanDay, type PlanWeek, type WorkoutPlan } from './workout-plan.js';
 
 /**
@@ -339,10 +340,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isInstant(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
 }
 
 /**

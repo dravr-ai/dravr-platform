@@ -137,7 +137,9 @@ impl GroupCreateHandler {
     /// thread is never adopted: `/group create` claims its thread before this
     /// runs, and `/group join` claims none. Nor is the athlete's personal
     /// thread, however empty: it is the one Home opens and the coach posts
-    /// into, and a room is somebody else's history too (carnet#840). Any
+    /// into, and a room is somebody else's history too (carnet#840). Nor is a
+    /// coach's thread bound to one athlete: a room's replies reach every
+    /// member, and that thread works on one athlete's plan (carnet#1070). Any
     /// other thread is left as it is and a group-scoped conversation named
     /// after the group is created beside it, which is how a member's group
     /// chat is made everywhere else (`POST /api/chat/conversations` with a
@@ -157,7 +159,12 @@ impl GroupCreateHandler {
         let group_id = group.id.to_string();
 
         let in_app = ctx.sender_id.is_none();
-        if in_app && thread.group_id.is_none() && thread.archived_at.is_none() && !thread.personal {
+        if in_app
+            && thread.group_id.is_none()
+            && thread.archived_at.is_none()
+            && !thread.personal
+            && thread.subject_user_id.is_none()
+        {
             let messages = chat
                 .get_messages(&thread.id, &user_id, ctx.conversation_tenant_id)
                 .await?;

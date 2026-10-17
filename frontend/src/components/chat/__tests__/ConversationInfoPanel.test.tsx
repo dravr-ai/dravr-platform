@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the header info drawer's three shapes — Group info, Agent info, and a plain thread
+// ABOUTME: Tests for the header info drawer's four shapes — Group info, a plan thread's athlete, Agent info, and a plain thread
 // ABOUTME: Pins that the shape is read off the conversation and that Remove sends the /agent remove command
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -15,6 +15,7 @@ import { ToastProvider } from '../../ui';
 
 const listCoaches = vi.fn();
 const listParticipants = vi.fn();
+const getGroup = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
@@ -23,7 +24,7 @@ vi.mock('../../../services/api', () => ({
     addParticipant: vi.fn(),
     removeParticipant: vi.fn(),
   },
-  groupsApi: {},
+  groupsApi: { getGroup: (...a: unknown[]) => getGroup(...a) },
 }));
 
 vi.mock('../../groups/GroupInfoPanel', () => ({
@@ -97,6 +98,28 @@ describe('ConversationInfoPanel', () => {
     expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
     expect(screen.getByRole('dialog', { name: 'Group info' })).toBeInTheDocument();
     expect(screen.queryByTestId('coach-info-panel')).toBeNull();
+  });
+
+  it("draws a coach's plan thread as its athlete and their group, with no group or agent controls", async () => {
+    getGroup.mockResolvedValue({ id: 'group-7', name: 'Sunday Riders' });
+    renderPanel(
+      conversation({
+        title: 'Marathon Coach',
+        agent_id: 'coach-1',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-7',
+        subject_display_name: 'Alice Runner',
+      }),
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Athlete plan' })).toBeInTheDocument();
+    expect(screen.getByTestId('subject-info-name')).toHaveTextContent('Alice Runner');
+    expect(await screen.findByTestId('subject-info-group')).toHaveTextContent('Sunday Riders');
+    expect(getGroup).toHaveBeenCalledWith('group-7');
+    // Not the group surface, not the agent the thread runs on, not the plain rows.
+    expect(screen.queryByTestId('group-info-panel')).toBeNull();
+    expect(screen.queryByTestId('coach-info-panel')).toBeNull();
+    expect(screen.queryByTestId('conversation-info-delete')).toBeNull();
   });
 
   it('draws Agent info with the title, handle and mention hint for an agent thread', async () => {

@@ -36,12 +36,9 @@ use chrono::Utc;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-};
+use pierre_core::models::groups::{CoachingGroup, GroupRole};
 use pierre_core::models::{
-    AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, ProviderAccountRole,
-    RosterAthlete, UserOAuthToken,
+    ConnectionType, DelegatedConnection, ProviderAccountRole, RosterAthlete, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
@@ -50,9 +47,19 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::accounts::{account, Account};
+use crate::coached_group::{coaches_group_named, seed_coached_group, GroupSpec};
 
 /// The seeded group's name, which the member's thread is titled after.
 pub const GROUP_NAME: &str = "TrainingPeaks Squad";
+
+/// The seeded group, owned by the owner and planned on `TrainingPeaks` by its
+/// coach.
+const GROUP: GroupSpec<'static> = GroupSpec {
+    name: GROUP_NAME,
+    description: "Planned on TrainingPeaks by the group's coach",
+    agent_description: "The agent of the seeded TrainingPeaks coaching group",
+    agent_prompt: "You coach an endurance group whose human coach plans on TrainingPeaks.",
+};
 
 /// The roster athlete the coach proposed.
 pub const ATHLETE_ID: &str = "900001";
@@ -99,12 +106,19 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     let coach = account(repos, &args.coach_email).await?;
     let member = account(repos, &args.member_email).await?;
     let owner = account(repos, &args.owner_email).await?;
-    if coaches_the_group(repos, &coach, &args.coach_email).await? {
+    if coaches_group_named(repos, &coach, GROUP_NAME).await? {
         return Ok(());
     }
 
     seed_coach_account(repos, &coach).await?;
-    let group = seed_group(repos, &owner, &coach, &member).await?;
+    let group = seed_coached_group(
+        repos,
+        &GROUP,
+        &owner,
+        &coach,
+        &[(&owner, GroupRole::Owner), (&member, GroupRole::Member)],
+    )
+    .await?;
     seed_member_link(repos, &group, &coach, &member, &model).await?;
     info!(
         "Seeded {GROUP_NAME}: {} proposed {ATHLETE_NAME} ({ATHLETE_ID}) to {}",
@@ -112,24 +126,6 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         mask_email(&args.member_email)
     );
     Ok(())
-}
-
-/// Whether the coach already coaches the seeded group, which makes a rerun a
-/// no-op.
-async fn coaches_the_group(
-    repos: &RepositoryRegistry,
-    coach: &Account,
-    coach_email: &str,
-) -> AppResult<bool> {
-    let coached = repos.groups.list_groups_coached_by(coach.id).await?;
-    let already = coached.iter().any(|group| group.name == GROUP_NAME);
-    if already {
-        info!(
-            "{} already coaches {GROUP_NAME}; nothing to seed",
-            mask_email(coach_email)
-        );
-    }
-    Ok(already)
 }
 
 /// The member's and the coach's group threads, and the coach's link waiting
@@ -239,96 +235,4 @@ async fn seed_coach_account(repos: &RepositoryRegistry, coach: &Account) -> AppR
         .users
         .record_provider_terms(coach.id, SCIOTTE_TRAININGPEAKS, current)
         .await
-}
-
-/// The group: owned by `owner`, coached by `coach`, with the owner and the
-/// member in it.
-async fn seed_group(
-    repos: &RepositoryRegistry,
-    owner: &Account,
-    coach: &Account,
-    member: &Account,
-) -> AppResult<CoachingGroup> {
-    let agent_id = repos
-        .agents
-        .create(
-            owner.id,
-            owner.tenant,
-            &CreateAgentRequest {
-                title: format!("{GROUP_NAME} Agent"),
-                description: Some(
-                    "The agent of the seeded TrainingPeaks coaching group".to_owned(),
-                ),
-                system_prompt:
-                    "You coach an endurance group whose human coach plans on TrainingPeaks."
-                        .to_owned(),
-                category: AgentCategory::Custom,
-                tags: vec![],
-                sample_prompts: vec![],
-                startup_query: None,
-                data_requirements: None,
-                purpose: None,
-                when_to_use: None,
-                instructions: None,
-                example_inputs: None,
-                example_outputs: None,
-                success_criteria: None,
-                max_tool_iterations: None,
-            },
-        )
-        .await?
-        .id
-        .to_string();
-
-    let now = Utc::now();
-    let group = repos
-        .groups
-        .create_group(
-            owner.tenant,
-            &CoachingGroup {
-                id: Uuid::new_v4(),
-                tenant_id: owner.tenant.to_string(),
-                name: GROUP_NAME.to_owned(),
-                description: Some("Planned on TrainingPeaks by the group's coach".to_owned()),
-                agent_id,
-                owner_id: owner.id,
-                coach_user_id: None,
-                peer_data_sharing: false,
-                respond_mode: GroupRespondMode::default(),
-                digest_mode: GroupDigestMode::Off,
-                max_members: 10,
-                is_active: true,
-                channel_type: None,
-                channel_chat_id: None,
-                created_at: now,
-                updated_at: now,
-            },
-        )
-        .await?;
-    repos
-        .groups
-        .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
-        .await?;
-    for (account, role) in [(owner, GroupRole::Owner), (member, GroupRole::Member)] {
-        repos
-            .groups
-            .add_member(&GroupMember {
-                id: Uuid::new_v4(),
-                group_id: group.id,
-                user_id: account.id,
-                tenant_id: account.tenant.to_string(),
-                role,
-                peer_sharing_consent: false,
-                coach_sharing_consent: true,
-                consent_given_at: now,
-                joined_at: now,
-                left_at: None,
-                display_name: None,
-            })
-            .await?;
-    }
-    Ok(CoachingGroup {
-        coach_user_id: Some(coach.id),
-        ..group
-    })
 }

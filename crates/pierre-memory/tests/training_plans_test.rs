@@ -20,6 +20,9 @@ fn statuses_roundtrip_through_db_strings() {
         PlanStatus::Superseded,
         PlanStatus::Completed,
         PlanStatus::Abandoned,
+        PlanStatus::Draft,
+        PlanStatus::Published,
+        PlanStatus::Discarded,
     ] {
         assert_eq!(PlanStatus::parse(status.as_str()), Some(status));
     }

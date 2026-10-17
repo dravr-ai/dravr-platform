@@ -21,6 +21,7 @@ use pierre_chat_pipeline::{
     NoticeKind, QuotaState, ReplyBlock, TurnAction, TurnEnvelope, TurnTelemetry,
 };
 use pierre_database::database::MessageRecord;
+use pierre_services::plan_card::PlanCardDraft;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -120,6 +121,10 @@ pub enum ReplyBlockResponse {
     WorkoutPlan {
         /// The validated plan object.
         plan: Value,
+        /// `subject` and `draft` beside `plan`, on a card in a human coach's
+        /// thread about one athlete (carnet#1070); absent on every other card.
+        #[serde(flatten)]
+        coach_draft: Option<PlanCardDraft>,
     },
     /// The athlete's activities, rendered as their own panel.
     ActivityList {
@@ -295,8 +300,9 @@ fn reply_block(block: ReplyBlock, reply_locale: &str) -> Option<ReplyBlockRespon
             mime_type,
             caption,
         },
-        ReplyBlock::WorkoutPlan { plan } => ReplyBlockResponse::WorkoutPlan {
+        ReplyBlock::WorkoutPlan { plan, coach_draft } => ReplyBlockResponse::WorkoutPlan {
             plan: serde_json::from_str(&plan).ok()?,
+            coach_draft,
         },
         ReplyBlock::ActivityList { text } => ReplyBlockResponse::ActivityList { text },
         ReplyBlock::Verdicts { chips } => ReplyBlockResponse::Verdicts {

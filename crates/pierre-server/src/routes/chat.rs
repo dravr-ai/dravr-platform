@@ -11,6 +11,8 @@
 //! - [`chat::conversations`] — CRUD on `chat_conversations` + message listing
 //! - [`chat::participants`] — who is in a conversation: list / add / remove
 //! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
+//! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
+//! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
@@ -30,6 +32,8 @@ mod read_marker;
 mod send_message;
 mod starters;
 mod stop_turn;
+mod subject_plan;
+mod subject_thread;
 mod turn_response;
 
 use std::sync::Arc;
@@ -90,6 +94,27 @@ impl ChatRoutes {
             .route(
                 "/api/chat/personal/topics",
                 post(personal::open_personal_topic),
+            )
+            // A group's human coach opens (or reopens) their thread about one
+            // athlete they coach (carnet#1070)
+            .route(
+                "/api/chat/athletes/{athlete_user_id}/thread",
+                post(subject_thread::open_subject_thread),
+            )
+            // In that thread, the coach's draft of the athlete's plan: read
+            // it beside the live plan, publish it, or throw it away
+            // (carnet#1069)
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan",
+                get(subject_plan::get_subject_plan),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/publish",
+                post(subject_plan::publish_subject_plan),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft",
+                delete(subject_plan::discard_subject_plan_draft),
             )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)

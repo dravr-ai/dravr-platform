@@ -20,6 +20,7 @@ export {
   DIVIDER_FINISH_REASON,
   isDivider,
   isModelReply,
+  planCardDraft,
   transcriptBlocks,
   withVerdictRows,
 } from './blocks';
@@ -163,6 +164,14 @@ export { formatDate, formatDateTime } from './date-format';
 // What a chat header says under the title, with one precedence for both clients
 export { threadSubtitle } from './thread-subtitle';
 export type { ThreadSubtitle } from './thread-subtitle';
+
+// Several items as one phrase in the reader's language, on every runtime
+export { formatList } from './list-format';
+
+// A coach's plan thread for one athlete and the draft card in it: the
+// catalogue keys, and how a refused publish names what it collided with
+export { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, planConflictText } from './plan-draft';
+export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
 // The header's fallback line when there is no group and no handle to name:
 // which providers the coach can see, or that none are connected.

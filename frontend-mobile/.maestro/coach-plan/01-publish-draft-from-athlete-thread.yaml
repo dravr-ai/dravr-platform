@@ -1,0 +1,161 @@
+# ABOUTME: A group's human coach goes from Group info to "Work on <name>'s plan", lands in the athlete's thread and publishes the draft on its card
+# ABOUTME: Real backend; each attempt's coach and athlete are seeded fresh by the control process (frontend/e2e-real/home-sync-control.ts)
+
+# The phone half of frontend/e2e/coach-plan-thread.spec.ts (carnet#1069/#1070),
+# against the real server where the web spec mocks every route. The card's
+# draft controls come from a reply a turn left, and the CI stack has no model
+# to run one, so the control process seeds that reply with the rest of the
+# scenario through `pierre-cli seed coach-plan-thread`
+# (crates/pierre-seeders/src/coach_plan_thread.rs): a group the coach coaches
+# without a membership row, the athlete in it sharing with the coach, the
+# athlete's live season, the coach's thread about the athlete, and the card of
+# the coach's open draft over that season.
+#
+# Publishing consumes the draft, so every attempt asks for a new coach and
+# athlete: a retried attempt, and the iOS lane's re-run of a whole batch, find
+# a draft still to publish. What the flow asserts — the athlete's name, the
+# group's, both seasons' races — comes back in the control's answer, read from
+# the server as the coach, and the publish is checked once more as the athlete
+# reads their season.
+#
+# The coach signs in on the hosted page, so Chrome's session cookie on Android
+# is cleared before the sign-in and once more when the flow ends, pass or fail:
+# a later flow that signs the seeded tester in must not be handed this coach's
+# session. Copy is asserted in English or French — the two the chrome resolves
+# to on a fresh install — and everything else by test id.
+
+appId: ai.dravr.app
+onFlowComplete:
+  - runFlow:
+      file: ../helpers/reset-browser-session.yaml
+
+---
+- runScript:
+    file: control.js
+    env:
+      ACTION: thread
+- runFlow:
+    file: ../helpers/reset-browser-session.yaml
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/sign-in-as.yaml
+    env:
+      EMAIL: ${output.plan.coachEmail}
+      PASSWORD: ${output.plan.coachPassword}
+- runFlow:
+    file: ../helpers/wait-for-home-after-login.yaml
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 60000
+
+# The coach reaches Group info from the group's own thread, the row a coach
+# invite files for them, listed beside their thread about the athlete. A row's
+# title and preview read as one label on iOS, so the title is matched inside it.
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
+- scrollUntilVisible:
+    element:
+      text: ".*${output.plan.groupName}.*"
+    direction: DOWN
+    timeout: 20000
+    centerElement: true
+- tapOn: ".*${output.plan.groupName}.*"
+- extendedWaitUntil:
+    visible:
+      id: "chat-title-button"
+    timeout: 15000
+- tapOn:
+    id: "chat-title-button"
+- extendedWaitUntil:
+    visible:
+      id: "group-info-members"
+    timeout: 10000
+
+# Who runs the group heads the list: the agent, then the coach reading it, who
+# holds no membership row. The athlete is the one member, and the way into
+# their plan sits on their row: an icon whose accessible name says what it
+# opens. It is the group's coach's alone, so its presence is the coach's view.
+- extendedWaitUntil:
+    visible:
+      id: "group-info-human-coach"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "member-work-on-plan-.*"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "Work on ${output.plan.athleteName}'s plan|Travailler sur le plan de ${output.plan.athleteName}"
+- tapOn:
+    id: "member-work-on-plan-.*"
+
+# Group info closes onto the thread about the athlete: titled with their name,
+# the line under it naming whose plan this is.
+- extendedWaitUntil:
+    visible:
+      id: "chat-header-subject"
+      text: "Plan · ${output.plan.athleteName}"
+    timeout: 20000
+- assertVisible:
+    id: "chat-title"
+    text: "${output.plan.athleteName}"
+- assertNotVisible:
+    id: "group-info-members"
+
+# The thread opens on its newest row, the reply whose card foot carries the
+# draft's badge: the athlete cannot see it yet.
+- scrollUntilVisible:
+    element:
+      id: "plan-draft-badge"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "Draft · ${output.plan.athleteName} can't see it yet|Brouillon · ${output.plan.athleteName} ne le voit pas encore"
+
+# The card is the draft over the athlete's season, not their live season: the
+# race heading it, above the weeks, is the one the coach re-laid. The reply's
+# prose names no race, so only the card can show one.
+- scrollUntilVisible:
+    element:
+      text: ".*${output.plan.draftRace}.*"
+    direction: UP
+    timeout: 20000
+- assertNotVisible: ".*${output.plan.liveRace}.*"
+- takeScreenshot: "coach-plan-draft-card"
+
+# Publish is named for the athlete, with Discard beside it.
+- scrollUntilVisible:
+    element:
+      id: "plan-draft-publish"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "Publish to ${output.plan.athleteName}|Publier pour ${output.plan.athleteName}"
+- assertVisible:
+    id: "plan-draft-discard"
+- tapOn:
+    id: "plan-draft-publish"
+
+# The publish landed: the card says the athlete was told, and the badge and
+# both buttons went with the draft.
+- extendedWaitUntil:
+    visible:
+      id: "plan-draft-published"
+    timeout: 20000
+- assertVisible: "Published. ${output.plan.athleteName} has been notified.|Publié. Une notification a été envoyée à ${output.plan.athleteName}."
+- assertNotVisible:
+    id: "plan-draft-badge"
+- assertNotVisible:
+    id: "plan-draft-publish"
+- assertNotVisible:
+    id: "plan-draft-discard"
+- takeScreenshot: "coach-plan-published"
+
+# What the athlete now reads as their season is the one the coach drafted.
+- runScript:
+    file: control.js
+    env:
+      ACTION: state
+      ATHLETE: ${output.plan.athleteEmail}
+- assertTrue:
+    condition: ${output.planState.liveRace === output.plan.draftRace}
+    label: "the athlete's live season is the coach's published draft"

@@ -17,6 +17,9 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
+use pierre_seeders::coach_plan_thread::{
+    run as run_coach_plan_thread, SeedArgs as CoachPlanThreadArgs,
+};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
 use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
 use pierre_seeders::mobility::run as run_mobility;
@@ -59,6 +62,9 @@ pub enum SeedCommand {
 
     /// Seed a conversation whose reply carries a supported claim verdict with a DOI, for the verdict-sheet flows
     VerdictConversation(VerdictConversationArgs),
+
+    /// Seed a coach's thread about one athlete whose plan card shows the coach's open draft, for the plan-thread flows
+    CoachPlanThread(CoachPlanThreadArgs),
 }
 
 /// Dispatch a `Seed` subcommand to its seeder module.
@@ -90,6 +96,12 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
         SeedCommand::VerdictConversation(mut args) => {
             args.model = args.model.or_else(LlmChain::head_model_from_env);
             dispatch_with_database(SeedCommand::VerdictConversation(args), database_url).await
+        }
+        // The coach's group thread and their thread about the athlete get the
+        // same model, the way the verdict conversation does.
+        SeedCommand::CoachPlanThread(mut args) => {
+            args.model = args.model.or_else(LlmChain::head_model_from_env);
+            dispatch_with_database(SeedCommand::CoachPlanThread(args), database_url).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
@@ -140,6 +152,7 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::LlmUsage(args) => run_llm_usage(args, repos).await,
         SeedCommand::Mobility => run_mobility(repos).await,
         SeedCommand::VerdictConversation(args) => run_verdict_conversation(args, repos).await,
+        SeedCommand::CoachPlanThread(args) => run_coach_plan_thread(args, repos).await,
         SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }

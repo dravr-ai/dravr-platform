@@ -214,10 +214,6 @@ pub fn is_in_app_channel(channel_type: &str) -> bool {
 }
 
 /// Database representation of a chat conversation
-///
-/// LIMITATION(registre#1070): `ConversationRecord` carries no subject
-/// athlete, so a human coach's plan thread repeats `athlete=` on every call
-/// that acts for the athlete, and its prompt holds none of their context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationRecord {
     /// Unique conversation ID
@@ -273,6 +269,44 @@ pub struct ConversationRecord {
     /// athlete per tenant.
     #[serde(default)]
     pub personal: bool,
+    /// The athlete a human coach's thread works on, when the owner opened it
+    /// from a group's roster (carnet#1070). Set together with
+    /// [`Self::subject_group_id`]; a thread carrying one is the coach's own,
+    /// never a room and never their personal thread. One per coach per
+    /// athlete per tenant.
+    #[serde(default)]
+    pub subject_user_id: Option<Uuid>,
+    /// The coached group whose membership and consent let the owner act for
+    /// [`Self::subject_user_id`]. Every act in the thread re-checks them
+    /// against this group.
+    #[serde(default)]
+    pub subject_group_id: Option<Uuid>,
+}
+
+/// The athlete a human coach's thread is bound to, and the group that lets
+/// the coach act for them (see [`ConversationRecord::subject`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationSubject {
+    /// The athlete.
+    pub athlete_user_id: Uuid,
+    /// The group the owner coaches the athlete in.
+    pub group_id: Uuid,
+}
+
+impl ConversationRecord {
+    /// The athlete this thread works on, when it is bound to one. `None` for
+    /// every other thread, and for a row carrying only one of the two
+    /// columns, which the schema never writes.
+    #[must_use]
+    pub const fn subject(&self) -> Option<ConversationSubject> {
+        match (self.subject_user_id, self.subject_group_id) {
+            (Some(athlete_user_id), Some(group_id)) => Some(ConversationSubject {
+                athlete_user_id,
+                group_id,
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// Runtime context for an agent attached to a conversation.
@@ -681,6 +715,16 @@ pub struct ConversationSummary {
     /// [`ConversationRecord::personal`]. A personal thread is never shared,
     /// so a list row carrying it is always the caller's own.
     pub personal: bool,
+    /// The athlete a human coach's thread works on — see
+    /// [`ConversationRecord::subject_user_id`].
+    pub subject_user_id: Option<Uuid>,
+    /// The coached group that thread acts under — see
+    /// [`ConversationRecord::subject_group_id`].
+    pub subject_group_id: Option<Uuid>,
+    /// That athlete's display name, by the rule every roster names a member
+    /// by ([`roster_display_name`](crate::models::roster_display_name)); set
+    /// exactly when `subject_user_id` is and the athlete's account exists.
+    pub subject_display_name: Option<String>,
     /// The newest `user`/`assistant` row, for the row preview; `None` for an
     /// empty conversation.
     pub last_message: Option<ConversationLastMessage>,

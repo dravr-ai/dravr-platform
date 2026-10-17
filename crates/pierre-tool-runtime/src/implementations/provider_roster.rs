@@ -18,7 +18,7 @@
 //! 1. **Members by name, everyone else by count.** Roster names, emails and
 //!    ids of athletes who have not confirmed a link never reach a model. A
 //!    Dravr member the roster names is named by their Dravr display name
-//!    ([`crate::athlete_display_name`]), never by the name the platform
+//!    ([`pierre_services::athlete_display_name`]), never by the name the platform
 //!    lists; every other roster athlete is a count by state and access.
 //! 2. **Terms before reads.** Each platform's roster is checked against the
 //!    call's transport before it is read, from the cache too
@@ -52,13 +52,13 @@ use pierre_services::delegated_link_states::{roster_link_states, LinkState, Rost
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::{refusal, room_refusal};
-use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::protocol::coach_calendar::delegation_services;
 use crate::runtime::ToolRuntime;
+use pierre_services::athlete_display_name::fetch_user_display_name;
 
 /// The caller's access to a roster athlete, as their platform reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, schemars::JsonSchema)]
@@ -402,7 +402,7 @@ async fn project(
         let name = if let Some(name) = names.get(&member_id) {
             name.clone()
         } else {
-            let name = fetch_user_display_name(data, member_id).await;
+            let name = fetch_user_display_name(data.repos(), member_id).await;
             names.insert(member_id, name.clone());
             name
         };

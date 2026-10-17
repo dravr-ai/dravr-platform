@@ -798,6 +798,66 @@ async fn a_coach_pushes_a_consenting_athletes_plan_with_the_coach_key_at_the_ath
     assert_eq!(live.len(), 3);
     assert!(live.iter().all(|row| row.provider_event_id.is_some()));
     assert!(w.live(w.coach).await.is_empty());
+    assert!(
+        report.get("unpublished_draft").is_none(),
+        "no draft, nothing to say: {report}"
+    );
+}
+
+/// A coach's unpublished draft never reaches the athlete's calendar: the push
+/// carries the published plan, and says the draft is still the coach's
+/// (carnet#1069).
+#[tokio::test]
+async fn a_coachs_push_carries_the_published_plan_never_their_draft() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    let monday = next_plan_monday();
+    let date = |offset: i64| {
+        (monday + Duration::days(offset))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    let (saved, refused) = w
+        .in_dm(
+            &SaveTrainingPlanTool,
+            json!({
+                "athlete": "Alex",
+                "weeks": [{
+                    "week_start": date(0),
+                    "focus": "the coach's draft",
+                    "days": [{ "date": date(1), "sport": "run", "workout": "Draft tempo", "duration_min": 50, "intensity": "Z3" }],
+                }],
+            }),
+        )
+        .await;
+    assert!(!refused, "{saved}");
+    assert_eq!(saved["draft"], true, "{saved}");
+
+    let (report, refused) = w
+        .in_dm(&PushTrainingPlanTool, json!({ "athlete": "Alex" }))
+        .await;
+    assert!(!refused, "{report}");
+    assert!(
+        report["unpublished_draft"]
+            .as_str()
+            .is_some_and(|note| note.contains("only the published plan is pushed")),
+        "{report}"
+    );
+    // The published plan's two sessions and its week note went out; the
+    // draft's day, a Tuesday the published plan leaves empty, did not.
+    assert_eq!(report["created"], 3, "{report}");
+    let drafted_day = monday + Duration::days(1);
+    assert!(
+        w.live(alex)
+            .await
+            .iter()
+            .all(|row| row.prescribed_for_date != drafted_day
+                && !row.payload_json.contains("Draft tempo")),
+        "the draft never reaches the calendar"
+    );
 }
 
 #[tokio::test]

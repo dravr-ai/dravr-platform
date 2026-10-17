@@ -41,21 +41,38 @@
 //!    athlete who belongs to several would read an agent-written plan on one
 //!    surface and not another, so that case is refused rather than guessed.
 //!
+//! Gates 2 to 4 are [`coached_athlete_access`], the by-id check the route
+//! that opens a coach's athlete thread runs too: a name is resolved to one
+//! member here, and the check decides by their id.
+//!
+//! ## A thread bound to one athlete
+//!
+//! A coach's thread opened from a group's roster names its athlete
+//! ([`ConversationRecord::subject`], carnet#1070). There every call acts on
+//! that athlete's plan: with no `athlete`, or one their name contains, the
+//! subject is resolved by id against the thread's group; any other name is
+//! refused, and so is the coach's own plan, which is never acted on there.
+//! The gates run again on every call, so a consent revoked mid-thread refuses
+//! the next one.
+//!
 //! A write into a tenant other than the requester's also honours that
 //! tenant's tool-disable configuration, which the dispatch chokepoint checked
 //! against the requester's tenant only.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
-use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 use pierre_runtime_context::DataContext;
+use pierre_services::athlete_display_name::fetch_user_display_name;
+use pierre_services::coached_athlete::{
+    coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
+};
 use pierre_tools_core::ToolResult;
 use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
 use super::training_plan_authorship::resolve_turn_agent;
-use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::guardian::{
     tenant_disabled_message, tenant_tool_enabled, TENANT_DISABLED_ERROR_CODE,
@@ -183,7 +200,7 @@ pub(crate) async fn match_coached_member(
             if member.left_at.is_some() {
                 continue;
             }
-            let display_name = fetch_user_display_name(data, member.user_id).await;
+            let display_name = fetch_user_display_name(data.repos(), member.user_id).await;
             if !display_name.to_lowercase().contains(&query_lower) {
                 continue;
             }
@@ -233,14 +250,26 @@ fn refusal(message: &str) -> ToolResult {
 ///
 /// Returns the repository error from any lookup the resolution needs.
 pub async fn resolve_plan_scope(
-    request: PlanScopeRequest<'_>,
+    mut request: PlanScopeRequest<'_>,
 ) -> AppResult<Result<PlanScope, ToolResult>> {
     let writer = PlanWriter {
-        agent_id: resolve_turn_agent(request.context, request.conversation, request.arg_agent),
+        agent_id: resolve_turn_agent(
+            request.context,
+            request.conversation,
+            request.arg_agent.take(),
+        ),
         tenant: request.requester_tenant,
         user_id: request.context.user_id,
     };
-    let Some(query) = request.athlete.map(str::trim).filter(|q| !q.is_empty()) else {
+    let query = request.athlete.map(str::trim).filter(|q| !q.is_empty());
+
+    // A thread bound to one athlete works on that athlete's plan whether or
+    // not the call names them, and never on the coach's own.
+    if let Some(subject) = request.conversation.and_then(ConversationRecord::subject) {
+        return resolve_subject_scope(&request, writer, subject, query).await;
+    }
+
+    let Some(query) = query else {
         return Ok(Ok(PlanScope {
             tenant: request.requester_tenant,
             user_id: request.context.user_id,
@@ -265,10 +294,9 @@ pub async fn resolve_plan_scope(
 
     let requester = request.context.user_id;
     let data = request.context.resources.data();
-    let repos = data.repos();
 
-    // Gate 2: the agent attachment, walked from the groups the requester is
-    // attached to as agent — never from the groups they merely belong to.
+    // The name, resolved to one live member of a group the requester is
+    // attached to as its coach — never one they merely belong to.
     let resolved = match match_coached_member(&data, requester, query).await? {
         Ok(resolved) => resolved,
         Err(miss) => {
@@ -278,46 +306,135 @@ pub async fn resolve_plan_scope(
         }
     };
 
-    // Gate 3: the athlete's own grant. The match prefers a group where they
-    // share with the coach, so the refusal, when there is one, names the most
-    // permissive row.
-    if !resolved.consented {
-        return Ok(Err(refusal(&format!(
-            "{} has stopped sharing their data with you, the coach of '{}'. They can share it \
-             again with `/group consent coach yes`.",
-            resolved.display_name, resolved.group.name
-        ))));
+    // Gates 2 to 4, by id. The match prefers a group where the athlete shares
+    // with the coach, so a consent refusal, when there is one, names the most
+    // permissive row. Only a membership that changed since the match fails the
+    // first two, and that reads as no match.
+    match coached_athlete_access(data.repos(), requester, resolved.user_id, resolved.group.id)
+        .await?
+    {
+        Ok(access) => acting_for(&request, writer, access).await,
+        Err(refused) => Ok(Err(gate_refusal(&refused, || {
+            MemberMiss::NoMatch.message(query, "omit `athlete` to act on your own plan.")
+        }))),
     }
+}
 
-    // Gate 4: the athlete's one home tenant — where their DM saves and reads.
-    let athlete = resolved.user_id;
-    let tenants = repos.tenants.list_for_user(athlete).await?;
-    let athlete_tenant = match tenants.as_slice() {
-        [tenant] => tenant.id,
-        [] => {
-            return Ok(Err(refusal(&format!(
-                "{} belongs to no tenant, so there is nowhere to keep their plan.",
-                resolved.display_name
-            ))));
-        }
-        _ => {
-            return Ok(Err(refusal(&format!(
-                "{} belongs to several tenants — acting on their plan is not supported, because \
-                 the plan would be visible on one of their surfaces and missing on another.",
-                resolved.display_name
-            ))));
+/// [`resolve_plan_scope`] in a thread bound to `subject`: the subject's plan,
+/// by id against the thread's group, re-checked on every call.
+///
+/// `query` is the call's `athlete` argument. A name the subject's own roster
+/// name contains is the subject — in the thread about them, a shared first
+/// name means them. Any other name is refused: another athlete has a thread
+/// of their own, and the coach's own plan is never acted on here.
+async fn resolve_subject_scope(
+    request: &PlanScopeRequest<'_>,
+    writer: PlanWriter,
+    subject: ConversationSubject,
+    query: Option<&str>,
+) -> AppResult<Result<PlanScope, ToolResult>> {
+    let requester = request.context.user_id;
+    let data = request.context.resources.data();
+    let access = match coached_athlete_access(
+        data.repos(),
+        requester,
+        subject.athlete_user_id,
+        subject.group_id,
+    )
+    .await?
+    {
+        Ok(access) => access,
+        Err(refused) => {
+            return Ok(Err(gate_refusal(&refused, || {
+                match refused {
+                    CoachedAthleteRefusal::NotGroupCoach => {
+                        "This thread works on an athlete of a group you no longer coach, so \
+                         their plan is out of reach here."
+                    }
+                    _ => {
+                        "This thread's athlete is no longer a member of the group you coach \
+                         them in, so their plan is out of reach here."
+                    }
+                }
+                .to_owned()
+            })));
         }
     };
 
+    if let Some(query) = query {
+        if !access
+            .display_name
+            .to_lowercase()
+            .contains(&query.to_lowercase())
+        {
+            let name = &access.display_name;
+            let own = match match_coached_member(&data, requester, query).await? {
+                Ok(other) => {
+                    return Ok(Err(refusal(&format!(
+                        "This thread works on {name}'s plan — open {}'s own thread from Group \
+                         info to work on theirs.",
+                        other.display_name
+                    ))));
+                }
+                Err(MemberMiss::Requester) => true,
+                // A coach attached to a group holds no membership in it, so
+                // their own name is asked of their own row.
+                Err(MemberMiss::NoMatch | MemberMiss::Ambiguous(_)) => {
+                    fetch_user_display_name(data.repos(), requester)
+                        .await
+                        .to_lowercase()
+                        .contains(&query.to_lowercase())
+                }
+            };
+            let message = if own {
+                format!(
+                    "This thread works on {name}'s plan — act on your own plan from your own \
+                     conversation with me."
+                )
+            } else {
+                format!(
+                    "This thread works on {name}'s plan, and '{query}' does not name them — \
+                     omit `athlete` to act on {name}'s plan."
+                )
+            };
+            return Ok(Err(refusal(&message)));
+        }
+    }
+
+    acting_for(request, writer, access).await
+}
+
+/// What the model relays for a gate refusal. `unreached` words the two that
+/// fail before the athlete is shown to be the requester's — those name nobody.
+fn gate_refusal(refused: &CoachedAthleteRefusal, unreached: impl FnOnce() -> String) -> ToolResult {
+    let message = match refused {
+        CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember => unreached(),
+        CoachedAthleteRefusal::CoachSharingRevoked { athlete, group } => format!(
+            "{athlete} has stopped sharing their data with you, the coach of '{group}'. They can \
+             share it again with `/group consent coach yes`."
+        ),
+        CoachedAthleteRefusal::NoTenant { athlete } => {
+            format!("{athlete} belongs to no tenant, so there is nowhere to keep their plan.")
+        }
+        CoachedAthleteRefusal::SeveralTenants { athlete } => format!(
+            "{athlete} belongs to several tenants — acting on their plan is not supported, \
+             because the plan would be visible on one of their surfaces and missing on another."
+        ),
+    };
+    refusal(&message)
+}
+
+/// The scope of a call the gates let act for `access`'s athlete, once the
+/// athlete's tenant allows the tool.
+async fn acting_for(
+    request: &PlanScopeRequest<'_>,
+    writer: PlanWriter,
+    access: CoachedAthleteAccess,
+) -> AppResult<Result<PlanScope, ToolResult>> {
     // The dispatch chokepoint checked the tool against the requester's tenant;
     // a plan filed under another tenant honours THAT tenant's configuration.
-    if athlete_tenant != request.requester_tenant
-        && !tenant_tool_enabled(
-            &request.context.resources,
-            athlete_tenant,
-            request.tool_name,
-        )
-        .await
+    if access.tenant != request.requester_tenant
+        && !tenant_tool_enabled(&request.context.resources, access.tenant, request.tool_name).await
     {
         return Ok(Err(ToolResult::error(json!({
             "error": tenant_disabled_message(request.tool_name),
@@ -327,17 +444,18 @@ pub async fn resolve_plan_scope(
     }
 
     info!(
-        requester = %requester,
-        athlete = %athlete,
-        group_id = %resolved.group.id,
+        requester = %request.context.user_id,
+        athlete = %access.athlete_user_id,
+        group_id = %access.group.id,
         tool = %request.tool_name,
         writer_agent = writer.agent_id.as_deref().unwrap_or("none"),
+        subject_thread = request.conversation.and_then(ConversationRecord::subject).is_some(),
         "coach acting on a coached athlete's training plan"
     );
     Ok(Ok(PlanScope {
-        tenant: athlete_tenant,
-        user_id: athlete,
+        tenant: access.tenant,
+        user_id: access.athlete_user_id,
         writer,
-        acting_for: Some(resolved.display_name.clone()),
+        acting_for: Some(access.display_name),
     }))
 }

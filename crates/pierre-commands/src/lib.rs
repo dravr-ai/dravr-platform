@@ -295,6 +295,20 @@ pub trait CommandHandler: Send + Sync {
     fn resumes_thread(&self, _args: &[String]) -> bool {
         false
     }
+
+    /// Whether running this command, with these arguments, starts or resumes
+    /// a guided walk in the conversation it is typed in — an interview of the
+    /// caller about their own training, or the fortnight rail that writes
+    /// their own plan.
+    ///
+    /// Such a command is refused in a coach's thread about one athlete,
+    /// before the handler runs and so before anything is written
+    /// ([`guided_walk::refused_in_athlete_thread`]): every turn there is
+    /// about the athlete, and a walk would supersede the coach's own earlier
+    /// answers and file the new ones nowhere. The default is `false`.
+    fn opens_guided_walk(&self, _args: &[String]) -> bool {
+        false
+    }
 }
 
 /// Registry mapping command names to handler implementations.

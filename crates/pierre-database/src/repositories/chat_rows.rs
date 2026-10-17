@@ -45,12 +45,16 @@ macro_rules! impl_chat_row_parsers {
                 personal: row
                     .try_get("personal")
                     .map_err(|e| chat_column_error("personal", &e))?,
+                subject_user_id: $ids::read_opt(row, "subject_user_id")?,
+                subject_group_id: $ids::read_opt(row, "subject_group_id")?,
             })
         }
 
         /// Decode one list row. The three `last_*` columns are all `NULL` or
         /// all set — they come from the same newest row — so the preview is
-        /// keyed on the role.
+        /// keyed on the role. A thread bound to one athlete is named by the
+        /// roster rule from the joined user's display name and email, which
+        /// are `NULL` together on every other row.
         fn summary_from_row(row: &$row) -> AppResult<ConversationSummary> {
             let col = |name: &str| -> AppResult<String> {
                 row.try_get(name).map_err(|e| chat_column_error(name, &e))
@@ -79,6 +83,13 @@ macro_rules! impl_chat_row_parsers {
                     })
                 })
                 .transpose()?;
+            let subject_display_name = match opt("subject_email")? {
+                Some(email) => Some(roster_display_name(
+                    opt("subject_display_name")?.as_deref(),
+                    &email,
+                )),
+                None => None,
+            };
             Ok(ConversationSummary {
                 id: col("id")?,
                 title: col("title")?,
@@ -98,6 +109,9 @@ macro_rules! impl_chat_row_parsers {
                 personal: row
                     .try_get("personal")
                     .map_err(|e| chat_column_error("personal", &e))?,
+                subject_user_id: $ids::read_opt(row, "subject_user_id")?,
+                subject_group_id: $ids::read_opt(row, "subject_group_id")?,
+                subject_display_name,
                 last_message,
                 unread_count: count("unread_count")?,
                 created_at: stamp_column(row, "created_at")?,

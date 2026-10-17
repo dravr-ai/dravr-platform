@@ -98,6 +98,12 @@ impl CommandHandler for PillarsHandler {
         true
     }
 
+    /// Every form of `/pillars` opens the walk; `full` and a pillar name
+    /// supersede the caller's earlier answers first.
+    fn opens_guided_walk(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
 

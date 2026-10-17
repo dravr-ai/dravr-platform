@@ -56,13 +56,13 @@ use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::refusal;
-use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::group_fitness::fetch_member_snapshots;
 use crate::runtime::ToolRuntime;
+use pierre_services::athlete_display_name::fetch_user_display_name;
 
 /// Most athletes one call fetches training for, and most it names without.
 /// Each snapshot is a provider read, so the cap bounds both the turn's latency
@@ -308,7 +308,13 @@ async fn gather_roster(
 }
 
 /// Project a snapshot to the training the overview lists.
-fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
+///
+/// The one per-athlete roster line a coach reads: this overview, and the
+/// athlete block of a coach's thread bound to one athlete (carnet#1070), both
+/// project through here, so form reaches the coach banded as a share of the
+/// athlete's own fitness the same way on both.
+#[must_use]
+pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
     let zone = resolve_zone(snapshot.timezone.as_deref());
     let recent_activities = snapshot
         .recent_activities
@@ -421,7 +427,7 @@ async fn build_overview(
     let mut others = Vec::new();
     for entry in sourceless.into_iter().chain(withheld) {
         others.push(RosterOverviewAthlete {
-            name: fetch_user_display_name(&data, entry.user_id).await,
+            name: fetch_user_display_name(data.repos(), entry.user_id).await,
             groups: entry.groups,
             status: entry.status,
             training: None,

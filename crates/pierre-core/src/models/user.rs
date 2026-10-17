@@ -596,6 +596,19 @@ pub fn normalize_email(email: impl AsRef<str>) -> String {
     email.as_ref().trim().to_lowercase()
 }
 
+/// How a member is named to their coach and their group: their display name,
+/// else the local part of their email.
+///
+/// Never the whole address: a roster name reaches tool errors, prompts and
+/// list rows, and from there a room.
+#[must_use]
+pub fn roster_display_name(display_name: Option<&str>, email: &str) -> String {
+    display_name.map_or_else(
+        || email.split('@').next().unwrap_or_default().to_owned(),
+        ToOwned::to_owned,
+    )
+}
+
 /// The `password_hash` of an account with no password.
 ///
 /// Such an account signs in only through a federated provider (Firebase:
@@ -1040,5 +1053,23 @@ impl UserDeletion {
     #[must_use]
     pub fn removed_from(&self, table: &str) -> u64 {
         self.rows_removed.get(table).copied().unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_member_is_named_by_their_display_name_else_their_email_local_part() {
+        assert_eq!(
+            roster_display_name(Some("Mira Subject"), "mira@example.test"),
+            "Mira Subject"
+        );
+        assert_eq!(
+            roster_display_name(None, "mira.s@example.test"),
+            "mira.s",
+            "never the whole address"
+        );
     }
 }

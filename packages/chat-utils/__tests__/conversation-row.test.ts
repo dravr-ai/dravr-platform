@@ -53,6 +53,17 @@ describe('deriveKind', () => {
     expect(deriveKind(conversation())).toBe('plain');
   });
 
+  it("ranks a coach's plan thread under a group and over channel and coach", () => {
+    // A plan thread runs on its group's agent, so it carries an agent id; it
+    // is still about the athlete before it is about that agent.
+    expect(deriveKind(conversation({ subject_user_id: 'user-alice', agent_id: 'c1' }))).toBe('subject');
+    expect(
+      deriveKind(conversation({ subject_user_id: 'user-alice', agent_id: 'c1', channel_type: 'telegram' })),
+    ).toBe('subject');
+    expect(deriveKind(conversation({ group_id: 'g1', subject_user_id: 'user-alice' }))).toBe('group');
+    expect(deriveKind(conversation({ subject_user_id: null, agent_id: 'c1' }))).toBe('coach');
+  });
+
   it('reads the channel from the column alone; the title names no channel', () => {
     expect(deriveKind(conversation({ title: 'Telegram', channel_type: 'web' }))).toBe('plain');
     expect(deriveKind(conversation({ title: 'Trail Coach', channel_type: 'whatsapp' }))).toBe(
@@ -67,6 +78,13 @@ describe('scopeOfKind', () => {
     expect(scopeOfKind(deriveKind(conversation({ channel_type: 'telegram' })))).toBe('personal');
     expect(scopeOfKind(deriveKind(conversation({ agent_id: 'c1' })))).toBe('personal');
     expect(scopeOfKind(deriveKind(conversation()))).toBe('personal');
+  });
+
+  it("lists a coach's plan thread under Groups, beside the group it is scoped to", () => {
+    expect(scopeOfKind('subject')).toBe('groups');
+    expect(
+      scopeOfKind(deriveKind(conversation({ subject_user_id: 'user-alice', subject_group_id: 'g1', agent_id: 'c1' }))),
+    ).toBe('groups');
   });
 });
 
@@ -111,6 +129,15 @@ describe('avatarSlot', () => {
     expect(avatarSlot({ id: 'a', agent_id: null, group_id: null })).toBe(
       avatarSlot({ id: 'a', agent_id: null, group_id: null }),
     );
+  });
+
+  it("keys a plan thread on its athlete, the key that athlete's member row hashes", () => {
+    // Group info draws a member with `{ id: user_id }`; the plan thread about
+    // them lands on the same colour, whichever agent it runs on.
+    const memberRow = avatarSlot({ id: 'user-alice', agent_id: null, group_id: null });
+    expect(
+      avatarSlot({ id: 'conv-1', agent_id: 'coach-x', group_id: null, subject_user_id: 'user-alice' }),
+    ).toBe(memberRow);
   });
 
   it('names the six hues in the one order both clients bind to', () => {
@@ -235,6 +262,7 @@ describe('buildConversationRow', () => {
       agentHandle: 'trail-coach',
       agentTitle: 'Trail Coach',
       groupName: 'Harricana crew',
+      subjectName: null,
       channel: null,
       initials: 'H8',
       avatarSlot: avatarSlot({ id: 'conv-9', agent_id: 'coach-1', group_id: 'group-1' }),
@@ -325,6 +353,29 @@ describe('buildConversationRow', () => {
     );
     expect(room.agentHandle).toBe('trail');
   });
+
+  it("names the athlete on a plan thread whose title does not, and never the group's agent", () => {
+    const planThread = {
+      subject_user_id: 'user-alice',
+      subject_group_id: 'g1',
+      subject_display_name: 'Alice Runner',
+      agent_id: 'coach-1',
+      agent_handle: 'trail',
+      agent_title: 'Trail Coach',
+    };
+    const byAgent = buildConversationRow(conversation({ ...planThread, title: 'Trail Coach' }), LABELS, NOW);
+    expect(byAgent.kind).toBe('subject');
+    expect(byAgent.subjectName).toBe('Alice Runner');
+    // Every plan thread of one group runs on the same agent; its handle
+    // would print the same word on each of them.
+    expect(byAgent.agentHandle).toBeNull();
+
+    const byAthlete = buildConversationRow(conversation({ ...planThread, title: 'Alice Runner' }), LABELS, NOW);
+    expect(byAthlete.subjectName).toBeNull();
+
+    // Any other row names no athlete, whatever it carries.
+    expect(buildConversationRow(conversation({ subject_display_name: 'Alice' }), LABELS, NOW).subjectName).toBeNull();
+  });
 });
 
 describe('sortRowsByActivity', () => {
@@ -385,6 +436,21 @@ describe('filterRows', () => {
 
   it('keeps every row for a blank query', () => {
     expect(filterRows(rows, '   ').map((row) => row.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it("finds a plan thread by its athlete's name", () => {
+    const planRow = buildConversationRow(
+      conversation({
+        id: 'plan',
+        title: 'Trail Coach',
+        agent_id: 'c1',
+        subject_user_id: 'user-alice',
+        subject_display_name: 'Alice Runner',
+      }),
+      LABELS,
+      NOW,
+    );
+    expect(filterRows([...rows, planRow], 'alice').map((row) => row.id)).toEqual(['plan']);
   });
 });
 

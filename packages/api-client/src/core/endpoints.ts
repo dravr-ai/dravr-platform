@@ -58,6 +58,16 @@ export const ENDPOINTS = {
     PERSONAL: '/api/chat/personal',
     /** Open a new topic in the personal thread — Home's "+" */
     PERSONAL_TOPICS: '/api/chat/personal/topics',
+    /** Open or reopen (POST) the coach's plan thread for one athlete of a group they coach */
+    ATHLETE_THREAD: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/thread`,
+    /** The plan thread's athlete: their live plan and the coach's draft over it */
+    SUBJECT_PLAN: (conversationId: string) => `/api/chat/conversations/${conversationId}/subject-plan`,
+    /** Publish (POST) the coach's draft as the athlete's live plan */
+    SUBJECT_PLAN_PUBLISH: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/publish`,
+    /** Discard (DELETE) the coach's draft; the athlete's live plan stays as it is */
+    SUBJECT_PLAN_DRAFT: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft`,
   },
 
   // ==================== SLASH COMMANDS ====================

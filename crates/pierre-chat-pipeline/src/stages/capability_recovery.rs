@@ -61,6 +61,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use pierre_tool_runtime::tool_results::format_tool_results_as_text;
@@ -155,6 +156,11 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// and its reply is the next question, so it is never "ungrounded" — see
     /// [`recovery_trigger`].
     pub guided_walk: Option<&'a OnboardingState>,
+    /// Whose data the turn's tools ran against. The verification fetch reads
+    /// the sender's own activities, which in a coach's thread about one
+    /// athlete (carnet#1070) are not what the turn is about: there it does
+    /// not run, exactly as the activity prefetches do not.
+    pub seat: TurnSeat,
     /// Records each re-ask completion, here and in [`super::capability_subject`].
     pub reask_recorder: &'a Arc<dyn LlmCallRecorder>,
     /// Receives every call to the peer-claim verifier.
@@ -205,7 +211,7 @@ pub async fn apply_capability_recovery(
         return;
     }
 
-    match run_verification_fetch(deps.ctx, input).await {
+    match run_verification_fetch(&deps, input).await {
         VerificationOutcome::AuthRequired(provider_slug) => {
             info!(
                 provider = %provider_slug,
@@ -582,14 +588,34 @@ pub(super) enum VerificationOutcome {
     Verified(serde_json::Value),
 }
 
-/// Run one read-only [`VERIFICATION_TOOL`] fetch and classify what it proves.
+/// Run one read-only [`VERIFICATION_TOOL`] fetch of the sender's own
+/// activities and classify what it proves.
+///
+/// In a coach's thread about one athlete it does not run and the outcome is
+/// [`VerificationOutcome::Unverifiable`]: the coach's own rides are not the
+/// athlete's, and a re-ask with them would present them as hers
+/// ([`CapabilityRecoveryDeps::seat`]).
+pub(super) async fn run_verification_fetch(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+) -> VerificationOutcome {
+    if deps.seat == TurnSeat::AthleteThread {
+        info!(
+            "capability_recovery: a coach's athlete thread is not about the coach's own activities; not fetched"
+        );
+        return VerificationOutcome::Unverifiable;
+    }
+    fetch_sender_activities(deps.ctx, input).await
+}
+
+/// The verification fetch itself.
 ///
 /// Auth-required rides two shapes: the executor's typed error
 /// (`ProtocolError::ProviderAuthRequired`) and a `success: false` response
 /// stamped with `META_AUTH_REQUIRED_PROVIDER` (the provider resolver and
 /// token layer use this one — including the zero-connections case). The tool
 /// loop scans for the same pair at `tool_execution.rs`.
-pub(super) async fn run_verification_fetch(
+async fn fetch_sender_activities(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
 ) -> VerificationOutcome {

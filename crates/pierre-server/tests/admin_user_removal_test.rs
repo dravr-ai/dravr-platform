@@ -56,16 +56,19 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::training_plans::PlanAuthor;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
-    CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, UpsertUserFactParams,
-    UserPurge, DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
+    CreateSessionParams, DraftOwner, EnqueueOutboundParams, InsertMessageParams, PlanOutlineInput,
+    PlanWeekInput, SaveDraftParams, SavePlanBundleParams, UpsertUserFactParams, UserPurge,
+    DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_memory::training_plans::{GoalRace, PlannedDay, RacePriority};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_routes_admin::handlers::strava_pool::{
     handle_list_strava_seats, handle_upsert_strava_pool_app,
@@ -1235,6 +1238,133 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
         repos.short_links.resolve_short_link(&code).await.unwrap(),
         None
     );
+}
+
+/// A coach's draft of an athlete's plan lives under the athlete's tenant and
+/// user, so the coach's own `user_id` never names it: the delete reaches it by
+/// `drafted_by_user_id`, with its weeks, and the athlete's season stays whole.
+#[tokio::test]
+async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_season() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let context = admin_context(&resources, &stub.url);
+    let (coach_id, _, _) = seed_user(repos, "drafting-coach").await;
+    let (athlete_id, athlete_tenant, _) = seed_user(repos, "drafted-athlete").await;
+    let (tenant, athlete, coach) = (
+        athlete_tenant.to_string(),
+        athlete_id.to_string(),
+        coach_id.to_string(),
+    );
+    let race = GoalRace {
+        name: "Season Race".to_owned(),
+        date: "2026-12-06".to_owned(),
+        discipline: "run".to_owned(),
+        priority: RacePriority::A,
+    };
+    let days = vec![PlannedDay {
+        date: "2026-11-02".to_owned(),
+        sport: "run".to_owned(),
+        workout: "easy 40min".to_owned(),
+        duration_min: Some(40),
+        intensity: "Z1".to_owned(),
+        steps: Vec::new(),
+        fueling: None,
+        template_slug: None,
+        template_params: None,
+        template_source: None,
+    }];
+    let week = |focus: &'static str| PlanWeekInput {
+        week_start: "2026-11-02",
+        focus,
+        days: &days,
+        adjustment_reason: "",
+        phase_index: None,
+    };
+    let season = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &athlete,
+            author: PlanAuthor::agent("athlete-agent"),
+            goal_fact_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &race,
+                races: Some(&[]),
+                strategy: "the athlete's season",
+                flavour: None,
+                season_start: None,
+                season_end: None,
+                phases: &[],
+                source_conversation_id: None,
+            }),
+            replace_season: false,
+            weeks: &[week("athlete week")],
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap()
+        .plan;
+    let owner = DraftOwner {
+        tenant_id: &tenant,
+        user_id: &athlete,
+        coach_user_id: &coach,
+    };
+    repos
+        .training_plans
+        .save_draft_bundle(&SaveDraftParams {
+            owner,
+            author: PlanAuthor::agent("coach-agent"),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &[week("coach week")],
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap();
+
+    let response = handle_delete_user(
+        State(context),
+        Extension(manage_users_token()),
+        Path(coach.clone()),
+        delete_request(),
+    )
+    .await
+    .expect("delete handler");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let rows_removed = body["data"]["rows_removed"].as_object().unwrap();
+    assert_eq!(
+        rows_removed.get("training_plans"),
+        Some(&json!(1)),
+        "{body}"
+    );
+    assert_eq!(
+        rows_removed.get("training_plan_weeks"),
+        Some(&json!(1)),
+        "{body}"
+    );
+
+    assert!(repos
+        .training_plans
+        .get_draft_plan(owner)
+        .await
+        .unwrap()
+        .is_none());
+    let live = repos
+        .training_plans
+        .get_active_plan(&tenant, &athlete)
+        .await
+        .unwrap()
+        .expect("the athlete's season stands");
+    assert_eq!(live.id, season.id);
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &athlete, &season.id, false)
+        .await
+        .unwrap();
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(weeks[0].focus, "athlete week");
 }
 
 /// An agent the `PostgreSQL` schema quarantined into `agents_orphaned` keeps its

@@ -994,6 +994,34 @@ describe('ChatTab header info drawer', () => {
     expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
   });
 
+  it("names the athlete under the title of a coach's plan thread, and opens their info", async () => {
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          title: 'Alice Runner',
+          agent_id: COACH_ID,
+          agent_handle: 'marathon-coach',
+          subject_user_id: 'user-alice',
+          subject_group_id: 'group-7',
+          subject_display_name: 'Alice Runner',
+        },
+      ],
+      total: 1,
+    });
+    getGroup.mockResolvedValue(groupRecord());
+    const user = userEvent.setup();
+    renderChatTab();
+
+    // The athlete, not the group's agent the thread runs on.
+    expect(await screen.findByTestId('thread-subtitle')).toHaveTextContent('Plan · Alice Runner');
+    await user.click(screen.getByTestId('conversation-header-title'));
+
+    expect(await screen.findByTestId('subject-info-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('subject-info-group')).toHaveTextContent('Sunday Riders');
+    expect(screen.queryByTestId('coach-info-panel')).toBeNull();
+  });
+
   it('routes Edit coach to the coach Discover detail', async () => {
     const onNavigate = vi.fn();
     const user = userEvent.setup();

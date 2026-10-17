@@ -93,6 +93,13 @@ pub async fn add_participant(
             "The personal thread cannot be shared; start a group to talk with someone",
         ));
     }
+    // A coach's thread about one athlete carries that athlete's data under
+    // the coach's view alone; anyone added would read it (carnet#1070).
+    if conversation.subject_user_id.is_some() {
+        return Err(AppError::invalid_input(
+            "A thread about one athlete's plan cannot be shared",
+        ));
+    }
 
     let target = Uuid::parse_str(request.user_id.trim())
         .map_err(|_| AppError::invalid_input("user_id must be a UUID"))?;

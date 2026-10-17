@@ -19,7 +19,7 @@ use pierre_memory::training_plans::{
     WeekStatus,
 };
 
-use super::{PlanWeekRow, SaveTrainingPlanParams, TrainingPlanRow};
+use super::{PlanDraft, PlanWeekRow, SaveTrainingPlanParams, TrainingPlanRow};
 
 /// Convert epoch seconds to `DateTime<Utc>`, treating an out-of-range value
 /// as corruption rather than silently clamping.
@@ -66,6 +66,23 @@ pub fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
         created_at: epoch_to_datetime(row.created_at, "created_at")?,
         updated_at: epoch_to_datetime(row.updated_at, "updated_at")?,
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
+    })
+}
+
+/// Map a raw outline row of a coach's draft to a [`PlanDraft`]. A draft row
+/// names its coach (the schema refuses one that does not), so a row without
+/// one is corruption.
+pub fn plan_draft_from_row(mut row: TrainingPlanRow) -> AppResult<PlanDraft> {
+    let drafted_by_user_id = row.drafted_by_user_id.take().ok_or_else(|| {
+        AppError::database(format!("training plan draft {} names no coach", row.id))
+    })?;
+    let base_plan_id = row.draft_base_plan_id.take();
+    let outline_drafted = row.outline_drafted;
+    Ok(PlanDraft {
+        plan: training_plan_from_row(row)?,
+        drafted_by_user_id,
+        base_plan_id,
+        outline_drafted,
     })
 }
 

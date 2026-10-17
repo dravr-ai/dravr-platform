@@ -27,6 +27,11 @@ import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
 
 interface MessageListProps {
+  /**
+   * The open thread. A plan card in a coach's plan thread acts on the
+   * thread's draft through it; `null` before a thread exists.
+   */
+  conversationId?: string | null;
   messages: Message[];
   messageMetadata: Map<string, MessageMetadata>;
   messageFeedback: Map<string, MessageFeedback>;
@@ -81,6 +86,7 @@ interface MessageListProps {
 }
 
 export default function MessageList({
+  conversationId = null,
   messages,
   messageMetadata,
   messageFeedback,
@@ -177,6 +183,7 @@ export default function MessageList({
       out.push(
         <MessageItem
           key={msg.id}
+          conversationId={conversationId}
           message={msg}
           metadata={messageMetadata.get(msg.id)}
           feedback={messageFeedback.get(msg.id)}
@@ -207,6 +214,7 @@ export default function MessageList({
     }
     return out;
   }, [
+    conversationId,
     visibleMessages,
     language,
     t,

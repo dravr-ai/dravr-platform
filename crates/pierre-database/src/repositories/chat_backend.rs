@@ -27,6 +27,7 @@
 macro_rules! impl_chat_repository {
     ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal) => {
         $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
+        $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -170,6 +171,10 @@ macro_rules! impl_chat_repository {
                     archived_at: None,
                     // Designated afterwards, by the personal-thread resolver.
                     personal: false,
+                    // A thread about one athlete is opened only by
+                    // `open_subject_conversation`.
+                    subject_user_id: None,
+                    subject_group_id: None,
                 })))
             }
 
@@ -660,18 +665,19 @@ macro_rules! impl_chat_repository {
                 let (mut tx, at_cap) = self.open_slot_transaction(user_id, &tenant, cap).await?;
                 // Read under the lock: a concurrent turn may have reactivated
                 // the row since the caller looked.
-                let archived = sqlx::query_scalar::<_, bool>(IS_ARCHIVED_SQL)
+                let state = sqlx::query_as::<_, (bool, bool)>(ARCHIVED_SLOT_SQL)
                     .bind(conversation_id)
                     .bind(&user)
                     .bind(&tenant)
                     .fetch_optional(&mut *tx)
                     .await
-                    .map_err(failed)?
-                    .unwrap_or(false);
-                if !archived {
+                    .map_err(failed)?;
+                let Some((true, holds_slot)) = state else {
                     return Ok(Reactivation::NotArchived);
-                }
-                if let Some(current) = at_cap {
+                };
+                // A row that holds no slot once active takes none of the
+                // owner's, so the count does not decide it.
+                if let Some(current) = at_cap.filter(|_| holds_slot) {
                     // Dropping the transaction rolls it back; the row stays archived.
                     return Ok(Reactivation::AtCap { current });
                 }
@@ -953,6 +959,20 @@ macro_rules! impl_chat_repository {
                         "Failed to designate the personal thread: {e}"
                     ))),
                 }
+            }
+
+            async fn open_subject_conversation(
+                &self,
+                new: &NewSubjectConversation<'_>,
+            ) -> AppResult<OpenedSubjectThread> {
+                if let Some(opened) = self.open_subject_once(new).await? {
+                    return Ok(opened);
+                }
+                // A racing open created the thread first; it is committed
+                // now, so this attempt reopens it.
+                self.open_subject_once(new).await?.ok_or_else(|| {
+                    AppError::internal("the athlete's thread was refused as a duplicate twice")
+                })
             }
 
             async fn latest_divider_id(

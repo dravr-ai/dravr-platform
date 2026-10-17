@@ -251,13 +251,31 @@ mod notification_event_locale_tests {
         notification_triggers::trigger_agent_updated(&service, user.id, tenant, "Marathon Agent");
         notification_triggers::trigger_agent_assigned(&service, user.id, tenant, "Recovery Agent");
         notification_triggers::trigger_sync_failure(&service, user.id, tenant, "Strava");
+        notification_triggers::trigger_coach_plan_published(
+            &service,
+            user.id,
+            tenant,
+            "Casey Coach",
+            "Big Red",
+            TransportPolicy::AnyTransport,
+        );
+        notification_triggers::trigger_coach_plan_pushed(
+            &service,
+            user.id,
+            tenant,
+            "Casey Coach",
+            notification_triggers::LinkPlatform {
+                provider: "intervals_icu",
+                name: "Intervals.icu",
+            },
+        );
         sleep(Duration::from_millis(600)).await;
 
         let (rows, _, _) = service
             .list_notifications(user.id, tenant, 50, 0, None, false)
             .await
             .unwrap();
-        assert_eq!(rows.len(), 8, "every trigger persists exactly one row");
+        assert_eq!(rows.len(), 10, "every trigger persists exactly one row");
 
         let expected = [
             (
@@ -303,6 +321,18 @@ mod notification_event_locale_tests {
                 "Échec de synchronisation Strava",
                 "Dravr n'a pas pu récupérer tes dernières données Strava. Nouvel essai automatique ; reconnecte-toi si ça persiste.",
             ),
+            (
+                "coach_plan_published",
+                "Plan publié par Casey Coach",
+                "Casey Coach a publié ton plan d’entraînement pour Big Red. Tu le retrouves sur l’Accueil.",
+            ),
+            // The title names only the provider, as `{1}`: the coach still
+            // holds `{0}` in the list the title fills from.
+            (
+                "coach_plan_pushed",
+                "Séances ajoutées à ton calendrier Intervals.icu",
+                "Casey Coach a ajouté les séances de ton plan à ton calendrier Intervals.icu.",
+            ),
         ];
 
         for (wire, title, body) in expected {
@@ -339,6 +369,8 @@ mod notification_event_locale_tests {
             NotificationEvent::DelegationDeclined,
             NotificationEvent::DelegationOffRoster,
             NotificationEvent::DelegationOffCoachRoster,
+            NotificationEvent::CoachPlanPublished,
+            NotificationEvent::CoachPlanPushed,
             NotificationEvent::PersonaDigest,
             NotificationEvent::PersonaDailyDigest,
             NotificationEvent::PersonaSessionDigest,

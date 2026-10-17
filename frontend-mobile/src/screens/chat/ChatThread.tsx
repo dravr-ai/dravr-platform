@@ -338,6 +338,7 @@ export function ChatThread({
       />
 
       <MessageList
+        conversationId={conversationId}
         messages={messagesHook.messages}
         isLoading={isLoading}
         isSending={messagesHook.isSending}

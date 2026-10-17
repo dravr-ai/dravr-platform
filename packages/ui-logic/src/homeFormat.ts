@@ -5,7 +5,7 @@
 // ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone
 
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
-import { addCivilDays, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
+import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters } from '@pierre/shared-types';
 import { activitySportLabelKey, sportHasRoutes, weekMinutesSeconds } from '@pierre/shared-constants';
 import { formatDuration, type VolumeMetric } from '@pierre/domain-utils';
 import { formatElevation, formatSpokenDistance, type DistanceUnit } from '@pierre/chat-utils';
@@ -79,9 +79,13 @@ export function civilDayMonth(date: string, language: string): string {
   return formatCivilDate(date, language, { day: 'numeric', month: 'long' });
 }
 
-/** An RFC 3339 instant in the app's language and the device's own timezone. */
+/**
+ * An RFC 3339 instant in the app's language and the device's own timezone,
+ * read by `instantMs` as the Home parser that admitted it reads it, so a
+ * stamp to the microsecond formats on Hermes as it does in the browser.
+ */
 export function formatInstant(instant: string, language: string, options: Intl.DateTimeFormatOptions): string {
-  const ms = Date.parse(instant);
+  const ms = instantMs(instant);
   if (Number.isNaN(ms)) return instant;
   return new Intl.DateTimeFormat(language, options).format(new Date(ms));
 }

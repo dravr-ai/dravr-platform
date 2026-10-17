@@ -42,7 +42,7 @@ use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_tool_runtime::coach_seat::{is_withheld_on_coach_seat, TurnSeat};
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
 use pierre_tool_runtime::implementations::guided_flow::{
     active_guided_flow, turn_withholds_writes,
@@ -114,9 +114,11 @@ pub struct TurnToolSurface {
     /// counters because the surface cannot see the session that wraps it — not
     /// because they measure different things, and they must agree.
     calls: AtomicUsize,
-    /// Whose data the turn's tools run against. On [`TurnSeat::Coach`] the
-    /// coach's own data tools are left out of the listing (carnet#742), and
-    /// the executor this surface calls through refuses them as well.
+    /// Whose data the turn's tools run against. The tools the seat withholds
+    /// — the coach's own data tools on [`TurnSeat::Coach`] (carnet#742), every
+    /// write on the coach's own account on [`TurnSeat::AthleteThread`]
+    /// (carnet#1070) — are left out of the listing, and the executor this
+    /// surface calls through refuses them as well.
     seat: TurnSeat,
 }
 
@@ -172,10 +174,7 @@ impl ToolSurface for TurnToolSurface {
             .chat_callable_schemas()
             .into_iter()
             .filter(|s| !(withhold && GUIDED_FLOW_WITHHELD_TOOLS.contains(&s.name.as_str())))
-            .filter(|s| {
-                !(self.seat == TurnSeat::Coach
-                    && is_withheld_on_coach_seat(&self.tool_registry, &s.name))
-            })
+            .filter(|s| !self.seat.withholds(&self.tool_registry, &s.name))
             .map(|s| McpToolDefinition {
                 name: s.name,
                 description: s.description,
@@ -423,7 +422,8 @@ impl HostedToolBridge {
                 // The agent the turn answers as, bound for the reason the
                 // turn token is: no tool-body task-local to inherit it from.
                 .with_turn_agent(turn.turn_agent_id.map(ToOwned::to_owned))
-                // The coach's seat refuses the coach's own data (carnet#742).
+                // The coach's seats refuse what they withhold (carnet#742,
+                // carnet#1070).
                 .with_seat(turn.seat),
         );
         TurnToolSurface::new(

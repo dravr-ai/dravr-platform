@@ -1,7 +1,8 @@
 // ABOUTME: Decodes a persisted transcript row into the same ReplyBlock list a live turn arrives in
 // ABOUTME: So each client walks one block list, whether the turn just landed or was read back from history; a command reply keeps its line breaks on the way
 
-import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
+import type { ClaimVerdict, DraftState, Message, PlanSubject, ReplyBlock } from '@pierre/shared-types';
+import { parseDraftState, parsePlanSubject } from '@pierre/shared-types';
 import { splitActivityContent } from './activity';
 import { stripToolScaffolding } from './conversation';
 import { parseSceneBlocks } from './viz';
@@ -114,7 +115,7 @@ export function transcriptBlocks(
     (block) => block.kind === WORKOUT_PLAN_KIND,
   );
   if (plan && 'plan' in plan) {
-    blocks.push({ type: 'workout_plan', plan: plan.plan });
+    blocks.push({ type: 'workout_plan', plan: plan.plan, ...storedPlanDraft(plan) });
   }
 
   // A persisted command reply keeps the controls it carried, so a reload
@@ -136,6 +137,39 @@ export function transcriptBlocks(
   }
 
   return blocks;
+}
+
+/**
+ * The draft fields a stored plan entry carries beside its plan, in the shape
+ * the live `workout_plan` block carries them: `subject` and `draft` when the
+ * entry is a coach's draft view of the thread's athlete, `draft: null` when it
+ * names the athlete with no draft open, nothing at all on any other card — so
+ * a reload draws the controls the live turn did.
+ */
+function storedPlanDraft(entry: object): { subject?: PlanSubject; draft?: DraftState | null } {
+  const fields = entry as { subject?: unknown; draft?: unknown };
+  const subject = parsePlanSubject(fields.subject);
+  if (subject === null) return {};
+  if (fields.draft === null) return { subject, draft: null };
+  const draft = parseDraftState(fields.draft);
+  return draft === null ? { subject } : { subject, draft };
+}
+
+/**
+ * The coach's draft a `workout_plan` block shows, with the athlete it is for,
+ * or `null` for a card that shows no draft — every card outside a coach's plan
+ * thread, and one inside it with no draft open.
+ *
+ * Read from the block whether it arrived live or was decoded from history,
+ * and validated here either way: what decides whether the Publish and Discard
+ * controls exist is never taken on trust from the wire.
+ */
+export function planCardDraft(
+  block: Extract<ReplyBlock, { type: 'workout_plan' }>,
+): { subject: PlanSubject; draft: DraftState } | null {
+  const subject = parsePlanSubject(block.subject);
+  const draft = parseDraftState(block.draft);
+  return subject !== null && draft !== null ? { subject, draft } : null;
 }
 
 /**

@@ -1,5 +1,5 @@
 // ABOUTME: The plan tools' `athlete` argument — a group's human coach acting on a consenting athlete's one season plan
-// ABOUTME: Asserts the rows land on the ATHLETE's season, authored by the coach's agent, and every refusal by its text
+// ABOUTME: Asserts the coach's saves draft the ATHLETE's season and land there on publish, authored by the coach's agent, and every refusal by its text
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,7 +10,10 @@
 //! (`coach_sharing_consent`, which joining grants), the athlete lives in
 //! exactly one tenant, and the call comes from a direct chat.
 //!
-//! Every positive assertion reads the athlete's season back through the
+//! A coach's save writes the coach's draft of the athlete's plan, which
+//! reaches the athlete's season only when the coach publishes it
+//! (carnet#1069; `training_plan_draft_test` covers the draft in full). Every
+//! positive assertion reads the athlete's draft or season back through the
 //! repository under the athlete's own `(tenant, user)` — a stub that ignored
 //! `athlete` and saved the coach's own plan would pass a tool-only round trip
 //! and fail here — and checks what the coach wrote is authored by the coach's
@@ -38,10 +41,13 @@ use pierre_core::models::{
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams};
+use pierre_database::repositories::{
+    DraftOwner, PlanDraft, PlanOutlineInput, SavePlanBundleParams,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, RacePriority, TrainingPlan};
 use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
@@ -491,8 +497,42 @@ fn author_entry<'a>(fetched: &'a Value, agent_id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("{agent_id} is among the authors: {fetched}"))
 }
 
+/// The coach's draft of the athlete's plan, read under the athlete's tenant.
+async fn coach_draft(fx: &Fixture) -> Option<PlanDraft> {
+    fx.resources
+        .common
+        .repos
+        .training_plans
+        .get_draft_plan(DraftOwner {
+            tenant_id: &fx.athlete_tenant.to_string(),
+            user_id: &fx.athlete.to_string(),
+            coach_user_id: &fx.agent.to_string(),
+        })
+        .await
+        .unwrap()
+}
+
+/// The coach publishes their draft of Phil's plan from their direct chat.
+async fn coach_publishes(fx: &Fixture) -> Value {
+    let conversation = coach_dm(fx).await;
+    let runtime: Arc<dyn ToolRuntime> = fx.resources.clone();
+    CONVERSATION_ID
+        .scope(Some(conversation), async {
+            structured(
+                &PublishTrainingPlanTool
+                    .execute(
+                        &runtime,
+                        &tool_context(fx.agent, fx.coach_tenant),
+                        json!({ "athlete": "phil", "action": "publish" }),
+                    )
+                    .await,
+            )
+        })
+        .await
+}
+
 #[tokio::test]
-async fn the_coachs_week_lands_on_the_athletes_one_season_authored_by_the_coachs_agent() {
+async fn the_coachs_week_reaches_the_athletes_season_only_once_published() {
     let fx = coached_athlete(Some("Phil Tremblay"), true).await;
 
     let saved = coach_saves(&fx, save_payload("phil")).await;
@@ -506,6 +546,23 @@ async fn the_coachs_week_lands_on_the_athletes_one_season_authored_by_the_coachs
         "the result names whose plan changed: {saved}"
     );
     assert_eq!(saved.get("weeks_saved").and_then(Value::as_u64), Some(1));
+    assert_eq!(saved.get("draft"), Some(&json!(true)), "{saved}");
+
+    // The save is the coach's draft: the athlete has no season yet, and
+    // their own `/plan` does not show the session.
+    let draft = coach_draft(&fx).await.expect("the coach's draft");
+    assert_eq!(
+        saved.get("plan_id").and_then(Value::as_str),
+        Some(draft.plan.id.as_str())
+    );
+    assert!(athlete_season(&fx).await.is_none(), "nothing is live yet");
+    assert!(
+        !athlete_plan_command(&fx).await.contains(COACH_WORKOUT),
+        "the athlete never sees a draft"
+    );
+
+    let published = coach_publishes(&fx).await;
+    assert_eq!(published["status"], "published", "{published}");
 
     // The season is the ATHLETE's, under their tenant and user id — exactly
     // what their DM reads — and what the coach wrote is authored by the
@@ -513,7 +570,12 @@ async fn the_coachs_week_lands_on_the_athletes_one_season_authored_by_the_coachs
     let repos = &fx.resources.common.repos;
     let plan = athlete_season(&fx)
         .await
-        .expect("the plan lands on the athlete's season");
+        .expect("the published plan is the athlete's season");
+    assert_eq!(
+        published["plan_id"].as_str(),
+        Some(plan.id.as_str()),
+        "{published}"
+    );
     assert_eq!(
         plan.author_agent_id.as_deref(),
         Some(fx.coach_agent.as_str())
@@ -601,10 +663,17 @@ async fn the_coachs_weeks_attach_to_the_season_the_athletes_agent_laid() {
 
     let saved = coach_saves(&fx, json!({ "athlete": "phil", "weeks": [coach_week()] })).await;
     assert!(saved.get("error").is_none(), "weeks attach, got: {saved}");
+    let draft = coach_draft(&fx).await.expect("the coach's draft");
     assert_eq!(
-        saved.get("plan_id").and_then(Value::as_str),
+        draft.base_plan_id.as_deref(),
         Some(season.as_str()),
-        "the coach's weeks land on the season the athlete's agent laid: {saved}"
+        "the coach drafts over the season the athlete's agent laid: {saved}"
+    );
+    let published = coach_publishes(&fx).await;
+    assert_eq!(
+        published.get("plan_id").and_then(Value::as_str),
+        Some(season.as_str()),
+        "the coach's weeks land on the season the athlete's agent laid: {published}"
     );
 
     let plan = athlete_season(&fx).await.expect("the one season");
@@ -827,13 +896,8 @@ async fn the_groups_peer_switch_does_not_govern_the_coach() {
         "the peer switch does not refuse the coach, got: {saved}"
     );
     assert!(
-        repos
-            .training_plans
-            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
-            .await
-            .unwrap()
-            .is_some(),
-        "the coach's week lands on the athlete's season"
+        coach_draft(&fx).await.is_some(),
+        "the coach's week lands in their draft of the athlete's plan"
     );
 }
 

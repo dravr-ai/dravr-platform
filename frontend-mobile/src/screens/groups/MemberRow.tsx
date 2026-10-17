@@ -2,12 +2,12 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: One member of a coaching group — avatar, display name, role and consent as a 52-tall row, admin controls trailing
-// ABOUTME: Drawn by Group info inside the group's own chat thread; the roles it offers match what the API allows
+// ABOUTME: Drawn by Group info inside the group's own chat thread; the roles it offers match what the API allows, the coach gets the way into the plan
 
 import React, { useMemo } from 'react';
 import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { avatarSlot, initialsFor } from '@pierre/chat-utils';
+import { avatarSlot, initialsFor, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { RosterRow } from './RosterRow';
@@ -39,6 +39,14 @@ export interface MemberRowProps {
   isChangingRole: boolean;
   /** The last row of the members list draws no hairline under itself. */
   last?: boolean;
+  /**
+   * Open the caller's plan thread for this member. Passed only for the
+   * group's coach, so the action never reaches a member's view of the roster,
+   * and never on the coach's own row when they are also a member.
+   */
+  onWorkOnPlan?: (member: GroupMember) => void;
+  /** This member's plan thread is being opened. */
+  isOpeningPlan?: boolean;
 }
 
 /**
@@ -56,6 +64,8 @@ export function MemberRow({
   isRemoving,
   isChangingRole,
   last = false,
+  onWorkOnPlan,
+  isOpeningPlan = false,
 }: MemberRowProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -80,6 +90,22 @@ export function MemberRow({
       testID={`group-member-${member.user_id}`}
       trailing={
         <>
+          {onWorkOnPlan && (
+            <TouchableOpacity
+              className="p-2"
+              onPress={() => onWorkOnPlan(member)}
+              disabled={isOpeningPlan}
+              accessibilityRole="button"
+              accessibilityLabel={t(PLAN_THREAD_KEYS.open, { name: displayName })}
+              testID={`member-work-on-plan-${member.user_id}`}
+            >
+              {isOpeningPlan ? (
+                <ActivityIndicator size="small" color={colors.text.secondary} />
+              ) : (
+                <Feather name="clipboard" size={18} color={colors.tokens.primary} />
+              )}
+            </TouchableOpacity>
+          )}
           {/* Promotion is the owner's call — the API rejects it from anyone else,
               so showing it to a plain admin would advertise a 403. */}
           {isOwner && member.role !== 'owner' && (

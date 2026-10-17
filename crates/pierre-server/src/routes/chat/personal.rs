@@ -21,11 +21,9 @@ use pierre_services::personal_thread::{
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::fresh_title_fallback;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_response, get_tenant_id};
 use super::conversations::post_welcome_best_effort;
-use super::dto::{
-    ConversationResponse, OpenTopicRequest, OpenTopicResponse, PersonalThreadResponse,
-};
+use super::dto::{OpenTopicRequest, OpenTopicResponse, PersonalThreadResponse};
 use super::send_message::client_surface;
 use super::turn_response::message_response;
 
@@ -47,9 +45,11 @@ pub async fn get_personal_thread(
         tenant_id,
     )
     .await?;
-    let response = PersonalThreadResponse {
-        conversation: conversation.map(ConversationResponse::from),
+    let conversation = match conversation {
+        Some(conv) => Some(conversation_response(&resources, conv).await),
+        None => None,
     };
+    let response = PersonalThreadResponse { conversation };
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -119,7 +119,7 @@ pub async fn open_personal_topic(
     }
 
     let response = OpenTopicResponse {
-        conversation: ConversationResponse::from(thread),
+        conversation: conversation_response(&resources, thread).await,
         divider: topic.divider.map(message_response),
     };
     Ok((StatusCode::CREATED, Json(response)).into_response())

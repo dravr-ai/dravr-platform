@@ -2,6 +2,7 @@
 // ABOUTME: Mirrors crates/pierre-server/src/routes/chat/turn_response.rs; shared verbatim by web and mobile
 
 import type { Message } from './api.js';
+import type { DraftState, PlanSubject } from './coach-plan.js';
 
 /**
  * Interactive control attached to a turn, carried inside an `actions` reply
@@ -79,8 +80,13 @@ export type ReplyBlock =
   | { type: 'scene'; scene_blocks: string }
   /** A chart to fetch as an image. */
   | { type: 'scene_image'; url: string; mime_type: string; caption?: string }
-  /** A schema-validated workout plan, rendered as a card. */
-  | { type: 'workout_plan'; plan: unknown }
+  /**
+   * A schema-validated workout plan, rendered as a card. In a coach's plan
+   * thread the card can show the coach's draft for the thread's athlete:
+   * `subject` names that athlete and `draft` is where the draft stands. Both
+   * are absent on every other card.
+   */
+  | { type: 'workout_plan'; plan: unknown; subject?: PlanSubject; draft?: DraftState | null }
   /** The athlete's activities, rendered as their own panel. */
   | { type: 'activity_list'; text: string }
   /** Claim-verification results attached to the reply. */

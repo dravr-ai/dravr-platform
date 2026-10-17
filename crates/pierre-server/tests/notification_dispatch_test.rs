@@ -1031,6 +1031,81 @@ mod dispatch_tests {
         assert!(!data_has(&notifications[0], "screen"));
     }
 
+    /// A human coach publishing or pushing an athlete's plan is one person's
+    /// act addressed to another: both notices land in category `coach` even
+    /// once the athlete's daily cap for it is spent, the published one
+    /// opening Home and the pushed one the calendar's connection.
+    #[tokio::test]
+    async fn test_coach_plan_notices_pass_an_exhausted_daily_cap() {
+        let (service, user_id, tenant_id) = agent_admin_setup("coach_plan_cap@example.com").await;
+        service
+            .upsert_notification_preference(&UpsertNotificationPreferenceParams {
+                user_id,
+                tenant_id,
+                category: "coach".to_owned(),
+                enabled: true,
+                sub_preferences: None,
+                quiet_hours_start: None,
+                quiet_hours_end: None,
+                timezone: None,
+                max_per_day: Some(1),
+            })
+            .await
+            .unwrap();
+        service
+            .create_notification(&CreateNotificationParams {
+                user_id,
+                tenant_id,
+                category: NotificationCategory::Coach,
+                notification_type: "coach_existing".to_owned(),
+                title: "Existing".to_owned(),
+                body: "Existing notification".to_owned(),
+                data: None,
+                image_url: None,
+                actions: None,
+                transport_policy: PushTransportPolicy::AnyTransport,
+            })
+            .await
+            .unwrap();
+
+        notification_triggers::trigger_coach_plan_published(
+            &service,
+            user_id,
+            tenant_id,
+            "Casey Coach",
+            "Big Red",
+            TransportPolicy::AnyTransport,
+        );
+        notification_triggers::trigger_coach_plan_pushed(
+            &service,
+            user_id,
+            tenant_id,
+            "Casey Coach",
+            notification_triggers::LinkPlatform {
+                provider: "intervals_icu",
+                name: "Intervals.icu",
+            },
+        );
+        sleep(Duration::from_millis(300)).await;
+
+        let (notifications, _total, _unread) = service
+            .list_notifications(user_id, tenant_id, 10, 0, Some("coach"), false)
+            .await
+            .unwrap();
+        let of = |wire: &str| {
+            notifications
+                .iter()
+                .find(|n| n.notification_type == wire)
+                .unwrap_or_else(|| panic!("{wire} passed the spent cap: {notifications:?}"))
+        };
+        let published = of("coach_plan_published");
+        assert_eq!(data_str(published, "screen"), Some("activities"));
+        let pushed = of("coach_plan_pushed");
+        assert_eq!(data_str(pushed, "screen"), Some("connections"));
+        assert_eq!(data_str(pushed, "provider"), Some("intervals_icu"));
+        assert_eq!(notifications.len(), 3, "{notifications:?}");
+    }
+
     // ════════════════════════════════════════════════════════════════
     // Frequency cap bypass tests (Phase 3)
     // ════════════════════════════════════════════════════════════════

@@ -55,6 +55,7 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── chat/                    # Chat functionality tests (11: the verdict sheet, on a seeded verdict)
 ├── onboarding/              # Onboarding steps (02: the coach's group step, on fresh coaches)
 ├── home-sync/               # Home's sync failure and retry, against the scripted scraper
+├── coach-plan/              # A coach publishes a draft from their thread about an athlete, on a fresh seeded pair
 ├── store/                   # Discover/Store tests (browse, install → hint, uninstall)
 ├── discover/                # The edit sheet on an installed agent (the only agent editor)
 ├── voice-input/             # Voice input tests
@@ -148,6 +149,20 @@ step "hosted sign-in: the sheet's web content process never launched".
   `DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097`. `scripts/e2e-home-sync-local.sh
   --mobile` boots such a stack; the onboarding flow asks it for a fresh coach per path
   and per attempt, since the app keeps the step's done flag on the device per user.
+- `coach-plan/01-publish-draft-from-athlete-thread.yaml` asks the same control process
+  for a coach and an athlete on every attempt (`POST /coach-plan-thread`): it makes
+  both with `pierre-cli user create` and seeds them with `pierre-cli seed
+  coach-plan-thread` (`crates/pierre-seeders/src/coach_plan_thread.rs`) — a group the
+  coach coaches with no membership row, the athlete in it, the athlete's live season,
+  the coach's thread about them and the reply whose card shows the coach's open
+  draft, since no turn runs without a model. Publishing consumes the draft, which is
+  why each attempt gets a new pair. The control needs `PIERRE_CLI` naming the binary
+  and the server's `PIERRE_MASTER_ENCRYPTION_KEY` and `PIERRE_LLM_DEFAULT_MODEL`;
+  run it locally with `scripts/e2e-home-sync-local.sh --mobile
+  .maestro/coach-plan/01-publish-draft-from-athlete-thread.yaml`. The dev stack
+  (`bin/setup-db-with-seeds-and-oauth-and-start-servers.sh`) seeds one such pair,
+  `plancoach@pierre.dev` / `planathlete@pierre.dev`, for trying it by hand; the
+  script names their password.
 
 ## Test Credentials
 

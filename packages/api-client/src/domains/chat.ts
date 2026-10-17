@@ -4,7 +4,7 @@
 // ABOUTME: Chat domain API - conversations, history, feedback, and the single turn send
 // ABOUTME: sendTurn is the ONE way any surface puts a message on the wire and reads the turn back
 
-import type { AxiosInstance } from 'axios';
+import { AxiosError, type AxiosInstance } from 'axios';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -16,12 +16,21 @@ import type {
   Message,
   MessageFeedbackEntry,
   MessageOrigin,
+  PublishSubjectPlanRequest,
+  PublishSubjectPlanResult,
   StartersResponse,
+  SubjectPlanResponse,
   TurnEnvelope,
   UseCaseStarter,
 } from '@pierre/shared-types';
+import {
+  parsePlanPublishConflict,
+  parsePublishedSubjectPlan,
+  parseSubjectPlanResponse,
+} from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
+import { requireShape } from '../core/shape';
 import {
   parseTurnBody,
   TurnIdleAbortedError,
@@ -41,6 +50,9 @@ export type {
   ConversationParticipantsResponse,
   Message,
   MessageFeedbackEntry,
+  PublishSubjectPlanRequest,
+  PublishSubjectPlanResult,
+  SubjectPlanResponse,
   TurnEnvelope,
   UseCaseStarter,
 };
@@ -310,6 +322,75 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         options ?? {}
       );
       return response.data;
+    },
+
+    /**
+     * Open the caller's plan thread for one athlete of a group they coach —
+     * the one thread per coach per athlete where the coach works on that
+     * athlete's plan (carnet#1070). The server checks the coaching link by id
+     * (the caller is the group's coach, the athlete a live member who shares
+     * with them, one home tenant) and answers the existing thread, un-archived,
+     * or a new one bound to the group's agent. A failed check is a refusal
+     * (403 / 404 / 409), never a thread.
+     */
+    async openAthleteThread(athleteUserId: string, groupId: string): Promise<Conversation> {
+      const response = await axios.post<Conversation>(ENDPOINTS.CHAT.ATHLETE_THREAD(athleteUserId), {
+        group_id: groupId,
+      });
+      return response.data;
+    },
+
+    /**
+     * The plan thread's athlete as the coach reads them: their live plan and
+     * the coach's draft over it, with where that draft stands. 404 for a
+     * thread bound to no athlete; the coaching-link refusals otherwise.
+     */
+    async getSubjectPlan(conversationId: string): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_PLAN(conversationId);
+      const response = await axios.get<unknown>(endpoint);
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * Publish the coach's draft as the athlete's live plan; the athlete is
+     * notified. The athlete's plan having moved under the draft — a week both
+     * changed, or a re-laid season — is answered 409 `plan_publish_conflict`,
+     * which resolves as a `conflict` result rather than rejecting: the coach
+     * decides what happens next, and `overwrite_athlete_changes` is how they
+     * publish anyway. Every other refusal rejects as usual.
+     */
+    async publishSubjectPlan(
+      conversationId: string,
+      request: PublishSubjectPlanRequest,
+    ): Promise<PublishSubjectPlanResult> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_PLAN_PUBLISH(conversationId);
+      const response = await axios.post<unknown>(endpoint, request, {
+        validateStatus: (status) => (status >= 200 && status < 300) || status === 409,
+      });
+      if (response.status === 409) {
+        const conflict = parsePlanPublishConflict(response.data);
+        if (conflict === null) {
+          // A 409 that is not the conflict is a refusal like any other, and
+          // rejects in the shape every caller already classifies.
+          throw new AxiosError(
+            `${endpoint} refused with 409`,
+            AxiosError.ERR_BAD_REQUEST,
+            response.config,
+            response.request,
+            response,
+          );
+        }
+        return { status: 'conflict', conflict };
+      }
+      return { status: 'published', published: requireShape(parsePublishedSubjectPlan(response.data), endpoint) };
+    },
+
+    /**
+     * Throw the coach's draft away. The athlete's live plan stays as it is
+     * and nothing reaches them. 404 `no_draft` when there is none.
+     */
+    async discardSubjectPlanDraft(conversationId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.CHAT.SUBJECT_PLAN_DRAFT(conversationId));
     },
 
     /**

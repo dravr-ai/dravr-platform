@@ -83,6 +83,28 @@ describe('ChatHeaderTitle subtitle', () => {
     ).toEqual(expect.objectContaining({ borderRadius: 16 }));
   });
 
+  it("names the athlete on a coach's plan thread, over the agent it runs on", () => {
+    renderHeader(
+      conversation({
+        title: 'Alice Runner',
+        agent_handle: 'marathon-coach',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-1',
+        subject_display_name: 'Alice Runner',
+      }),
+      'No provider connected',
+    );
+
+    // The translator here answers with the key; the line is the plan-thread subtitle.
+    expect(screen.getByTestId('chat-header-subject')).toHaveTextContent('humanCoach.planThread.subtitle');
+    expect(screen.queryByTestId('chat-header-handle')).toBeNull();
+    expect(screen.queryByTestId('chat-header-provider-status')).toBeNull();
+    // A person, so a circle.
+    expect(
+      screen.getByTestId('chat-header-avatar', { includeHiddenElements: true }).props.style,
+    ).toEqual(expect.objectContaining({ borderRadius: 16 }));
+  });
+
   it('yields to the coach handle', () => {
     renderHeader(conversation({ agent_handle: 'trail' }), 'No provider connected');
 

@@ -84,12 +84,16 @@ pub struct OnboardingReset {
 /// Theirs, in-app (the web and
 /// mobile clients create with the column's `web` default, a `/reset` stamps
 /// the client it was typed on, messaging threads carry their channel), bound
-/// to no group, and shared with nobody. A messaging room keeps a per-member
-/// row, and an in-app thread can carry other participants; either is somebody
-/// else's history too, so neither matches.
+/// to no group, about no other athlete, and shared with nobody. A messaging
+/// room keeps a per-member row, and an in-app thread can carry other
+/// participants; either is somebody else's history too, so neither matches.
+/// Nor does a human coach's thread bound to one athlete (carnet#1070): it is
+/// work on that athlete's plan, kept like a room, and never the coach's own
+/// thread for the platform to adopt or post into.
 macro_rules! personal_conversation {
     () => {
-        "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND channel_type IN ('web', 'mobile') \
+        "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND subject_user_id IS NULL \
+         AND channel_type IN ('web', 'mobile') \
          AND NOT EXISTS (SELECT 1 FROM conversation_participants p \
          WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"
     };
@@ -143,7 +147,8 @@ pub const ONBOARDING_RESET_STATEMENTS: &[(&str, &str)] = &[
 /// Run after [`ONBOARDING_RESET_STATEMENTS`] when
 /// the operator asks for it: every remaining fact and agent note about the
 /// user, and their own in-app conversations (messages, verdicts and feedback
-/// cascade with them). Room threads and threads shared with anyone else stay.
+/// cascade with them). Room threads, threads shared with anyone else and a
+/// coach's threads about the athletes they coach stay.
 pub const MEMORY_RESET_STATEMENTS: &[(&str, &str)] = &[
     (
         "user_facts",

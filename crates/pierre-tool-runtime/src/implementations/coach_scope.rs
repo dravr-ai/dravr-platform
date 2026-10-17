@@ -18,7 +18,10 @@
 //!    where every member reads the reply;
 //! 3. passes the plan scope's gates ([`resolve_plan_scope`]): the athlete is
 //!    a member of a group the caller is the human coach of, shares their data
-//!    with them, has one home tenant, and that tenant has the tool enabled;
+//!    with them, has one home tenant, and that tenant has the tool enabled.
+//!    In the coach's thread bound to one athlete, that athlete is the one
+//!    written for with no `athlete` named, and every rule here applies to them
+//!    exactly as to a named one;
 //! 4. writes through the link's own coach writer
 //!    ([`AuthService::coach_calendar_writer`]): the caller's own link, the
 //!    athlete's `calendar_write` consent, and Coach access on the platform.
@@ -60,8 +63,9 @@ pub(super) fn athlete_property() -> PropertySchema {
             "Roster display name of the athlete whose calendar this writes. Only the group's \
              human coach (attached via a coach invite) may set it, for a consenting athlete in a \
              group they coach whose coaching-platform link allows calendar writes, from Dravr's \
-             own app or channels and from a direct chat — never in a room. Omit to write your \
-             own calendar."
+             own app or channels and from a direct chat — never in a room. In the coach's thread \
+             about one athlete it defaults to that athlete; elsewhere, omit it to write your own \
+             calendar."
                 .to_owned(),
         ),
         ..Default::default()
@@ -160,8 +164,9 @@ pub(super) struct CalendarScope {
 }
 
 /// Resolve whose calendar the call writes: the caller's own, or — for a
-/// group's human coach naming `athlete`, from their own conversation on
-/// Dravr's own surfaces — a coached athlete's.
+/// group's human coach naming `athlete`, or calling from their thread bound
+/// to one athlete, from their own conversation on Dravr's own surfaces — a
+/// coached athlete's.
 ///
 /// `arg_agent` is the call's `agent_id` argument, read only on a call with
 /// no conversation and no turn agent. The outer `Err` is a repository
@@ -183,15 +188,6 @@ pub(super) async fn resolve_calendar_scope(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|name| !name.is_empty());
-    // Another person's calendar is written only from Dravr's own surfaces:
-    // refused before anything about the athlete is read.
-    if athlete.is_some() && ai_scope::serving_external() {
-        return Ok(Err(refusal(
-            "external_transport",
-            "A coach writes an athlete's calendar from Dravr's own app or channels, not over \
-             this interface.",
-        )));
-    }
     let conversation = load_conversation(
         context.resources.repos(),
         context.conversation_id.as_deref(),
@@ -199,7 +195,23 @@ pub(super) async fn resolve_calendar_scope(
         &context.user_id.to_string(),
     )
     .await?;
-    if athlete.is_some() {
+    // A thread bound to one athlete writes that athlete's calendar whether or
+    // not the call names them, so it counts exactly as `athlete=` does.
+    let for_athlete = athlete.is_some()
+        || conversation
+            .as_ref()
+            .and_then(ConversationRecord::subject)
+            .is_some();
+    // Another person's calendar is written only from Dravr's own surfaces:
+    // refused before anything about the athlete is read.
+    if for_athlete && ai_scope::serving_external() {
+        return Ok(Err(refusal(
+            "external_transport",
+            "A coach writes an athlete's calendar from Dravr's own app or channels, not over \
+             this interface.",
+        )));
+    }
+    if for_athlete {
         if let Some(refused) = room_refusal_in(
             context,
             conversation.as_ref(),
@@ -236,6 +248,12 @@ impl CalendarScope {
     /// rather than the caller their own.
     pub(super) const fn acts_for_athlete(&self) -> bool {
         self.acting_for.is_some()
+    }
+
+    /// The athlete's display name when a coach writes their calendar; `None`
+    /// in self scope.
+    pub(super) fn athlete_name(&self) -> Option<&str> {
+        self.acting_for.as_deref()
     }
 
     /// The backend this scope's calendar write goes to: the one `requested`

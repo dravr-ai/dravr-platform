@@ -233,10 +233,10 @@ pub async fn fetch_member_snapshots(
     join_all(futures).await
 }
 
-// The member display-name rule lives in `crate::athlete_display_name`, which
-// every build compiles: the snapshot roster, the peer-fetch tool and the plan
-// tools' `athlete=` resolution all render a member by that one function.
-use crate::athlete_display_name::fetch_athlete_identity;
+// The member display-name rule lives in `pierre_services::athlete_display_name`,
+// which every build compiles: the snapshot roster, the peer-fetch tool and the
+// plan tools' `athlete=` resolution all render a member by that one function.
+use pierre_services::athlete_display_name::fetch_athlete_identity;
 
 /// Compute the training load as of `as_of` from a list of activities, each
 /// session scored against the member's saved thresholds.
@@ -518,7 +518,7 @@ async fn fetch_single_member_snapshot(
 ) -> MemberFitnessSnapshot {
     let now = Utc::now();
     let data = runtime.data();
-    let identity = fetch_athlete_identity(&data, user_id).await;
+    let identity = fetch_athlete_identity(data.repos(), user_id).await;
     let display_name = identity.display_name.clone();
     let timezone = identity.timezone.clone();
 

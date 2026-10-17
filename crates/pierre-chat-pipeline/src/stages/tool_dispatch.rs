@@ -17,7 +17,7 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
-use pierre_tool_runtime::coach_seat::{is_withheld_on_coach_seat, TurnSeat};
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution::{self as chat_tool_loop, build_mcp_tools};
@@ -94,10 +94,17 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// Bound on the executor so a tool that records authorship — a plan week,
     /// an outline — names the agent the athlete was talking to.
     pub turn_agent_id: Option<&'a str>,
-    /// The sender holds the coach's seat of this turn's group. Their own
-    /// activities are not what the turn is about, so neither activity prefetch
-    /// runs for them (carnet#741).
-    pub coach_seat: Option<super::group_subject::CoachSeat>,
+    /// Whose data the turn's tools run against, as prompt assembly named it.
+    ///
+    /// Off the subject's seat the sender's own activities are not what the
+    /// turn is about, so neither activity prefetch runs: the coach's seat of a
+    /// group (carnet#741), and a human coach's thread bound to one athlete
+    /// (carnet#1070). The tools the seat withholds are left out of the
+    /// declarations and refused at execution: the coach's own data tools on
+    /// the coach's seat (carnet#742), every write on the coach's own account
+    /// in their athlete thread. There the coach's own reads stay declared, and
+    /// read the coach's own data when called.
+    pub seat: TurnSeat,
 }
 
 /// What the dispatch stage hands back to the pipeline.
@@ -153,14 +160,12 @@ pub(crate) async fn dispatch_llm_with_tools(
         guided_flow,
         peer_roster,
         turn_agent_id,
-        coach_seat,
+        seat,
     } = inputs;
-    let sender_is_subject = coach_seat.is_none();
-    let seat = if sender_is_subject {
-        TurnSeat::Subject
-    } else {
-        TurnSeat::Coach
-    };
+    // Whose activities the prefetches may put in front of the model: the
+    // sender's, unless the sender is coaching — a group from its coach's
+    // seat, or one athlete in their thread.
+    let sender_is_subject = seat == TurnSeat::Subject;
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
     // can route a completion notice back to the channel that triggered it.
@@ -178,7 +183,8 @@ pub(crate) async fn dispatch_llm_with_tools(
             // (not across the whole conversation). conversation_id stays above,
             // for routing detached work back to the thread.
             .with_turn_token(input.turn_id.0.to_string())
-            // The coach's seat refuses the coach's own data (carnet#742).
+            // The coach's seats refuse what they withhold (carnet#742,
+            // carnet#1070).
             .with_seat(seat),
     );
 
@@ -188,8 +194,8 @@ pub(crate) async fn dispatch_llm_with_tools(
     // `get_activities` run put the athlete's activities in front of the model.
     // Stage 14 folds that into `tools_called` so downstream gates can tell
     // platform-fetched data from anything the model made up. Skipped for the
-    // coach's seat (here and at 12b): the sender's activities are not the
-    // group's.
+    // coach's seat and a coach's athlete thread (here and at 12b): the
+    // sender's activities are not the group's, nor the athlete's.
     let mut prefetched_activities = sender_is_subject
         && inject_startup_context(
             &executor,
@@ -381,16 +387,19 @@ pub(crate) async fn dispatch_llm_with_tools(
             "guided flow active: withholding write tools from the turn"
         );
     }
-    // The coach's seat: every tool that would read or write the coach's own
-    // data is left out, in lockstep with the prose index and the loopback
-    // surface (carnet#742). The executor refuses them as well.
-    if coach_seat.is_some() {
+    // The coach's seats: the tools the seat withholds are left out, in
+    // lockstep with the prose index and the loopback surface — on the coach's
+    // seat every tool that would read or write the coach's own data
+    // (carnet#742), in their athlete thread every tool that would write it
+    // (carnet#1070). The executor refuses them as well.
+    if seat != TurnSeat::Subject {
         let before = tools.function_declarations.len();
         tools
             .function_declarations
-            .retain(|decl| !is_withheld_on_coach_seat(&ctx.tool_registry, &decl.name));
+            .retain(|decl| !seat.withholds(&ctx.tool_registry, &decl.name));
         info!(
             withheld = before.saturating_sub(tools.function_declarations.len()),
+            seat = ?seat,
             "coach's seat: withholding the coach's own data tools from the turn"
         );
     }

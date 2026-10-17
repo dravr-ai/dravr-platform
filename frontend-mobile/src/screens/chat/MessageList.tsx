@@ -29,6 +29,7 @@ import {
   isModelReply,
   isSameMessageGroup,
   localDayKey,
+  planCardDraft,
   transcriptBlocks,
   withVerdictRows,
 } from '@pierre/chat-utils';
@@ -50,6 +51,7 @@ import TopicDivider from './TopicDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import PlanDraftControls from './PlanDraftControls';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
 
@@ -394,6 +396,11 @@ function TypingDot({ index }: { index: number }) {
 }
 
 interface MessageListProps {
+  /**
+   * The open thread. A plan card in a coach's plan thread acts on the
+   * thread's draft through it; `null` before a thread exists.
+   */
+  conversationId?: string | null;
   messages: Message[];
   isLoading: boolean;
   isSending: boolean;
@@ -452,6 +459,7 @@ interface MessageListProps {
 }
 
 export function MessageList({
+  conversationId = null,
   messages,
   isLoading,
   isSending,
@@ -556,7 +564,17 @@ export function MessageList({
 
       case 'workout_plan': {
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
-        return plan ? <WorkoutPlanCard key={key} plan={plan} /> : null;
+        if (!plan) return null;
+        // A coach's draft for the thread's athlete carries its controls on
+        // the card; the controls decide for themselves who may see them.
+        const shown = conversationId === null ? null : planCardDraft(block);
+        return (
+          <WorkoutPlanCard key={key} plan={plan}>
+            {shown && conversationId !== null ? (
+              <PlanDraftControls conversationId={conversationId} subject={shown.subject} draft={shown.draft} />
+            ) : null}
+          </WorkoutPlanCard>
+        );
       }
 
       // The charts this block carries are positioned by the prose's own

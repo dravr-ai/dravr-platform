@@ -16,6 +16,8 @@ import { useTranslation } from '@pierre/i18n';
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
+  /** Drawn under the plan, inside the card — a coach's draft controls. */
+  children?: React.ReactNode;
 }
 
 /** A figure inside a sentence: dates, durations, counts, set in the mono face so columns of them line up. */
@@ -280,7 +282,7 @@ export function WeekHeading({
  * a single hairline under the header block. Everything under it is separated
  * by spacing alone.
  */
-export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
   const { t } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
@@ -334,6 +336,8 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       ) : (
         <View className="mb-3" />
       )}
+
+      {children}
     </View>
   );
 }

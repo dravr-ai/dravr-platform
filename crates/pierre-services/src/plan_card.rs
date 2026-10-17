@@ -25,6 +25,12 @@
 //! `fueling_withheld` in its place — why the rates are absent and that a
 //! clinician sets them — through the same [`FuelingDisclosure`] the prompt
 //! block and the calendar push read.
+//!
+//! In a human coach's thread bound to one athlete (carnet#1070) the card is
+//! that athlete's: the coach's draft over their live weeks, or their live
+//! season while the coach holds no draft ([`try_load_subject_plan_card`]).
+//! Its block carries [`PlanCardDraft`] beside `plan` — the athlete, and where
+//! the draft stands — so a client can offer Publish and Discard on it.
 
 use chrono::{Days, NaiveDate};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
@@ -36,14 +42,18 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateSource, TrainingPlan,
 };
 use pierre_providers::ai_scope;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget, DraftState};
 use crate::medical_flag::FiguresWithheld;
 use crate::plan_fueling::FuelingDisclosure;
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
 use pierre_core::json_value::to_value_as_written;
+
+/// The `type` of a plan card's entry in a `content_blocks` array.
+pub const WORKOUT_PLAN_BLOCK_TYPE: &str = "workout_plan";
 
 /// The tool whose call produced the plan the card projects, named as the
 /// block's `source_tool`.
@@ -257,12 +267,121 @@ impl PlanCard {
     /// unattributable. Claiming the save on a turn that only read the plan
     /// asserted a provenance that was false every time.
     pub fn as_block(&self, source_tool: &str) -> Result<serde_json::Value, serde_json::Error> {
-        Ok(serde_json::json!({
-            "type": "workout_plan",
-            "source_tool": source_tool,
-            "plan": to_value_as_written(self)?,
-        }))
+        self.block(source_tool, None)
     }
+
+    /// The `workout_plan` block carrying this card in a human coach's thread
+    /// about one athlete, with `subject` and `draft` beside `plan`.
+    ///
+    /// # Errors
+    ///
+    /// The serialisation error of [`Self::as_block`].
+    pub fn as_subject_block(
+        &self,
+        source_tool: &str,
+        draft: &PlanCardDraft,
+    ) -> Result<serde_json::Value, serde_json::Error> {
+        self.block(source_tool, Some(draft))
+    }
+
+    fn block(
+        &self,
+        source_tool: &str,
+        draft: Option<&PlanCardDraft>,
+    ) -> Result<serde_json::Value, serde_json::Error> {
+        to_value_as_written(&WorkoutPlanBlock {
+            block_type: WORKOUT_PLAN_BLOCK_TYPE,
+            source_tool,
+            plan: self,
+            draft,
+        })
+    }
+}
+
+/// One `workout_plan` entry of a `content_blocks` array.
+#[derive(Serialize)]
+struct WorkoutPlanBlock<'a> {
+    #[serde(rename = "type")]
+    block_type: &'static str,
+    source_tool: &'a str,
+    plan: &'a PlanCard,
+    /// `subject` and `draft`, on a card in a coach's athlete thread only.
+    #[serde(flatten)]
+    draft: Option<&'a PlanCardDraft>,
+}
+
+/// The athlete a card in a human coach's thread shows, by id and roster
+/// name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanSubject {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// Their roster name
+    /// ([`roster_display_name`](pierre_core::models::roster_display_name)).
+    pub display_name: String,
+}
+
+/// What a card in a human coach's thread about one athlete carries beside
+/// its plan: the athlete, and where the coach's draft of their plan stands.
+///
+/// With a draft the card shows it over the athlete's live weeks; with
+/// `draft: null` it shows their live season, no draft open. A client offers
+/// Publish and Discard on the first only, and only while its `draft` matches
+/// the subject-plan read's — [`DraftState::of`] builds both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanCardDraft {
+    /// Whose plan the card shows.
+    pub subject: PlanSubject,
+    /// Where the coach's draft stands; `None` with no draft open.
+    #[serde(default)]
+    pub draft: Option<DraftState>,
+}
+
+/// The card a human coach's thread about one athlete shows, and what it
+/// carries beside its plan.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubjectPlanCard {
+    /// The coach's draft over the athlete's live weeks, or their live season.
+    pub card: PlanCard,
+    /// The athlete and where the draft stands.
+    pub draft: PlanCardDraft,
+}
+
+/// The card for a human coach's thread about one athlete.
+///
+/// The coach's draft over the athlete's live weeks, or the athlete's live
+/// season while the coach holds no draft, projected on the athlete's `today`
+/// under their own fuelling disclosure. `target` is the pair the coaching gates just passed
+/// ([`coached_athlete_access`](crate::coached_athlete::coached_athlete_access));
+/// nothing here re-checks them. `Ok(None)` when the athlete has no live
+/// season and the coach no draft.
+///
+/// # Errors
+///
+/// The errors of [`coach_plan_view`] — a store that cannot be read, a plan
+/// an external caller may not read — and the medical flag's read.
+pub async fn try_load_subject_plan_card(
+    repos: &RepositoryRegistry,
+    target: &CoachDraftTarget,
+    subject: PlanSubject,
+    today: NaiveDate,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> AppResult<Option<SubjectPlanCard>> {
+    let view = coach_plan_view(repos, target).await?;
+    let (plan, weeks, state) = match (&view.draft, &view.live) {
+        (Some(draft), _) => (&draft.plan, &draft.weeks, Some(draft.state.clone())),
+        (None, Some(live)) => (&live.plan, &live.weeks, None),
+        (None, None) => return Ok(None),
+    };
+    let fueling = FuelingDisclosure::for_athlete(repos, target.tenant(), target.athlete()).await?;
+    Ok(Some(SubjectPlanCard {
+        card: PlanCard::build(plan, weeks, today, registry, locale, &fueling),
+        draft: PlanCardDraft {
+            subject,
+            draft: state,
+        },
+    }))
 }
 
 fn week_card(week: &PlanWeek, current: bool, fueling: &FuelingDisclosure) -> WeekCard {
@@ -469,7 +588,7 @@ async fn load_active_plan(
 mod tests {
     use super::*;
     use chrono::Utc;
-    use pierre_memory::training_plans::WeekStatus;
+    use pierre_memory::training_plans::{RacePriority, WeekStatus};
 
     fn week(week_start: &str) -> PlanWeek {
         PlanWeek {
@@ -492,6 +611,80 @@ mod tests {
 
     fn date(text: &str) -> NaiveDate {
         parse_plan_date(text).unwrap_or(NaiveDate::MIN)
+    }
+
+    fn bare_card() -> PlanCard {
+        PlanCard {
+            goal_race: GoalRace {
+                name: "Parkrun PB".to_owned(),
+                date: "2027-05-16".to_owned(),
+                discipline: "run_5k".to_owned(),
+                priority: RacePriority::A,
+            },
+            races: Vec::new(),
+            season_start: None,
+            season_end: None,
+            flavour: None,
+            phases: Vec::new(),
+            current_phase_index: None,
+            weeks: Vec::new(),
+            weeks_deferred: 0,
+        }
+    }
+
+    /// A card in a coach's athlete thread carries `subject` and `draft`
+    /// beside its plan, `draft: null` included; every other card carries
+    /// neither (carnet#1070).
+    #[test]
+    fn only_a_card_in_an_athlete_thread_carries_subject_and_draft() {
+        let card = bare_card();
+        let plan = to_value_as_written(&card).unwrap();
+        assert_eq!(
+            card.as_block("get_training_plan").unwrap(),
+            serde_json::json!({
+                "type": "workout_plan",
+                "source_tool": "get_training_plan",
+                "plan": plan,
+            })
+        );
+
+        let subject = PlanSubject {
+            user_id: Uuid::nil(),
+            display_name: "Mira".to_owned(),
+        };
+        let live = PlanCardDraft {
+            subject: subject.clone(),
+            draft: None,
+        };
+        let block = card.as_subject_block("get_training_plan", &live).unwrap();
+        assert_eq!(block["plan"], plan);
+        assert_eq!(
+            block["subject"],
+            serde_json::json!({ "user_id": Uuid::nil(), "display_name": "Mira" })
+        );
+        assert_eq!(block["draft"], serde_json::Value::Null);
+        assert!(block.as_object().unwrap().contains_key("draft"));
+
+        let drafted = PlanCardDraft {
+            subject,
+            draft: Some(DraftState {
+                draft_id: "draft-1".to_owned(),
+                updated_at: "2026-10-16T09:30:00Z".parse().unwrap(),
+                conflicts: Vec::new(),
+                season_relaid: true,
+            }),
+        };
+        let block = card
+            .as_subject_block("save_training_plan", &drafted)
+            .unwrap();
+        assert_eq!(block["source_tool"], "save_training_plan");
+        assert_eq!(block["draft"]["draft_id"], "draft-1");
+        assert_eq!(block["draft"]["season_relaid"], true);
+        // What the block carries reads back as what was put on it.
+        assert_eq!(
+            serde_json::from_value::<PlanCardDraft>(block).unwrap(),
+            drafted
+        );
     }
 
     #[test]

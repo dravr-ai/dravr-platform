@@ -86,6 +86,8 @@ pub mod refresh;
 pub(crate) mod reply_locale;
 /// The Garmin attribution line a reply derived from Garmin data carries.
 pub(crate) mod source_attribution;
+/// A coach's thread bound to one athlete: the gates re-run, then the athlete's coach view (carnet#1070).
+pub(crate) mod subject_athlete;
 /// The turn subject's own athlete context (prompt stages 7d–7f.1).
 pub mod subject_context;
 /// Pre-dispatch prep + multi-turn tool execution loop.

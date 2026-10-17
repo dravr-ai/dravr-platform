@@ -16,6 +16,7 @@ import {
   scopeOfKind,
   composeRoomThread,
   initialsFor,
+  PLAN_THREAD_KEYS,
   providerStatusLine,
   readLostTurn,
   reduceLostTurn,
@@ -453,6 +454,7 @@ export default function ChatTab({
   );
   const headerSubtitle = useMemo<string | null>(() => {
     const subtitle = threadSubtitle(activeConversation);
+    if (subtitle?.kind === 'subject') return t(PLAN_THREAD_KEYS.subtitle, { name: subtitle.name });
     if (subtitle?.kind === 'group') return t('chat.groupChatBadge');
     if (subtitle?.kind === 'handle') return `${MENTION_PREFIX}${subtitle.handle}`;
     return providerStatus;
@@ -1336,6 +1338,7 @@ export default function ChatTab({
             </p>
           ) : null}
           <MessageList
+            conversationId={selectedConversation}
             messages={threadMessages}
             messageMetadata={messageMetadata}
             messageFeedback={messageFeedback}
@@ -1461,6 +1464,10 @@ export default function ChatTab({
           }}
           onDelete={() => void handleDeleteConversation()}
           onThreadGone={handleThreadGone}
+          onOpenConversation={(conversationId) => {
+            setInfoOpen(false);
+            onSelectConversation(conversationId);
+          }}
           onOpenConnections={
             onNavigate
               ? () => {

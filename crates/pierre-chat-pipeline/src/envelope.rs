@@ -38,6 +38,7 @@ use pierre_core::models::{ConversationTurnId, ACTIONS_BLOCK_TYPE};
 use pierre_core::narration::IdentityLeakMatch;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::TokenUsage;
+use pierre_services::plan_card::{PlanCardDraft, WORKOUT_PLAN_BLOCK_TYPE};
 use serde_json::Value;
 
 use crate::suggestions::is_postback;
@@ -144,6 +145,10 @@ pub enum ReplyBlock {
     WorkoutPlan {
         /// JSON object of the validated plan.
         plan: String,
+        /// On a card in a human coach's thread about one athlete: the athlete
+        /// and where the coach's draft stands, carried beside `plan` as the
+        /// stored block holds them (carnet#1070). `None` on every other card.
+        coach_draft: Option<PlanCardDraft>,
     },
     /// The athlete's own activities, rendered as their own panel.
     ActivityList {
@@ -551,10 +556,6 @@ impl AssistantTurn {
     }
 }
 
-/// Block `type` discriminator marking a schema-validated workout plan inside
-/// the stored `content_blocks` array. Every other entry is a scene spec.
-const WORKOUT_PLAN_BLOCK_TYPE: &str = "workout_plan";
-
 /// Decompose one turn into the blocks its surface can lay out.
 ///
 /// Every decision below reads a [`RenderCapabilities`] field. None reads a
@@ -582,7 +583,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         answered_by,
     } = state;
 
-    let (plan_specs, scene_specs) =
+    let (stored_plan, scene_specs) =
         split_stored_blocks(assistant_message.content_blocks.as_deref());
 
     let mut blocks = Vec::new();
@@ -613,8 +614,10 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
         blocks.push(ReplyBlock::ActivityList { text: list });
     }
 
-    if let (Some(plan), true) = (plan_specs, render.renders(ReplyBlockKind::WorkoutPlan)) {
-        blocks.push(ReplyBlock::WorkoutPlan { plan });
+    if let (Some(StoredPlan { plan, coach_draft }), true) =
+        (stored_plan, render.renders(ReplyBlockKind::WorkoutPlan))
+    {
+        blocks.push(ReplyBlock::WorkoutPlan { plan, coach_draft });
     }
 
     push_scene_blocks(&mut blocks, render, scene_specs, scene_images);
@@ -774,7 +777,11 @@ fn push_actions(
 /// are stored there too, as one actions entry, so a reload draws them; the
 /// live turn carries them as [`TurnState::actions`], so that entry is neither
 /// a plan nor a scene.
-fn split_stored_blocks(stored: Option<&str>) -> (Option<String>, Option<String>) {
+///
+/// A plan entry from a coach's thread about one athlete carries `subject` and
+/// `draft` beside its `plan`; both travel on with it. An entry whose fields
+/// do not read as that pair carries neither, and the card shows no draft.
+fn split_stored_blocks(stored: Option<&str>) -> (Option<StoredPlan>, Option<String>) {
     let Some(raw) = stored else {
         return (None, None);
     };
@@ -786,17 +793,30 @@ fn split_stored_blocks(stored: Option<&str>) -> (Option<String>, Option<String>)
         .into_iter()
         .filter(|entry| block_type(entry).as_deref() != Some(ACTIONS_BLOCK_TYPE))
         .partition(|entry| block_type(entry).as_deref() == Some(WORKOUT_PLAN_BLOCK_TYPE));
-    let plan = plans
-        .into_iter()
-        .next()
-        .and_then(|entry| entry.get("plan").cloned())
-        .and_then(|plan| serde_json::to_string(&plan).ok());
+    let plan = plans.into_iter().next().and_then(|entry| {
+        let plan = serde_json::to_string(entry.get("plan")?).ok()?;
+        let coach_draft = if entry.get("subject").is_some() {
+            serde_json::from_value::<PlanCardDraft>(entry).ok()
+        } else {
+            None
+        };
+        Some(StoredPlan { plan, coach_draft })
+    });
     let scenes = if scenes.is_empty() {
         None
     } else {
         serde_json::to_string(&scenes).ok()
     };
     (plan, scenes)
+}
+
+/// The plan entry of a stored `content_blocks` array.
+#[derive(Debug, PartialEq, Eq)]
+struct StoredPlan {
+    /// The card, as JSON text.
+    plan: String,
+    /// `subject` and `draft`, on a card from a coach's athlete thread.
+    coach_draft: Option<PlanCardDraft>,
 }
 
 /// Append `addition` as its own paragraph, leaving a single blank line.
@@ -909,7 +929,13 @@ mod tests {
         ])
         .to_string();
         let (plan, scenes) = split_stored_blocks(Some(&stored));
-        assert_eq!(plan.as_deref(), Some(r#"{"weeks":2}"#));
+        assert_eq!(
+            plan,
+            Some(StoredPlan {
+                plan: r#"{"weeks":2}"#.to_owned(),
+                coach_draft: None,
+            })
+        );
         let scenes: Vec<Value> = serde_json::from_str(&scenes.expect("the chart")).unwrap();
         assert_eq!(
             scenes,
@@ -919,5 +945,55 @@ mod tests {
         let only_actions =
             serde_json::json!([{ "type": "actions", "title": null, "actions": [] }]).to_string();
         assert_eq!(split_stored_blocks(Some(&only_actions)), (None, None));
+    }
+
+    /// A card stored in a coach's athlete thread hands its `subject` and
+    /// `draft` on with the plan, a `draft: null` included; a card stored
+    /// anywhere else, or one whose fields do not read, hands on neither
+    /// (carnet#1070).
+    #[test]
+    fn a_stored_athlete_card_carries_its_subject_and_draft_on() {
+        let athlete = "7b0e4c0e-55a4-4a49-9d3e-3c3c8f0a1b2c";
+        let card = |extra: Value| {
+            let mut entry = serde_json::json!({
+                "type": "workout_plan",
+                "source_tool": "save_training_plan",
+                "plan": { "weeks": [] },
+            });
+            if let (Value::Object(entry), Value::Object(extra)) = (&mut entry, extra) {
+                entry.extend(extra);
+            }
+            split_stored_blocks(Some(&Value::Array(vec![entry]).to_string()))
+                .0
+                .expect("the plan entry")
+        };
+        let subject = serde_json::json!({ "user_id": athlete, "display_name": "Mira" });
+
+        let drafted = card(serde_json::json!({
+            "subject": subject,
+            "draft": {
+                "draft_id": "draft-1",
+                "updated_at": "2026-10-16T09:30:00Z",
+                "conflicts": [{ "week_start": "2026-10-19", "reason": "athlete_changed_week" }],
+                "season_relaid": false,
+            },
+        }));
+        let coach_draft = drafted.coach_draft.expect("the drafted card's fields");
+        assert_eq!(coach_draft.subject.display_name, "Mira");
+        assert_eq!(coach_draft.subject.user_id.to_string(), athlete);
+        let state = coach_draft.draft.expect("the draft's standing");
+        assert_eq!(state.draft_id, "draft-1");
+        assert_eq!(state.conflicts[0].week_start, "2026-10-19");
+
+        let live = card(serde_json::json!({ "subject": subject, "draft": null }));
+        let coach_draft = live.coach_draft.expect("the live card names its athlete");
+        assert_eq!(coach_draft.draft, None);
+
+        assert_eq!(card(serde_json::json!({})).coach_draft, None);
+        assert_eq!(
+            card(serde_json::json!({ "subject": "Mira" })).coach_draft,
+            None,
+            "a subject that does not read hands on nothing"
+        );
     }
 }

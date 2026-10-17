@@ -1202,6 +1202,8 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             onboarding_state: None,
             archived_at: None,
             personal: false,
+            subject_user_id: None,
+            subject_group_id: None,
         },
         content: result.content.clone(),
         finish_reason: result.finish_reason.clone(),

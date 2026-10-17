@@ -150,6 +150,29 @@ export type {
 } from './workout-plan.js';
 export { parseWorkoutPlan } from './workout-plan.js';
 
+// An RFC 3339 instant as epoch milliseconds, read the same in the browser and on Hermes
+export { instantMs } from './instant.js';
+
+// A coach's plan draft for one athlete: its state, the subject-plan read, publish and its conflict
+export type {
+  DraftConflictReason,
+  DraftConflict,
+  DraftState,
+  PlanSubject,
+  SubjectPlanResponse,
+  PublishSubjectPlanRequest,
+  PublishedSubjectPlan,
+  PlanPublishConflict,
+  PublishSubjectPlanResult,
+} from './coach-plan.js';
+export {
+  parseDraftState,
+  parsePlanSubject,
+  parseSubjectPlanResponse,
+  parsePublishedSubjectPlan,
+  parsePlanPublishConflict,
+} from './coach-plan.js';
+
 // Civil-date reads over a plan card: session, rest day, or a date the plan does not cover
 export type { PlanDayLookup } from './plan-calendar.js';
 export {

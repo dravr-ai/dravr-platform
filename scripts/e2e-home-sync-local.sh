@@ -18,7 +18,10 @@
 # frontend-mobile/.maestro/home-sync/, on the booted simulator or emulator:
 # the seeded Maestro athlete, the double behind its control API
 # (frontend/e2e-real/home-sync-control.ts), and Metro serving Expo Go on 8082
-# with the app pointed at the isolated server.
+# with the app pointed at the isolated server. Other flows that call the same
+# control process run beside it when named as extra arguments, e.g.
+# `.maestro/coach-plan/01-publish-draft-from-athlete-thread.yaml`, whose pairs
+# the control seeds with the pierre-cli this script builds.
 #
 # Usage: scripts/e2e-home-sync-local.sh [--mobile] [extra playwright or maestro args]
 # Ports: E2E_PIERRE_PORT (8095), E2E_VITE_PORT (5185), SCIOTTE_DOUBLE_PORT (8097),
@@ -46,6 +49,10 @@ ADMIN_PASSWORD="AdminPassword123"
 MASTER_KEY="rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
 # The route request's bound, shortened as CI shortens it; the spec reads it too.
 ROUTE_ANSWER_SECS=5
+# The model a new conversation records, as CI names one: no chain is
+# configured and nothing behind it is called, but opening a coach's thread
+# about an athlete, and the CLI that seeds one, need a model to record.
+E2E_MODEL="local-e2e-model"
 
 PORTS=("$PIERRE_PORT" "$DOUBLE_PORT")
 if [ "$MOBILE" = true ]; then
@@ -128,6 +135,7 @@ echo "starting Pierre on $PIERRE_PORT, its scraper at the double on $DOUBLE_PORT
         PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS=60 \
         DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:$DOUBLE_PORT" \
         PIERRE_HOME_ROUTE_ANSWER_SECS="$ROUTE_ANSWER_SECS" \
+        PIERRE_LLM_DEFAULT_MODEL="$E2E_MODEL" \
         exec ./target/debug/pierre-mcp-server
 ) >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
@@ -145,6 +153,8 @@ if [ "$MOBILE" = true ]; then
             E2E_REAL_DATABASE_PATH="$DATABASE_PATH" \
             HOME_SYNC_EMAIL="$MOBILE_EMAIL" \
             HOME_SYNC_PASSWORD="$MOBILE_PASSWORD" \
+            PIERRE_CLI="$ROOT/target/debug/pierre-cli" \
+            PIERRE_LLM_DEFAULT_MODEL="$E2E_MODEL" \
             exec bun e2e-real/home-sync-control.ts
     ) >"$WORK/control.log" 2>&1 &
     CONTROL_PID=$!

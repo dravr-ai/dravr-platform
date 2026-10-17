@@ -14,6 +14,7 @@ use pierre_core::models::{ConversationPage, ConversationParticipant, Conversatio
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 use pierre_core::transport::TransportPolicy;
 
+use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 use super::user_onboarding::personal_conversation;
 
 /// One assistant reply as the claim-verdict backfill reads it: the message,
@@ -290,7 +291,8 @@ pub trait ChatRepository: Send + Sync {
     /// and a thread someone else opened must not count against the athlete
     /// added to it. Active means not archived: a thread `/reset` retired
     /// stays readable but no longer holds a slot. The personal thread holds
-    /// none either (carnet#840).
+    /// none either (carnet#840), nor does a coach's thread about one athlete
+    /// (carnet#1070).
     async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
 
     /// Archive a conversation the caller owns, freeing its slot in the
@@ -317,7 +319,9 @@ pub trait ChatRepository: Send + Sync {
     ///
     /// With `cap`, the row is reactivated only while the owner has fewer than
     /// `cap` active conversations, decided under the same owner slot lock
-    /// [`Self::create_conversation_within_cap`] takes, in one transaction.
+    /// [`Self::create_conversation_within_cap`] takes, in one transaction. A
+    /// row that holds no slot once active — the personal thread, a coach's
+    /// thread about one athlete — is reactivated whatever the count.
     /// `None` reactivates without consulting any cap — the caller restoring
     /// a thread it archived moments earlier. A row that is not archived, not
     /// the caller's, or not in this tenant is [`Reactivation::NotArchived`]:
@@ -410,7 +414,8 @@ pub trait ChatRepository: Send + Sync {
     /// `chat_conversations.group_id` onto a conversation that pre-dates
     /// the channel/group binding (legacy sessions, or a freshly forged
     /// self-heal conversation). Tenant-scoped; returns `false` if the
-    /// conversation does not exist.
+    /// conversation does not exist, or when it is a coach's thread about one
+    /// athlete, which is never made a room.
     async fn set_conversation_group_id(
         &self,
         conversation_id: &str,
@@ -451,16 +456,31 @@ pub trait ChatRepository: Send + Sync {
 
     /// Make `conversation_id` its owner's personal thread in `tenant_id`.
     ///
-    /// `Ok(false)` when it is not a thread `user_id` owns outside any room, or
-    /// when another thread already holds the designation — a race the unique
-    /// index settles, after which the caller reads the winner. Designating the
-    /// thread that already holds it answers `Ok(true)`.
+    /// `Ok(false)` when it is not a thread `user_id` owns outside any room and
+    /// about no other athlete, or when another thread already holds the
+    /// designation — a race the unique index settles, after which the caller
+    /// reads the winner. Designating the thread that already holds it answers
+    /// `Ok(true)`.
     async fn designate_personal_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
+
+    /// Open the coach's thread about one athlete: the one they already have
+    /// in this tenant, active again and bound to `new`'s group and agent, or a
+    /// new one when they have none (carnet#1070).
+    ///
+    /// One per coach per athlete per tenant, settled by a unique index, so two
+    /// opens racing each other end on the same thread. Outside the
+    /// `max_active_conversations` cap: there is one per athlete coached. The
+    /// row is never a room nor the coach's personal thread. Whether the coach
+    /// may act for the athlete is the caller's check, made before this.
+    async fn open_subject_conversation(
+        &self,
+        new: &NewSubjectConversation<'_>,
+    ) -> AppResult<OpenedSubjectThread>;
 
     /// The id of the newest divider row in `conversation_id` — the row the
     /// current topic of a personal thread opened with — or `None` while the
@@ -563,16 +583,17 @@ pub trait ChatRepository: Send + Sync {
 /// Postgres' `SUBSTR` takes an `int4` and `SQLite` takes either.
 pub(crate) const CONTENT_HEAD_CHARS: i32 = 512;
 
-/// The fourteen columns every conversation read returns, in the order
+/// The seventeen columns every conversation read returns, in the order
 /// `impl_chat_repository!`'s `conversation_from_row` reads them, aliased
 /// on `c` so the same list serves a joined read and a plain one.
 macro_rules! conversation_columns {
     () => {
         "c.id, c.user_id, c.tenant_id, c.title, c.model, c.agent_id, c.session_id, \
          c.total_tokens, c.created_at, c.updated_at, c.group_id, c.channel_type, \
-         c.onboarding_state, c.archived_at, c.personal"
+         c.onboarding_state, c.archived_at, c.personal, c.subject_user_id, c.subject_group_id"
     };
 }
+pub(crate) use conversation_columns;
 
 /// The ten columns every message read returns.
 macro_rules! message_columns {
@@ -660,10 +681,16 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
 /// `p` is the caller's own participant row, which is where their read marker
 /// lives: "unread" is a question about one participant, so it is answered
 /// from that row and never from the conversation.
+///
+/// A thread bound to one athlete names them through the same join a group
+/// row names its group by: their display name and email come back for the
+/// row parser to apply the roster naming rule to, so a page of athlete
+/// threads costs no read per row.
 pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id, c.archived_at,
-           c.personal,
+           c.personal, c.subject_user_id, c.subject_group_id,
+           su.display_name AS subject_display_name, su.email AS subject_email,
            g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
@@ -692,6 +719,7 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
     JOIN conversation_participants p ON p.conversation_id = c.id
     LEFT JOIN coaching_groups g ON g.id = c.group_id
     LEFT JOIN agents co ON co.id = c.agent_id
+    LEFT JOIN users su ON su.id = c.subject_user_id
     WHERE p.user_id = $1
       AND p.tenant_id = c.tenant_id
       AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
@@ -879,11 +907,15 @@ pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
 /// A user's own active conversations in a tenant (owner semantics): the rows
 /// no `/reset` has archived. The personal thread is not one of them: it is the
 /// one thread every athlete has, never one they chose to open, so it holds no
-/// slot of the cap they manage (carnet#840).
+/// slot of the cap they manage (carnet#840). Nor is a coach's thread bound to
+/// one athlete: there is one per athlete they coach, so the roster already
+/// bounds them, and a cap would leave a coach unable to open an athlete's
+/// plan (carnet#1070).
 pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations
-    WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL AND personal = FALSE";
+    WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL AND personal = FALSE
+      AND subject_user_id IS NULL";
 
 /// Archive a conversation the caller owns, when it is still active.
 pub(crate) const ARCHIVE_CONVERSATION_SQL: &str = r"
@@ -916,6 +948,15 @@ pub(crate) use owner_slot_lock_sql;
 /// theirs in this tenant.
 pub(crate) const IS_ARCHIVED_SQL: &str = r"
     SELECT archived_at IS NOT NULL
+    FROM chat_conversations
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// [`IS_ARCHIVED_SQL`], and whether the row holds one of its owner's
+/// `max_active_conversations` slots once active: the personal thread and a
+/// coach's thread about one athlete never do, so neither is refused at the cap.
+pub(crate) const ARCHIVED_SLOT_SQL: &str = r"
+    SELECT archived_at IS NOT NULL AS archived,
+           (personal = FALSE AND subject_user_id IS NULL) AS holds_slot
     FROM chat_conversations
     WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
@@ -962,11 +1003,15 @@ pub(crate) const LIST_ONBOARDING_STATES_SQL: &str = r"
     ORDER BY updated_at DESC
     LIMIT $3";
 
-/// Bind a conversation to a coaching group, or unbind it.
+/// Bind a conversation to a coaching group, or unbind it. A thread bound to
+/// one athlete is never made a room: its replies would reach every member.
+/// `PostgreSQL`'s CHECK refuses that row as well; on `SQLite` this predicate is
+/// the only guard.
 pub(crate) const SET_GROUP_ID_SQL: &str = r"
     UPDATE chat_conversations
     SET group_id = $1
-    WHERE id = $2 AND tenant_id = $3";
+    WHERE id = $2 AND tenant_id = $3
+      AND ($1 IS NULL OR subject_user_id IS NULL)";
 
 /// A user's own active conversation bound to one coaching group in a tenant,
 /// most recently active first.
@@ -1019,12 +1064,14 @@ pub(crate) const LATEST_DIVIDER_SQL: &str = r"
     LIMIT 1";
 
 /// Designate one of the owner's threads their personal one. A room never
-/// qualifies. The partial unique index refuses a second personal thread for
-/// the same owner and tenant.
+/// qualifies, nor does a coach's thread about one athlete: the platform posts
+/// the owner's own notices into the personal thread. The partial unique index
+/// refuses a second personal thread for the same owner and tenant.
 pub(crate) const DESIGNATE_PERSONAL_SQL: &str = r"
     UPDATE chat_conversations
     SET personal = TRUE
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL";
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL
+      AND subject_user_id IS NULL";
 
 /// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
 /// both backends — agent ids are slugs, not uuids — so unlike `group_id`

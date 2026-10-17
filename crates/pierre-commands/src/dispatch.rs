@@ -16,7 +16,8 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{CommandHandlerRegistry, ConversationRotation, PlatformCommandContext};
+use crate::guided_walk::refused_in_athlete_thread;
+use crate::{CommandHandler, CommandHandlerRegistry, ConversationRotation, PlatformCommandContext};
 
 /// Minimal request payload for [`try_dispatch`].
 ///
@@ -210,31 +211,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         tool_runtime: Arc::clone(req.tool_runtime),
     };
 
-    // A command that carries its thread on, typed by the athlete into a
-    // thread `/reset` archived, takes a quota slot back before it runs — or
-    // is refused at the cap before it writes anything. The refusal is the
-    // command's outcome, recorded below like any other failure.
-    let claimed = if req.origin == TurnOrigin::Athlete && handler.resumes_thread(&ctx.args) {
-        match req.conversation_id {
-            Some(conversation_id) => {
-                reactivate_for_turn(
-                    req.ctx.repos(),
-                    req.ctx.admin_config().as_deref(),
-                    &req.user_id.to_string(),
-                    req.conversation_tenant_id,
-                    conversation_id,
-                )
-                .await
-            }
-            None => Ok(()),
-        }
-    } else {
-        Ok(())
-    };
-    let result = match claimed {
-        Ok(()) => handler.execute(&ctx).await,
-        Err(refused) => Err(refused),
-    };
+    let result = run_handler(&req, &ctx, handler.as_ref()).await;
     let ok = result.is_ok();
     info!(
         target: "notify",
@@ -253,4 +230,38 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         rotated_to: ctx.rotation.taken().map(ToOwned::to_owned),
         opened_topic: ctx.rotation.opened_topic().map(ToOwned::to_owned),
     })
+}
+
+/// Run `handler` for the turn, behind the two checks a command passes before
+/// it may write anything.
+async fn run_handler(
+    req: &DispatchRequest<'_>,
+    ctx: &PlatformCommandContext,
+    handler: &dyn CommandHandler,
+) -> AppResult<CommandResponse> {
+    // A guided walk typed in a coach's thread about one athlete is answered
+    // with the refusal and nothing else: no walk state, no superseded
+    // answers, no profile stamp, and no thread slot taken back for it.
+    if handler.opens_guided_walk(&ctx.args) {
+        if let Some(refusal) = refused_in_athlete_thread(ctx).await? {
+            return Ok(refusal);
+        }
+    }
+    // A command that carries its thread on, typed by the athlete into a
+    // thread `/reset` archived, takes a quota slot back before it runs — or
+    // is refused at the cap before it writes anything. The refusal is the
+    // command's outcome, recorded like any other failure.
+    if req.origin == TurnOrigin::Athlete && handler.resumes_thread(&ctx.args) {
+        if let Some(conversation_id) = req.conversation_id {
+            reactivate_for_turn(
+                req.ctx.repos(),
+                req.ctx.admin_config().as_deref(),
+                &req.user_id.to_string(),
+                req.conversation_tenant_id,
+                conversation_id,
+            )
+            .await?;
+        }
+    }
+    handler.execute(ctx).await
 }

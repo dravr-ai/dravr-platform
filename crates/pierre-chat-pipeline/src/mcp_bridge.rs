@@ -42,7 +42,10 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 ///
 /// `seat` is [`TurnSeat::Coach`] when the sender coaches the turn's group: the session
 /// then withholds and refuses every tool that would read or write the coach's
-/// own data (`pierre_tool_runtime::coach_seat`, carnet#742).
+/// own data (`pierre_tool_runtime::coach_seat`, carnet#742). It is
+/// [`TurnSeat::AthleteThread`] in a coach's thread about one athlete, where
+/// every tool that would write the coach's own data is withheld and refused
+/// (carnet#1070).
 #[derive(Debug, Clone, Copy)]
 pub struct ToolSessionTurn<'a> {
     /// The caller every tool runs as.

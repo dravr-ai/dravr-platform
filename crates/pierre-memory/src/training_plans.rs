@@ -48,10 +48,14 @@ use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.
+///
+/// The first four describe the athlete's live season and its history. The
+/// last three describe a human coach's draft of it (carnet#1069): a plan the
+/// athlete never sees until the coach publishes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
-    /// The plan currently guiding this athlete (at most one per agent).
+    /// The plan currently guiding this athlete: their one season.
     Active,
     /// Replaced by a newer outline (`supersedes_id` chain).
     Superseded,
@@ -59,6 +63,14 @@ pub enum PlanStatus {
     Completed,
     /// Dropped without completing (goal abandoned, athlete left).
     Abandoned,
+    /// A human coach's open draft of the athlete's plan. Only that coach
+    /// reads it; no surface of the athlete's does.
+    Draft,
+    /// A draft the coach published: its outline and weeks now live in the
+    /// athlete's season, and the row is kept as the record of what was sent.
+    Published,
+    /// A draft the coach threw away without publishing.
+    Discarded,
 }
 
 impl PlanStatus {
@@ -70,6 +82,9 @@ impl PlanStatus {
             Self::Superseded => "superseded",
             Self::Completed => "completed",
             Self::Abandoned => "abandoned",
+            Self::Draft => "draft",
+            Self::Published => "published",
+            Self::Discarded => "discarded",
         }
     }
 
@@ -82,6 +97,9 @@ impl PlanStatus {
             "superseded" => Some(Self::Superseded),
             "completed" => Some(Self::Completed),
             "abandoned" => Some(Self::Abandoned),
+            "draft" => Some(Self::Draft),
+            "published" => Some(Self::Published),
+            "discarded" => Some(Self::Discarded),
             _ => None,
         }
     }

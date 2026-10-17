@@ -6,8 +6,8 @@
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
-import { Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
-import type { ConversationRowModel } from '@pierre/chat-utils';
+import { Clipboard, Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
+import { PLAN_THREAD_KEYS, type ConversationRowModel } from '@pierre/chat-utils';
 import { badgeLabel } from '@pierre/shared-constants';
 import { IconButton, Input } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
@@ -145,6 +145,21 @@ function KindGlyph({ row }: { row: ConversationRowModel }) {
       </span>
     );
   }
+  // A coach's plan thread for one athlete: the clipboard the Group info
+  // action that opens it carries, so the row and the way in read as one.
+  if (row.kind === 'subject') {
+    return (
+      <span
+        className="inline-flex items-center flex-shrink-0 text-on-surface-variant"
+        data-testid="conversation-kind-glyph"
+        data-kind="subject"
+        title={t(PLAN_THREAD_KEYS.kindLabel)}
+        aria-label={t(PLAN_THREAD_KEYS.kindLabel)}
+      >
+        <Clipboard className="w-3.5 h-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
   if (row.kind === 'channel' && row.channel) {
     return (
       <span
@@ -263,6 +278,15 @@ const ConversationItem = memo(function ConversationItem({
             >
               {row.title}
             </p>
+            {/* The athlete a plan thread is about, when its title does not already say. */}
+            {row.subjectName && (
+              <span
+                className="min-w-0 flex-shrink truncate text-xs text-on-surface-variant"
+                data-testid="conversation-subject"
+              >
+                {row.subjectName}
+              </span>
+            )}
             {/* An archived thread holds no conversation slot; a turn into it takes one back. */}
             {row.archived && (
               <span

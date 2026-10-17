@@ -54,6 +54,7 @@
 //! pierre-cli seed synthetic-activities --email alice@example.com --count 200
 //! pierre-cli seed llm-usage --days 60
 //! pierre-cli seed verdict-conversation --email verdicttest@pierre.dev
+//! pierre-cli seed coach-plan-thread --coach-email plancoach@pierre.dev --athlete-email planathlete@pierre.dev
 //! ```
 
 // A pub item this binary never uses is reachable from nowhere: the lint is

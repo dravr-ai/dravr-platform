@@ -132,14 +132,64 @@ pub async fn inject_training_plan(
     if withheld {
         return base_prompt;
     }
-    let PlanPromptSources { repos, catalogue } = sources;
-    let Some((plan, weeks)) = active_plan_with_weeks(repos, tenant_id, user_id).await else {
+    let Some((plan, weeks)) = active_plan_with_weeks(sources.repos, tenant_id, user_id).await
+    else {
         return base_prompt;
     };
     let (Ok(tenant), Ok(user)) = (TenantId::parse_str(tenant_id), Uuid::parse_str(user_id)) else {
         tracing::warn!("plan block: tenant or user id does not parse; continuing without plan");
         return base_prompt;
     };
+    append_plan_block(
+        sources,
+        PlanShown {
+            tenant,
+            user,
+            plan: &plan,
+            weeks: &weeks,
+        },
+        turn_agent_id,
+        today,
+        base_prompt,
+    )
+    .await
+}
+
+/// Whose plan the plan block renders, and the plan itself.
+#[derive(Clone, Copy)]
+pub(crate) struct PlanShown<'a> {
+    /// The tenant the plan lives under.
+    pub tenant: TenantId,
+    /// The athlete whose plan it is: their medical flag decides the fuelling
+    /// rates, and their view of the agent the package.
+    pub user: Uuid,
+    /// The outline.
+    pub plan: &'a TrainingPlan,
+    /// Its weeks, in calendar order.
+    pub weeks: &'a [PlanWeek],
+}
+
+/// Append the plan block for a plan already read: the athlete's own season
+/// in [`inject_training_plan`], or the plan a coach's thread about one
+/// athlete shows — the coach's draft over their live weeks, or their live
+/// season.
+///
+/// Best-effort like the read: a medical flag that cannot be read drops the
+/// block, an unreadable package renders the catalogue alone.
+pub(crate) async fn append_plan_block(
+    sources: PlanPromptSources<'_>,
+    shown: PlanShown<'_>,
+    turn_agent_id: Option<&str>,
+    today: chrono::NaiveDate,
+    base_prompt: String,
+) -> String {
+    let PlanPromptSources { repos, catalogue } = sources;
+    let PlanShown {
+        tenant,
+        user,
+        plan,
+        weeks,
+    } = shown;
     // Whether the days' stored fuelling rates may reach the prompt. A flag
     // that cannot be read drops the block like any other failed read, so no
     // rate is rendered on a flag nobody could see.
@@ -160,7 +210,7 @@ pub async fn inject_training_plan(
             None
         });
     let catalogue = PackagedCatalogue::new(catalogue, package);
-    match render_training_plan_block(&plan, &weeks, today, &catalogue, &fueling) {
+    match render_training_plan_block(plan, weeks, today, &catalogue, &fueling) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }

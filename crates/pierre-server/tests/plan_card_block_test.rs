@@ -244,7 +244,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         .blocks
         .iter()
         .find_map(|block| match block {
-            ReplyBlock::WorkoutPlan { plan } => Some(plan.clone()),
+            ReplyBlock::WorkoutPlan { plan, .. } => Some(plan.clone()),
             _ => None,
         })
         .expect("the turn that saved a plan carries the card");
@@ -527,7 +527,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
         .blocks
         .iter()
         .find_map(|block| match block {
-            ReplyBlock::WorkoutPlan { plan } => Some(plan.clone()),
+            ReplyBlock::WorkoutPlan { plan, .. } => Some(plan.clone()),
             _ => None,
         })
         .unwrap_or_else(|| {

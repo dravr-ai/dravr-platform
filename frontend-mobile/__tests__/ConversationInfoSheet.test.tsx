@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the chat header's info sheet — the three shapes a thread can have and the rows each shows
-// ABOUTME: A group thread gets Group info, an agent thread gets Agent info, a plain thread gets rename/participants/delete
+// ABOUTME: Tests the chat header's info sheet — the four shapes a thread can have and the rows each shows
+// ABOUTME: A group thread gets Group info, a plan thread its athlete, an agent thread Agent info, a plain thread rename/participants/delete
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
@@ -34,6 +34,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { ConversationInfoSheet } from '../src/screens/chat/ConversationInfoSheet';
+import { groupsApi } from '../src/services/api';
 
 function conversation(overrides: Partial<Conversation> & { id: string }): Conversation {
   return {
@@ -103,6 +104,29 @@ describe('ConversationInfoSheet', () => {
     expect(await findByTestId('group-info-name')).toHaveTextContent('Harricana');
     await waitFor(() => expect(queryByTestId('coach-info-sheet')).toBeNull());
     expect(queryByTestId('conversation-info-plain')).toBeNull();
+  });
+
+  // A plan thread runs on its group's agent, but it is about the athlete:
+  // neither Agent info nor Group info, and no group controls.
+  it("shows a coach's plan thread as its athlete and their group", async () => {
+    (groupsApi.getGroup as jest.Mock).mockResolvedValueOnce({ id: 'group-1', name: 'Harricana' });
+    const { getByTestId, findByTestId, queryByTestId } = renderSheet(
+      conversation({
+        id: 'c4',
+        title: 'Coach Tempo',
+        agent_id: 'coach-1',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-1',
+        subject_display_name: 'Alice Runner',
+      }),
+    );
+
+    expect(getByTestId('subject-info-name')).toHaveTextContent('Alice Runner');
+    expect(await findByTestId('subject-info-group')).toHaveTextContent('Harricana');
+    expect(groupsApi.getGroup).toHaveBeenCalledWith('group-1');
+    expect(queryByTestId('coach-info-sheet')).toBeNull();
+    expect(queryByTestId('group-info-sheet')).toBeNull();
+    expect(queryByTestId('conversation-info-delete')).toBeNull();
   });
 
   it('renders nothing without a thread', () => {

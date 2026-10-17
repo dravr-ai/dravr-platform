@@ -34,6 +34,11 @@ impl CommandHandler for CalibrateHandler {
         true
     }
 
+    /// The calibration walk interviews the caller about their own training.
+    fn opens_guided_walk(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let profile = read_profile(ctx, "/calibrate").await?;
         start_walk(

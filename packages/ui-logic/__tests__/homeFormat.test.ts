@@ -4,7 +4,7 @@
 // ABOUTME: Tests Home's words and figures, shared by both clients — row and volume distances, durations, dates, the plan drafts
 // ABOUTME: Read through the app's own catalogues, so a row that printed "10.0 km" on one client and "10.00 km" on the other fails here
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanWeek } from '@pierre/shared-types';
 import en from '../../i18n/src/locales/en/translation.json';
 import fr from '../../i18n/src/locales/fr/translation.json';
@@ -142,6 +142,24 @@ describe('civil dates', () => {
 
   it('reads the sync time on a 24-hour clock', () => {
     expect(formatSyncTime('2026-09-20T00:05:00Z', 'en').replace(/\s/g, ' ')).not.toMatch(/24:05|12:05 AM/);
+  });
+
+  it('formats a stamp written to the microsecond on an engine whose Date.parse reads only the ECMA-262 format', () => {
+    // The Home parser admits `as_of` with the six fractional digits Postgres
+    // stores. Node's Date.parse reads them, so it cannot stand in for Hermes;
+    // this one reads the spec format alone and is NaN on every other string.
+    const ecmaDateTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})$/;
+    const lenient = Date.parse.bind(Date);
+    const strict = vi
+      .spyOn(Date, 'parse')
+      .mockImplementation((text: string) => (ecmaDateTime.test(text) ? lenient(text) : Number.NaN));
+    try {
+      const micro = formatSyncTime('2026-09-20T00:05:00.482913Z', 'en');
+      expect(micro).not.toContain('2026-09-20T');
+      expect(micro).toBe(formatSyncTime('2026-09-20T00:05:00Z', 'en'));
+    } finally {
+      strict.mockRestore();
+    }
   });
 });
 

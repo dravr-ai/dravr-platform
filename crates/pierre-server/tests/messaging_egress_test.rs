@@ -108,6 +108,8 @@ fn conversation() -> ConversationRecord {
         onboarding_state: None,
         archived_at: None,
         personal: false,
+        subject_user_id: None,
+        subject_group_id: None,
     }
 }
 

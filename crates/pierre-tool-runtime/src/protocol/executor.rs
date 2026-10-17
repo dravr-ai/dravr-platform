@@ -10,7 +10,7 @@ use super::tool_response::{
     raised_error_code, tool_response_to_universal_response,
 };
 use crate::ai_view;
-use crate::coach_seat::{coach_seat_response, is_withheld_on_coach_seat, TurnSeat};
+use crate::coach_seat::TurnSeat;
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID,
@@ -211,9 +211,12 @@ pub struct UniversalExecutor {
     scopes: Vec<OAuthScope>,
     /// The turn's seat. On [`TurnSeat::Coach`] the sender coaches this turn's
     /// group, so a tool that would read or write the caller's own data is
-    /// refused ([`crate::coach_seat`]). Never inherited by a nested dispatch: a
-    /// group tool reaching a named athlete runs its own reads on that athlete's
-    /// behalf, which is the path the seat exists to leave open.
+    /// refused; on [`TurnSeat::AthleteThread`] the sender works on one
+    /// athlete in their thread about them, so a tool that would write the
+    /// caller's own data is ([`crate::coach_seat`]). Never inherited by a
+    /// nested dispatch: a group tool reaching a named athlete runs its own
+    /// reads on that athlete's behalf, which is the path the seat exists to
+    /// leave open.
     seat: TurnSeat,
     /// The transport the calls this executor dispatches are served over
     /// (carnet#724): bound by an entry point with [`Self::with_transport`], or
@@ -303,8 +306,8 @@ impl UniversalExecutor {
         self
     }
 
-    /// Bind the turn's seat. On [`TurnSeat::Coach`], tools that would read or
-    /// write the caller's own data are refused with a reply the model adapts
+    /// Bind the turn's seat. The tools it withholds
+    /// ([`TurnSeat::withholds`]) are refused with a reply the model adapts
     /// to.
     #[must_use]
     pub const fn with_seat(mut self, seat: TurnSeat) -> Self {
@@ -588,12 +591,14 @@ impl UniversalExecutor {
         // say — and because the credential's reach is the outermost question.
         scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
 
-        // The coach's seat (carnet#742): the caller is the group's coach, and
-        // their own data is not what the group turn is about.
-        if self.seat == TurnSeat::Coach
-            && is_withheld_on_coach_seat(self.resources.tool_registry(), &tool_name)
+        // The coach's seats: in a group the caller coaches, their own data is
+        // not what the turn is about (carnet#742); in their thread about one
+        // athlete, nothing is filed on their own account (carnet#1070).
+        if let Some(refusal) = self
+            .seat
+            .refusal(self.resources.tool_registry(), &tool_name)
         {
-            return Ok(coach_seat_response(&tool_name));
+            return Ok(refusal);
         }
 
         if let Some(refusal) = self

@@ -23,9 +23,10 @@ use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
 use pierre_services::memory_extraction::WITHHELD_REPLY_TRANSCRIPT_MARKER;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::recorders::turn_call_recorder;
+use crate::stages::subject_athlete::files_on_sender;
 #[cfg(feature = "tools-verification")]
 use crate::stages::verification::persist_pending_verdicts;
 use crate::{stages, ChatPipelineContext, TurnInput};
@@ -36,6 +37,11 @@ use crate::{stages, ChatPipelineContext, TurnInput};
 /// `ChatProvider` singleton, and never blocks the reply. The v1 strategy is
 /// [`HeuristicGatedLlmExtraction`]; swapping it (see `DRAVR-BACKLOG.md`) is a
 /// one-line change here once a config selector exists.
+///
+/// Nothing is captured in a coach's thread about one athlete
+/// ([`files_on_sender`]): the advice there is for the athlete, and captured
+/// under the sender it would be judged against the coach's own training and
+/// reinforce the coach's own playbooks.
 fn spawn_turn_advice_capture(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -43,6 +49,10 @@ fn spawn_turn_advice_capture(
     assistant_reply: &str,
     assistant_message_id: &str,
 ) {
+    if !files_on_sender(conv) {
+        debug!("coach's athlete thread: no advice it gives is captured");
+        return;
+    }
     let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction::new(
         Arc::clone(&ctx.prompt_registry),
     ));

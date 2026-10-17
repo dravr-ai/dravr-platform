@@ -15,8 +15,8 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::training_plans::{PlanAuthor, NO_AUTHOR_AGENT};
 use pierre_database::repositories::{
-    PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, SaveTrainingPlanParams,
-    TrainingPlanRepository,
+    DraftConflicts, DraftOwner, DraftPublish, PlanOutlineInput, PlanWeekInput, PublishDraftParams,
+    SaveDraftParams, SavePlanBundleParams, SaveTrainingPlanParams, TrainingPlanRepository,
 };
 use pierre_memory::training_plans::{
     GoalRace, PlanPhase, PlanStatus, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
@@ -1789,5 +1789,638 @@ async fn bundle_resaving_outline_supersedes_the_previous_plan() -> Result<()> {
         .expect("active plan");
     assert_eq!(active.id, second.plan.id);
     assert_eq!(active.status, PlanStatus::Active);
+    Ok(())
+}
+
+// ============================================================================
+// A human coach's draft (carnet#1069)
+// ============================================================================
+
+/// The agent the athlete's own conversations answer as.
+const ATHLETE_AGENT: &str = "athlete-season-agent";
+/// The agent a coach's thread answers as.
+const COACH_AGENT: &str = "coach-thread-agent";
+
+/// An athlete with a live season laid by their own agent, holding the weeks
+/// `weeks` (each `(week_start, focus)`), and a coach.
+struct DraftWorld {
+    tenant: String,
+    athlete: String,
+    coach: String,
+    season: String,
+}
+
+impl DraftWorld {
+    fn owner(&self) -> DraftOwner<'_> {
+        self.owner_for(&self.coach)
+    }
+
+    fn owner_for<'a>(&'a self, coach: &'a str) -> DraftOwner<'a> {
+        DraftOwner {
+            tenant_id: &self.tenant,
+            user_id: &self.athlete,
+            coach_user_id: coach,
+        }
+    }
+}
+
+async fn draft_world(plans: &dyn TrainingPlanRepository, weeks: &[(&str, &str)]) -> DraftWorld {
+    let tenant = Uuid::new_v4().to_string();
+    let athlete = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let mut params = plan_params(&tenant, &athlete, &race, &blks);
+    params.author = PlanAuthor::agent(ATHLETE_AGENT);
+    let season = save_outline(plans, &params).await.unwrap().id;
+    for (start, focus) in weeks {
+        athlete_saves_week(plans, &tenant, &athlete, start, focus).await;
+    }
+    DraftWorld {
+        tenant,
+        athlete,
+        coach: Uuid::new_v4().to_string(),
+        season,
+    }
+}
+
+/// The athlete's own agent saves one week on their live season.
+async fn athlete_saves_week(
+    plans: &dyn TrainingPlanRepository,
+    tenant: &str,
+    athlete: &str,
+    week_start: &str,
+    focus: &str,
+) {
+    let days = week_days(week_start);
+    let week = [week_input(week_start, focus, &days)];
+    plans
+        .save_plan_bundle(&weeks_by(
+            tenant,
+            athlete,
+            PlanAuthor::agent(ATHLETE_AGENT),
+            &week,
+        ))
+        .await
+        .unwrap();
+}
+
+/// The coach saves weeks — `(week_start, focus)` each — into their draft.
+async fn coach_drafts_weeks(
+    plans: &dyn TrainingPlanRepository,
+    owner: DraftOwner<'_>,
+    weeks: &[(&str, &str)],
+) -> AppResult<String> {
+    let days: Vec<Vec<PlannedDay>> = weeks.iter().map(|(start, _)| week_days(start)).collect();
+    let inputs: Vec<PlanWeekInput<'_>> = weeks
+        .iter()
+        .zip(&days)
+        .map(|((start, focus), days)| week_input(start, focus, days))
+        .collect();
+    let saved = plans
+        .save_draft_bundle(&SaveDraftParams {
+            owner,
+            author: PlanAuthor::agent(COACH_AGENT),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &inputs,
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await?;
+    Ok(saved.draft.plan.id)
+}
+
+/// The coach re-lays the outline in their draft, racing `race_name`.
+async fn coach_drafts_outline(
+    plans: &dyn TrainingPlanRepository,
+    owner: DraftOwner<'_>,
+    race_name: &str,
+    strategy: &str,
+) -> AppResult<String> {
+    let race = GoalRace {
+        name: race_name.to_owned(),
+        ..big_red()
+    };
+    let blks = phases();
+    let saved = plans
+        .save_draft_bundle(&SaveDraftParams {
+            owner,
+            author: PlanAuthor::agent(COACH_AGENT),
+            goal_fact_id: None,
+            outline: Some(PlanOutlineInput {
+                goal_race: &race,
+                races: None,
+                strategy,
+                flavour: None,
+                season_start: None,
+                season_end: None,
+                phases: &blks,
+                source_conversation_id: Some("coach-thread"),
+            }),
+            weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await?;
+    Ok(saved.draft.plan.id)
+}
+
+async fn publish(
+    plans: &dyn TrainingPlanRepository,
+    owner: DraftOwner<'_>,
+    overwrite: bool,
+) -> AppResult<DraftPublish> {
+    plans
+        .publish_draft(&PublishDraftParams {
+            owner,
+            overwrite,
+            goal_fact_id: None,
+        })
+        .await
+}
+
+/// The live season's active weeks as `(week_start, focus, author)`.
+async fn live_weeks(
+    plans: &dyn TrainingPlanRepository,
+    world: &DraftWorld,
+) -> Vec<(String, String, Option<String>)> {
+    let season = plans
+        .get_active_plan(&world.tenant, &world.athlete)
+        .await
+        .unwrap()
+        .expect("the athlete keeps a live season");
+    plans
+        .list_plan_weeks(&world.tenant, &world.athlete, &season.id, false)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|w| (w.week_start, w.focus, w.author_agent_id))
+        .collect()
+}
+
+fn week(start: &str, focus: &str, author: &str) -> (String, String, Option<String>) {
+    (start.to_owned(), focus.to_owned(), Some(author.to_owned()))
+}
+
+#[tokio::test]
+async fn a_coach_draft_reaches_no_season_read_and_lists_only_for_its_coach() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete week one")]).await;
+
+    let draft_id = coach_drafts_weeks(
+        plans,
+        world.owner(),
+        &[
+            ("2026-07-13", "coach week one"),
+            ("2026-07-20", "coach week two"),
+        ],
+    )
+    .await?;
+
+    // The athlete's season is what it was: the same row, their week only.
+    let season = plans
+        .get_active_plan(&world.tenant, &world.athlete)
+        .await?
+        .expect("live season");
+    assert_eq!(season.id, world.season);
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![week("2026-07-13", "athlete week one", ATHLETE_AGENT)]
+    );
+    // A season read naming the draft's id finds nothing: the week listings
+    // serve the season and its history only.
+    for include_superseded in [false, true] {
+        assert!(
+            plans
+                .list_plan_weeks(&world.tenant, &world.athlete, &draft_id, include_superseded)
+                .await?
+                .is_empty(),
+            "a season read must never list a draft's weeks"
+        );
+    }
+
+    // The coach reads the draft: the live outline copied, over the live season.
+    let draft = plans
+        .get_draft_plan(world.owner())
+        .await?
+        .expect("the coach's draft");
+    assert_eq!(draft.plan.id, draft_id);
+    assert_eq!(draft.plan.status, PlanStatus::Draft);
+    assert_eq!(draft.drafted_by_user_id, world.coach);
+    assert_eq!(draft.base_plan_id.as_deref(), Some(world.season.as_str()));
+    assert!(
+        !draft.outline_drafted,
+        "a weeks-only draft copies the outline"
+    );
+    assert_eq!(draft.plan.goal_race.name, "Big Red");
+    assert_eq!(draft.plan.strategy, season.strategy);
+    assert_eq!(draft.plan.author_agent_id.as_deref(), Some(ATHLETE_AGENT));
+    let drafted: Vec<(String, String, Option<String>)> = plans
+        .list_draft_weeks(world.owner(), &draft_id)
+        .await?
+        .into_iter()
+        .map(|w| (w.week_start, w.focus, w.author_agent_id))
+        .collect();
+    assert_eq!(
+        drafted,
+        vec![
+            week("2026-07-13", "coach week one", COACH_AGENT),
+            week("2026-07-20", "coach week two", COACH_AGENT),
+        ]
+    );
+
+    // Another coach holds no draft, and cannot list this one's weeks.
+    let other = Uuid::new_v4().to_string();
+    assert!(plans
+        .get_draft_plan(world.owner_for(&other))
+        .await?
+        .is_none());
+    assert!(plans
+        .list_draft_weeks(world.owner_for(&other), &draft_id)
+        .await?
+        .is_empty());
+    // Nor does the coach's draft of one athlete answer for another.
+    let elsewhere = DraftOwner {
+        tenant_id: &world.tenant,
+        user_id: &other,
+        coach_user_id: &world.coach,
+    };
+    assert!(plans.get_draft_plan(elsewhere).await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_weeks_only_draft_with_no_live_season_is_refused_and_writes_nothing() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let tenant = Uuid::new_v4().to_string();
+    let athlete = Uuid::new_v4().to_string();
+    let coach = Uuid::new_v4().to_string();
+    let owner = DraftOwner {
+        tenant_id: &tenant,
+        user_id: &athlete,
+        coach_user_id: &coach,
+    };
+
+    let refused = coach_drafts_weeks(plans, owner, &[("2026-07-13", "orphan week")])
+        .await
+        .expect_err("a weeks-only draft needs a season to draft over");
+    assert_eq!(refused.code, ErrorCode::InvalidInput);
+    assert!(plans.get_draft_plan(owner).await?.is_none());
+
+    // An outline opens it, over no season.
+    let draft_id = coach_drafts_outline(plans, owner, "First Race", "a first season").await?;
+    let draft = plans.get_draft_plan(owner).await?.expect("draft");
+    assert_eq!(draft.plan.id, draft_id);
+    assert!(draft.outline_drafted);
+    assert_eq!(draft.base_plan_id, None);
+    assert!(plans.get_active_plan(&tenant, &athlete).await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_save_lands_on_one_draft_whose_outline_is_relaid_in_place() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[]).await;
+
+    let first = coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", "v1")]).await?;
+    let opened = plans.get_draft_plan(world.owner()).await?.expect("draft");
+    sleep(Duration::from_millis(1100)).await;
+    let second = coach_drafts_outline(plans, world.owner(), "Coach Race", "the coach's").await?;
+    let third = coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", "v2")]).await?;
+    assert_eq!(first, second, "one open draft per coach and athlete");
+    assert_eq!(second, third);
+
+    let draft = plans.get_draft_plan(world.owner()).await?.expect("draft");
+    assert!(draft.outline_drafted, "the coach re-laid the outline");
+    assert_eq!(draft.plan.goal_race.name, "Coach Race");
+    assert_eq!(draft.plan.strategy, "the coach's");
+    assert_eq!(draft.plan.author_agent_id.as_deref(), Some(COACH_AGENT));
+    assert_eq!(draft.base_plan_id.as_deref(), Some(world.season.as_str()));
+    assert_eq!(draft.plan.created_at, opened.plan.created_at);
+    assert!(
+        draft.plan.updated_at > opened.plan.updated_at,
+        "a save moves the draft's updated_at"
+    );
+    let drafted = plans.list_draft_weeks(world.owner(), &first).await?;
+    assert_eq!(
+        drafted.len(),
+        1,
+        "a re-drafted week supersedes the draft's own"
+    );
+    assert_eq!(drafted[0].focus, "v2");
+    assert!(
+        live_weeks(plans, &world).await.is_empty(),
+        "nothing the coach drafted reaches the season"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_puts_the_drafted_weeks_live_and_keeps_the_athletes_other_saves() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(
+        plans,
+        &[("2026-07-13", "athlete one"), ("2026-07-20", "athlete two")],
+    )
+    .await;
+    let draft_id = coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", "coach one")]).await?;
+    // The athlete's agent changes a week the coach never touched.
+    athlete_saves_week(
+        plans,
+        &world.tenant,
+        &world.athlete,
+        "2026-07-20",
+        "athlete two, moved",
+    )
+    .await;
+
+    let preview = plans
+        .preview_draft_publish(world.owner())
+        .await?
+        .expect("preview");
+    assert_eq!(preview.conflicts, DraftConflicts::default());
+
+    let DraftPublish::Published(published) = publish(plans, world.owner(), false).await? else {
+        panic!("an untouched week is never a conflict");
+    };
+    assert_eq!(published.draft_id, draft_id);
+    assert_eq!(
+        published.plan.id, world.season,
+        "the weeks go on the season"
+    );
+    assert_eq!(published.superseded_plan_id, None);
+    assert!(!published.outline_published);
+    assert_eq!(published.weeks.len(), 1);
+    assert_eq!(published.weeks[0].focus, "coach one");
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![
+            week("2026-07-13", "coach one", COACH_AGENT),
+            week("2026-07-20", "athlete two, moved", ATHLETE_AGENT),
+        ]
+    );
+    // The athlete's replaced week stays as history under the live week.
+    let history = plans
+        .list_plan_weeks(&world.tenant, &world.athlete, &world.season, true)
+        .await?;
+    assert!(history
+        .iter()
+        .any(|w| w.focus == "athlete one" && w.status == WeekStatus::Superseded));
+    // The draft is closed: no open draft, and a second publish finds none.
+    assert!(plans.get_draft_plan(world.owner()).await?.is_none());
+    assert!(matches!(
+        publish(plans, world.owner(), false).await?,
+        DraftPublish::NoDraft
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_week_both_sides_changed_is_refused_until_the_coach_overwrites_it() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+    coach_drafts_weeks(
+        plans,
+        world.owner(),
+        &[("2026-07-13", "coach one"), ("2026-07-27", "coach three")],
+    )
+    .await?;
+    // After the coach drafted them, the athlete changes the first week and
+    // writes the third for the first time.
+    athlete_saves_week(
+        plans,
+        &world.tenant,
+        &world.athlete,
+        "2026-07-13",
+        "athlete one, again",
+    )
+    .await;
+    athlete_saves_week(
+        plans,
+        &world.tenant,
+        &world.athlete,
+        "2026-07-27",
+        "athlete three",
+    )
+    .await;
+
+    let expected = DraftConflicts {
+        season_relaid: false,
+        weeks: vec!["2026-07-13".to_owned(), "2026-07-27".to_owned()],
+    };
+    let preview = plans
+        .preview_draft_publish(world.owner())
+        .await?
+        .expect("preview");
+    assert_eq!(preview.conflicts, expected);
+
+    let DraftPublish::Conflicted(refused) = publish(plans, world.owner(), false).await? else {
+        panic!("a week both sides changed must refuse the publish");
+    };
+    assert_eq!(refused.conflicts, expected);
+    // Nothing moved: the athlete's weeks stand and the draft stays open.
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![
+            week("2026-07-13", "athlete one, again", ATHLETE_AGENT),
+            week("2026-07-27", "athlete three", ATHLETE_AGENT),
+        ]
+    );
+    let still_open = plans.get_draft_plan(world.owner()).await?.expect("open");
+    assert_eq!(
+        still_open, refused.draft,
+        "a refused publish reports the draft as saved"
+    );
+    assert_eq!(still_open, preview.draft);
+
+    let DraftPublish::Published(published) = publish(plans, world.owner(), true).await? else {
+        panic!("overwrite publishes over the conflicts");
+    };
+    assert_eq!(published.weeks.len(), 2);
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![
+            week("2026-07-13", "coach one", COACH_AGENT),
+            week("2026-07-27", "coach three", COACH_AGENT),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_week_the_coach_redrafts_keeps_the_live_version_it_began_from() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+    // Drafting the same week three times is still drafting over one live
+    // version: nothing the athlete did, so nothing to refuse.
+    for focus in ["coach v1", "coach v2", "coach v3"] {
+        coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", focus)]).await?;
+    }
+    let preview = plans
+        .preview_draft_publish(world.owner())
+        .await?
+        .expect("preview");
+    assert!(preview.conflicts.is_empty(), "{:?}", preview.conflicts);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_season_relaid_under_a_weeks_draft_refuses_until_overwritten() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+    coach_drafts_weeks(plans, world.owner(), &[("2026-07-20", "coach two")]).await?;
+
+    // The athlete's own agent re-lays the season.
+    let race = big_red();
+    let blks = phases();
+    let mut params = plan_params(&world.tenant, &world.athlete, &race, &blks);
+    params.author = PlanAuthor::agent(ATHLETE_AGENT);
+    params.strategy = "the athlete's re-laid season";
+    let relaid = save_outline(plans, &params).await?;
+    assert_ne!(relaid.id, world.season);
+
+    let DraftPublish::Conflicted(refused) = publish(plans, world.owner(), false).await? else {
+        panic!("a re-laid season must refuse the publish");
+    };
+    assert!(refused.conflicts.season_relaid);
+    assert!(
+        refused.conflicts.weeks.is_empty(),
+        "week two was never live"
+    );
+
+    let DraftPublish::Published(published) = publish(plans, world.owner(), true).await? else {
+        panic!("overwrite puts the weeks on the season as it is now");
+    };
+    assert_eq!(published.plan.id, relaid.id);
+    assert_eq!(published.plan.strategy, "the athlete's re-laid season");
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![
+            week("2026-07-13", "athlete one", ATHLETE_AGENT),
+            week("2026-07-20", "coach two", COACH_AGENT),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_a_drafted_outline_relays_the_season_and_carries_its_weeks() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(
+        plans,
+        &[("2026-07-13", "athlete one"), ("2026-07-20", "athlete two")],
+    )
+    .await;
+    coach_drafts_outline(plans, world.owner(), "Coach Race", "the coach's season").await?;
+    coach_drafts_weeks(plans, world.owner(), &[("2026-07-20", "coach two")]).await?;
+
+    let DraftPublish::Published(published) = publish(plans, world.owner(), false).await? else {
+        panic!("a draft over an unchanged season publishes");
+    };
+    assert!(published.outline_published);
+    assert_eq!(
+        published.superseded_plan_id.as_deref(),
+        Some(world.season.as_str())
+    );
+    let live = plans
+        .get_active_plan(&world.tenant, &world.athlete)
+        .await?
+        .expect("live");
+    assert_eq!(live.id, published.plan.id);
+    assert_ne!(live.id, world.season);
+    assert_eq!(live.status, PlanStatus::Active);
+    assert_eq!(live.goal_race.name, "Coach Race");
+    assert_eq!(live.strategy, "the coach's season");
+    assert_eq!(live.author_agent_id.as_deref(), Some(COACH_AGENT));
+    assert_eq!(live.supersedes_id.as_deref(), Some(world.season.as_str()));
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![
+            week("2026-07-13", "athlete one", ATHLETE_AGENT),
+            week("2026-07-20", "coach two", COACH_AGENT),
+        ],
+        "the season's weeks are carried and the drafted one replaces its own"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_discarded_draft_closes_and_the_season_is_untouched() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+    let draft_id = coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", "coach one")]).await?;
+
+    assert_eq!(
+        plans.discard_draft(world.owner()).await?.as_deref(),
+        Some(draft_id.as_str())
+    );
+    assert!(plans.get_draft_plan(world.owner()).await?.is_none());
+    assert!(plans
+        .list_draft_weeks(world.owner(), &draft_id)
+        .await?
+        .is_empty());
+    assert_eq!(plans.discard_draft(world.owner()).await?, None);
+    assert!(matches!(
+        publish(plans, world.owner(), true).await?,
+        DraftPublish::NoDraft
+    ));
+    assert_eq!(
+        live_weeks(plans, &world).await,
+        vec![week("2026-07-13", "athlete one", ATHLETE_AGENT)]
+    );
+
+    // The next save opens a fresh draft.
+    let next = coach_drafts_weeks(plans, world.owner(), &[("2026-07-20", "again")]).await?;
+    assert_ne!(next, draft_id);
+    Ok(())
+}
+
+#[tokio::test]
+async fn two_coaches_drafts_are_independent_until_one_publishes() -> Result<()> {
+    let db = open_test_db().await?;
+    let plans = db.repositories().training_plans.clone();
+    let plans = plans.as_ref();
+    let world = draft_world(plans, &[("2026-07-13", "athlete one")]).await;
+    let second_coach = Uuid::new_v4().to_string();
+
+    let first = coach_drafts_weeks(plans, world.owner(), &[("2026-07-13", "first coach")]).await?;
+    let second = coach_drafts_weeks(
+        plans,
+        world.owner_for(&second_coach),
+        &[("2026-07-13", "second coach")],
+    )
+    .await?;
+    assert_ne!(first, second, "each coach holds a draft of their own");
+    assert_eq!(
+        plans.list_draft_weeks(world.owner(), &first).await?[0].focus,
+        "first coach"
+    );
+
+    let DraftPublish::Published(_) = publish(plans, world.owner(), false).await? else {
+        panic!("the first coach's draft publishes");
+    };
+    // The second coach drafted over the week the first coach just replaced.
+    let preview = plans
+        .preview_draft_publish(world.owner_for(&second_coach))
+        .await?
+        .expect("the second draft stays open");
+    assert_eq!(preview.conflicts.weeks, vec!["2026-07-13".to_owned()]);
+    assert!(!preview.conflicts.season_relaid);
     Ok(())
 }

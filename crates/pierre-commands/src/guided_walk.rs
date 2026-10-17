@@ -1,4 +1,4 @@
-// ABOUTME: Starting a fixed-list guided walk on a conversation — the sequence /calibrate and /season share
+// ABOUTME: Starting a guided walk — refused in a coach's athlete thread; the sequence /calibrate and /season share
 // ABOUTME: Supersedes the previous run's window, records the new one, snapshots load, opens the flow, persists the opener
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,17 +6,80 @@
 
 use chrono::Utc;
 use dravr_canot::commands::CommandResponse;
+use pierre_contremaitre::messaging_strings::KEY_WALK_PLAN_THREAD;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     AddMessageParams, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, WalkAudience,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::registry::global_registry;
+use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::recent_load::recent_load_snapshot;
 use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::PlatformCommandContext;
+
+/// The refusal for a guided walk typed in a coach's thread about one
+/// athlete, or `None` in every other conversation.
+///
+/// The one place a walk command asks where it was typed. The thread is
+/// detected as the chat pipeline detects it — the conversation's subject
+/// binding ([`pierre_core::models::ConversationRecord::subject`]) — so a
+/// turn that runs as the athlete's coach view can never be handed a walk.
+/// The dispatcher calls it for every command that
+/// [opens a guided walk](crate::CommandHandler::opens_guided_walk), aliases
+/// included, before the handler runs: no walk state, no superseded answers,
+/// no profile stamp and no reclaimed thread slot.
+///
+/// The reply names the athlete by their roster display name and the command
+/// as the coach typed it, in the coach's locale.
+///
+/// # Errors
+///
+/// The repository error when the conversation cannot be read. The command
+/// then fails without running, which writes nothing either.
+pub async fn refused_in_athlete_thread(
+    ctx: &PlatformCommandContext,
+) -> Result<Option<CommandResponse>, AppError> {
+    let Some(conversation_id) = ctx.conversation_id.as_deref() else {
+        return Ok(None);
+    };
+    let repos = ctx.ctx.repos();
+    let subject = repos
+        .chat
+        .get_conversation(
+            conversation_id,
+            &ctx.user_id.to_string(),
+            ctx.conversation_tenant_id,
+        )
+        .await?
+        .and_then(|conversation| conversation.subject());
+    let Some(subject) = subject else {
+        return Ok(None);
+    };
+    let athlete = fetch_user_display_name(repos, subject.athlete_user_id).await;
+    let typed = typed_command(&ctx.raw_text);
+    info!(
+        user_id = %ctx.user_id,
+        athlete = %subject.athlete_user_id,
+        command = typed,
+        "guided walk refused in a coach's athlete thread"
+    );
+    Ok(Some(CommandResponse::rich_text(
+        ctx.ctx.messaging_strings_registry().render(
+            KEY_WALK_PLAN_THREAD,
+            &ctx.locale,
+            &[&athlete, typed],
+        ),
+    )))
+}
+
+/// The command as typed: the message's first word, slash included, so an
+/// alias is named as the coach wrote it (`/next`, not `/fortnight`).
+fn typed_command(raw_text: &str) -> &str {
+    raw_text.split_whitespace().next().unwrap_or_default()
+}
 
 /// What distinguishes one fixed-list walk from another at start time. The
 /// sequence itself — supersede, record, snapshot, activate, open — is the
@@ -263,4 +326,16 @@ pub async fn start_walk(
     persist_opener(ctx, conversation_id, &user, &msg, command).await;
 
     Ok(CommandResponse::rich_text(msg))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::typed_command;
+
+    #[test]
+    fn the_typed_command_is_the_first_word_as_written() {
+        assert_eq!(typed_command("/next"), "/next");
+        assert_eq!(typed_command("  /pillars full"), "/pillars");
+        assert_eq!(typed_command(""), "");
+    }
 }

@@ -15,7 +15,12 @@
 //! Saving also closes the pillar loop: when the outline's goal race has no
 //! linked pillar `Goal` fact, the save upserts one (`FactSource::Coach`,
 //! pillar Training & Movement) so `/pillars` onboarding and conversational
-//! goal-stating converge on one fact row — see `training_plan_goal`.
+//! goal-stating converge on one fact row — see
+//! `pierre_services::plan_goal_fact`.
+//!
+//! A group's human coach saving for a coached athlete writes the coach's
+//! draft of the athlete's plan instead, which the athlete never sees until
+//! the coach publishes it — see `training_plan_drafts`.
 //!
 //! Fuelling rates are the athlete's clinician's to set when a medical/PAR-Q
 //! flag is on file: the save refuses a payload carrying them and the read
@@ -36,8 +41,11 @@ use pierre_memory::training_plans::{
 };
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_clock::athlete_today;
+use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::plan_fueling::FuelingDisclosure;
-use pierre_services::ramp_check::RampVerdict;
+use pierre_services::plan_goal_fact::{
+    converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
+};
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
 use serde_json::Value;
@@ -48,30 +56,24 @@ use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
 };
-use super::training_plan_compliance::emit_week_compliance;
-use super::training_plan_goal::{
-    converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
-};
+use super::training_plan_drafts::{draft_section, save_into_draft, DraftSave};
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
-use super::training_plan_ramp::{earliest_week, emit_ramp_check};
-use super::training_plan_readiness::{emit_week_readiness, week_is_actionable};
+use super::training_plan_rails::{run_live_plan_rails, LivePlanWrite};
 use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, replace_season_prop, string_prop,
     unknown_argument_keys, weeks_schema,
 };
 use super::training_plan_state::plan_state_block;
-use super::training_plan_telemetry::{emit_coverage_check, emit_plan_saved, emit_vision_saved};
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
     validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
-use super::training_plans_output::PlanSafetyReport;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::training_plans_output::{
-    GetTrainingPlanResult, SaveTrainingPlanResult, SavedWeek,
+    race_summary, saved_weeks, GetTrainingPlanResult, SaveTrainingPlanResult,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -464,7 +466,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<GetTrainingPlanResult>(tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.",
+            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat (in the coach's thread about one athlete it defaults to that athlete) — the athlete shares it into the room with `/plan share`. For a coach, `plan` is what the athlete sees and `draft` is the coach's own unpublished draft of it: its outline, the weeks as publishing would leave them, and `draft.state` — the weeks the athlete changed since the coach drafted them and whether their season was re-laid, which publish_training_plan would refuse.",
             schema,
             Some(read_annotations()),
         ))
@@ -551,20 +553,30 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let Some(plan) = active else {
                 // No plan, but the calendar may still hold single prescriptions
                 // — and plan entries of a plan since abandoned, which the
-                // block's `pending.remove` counts.
+                // block's `pending.remove` counts. A coach may hold a draft of
+                // the athlete's first season.
                 let calendar = calendar_block(&context, &scope, &[], today, &fueling).await?;
+                let draft = draft_section(repos, &scope, &[], &fueling).await?;
+                let message = if draft.is_some() {
+                    "no live training plan yet — your draft below is not published; the \
+                     athlete sees it once you publish it via publish_training_plan"
+                } else {
+                    "no active training plan — build one with the athlete and persist it via \
+                     save_training_plan"
+                };
                 return ok_typed(
                     "get_training_plan",
                     GetTrainingPlanResult {
                         plan: None,
                         athlete: scope.acting_for.clone(),
-                        message: Some("no active training plan — build one with the athlete and persist it via save_training_plan".to_owned()),
+                        message: Some(message.to_owned()),
                         weeks: None,
                         fueling_withheld: fueling.redact_weeks(&mut []),
                         authors: Vec::new(),
                         goal_stale: None,
                         calendar,
                         state: None,
+                        draft,
                     },
                 );
             };
@@ -584,21 +596,29 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .filter(|week| week.status == WeekStatus::Active)
                 .cloned()
                 .collect();
-            let calendar =
-                calendar_block(&context, &scope, &active_weeks, today, &fueling).await?;
+            let calendar = calendar_block(&context, &scope, &active_weeks, today, &fueling).await?;
 
             // Both rails have measured every save since they shipped and
             // reported into a log line no agent reads. Asked for, the same
             // verdict comes back to the agent that has to act on it.
             let state = if include_state {
                 Some(
-                    plan_state_block(state, repos, tenant, scope.user_id, &plan, &active_weeks, today)
-                        .await,
+                    plan_state_block(
+                        state,
+                        repos,
+                        tenant,
+                        scope.user_id,
+                        &plan,
+                        &active_weeks,
+                        today,
+                    )
+                    .await,
                 )
             } else {
                 None
             };
 
+            let draft = draft_section(repos, &scope, &active_weeks, &fueling).await?;
             let fueling_withheld = fueling.redact_weeks(&mut weeks);
             ok_typed(
                 "get_training_plan",
@@ -612,6 +632,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                     goal_stale: Some(goal_stale),
                     calendar,
                     state,
+                    draft,
                 },
             )
         }
@@ -627,10 +648,9 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
 /// Persist a plan outline and/or day-by-day weeks, superseding prior
 /// versions prospectively.
 ///
-/// LIMITATION(registre#1069): `SaveTrainingPlanTool` saves a coach's
-/// `athlete=` plan straight into the athlete's active season: plans have no
-/// draft status, so the athlete sees every intermediate save and is never
-/// told their coach changed it.
+/// A coach's `athlete=` save lands in the coach's draft for that athlete,
+/// which the athlete never reads; `publish_training_plan` makes it their live
+/// season and notifies them (carnet#1069).
 pub struct SaveTrainingPlanTool;
 
 #[async_trait]
@@ -659,7 +679,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them, and offer push_training_plan only when calendar.pushed_by is absent; when it is human_coach, the athlete reads that calendar through their human coach's link, so tell them their human coach updates it. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.",
+            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them, and offer push_training_plan only when calendar.pushed_by is absent; when it is human_coach, the athlete reads that calendar through their human coach's link, so tell them their human coach updates it. A group's human coach saving for a consenting athlete — `athlete` from their own direct chat, never in a room, or no `athlete` in the coach's thread about that athlete — writes the coach's draft of the athlete's plan: the reply says draft: true, and the athlete sees none of it, on their plan, calendar or agent, until the coach publishes it with publish_training_plan.",
             schema,
             Some(write_annotations()),
         ))
@@ -815,7 +835,32 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     "this athlete's training plan is not available over this interface",
                 ));
             }
-            let season_author = active.as_ref().and_then(|p| p.author_agent_id.as_deref());
+            // A coach writes their own draft of the athlete's plan, never the
+            // season itself: read it beside the season, under the same rule.
+            let draft_target = scope
+                .acting_for
+                .is_some()
+                .then(|| CoachDraftTarget::new(tenant, scope.user_id, writer.user_id));
+            let draft = match draft_target.as_ref() {
+                Some(target) => repos.training_plans.get_draft_plan(target.owner()).await?,
+                None => None,
+            };
+            if draft
+                .as_ref()
+                .is_some_and(|d| !ai_scope::admit_derived(d.plan.transport_policy))
+            {
+                return Err(AppError::unavailable_over_transport(
+                    "this athlete's training plan is not available over this interface",
+                ));
+            }
+            // The outline an outline save replaces: the one the coach already
+            // re-laid in their draft, else the athlete's season.
+            let replaced = draft
+                .as_ref()
+                .filter(|d| d.outline_drafted)
+                .map(|d| &d.plan)
+                .or(active.as_ref());
+            let season_author = replaced.and_then(|p| p.author_agent_id.as_deref());
             let author = PlanAuthor::from_agent(writer.agent_id.as_deref());
             // Another agent's season is not re-laid by accident. Refused
             // before anything is written — the goal fact included — and
@@ -852,9 +897,12 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 Some(payload) => Some(resolve_flavour(&catalogue, payload)?),
                 None => None,
             };
+            // The phases the saved weeks will index: this save's outline, else
+            // the coach's draft outline, else the athlete's season.
             let phase_count = outline
                 .as_ref()
                 .map(|o| &o.phases)
+                .or_else(|| draft.as_ref().map(|d| &d.plan.phases))
                 .or_else(|| active.as_ref().map(|plan| &plan.phases))
                 .map_or(0, Vec::len);
             check_phase_indexes(&weeks, phase_count)?;
@@ -869,6 +917,52 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     warn!("save_training_plan: dropping unknown goal_fact_id");
                     goal_fact_id = None;
                 }
+            }
+
+            let week_inputs: Vec<PlanWeekInput<'_>> = weeks
+                .iter()
+                .map(|w| PlanWeekInput {
+                    week_start: &w.week_start,
+                    focus: &w.focus,
+                    days: &w.days,
+                    adjustment_reason: &w.adjustment_reason,
+                    phase_index: w.phase_index,
+                })
+                .collect();
+            // `races` absent reaches the repository as `None`, and the
+            // supersede carries the replaced row's calendar across inside its
+            // own transaction — the same place, and for the same reason, that
+            // the replaced row's weeks are re-parented.
+            let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
+                goal_race: &o.goal_race,
+                races: o.races.as_deref(),
+                strategy: &o.strategy,
+                flavour: flavour_selection.as_ref(),
+                season_start: o.season_start.as_deref(),
+                season_end: o.season_end.as_deref(),
+                phases: &o.phases,
+                source_conversation_id: conversation_id.as_deref(),
+            });
+
+            // A coach's save lands in their draft: the athlete's season, their
+            // goal fact and their calendar are untouched until the coach
+            // publishes it, and nothing is reported as a write to their plan.
+            // The coach's reply carries the safety findings on the draft view.
+            if let Some(target) = draft_target.as_ref() {
+                return save_into_draft(
+                    state,
+                    repos,
+                    DraftSave {
+                        target,
+                        athlete: scope.acting_for.as_deref().unwrap_or_default(),
+                        author,
+                        goal_fact_id: goal_fact_id.as_deref(),
+                        outline: outline_input,
+                        weeks: &week_inputs,
+                        ignored_arguments,
+                    },
+                )
+                .await;
             }
 
             // Close the pillar loop: an outline whose goal race has no linked
@@ -894,30 +988,6 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // Persist the outline and every week in ONE transaction so a
             // mid-payload failure can't strand a superseded plan with a
             // half-saved successor.
-            let week_inputs: Vec<PlanWeekInput<'_>> = weeks
-                .iter()
-                .map(|w| PlanWeekInput {
-                    week_start: &w.week_start,
-                    focus: &w.focus,
-                    days: &w.days,
-                    adjustment_reason: &w.adjustment_reason,
-                    phase_index: w.phase_index,
-                })
-                .collect();
-            // `races` absent reaches the repository as `None`, and the
-            // supersede carries the replaced row's calendar across inside its
-            // own transaction — the same place, and for the same reason, that
-            // the replaced row's weeks are re-parented.
-            let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
-                goal_race: &o.goal_race,
-                races: o.races.as_deref(),
-                strategy: &o.strategy,
-                flavour: flavour_selection.as_ref(),
-                season_start: o.season_start.as_deref(),
-                season_end: o.season_end.as_deref(),
-                phases: &o.phases,
-                source_conversation_id: conversation_id.as_deref(),
-            });
             let bundle = repos
                 .training_plans
                 .save_plan_bundle(&SavePlanBundleParams {
@@ -935,125 +1005,38 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // The plan is stored, so the goal facts its goal replaced can go.
             retire_superseded_goal_facts(repos, tenant, &user_id, &superseded_goal_facts).await;
 
-            // The one enforced rail on plan difficulty: does the plan's opening
-            // week sit far above what this athlete actually does? A warning,
-            // never a block — the agent may have good reason, and refusing a
-            // save would strand a plan the athlete already agreed to. The event
-            // also reports when the comparison could not be made, so a quiet
-            // log means "measured and fine" rather than "never looked".
-            //
-            // Only a save carrying an outline is a new plan with an opening
-            // week. A week-only save is an adjustment to one week of a plan
-            // that was already measured, and grading it as an opening week
-            // reports a ramp the athlete is not being asked to make.
-            let ramp = if outline.is_some() {
-                Some(
-                    emit_ramp_check(
-                        repos,
-                        state.provider_registry().as_ref(),
-                        tenant,
-                        &user_id,
-                        &bundle.plan.id,
-                        earliest_week(&weeks),
-                    )
-                    .await,
-                )
-            } else {
-                None
-            };
-
-            // Every committed write is reported, so a weeks-only adjustment is
-            // no longer silent, and the plan is then checked for whether it
-            // actually covers the athlete it was just written for. A flavour
-            // on the outline reports its provenance too — the override rate
-            // against the rule is the vision's falsification test.
-            emit_plan_saved(&bundle.plan.id, outline.is_some(), &bundle.weeks);
-            if let Some(flavour) = flavour_selection.as_ref() {
-                emit_vision_saved(&bundle.plan.id, flavour);
-            }
-            // One reading of the athlete's clock for the whole post-save
-            // report: coverage, week readiness and the calendar preview all
-            // ask "where does this plan stand today", and reading it three
-            // times let a save that straddles their midnight answer with two
-            // different days.
-            let today = athlete_today(repos, scope.user_id).await;
-            emit_coverage_check(
-                repos,
-                &tenant_id,
-                &user_id,
-                &bundle.plan.id,
-                &bundle.plan.phases,
-                today,
-            )
-            .await;
-            // The compliance rail: every week this save wrote is measured
-            // against its phase's targets and the flavour's caps, and every
-            // verdict reported for the base-rate measurement. It walks the
-            // whole plan so one week's last hard day bounds the next week's
-            // first gap. The weeks whose hard sessions crowd come back, and
-            // travel to the agent below — the base rate is still being
-            // gathered, but a week the rail already knows crowds its hard days
-            // should not reach the athlete unmentioned while it gathers.
-            let crowded_weeks = emit_week_compliance(
+            // The rails every live plan write runs, the same ones a coach's
+            // publish runs.
+            let rails = run_live_plan_rails(
                 state,
                 repos,
-                tenant,
-                scope.user_id,
-                &bundle.plan,
-                &bundle.weeks,
+                &LivePlanWrite {
+                    tenant,
+                    user_id: scope.user_id,
+                    plan: &bundle.plan,
+                    weeks: &bundle.weeks,
+                    laid_outline: outline.is_some(),
+                    flavour: flavour_selection.as_ref(),
+                },
             )
             .await;
-            // The readiness rail, also Log-only, and the other half of the
-            // question: compliance asks whether the week was built to its
-            // phase, this asks whether the athlete can run it today. Only
-            // weeks that still have days left to change are worth reading —
-            // substituting a session already completed helps nobody.
-            let actionable: Vec<PlanWeek> = bundle
-                .weeks
-                .iter()
-                .filter(|week| week_is_actionable(week, today))
-                .cloned()
-                .collect();
-            if !actionable.is_empty() {
-                emit_week_readiness(
-                    state,
-                    repos,
-                    tenant,
-                    scope.user_id,
-                    &bundle.plan,
-                    &actionable,
-                )
-                .await;
-            }
 
             // The save is committed; if the calendar already carries this
             // plan, say what a push would now change so the athlete learns
             // the calendar is behind — without pushing on anyone's behalf.
-            let calendar =
-                calendar_preview_after_save(&context, &scope, &bundle.plan.id, today, &fueling)
-                    .await;
+            let calendar = calendar_preview_after_save(
+                &context,
+                &scope,
+                &bundle.plan.id,
+                rails.today,
+                &fueling,
+            )
+            .await;
 
-            let race_summary = format!(
-                "{} on {}",
-                bundle.plan.goal_race.name, bundle.plan.goal_race.date
-            );
-            let week_ids: Vec<SavedWeek> = bundle
-                .weeks
-                .iter()
-                .map(|saved| SavedWeek {
-                    week_start: saved.week_start.clone(),
-                    week_id: saved.id.clone(),
-                    superseded: saved.supersedes_id.is_some(),
-                })
-                .collect();
-
+            let week_ids = saved_weeks(&bundle.weeks);
             // Only the two safety-shaped checks, and only when they found
             // something: an empty report would be noise on every save.
-            let safety = PlanSafetyReport {
-                crowded_weeks,
-                ramp: ramp.filter(|v| matches!(v, RampVerdict::Exceeded { .. })),
-            };
-
+            let safety = rails.safety;
             ok_typed(
                 "save_training_plan",
                 SaveTrainingPlanResult {
@@ -1061,12 +1044,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     ignored_arguments,
                     plan_id: bundle.plan.id.clone(),
                     athlete: scope.acting_for.clone(),
-                    goal_race: race_summary,
+                    goal_race: race_summary(&bundle.plan.goal_race),
                     superseded_plan_id: bundle.superseded_plan_id.clone(),
                     goal_fact_id,
                     weeks_saved: week_ids.len(),
                     weeks: week_ids,
                     calendar,
+                    draft: false,
+                    message: None,
                 },
             )
         }

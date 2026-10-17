@@ -2,17 +2,17 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Sortable member list table for a coaching group
-// ABOUTME: Displays name, role, join date, peer sharing status, and admin actions
+// ABOUTME: Displays name, role, join date, peer sharing status, admin actions, and the coach's way into each athlete's plan
 
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Shield, User, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Shield, User, ChevronUp, ChevronDown, Trash2, Clipboard } from 'lucide-react';
 import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import RoleBadge from './RoleBadge';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { formatDate } from '@pierre/chat-utils';
+import { formatDate, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
 
 interface MemberListProps {
@@ -21,6 +21,15 @@ interface MemberListProps {
   currentUserRole: GroupRole;
   currentUserId: string;
   isLoading: boolean;
+  /**
+   * Open the caller's plan thread for a member. Passed only for the group's
+   * coach, so the action never reaches a member's view of the roster. A coach
+   * who is also a member never gets it on their own row: the server refuses
+   * a coach acting for themselves.
+   */
+  onWorkOnPlan?: (member: GroupMember) => void;
+  /** The member whose plan thread is being opened, while one is. */
+  openingPlanFor?: string | null;
 }
 
 type SortField = 'display_name' | 'role' | 'joined_at' | 'peer_sharing_consent';
@@ -34,6 +43,8 @@ export default function MemberList({
   currentUserRole,
   currentUserId,
   isLoading,
+  onWorkOnPlan,
+  openingPlanFor = null,
 }: MemberListProps) {
   const { t, i18n } = useTranslation();
   const [sortField, setSortField] = useState<SortField>('role');
@@ -46,6 +57,7 @@ export default function MemberList({
 
   const canManageMembers = currentUserRole === 'owner' || currentUserRole === 'admin';
   const isOwner = currentUserRole === 'owner';
+  const hasActions = canManageMembers || onWorkOnPlan !== undefined;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -151,7 +163,7 @@ export default function MemberList({
               >
                 {t('groups.peerSharing')} <SortIcon field="peer_sharing_consent" />
               </th>
-              {canManageMembers && (
+              {hasActions && (
                 <th className="py-3 px-4 text-on-surface-variant font-medium text-right">
                   {t('groups.colActions')}
                 </th>
@@ -163,6 +175,8 @@ export default function MemberList({
               const isSelf = member.user_id === currentUserId;
               const canRemove = canManageMembers && !isSelf && member.role !== 'owner';
               const canChangeRole = isOwner && !isSelf && member.role !== 'owner';
+              const memberName = member.display_name ?? t('groups.memberFallback');
+              const workOnPlanLabel = t(PLAN_THREAD_KEYS.open, { name: memberName });
 
               return (
                 <tr
@@ -193,9 +207,23 @@ export default function MemberList({
                       <span className="text-outline text-xs">{t('groups.disabled')}</span>
                     )}
                   </td>
-                  {canManageMembers && (
+                  {hasActions && (
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {onWorkOnPlan && !isSelf && (
+                          <Button
+                            variant="tertiary"
+                            size="sm"
+                            onClick={() => onWorkOnPlan(member)}
+                            loading={openingPlanFor === member.user_id}
+                            disabled={openingPlanFor !== null}
+                            title={workOnPlanLabel}
+                            aria-label={workOnPlanLabel}
+                            data-testid={`member-work-on-plan-${member.user_id}`}
+                          >
+                            <Clipboard className="w-4 h-4" aria-hidden="true" />
+                          </Button>
+                        )}
                         {canChangeRole && (
                           <Button
                             variant="secondary"

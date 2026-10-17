@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs the sciotte double behind a small control API, so a flow that cannot start processes (Maestro) can script it
-// ABOUTME: Scripts the Home sync flow's scraper, and makes the onboarding group flow's fresh coaches through the same double
+// ABOUTME: Scripts the Home sync flow's scraper, makes the onboarding group flow's fresh coaches, and seeds the coach plan-thread flow's pairs
 
 import { Database } from 'bun:sqlite';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { startSciotteDouble, type ScrapedRide } from './sciotte-double';
 import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
 import { coachStepState, freshOnboardingCoach, type CoachServer } from './onboarding-coach';
+import { athletePlanState, freshCoachPlanThread, type PlanServer } from './coach-plan-thread';
 
 // `bun e2e-real/home-sync-control.ts` — a long-running process beside a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL naming the double
@@ -20,7 +21,11 @@ import { coachStepState, freshOnboardingCoach, type CoachServer } from './onboar
 // The onboarding group flow (frontend-mobile/.maestro/onboarding/) asks the
 // same process for a fresh coach (`POST /onboarding-coach`), whose Strava is
 // connected through this double, and for what the step left on the server
-// (`GET /onboarding-coach/state`).
+// (`GET /onboarding-coach/state`). The coach plan-thread flow
+// (frontend-mobile/.maestro/coach-plan/) asks it for a coach and athlete
+// seeded with an open draft (`POST /coach-plan-thread`), made by the
+// `pierre-cli` that PIERRE_CLI names, and for the athlete's season once the
+// draft is published (`GET /coach-plan-thread/state`).
 const CONTROL_PORT = Number(process.env.SCIOTTE_CONTROL_PORT ?? '8098');
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const DATABASE_PATH = process.env.E2E_REAL_DATABASE_PATH;
@@ -32,6 +37,13 @@ const COACH_SERVER: CoachServer = {
   pierreUrl: PIERRE_URL,
   adminEmail: process.env.CONTROL_ADMIN_EMAIL ?? ATHLETE_EMAIL,
   adminPassword: process.env.CONTROL_ADMIN_PASSWORD ?? ATHLETE_PASSWORD,
+};
+// The coach plan-thread flow's pairs are written by the CLI into the server's
+// own database; each request checks both are named.
+const PLAN_SERVER: PlanServer = {
+  pierreUrl: PIERRE_URL,
+  cliPath: process.env.PIERRE_CLI,
+  databasePath: DATABASE_PATH,
 };
 
 /** The rides of the good sync, and the one the scraper brings back once it recovers. */
@@ -253,6 +265,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       200,
       await coachStepState(COACH_SERVER, url.searchParams.get('email') ?? '', url.searchParams.get('step') ?? 'none'),
     );
+  } else if (req.method === 'POST' && path === '/coach-plan-thread') {
+    reply(res, 200, await freshCoachPlanThread(PLAN_SERVER));
+  } else if (req.method === 'GET' && path === '/coach-plan-thread/state') {
+    reply(res, 200, await athletePlanState(PLAN_SERVER, url.searchParams.get('athlete') ?? ''));
   } else if (req.method === 'GET' && path === '/health') {
     reply(res, 200, { status: 'ok' });
   } else {

@@ -163,6 +163,29 @@ describe('ConversationItem anatomy', () => {
     expect(avatar).toHaveTextContent('SR');
   });
 
+  it("marks a coach's plan thread with the clipboard glyph and names its athlete", () => {
+    renderRow(
+      conversation({
+        title: 'Marathon Coach',
+        agent_id: 'coach-1',
+        agent_handle: 'marathon-coach',
+        agent_title: 'Marathon Coach',
+        subject_user_id: 'user-alice',
+        subject_group_id: 'group-1',
+        subject_display_name: 'Alice Runner',
+        last_message: null,
+      }),
+    );
+
+    const glyph = screen.getByTestId('conversation-kind-glyph');
+    expect(glyph).toHaveAttribute('data-kind', 'subject');
+    expect(glyph).toHaveAccessibleName('Athlete plan');
+    expect(screen.getByTestId('conversation-subject')).toHaveTextContent('Alice Runner');
+    // A person, so a circle; and the group's agent is not named on the row.
+    expect(screen.getByTestId('conversation-avatar')).toHaveClass('rounded-full');
+    expect(screen.getByTestId('conversation-preview')).not.toHaveTextContent('@marathon-coach');
+  });
+
   it('shows neither glyph nor badge for a plain in-app thread', () => {
     renderRow(conversation({ channel_type: 'web' }));
 

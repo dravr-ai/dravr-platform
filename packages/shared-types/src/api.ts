@@ -66,6 +66,17 @@ export interface Conversation {
    * divide into topics instead of replacing. At most one per athlete.
    */
   personal?: boolean;
+  /**
+   * The athlete a coach's plan thread is bound to (carnet#1070): the one
+   * thread per coach per athlete where the coach works on that athlete's
+   * plan. Null for every other thread. The three `subject_*` fields are set
+   * together or not at all.
+   */
+  subject_user_id?: string | null;
+  /** The group whose coaching link scopes the plan thread to its athlete. */
+  subject_group_id?: string | null;
+  /** The athlete's name as the server spells it, for the row and the header. */
+  subject_display_name?: string | null;
   /** When conversation was created */
   created_at: string;
   /** When conversation was last updated */

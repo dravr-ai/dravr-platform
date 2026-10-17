@@ -190,12 +190,13 @@ use pierre_tool_runtime::implementations::sync::{
     AllProvidersRefresh, DataFreshnessResult, GetDataFreshnessTool, RefreshProviderDataResult,
     RefreshProviderDataTool, SingleProviderRefresh,
 };
+use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
 use pierre_tool_runtime::implementations::training_plans_output::{
-    GetTrainingPlanResult, SaveTrainingPlanResult,
+    GetTrainingPlanResult, PublishTrainingPlanResult, SaveTrainingPlanResult,
 };
 use pierre_tool_runtime::implementations::verification::{VerifyClaimResult, VerifyClaimTool};
 use pierre_tool_runtime::implementations::vo2max_estimate::{
@@ -1889,6 +1890,69 @@ fn each_training_plan_schema_is_attached_to_the_tool_it_names() {
         output_schema_for::<SaveTrainingPlanResult>(),
         "save_training_plan declares a schema derived from a DIFFERENT result type"
     );
+    assert_eq!(
+        <PublishTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PublishTrainingPlanTool)
+            .output_schema
+            .expect("publish_training_plan must declare an outputSchema"),
+        output_schema_for::<PublishTrainingPlanResult>(),
+        "publish_training_plan declares a schema derived from a DIFFERENT result type"
+    );
+}
+
+/// A plan's status names every lifecycle a stored row can be in — a coach's
+/// draft and what becomes of it included — so a reader of `draft.plan` is
+/// told it is reading a draft, and a coach's draft state carries the weeks
+/// and the season it would collide with.
+#[test]
+fn a_coachs_draft_reads_as_a_draft_with_where_it_stands() {
+    let schema = output_schema_for::<GetTrainingPlanResult>();
+    let statuses = serde_json::to_string(&schema["$defs"]["PlanStatus"]).expect("serializes");
+    for status in [
+        "active",
+        "superseded",
+        "completed",
+        "abandoned",
+        "draft",
+        "published",
+        "discarded",
+    ] {
+        assert!(
+            statuses.contains(&format!("\"{status}\"")),
+            "{status}: {statuses}"
+        );
+    }
+    let section = &schema["$defs"]["DraftSection"];
+    let required: Vec<&str> = section["required"]
+        .as_array()
+        .expect("the draft section requires its own keys")
+        .iter()
+        .filter_map(JsonValue::as_str)
+        .collect();
+    for key in ["plan", "weeks", "state"] {
+        assert!(required.contains(&key), "{key}: {section:#}");
+    }
+    let state = &schema["$defs"]["DraftState"];
+    let state_required: Vec<&str> = state["required"]
+        .as_array()
+        .expect("the draft state requires its own keys")
+        .iter()
+        .filter_map(JsonValue::as_str)
+        .collect();
+    for key in ["draft_id", "updated_at", "conflicts", "season_relaid"] {
+        assert!(state_required.contains(&key), "{key}: {state:#}");
+    }
+
+    // A conflict is an answer the model relays, not an error: the publish
+    // result carries the same draft state.
+    let publish = output_schema_for::<PublishTrainingPlanResult>();
+    let outcome = serde_json::to_string(&publish["$defs"]["PublishStatus"]).expect("serializes");
+    for status in ["published", "conflict", "discarded"] {
+        assert!(
+            outcome.contains(&format!("\"{status}\"")),
+            "{status}: {outcome}"
+        );
+    }
+    assert!(publish["$defs"]["DraftState"].is_object(), "{publish:#}");
 }
 
 // ============================================================================

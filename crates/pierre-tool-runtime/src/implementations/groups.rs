@@ -53,7 +53,6 @@ use super::athlete_link::ProposeAthleteLinkTool;
 use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::fetch_provider_activities;
-use crate::athlete_display_name::fetch_user_display_name;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -61,6 +60,7 @@ use crate::conversions::{
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_display_name::fetch_user_display_name;
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -188,7 +188,7 @@ async fn scan_shared_rosters(
             if member.left_at.is_some() {
                 continue;
             }
-            let display_name = fetch_user_display_name(data, member.user_id).await;
+            let display_name = fetch_user_display_name(data.repos(), member.user_id).await;
             if !display_name.to_lowercase().contains(query_lower) {
                 continue;
             }

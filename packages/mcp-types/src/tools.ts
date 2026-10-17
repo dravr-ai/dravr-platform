@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 119
+// Tool count: 120
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -994,7 +994,7 @@ export interface GetNutrientTimingParams {
  */
 export interface GetPlannedWorkoutsParams {
 
-  /** Roster display name of a coached athlete whose planned calendar to read. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach who confirmed a coaching-platform link with them, from a direct chat — never in a room. Omit to read your own calendars. */
+  /** Roster display name of a coached athlete whose planned calendar to read. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach who confirmed a coaching-platform link with them, from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to read your own calendars. */
   athlete?: string;
 
   /** Last day to read, inclusive, as YYYY-MM-DD. Defaults to 14 days after start_date. One call reads at most 366 days. */
@@ -1135,11 +1135,11 @@ export interface GetTrainingHistoryParams {
 
 
 /**
- * Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat — the athlete shares it into the room with `/plan share`, the coach reads and edits it from their DM.
+ * Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat (in the coach's thread about one athlete it defaults to that athlete) — the athlete shares it into the room with `/plan share`. For a coach, `plan` is what the athlete sees and `draft` is the coach's own unpublished draft of it: its outline, the weeks as publishing would leave them, and `draft.state` — the weeks the athlete changed since the coach drafted them and whether their season was re-laid, which publish_training_plan would refuse.
  */
 export interface GetTrainingPlanParams {
 
-  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
+  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to act on your own plan. */
   athlete?: string;
 
   /** Include superseded week versions (the adjustment audit trail). */
@@ -1410,7 +1410,7 @@ export interface PrescribeWorkoutParams {
   /** The agent prescribing this, read only on a call with no conversation (a direct MCP call); a chat turn's own agent always wins. Its package resolves the template, and the ledger row names it. */
   agent_id?: string;
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. Omit to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
@@ -1482,11 +1482,27 @@ export interface ProposeAthleteLinkParams {
 
 
 /**
- * Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected account of a provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan by passing `athlete` from their own direct chat in Dravr, through the athlete's Intervals.icu link: the athlete must have allowed calendar writes on it, and Intervals.icu must list the coach as their coach. Args: optional from_date, optional provider (needed only to choose between several connected calendars), optional athlete.
+ * Publish or discard a group's human coach's draft of a coached athlete's training plan. A coach's save_training_plan for an athlete writes the coach's draft, which the athlete does not see: publish makes it their live plan in one step — the weeks the coach did not draft keep the athlete's own version — and discard throws it away. Call it only when the coach asks to publish or discard. When the athlete's own agent changed a drafted week after the coach drafted it, or re-laid the season, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose to replace the athlete's changes. Publishing does not touch the athlete's calendar; push_training_plan does that afterwards. In a coach's thread about one athlete, `athlete` defaults to that athlete. The caller's own plan has no draft: their saves are already live.
+ */
+export interface PublishTrainingPlanParams {
+
+  /** `publish` makes your draft the athlete's live plan; `discard` throws it away and leaves their plan as it is. One of: publish, discard. */
+  action: string;
+
+  /** Roster display name of the coached athlete whose plan your draft is of. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete. */
+  athlete?: string;
+
+  /** Publish over the weeks the athlete's own agent changed since you drafted them, and over a season re-laid under your draft. Set it only after the coach saw the conflicts and chose to replace the athlete's changes. Read only with `publish`. */
+  overwrite_athlete_changes?: boolean;
+}
+
+
+/**
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected account of a provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan by passing `athlete` from their own direct chat in Dravr, through the athlete's Intervals.icu link: the athlete must have allowed calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed: a coach's unpublished draft never is, and the reply's unpublished_draft says when one exists. Args: optional from_date, optional provider (needed only to choose between several connected calendars), optional athlete.
  */
 export interface PushTrainingPlanParams {
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. Omit to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
@@ -1518,7 +1534,7 @@ export interface RecallUserMemoryParams {
  */
 export interface RecommendPlanFlavourParams {
 
-  /** A human coach reading a consenting athlete's profile from their own direct chat. */
+  /** A human coach reading a consenting athlete's profile from their own direct chat. In the coach's thread about one athlete it defaults to that athlete. */
   athlete?: string;
 
   /** The goal event. Omit to derive from the active plan's goal race. One of: run_5k, run_10k, half_marathon, marathon, ultra, crit, road_race, time_trial, gran_fondo, sprint_tri, olympic_tri, half_iron, ironman, open_water_swim, no_race. */
@@ -1642,14 +1658,14 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them, and offer push_training_plan only when calendar.pushed_by is absent; when it is human_coach, the athlete reads that calendar through their human coach's link, so tell them their human coach updates it. A group's human coach edits a consenting athlete's plan by passing `athlete` from their own direct chat, never in a room: the athlete shares the plan into the room with `/plan share`, the coach saves the change from their DM, and the athlete's next `/plan` shows it.
+ * Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them, and offer push_training_plan only when calendar.pushed_by is absent; when it is human_coach, the athlete reads that calendar through their human coach's link, so tell them their human coach updates it. A group's human coach saving for a consenting athlete — `athlete` from their own direct chat, never in a room, or no `athlete` in the coach's thread about that athlete — writes the coach's draft of the athlete's plan: the reply says draft: true, and the athlete sees none of it, on their plan, calendar or agent, until the coach publishes it with publish_training_plan.
  */
 export interface SaveTrainingPlanParams {
 
   /** The agent authoring this save, read only on a call with no conversation (a direct MCP call); a chat turn's own agent always wins. */
   agent_id?: string;
 
-  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. Omit to act on your own plan. */
+  /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to act on your own plan. */
   athlete?: string;
 
   /** Originating conversation ID for provenance. */
@@ -2308,7 +2324,7 @@ export interface VerifyClaimParams {
  */
 export interface WithdrawPrescribedWorkoutParams {
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. Omit to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** prescription_id of the entry to remove — from the prescribe_workout reply, or from get_training_plan's calendar block. */
@@ -2445,6 +2461,7 @@ export const TOOL_NAMES = [
   "predict_performance",
   "prescribe_workout",
   "propose_athlete_link",
+  "publish_training_plan",
   "push_training_plan",
   "recall_user_memory",
   "recommend_plan_flavour",
@@ -2575,6 +2592,7 @@ export interface ToolParamsMap {
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;
   "propose_athlete_link": ProposeAthleteLinkParams;
+  "publish_training_plan": PublishTrainingPlanParams;
   "push_training_plan": PushTrainingPlanParams;
   "recall_user_memory": RecallUserMemoryParams;
   "recommend_plan_flavour": RecommendPlanFlavourParams;

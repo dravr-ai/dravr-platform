@@ -20,7 +20,8 @@ use pierre_core::models::periodization::{
     DaySubstitution, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
 use pierre_core::models::CalendarEventSource;
-use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{GoalRace, PlanWeek, TrainingPlan};
+use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_calendar_push::PushPreview;
 use pierre_services::plan_fueling::WithheldFueling;
 use pierre_services::ramp_check::RampVerdict;
@@ -66,6 +67,122 @@ pub struct GetTrainingPlanResult {
     /// the caller asked for it — reading it costs three history queries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<PlanStateBlock>,
+    /// A group's human coach reading a coached athlete's plan: the coach's
+    /// own draft of it, which the athlete does not see. Absent outside the
+    /// coach path and when the coach holds no draft.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<DraftSection>,
+}
+
+/// A human coach's draft of a coached athlete's plan, as the coach reads it.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DraftSection {
+    /// The draft's outline (status `draft`): the one the coach re-laid, or a
+    /// copy of the athlete's live outline when the coach drafted weeks only.
+    pub plan: TrainingPlan,
+    /// The weeks as publishing would leave them: the athlete's live weeks,
+    /// with each week the coach drafted in its place.
+    pub weeks: Vec<PlanWeek>,
+    /// The `week_start` of each week the coach drafted.
+    pub drafted_weeks: Vec<String>,
+    /// Where the draft stands: what publishing it now would overwrite.
+    pub state: DraftState,
+    /// Present when a medical/PAR-Q flag is on file: fuelling rates are
+    /// withheld from `weeks` as they are from the live ones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fueling_withheld: Option<WithheldFueling>,
+}
+
+/// The goal race as the save replies quote it back: name and date.
+pub(super) fn race_summary(race: &GoalRace) -> String {
+    format!("{} on {}", race.name, race.date)
+}
+
+/// Each written week as a save reply reports it.
+pub(super) fn saved_weeks(weeks: &[PlanWeek]) -> Vec<SavedWeek> {
+    weeks
+        .iter()
+        .map(|saved| SavedWeek {
+            week_start: saved.week_start.clone(),
+            week_id: saved.id.clone(),
+            superseded: saved.supersedes_id.is_some(),
+        })
+        .collect()
+}
+
+/// What `publish_training_plan` did with the coach's draft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublishStatus {
+    /// The draft is the athlete's live plan.
+    Published,
+    /// Nothing was published: the athlete's plan changed under the draft.
+    /// `conflict` names what collided.
+    Conflict,
+    /// The draft was thrown away; the athlete's plan is as it was.
+    Discarded,
+}
+
+/// What `publish_training_plan` answers with.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PublishTrainingPlanResult {
+    /// What happened to the draft.
+    pub status: PublishStatus,
+    /// Whose plan: the athlete's roster name.
+    pub athlete: String,
+    /// The draft acted on.
+    pub draft_id: String,
+    /// What happened, in words to relay to the coach.
+    pub message: String,
+    /// On `published`: the athlete's live plan now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    /// On `published`, when the draft re-laid the season: the season it
+    /// replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_plan_id: Option<String>,
+    /// On `published`: the weeks (`week_start`) the draft put live.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weeks_published: Vec<String>,
+    /// On `published`: whether the athlete was sent a notice of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub athlete_notified: Option<bool>,
+    /// On `conflict`: the weeks the athlete changed since the coach drafted
+    /// them, and whether their season was re-laid. Nothing was written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<DraftState>,
+    /// On `published`: what the two safety-shaped checks found in the weeks
+    /// that went live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety: Option<PlanSafetyReport>,
+    /// On `published`: what a push would now change, when the athlete's
+    /// calendar already carries the plan. Publishing never writes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<CalendarPreview>,
+}
+
+impl PublishTrainingPlanResult {
+    /// A result of `status` with nothing beyond the draft and the message.
+    pub(super) const fn new(
+        status: PublishStatus,
+        athlete: String,
+        draft_id: String,
+        message: String,
+    ) -> Self {
+        Self {
+            status,
+            athlete,
+            draft_id,
+            message,
+            plan_id: None,
+            superseded_plan_id: None,
+            weeks_published: Vec::new(),
+            athlete_notified: None,
+            conflict: None,
+            safety: None,
+            calendar: None,
+        }
+    }
 }
 
 /// One agent that wrote part of the athlete's season.
@@ -215,6 +332,11 @@ pub struct CrowdedWeek {
 
 /// What the two safety-shaped checks found in the weeks this save wrote.
 ///
+/// A coach's save into their draft of an athlete's plan carries the same
+/// report, measured on the draft view — the draft's outline over the
+/// athlete's live weeks — so the coach hears of it before publishing puts the
+/// plan in the athlete's hands.
+///
 /// The compliance rail has measured every saved week since it shipped and
 /// reported into a log line no agent reads; the readiness rail the same. This
 /// is the half that reaches the turn: the agent sees what the platform
@@ -245,6 +367,19 @@ pub struct PlanSafetyReport {
 }
 
 impl PlanSafetyReport {
+    /// The report of what the two checks found: every crowded week, and the
+    /// opening week's ramp only when it came in above the threshold — within
+    /// it, or unmeasurable, is nothing the agent needs.
+    pub(super) fn from_findings(
+        crowded_weeks: Vec<CrowdedWeek>,
+        ramp: Option<RampVerdict>,
+    ) -> Self {
+        Self {
+            crowded_weeks,
+            ramp: ramp.filter(|v| matches!(v, RampVerdict::Exceeded { .. })),
+        }
+    }
+
     /// Whether anything was found worth the agent's attention.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -293,7 +428,9 @@ pub struct SaveTrainingPlanResult {
     /// Empty on every well-formed call, and then omitted from the wire.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored_arguments: Vec<String>,
-    /// What the two safety-shaped checks found in the weeks just written.
+    /// What the two safety-shaped checks found in the weeks just written. On
+    /// a `draft` save, measured on the coach's draft over the athlete's live
+    /// weeks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub safety: Option<PlanSafetyReport>,
     /// The plan that was written.
@@ -315,6 +452,15 @@ pub struct SaveTrainingPlanResult {
     /// not use the calendar is not nagged about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarPreview>,
+    /// `true` when a group's human coach saved for a coached athlete: the
+    /// save went into the coach's draft, which the athlete does not see
+    /// until the coach publishes it with `publish_training_plan`. `plan_id`
+    /// is then the draft's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub draft: bool,
+    /// On a draft save: what to tell the coach about it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// One week as it was saved.

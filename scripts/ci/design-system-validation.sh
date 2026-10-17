@@ -68,7 +68,9 @@ BASELINE_MOBILE_CARD_SITES=9
 # and a badge on the radius ladder's own `full` step.
 # 29: the Home week strip's done dot under a day that holds a workout
 # (carnet#708) — a dot, the same `full` step.
-BASELINE_MOBILE_ROUNDED_FULL=29
+# 30: the plan card's draft badge in a coach's plan thread (carnet#1069) — a
+# badge, the web's `.badge-warning` drawn on the phone.
+BASELINE_MOBILE_ROUNDED_FULL=30
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

@@ -11,6 +11,7 @@ import {
   avatarSlot,
   CONVERSATION_ROW_LABEL_KEYS,
   initialsFor,
+  PLAN_THREAD_KEYS,
   threadSubtitle,
   type Translate,
 } from '@pierre/chat-utils';
@@ -42,7 +43,7 @@ export function ChatHeaderTitle({ currentConversation, providerStatus, onTitlePr
   const { t } = useTranslation();
   // Before a thread exists the header names what the athlete is about to start.
   const title = currentConversation ? threadTitle(currentConversation, t) : t('chat.newChat');
-  // Group before handle — the precedence both headers now share.
+  // A plan thread's athlete, then group, then handle — the precedence both headers share.
   const subtitle = threadSubtitle(currentConversation);
 
   return (
@@ -69,6 +70,11 @@ export function ChatHeaderTitle({ currentConversation, providerStatus, onTitlePr
         <Text className="text-lg font-semibold text-text-primary" numberOfLines={1} testID="chat-title">
           {title}
         </Text>
+        {subtitle?.kind === 'subject' && (
+          <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-subject">
+            {t(PLAN_THREAD_KEYS.subtitle, { name: subtitle.name })}
+          </Text>
+        )}
         {subtitle?.kind === 'group' && currentConversation?.group_name && (
           <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-group">
             {currentConversation.group_name}

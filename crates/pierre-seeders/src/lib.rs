@@ -8,13 +8,16 @@
 //!
 //! Reference + demo data seeders invoked by `pierre-cli seed <domain>`. Each
 //! submodule owns one domain (admin bootstrap, system agents, demo users +
-//! synthetic activities, mobility catalogue, LLM-usage samples) and exposes a
-//! `run` function the CLI dispatches to.
+//! synthetic activities, mobility catalogue, LLM-usage samples, the coached
+//! groups and threads the E2E flows open) and exposes a `run` function the
+//! CLI dispatches to.
 
 mod accounts;
 pub mod agent_packages;
 pub mod agents;
 pub mod bootstrap;
+pub mod coach_plan_thread;
+mod coached_group;
 pub mod demo_data;
 pub mod llm_usage;
 pub mod mobility;

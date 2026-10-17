@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use chrono::NaiveDate;
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
@@ -11,9 +12,12 @@ use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
     ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
 };
+use pierre_services::coach_plan_draft::DraftState;
+use pierre_services::plan_card::{PlanCard, PlanSubject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
+use uuid::Uuid;
 
 /// What a stored `content_blocks` column resolves to on the read path.
 #[derive(Debug, Default)]
@@ -240,10 +244,28 @@ pub struct ConversationResponse {
     /// "+" or `/reset` divide instead of replacing (carnet#840).
     #[serde(default)]
     pub personal: bool,
+    /// The athlete a human coach's thread works on, when the coach opened it
+    /// from a group's roster (carnet#1070). The three `subject_*` fields are
+    /// set together or not at all.
+    #[serde(default)]
+    pub subject_user_id: Option<String>,
+    /// The coached group that thread acts under.
+    #[serde(default)]
+    pub subject_group_id: Option<String>,
+    /// The athlete's roster name.
+    #[serde(default)]
+    pub subject_display_name: Option<String>,
 }
 
-impl From<ConversationRecord> for ConversationResponse {
-    fn from(conv: ConversationRecord) -> Self {
+impl ConversationResponse {
+    /// The wire shape of `conv`.
+    ///
+    /// `subject_display_name` is the roster name of the athlete `conv` is
+    /// bound to; a caller holding a thread that may be bound to one resolves
+    /// it (`common::conversation_response`), so the subject fields go out
+    /// together.
+    #[must_use]
+    pub fn new(conv: ConversationRecord, subject_display_name: Option<String>) -> Self {
         Self {
             id: conv.id,
             title: conv.title,
@@ -254,8 +276,85 @@ impl From<ConversationRecord> for ConversationResponse {
             created_at: conv.created_at,
             updated_at: conv.updated_at,
             personal: conv.personal,
+            subject_user_id: conv.subject_user_id.map(|id| id.to_string()),
+            subject_group_id: conv.subject_group_id.map(|id| id.to_string()),
+            subject_display_name,
         }
     }
+}
+
+/// Request to open (or reopen) a coach's thread about one athlete:
+/// `POST /api/chat/athletes/{athlete_user_id}/thread` (carnet#1070).
+#[derive(Debug, Deserialize)]
+pub struct OpenSubjectThreadRequest {
+    /// The group the coach coaches the athlete in, and whose agent runs the
+    /// thread. Its membership and the athlete's consent there are what let
+    /// the coach act for them, checked again on every act in the thread.
+    pub group_id: Uuid,
+}
+
+/// `GET /api/chat/conversations/{id}/subject-plan`: the thread's athlete's
+/// live plan and the coach's draft over it, as the coach reads them
+/// (carnet#1069).
+#[derive(Debug, Serialize)]
+pub struct SubjectPlanResponse {
+    /// Whose plan: the athlete a card in the thread names as its `subject`.
+    pub athlete: PlanSubject,
+    /// The athlete's civil date both plans are projected on, `YYYY-MM-DD`.
+    pub today: NaiveDate,
+    /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
+    /// `null` when they have none.
+    pub live: Option<PlanCard>,
+    /// The coach's draft — its outline over the live weeks with the drafted
+    /// ones in their place — in the same shape; `null` when the coach holds
+    /// none.
+    pub draft: Option<PlanCard>,
+    /// Where the draft stands; `null` with no draft.
+    pub draft_state: Option<DraftState>,
+}
+
+/// `POST /api/chat/conversations/{id}/subject-plan/publish` body.
+#[derive(Debug, Default, Deserialize)]
+pub struct PublishSubjectPlanRequest {
+    /// Publish over the weeks the athlete changed since the coach drafted
+    /// them, and over a season re-laid under the draft.
+    #[serde(default)]
+    pub overwrite_athlete_changes: bool,
+}
+
+/// `POST …/subject-plan/publish` answered 200: the draft is the athlete's
+/// live plan.
+#[derive(Debug, Serialize)]
+pub struct PublishedSubjectPlanResponse {
+    /// The athlete's live plan now.
+    pub plan_id: String,
+    /// The season the publish replaced, when it re-laid one.
+    pub superseded_plan_id: Option<String>,
+    /// Whether the athlete was sent a notice of the publish.
+    pub athlete_notified: bool,
+}
+
+/// `POST …/subject-plan/publish` answered 409: the athlete's plan moved
+/// under the draft, and what publishing would overwrite. Nothing was written.
+#[derive(Debug, Serialize)]
+pub struct PlanPublishConflictResponse {
+    /// `plan_publish_conflict`, what a client branches on.
+    pub error_code: &'static str,
+    /// The refusal for an API caller.
+    pub message: String,
+    /// The same code as every other refusal's `details.reason`.
+    pub details: PublishConflictDetails,
+    /// The draft's standing: its id, when it was saved, the weeks the
+    /// athlete changed since and whether their season was re-laid.
+    #[serde(flatten)]
+    pub state: DraftState,
+}
+
+/// The `details` of a [`PlanPublishConflictResponse`].
+#[derive(Debug, Serialize)]
+pub struct PublishConflictDetails {
+    /// `plan_publish_conflict`.
+    pub reason: &'static str,
 }
 
 /// The caller's personal thread, as `GET /api/chat/personal` finds it.
@@ -344,6 +443,16 @@ pub struct ConversationSummaryResponse {
     /// Home opens. It is bound to no group, so it is never a Groups row.
     #[serde(default)]
     pub personal: bool,
+    /// The athlete a human coach's thread works on (carnet#1070). The three
+    /// `subject_*` fields are set together or not at all.
+    #[serde(default)]
+    pub subject_user_id: Option<String>,
+    /// The coached group that thread acts under.
+    #[serde(default)]
+    pub subject_group_id: Option<String>,
+    /// The athlete's roster name.
+    #[serde(default)]
+    pub subject_display_name: Option<String>,
     /// The newest `user`/`assistant` row, shaped for the row preview; absent
     /// for an empty conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]

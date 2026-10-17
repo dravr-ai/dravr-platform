@@ -621,6 +621,7 @@ plate of its own.
 | Actions row | under the content | Copy / share / rate / regenerate and model·latency show on hover, focus, or a coarse pointer — never as a permanent line under every reply. |
 | Typing dots | `.ai-typing-dot` | Three-step opacity breath, 1.4s loop, where the agent's words will be. |
 | Plan card | `WorkoutPlanCard` | The one hairline card in the thread: a data object inside the agent's turn, white on the paper, radius 10, mono dates, 13px. |
+| Draft footer | `PlanDraftControls` | In a coach's plan thread for one athlete (carnet#1069/#1070), the card showing the coach's draft gains a footer under a faint hairline, for the thread's owner only: the `warning` badge ("Draft · <name> can't see it yet"), then Discard in `primary` ink and Publish filled — the card's one filled action. A refused publish puts its conflict in a `warning/10` notice under its bound ink and turns Publish into "Publish anyway"; a revoked consent is an `error/10` line; a landed publish is one `on-success-container` line with a check. The plan thread's list row carries a clipboard glyph — the same one the Group info row action that opens it carries — and its header line is "Plan · <name>". |
 | Verdict chip | `data-testid="verdict-chip"` | Always a button; the label is the localized count and the worst status word, and it opens every verdict of that reply. |
 
 Command replies (`finish_reason === "command"`) are agent bubbles too, with

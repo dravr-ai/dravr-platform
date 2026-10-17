@@ -122,6 +122,8 @@ export const QUERY_KEYS = {
     verdicts: (conversationId: string | null) => ['chat', 'verdicts', conversationId] as const,
     /** The use-case starters an empty thread offers, ranked from the athlete's state. */
     starters: () => ['chat', 'starters'] as const,
+    /** A coach's plan thread: its athlete's live plan and the coach's draft over it. */
+    subjectPlan: (conversationId: string | null) => ['chat', 'subject-plan', conversationId] as const,
   },
 
   // ==================== COACHES ====================

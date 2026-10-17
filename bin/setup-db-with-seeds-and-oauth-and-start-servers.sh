@@ -288,6 +288,14 @@ echo "    Seeding a TrainingPeaks coach link for $MOBILE_TEST_EMAIL..."
 echo "    Seeding a verdict conversation for verdicttest@pierre.dev..."
 "$PIERRE_CLI" user create --email verdicttest@pierre.dev --password VerdictTest1234 --force 2>&1 | tail -1
 "$PIERRE_CLI" seed verdict-conversation --email verdicttest@pierre.dev 2>&1 | tail -1
+# A coach's thread about one athlete whose card shows the coach's open draft:
+# Group info → "Work on Maya Tempo's plan" → Publish, by hand. The Maestro
+# flow (coach-plan/01) gets a new pair from its control process on every
+# attempt instead, since publishing consumes the draft.
+echo "    Seeding a coach plan thread for plancoach@pierre.dev..."
+"$PIERRE_CLI" user create --email plancoach@pierre.dev --password PlanTest1234 --name "Plan Coach" --locale en --force 2>&1 | tail -1
+"$PIERRE_CLI" user create --email planathlete@pierre.dev --password PlanTest1234 --name "Maya Tempo" --locale en --force 2>&1 | tail -1
+"$PIERRE_CLI" seed coach-plan-thread --coach-email plancoach@pierre.dev --athlete-email planathlete@pierre.dev 2>&1 | tail -1
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."

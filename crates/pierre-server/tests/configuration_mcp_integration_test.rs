@@ -254,9 +254,12 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-10-15: import_provider_thresholds added (112→113, total 118→119) —
     // the athlete's thresholds from their intervals.icu sport settings,
     // carnet#1021.
+    // 2026-10-16: publish_training_plan added (113→114, total 119→120) — a
+    // human coach's draft of a coached athlete's plan made live or discarded,
+    // carnet#1069.
     assert_eq!(
-        fitness_tools, 113,
-        "Expected exactly 113 non-configuration tools"
+        fitness_tools, 114,
+        "Expected exactly 114 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -264,5 +267,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 119, "Expected total of 119 tools"); // 113 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 120, "Expected total of 120 tools"); // 114 non-configuration + 6 configuration
 }

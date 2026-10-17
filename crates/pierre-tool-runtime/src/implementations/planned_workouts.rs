@@ -38,7 +38,9 @@
 //!    every member reads the reply;
 //! 2. through the plan scope's gates ([`resolve_plan_scope`]): the athlete is
 //!    a member of a group the caller is the human coach of, shares their data
-//!    with them, has one home tenant, and that tenant has the tool enabled;
+//!    with them, has one home tenant, and that tenant has the tool enabled. In
+//!    the coach's thread bound to one athlete, that athlete is read with no
+//!    `athlete` named, and the coach's own calendar never is;
 //! 3. through the link's own coach reader
 //!    (`AuthService::coach_planned_reader`): a link the athlete confirmed,
 //!    bound to them by email, that is the caller's own, under the transport
@@ -75,8 +77,8 @@ use async_trait::async_trait;
 use chrono::{Days, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    ConnectionStatus, PlannedWorkout, PlannedWorkoutBuilder, ProviderAccountRole,
-    ProviderConnection, TenantId, WorkoutStep,
+    ConnectionStatus, ConversationRecord, PlannedWorkout, PlannedWorkoutBuilder,
+    ProviderAccountRole, ProviderConnection, TenantId, WorkoutStep,
 };
 use pierre_core::untrusted::{display_line, fence_athlete_text, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
@@ -202,8 +204,9 @@ impl McpTool<dyn ToolRuntime> for GetPlannedWorkoutsTool {
                     "Roster display name of a coached athlete whose planned calendar to read. \
                      Only the group's human coach (attached via a coach invite) may set it, for \
                      a consenting athlete in a group they coach who confirmed a \
-                     coaching-platform link with them, from a direct chat — never in a room. \
-                     Omit to read your own calendars."
+                     coaching-platform link with them, from a direct chat — never in a room. In \
+                     the coach's thread about one athlete it defaults to that athlete; \
+                     elsewhere, omit it to read your own calendars."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -273,8 +276,23 @@ impl McpTool<dyn ToolRuntime> for GetPlannedWorkoutsTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant = TenantId::from_uuid(context.require_tenant()?);
-            let read = if let Some(athlete) = string_arg(&args, "athlete") {
-                coach_read(&context, &args, tenant, athlete).await?
+            let athlete = string_arg(&args, "athlete");
+            let conversation = load_conversation(
+                context.resources.repos(),
+                context.conversation_id.as_deref(),
+                tenant,
+                &context.user_id.to_string(),
+            )
+            .await?;
+            // A thread bound to one athlete reads that athlete's calendar
+            // whether or not the call names them, never the coach's own.
+            let read = if athlete.is_some()
+                || conversation
+                    .as_ref()
+                    .and_then(ConversationRecord::subject)
+                    .is_some()
+            {
+                coach_read(&context, &args, tenant, conversation.as_ref(), athlete).await?
             } else {
                 Ok(own_read(&context, &args, tenant).await?)
             };
@@ -325,9 +343,10 @@ async fn own_read(
     Ok((reader, planned_providers(args, context, tenant).await?))
 }
 
-/// The reader of the planned calendar of the coached athlete `athlete`
-/// names, and the backends it reads, for a group's human coach calling from
-/// their own conversation; or the refusal the tool answers with.
+/// The reader of the planned calendar of a coached athlete — the one
+/// `athlete` names, or the athlete `conversation` is bound to — and the
+/// backends it reads, for a group's human coach calling from their own
+/// conversation; or the refusal the tool answers with.
 ///
 /// # Errors
 ///
@@ -338,29 +357,21 @@ async fn coach_read(
     context: &ToolExecutionContext,
     args: &Value,
     requester_tenant: TenantId,
-    athlete: &str,
+    conversation: Option<&ConversationRecord>,
+    athlete: Option<&str>,
 ) -> AppResult<Result<(CalendarReader, Vec<String>), ToolResult>> {
     let repos = context.resources.repos();
-    let conversation = load_conversation(
-        repos,
-        context.conversation_id.as_deref(),
-        requester_tenant,
-        &context.user_id.to_string(),
-    )
-    .await?;
-    if let Some(refused) = room_refusal_in(
-        context,
-        conversation.as_ref(),
-        "Read an athlete's planned calendar",
-    ) {
+    if let Some(refused) =
+        room_refusal_in(context, conversation, "Read an athlete's planned calendar")
+    {
         return Ok(Err(refused));
     }
     let scope = match resolve_plan_scope(PlanScopeRequest {
         context,
         requester_tenant,
-        conversation: conversation.as_ref(),
+        conversation,
         arg_agent: None,
-        athlete: Some(athlete),
+        athlete,
         tool_name: TOOL,
     })
     .await?
@@ -368,7 +379,11 @@ async fn coach_read(
         Ok(scope) => scope,
         Err(refused) => return Ok(Err(refused)),
     };
-    let name = scope.acting_for.unwrap_or_else(|| athlete.to_owned());
+    // A named athlete or a bound one always resolves to someone the caller
+    // acts for, never to the caller's own scope.
+    let name = scope.acting_for.ok_or_else(|| {
+        AppError::internal("a coach's planned-calendar read resolved to the caller's own scope")
+    })?;
     let today = athlete_today(repos, scope.user_id).await;
     let (start, end) = window(args, today)?;
     let backends =

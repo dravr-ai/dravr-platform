@@ -8,11 +8,13 @@ import { resolveChannelOrigin, type MessageChannelOrigin } from './conversation'
 /**
  * What a row is, for the glyph before the title and the preview rule.
  *
- * Precedence is group > channel > coach > plain: a group thread bound to a
- * coach is still a group row, and a Telegram DM with a coach attached still
+ * Precedence is group > subject > channel > coach > plain: a group thread
+ * bound to a coach is still a group row, a coach's plan thread for one
+ * athlete (`subject`, carnet#1070) is about that athlete before it is about
+ * the group's agent it runs on, and a Telegram DM with a coach attached still
  * shows where it comes from before whom it talks to.
  */
-export type ConversationKind = 'group' | 'channel' | 'coach' | 'plain';
+export type ConversationKind = 'group' | 'subject' | 'channel' | 'coach' | 'plain';
 
 /**
  * The avatar palette, in slot order — the hue each `avatarSlot` value names.
@@ -108,6 +110,11 @@ export interface ConversationRowModel {
   agentTitle: string | null;
   /** The group's name, for a group row. */
   groupName: string | null;
+  /**
+   * The athlete a coach's plan thread is about, when the title does not
+   * already name them — the row would otherwise print the athlete twice.
+   */
+  subjectName: string | null;
   /** Messaging origin for the channel badge; null for an in-app thread. */
   channel: MessageChannelOrigin | null;
   /** Up to two letters for the avatar circle. */
@@ -133,6 +140,7 @@ export interface ConversationRowModel {
 /** The kind a row is, by the precedence documented on {@link ConversationKind}. */
 export function deriveKind(conversation: Conversation): ConversationKind {
   if (conversation.group_id) return 'group';
+  if (conversation.subject_user_id) return 'subject';
   if (resolveChannelOrigin(conversation)) return 'channel';
   if (conversation.agent_id) return 'coach';
   return 'plain';
@@ -140,15 +148,16 @@ export function deriveKind(conversation: Conversation): ConversationKind {
 
 /**
  * Where a conversation lives in the app. A room with other people is the
- * Groups tab's; everything that is only the athlete and Dravr — a plain
- * thread, a specialist agent's, a Telegram or WhatsApp DM — is the
- * athlete's own, on Home.
+ * Groups tab's, and so is a coach's plan thread for one of a group's
+ * athletes, listed beside the group it is scoped to; everything that is only
+ * the athlete and Dravr — a plain thread, a specialist agent's, a Telegram or
+ * WhatsApp DM — is the athlete's own, on Home.
  */
 export type ConversationScope = 'groups' | 'personal';
 
 /** The side of the app a row of this kind belongs to — see {@link ConversationScope}. */
 export function scopeOfKind(kind: ConversationKind): ConversationScope {
-  return kind === 'group' ? 'groups' : 'personal';
+  return kind === 'group' || kind === 'subject' ? 'groups' : 'personal';
 }
 
 // Punctuation a title may open a word with (`«Plan»`, `"Tempo"`, `@coach`)
@@ -187,15 +196,18 @@ function fnv1a(key: string): number {
 /**
  * Which of the client's avatar colours the row gets.
  *
- * Keyed on the group for a group row and the coach for a coach row, so every
- * thread with the same group or coach shares a colour, and on the conversation
- * id otherwise. Deterministic: the same row lands on the same slot on every
+ * Keyed on the athlete for a coach's plan thread — the same key a member row
+ * hashes, so the athlete wears one colour in Group info and in the list — on
+ * the group for a group row and the coach for a coach row, so every thread
+ * with the same group or coach shares a colour, and on the conversation id
+ * otherwise. Deterministic: the same row lands on the same slot on every
  * device, and {@link AVATAR_SLOT_HUES} makes that slot the same hue.
  */
 export function avatarSlot(
-  conversation: Pick<Conversation, 'id' | 'agent_id' | 'group_id'>,
+  conversation: Pick<Conversation, 'id' | 'agent_id' | 'group_id' | 'subject_user_id'>,
 ): number {
-  const key = conversation.group_id || conversation.agent_id || conversation.id;
+  const key =
+    conversation.subject_user_id || conversation.group_id || conversation.agent_id || conversation.id;
   return fnv1a(key) % AVATAR_SLOTS;
 }
 
@@ -265,13 +277,19 @@ export function buildConversationRow(
   const title = conversation.title?.trim() || labels.untitled;
   const agentTitle = conversation.agent_title?.trim() || null;
   const lastActivityAt = conversation.last_message?.created_at ?? conversation.updated_at;
+  const kind = deriveKind(conversation);
+  const subject = kind === 'subject' ? conversation.subject_display_name?.trim() || null : null;
   return {
     id: conversation.id,
-    kind: deriveKind(conversation),
+    kind,
     title,
-    agentHandle: title === agentTitle ? null : conversation.agent_handle || null,
+    // A plan thread runs on its group's agent, which the row has no reason to
+    // name: the athlete it is about is what tells two of them apart.
+    agentHandle:
+      kind === 'subject' || title === agentTitle ? null : conversation.agent_handle || null,
     agentTitle: conversation.agent_title || null,
     groupName: conversation.group_name || null,
+    subjectName: subject !== null && !title.includes(subject) ? subject : null,
     channel: resolveChannelOrigin(conversation),
     initials: initialsFor(title),
     avatarSlot: avatarSlot(conversation),
@@ -295,8 +313,9 @@ export function sortRowsByActivity(rows: readonly ConversationRowModel[]): Conve
 
 /**
  * The rows a search box keeps: a case-insensitive substring match on the
- * title, the coach handle, or the preview. A leading `@` on the query is the
- * mention grammar, not part of the handle. An empty query keeps every row.
+ * title, the coach handle, the athlete a plan thread is about, or the
+ * preview. A leading `@` on the query is the mention grammar, not part of the
+ * handle. An empty query keeps every row.
  */
 export function filterRows(
   rows: readonly ConversationRowModel[],
@@ -308,6 +327,7 @@ export function filterRows(
     (row) =>
       row.title.toLowerCase().includes(needle) ||
       (row.agentHandle !== null && row.agentHandle.toLowerCase().includes(needle)) ||
+      (row.subjectName !== null && row.subjectName.toLowerCase().includes(needle)) ||
       row.preview.toLowerCase().includes(needle),
   );
 }

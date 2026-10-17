@@ -77,6 +77,12 @@ pub enum NotificationEvent {
     /// The same end, sent to the member: their workouts are no longer read
     /// through the coach's account.
     DelegationOffCoachRoster,
+    /// A group's human coach published their draft of the athlete's plan: it
+    /// is the plan the athlete reads now. Sent to the athlete.
+    CoachPlanPublished,
+    /// A group's human coach put the athlete's plan on the athlete's provider
+    /// calendar through their link. Sent to the athlete.
+    CoachPlanPushed,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
     /// The daily digest of the pushes a persona floor withheld.
@@ -115,6 +121,8 @@ impl NotificationEvent {
             Self::DelegationDeclined => "delegation_declined",
             Self::DelegationOffRoster => "delegation_off_roster",
             Self::DelegationOffCoachRoster => "delegation_off_coach_roster",
+            Self::CoachPlanPublished => "coach_plan_published",
+            Self::CoachPlanPushed => "coach_plan_pushed",
             Self::PersonaDigest => "persona_digest",
             Self::PersonaDailyDigest => "persona_daily_digest",
             Self::PersonaSessionDigest => "persona_session_digest",
@@ -143,6 +151,8 @@ impl NotificationEvent {
             Self::DelegationDeclined,
             Self::DelegationOffRoster,
             Self::DelegationOffCoachRoster,
+            Self::CoachPlanPublished,
+            Self::CoachPlanPushed,
             Self::PersonaDigest,
             Self::PersonaDailyDigest,
             Self::PersonaSessionDigest,
@@ -174,6 +184,8 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster => {
                 "notifications.event.delegation_off_coach_roster.title"
             }
+            Self::CoachPlanPublished => "notifications.event.coach_plan_published.title",
+            Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.title",
             Self::PersonaDigest => "notifications.digest.title",
             Self::PersonaDailyDigest => "notifications.digest.daily.title",
             Self::PersonaSessionDigest => "notifications.digest.session.title",
@@ -203,6 +215,8 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster => {
                 "notifications.event.delegation_off_coach_roster.body"
             }
+            Self::CoachPlanPublished => "notifications.event.coach_plan_published.body",
+            Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.body",
             Self::PersonaDigest => "notifications.digest.body",
             Self::PersonaDailyDigest => "notifications.digest.daily.body",
             Self::PersonaSessionDigest => "notifications.digest.session.body",
@@ -223,6 +237,10 @@ impl NotificationEvent {
             | Self::DelegationOffCoachRoster => &["platform_name"],
             Self::GroupWeeklyDigest => &["group_name"],
             Self::PersonaAthleteDigest => &["athlete_name"],
+            // The title and the body share one positional list: the pushed
+            // title names only the provider, as `{1}`, so the coach still
+            // holds `{0}` there.
+            Self::CoachPlanPublished | Self::CoachPlanPushed => self.body_params(),
             _ => &[],
         }
     }
@@ -245,6 +263,8 @@ impl NotificationEvent {
             Self::DelegationConfirmed | Self::DelegationDeclined | Self::DelegationOffRoster => {
                 &["member_name", "group_name", "platform_name"]
             }
+            Self::CoachPlanPublished => &["coach_name", "race_name"],
+            Self::CoachPlanPushed => &["coach_name", "provider_name"],
             Self::PersonaDigest | Self::PersonaDailyDigest | Self::PersonaSessionDigest => {
                 &["item_count"]
             }

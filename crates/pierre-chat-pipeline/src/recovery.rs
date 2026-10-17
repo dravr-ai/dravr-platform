@@ -27,6 +27,7 @@ use pierre_llm::call_record::complete_recorded;
 use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse};
 use pierre_services::prompt_leak;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use tracing::{info, warn};
 
 use crate::envelope::ReconnectPrompt;
@@ -201,6 +202,9 @@ pub struct RecoveryAndPostProcessInputs<'a> {
     /// The guided flow that owns this turn, as loaded at its start, when one
     /// does — an interview turn is judged differently by capability recovery.
     pub guided_walk: Option<&'a OnboardingState>,
+    /// Whose data the turn's tools ran against: in a coach's thread about one
+    /// athlete, capability recovery never fetches the sender's own activities.
+    pub seat: TurnSeat,
 }
 
 /// Wrap stages 14b–18: run auth recovery, then either post-process the model's
@@ -229,6 +233,7 @@ pub async fn run_recovery_and_post_process(
         peer_roster,
         peer_blocks,
         guided_walk,
+        seat,
     } = inputs;
     // Guardian short-circuits take precedence over re-auth: a tool blocked by
     // the runtime Guardian (enforce mode) renders the deterministic "blocked
@@ -286,6 +291,7 @@ pub async fn run_recovery_and_post_process(
             peer_blocks,
             locale: &profile.locale,
             guided_walk,
+            seat,
             reask_recorder: &reask_recorder,
             verifier_recorder: &verifier_recorder,
         },

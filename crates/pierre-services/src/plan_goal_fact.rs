@@ -1,16 +1,20 @@
-// ABOUTME: The goal-race fact a saved plan converges on — reused on a re-save, written once, and the old ones retired
-// ABOUTME: Keeps /pillars, conversational goal-stating and save_training_plan on one agent-agnostic Goal fact
+// ABOUTME: The goal-race fact a live plan converges on — reused on a re-save, written once, and the old ones retired
+// ABOUTME: Keeps /pillars, conversational goal-stating and every live plan write on one agent-agnostic Goal fact
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # The plan's goal fact
 //!
-//! Saving an outline closes the pillar loop: when the outline's goal race has
-//! no linked pillar `Goal` fact, the save converges the athlete's
-//! agent-agnostic goal fact on it (`FactSource::Coach`, pillar Training &
-//! Movement), so `/pillars` onboarding and conversational goal-stating read
-//! the same row the plan links to.
+//! An outline reaching the athlete's live season closes the pillar loop:
+//! when its goal race has no linked pillar `Goal` fact, the write converges
+//! the athlete's agent-agnostic goal fact on it (`FactSource::Coach`, pillar
+//! Training & Movement), so `/pillars` onboarding and conversational
+//! goal-stating read the same row the plan links to. Two writes reach the
+//! live season with an outline — the athlete's own `save_training_plan`, and
+//! a human coach's publish of their draft — and both converge here; a coach's
+//! draft save never does, because the athlete's goal is not the coach's to
+//! change until the draft is published.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Pillar, TenantId};
@@ -46,16 +50,22 @@ fn goal_object(race: &GoalRace) -> String {
     )
 }
 
-/// `true` when `fact_id` is a real `Goal` fact of this tenant + user. Guards
-/// against an LLM-supplied `goal_fact_id` that never existed, points at another
-/// athlete's fact, or is a non-`Goal` fact — a plan links only to a Goal fact,
-/// and `plan_goal_is_stale` can see only Goal facts, so a non-Goal link would
-/// read stale forever. Such a value is dropped rather than persisted.
+/// `true` when `fact_id` is a real `Goal` fact of this tenant + user.
+///
+/// Guards against an LLM-supplied `goal_fact_id` that never existed, points
+/// at another athlete's fact, or is a non-`Goal` fact — a plan links only to
+/// a Goal fact, and `plan_goal_is_stale` can see only Goal facts, so a
+/// non-Goal link would read stale forever. Such a value is dropped rather
+/// than persisted.
 ///
 /// A point lookup, not a scan of a capped list: an athlete whose Goal facts
 /// outnumber any list cap would have a legitimate id below the cut treated as
 /// foreign and silently replaced.
-pub(super) async fn fact_belongs_to_user(
+///
+/// # Errors
+///
+/// Returns the repository error from the fact lookup.
+pub async fn fact_belongs_to_user(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: &str,
@@ -76,19 +86,25 @@ pub(super) async fn fact_belongs_to_user(
 /// facts it supersedes must wait until the save has committed — a hard delete
 /// before a failed transaction erases the athlete's standing goal for a plan
 /// that was never stored.
-pub(super) struct GoalFactConvergence {
+pub struct GoalFactConvergence {
     /// The fact the plan links to.
-    pub(super) fact_id: String,
+    pub fact_id: String,
     /// Prior agent-agnostic goal facts, to retire once the plan is stored.
-    pub(super) superseded: Vec<String>,
+    pub superseded: Vec<String>,
 }
 
 /// Converge the athlete's agent-agnostic goal `user_fact` on the outline's goal
-/// race: reuse an identical stored goal (no churn on a re-save), otherwise write
-/// the new one. Every *other* agent-agnostic goal fact is reported as
-/// superseded, in both cases, so the pillar view converges on one row even after
-/// a save that failed between the write and the retirement.
-pub(super) async fn converge_goal_fact(
+/// race.
+///
+/// An identical stored goal is reused (no churn on a re-save), otherwise the
+/// new one is written. Every *other* agent-agnostic goal fact is reported as
+/// superseded, in both cases, so the pillar view converges on one row even
+/// after a write that failed between the fact and the retirement.
+///
+/// # Errors
+///
+/// Returns the repository error from the fact list or the upsert.
+pub async fn converge_goal_fact(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: &str,
@@ -157,7 +173,7 @@ pub(super) async fn converge_goal_fact(
 /// answering the agent with an error would have it tell the athlete a save
 /// failed that did not. The leftover fact is retired by the next save, which
 /// reports every non-linked agnostic goal fact as superseded.
-pub(super) async fn retire_superseded_goal_facts(
+pub async fn retire_superseded_goal_facts(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: &str,
@@ -169,7 +185,7 @@ pub(super) async fn retire_superseded_goal_facts(
             .delete_user_fact(fact_id, tenant, user_id)
             .await
         {
-            warn!(error = %e, "save_training_plan: superseded goal fact not retired");
+            warn!(error = %e, "live plan write: superseded goal fact not retired");
         }
     }
 }

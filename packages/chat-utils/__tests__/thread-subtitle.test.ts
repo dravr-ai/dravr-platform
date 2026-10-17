@@ -23,6 +23,23 @@ describe('threadSubtitle', () => {
     });
   });
 
+  it("names the athlete on a coach's plan thread, over the agent it runs on", () => {
+    expect(
+      threadSubtitle({
+        group_name: null,
+        agent_handle: 'trail',
+        subject_user_id: 'user-alice',
+        subject_display_name: '  Alice Runner ',
+      }),
+    ).toEqual({ kind: 'subject', name: 'Alice Runner' });
+  });
+
+  it('falls back to the handle when a plan thread arrives without its athlete name', () => {
+    expect(
+      threadSubtitle({ group_name: null, agent_handle: 'trail', subject_user_id: 'user-alice', subject_display_name: null }),
+    ).toEqual({ kind: 'handle', handle: 'trail' });
+  });
+
   it('says nothing for a plain thread, so the client can fall back', () => {
     // Web shows connected-provider status in that space; returning a kind here
     // would take the decision away from it.

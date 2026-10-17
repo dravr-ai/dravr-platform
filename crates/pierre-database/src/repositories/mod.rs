@@ -41,6 +41,8 @@ pub mod chat;
 pub(crate) mod chat_backend;
 /// The row parsers `chat_backend` emits per backend.
 pub(crate) mod chat_rows;
+/// A coach's thread bound to one athlete: its row, statements and open attempt.
+pub mod chat_subject;
 /// Repository trait for the check-in cadence each athlete chose.
 pub mod check_in_preferences;
 /// Statements and decoders for the blind-grading pool of claim verdicts.
@@ -231,6 +233,7 @@ pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
 pub use chat::*;
+pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;

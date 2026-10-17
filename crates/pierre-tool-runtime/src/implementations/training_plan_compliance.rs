@@ -1,5 +1,5 @@
 // ABOUTME: The compliance rail's platform half — a saved week resolved into the kernel's inputs, measured, reported
-// ABOUTME: Log-only: every verdict is a training_plan.week_assessed event, handed back only to an agent that asks; nothing refuses a save
+// ABOUTME: Log-only: a live write's verdicts are training_plan.week_assessed events, a coach's draft save emits none; nothing refuses a save
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,12 +13,16 @@
 //! the kernel a borrowed view, and reports the verdict. The whole plan's
 //! weeks are walked in date order so the last hard day of one week bounds
 //! the first gap of the next; only the weeks this save wrote are reported.
+//! A coach's save into their draft of an athlete's plan is measured by the
+//! same walk over the draft view ([`assess_weeks`]) and emits nothing: the
+//! athlete's plan did not change.
 //!
 //! Log-only is the ledger's first phase (`feature-phases.yaml`,
 //! `training-plan-week-compliance-rail`): the verdict is data for the
-//! base-rate measurement, and the only reader is an agent that asks for it —
-//! `get_training_plan` with `include_state`. Nothing warns unasked, and
-//! nothing refuses a save.
+//! base-rate measurement. Only its spacing finding reaches the save's own
+//! turn, as the crowded weeks of the safety report ([`crowded_weeks`]); the
+//! whole verdict reaches an agent that asks for it — `get_training_plan` with
+//! `include_state`. Nothing refuses a save.
 
 use pierre_config::tid_cuts::{build_tid_cuts, SLOTS};
 use pierre_core::models::periodization::{
@@ -39,18 +43,12 @@ use uuid::Uuid;
 use super::training_plans_output::CrowdedWeek;
 use crate::runtime::ToolRuntime;
 
-/// Measure the weeks in `saved` against their phases, and return each verdict.
+/// Measure the weeks in `saved` against their phases on the athlete's live
+/// season `plan`, and return each verdict.
 ///
-/// The walk covers the whole plan in date order, because one week's last hard
-/// day bounds the next week's first gap; only the weeks in `saved` come back,
-/// each paired with its `week_start` — the ones a save just wrote, or the
-/// active ones a read asked about. Returning them rather than only logging
-/// them is what lets `get_training_plan` hand the same verdict to the agent
-/// that has to act on it.
-///
-/// Best-effort and after the commit, like the ramp check: an unreadable
-/// store logs and returns, never fails the save. Weeks whose `week_start`
-/// does not parse are skipped, since they cannot be ordered.
+/// The plan's active weeks are read from the store and walked by
+/// [`assess_weeks`]. Best-effort and after the commit, like the ramp check:
+/// an unreadable store logs and returns, never fails the save.
 pub(super) async fn assess_saved_weeks(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
@@ -59,11 +57,9 @@ pub(super) async fn assess_saved_weeks(
     plan: &TrainingPlan,
     saved: &[PlanWeek],
 ) -> Vec<(String, WeekVerdict)> {
-    let tenant_id = tenant.to_string();
-    let user = user_id.to_string();
-    let mut weeks = match repos
+    let weeks = match repos
         .training_plans
-        .list_plan_weeks(&tenant_id, &user, &plan.id, false)
+        .list_plan_weeks(&tenant.to_string(), &user_id.to_string(), &plan.id, false)
         .await
     {
         Ok(weeks) => weeks,
@@ -72,7 +68,41 @@ pub(super) async fn assess_saved_weeks(
             return Vec::new();
         }
     };
-    weeks.retain(|w| parse_plan_date(&w.week_start).is_some());
+    assess_weeks(state, repos, tenant, user_id, plan, &weeks, saved).await
+}
+
+/// Measure the weeks in `saved` against the phases of `plan`, walking
+/// `weeks` — every week the plan holds, `saved` among them — and return each
+/// verdict. Reports nothing.
+///
+/// The one compliance assessment. The weeks are the caller's because two
+/// plans are measured: the athlete's live season, read from the store
+/// ([`assess_saved_weeks`]), and a coach's draft view — the draft's outline
+/// over the athlete's live weeks with the drafted ones in place — whose
+/// weeks no live listing returns.
+///
+/// The walk covers the whole plan in date order, because one week's last hard
+/// day bounds the next week's first gap; only the weeks in `saved` come back,
+/// each paired with its `week_start` — the ones a save just wrote, or the
+/// active ones a read asked about. Returning them rather than only logging
+/// them is what lets `get_training_plan` hand the same verdict to the agent
+/// that has to act on it.
+///
+/// Best-effort: an unreadable input logs and returns. Weeks whose
+/// `week_start` does not parse are skipped, since they cannot be ordered.
+pub(super) async fn assess_weeks(
+    state: &Arc<dyn ToolRuntime>,
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    plan: &TrainingPlan,
+    weeks: &[PlanWeek],
+    saved: &[PlanWeek],
+) -> Vec<(String, WeekVerdict)> {
+    let mut weeks: Vec<&PlanWeek> = weeks
+        .iter()
+        .filter(|w| parse_plan_date(&w.week_start).is_some())
+        .collect();
     weeks.sort_by(|a, b| a.week_start.cmp(&b.week_start));
     let Some(tid_cuts) = resolve_tid_cuts(state, tenant).await else {
         return Vec::new();
@@ -247,23 +277,29 @@ pub(super) async fn emit_week_compliance(
     plan: &TrainingPlan,
     saved: &[PlanWeek],
 ) -> Vec<CrowdedWeek> {
-    let mut crowded = Vec::new();
-    for (week_start, verdict) in
-        assess_saved_weeks(state, repos, tenant, user_id, plan, saved).await
-    {
-        emit_week_assessed(&plan.id, &week_start, &verdict);
-        // Only `Off` travels. `Within` is the common case and says nothing the
-        // agent needs; `Unmeasured` means fewer than two hard sessions or no
-        // flavour to take a minimum from, which is an absence of evidence
-        // rather than a finding.
-        if matches!(verdict.spacing, SpacingCheck::Off { .. }) {
-            crowded.push(CrowdedWeek {
-                week_start,
-                spacing: verdict.spacing,
-            });
-        }
+    let assessed = assess_saved_weeks(state, repos, tenant, user_id, plan, saved).await;
+    for (week_start, verdict) in &assessed {
+        emit_week_assessed(&plan.id, week_start, verdict);
     }
-    crowded
+    crowded_weeks(assessed)
+}
+
+/// The weeks among `assessed` whose hard sessions sit closer together than
+/// the minimum — the compliance half of a save's safety report, whichever
+/// plan the verdicts were measured on.
+pub(super) fn crowded_weeks(assessed: Vec<(String, WeekVerdict)>) -> Vec<CrowdedWeek> {
+    // Only `Off` travels. `Within` is the common case and says nothing the
+    // agent needs; `Unmeasured` means fewer than two hard sessions or no
+    // flavour to take a minimum from, which is an absence of evidence rather
+    // than a finding.
+    assessed
+        .into_iter()
+        .filter(|(_, verdict)| matches!(verdict.spacing, SpacingCheck::Off { .. }))
+        .map(|(week_start, verdict)| CrowdedWeek {
+            week_start,
+            spacing: verdict.spacing,
+        })
+        .collect()
 }
 
 /// Which week of its phase this week is, 0-based, counted from the phase's own
@@ -297,7 +333,7 @@ async fn resolve_templates(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    weeks: &[PlanWeek],
+    weeks: &[&PlanWeek],
 ) -> HashMap<String, WorkoutTemplate> {
     let mut templates = HashMap::new();
     for slug in weeks

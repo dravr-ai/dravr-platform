@@ -4,9 +4,9 @@
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
+import { formatList } from '@pierre/chat-utils';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 import { useProviderConnection } from '../hooks/useHome';
-import { formatNameList } from '../utils/formatNameList';
 import { Button } from './ui';
 
 /**
@@ -72,7 +72,7 @@ function ReconnectStrip({ names, onNavigate }: { names: string[]; onNavigate: (r
         <AlertTriangle className="h-5 w-5 flex-shrink-0 text-on-warning-container" aria-hidden="true" />
         <div className="min-w-0 flex-1 text-sm text-on-warning-container">
           <p className="font-semibold">{t('providers.reconnectNeeded')}</p>
-          <p>{t('home.activities.reconnect', { providers: formatNameList(names, language) })}</p>
+          <p>{t('home.activities.reconnect', { providers: formatList(names, language) })}</p>
         </div>
         <Button variant="primary" size="sm" className="flex-shrink-0" onClick={() => onNavigate(CONNECTIONS_ROUTE)}>
           {t('providers.reconnect')}

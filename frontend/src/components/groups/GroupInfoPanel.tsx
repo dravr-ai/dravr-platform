@@ -21,6 +21,7 @@ import {
   useRemoveCoach,
 } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
+import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { userApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import {
@@ -40,11 +41,11 @@ import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
-import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
+import type { GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import { coachPlatformName, oneDecimal, weeklyVolumeFigure } from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError, useDistanceUnit } from '@pierre/ui-logic';
+import { describeApiError, openThreadRefusalText, useDistanceUnit } from '@pierre/ui-logic';
 
 interface GroupInfoPanelProps {
   /** The group this conversation is scoped to. */
@@ -56,6 +57,11 @@ interface GroupInfoPanelProps {
   onMembershipEnded: () => void;
   /** Open the connections pane, where a coach connects their own TrainingPeaks. */
   onOpenConnections?: () => void;
+  /**
+   * Open a conversation by id — where the coach lands on their plan thread
+   * for one member. Without it, the roster offers no way into one.
+   */
+  onOpenConversation?: (conversationId: string) => void;
 }
 
 // Built at import time, where `t` does not exist: the table carries the key
@@ -109,6 +115,7 @@ export default function GroupInfoPanel({
   groupId,
   onMembershipEnded,
   onOpenConnections,
+  onOpenConversation,
 }: GroupInfoPanelProps) {
   const { t, language } = useTranslation();
   const units = useDistanceUnit();
@@ -142,6 +149,7 @@ export default function GroupInfoPanel({
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
+  const { openThread, pendingAthleteId } = useOpenAthleteThread();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
 
@@ -233,6 +241,22 @@ export default function GroupInfoPanel({
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.saveFailed' });
       showError(t('app.saveFailed'), message);
+    }
+  };
+
+  /**
+   * Open the coach's plan thread for one member and go to it. The server
+   * checks the coaching link by id; a refusal leaves the coach where they
+   * are, told that the athlete stopped sharing when that is why, else asked
+   * to try again.
+   */
+  const handleWorkOnPlan = async (member: GroupMember) => {
+    if (!onOpenConversation) return;
+    try {
+      const thread = await openThread(member.user_id, groupId);
+      onOpenConversation(thread.id);
+    } catch (err) {
+      showError(openThreadRefusalText(err, member.display_name ?? t('groups.memberFallback'), t));
     }
   };
 
@@ -361,6 +385,11 @@ export default function GroupInfoPanel({
           currentUserRole={currentUserRole}
           currentUserId={currentUserId}
           isLoading={isMembersLoading}
+          // Only the group's coach works on an athlete's plan, whether or not
+          // they also hold a membership row, and the list keeps it off their
+          // own row; a member's view of the roster never carries the action.
+          onWorkOnPlan={isGroupCoach && onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
+          openingPlanFor={pendingAthleteId}
         />
       </Section>
 

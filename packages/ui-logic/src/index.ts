@@ -92,6 +92,16 @@ export {
   type UseCoachGroupSetupResult,
   createCoachGroupSetupHook,
 } from './coachGroupSetupHook';
+// A coach's plan thread for one athlete: opening it from Group info, and the draft card's Publish and Discard (carnet#1069/#1070).
+export {
+  type CoachPlanApis,
+  type PlanDraftActionResult,
+  type PlanDraftCardState,
+  type UseOpenAthleteThreadResult,
+  type UsePlanDraftCardResult,
+  createCoachPlanHooks,
+  openThreadRefusalText,
+} from './coachPlanHooks';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';

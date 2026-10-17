@@ -39,7 +39,8 @@ pub(super) fn athlete_prop() -> PropertySchema {
     string_prop(
         "Roster display name of the athlete whose plan this is. Only the group's human coach \
          (attached via a coach invite) may set it, for a consenting athlete in a group they \
-         coach, and only from a direct chat — never in a room. Omit to act on your own plan.",
+         coach, and only from a direct chat — never in a room. In the coach's thread about one \
+         athlete it defaults to that athlete; elsewhere, omit it to act on your own plan.",
     )
 }
 

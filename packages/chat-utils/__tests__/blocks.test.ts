@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
-import { isModelReply, transcriptBlocks, withVerdictRows } from '../src/blocks';
+import { isModelReply, planCardDraft, transcriptBlocks, withVerdictRows } from '../src/blocks';
 
 const CHART = {
   kind: 'chart',
@@ -13,6 +13,17 @@ const CHART = {
 };
 
 const PLAN = { kind: 'workout_plan', plan: { plan_window: { start: '2026-09-01', end: '2026-09-07' } } };
+
+/** The athlete a coach's plan thread is about, as the block names them. */
+const SUBJECT = { user_id: 'user-alice', display_name: 'Alice Runner' };
+
+/** The coach's open draft, with one week the athlete also changed. */
+const DRAFT = {
+  draft_id: 'draft-7',
+  updated_at: '2026-10-16T14:05:00Z',
+  conflicts: [{ week_start: '2026-10-19', reason: 'athlete_changed_week' as const }],
+  season_relaid: false,
+};
 
 function assistantRow(overrides: Partial<Message> = {}): Message {
   return {
@@ -143,6 +154,43 @@ describe('transcriptBlocks', () => {
     ]);
   });
 
+  it("carries a coach's draft and its athlete from the stored plan entry, as the live block does", () => {
+    const stored = { ...PLAN, subject: SUBJECT, draft: DRAFT };
+    const blocks = transcriptBlocks(assistantRow({ scene_blocks: JSON.stringify([stored]) }));
+
+    expect(blocks.find((block) => block.type === 'workout_plan')).toEqual({
+      type: 'workout_plan',
+      plan: PLAN.plan,
+      subject: SUBJECT,
+      draft: DRAFT,
+    });
+  });
+
+  it('keeps the athlete and an explicit no-draft, and drops a draft that breaks its shape', () => {
+    const noDraft = transcriptBlocks(
+      assistantRow({ scene_blocks: JSON.stringify([{ ...PLAN, subject: SUBJECT, draft: null }]) }),
+    );
+    expect(noDraft.find((block) => block.type === 'workout_plan')).toEqual({
+      type: 'workout_plan',
+      plan: PLAN.plan,
+      subject: SUBJECT,
+      draft: null,
+    });
+
+    const broken = transcriptBlocks(
+      assistantRow({ scene_blocks: JSON.stringify([{ ...PLAN, subject: SUBJECT, draft: { draft_id: 7 } }]) }),
+    );
+    expect(broken.find((block) => block.type === 'workout_plan')).toEqual({
+      type: 'workout_plan',
+      plan: PLAN.plan,
+      subject: SUBJECT,
+    });
+
+    // A draft with no athlete to name is no draft view at all.
+    const orphan = transcriptBlocks(assistantRow({ scene_blocks: JSON.stringify([{ ...PLAN, draft: DRAFT }]) }));
+    expect(orphan.find((block) => block.type === 'workout_plan')).toEqual({ type: 'workout_plan', plan: PLAN.plan });
+  });
+
   it('gives a user row a single prose block and nothing else', () => {
     expect(
       transcriptBlocks({
@@ -218,5 +266,30 @@ describe('isModelReply', () => {
     expect(isModelReply('stop')).toBe(true);
     expect(isModelReply('length')).toBe(true);
     expect(isModelReply(undefined)).toBe(true);
+  });
+});
+
+describe('planCardDraft', () => {
+  it("returns the draft and its athlete a coach's plan card shows", () => {
+    expect(planCardDraft({ type: 'workout_plan', plan: PLAN.plan, subject: SUBJECT, draft: DRAFT })).toEqual({
+      subject: SUBJECT,
+      draft: DRAFT,
+    });
+  });
+
+  it('is null for every card that shows no draft', () => {
+    // A card outside a plan thread, one inside it with no draft open, and one
+    // whose draft or athlete did not survive the wire.
+    expect(planCardDraft({ type: 'workout_plan', plan: PLAN.plan })).toBeNull();
+    expect(planCardDraft({ type: 'workout_plan', plan: PLAN.plan, subject: SUBJECT, draft: null })).toBeNull();
+    expect(planCardDraft({ type: 'workout_plan', plan: PLAN.plan, draft: DRAFT })).toBeNull();
+    expect(
+      planCardDraft({
+        type: 'workout_plan',
+        plan: PLAN.plan,
+        subject: { user_id: '', display_name: 'Alice' },
+        draft: DRAFT,
+      }),
+    ).toBeNull();
   });
 });

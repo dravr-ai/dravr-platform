@@ -57,6 +57,11 @@ impl CommandHandler for FortnightHandler {
         true
     }
 
+    /// The fortnight rail writes the next two weeks of the caller's own plan.
+    fn opens_guided_walk(&self, _args: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let repos = ctx.ctx.repos();

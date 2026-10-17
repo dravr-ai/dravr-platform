@@ -36,9 +36,9 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// here; the in-app clients hold theirs in the UI, so the id is handed back on
 /// the turn and they open it.
 ///
-/// The athlete's personal thread is never left: a reset there opens a new
-/// topic inside it instead (see [`open_personal_topic`]), and nothing is
-/// archived or forged.
+/// The athlete's personal thread is never left, nor is a coach's thread bound
+/// to one athlete: a reset there opens a new topic inside it instead (see
+/// [`open_thread_topic`]), and nothing is archived or forged.
 pub struct ResetHandler;
 
 #[async_trait]
@@ -60,8 +60,11 @@ impl CommandHandler for ResetHandler {
 
         // The personal thread is never left: a reset there opens a new topic
         // inside it, and the model starts over from the divider (carnet#840).
-        if previous.personal {
-            return open_personal_topic(ctx, &previous, &user_id).await;
+        // Nor is a coach's thread bound to one athlete: it is the one thread
+        // about that athlete, and a fresh thread would be bound to no one
+        // (carnet#1070).
+        if previous.personal || previous.subject_user_id.is_some() {
+            return open_thread_topic(ctx, &previous, &user_id).await;
         }
 
         // Read before forging: the fresh row's onboarding_state is NULL, so
@@ -199,16 +202,20 @@ fn reset_confirmation(ctx: &PlatformCommandContext, interrupted_walk: bool) -> C
     CommandResponse::rich_text(body)
 }
 
-/// `/reset` in the athlete's personal thread: a divider, not a new thread.
+/// `/reset` in the athlete's personal thread, or in a coach's thread bound to
+/// one athlete: a divider, not a new thread.
 ///
-/// The thread stays the one Home opens and the coach posts into; what resets
-/// is what the model reads, and the walk in progress, as a fresh thread would
-/// reset them. Nothing is archived and no cap applies — no thread is created.
-/// The surface is told through [`ConversationRotation::record_topic`], and the
-/// agent welcomes the new topic the way it welcomes a rotated-to thread.
+/// The thread stays the one Home opens and the coach posts into, or the one
+/// thread about that athlete; what resets is what the model reads, and the
+/// walk in progress, as a fresh thread would reset them. Nothing is archived
+/// and no cap applies — no thread is created. The guided walk restarts only
+/// in the personal thread: in a thread about an athlete it would walk the
+/// coach through their own profile. The surface is told through
+/// [`ConversationRotation::record_topic`], and the agent welcomes the new
+/// topic the way it welcomes a rotated-to thread.
 ///
 /// [`ConversationRotation::record_topic`]: crate::ConversationRotation::record_topic
-async fn open_personal_topic(
+async fn open_thread_topic(
     ctx: &PlatformCommandContext,
     thread: &ConversationRecord,
     user_id: &str,
@@ -220,7 +227,7 @@ async fn open_personal_topic(
         ctx.conversation_tenant_id,
         TopicOpening {
             agent_id: None,
-            guided_flow: ctx.is_direct_message,
+            guided_flow: thread.personal && ctx.is_direct_message,
         },
     )
     .await?;

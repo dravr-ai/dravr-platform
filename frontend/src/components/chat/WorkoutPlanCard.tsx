@@ -4,6 +4,7 @@
 // ABOUTME: Renders the workout_plan block — the saved plan's season and fortnight — as the thread's one hairline card.
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
+import type { ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
@@ -17,6 +18,8 @@ import type {
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
+  /** Drawn under the plan, inside the card — a coach's draft controls. */
+  children?: ReactNode;
 }
 
 /** "label · Nm · zone", with "×repeat" appended when the step is repeated. */
@@ -208,7 +211,7 @@ export function WeekHeading({ week, index, currentIndex }: { week: PlanWeek; ind
   );
 }
 
-export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
   const { t } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
@@ -262,6 +265,8 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
           {t('plan.card.moreWeeks', { count: plan.weeks_deferred })}
         </div>
       )}
+
+      {children}
     </div>
   );
 }

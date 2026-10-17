@@ -545,6 +545,12 @@ pub struct PushReport {
     /// already written stay; the push is convergent, so a re-run reconciles
     /// the rest.
     pub cancelled: bool,
+    /// Present when a human coach pushed a coached athlete's calendar while
+    /// holding an unpublished draft of their plan: only the published plan
+    /// was pushed, and the draft reaches the calendar once it is published
+    /// and pushed again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpublished_draft: Option<String>,
 }
 
 /// Inputs of one push.

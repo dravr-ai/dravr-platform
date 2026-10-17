@@ -230,7 +230,9 @@ pub struct OpenedTopic {
     pub interrupted_walk: bool,
 }
 
-/// Open a new topic in `thread`, the athlete's personal thread.
+/// Open a new topic in `thread`, the athlete's personal thread or a coach's
+/// thread bound to one athlete — the two threads that are never left for a
+/// fresh one (carnet#840, carnet#1070).
 ///
 /// It writes the divider row the model reads from, rebinds the agent when the
 /// topic names one, and ends a guided walk in progress — restarting it when
@@ -242,8 +244,8 @@ pub struct OpenedTopic {
 ///
 /// # Errors
 ///
-/// Returns an invalid-input error when `thread` is not a personal thread, and
-/// the repository error when the divider or the rebind cannot be written. The
+/// Returns an invalid-input error when `thread` is neither, and the
+/// repository error when the divider or the rebind cannot be written. The
 /// walk is best-effort, like the forge's: a topic that opened is not undone
 /// because a walk could not restart.
 pub async fn open_topic(
@@ -253,9 +255,9 @@ pub async fn open_topic(
     tenant_id: TenantId,
     opening: TopicOpening<'_>,
 ) -> AppResult<OpenedTopic> {
-    if !thread.personal {
+    if !thread.personal && thread.subject_user_id.is_none() {
         return Err(AppError::invalid_input(
-            "A topic opens only inside the personal thread",
+            "A topic opens only inside the personal thread or a thread about one athlete",
         ));
     }
     let rebound = rebind_agent(repos, thread, user_id, tenant_id, opening.agent_id).await?;

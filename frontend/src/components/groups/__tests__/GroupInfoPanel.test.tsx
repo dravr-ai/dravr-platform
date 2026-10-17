@@ -80,6 +80,9 @@ vi.mock('../../../services/api', () => ({
     getCoachAccessRequest: vi.fn(),
     requestCoachAccess: vi.fn(),
   },
+  chatApi: {
+    openAthleteThread: vi.fn(),
+  },
 }));
 
 /** The signed-in caller; a test flips `manages_roster` to hold coach access. */
@@ -92,7 +95,7 @@ vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({ user: authUser }),
 }));
 
-const { groupsApi, userApi } = await import('../../../services/api');
+const { chatApi, groupsApi, userApi } = await import('../../../services/api');
 
 /** The onboarding status, answering whether the caller coaches others. */
 function onboardingStatus(coachesOthers: boolean) {
@@ -146,6 +149,7 @@ function member(overrides: Partial<GroupMember> = {}): GroupMember {
 
 function renderPanel(units: DistanceUnit = 'metric') {
   const onMembershipEnded = vi.fn();
+  const onOpenConversation = vi.fn();
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -153,12 +157,16 @@ function renderPanel(units: DistanceUnit = 'metric') {
     <QueryClientProvider client={queryClient}>
       <UnitsContext.Provider value={units}>
         <ToastProvider>
-          <GroupInfoPanel groupId={GROUP_ID} onMembershipEnded={onMembershipEnded} />
+          <GroupInfoPanel
+            groupId={GROUP_ID}
+            onMembershipEnded={onMembershipEnded}
+            onOpenConversation={onOpenConversation}
+          />
         </ToastProvider>
       </UnitsContext.Provider>
     </QueryClientProvider>,
   );
-  return { ...utils, onMembershipEnded };
+  return { ...utils, onMembershipEnded, onOpenConversation };
 }
 
 describe('GroupInfoPanel', () => {
@@ -695,6 +703,127 @@ describe('GroupInfoPanel', () => {
     // Stats and invites refuse a non-member, so the coach never asks for them.
     expect(groupsApi.getStats).not.toHaveBeenCalled();
     expect(groupsApi.listInvites).not.toHaveBeenCalled();
+  });
+
+  it("offers the group coach a way into each member's plan, and opens that thread", async () => {
+    // The caller is the group's human coach and holds no membership row.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [
+        member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' }),
+        member({ id: 'membership-3', user_id: 'user-bob', role: 'member', display_name: 'Bob Cyclist' }),
+      ],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    vi.mocked(chatApi.openAthleteThread).mockResolvedValue({
+      id: 'conv-plan-alice',
+      title: 'Alice Runner',
+      subject_user_id: OTHER_ID,
+      subject_group_id: GROUP_ID,
+      subject_display_name: 'Alice Runner',
+      message_count: 0,
+      created_at: '2026-10-16T12:00:00Z',
+      updated_at: '2026-10-16T12:00:00Z',
+    });
+    const user = userEvent.setup();
+    const { onOpenConversation } = renderPanel();
+
+    expect(await screen.findByRole('button', { name: "Work on Bob Cyclist's plan" })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: "Work on Alice Runner's plan" }));
+
+    await waitFor(() => expect(onOpenConversation).toHaveBeenCalledWith('conv-plan-alice'));
+    expect(chatApi.openAthleteThread).toHaveBeenCalledWith(OTHER_ID, GROUP_ID);
+  });
+
+  it("offers a coach who is also a member every other member's plan, never their own", async () => {
+    // The caller owns the group, holds its membership row, and coaches it:
+    // the server admits them for every other member and refuses them for
+    // themselves.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: CALLER_ID }));
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    renderPanel();
+
+    expect(await screen.findByRole('button', { name: "Work on Other's plan" })).toBeInTheDocument();
+    expect(screen.getByTestId(`member-work-on-plan-${OTHER_ID}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`member-work-on-plan-${CALLER_ID}`)).toBeNull();
+    expect(screen.queryByRole('button', { name: "Work on Caller's plan" })).toBeNull();
+  });
+
+  describe('when the server refuses the plan thread', () => {
+    beforeEach(() => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    });
+
+    it('says the athlete stopped sharing, which no retry changes, and stays put', async () => {
+      // The coaching gate refuses with its reason in `details`, as every
+      // platform refusal carries it.
+      vi.mocked(chatApi.openAthleteThread).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const user = userEvent.setup();
+      const { onOpenConversation } = renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: "Work on Alice Runner's plan" }));
+
+      expect(
+        await screen.findByText("Alice Runner stopped sharing with you, so their plan can't be changed."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("We couldn't open this plan thread. Please try again.")).toBeNull();
+      expect(onOpenConversation).not.toHaveBeenCalled();
+    });
+
+    it('asks the coach to try again on any other refusal, and stays put', async () => {
+      vi.mocked(chatApi.openAthleteThread).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 404'), {
+          response: { status: 404, data: { code: 'ResourceNotFound', details: { reason: 'not_a_member' } } },
+        }),
+      );
+      const user = userEvent.setup();
+      const { onOpenConversation } = renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: "Work on Alice Runner's plan" }));
+
+      expect(await screen.findByText("We couldn't open this plan thread. Please try again.")).toBeInTheDocument();
+      expect(onOpenConversation).not.toHaveBeenCalled();
+    });
+  });
+
+  it("never offers a member, even the owner, a way into another member's plan", async () => {
+    // The default caller owns the group and is a member of it; a coach is
+    // attached, but it is not them.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+    renderPanel();
+
+    expect(await screen.findByText('Other')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Work on .* plan/ })).toBeNull();
+    expect(chatApi.openAthleteThread).not.toHaveBeenCalled();
+  });
+
+  it("never offers a plain member a way into anyone's plan", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [
+        member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Other' }),
+        member({ role: 'member' }),
+      ],
+    });
+    renderPanel();
+
+    expect(await screen.findByText('Other')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Work on .* plan/ })).toBeNull();
   });
 
   it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {

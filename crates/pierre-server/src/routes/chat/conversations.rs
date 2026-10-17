@@ -35,12 +35,12 @@ use pierre_services::conversation_forge::{
 use pierre_services::locale::{resolve_user_locale, user_locale};
 use pierre_tool_runtime::derived_content;
 
-use super::common::{get_tenant_id, verify_group_membership};
+use super::common::{conversation_response, get_tenant_id, verify_group_membership};
 use super::dto::{preview_text, resolve_stored_blocks};
 use super::dto::{
-    ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
-    CreateConversationRequest, LastMessageResponse, ListConversationsQuery, MessageFeedbackEntry,
-    MessageResponse, MessagesListResponse, UpdateConversationRequest,
+    ConversationListResponse, ConversationSummaryResponse, CreateConversationRequest,
+    LastMessageResponse, ListConversationsQuery, MessageFeedbackEntry, MessageResponse,
+    MessagesListResponse, UpdateConversationRequest,
 };
 use super::send_message::client_surface;
 
@@ -236,7 +236,7 @@ pub async fn create_conversation(
         }
     }
 
-    let response = ConversationResponse::from(conv);
+    let response = conversation_response(&resources, conv).await;
 
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }
@@ -290,6 +290,9 @@ pub async fn list_conversations(
                 channel_type: c.channel_type,
                 archived_at: c.archived_at,
                 personal: c.personal,
+                subject_user_id: c.subject_user_id.map(|id| id.to_string()),
+                subject_group_id: c.subject_group_id.map(|id| id.to_string()),
+                subject_display_name: c.subject_display_name,
                 last_message: c
                     .last_message
                     .filter(|m| ai_scope::admit_derived(m.transport_policy))
@@ -335,7 +338,7 @@ pub async fn get_conversation(
     )
     .await?;
 
-    let response = ConversationResponse::from(conv);
+    let response = conversation_response(&resources, conv).await;
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -375,7 +378,7 @@ pub async fn update_conversation(
         .await?
         .ok_or_else(|| AppError::internal("Conversation not found after update"))?;
 
-    let response = ConversationResponse::from(conv);
+    let response = conversation_response(&resources, conv).await;
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }

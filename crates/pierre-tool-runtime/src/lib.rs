@@ -64,8 +64,6 @@ pub mod activity_backfill_resume;
 pub mod activity_fetch;
 /// What a model may see of provider data under each provider's AI policy.
 pub mod ai_view;
-/// The one display-name rule a member is rendered by, on every build.
-pub mod athlete_display_name;
 pub mod capabilities;
 /// Nightly capture refresh — the actor behind the capture-staleness reader.
 pub mod capture_sweep;

@@ -39,6 +39,8 @@ fn conversation(group_id: Option<&str>, personal: bool) -> ConversationRecord {
         onboarding_state: None,
         archived_at: None,
         personal,
+        subject_user_id: None,
+        subject_group_id: None,
     }
 }
 

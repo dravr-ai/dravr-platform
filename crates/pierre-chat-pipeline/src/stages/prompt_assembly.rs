@@ -29,17 +29,18 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
-use pierre_tool_runtime::coach_seat::is_withheld_on_coach_seat;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use tracing::error;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
-use super::memory::inject_training_plan;
+use super::memory::{append_plan_block, inject_training_plan, PlanShown};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
+use super::subject_athlete::{self, SubjectTurn};
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
 use super::turn_clock::{format_current_date, CURRENT_DATE_POINTER};
 use super::viz_blocks;
@@ -495,7 +496,7 @@ pub fn resolve_agent_base_prompt(
 /// the group roster snapshots (empty outside a group conversation) that
 /// peer grounding and the peer-claim verifier match names against, and the
 /// introduction the reply was asked to open with, recorded once it has, and
-/// the coach's seat when the sender coaches the conversation's group.
+/// the turn's seat: whose data its tools run against.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
     Vec<String>,
@@ -503,7 +504,7 @@ pub(crate) type AssembledPrompt = (
     Vec<Option<String>>,
     Vec<MemberFitnessSnapshot>,
     Option<super::introduction::PendingIntroduction>,
-    Option<super::group_subject::CoachSeat>,
+    TurnSeat,
     String,
 );
 
@@ -610,7 +611,27 @@ pub(crate) async fn assemble_prompt_and_messages(
         &input.user_id,
     )
     .await;
-    let sender_is_subject = coach_seat.is_none();
+
+    // Stage 7a.1c: A coach's thread bound to one athlete (carnet#1070). The
+    // coaching gates run again on this turn, and the athlete — never the coach
+    // writing — is what every athlete-data stage below is about.
+    let subject_turn = subject_athlete::resolve(&ctx.repos, conv, &input.user_id).await;
+
+    // The turn's seat, named once from the conversation: the tools withheld
+    // here, in the declarations and at execution all follow it, and so do the
+    // activity prefetches.
+    let seat = match (coach_seat, subject_turn.as_ref()) {
+        (Some(_), _) => TurnSeat::Coach,
+        (None, Some(_)) => TurnSeat::AthleteThread,
+        (None, None) => TurnSeat::Subject,
+    };
+
+    // The sender is the turn's subject outside both of those alone. Neither
+    // the coach's seat nor a coach's athlete thread reads the sender's own
+    // providers (7b), dossier, playbooks, notes, followups and commitments
+    // (7d–7f.1) or plan (7f.2): the coach's own training does not belong in a
+    // group's turn or in an athlete's workspace.
+    let sender_is_subject = seat == TurnSeat::Subject;
 
     // Stage 7a.2: State that the tool set is closed. The tools themselves are
     // advertised once, by the provider layer — embacle renders the full schemas
@@ -640,15 +661,17 @@ pub(crate) async fn assemble_prompt_and_messages(
     // questions from a prompt that named none. On the native path the full
     // schemas already ship every turn (registre#406 covers that cost), so the
     // index is a cheap, byte-stable restatement there rather than the only copy.
-    // The coach's seat leaves out the coach's own data tools here exactly as
-    // the declarations do (carnet#742), so the index never names a tool the
-    // turn cannot call.
+    // The seat leaves out the tools it withholds here exactly as the
+    // declarations do — the coach's own data tools on the coach's seat
+    // (carnet#742), every write on the coach's own account in their athlete
+    // thread (carnet#1070) — so the index never names a tool the turn cannot
+    // call.
     let tool_names: Vec<String> = ctx
         .tool_registry
         .chat_callable_schemas()
         .into_iter()
         .map(|s| s.name)
-        .filter(|name| coach_seat.is_none() || !is_withheld_on_coach_seat(&ctx.tool_registry, name))
+        .filter(|name| !seat.withholds(&ctx.tool_registry, name))
         .collect();
     let base_prompt = format!(
         "{base_prompt}\n\n{TOOL_BOUNDARY}{}",
@@ -704,7 +727,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7c.1: Tell the agent it is talking to the group's coach, and how
     // many athletes have joined.
     let base_prompt = match coach_seat {
-        Some(seat) => format!("{base_prompt}{}", seat.directive()),
+        Some(coach) => format!("{base_prompt}{}", coach.directive()),
         None => base_prompt,
     };
 
@@ -715,8 +738,13 @@ pub(crate) async fn assemble_prompt_and_messages(
     let turn_agent_id = input.turn_agent_id(conv);
 
     // Stages 7d–7f.1: the subject's own athlete context. The coach's seat skips
-    // it whole — the coach's own training is not the group's.
-    let (base_prompt, pending_followup_ids) = if sender_is_subject {
+    // it whole — the coach's own training is not the group's. A coach's
+    // athlete thread carries the athlete's coach view in its place: the gates'
+    // answer, and on access the roster line, plan, draft and linked wellness.
+    let (base_prompt, pending_followup_ids) = if let Some(turn) = subject_turn.as_ref() {
+        let block = subject_athlete::block(ctx, turn).await;
+        (format!("{base_prompt}{block}"), Vec::new())
+    } else if sender_is_subject {
         inject_subject_context(
             SubjectContextInputs {
                 ctx,
@@ -749,17 +777,46 @@ pub(crate) async fn assemble_prompt_and_messages(
     // exists to write a plan needs the block it is writing against, which is
     // why the test is the flow's own nature rather than "a guided flow is
     // active".
-    let athlete_today = clock_date(chrono::Utc::now(), resolve_zone(user_timezone.as_deref()));
-    let base_prompt = inject_training_plan(
-        ctx.plan_prompt_sources(),
-        &input.tool_tenant_id.to_string(),
-        &input.user_id,
-        turn_agent_id,
-        athlete_today,
-        interview_owns_turn || !input.is_direct_message,
-        base_prompt,
-    )
-    .await;
+    //
+    // In a coach's athlete thread the block is the athlete's — the coach's
+    // draft over their live weeks, or their live season — on the athlete's
+    // calendar, and none at all once the gates refuse.
+    let plan_withheld = interview_owns_turn || !input.is_direct_message;
+    let base_prompt = match subject_turn.as_ref() {
+        None => {
+            let athlete_today =
+                clock_date(chrono::Utc::now(), resolve_zone(user_timezone.as_deref()));
+            inject_training_plan(
+                ctx.plan_prompt_sources(),
+                &input.tool_tenant_id.to_string(),
+                &input.user_id,
+                turn_agent_id,
+                athlete_today,
+                plan_withheld,
+                base_prompt,
+            )
+            .await
+        }
+        Some(SubjectTurn::Granted(granted)) => match granted.plan_shown() {
+            Some((plan, weeks)) if !plan_withheld => {
+                append_plan_block(
+                    ctx.plan_prompt_sources(),
+                    PlanShown {
+                        tenant: granted.tenant(),
+                        user: granted.athlete(),
+                        plan,
+                        weeks,
+                    },
+                    turn_agent_id,
+                    granted.today(),
+                    base_prompt,
+                )
+                .await
+            }
+            _ => base_prompt,
+        },
+        Some(SubjectTurn::Refused(_)) => base_prompt,
+    };
 
     // Stage 7f.3: Append the load-progression guardrails for agents whose
     // category can actually prescribe load.
@@ -1056,7 +1113,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         source_ids,
         group_roster,
         introduction,
-        coach_seat,
+        seat,
         format_current_date(user_timezone.as_deref(), &profile.locale),
     ))
 }

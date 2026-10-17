@@ -23,6 +23,7 @@ import {
   formatDecimal,
   isModelReply,
   parseSceneBlocks,
+  planCardDraft,
   splitVizMarkers,
   transcriptBlocks,
   withVerdictRows,
@@ -32,11 +33,17 @@ import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import PlanDraftControls from './PlanDraftControls';
 import MessageBubble from './MessageBubble';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
 
 interface MessageItemProps {
+  /**
+   * The thread the message is in. A plan card showing a coach's draft acts
+   * on that thread's draft; without it the card shows the plan alone.
+   */
+  conversationId?: string | null;
   message: Message;
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
@@ -163,6 +170,7 @@ function FeedbackReasonForm({
 const ACTION_BUTTON = 'p-0.5 text-outline transition-colors hover:text-on-surface';
 
 const MessageItem = memo(function MessageItem({
+  conversationId = null,
   message,
   metadata,
   feedback,
@@ -280,7 +288,17 @@ const MessageItem = memo(function MessageItem({
 
       case 'workout_plan': {
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
-        return plan ? <WorkoutPlanCard key={key} plan={plan} /> : null;
+        if (!plan) return null;
+        // A coach's draft for the thread's athlete carries its controls on
+        // the card; the controls decide for themselves who may see them.
+        const shown = conversationId === null ? null : planCardDraft(block);
+        return (
+          <WorkoutPlanCard key={key} plan={plan}>
+            {shown && conversationId !== null ? (
+              <PlanDraftControls conversationId={conversationId} subject={shown.subject} draft={shown.draft} />
+            ) : null}
+          </WorkoutPlanCard>
+        );
       }
 
       // The charts this block carries are positioned by the prose's own

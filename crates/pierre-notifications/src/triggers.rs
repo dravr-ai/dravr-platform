@@ -1,4 +1,4 @@
-// ABOUTME: Notification triggers for intelligence events, agent traffic, sync failures and coach TrainingPeaks links
+// ABOUTME: Notification triggers for intelligence events, agent traffic, sync failures, coach platform links and coach plans
 // ABOUTME: Fire-and-forget on the service's dispatch tracker — failures logged at WARN, never block the caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -391,9 +391,10 @@ pub struct LinkPlatform<'a> {
     pub name: &'a str,
 }
 
-/// The member's connections, where the card of `provider` (the coaching
-/// platform as the user knows it) names the link.
-fn delegation_connections_route(provider: &str) -> Value {
+/// The recipient's connections, opened on the card of `provider` (the
+/// platform as the user knows it): the card that names a link, or the
+/// calendar a coach's push wrote.
+fn connections_route(provider: &str) -> Value {
     json!({
         "screen": NotificationScreen::Connections.as_str(),
         "provider": provider,
@@ -419,7 +420,7 @@ pub fn trigger_delegation_proposed(
             "group_name": group_name,
             "platform_name": platform.name,
         }),
-        delegation_connections_route(platform.provider),
+        connections_route(platform.provider),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
@@ -518,9 +519,93 @@ pub fn trigger_delegation_off_coach_roster(
             "group_name": group_name,
             "platform_name": platform.name,
         }),
-        delegation_connections_route(platform.provider),
+        connections_route(platform.provider),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+// ============================================================================
+// Coach Plan Triggers (bypass frequency cap)
+// ============================================================================
+//
+// A group's human coach builds a coached athlete's plan in a draft the athlete
+// never sees (carnet#1069). Two of the coach's acts change what the athlete
+// reads without the athlete doing anything, so each tells the athlete: the
+// draft published as their plan, and that plan put on their provider calendar
+// through the coach's link. Each is one person's act addressed to another,
+// like a link notice, so it bypasses the daily cap the same way.
+
+/// A coach's plan notice for the athlete `athlete_id`, in category `coach`.
+fn coach_plan_dispatch(
+    athlete_id: Uuid,
+    tenant_id: TenantId,
+    event: NotificationEvent,
+    params: Value,
+    route: Value,
+    transport_policy: TransportPolicy,
+) -> EventDispatch {
+    EventDispatch {
+        user_id: athlete_id,
+        tenant_id,
+        category: NotificationCategory::Coach,
+        event,
+        params,
+        route,
+        actions: None,
+        bypass_frequency_cap: true,
+        transport_policy,
+    }
+}
+
+/// Trigger notification telling an athlete their human coach published the
+/// coach's draft of their plan, built for the goal race `race_name`.
+///
+/// It opens Home, where the published plan is. P1: the plan the athlete
+/// trains on changed. `transport_policy` is the published plan's own
+/// (carnet#769): the race the notice names is the plan's, and a route
+/// publishing it runs in no derivation the facade could read it from.
+pub fn trigger_coach_plan_published(
+    service: &Arc<NotificationService>,
+    athlete_id: Uuid,
+    tenant_id: TenantId,
+    coach_name: &str,
+    race_name: &str,
+    transport_policy: TransportPolicy,
+) {
+    let dispatch = coach_plan_dispatch(
+        athlete_id,
+        tenant_id,
+        NotificationEvent::CoachPlanPublished,
+        json!({ "coach_name": coach_name, "race_name": race_name }),
+        json!({ "screen": NotificationScreen::Activities.as_str() }),
+        transport_policy,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+/// Trigger notification telling an athlete their human coach put the
+/// workouts of their plan on their `platform` calendar through the coach's
+/// link.
+///
+/// It opens their connections on that platform's card, where the link and
+/// its calendar-write consent are. P2: the plan itself did not change. Its
+/// words carry the two names alone, nothing derived from the plan.
+pub fn trigger_coach_plan_pushed(
+    service: &Arc<NotificationService>,
+    athlete_id: Uuid,
+    tenant_id: TenantId,
+    coach_name: &str,
+    platform: LinkPlatform<'_>,
+) {
+    let dispatch = coach_plan_dispatch(
+        athlete_id,
+        tenant_id,
+        NotificationEvent::CoachPlanPushed,
+        json!({ "coach_name": coach_name, "provider_name": platform.name }),
+        connections_route(platform.provider),
+        TransportPolicy::AnyTransport,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
 }
 
 #[cfg(test)]

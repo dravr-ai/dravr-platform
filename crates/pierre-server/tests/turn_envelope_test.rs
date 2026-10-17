@@ -120,6 +120,8 @@ fn conversation() -> ConversationRecord {
         onboarding_state: None,
         archived_at: None,
         personal: false,
+        subject_user_id: None,
+        subject_group_id: None,
     }
 }
 
@@ -209,7 +211,7 @@ fn in_app_surface_gets_a_block_per_affordance() {
     let plan = blocks
         .iter()
         .find_map(|b| match b {
-            ReplyBlock::WorkoutPlan { plan } => Some(plan.as_str()),
+            ReplyBlock::WorkoutPlan { plan, .. } => Some(plan.as_str()),
             _ => None,
         })
         .expect("an in-app surface renders a plan as a card");

@@ -13,6 +13,8 @@ use chrono::NaiveDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::athlete_clock::athlete_today;
+use pierre_services::coach_plan_draft::{draft_state, CoachDraftTarget};
+use pierre_services::coach_plan_notice::{tell_plan_pushed, CoachCalendarPush};
 use pierre_services::plan_calendar_push::{
     calendar_holds_week_notes, desired_entries, diff_against_ledger, for_calendar,
     push_active_plan, PushPlanParams, PushReport,
@@ -249,8 +251,10 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              group's human coach pushes a consenting athlete's plan by passing `athlete` from \
              their own direct chat in Dravr, through the athlete's Intervals.icu link: the \
              athlete must have allowed calendar writes on it, and Intervals.icu must list the \
-             coach as their coach. Args: optional from_date, optional provider (needed only to \
-             choose between several connected calendars), optional athlete.",
+             coach as their coach. Only the published plan is pushed: a coach's unpublished \
+             draft never is, and the reply's unpublished_draft says when one exists. Args: \
+             optional from_date, optional provider (needed only to choose between several \
+             connected calendars), optional athlete.",
             schema,
             Some(destructive_annotations()),
         )))
@@ -317,7 +321,39 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 },
             )
             .await;
-            let report = scope.reacting(&context, provider.as_ref(), pushed).await?;
+            let mut report = scope.reacting(&context, provider.as_ref(), pushed).await?;
+            if let Some(name) = scope.athlete_name() {
+                // The athlete did not push this: they are told their coach
+                // put workouts on their calendar, when the push wrote any.
+                #[cfg(feature = "client-notifications")]
+                let notifications = context.resources.notification_service();
+                #[cfg(not(feature = "client-notifications"))]
+                let notifications = None;
+                tell_plan_pushed(
+                    repos,
+                    context.resources.provider_registry(),
+                    notifications,
+                    &CoachCalendarPush {
+                        tenant,
+                        athlete: user_id,
+                        coach: scope.writer.user_id,
+                        backend: &target,
+                    },
+                    &report,
+                )
+                .await;
+                // A coach's draft is not the athlete's plan: the push carried
+                // the published plan, and the coach is told the draft is
+                // still theirs.
+                let target = CoachDraftTarget::new(tenant, user_id, scope.writer.user_id);
+                if draft_state(repos, &target).await?.is_some() {
+                    report.unpublished_draft = Some(format!(
+                        "You hold an unpublished draft of {name}'s plan — only the published \
+                         plan is pushed. Publish the draft with publish_training_plan, then push \
+                         again to put it on the calendar."
+                    ));
+                }
+            }
 
             let landed = report.created + report.updated + report.removed;
             let attempted = landed + report.failed.len();

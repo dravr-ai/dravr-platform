@@ -22,12 +22,16 @@ on:
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
       - 'scripts/ci/mobile-e2e-batch.sh'
-      # The scraper double and its control API the Home sync and onboarding
-      # group flows script, and the seeder behind the verdict-sheet flow.
+      # The scraper double and its control API the Home sync, onboarding
+      # group and coach plan-thread flows script, and the seeders behind the
+      # verdict-sheet and coach plan-thread flows.
       - 'frontend/e2e-real/sciotte-double.ts'
       - 'frontend/e2e-real/home-sync-control.ts'
       - 'frontend/e2e-real/onboarding-coach.ts'
+      - 'frontend/e2e-real/coach-plan-thread.ts'
       - 'crates/pierre-seeders/src/verdict_conversation.rs'
+      - 'crates/pierre-seeders/src/coach_plan_thread.rs'
+      - 'crates/pierre-seeders/src/coached_group.rs'
       - '.github/workflows/mobile-e2e-android.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -325,8 +329,10 @@ jobs:
       # runScript steps call from the host, and it writes a past sync time
       # into the server's database, so it is given that file. onboarding/02
       # asks it for fresh coaches, approved by the seeded tester (an admin)
-      # and connected through the same double.
-      - name: Start the scraper double for the Home sync and onboarding flows
+      # and connected through the same double. coach-plan/01 asks it for a
+      # fresh coach and athlete on every attempt, made and seeded by the
+      # pierre-cli PIERRE_CLI names, with the server's key and model.
+      - name: Start the scraper double for the Home sync, onboarding and coach plan-thread flows
         working-directory: frontend
         run: |
           nohup bun e2e-real/home-sync-control.ts > /tmp/home-sync-control.log 2>&1 &
@@ -342,6 +348,9 @@ jobs:
           E2E_REAL_DATABASE_PATH: "${{ github.workspace }}/data/maestro-android-test.db"
           HOME_SYNC_EMAIL: "mobiletest@pierre.dev"
           HOME_SYNC_PASSWORD: "MobileTest1234"
+          PIERRE_CLI: "${{ github.workspace }}/target/release/pierre-cli"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_LLM_DEFAULT_MODEL: "ci-test-model"
 
       - name: Enable KVM for Android emulator
         run: |
@@ -523,7 +532,11 @@ jobs:
           # (carnet#740); both assert copy in English or French only, and
           # onboarding/02 clears Chrome's session when it ends, so the flows after
           # it sign the seeded tester in on the page, not as its last coach.
-          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml onboarding/02-coach-group-step.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
+          # coach-plan/01 publishes a coach's draft from their thread about an
+          # athlete (carnet#1069/#1070); publishing consumes the draft, so each
+          # attempt asks the control process for a new pair seeded with one, and
+          # it too clears Chrome's session when it ends.
+          CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-hosted-sign-in-page.yaml login/06-successful-login.yaml login/07-invalid-credentials.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml chat/11-verdict-sheet.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml onboarding/02-coach-group-step.yaml coach-plan/01-publish-draft-from-athlete-thread.yaml home-sync/01-sync-failed-retry-lands-rides-and-map.yaml"
 
           # The list is unconditional now, so an empty one means someone edited it to
           # nothing — which under the guard below would silently report a green run of
@@ -665,14 +678,17 @@ jobs:
         run: echo "E2E_STEP_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Run Maestro tests on Android
-        # 45 was sized for the one-flow smoke. A critical run is 12 flows, each with up
+        # 45 was sized for the one-flow smoke. A critical run is 13 flows, each with up
         # to 3 attempts, after an emulator boot and a cold Metro bundle; the job cap is
         # 120, so this leaves headroom for the diagnostics and upload steps after it.
-        # No fixed per-attempt cap fits 12 x 3 attempts in here: the 10-minute cap,
-        # which clears the slowest pass (6 min), makes that worst case 6 hours. A
-        # clean run takes ~35 min (run 37946857392: 34); a capped stall adds ~11 (the
-        # 10-minute cap and a reset before its retry) where an uncapped one added
-        # 20+, so four fit inside the deadline where two fitted before. Past that,
+        # No fixed per-attempt cap fits 13 x 3 attempts in here: the 10-minute cap,
+        # which clears the slowest pass (6 min), makes that worst case 6.5 hours. A
+        # clean run of the 12 flows before coach-plan/01 took ~35 min (run
+        # 37946857392: 34); costed at chat/11's slowest pass (6 min) until a run
+        # measures it, the 13th brings a clean run to ~40. A capped stall adds ~11
+        # (the 10-minute cap and a reset before its retry) where an uncapped one added
+        # 20+, so four still fit inside the 85-minute deadline where two fitted
+        # before. Past that,
         # the script's deadline, budgeted from this same E2E_STEP_TIMEOUT_MINUTES,
         # ends the lane with its summary written instead of this cap killing it
         # mid-flow.

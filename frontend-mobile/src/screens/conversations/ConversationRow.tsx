@@ -8,7 +8,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
-import type { ConversationKind, ConversationRowModel } from '@pierre/chat-utils';
+import { PLAN_THREAD_KEYS, type ConversationKind, type ConversationRowModel } from '@pierre/chat-utils';
 import { MENTION_PREFIX, badgeLabel } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
@@ -20,11 +20,15 @@ type FeatherIconName = ComponentProps<typeof Feather>['name'];
 /**
  * The glyph before the title of a row that is not a 1:1 thread, with the
  * label a screen reader announces in its place — the glyph is the only thing
- * on the row that says "group" or "from a messaging channel". The channel's
- * name itself lives in the thread's info sheet, not on the row.
+ * on the row that says "group", "a coach's plan thread for one athlete" or
+ * "from a messaging channel". The channel's name itself lives in the
+ * thread's info sheet, not on the row.
  */
 const KIND_GLYPH: Partial<Record<ConversationKind, { icon: FeatherIconName; labelKey: string }>> = {
   group: { icon: 'users', labelKey: 'app.rowKindGroup' },
+  // The clipboard Group info's "Work on <name>'s plan" carries, so the row
+  // and the way into it read as one.
+  subject: { icon: 'clipboard', labelKey: PLAN_THREAD_KEYS.kindLabel },
   channel: { icon: 'send', labelKey: 'app.rowKindChannel' },
 };
 
@@ -153,6 +157,16 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
                 testID={`conversation-handle-${row.id}`}
               >
                 {MENTION_PREFIX}{row.agentHandle}
+              </Text>
+            )}
+            {/* The athlete a plan thread is about, when its title does not already say. */}
+            {row.subjectName && (
+              <Text
+                className="text-sm text-text-tertiary ml-1.5 flex-shrink"
+                numberOfLines={1}
+                testID={`conversation-subject-${row.id}`}
+              >
+                {row.subjectName}
               </Text>
             )}
             {/* An archived thread holds no conversation slot; a turn into it takes one back. */}

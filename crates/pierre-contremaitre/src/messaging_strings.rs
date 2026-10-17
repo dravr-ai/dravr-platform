@@ -689,6 +689,17 @@ pub const KEY_PILLARS_OPENER_ROOM: &str = "commands.pillars.opener_room";
 /// walk can never re-ask, so those arguments are refused there — before any
 /// expiry runs — and the athlete is pointed at a direct message.
 pub const KEY_PILLARS_ARG_DM_ONLY: &str = "commands.pillars.arg_dm_only";
+/// Key: a guided walk refused in a coach's thread about one athlete.
+///
+/// The walk is `/pillars`, `/calibrate`, `/season`, `/fortnight` or an alias
+/// of one. `{0}` = the athlete's roster display name, `{1}` = the command as
+/// typed, slash included (the string sets it in backticks).
+///
+/// A walk interviews the person typing about their own training, and every
+/// turn of that thread is about the athlete, so the walk is refused there
+/// before anything is written and the coach is pointed at their own
+/// conversation.
+pub const KEY_WALK_PLAN_THREAD: &str = "commands.walk_plan_thread";
 
 /// Posted in a shared room when a command was answered in the caller's DM.
 ///
@@ -1344,6 +1355,22 @@ pub const KEY_NOTIFICATION_DELEGATION_OFF_COACH_ROSTER_TITLE: &str =
 /// Key: whose roster, where. `{0}` coach name, `{1}` group name.
 pub const KEY_NOTIFICATION_DELEGATION_OFF_COACH_ROSTER_BODY: &str =
     "notifications.event.delegation_off_coach_roster.body";
+/// Key: the athlete's human coach published their plan. `{0}` coach name,
+/// `{1}` goal race name.
+pub const KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_TITLE: &str =
+    "notifications.event.coach_plan_published.title";
+/// Key: who published it, for which race, and where it is. `{0}` coach name,
+/// `{1}` goal race name.
+pub const KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_BODY: &str =
+    "notifications.event.coach_plan_published.body";
+/// Key: the plan's workouts are on the athlete's provider calendar. `{0}`
+/// coach name, `{1}` provider name.
+pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_TITLE: &str =
+    "notifications.event.coach_plan_pushed.title";
+/// Key: who put them there, on which calendar. `{0}` coach name, `{1}`
+/// provider name.
+pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_BODY: &str =
+    "notifications.event.coach_plan_pushed.body";
 
 // ── Group weekly digest ───────────────────────────────────────────────────
 //

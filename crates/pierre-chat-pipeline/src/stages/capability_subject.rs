@@ -400,7 +400,7 @@ async fn fetch_own_side(
     result: &mut ToolLoopResult,
     evidence: &mut SubjectEvidence,
 ) -> bool {
-    match run_verification_fetch(deps.ctx, input).await {
+    match run_verification_fetch(deps, input).await {
         VerificationOutcome::AuthRequired(provider_slug) => {
             info!(
                 provider = %provider_slug,

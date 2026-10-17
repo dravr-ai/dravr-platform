@@ -161,8 +161,8 @@ pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
 // User domain
 pub use user::{
     default_locale, locale_from_accept_language, max_hr_fraction_at_vo2max_fraction,
-    normalize_email, page_locale, supported_ui_locale, CoachingPersona, ColorScheme,
-    OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId, UserInvitation,
+    normalize_email, page_locale, roster_display_name, supported_ui_locale, CoachingPersona,
+    ColorScheme, OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId, UserInvitation,
     UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
     FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES, SWAIN_HRMAX_INTERCEPT_PERCENT,
     SWAIN_HRMAX_PER_VO2MAX_SLOPE,
@@ -271,13 +271,13 @@ mod conversation;
 pub use conversation::{
     is_in_app_channel, is_turn_marker_block, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
-    ConversationSummary, ConversationTurnId, InputSource, MessageFeedbackRecord, MessageRecord,
-    ParticipantRole, PersistedAction, PersistedReplyBlock, TurnOrigin, UpsertMessageFeedbackParams,
-    ACTIONS_BLOCK_TYPE, AGENT_WELCOME_FINISH_REASON, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB,
-    COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON, FILTERED_REPLY_FINISH_REASON,
-    STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
-    TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
-    WITHHELD_REPLY_FINISH_REASON,
+    ConversationSubject, ConversationSummary, ConversationTurnId, InputSource,
+    MessageFeedbackRecord, MessageRecord, ParticipantRole, PersistedAction, PersistedReplyBlock,
+    TurnOrigin, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE, AGENT_WELCOME_FINISH_REASON,
+    CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON,
+    FILTERED_REPLY_FINISH_REASON, STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR,
+    TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE,
+    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 
 // API key types for authentication and rate limiting

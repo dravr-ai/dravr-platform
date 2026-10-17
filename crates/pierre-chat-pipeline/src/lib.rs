@@ -121,6 +121,7 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::derived_content;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -365,8 +366,8 @@ struct DispatchStageArgs<'a> {
     peer_roster: &'a [MemberFitnessSnapshot],
     /// The agent the turn answers as, bound on the tool executor.
     turn_agent_id: Option<&'a str>,
-    /// The sender coaches this turn's group (see `DispatchLlmInputs::coach_seat`).
-    coach_seat: Option<stages::group_subject::CoachSeat>,
+    /// Whose data the turn's tools run against (see `DispatchLlmInputs::seat`).
+    seat: TurnSeat,
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -390,7 +391,7 @@ async fn dispatch_stage(
             guided_flow: args.guided_flow,
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
-            coach_seat: args.coach_seat,
+            seat: args.seat,
         },
         llm_messages,
         max_iterations,
@@ -760,7 +761,7 @@ async fn run_turn(
         source_ids,
         group_roster,
         intro,
-        coach_seat,
+        seat,
         turn_clock,
     ) = assemble_prompt_stage(AssemblePromptArgs {
         hooks,
@@ -795,7 +796,7 @@ async fn run_turn(
             guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),
-            coach_seat,
+            seat,
         },
         &mut llm_messages,
     )
@@ -817,6 +818,7 @@ async fn run_turn(
             peer_roster: &group_roster,
             peer_blocks: &peer_blocks,
             guided_walk: onboarding_turn.as_ref().map(|turn| &turn.state),
+            seat,
         },
         &mut result,
         hooks,
