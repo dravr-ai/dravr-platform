@@ -36,9 +36,13 @@ use crate::AuthRoutesContext;
 const TOO_MANY_SIGN_UPS: &str =
     "Too many sign-ups from this network. Wait a minute, then try again.";
 
-/// What a sign-up whose bot check failed reads.
-const HUMAN_CHECK_FAILED: &str =
-    "We could not confirm you are not a bot. Complete the check again, then retry.";
+/// The refusal of a sign-up whose bot check failed.
+fn human_check_failed() -> AppError {
+    AppError::new(
+        ErrorCode::PermissionDenied,
+        "We could not confirm you are not a bot. Complete the check again, then retry.",
+    )
+}
 
 /// `POST /api/auth/register`'s body: the account, plus the token the form's
 /// Turnstile widget minted. The token stays out of [`RegisterRequest`], which
@@ -117,7 +121,7 @@ pub async fn meter_sign_up(limiter: &OAuth2RateLimiter, client: Option<IpAddr>) 
 ///
 /// # Errors
 ///
-/// Returns a permission-denied error reading [`HUMAN_CHECK_FAILED`] when the
+/// Returns a permission-denied error ([`human_check_failed`]) when the
 /// token is missing or Cloudflare refused it.
 pub async fn pass_human_check(
     check: Option<&dyn HumanCheck>,
@@ -129,19 +133,13 @@ pub async fn pass_human_check(
     };
     let Some(token) = token.filter(|t| !t.is_empty()) else {
         warn!("Sign-up refused: no bot-check token");
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            HUMAN_CHECK_FAILED,
-        ));
+        return Err(human_check_failed());
     };
     match check.verify(token, client).await {
         HumanCheckVerdict::Passed => Ok(()),
         HumanCheckVerdict::Failed => {
             warn!("Sign-up refused: the bot check failed");
-            Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                HUMAN_CHECK_FAILED,
-            ))
+            Err(human_check_failed())
         }
         HumanCheckVerdict::Unavailable => {
             error!("Bot check unavailable; admitting the sign-up on the other guards");
