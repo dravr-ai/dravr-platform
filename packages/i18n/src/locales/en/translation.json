@@ -872,6 +872,7 @@
     "signInWithGoogle": "Sign in with Google",
     "signOutButton": "Sign Out",
     "signingIn": "Signing in…",
+    "signupPaused": "Sign-up is paused right now. Please try again later.",
     "statusFieldLabel": "Status",
     "stepDone": "Done",
     "switchToDarkMode": "Switch to dark mode",
