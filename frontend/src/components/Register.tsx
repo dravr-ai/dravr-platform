@@ -72,8 +72,9 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
       });
       onRegistrationSuccess(response.message, email);
     } catch (err: unknown) {
-      // The server's sentence covers each guard: paused (503), too many
-      // sign-ups from this network (429), the human check failed (403).
+      // The server's sentence covers each guard: paused or past the day's
+      // ceiling (429 QuotaExceeded), too many sign-ups from this network
+      // (429 RateLimitExceeded), the human check failed (403).
       const apiError = err as { response?: { data?: { message?: string; error?: string } } };
       setError(apiError.response?.data?.message || apiError.response?.data?.error || t('app.registrationFailedRetry'));
       // A Turnstile token is single-use: the next attempt needs a fresh one.

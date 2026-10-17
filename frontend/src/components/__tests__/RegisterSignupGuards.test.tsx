@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Tests the create-account form against the sign-up guards: a paused notice, and the Turnstile token
 // ABOUTME: window.turnstile is a stub, so no Cloudflare script is ever fetched (carnet#1063)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
@@ -154,8 +154,8 @@ describe('Register sign-up guards', () => {
     vi.mocked(authApi.getSignupConfig).mockResolvedValue({ open: true, turnstile_site_key: null })
     vi.mocked(authApi.register).mockRejectedValue({
       response: {
-        status: 503,
-        data: { code: 'ResourceUnavailable', message: 'Sign-up is paused right now. Please try again later.' },
+        status: 429,
+        data: { code: 'QuotaExceeded', message: 'Sign-up is paused right now. Please try again later.' },
       },
     })
 

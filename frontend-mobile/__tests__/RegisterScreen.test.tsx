@@ -236,8 +236,9 @@ describe('RegisterScreen', () => {
     });
 
     it.each([
-      [503, 'ResourceUnavailable', 'Sign-up is paused right now. Please try again later.'],
+      [429, 'QuotaExceeded', 'Sign-up is paused right now. Please try again later.'],
       [429, 'RateLimitExceeded', 'Too many sign-ups from this network. Please try again later.'],
+      [403, 'PermissionDenied', 'We could not confirm you are not a bot. Complete the check again, then retry.'],
     ])('shows the server sentence for a %i refusal', async (status, code, message) => {
       mockRegister.mockRejectedValueOnce(apiRefusal(status, { code, message }));
       const { getByTestId } = await renderReady();

@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Cloudflare Turnstile bot check for the register form, rendered in a WebView on the API's origin
 // ABOUTME: The page posts the token back over ReactNativeWebView.postMessage; reset() asks for a fresh one
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import { View, type ViewStyle } from 'react-native';

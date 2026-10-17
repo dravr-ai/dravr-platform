@@ -26,14 +26,15 @@ import { useTranslation } from '@pierre/i18n';
 /**
  * The sentence an alert shows for a failed registration.
  *
- * The sign-up guards answer with a sentence of their own — paused (503),
- * too many sign-ups from this network (429), the human check failed (403) —
- * and `describeApiError` would replace the first two with a generic
- * "unavailable" or "failed", which is wrong for a deliberate pause.
+ * The sign-up guards answer with a sentence of their own — paused or past
+ * the day's ceiling (429 QuotaExceeded), too many sign-ups from this network
+ * (429 RateLimitExceeded), the human check failed (403) — and
+ * `describeApiError` would replace them with a generic "failed", which is
+ * wrong for a deliberate pause.
  */
 function describeRegisterError(error: unknown, t: (key: string) => string): string {
   const { status, detail } = classifyApiError(error);
-  if (detail && (status === 503 || status === 429)) {
+  if (detail && (status === 429 || status === 403)) {
     return detail;
   }
   return describeApiError(error, { t, fallbackKey: 'app.registrationFailedLower' });

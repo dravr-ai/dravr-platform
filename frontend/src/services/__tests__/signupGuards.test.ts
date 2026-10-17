@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Pins the sign-up guard calls of the shared auth client: the public config read and the token on register
 // ABOUTME: Runs the real createAuthApi against a recording axios, so the wire path and body are what is asserted (carnet#1063)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi } from 'vitest'
 import type { AxiosInstance } from 'axios'

@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
-
 // ABOUTME: Tests the Sign-up block of AdminSettings: the kill switch, the daily ceiling, activate-on-verified-email
 // ABOUTME: Asserts each control sends only the field it changes, and the read-only figures render (carnet#1063)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
