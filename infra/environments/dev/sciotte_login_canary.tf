@@ -130,10 +130,10 @@ resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   time_zone        = "Etc/UTC"
   attempt_deadline = "320s"
 
-  retry_config {
-    # A retried trigger is a second real login; one verdict per slot.
-    retry_count = 0
-  }
+  # No retry_config block: a retried trigger would be a second real login, and
+  # one verdict per slot is the point. Zero retries is Scheduler's default, and
+  # a block holding only `retry_count = 0` is an empty message the API does not
+  # store, so declaring it made every drift check plan to add it back.
 
   http_target {
     http_method = "POST"
