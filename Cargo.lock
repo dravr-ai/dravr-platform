@@ -1411,9 +1411,9 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-browser"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e54c3cf5fad99e1bb8be1c5f0e86712a076c00ae993e2cc34845c39141abc41"
+checksum = "dacdf39cb77583d8680070d453476aa5889725545275e0b6c0a9e53ae4db896a"
 dependencies = [
  "async-trait",
  "chromiumoxide",
@@ -1499,8 +1499,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=36eb55e16be
 
 [[package]]
 name = "dravr-enforme"
-version = "0.11.2"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.2#d1a55f93dc69314ba491e7e6cb849786ce35a98c"
+version = "0.11.3"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.3#837b0e57911ec5126d1bdf9cb937f5f69a343d00"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1564,8 +1564,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.26.1"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.1#1e427f40dc967ccd9455e0a9bac09c5f8ae6fd17"
+version = "0.26.2"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.2#d49a9e3bc06e7810694fda11acee0269771635c9"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2575,7 +2575,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5053,7 +5053,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5091,7 +5091,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7385,7 +7385,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
