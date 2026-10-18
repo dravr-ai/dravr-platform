@@ -1,5 +1,5 @@
 // ABOUTME: Pins that a scraped TrainingPeaks workout reaches cageux with its load metrics and the athlete's self-report
-// ABOUTME: Asserts TSS/IF/NP, feel and RPE in the platform's scales, the comment thread in order, and Strava rows left as they were
+// ABOUTME: Asserts TSS/IF/NP, feel and RPE in the platform's scales, the comment thread in order, and a Strava row's band as its CR-10 midpoint
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,7 +20,8 @@
 //! all of it reaches the cageux `Activity` the analytics read — the feel as a
 //! named rating (TrainingPeaks ranks it with 1 as the best), the RPE as a
 //! CR-10 number, the comments in order with their authors and times — and
-//! that a Strava row's self-report comes out exactly as it did before.
+//! that a Strava row's exertion band crosses as its CR-10 midpoint while the
+//! TrainingPeaks feel scale never reads its rank.
 //!
 //! The scraped scenarios live in one test over one stand-in scraper, which
 //! both providers reach through a client built for it rather than through the
@@ -134,8 +135,8 @@ fn activity_body(id: &str) -> Option<Value> {
             "trainingpeaks",
             &json!({ "perceived_exertion": "11", "feel": 4 }),
         ),
-        // A Strava extract's exertion is the slider's label. It is given a
-        // feel rank here too, which no Strava extract produces, to show the
+        // A Strava extract's exertion is the slider's band label. It is given
+        // a feel rank here too, which no Strava extract produces, to show the
         // TrainingPeaks scale is never applied to another platform's rank.
         STRAVA_ACTIVITY_ID => scraped(
             id,
@@ -354,7 +355,7 @@ async fn ratings_outside_their_scales_are_dropped(trainingpeaks: &dyn FitnessPro
     assert_eq!(activity.comments(), None);
 }
 
-async fn a_strava_row_keeps_its_self_report_as_before(
+async fn a_strava_row_reads_its_band_and_no_feel(
     strava: &dyn FitnessProvider,
     seen: &Mutex<Vec<String>>,
 ) {
@@ -365,8 +366,8 @@ async fn a_strava_row_keeps_its_self_report_as_before(
 
     assert_eq!(
         activity.perceived_exertion(),
-        None,
-        "a Strava label is a band, not a CR-10 rating"
+        Some(8.0),
+        "Strava's Hard band (7–9) crosses as its midpoint"
     );
     assert_eq!(
         activity.feel(),
@@ -409,7 +410,7 @@ async fn scraped_rows_reach_cageux_with_their_metrics_and_self_report() {
     a_workout_keeps_its_load_metrics(trainingpeaks.as_ref(), &seen).await;
     the_self_report_crosses_in_the_platform_scales(trainingpeaks.as_ref()).await;
     ratings_outside_their_scales_are_dropped(trainingpeaks.as_ref()).await;
-    a_strava_row_keeps_its_self_report_as_before(strava.as_ref(), &seen).await;
+    a_strava_row_reads_its_band_and_no_feel(strava.as_ref(), &seen).await;
 }
 
 #[test]

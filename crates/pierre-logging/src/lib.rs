@@ -26,11 +26,13 @@ pub use tenant::{record_performance_metrics, record_request_context, record_tena
 use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
 
+use dravr_sciotte::log_targets::{BROWSER_DRIVER_LOG_CEILING, BROWSER_DRIVER_LOG_TARGET};
 use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
     SlackConfig,
 };
 use dravr_tronc::notify::{AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer};
+use dravr_tronc::server::log_ceiling::{LevelCeilings, TargetCeiling};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
@@ -52,6 +54,20 @@ use tracing_subscriber::{
 
 #[cfg(feature = "telemetry")]
 use opentelemetry_sdk::trace::SdkTracer;
+
+/// The level ceilings the subscriber holds whatever `RUST_LOG` or the
+/// configured level says.
+///
+/// The server drives chromiumoxide in-process through `dravr_sciotte`, and
+/// chromiumoxide logs every CDP command and message at TRACE, and a frame it
+/// cannot parse at DEBUG with its raw text: typed passwords, one-time codes
+/// and session cookie values. sciotte names the target and its ceiling (INFO);
+/// installed as a global filter beside the `EnvFilter`, no directive raises
+/// it, and the driver's handler errors stay visible (carnet#1068).
+const LOG_CEILINGS: &[TargetCeiling] = &[TargetCeiling::new(
+    BROWSER_DRIVER_LOG_TARGET,
+    BROWSER_DRIVER_LOG_CEILING,
+)];
 
 /// Per-event closure type for the chromiumoxide teardown suppression
 /// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
@@ -507,6 +523,7 @@ impl LoggingConfig {
         // (user_id, tenant_id, conversation_id, …) onto every child event.
         let registry = tracing_subscriber::registry()
             .with(env_filter)
+            .with(LevelCeilings::new(LOG_CEILINGS))
             .with(SpanFieldStorage);
 
         // Build optional error notification layer (active when SLACK_ERROR_CHANNEL is set)
@@ -823,4 +840,92 @@ impl LoggingConfig {
 /// Returns an error if logging initialization fails
 pub fn init_from_env() -> AppResult<()> {
     LoggingConfig::from_env().init()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use tracing::subscriber::with_default;
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::layer::{Context, SubscriberExt};
+    use tracing_subscriber::{EnvFilter, Layer};
+
+    use super::{LevelCeilings, LOG_CEILINGS};
+
+    /// Records the target of every event that reaches it.
+    #[derive(Clone, Default)]
+    struct Targets(Arc<Mutex<Vec<String>>>);
+
+    impl<S: Subscriber> Layer<S> for Targets {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(event.metadata().target().to_owned());
+        }
+    }
+
+    /// The targets that reach the log under `directives` with the server's
+    /// ceilings installed, of the lines [`emit_driver_and_server_lines`] writes.
+    fn reaching_the_log(directives: &str) -> Vec<String> {
+        let seen = Targets::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(EnvFilter::new(directives))
+            .with(LevelCeilings::new(LOG_CEILINGS))
+            .with(seen.clone());
+        with_default(subscriber, emit_driver_and_server_lines);
+        let targets = seen.0.lock().unwrap().clone();
+        targets
+    }
+
+    /// The lines chromiumoxide 0.9 writes — its CDP traffic at TRACE, an
+    /// unparsed raw frame at DEBUG, a handler error — and two of the server's
+    /// own.
+    fn emit_driver_and_server_lines() {
+        emit_driver_lines();
+        tracing::trace!(target: "pierre_mcp_server::routes", "trace of the server's own");
+        tracing::debug!(target: "pierre_mcp_server::routes", "debug of the server's own");
+    }
+
+    /// chromiumoxide 0.9's three kinds of line.
+    fn emit_driver_lines() {
+        tracing::trace!(target: "chromiumoxide::conn", "Sending Network.setCookies");
+        tracing::debug!(target: "chromiumoxide::conn::raw_ws::parse_errors", "Failed to parse raw WS message");
+        tracing::error!(target: "chromiumoxide::handler", "WS connection reset");
+    }
+
+    /// carnet#1068: no `RUST_LOG` brings chromiumoxide's CDP traffic back,
+    /// and its handler errors stay visible.
+    #[test]
+    fn a_trace_rust_log_cannot_bring_back_the_cdp_traffic() {
+        for directives in [
+            "trace",
+            "info,chromiumoxide=trace",
+            "info,chromiumoxide::conn=trace",
+        ] {
+            let targets = reaching_the_log(directives);
+            assert!(
+                !targets.iter().any(|t| t.starts_with("chromiumoxide::conn")),
+                "RUST_LOG={directives} let CDP traffic through: {targets:?}"
+            );
+            assert!(
+                targets.iter().any(|t| t == "chromiumoxide::handler"),
+                "RUST_LOG={directives} hid the driver's error: {targets:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_ceiling_leaves_every_other_target_to_rust_log() {
+        let targets = reaching_the_log("trace");
+        assert_eq!(
+            targets
+                .iter()
+                .filter(|t| t.as_str() == "pierre_mcp_server::routes")
+                .count(),
+            2,
+            "the server's own TRACE and DEBUG must pass under RUST_LOG=trace: {targets:?}"
+        );
+    }
 }

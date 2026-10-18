@@ -33,22 +33,21 @@ use crate::core::{
     no_recorded_samples, planned_workouts_unsupported, ActivityQueryParams, FitnessProvider,
     OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
-use crate::coros_self_report::feel_from_coros;
 use crate::delegation::{coach_credential_expired, DelegatedReads};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, ActivityComment, Athlete, Feel, PlannedWorkout, SportType, Stats,
+    Activity, ActivityBuilder, ActivityComment, Athlete, PlannedWorkout, SportType, Stats,
     TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_error::{athlete_not_accessible, require_client, sciotte_refusal, to_app_error};
+use crate::sciotte_self_report::self_report;
 use crate::spi::{
     ProviderDescriptor, SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
     SciotteTrainingPeaksDescriptor,
 };
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
-use crate::trainingpeaks_self_report::{feel_from_trainingpeaks, rpe_from_trainingpeaks};
 
 /// What a provider's own login form accepts as the account.
 ///
@@ -569,29 +568,6 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .feel_opt(feel)
     .comments_opt(comments)
     .build()
-}
-
-/// The athlete's self-report on a scraped row as `(perceived exertion, feel)`
-/// in the platform's scales: a 1–10 CR-10 rating and a named [`Feel`].
-///
-/// `TrainingPeaks` states both, and its encodings are read in
-/// [`crate::trainingpeaks_self_report`]; COROS states only the feeling, read in
-/// [`crate::coros_self_report`]. Strava's scraped exertion is the
-/// label its slider shows ("Moderate", "Hard") — a band of the scale, not a
-/// rating on it — which the numeric field cannot hold without inventing a
-/// number, and neither the Strava nor the Garmin extract carries a feel rank.
-fn self_report(sciotte: &SciotteActivity, target: SciotteTarget) -> (Option<f32>, Option<Feel>) {
-    match target {
-        SciotteTarget::TrainingPeaks => (
-            sciotte
-                .perceived_exertion
-                .as_deref()
-                .and_then(rpe_from_trainingpeaks),
-            sciotte.feel.and_then(feel_from_trainingpeaks),
-        ),
-        SciotteTarget::Coros => (None, sciotte.feel.and_then(feel_from_coros)),
-        SciotteTarget::Strava | SciotteTarget::Garmin => (None, None),
-    }
 }
 
 /// Translate one of sciotte's [`SciotteComment`]s into cageux's

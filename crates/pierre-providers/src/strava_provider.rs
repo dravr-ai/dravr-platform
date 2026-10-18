@@ -26,6 +26,7 @@ use crate::models::{
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
+use crate::strava_self_report::rpe_from_strava;
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
     StravaLap, StravaSplit, StravaStatsResponse, StravaStreamSet,
@@ -351,6 +352,7 @@ impl StravaProvider {
                     .map(|name| name.trim().to_owned())
                     .filter(|name| !name.is_empty()),
             )
+            .perceived_exertion_opt(detailed.perceived_exertion.and_then(rpe_from_strava))
             .time_series_data_opt(streams)
             .build())
     }

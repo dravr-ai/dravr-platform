@@ -88,16 +88,25 @@ mod intervals_icu_streams;
 /// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
+/// The athlete's self-report on a scraped activity, read in the scale of the platform it came from.
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_self_report;
 
 /// COROS athlete self-report: the feeling the athlete picked, read off a scraped activity.
 #[cfg(feature = "provider-sciotte")]
 pub mod coros_self_report;
+/// Garmin Connect athlete self-report: RPE stored ×10 and the 0–100 feel score, read off a scraped activity.
+#[cfg(feature = "provider-sciotte")]
+mod garmin_self_report;
 /// What a failed call to the dravr-sciotte scraper service is, as a platform error
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_error;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
+/// Strava athlete self-report: Perceived Exertion as the API's number or the scraped slider band.
+#[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
+mod strava_self_report;
 #[cfg(feature = "provider-strava")]
 pub mod strava_types;
 /// Terra unified API provider (150+ wearables)

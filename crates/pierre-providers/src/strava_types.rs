@@ -191,6 +191,10 @@ pub struct DetailedActivityResponse {
     pub device_name: Option<String>,
     /// The athlete's free-text notes on the activity. Untrusted text.
     pub description: Option<String>,
+    /// The athlete's Perceived Exertion, the 1–10 slider value, `null` when
+    /// unset. Undocumented by Strava and absent from the list endpoint, so
+    /// only a detail read carries it (see `strava_self_report`).
+    pub perceived_exertion: Option<f32>,
 
     // Complex nested data
     /// Metric splits (1km or 1mi intervals)
