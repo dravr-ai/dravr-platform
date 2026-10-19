@@ -17,11 +17,11 @@ use pierre_auth::tenant::TenantOAuthCredentials;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
-    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    GarminApiConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig,
+    MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
+    ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -230,10 +230,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
             weather: WeatherServiceConfig {
                 api_key: None,
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
                 enabled: false,
             },
             strava_api: StravaApiConfig {
@@ -521,10 +517,6 @@ async fn test_user_login_success() -> Result<()> {
             weather: WeatherServiceConfig {
                 api_key: None,
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
                 enabled: false,
             },
             strava_api: StravaApiConfig {
@@ -815,10 +807,6 @@ async fn test_token_refresh_success() -> Result<()> {
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
                 enabled: false,
             },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -1070,10 +1058,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
             weather: WeatherServiceConfig {
                 api_key: None,
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
                 enabled: false,
             },
             strava_api: StravaApiConfig {
@@ -1593,10 +1577,6 @@ async fn test_complete_auth_flow() -> Result<()> {
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
                 enabled: false,
             },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -1913,10 +1893,6 @@ async fn test_concurrent_logins() -> Result<()> {
             weather: WeatherServiceConfig {
                 api_key: None,
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
                 enabled: false,
             },
             strava_api: StravaApiConfig {

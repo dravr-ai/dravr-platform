@@ -19,10 +19,10 @@ use pierre_auth::{
 };
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-    ExternalServicesConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel, LoggingConfig,
-    MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
-    StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ExternalServicesConfig, HttpClientConfig, LogLevel, LoggingConfig, MonitoringConfig,
+    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
+    WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
@@ -99,10 +99,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: true,
             },
             ..Default::default()
         },

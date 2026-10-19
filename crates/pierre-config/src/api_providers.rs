@@ -15,8 +15,6 @@ use std::env;
 pub struct ExternalServicesConfig {
     /// Weather service configuration
     pub weather: WeatherServiceConfig,
-    /// Geocoding service configuration
-    pub geocoding: GeocodingServiceConfig,
     /// Strava API configuration
     pub strava_api: StravaApiConfig,
     /// Garmin API configuration
@@ -29,7 +27,6 @@ impl ExternalServicesConfig {
     pub fn from_env() -> Self {
         Self {
             weather: WeatherServiceConfig::from_env(),
-            geocoding: GeocodingServiceConfig::from_env(),
             strava_api: StravaApiConfig::from_env(),
             garmin_api: GarminApiConfig::from_env(),
         }
@@ -58,28 +55,6 @@ impl WeatherServiceConfig {
                 "https://api.openweathermap.org/data/2.5",
             ),
             enabled: env_var_or("WEATHER_SERVICE_ENABLED", "true")
-                .parse()
-                .unwrap_or(true),
-        }
-    }
-}
-
-/// Geocoding API service configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GeocodingServiceConfig {
-    /// Geocoding service base URL
-    pub base_url: String,
-    /// Enable geocoding service
-    pub enabled: bool,
-}
-
-impl GeocodingServiceConfig {
-    /// Load geocoding service configuration from environment
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            base_url: env_var_or("GEOCODING_BASE_URL", "https://nominatim.openstreetmap.org"),
-            enabled: env_var_or("GEOCODING_SERVICE_ENABLED", "true")
                 .parse()
                 .unwrap_or(true),
         }

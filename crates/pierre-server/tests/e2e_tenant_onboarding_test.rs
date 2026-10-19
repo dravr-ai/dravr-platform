@@ -520,10 +520,6 @@ fn create_test_server_config() -> ServerConfig {
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
                 enabled: false,
             },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: true,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),

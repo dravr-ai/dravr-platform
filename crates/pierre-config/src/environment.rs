@@ -20,8 +20,7 @@ use tracing::{info, warn};
 // Re-export types from sub-modules for convenience
 // API providers
 pub use crate::api_providers::{
-    ExternalServicesConfig, GarminApiConfig, GeocodingServiceConfig, StravaApiConfig,
-    WeatherServiceConfig,
+    ExternalServicesConfig, GarminApiConfig, StravaApiConfig, WeatherServiceConfig,
 };
 // Cache and rate limiting
 pub use crate::cache::{CacheConfig, RedisConnectionConfig};

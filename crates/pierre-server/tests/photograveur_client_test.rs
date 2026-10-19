@@ -15,10 +15,10 @@
 
 use std::env;
 
+use dravr_tronc::server::request_guard::REQUEST_ID_HEADER;
 use pierre_mcp_server::services::photograveur_client::{
     PhotograveurClient, PHOTOGRAVEUR_AUDIENCE_ENV, PHOTOGRAVEUR_URL_ENV,
 };
-use reqwest::Client;
 use serde_json::Value;
 use serial_test::serial;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -36,7 +36,7 @@ fn a_url_without_an_audience_disables_the_press() {
     clear();
     env::set_var(PHOTOGRAVEUR_URL_ENV, "https://press.example.a.run.app");
 
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     // Not merely "does not crash": enabled would mean the fidelity negotiator
     // offers messaging a chart, the press refuses the unsigned request, and the
@@ -55,7 +55,7 @@ fn both_present_enables_the_press() {
     env::set_var(PHOTOGRAVEUR_URL_ENV, "https://press.example.a.run.app");
     env::set_var(PHOTOGRAVEUR_AUDIENCE_ENV, "dravr-photograveur-development");
 
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     assert!(
         client.is_enabled(),
@@ -69,7 +69,7 @@ fn both_present_enables_the_press() {
 fn neither_present_leaves_the_press_off() {
     clear();
 
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     // The developer default: the stack runs identically without the service.
     assert!(!client.is_enabled());
@@ -82,7 +82,7 @@ fn the_debug_impl_does_not_expose_the_token_source() {
     env::set_var(PHOTOGRAVEUR_URL_ENV, "https://press.example.a.run.app");
     env::set_var(PHOTOGRAVEUR_AUDIENCE_ENV, "dravr-photograveur-development");
 
-    let rendered = format!("{:?}", PhotograveurClient::from_env(Client::new()));
+    let rendered = format!("{:?}", PhotograveurClient::from_env());
 
     // The client holds a live identity token once minted. Any log line that
     // formats it must not carry that token, which is why Debug is hand-written.
@@ -108,7 +108,7 @@ fn a_loopback_url_enables_the_press_without_an_audience() {
     clear();
     env::set_var(PHOTOGRAVEUR_URL_ENV, "http://127.0.0.1:8092");
 
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     assert!(
         client.is_enabled(),
@@ -133,7 +133,7 @@ async fn a_loopback_press_call_is_not_refused_for_lacking_a_token() {
     clear();
     // Port 1 is reserved and nothing binds it, so the connection always fails.
     env::set_var(PHOTOGRAVEUR_URL_ENV, "http://127.0.0.1:1");
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     let block = photograveur::RenderBlock::Table(photograveur::TableView {
         title: Some("Semaine".to_owned()),
@@ -179,7 +179,7 @@ async fn the_press_request_carries_the_locale() {
         .expect("an ephemeral loopback port"); // Safe: test harness
     let port = listener.local_addr().expect("bound").port(); // Safe: just bound
     env::set_var(PHOTOGRAVEUR_URL_ENV, format!("http://127.0.0.1:{port}"));
-    let client = PhotograveurClient::from_env(Client::new());
+    let client = PhotograveurClient::from_env();
 
     let captured = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.expect("one request"); // Safe: test harness
@@ -204,6 +204,14 @@ async fn the_press_request_carries_the_locale() {
     let _ = client.press(&block, "light", "de").await;
 
     let request = captured.await.expect("the listener task finishes"); // Safe: test harness
+    let head = request.split("\r\n\r\n").next().unwrap_or_default();
+    assert!(
+        head.lines().any(|line| line
+            .split_once(':')
+            .is_some_and(|(name, value)| name.eq_ignore_ascii_case(REQUEST_ID_HEADER)
+                && !value.trim().is_empty())),
+        "every press goes out under a request id the press logs it by: {head}"
+    );
     let body = request
         .split("\r\n\r\n")
         .nth(1)
@@ -236,12 +244,31 @@ fn a_remote_host_never_takes_the_loopback_bypass() {
         clear();
         env::set_var(PHOTOGRAVEUR_URL_ENV, url);
 
-        let client = PhotograveurClient::from_env(Client::new());
+        let client = PhotograveurClient::from_env();
 
         assert!(
             !client.is_enabled(),
             "{url} must not be treated as loopback and must stay disabled without an audience"
         );
     }
+    clear();
+}
+
+/// An identity token is a bearer credential: a press that is neither `https`
+/// nor on loopback stays disabled even with an audience, so the token is never
+/// minted for a request that would carry it in clear.
+#[test]
+#[serial]
+fn a_plain_http_remote_press_is_refused_even_with_an_audience() {
+    clear();
+    env::set_var(PHOTOGRAVEUR_URL_ENV, "http://10.0.0.230:8092");
+    env::set_var(PHOTOGRAVEUR_AUDIENCE_ENV, "dravr-photograveur-development");
+
+    let client = PhotograveurClient::from_env();
+
+    assert!(
+        !client.is_enabled(),
+        "a plain-http press off loopback must stay disabled whatever its audience"
+    );
     clear();
 }

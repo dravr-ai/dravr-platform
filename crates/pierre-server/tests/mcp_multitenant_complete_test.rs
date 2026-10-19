@@ -22,10 +22,10 @@ use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-    ExternalServicesConfig, GarminApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
-    LoggingConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig,
-    StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ExternalServicesConfig, GarminApiConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
+    WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -133,10 +133,6 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
                 api_key: None,
                 base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
                 enabled: false,
-            },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: true,
             },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),

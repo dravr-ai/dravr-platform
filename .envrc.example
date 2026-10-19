@@ -415,10 +415,6 @@ export OPENWEATHER_API_KEY="your-openweathermap-api-key"
 # export OPENWEATHER_BASE_URL="https://api.openweathermap.org/data/2.5"
 # export WEATHER_SERVICE_ENABLED="true"
 
-# Geocoding Service
-# export GEOCODING_BASE_URL="https://nominatim.openstreetmap.org"
-# export GEOCODING_SERVICE_ENABLED="true"
-
 # USDA FoodData Central API
 # export USDA_API_KEY="your-usda-api-key"
 

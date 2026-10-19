@@ -239,7 +239,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-contremaitre = { workspace = true }
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene as a message is serialized.
 photograveur = { workspace = true }
-dravr-tronc = { workspace = true, features = ["notifications", "google-iam"] }
+dravr-tronc = { workspace = true, features = ["notifications", "google-iam", "service-client"] }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }

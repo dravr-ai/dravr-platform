@@ -97,10 +97,6 @@ fn create_test_config() -> Arc<ServerConfig> {
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
                 ..Default::default()
             },
-            geocoding: GeocodingServiceConfig {
-                base_url: "https://nominatim.openstreetmap.org".to_owned(),
-                enabled: true,
-            },
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {

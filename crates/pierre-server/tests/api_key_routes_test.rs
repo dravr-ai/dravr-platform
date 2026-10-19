@@ -17,11 +17,11 @@ use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
-    GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
-    McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
+    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
+    RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
+    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
 };
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -151,10 +151,6 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                         weather: WeatherServiceConfig {
                             api_key: None,
                             base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                            enabled: false,
-                        },
-                        geocoding: GeocodingServiceConfig {
-                            base_url: "https://nominatim.openstreetmap.org".to_owned(),
                             enabled: false,
                         },
                         strava_api: StravaApiConfig {

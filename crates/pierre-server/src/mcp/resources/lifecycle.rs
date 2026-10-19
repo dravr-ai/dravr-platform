@@ -559,7 +559,7 @@ impl ServerContext {
                 .turn_runner
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
-            photograveur: Arc::new(PhotograveurClient::from_env(reqwest::Client::new())),
+            photograveur: Arc::new(PhotograveurClient::from_env()),
             config,
             redaction_config,
             email_service,
