@@ -100,7 +100,8 @@ pub async fn handle_post(
     };
 
     let repos = &resources.common.repos;
-    let outcome = coach_access::request_access(repos, auth.user_id, group).await?;
+    let origin = CoachAccessOrigin::Asked;
+    let outcome = coach_access::request_access(repos, auth.user_id, group, origin).await?;
     let status = match &outcome {
         RequestOutcome::Opened(request) => {
             coach_access::email_super_admins(
@@ -108,7 +109,7 @@ pub async fn handle_post(
                 resources.common.email_service.as_deref(),
                 resources.common.config.frontend_url.as_deref(),
                 request,
-                CoachAccessOrigin::Asked,
+                origin,
             )
             .await;
             StatusCode::CREATED

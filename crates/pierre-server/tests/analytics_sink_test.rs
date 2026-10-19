@@ -102,7 +102,7 @@ fn enricher_injects_emoji_and_cached_email() {
     // Unique user id keeps the process-wide identity cache test-isolated.
     cache_user_email("enrich-user-1", "alice@acme.com");
     let mut f = fields(&[("user_id", "enrich-user-1"), ("persona", "casual")]);
-    PierreNotifyEnricher.enrich("chat.question_asked", &mut f);
+    PierreNotifyEnricher::new(None).enrich("chat.question_asked", &mut f);
     assert_eq!(
         f.get("user_email").map(String::as_str),
         Some("alice@acme.com")
@@ -119,11 +119,14 @@ fn enricher_emoji_by_category_with_fallback() {
         ("provider.fetch_started", "📥"),
         ("embacle.call_completed", "🤖"),
         ("billing.checkout_completed", "💳"),
+        ("coach.first_post", "🏃"),
+        ("coach_access.requested", "🔐"),
+        ("coach_access.granted", "🔐"),
         ("something.uncatalogued", "🔔"),
     ];
     for (event, emoji) in cases {
         let mut f = HashMap::new();
-        PierreNotifyEnricher.enrich(event, &mut f);
+        PierreNotifyEnricher::new(None).enrich(event, &mut f);
         assert_eq!(
             f.get("emoji").map(String::as_str),
             Some(emoji),
@@ -135,7 +138,7 @@ fn enricher_emoji_by_category_with_fallback() {
 #[test]
 fn enricher_no_email_when_user_uncached() {
     let mut f = fields(&[("user_id", "never-cached-xyz")]);
-    PierreNotifyEnricher.enrich("user.login", &mut f);
+    PierreNotifyEnricher::new(None).enrich("user.login", &mut f);
     assert!(!f.contains_key("user_email"));
     // Emoji is still attached regardless of cache state.
     assert_eq!(f.get("emoji").map(String::as_str), Some("🔑"));
@@ -144,7 +147,7 @@ fn enricher_no_email_when_user_uncached() {
 #[test]
 fn enricher_no_email_without_user_id() {
     let mut f = fields(&[("provider", "strava")]);
-    PierreNotifyEnricher.enrich("provider.fetch_started", &mut f);
+    PierreNotifyEnricher::new(None).enrich("provider.fetch_started", &mut f);
     assert!(!f.contains_key("user_email"));
 }
 
@@ -156,12 +159,12 @@ fn enricher_injects_sender_host_without_clobbering_explicit_value() {
     assert!(!resolved.is_empty());
 
     let mut f = HashMap::new();
-    PierreNotifyEnricher.enrich("provider.fetch_started", &mut f);
+    PierreNotifyEnricher::new(None).enrich("provider.fetch_started", &mut f);
     assert_eq!(f.get("sender_host").map(String::as_str), Some(resolved));
 
     // A call site that set its own sender_host wins (entry().or_insert).
     let mut preset = fields(&[("sender_host", "explicit-sender")]);
-    PierreNotifyEnricher.enrich("provider.fetch_started", &mut preset);
+    PierreNotifyEnricher::new(None).enrich("provider.fetch_started", &mut preset);
     assert_eq!(
         preset.get("sender_host").map(String::as_str),
         Some("explicit-sender")
@@ -187,7 +190,7 @@ fn sender_host_survives_posthog_property_stripping() {
 #[test]
 fn enricher_keeps_call_site_emoji() {
     let mut f = fields(&[("emoji", "🎯")]);
-    PierreNotifyEnricher.enrich("user.login", &mut f);
+    PierreNotifyEnricher::new(None).enrich("user.login", &mut f);
     // or_insert: a call-site-provided emoji is not overwritten.
     assert_eq!(f.get("emoji").map(String::as_str), Some("🎯"));
 }
@@ -227,4 +230,66 @@ fn product_event_with_email_still_gated_by_consent() {
         ("user_email", "carol@acme.com"),
     ]);
     assert!(provider.capture_for("user.login", &f).is_none());
+}
+
+#[test]
+fn a_coach_access_request_links_the_console_queue() {
+    // A trailing slash on the frontend URL does not double the separator.
+    let enricher = PierreNotifyEnricher::new(Some("https://app.dravr.ai/"));
+    let mut requested = fields(&[("request_id", "req-1")]);
+    enricher.enrich("coach_access.requested", &mut requested);
+    assert_eq!(
+        requested.get("review_url").map(String::as_str),
+        Some("https://app.dravr.ai/#users")
+    );
+
+    // The decision is already taken: its notice has nothing to review.
+    for event in ["coach_access.granted", "user.login"] {
+        let mut f = HashMap::new();
+        enricher.enrich(event, &mut f);
+        assert!(!f.contains_key("review_url"), "event {event}");
+    }
+}
+
+#[test]
+fn a_server_without_a_frontend_url_links_nothing() {
+    let mut f = fields(&[("request_id", "req-1")]);
+    PierreNotifyEnricher::new(None).enrich("coach_access.requested", &mut f);
+    assert!(!f.contains_key("review_url"));
+}
+
+#[test]
+fn a_coach_access_request_keeps_who_where_and_the_link_off_posthog() {
+    // Who asked, the group's name and the console link are for the
+    // super-admin reading the notice; how the request came and the
+    // request's id still reach PostHog.
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[
+        ("user_id", "user-321"),
+        ("request_id", "req-1"),
+        ("origin", "intervals_icu_roster"),
+        ("coached_active_athletes", "3"),
+        ("user_email", "dana@acme.com"),
+        ("group_name", "Tuesday Rides"),
+        ("review_url", "https://app.dravr.ai/#users"),
+    ]);
+    let capture = provider
+        .capture_for("coach_access.requested", &f)
+        .expect("operational event captures");
+    let props = capture.properties.as_object().expect("object properties");
+    for key in ["user_id", "user_email", "group_name", "review_url"] {
+        assert!(!props.contains_key(key), "{key} must stay off PostHog");
+    }
+    assert_eq!(
+        props.get("origin").and_then(Value::as_str),
+        Some("intervals_icu_roster")
+    );
+    assert_eq!(
+        props.get("coached_active_athletes").and_then(Value::as_i64),
+        Some(3)
+    );
+    assert_eq!(
+        props.get("request_id").and_then(Value::as_str),
+        Some("req-1")
+    );
 }

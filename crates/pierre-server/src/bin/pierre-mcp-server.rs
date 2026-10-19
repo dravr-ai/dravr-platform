@@ -178,8 +178,11 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     // NotifyLayer can attach the sink (active only when POSTHOG_API_KEY is set).
     pierre_logging::set_analytics_provider(Arc::new(PierreAnalyticsProvider));
     // Register the notify enricher so every Slack/PostHog event carries the
-    // user's email (from the identity cache) and a display emoji.
-    pierre_logging::set_notify_enricher(Arc::new(PierreNotifyEnricher));
+    // user's email (from the identity cache) and a display emoji, and a
+    // coach-access request links the console that decides it.
+    pierre_logging::set_notify_enricher(Arc::new(PierreNotifyEnricher::new(
+        config.frontend_url.as_deref(),
+    )));
     // Register the Approve/Reject buttons posted under user.pending_approval;
     // the Slack interactivity route that answers them is a messaging route.
     #[cfg(feature = "client-messaging")]

@@ -13,14 +13,16 @@
 //! 1. [`request_access`] opens a request, naming the coach's group when they
 //!    asked from one, or filed for them when their Intervals.icu key coaches
 //!    athletes ([`crate::coach_access_evidence`]). It grants nothing; it
-//!    announces itself on the notify channel, and a caller holding the email
-//!    service tells every super-admin ([`email_super_admins`]). A request
-//!    that names no group takes the one its coach later makes to coach
-//!    ([`name_requested_group`]).
+//!    announces itself on the notify channel with what a super-admin decides
+//!    on (who asked, how the request came, the group it names), and a caller
+//!    holding the email service tells every super-admin
+//!    ([`email_super_admins`]). A request that names no group takes the one
+//!    its coach later makes to coach ([`name_requested_group`]).
 //! 2. A super-admin reads the queue ([`list_requests`]) and either
 //!    [`grant`]s — `manages_roster` as an operator grant, and the requester
 //!    attached as coach of the named group when they still own it and it
-//!    still has no coach — or [`decline`]s.
+//!    still has no coach — or [`decline`]s. The decision is announced on the
+//!    notify channel too, so the room that saw the request sees it decided.
 //!
 //! Every function is the single implementation behind both the REST routes
 //! and the admin console, so the two cannot drift.
@@ -35,10 +37,11 @@ use pierre_email::templates::CoachAccessOrigin;
 use pierre_email::ResendEmailService;
 use pierre_middleware::redaction::mask_email;
 use serde::Serialize;
-use tracing::{info, warn};
+use tracing::{field, info, warn};
 use uuid::Uuid;
 
 use crate::admin_ops::set_user_manages_roster;
+use crate::analytics::cache_user_email;
 use crate::operator_mail::{console_users_url, super_admin_emails};
 
 /// What [`request_access`] did.
@@ -71,6 +74,10 @@ impl RequestOutcome {
 /// group (one filed from their Intervals.icu roster) and this ask names one,
 /// the waiting request names it from now on, so a grant attaches them to it.
 ///
+/// `origin` says how the request came: the coach asking, or a roster read
+/// filing it for them. A request opened here is announced with it
+/// ([`announce_opened`]).
+///
 /// # Errors
 ///
 /// Returns not-found for an unknown user or group, permission-denied when the
@@ -80,6 +87,7 @@ pub async fn request_access(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     group: Option<(Uuid, TenantId)>,
+    origin: CoachAccessOrigin,
 ) -> AppResult<RequestOutcome> {
     let user = repos
         .users
@@ -97,16 +105,7 @@ pub async fn request_access(
 
     let request = CoachAccessRequest::pending(user_id, group.clone(), Utc::now());
     if repos.coach_access_requests.open(&request).await? {
-        // LIMITATION(registre#1060): `coach_access.requested` is the only coach-access event; no referral attribution (`coach_referral.*`, `referral_id`) exists.
-        // LIMITATION(registre#1072): `coach_access.requested` carries ids only (no display name, group name, origin or console link; `PierreNotifyEnricher` adds `user_email` only when this pod cached the requester's login), so its Slack notice cannot drive the approval.
-        info!(
-            target: "notify",
-            event = "coach_access.requested",
-            user_id = %user_id,
-            request_id = %request.id,
-            group_id = ?request.group_id,
-            "coach access requested"
-        );
+        announce_opened(repos, &user, &request, origin).await;
         return Ok(RequestOutcome::Opened(request));
     }
     // The partial unique index kept the request already waiting.
@@ -209,6 +208,71 @@ async fn name_group(
     Ok(pending)
 }
 
+/// Announce a request just opened with what a super-admin decides on: who
+/// asked, how the request came, and the group it names, when it names one.
+///
+/// The notify channel is the only announcement a request filed from a live
+/// roster read gets (no email goes out from there), so the notice has to
+/// carry the decision on its own. The requester is named by their email,
+/// which reaches the notice through the identity cache the notify enricher
+/// reads, warmed here because the requester may never have signed in on this
+/// pod; the enricher adds the console link. Neither is a field of this event,
+/// so neither reaches the log line, and their display name stays off it too:
+/// the operator email and the console queue carry it. The `PostHog` sink
+/// keeps the email, the group name and the link off the event.
+async fn announce_opened(
+    repos: &RepositoryRegistry,
+    requester: &User,
+    request: &CoachAccessRequest,
+    origin: CoachAccessOrigin,
+) {
+    let group_name = requested_group_name(repos, request).await;
+    cache_user_email(&requester.id.to_string(), &requester.email);
+    // LIMITATION(registre#1060): coach-access events carry no referral attribution; no `coach_referral.*` event or `referral_id` exists.
+    info!(
+        target: "notify",
+        event = "coach_access.requested",
+        user_id = %requester.id,
+        request_id = %request.id,
+        origin = origin_label(origin),
+        coached_active_athletes = coached_active_athletes(origin),
+        group_id = request.group_id.map(field::display),
+        group_name = group_name.as_deref(),
+        "coach access requested"
+    );
+}
+
+/// How a request came, as its notice names it.
+const fn origin_label(origin: CoachAccessOrigin) -> &'static str {
+    match origin {
+        CoachAccessOrigin::Asked => "asked",
+        CoachAccessOrigin::IntervalsIcuRoster { .. } => "intervals_icu_roster",
+    }
+}
+
+/// The active athletes the roster a request was filed from coaches; `None`
+/// for a request the coach asked for.
+const fn coached_active_athletes(origin: CoachAccessOrigin) -> Option<usize> {
+    match origin {
+        CoachAccessOrigin::Asked => None,
+        CoachAccessOrigin::IntervalsIcuRoster {
+            coached_active_athletes,
+        } => Some(coached_active_athletes),
+    }
+}
+
+/// Warm the identity cache with the requester's email, so a decline's notice
+/// names them even when they never signed in on this pod.
+async fn cache_requester_email(repos: &RepositoryRegistry, user_id: Uuid) {
+    match repos.users.get_global(user_id).await {
+        Ok(Some(requester)) => cache_user_email(&user_id.to_string(), &requester.email),
+        Ok(None) => {}
+        Err(e) => {
+            warn!(%user_id, error = %e, "Could not read the coach access requester for the notice");
+        }
+    }
+}
+
 /// Email every active super-admin about the request just opened.
 ///
 /// The email links the console queue under `frontend_url` when the server
@@ -266,8 +330,8 @@ async fn recipients(repos: &RepositoryRegistry, request_id: Uuid) -> Option<Vec<
     }
 }
 
-/// The name of the group a request names, for the email; `None` when it names
-/// none or the group is gone.
+/// The name of the group a request names, for the email and the notify
+/// notice; `None` when it names none or the group is gone.
 async fn requested_group_name(
     repos: &RepositoryRegistry,
     request: &CoachAccessRequest,
@@ -380,11 +444,8 @@ pub async fn grant(
     let request = pending_request(repos, request_id).await?;
     // Read before the claim: an undo restores this, so a grant an operator
     // made by hand meanwhile is never taken back by a failed attachment.
-    let had_coach_access = repos
-        .users
-        .get_global(request.user_id)
-        .await?
-        .is_some_and(|user| user.manages_roster);
+    let requester = repos.users.get_global(request.user_id).await?;
+    let had_coach_access = requester.as_ref().is_some_and(|user| user.manages_roster);
 
     let decided_at = Utc::now();
     if !repos
@@ -408,6 +469,19 @@ pub async fn grant(
         operator_user_id = ?operator,
         attached_group = ?attached_group,
         "Coach access request granted"
+    );
+    // The enricher names the requester from this cache, so a grant taken on a
+    // pod they never signed in on still says whose request it was.
+    if let Some(requester) = &requester {
+        cache_user_email(&requester.id.to_string(), &requester.email);
+    }
+    info!(
+        target: "notify",
+        event = "coach_access.granted",
+        user_id = %request.user_id,
+        request_id = %request_id,
+        group_id = attached_group.map(field::display),
+        "coach access granted"
     );
     Ok(GrantOutcome {
         request: CoachAccessRequest {
@@ -509,6 +583,14 @@ pub async fn decline(
         target_user_id = %request.user_id,
         operator_user_id = ?operator,
         "Coach access request declined"
+    );
+    cache_requester_email(repos, request.user_id).await;
+    info!(
+        target: "notify",
+        event = "coach_access.declined",
+        user_id = %request.user_id,
+        request_id = %request_id,
+        "coach access declined"
     );
     Ok(CoachAccessRequest {
         status: CoachAccessStatus::Declined,

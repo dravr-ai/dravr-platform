@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use dravr_contremaitre::schemas::NOTIFY_EVENTS_YAML;
 use dravr_tronc::notify::{AnalyticsCapture, AnalyticsProvider, NotifyEnricher};
 use pierre_services::analytics::{hash_id, is_consented, resolve_user_email, EventTier};
+use pierre_services::operator_mail::console_users_url;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tracing::error;
@@ -26,6 +27,11 @@ const STRIPPED_KEYS: &[&str] = &[
     // Slack-display field with no analytics meaning.
     "user_email",
     "emoji",
+    // The group a coach-access request names, for the super-admin deciding it
+    // (carnet#1072), and the console link the enricher adds: operator notice
+    // detail with no analytics meaning.
+    "group_name",
+    "review_url",
     "message",
     "uri",
     "method",
@@ -208,17 +214,37 @@ fn coerce(value: &str) -> Value {
     Value::String(value.to_owned())
 }
 
+/// The notify event whose decision a super-admin takes in the console's user
+/// list; its notice links there.
+const CONSOLE_DECIDED_EVENT: &str = "coach_access.requested";
+
 /// Enriches every notify event with host-derived fields for both sinks.
 ///
 /// Injects a `user_email` resolved from the in-process identity cache (so the
-/// private monitoring channel shows who, not an opaque UUID) and a per-event
-/// display `emoji` for the Slack headline.
+/// private monitoring channel shows who, not an opaque UUID), a per-event
+/// display `emoji` for the Slack headline, and on a coach-access request the
+/// `review_url` of the console queue that decides it.
 ///
 /// Registered once at startup via [`pierre_logging::set_notify_enricher`]. Runs
 /// synchronously on the tracing thread, so it only touches in-memory state —
 /// never a database. Events with no `user_id` in scope (pure system events) or
 /// a user not yet seen on this pod simply carry no `user_email`.
-pub struct PierreNotifyEnricher;
+pub struct PierreNotifyEnricher {
+    /// The console's user list under the deployment's frontend URL; `None`
+    /// when the server has none, and the notice then carries no link.
+    review_url: Option<String>,
+}
+
+impl PierreNotifyEnricher {
+    /// An enricher linking the console under `frontend_url`, when the server
+    /// has one.
+    #[must_use]
+    pub fn new(frontend_url: Option<&str>) -> Self {
+        Self {
+            review_url: frontend_url.map(console_users_url),
+        }
+    }
+}
 
 impl NotifyEnricher for PierreNotifyEnricher {
     fn enrich(&self, event: &str, fields: &mut HashMap<String, String>) {
@@ -227,6 +253,15 @@ impl NotifyEnricher for PierreNotifyEnricher {
         fields
             .entry("emoji".to_owned())
             .or_insert_with(|| event_emoji(event).to_owned());
+
+        // Where the super-admin reading the notice goes to decide it.
+        if event == CONSOLE_DECIDED_EVENT {
+            if let Some(url) = &self.review_url {
+                fields
+                    .entry("review_url".to_owned())
+                    .or_insert_with(|| url.clone());
+            }
+        }
 
         // Sender identity for both sinks — distinguishes a dev laptop from
         // the deployed Cloud Run revision. Named `sender_host` because
@@ -258,6 +293,7 @@ fn event_emoji(event: &str) -> &'static str {
         "provider" => "📥",
         "embacle" | "llm" => "🤖",
         "coach" => "🏃",
+        "coach_access" => "🔐",
         "billing" | "checkout" | "subscription" => "💳",
         "group" => "👥",
         "messaging" => "📨",

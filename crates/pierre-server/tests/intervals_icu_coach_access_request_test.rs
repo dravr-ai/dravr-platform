@@ -46,12 +46,14 @@ use pierre_core::models::{
     CoachAccessRequest, CoachAccessStatus, ConnectionType, TenantId, UserOAuthToken,
     API_KEY_TOKEN_TYPE,
 };
+use pierre_email::templates::CoachAccessOrigin;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::GroupRoutes;
 use pierre_services::admin_ops::set_user_manages_roster;
+use pierre_services::analytics::resolve_user_email;
 use pierre_services::coach_access::{decline, grant, request_access, RequestOutcome};
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::coach_platform::coach_platform;
@@ -402,6 +404,26 @@ async fn a_bound_key_coaching_an_active_athlete_files_one_pending_request_and_gr
     let pinged = named(&events, "coach_access.requested");
     assert_eq!(pinged.len(), 1, "the request announces itself: {pinged:?}");
     assert_eq!(pinged[0].field("request_id"), filed[0].id.to_string());
+    // The notice says it was filed from the roster, never asked, on how many
+    // coached athletes, and whose it is: a live read emails nobody, so the
+    // notice is all a super-admin sees of it.
+    assert_eq!(pinged[0].field("origin"), "intervals_icu_roster");
+    assert_eq!(pinged[0].field("coached_active_athletes"), "1");
+    assert!(
+        !pinged[0].fields.contains_key("group_id"),
+        "a request naming no group renders none: {pinged:?}"
+    );
+    // The event is also a log line: the requester's name never rides it,
+    // though they have one; the enricher names them by email in Slack alone.
+    assert!(
+        !pinged[0].fields.contains_key("display_name"),
+        "no display name on the log line: {pinged:?}"
+    );
+    assert_eq!(
+        resolve_user_email(&coach.id.to_string()).as_deref(),
+        Some(coach.email.as_str()),
+        "the requester never signed in on this pod, yet the notice names them"
+    );
 
     // Another live read finds the request waiting and files nothing more.
     assert!(w.live_read(&coach).await);
@@ -503,7 +525,10 @@ async fn a_decided_request_is_never_asked_again() {
 
     // Declined: the coach may ask again themselves; a roster read does not.
     let declined = w.person("declined@coach-access.test", true).await;
-    let RequestOutcome::Opened(asked) = request_access(repos, declined.id, None).await.unwrap()
+    let RequestOutcome::Opened(asked) =
+        request_access(repos, declined.id, None, CoachAccessOrigin::Asked)
+            .await
+            .unwrap()
     else {
         panic!("a first request opens");
     };
@@ -511,7 +536,10 @@ async fn a_decided_request_is_never_asked_again() {
 
     // Granted, then revoked by an operator: the revoke stands.
     let revoked = w.person("revoked@coach-access.test", true).await;
-    let RequestOutcome::Opened(asked_too) = request_access(repos, revoked.id, None).await.unwrap()
+    let RequestOutcome::Opened(asked_too) =
+        request_access(repos, revoked.id, None, CoachAccessOrigin::Asked)
+            .await
+            .unwrap()
     else {
         panic!("a first request opens");
     };
@@ -618,7 +646,10 @@ async fn the_link_probe_reads_nothing_for_a_user_who_could_not_get_a_request() {
         .await
         .unwrap();
     let asked = w.person("probe-asked@coach-access.test", true).await;
-    let RequestOutcome::Opened(request) = request_access(repos, asked.id, None).await.unwrap()
+    let RequestOutcome::Opened(request) =
+        request_access(repos, asked.id, None, CoachAccessOrigin::Asked)
+            .await
+            .unwrap()
     else {
         panic!("a first request opens");
     };
@@ -673,11 +704,14 @@ async fn the_group_a_coach_then_makes_to_coach_is_the_one_a_grant_attaches() {
     let other = create_coachless_group(repos, coach.id, coach.tenant, &agent, "Other")
         .await
         .unwrap();
-    let RequestOutcome::AlreadyPending(kept) =
-        request_access(repos, coach.id, Some((other, coach.tenant)))
-            .await
-            .unwrap()
-    else {
+    let RequestOutcome::AlreadyPending(kept) = request_access(
+        repos,
+        coach.id,
+        Some((other, coach.tenant)),
+        CoachAccessOrigin::Asked,
+    )
+    .await
+    .unwrap() else {
         panic!("one request waits already");
     };
     assert_eq!(kept.group_id, Some(onboarding));
@@ -707,11 +741,14 @@ async fn asking_from_a_group_names_it_on_a_request_filed_without_one() {
     let group = create_coachless_group(repos, coach.id, coach.tenant, &agent, "Tuesday Rides")
         .await
         .unwrap();
-    let RequestOutcome::AlreadyPending(waiting) =
-        request_access(repos, coach.id, Some((group, coach.tenant)))
-            .await
-            .unwrap()
-    else {
+    let RequestOutcome::AlreadyPending(waiting) = request_access(
+        repos,
+        coach.id,
+        Some((group, coach.tenant)),
+        CoachAccessOrigin::Asked,
+    )
+    .await
+    .unwrap() else {
         panic!("the filed request waits already");
     };
     assert_eq!(waiting.id, filed[0].id);

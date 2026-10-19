@@ -20,15 +20,18 @@ mod helpers;
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use helpers::notify_capture::{capture_notify, named};
+use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{CoachAccessStatus, Tenant, TenantId, User, UserStatus};
+use pierre_core::models::{
+    CoachAccessRequest, CoachAccessStatus, Tenant, TenantId, User, UserStatus,
+};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::analytics::resolve_user_email;
 use pierre_services::coach_access;
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
 use serde_json::{json, Value};
@@ -170,6 +173,18 @@ async fn a_second_tap_returns_the_request_already_waiting() -> Result<()> {
         pinged[0].field("request_id"),
         first["request"]["id"].as_str().unwrap()
     );
+    assert_eq!(pinged[0].field("origin"), "asked");
+    for absent in ["group_id", "group_name", "coached_active_athletes"] {
+        assert!(
+            !pinged[0].fields.contains_key(absent),
+            "{absent}: a request asked from no group renders none: {pinged:?}"
+        );
+    }
+    assert_eq!(
+        resolve_user_email(&coach.user_id.to_string()).as_deref(),
+        Some("tap-twice@example.com"),
+        "the notice names the requester whichever pod they signed in on"
+    );
 
     let latest: Value = AxumTestRequest::get("/api/me/coach-access-request")
         .header("Authorization", &coach.auth)
@@ -198,10 +213,17 @@ async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> R
     let coach = session(&resources, "grant-coach@example.com", UserRole::User).await?;
     let group = coachless_group(&resources, &coach).await?;
 
+    let (events, _guard) = capture_notify();
     let (status, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
     assert_eq!(status, 201, "{opened}");
     assert_eq!(opened["request"]["group_id"], group.to_string());
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
+
+    // The notice names the group the coach asked from, by id and by name.
+    let requested = only(&events, "coach_access.requested");
+    assert_eq!(requested.field("group_id"), group.to_string());
+    assert_eq!(requested.field("group_name"), "Tuesday Rides");
+    assert_eq!(requested.field("origin"), "asked");
 
     let operator = session(&resources, "grant-super@example.com", UserRole::SuperAdmin).await?;
     let queue: Value = AxumTestRequest::get("/api/admin/coach-access-requests")
@@ -227,6 +249,13 @@ async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> R
     let granted: Value = granted.json();
     assert_eq!(granted["data"]["request"]["status"], "granted", "{granted}");
     assert_eq!(granted["data"]["attached_group_id"], group.to_string());
+
+    // The room that saw the request open sees it decided, and where the
+    // coach now coaches.
+    let decided = only(&events, "coach_access.granted");
+    assert_eq!(decided.field("request_id"), request_id);
+    assert_eq!(decided.field("user_id"), coach.user_id.to_string());
+    assert_eq!(decided.field("group_id"), group.to_string());
 
     let user = repos.users.get_global(coach.user_id).await?.expect("coach");
     assert!(user.manages_roster, "the grant gives coach access");
@@ -264,6 +293,10 @@ async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> R
     .send(console(&resources))
     .await;
     assert_eq!(again.status(), 409);
+    assert!(
+        named(&events, "coach_access.declined").is_empty(),
+        "a refused decision announces nothing"
+    );
 
     // Now that they hold coach access, there is nothing left to ask for.
     let (status, refused) = ask(&resources, &coach.auth, json!({})).await;
@@ -310,6 +343,7 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
         UserRole::SuperAdmin,
     )
     .await?;
+    let (events, _guard) = capture_notify();
     let declined: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/decline"
     ))
@@ -321,6 +355,9 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
         declined["data"]["request"]["status"], "declined",
         "{declined}"
     );
+    let decided = only(&events, "coach_access.declined");
+    assert_eq!(decided.field("request_id"), request_id);
+    assert_eq!(decided.field("user_id"), coach.user_id.to_string());
 
     let history: Value = AxumTestRequest::get("/api/admin/coach-access-requests?status=declined")
         .header("Authorization", &operator.auth)
@@ -336,6 +373,41 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
     let (status, reopened) = ask(&resources, &coach.auth, json!({})).await;
     assert_eq!(status, 201, "a declined coach may ask again: {reopened}");
     assert_ne!(reopened["request"]["id"], opened["request"]["id"]);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn a_decision_names_a_requester_this_pod_never_saw() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let operator = session(&resources, "unseen-super@example.com", UserRole::SuperAdmin).await?;
+
+    for (email, decision) in [
+        ("unseen-granted@example.com", "grant"),
+        ("unseen-declined@example.com", "decline"),
+    ] {
+        let coach = session(&resources, email, UserRole::User).await?;
+        // Opened straight in the store, as when another pod announced it:
+        // nothing on this one cached who asked.
+        let request = CoachAccessRequest::pending(coach.user_id, None, chrono::Utc::now());
+        assert!(repos.coach_access_requests.open(&request).await?);
+        assert_eq!(resolve_user_email(&coach.user_id.to_string()), None);
+
+        let decided = AxumTestRequest::post(&format!(
+            "/api/admin/coach-access-requests/{}/{decision}",
+            request.id
+        ))
+        .header("Authorization", &operator.auth)
+        .send(console(&resources))
+        .await;
+        assert_eq!(decided.status(), 200, "{decision}");
+        assert_eq!(
+            resolve_user_email(&coach.user_id.to_string()).as_deref(),
+            Some(email),
+            "the {decision} notice names whose request it was"
+        );
+    }
     Ok(())
 }
 

@@ -125,7 +125,10 @@ pub(crate) async fn file_request_from_roster(
     if binding != EmailBinding::Bound || coached == 0 || !may_file_for(repos, user_id).await? {
         return Ok(None);
     }
-    match request_access(repos, user_id, None).await? {
+    let origin = CoachAccessOrigin::IntervalsIcuRoster {
+        coached_active_athletes: coached,
+    };
+    match request_access(repos, user_id, None, origin).await? {
         RequestOutcome::Opened(request) => {
             info!(
                 user_id = %user_id,
