@@ -34,6 +34,14 @@
     <key>RunAtLoad</key>
     <false/>
 
+    <!-- The sweep stages a reclaimed tree and deletes it with a detached `rm -rf` that
+         outlives the run. By default launchd kills every process left in the job's
+         process group when the script exits, so each delete died seconds after it
+         started and the staged tree never freed: on 2026-10-19 191 GiB sat in
+         .cargo-reclaim with free space at 63 GiB. Let the delete finish. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+
     <key>StandardOutPath</key>
     <string>__LOG__</string>
     <key>StandardErrorPath</key>

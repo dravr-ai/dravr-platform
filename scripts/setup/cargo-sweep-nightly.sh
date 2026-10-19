@@ -600,6 +600,8 @@ ensure_stage() {
 # the same APFS volume so the repo is usable again immediately, where removing
 # tens of GB of small files takes minutes. Staging sits outside every repo, so it
 # never shows up in anyone's git status. cargo recreates target/ on the next build.
+# The delete outlives the run only because the LaunchAgent sets AbandonProcessGroup;
+# without it launchd kills the delete when the script exits (drain_stage too).
 wholesale_reclaim() {
     local target="$1" label="$2" staged
     ensure_stage
