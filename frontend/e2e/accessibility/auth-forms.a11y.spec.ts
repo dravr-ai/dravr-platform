@@ -136,6 +136,19 @@ test.describe('Auth Forms Accessibility', () => {
       // The login screen's "Don't have an account? Create one" button.
       await page.getByRole('button', { name: /create one/i }).click();
       await page.locator('input[name="displayName"]').waitFor({ state: 'visible' });
+
+      // Create Account is disabled (opacity-50) until the sign-up config
+      // loads, then fades in through btn-base's transition. A scan taken
+      // mid-fade measures a half-transparent button: 4.06:1 on a loaded
+      // machine, 2026-10-19. Scan the form at rest; looping animations
+      // (borealBreath, aiTyping) never finish, so only finite ones are waited on.
+      await expect(page.locator('button[type="submit"]')).toBeEnabled();
+      await page.waitForFunction(() =>
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .every((animation) => animation.playState !== 'running'),
+      );
     });
 
     test('should have no WCAG 2.1 AA violations on registration form', async ({ page }) => {
