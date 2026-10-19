@@ -1,5 +1,5 @@
 # ABOUTME: The live-model eval lane — the 2026-08 incident corpus against dev's coaching chain over production's transport
-# ABOUTME: Nightly at 01:37 UTC, one pass, copilot_sdk with dev's claude_code and gemini tiers behind it (carnet#504)
+# ABOUTME: Nightly at 01:37 UTC, one pass, dev's anthropic head with its copilot_sdk, claude_code and gemini tiers behind it (carnet#504, carnet#875)
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -7,25 +7,27 @@
 # Action #1 of the 2026-08-23 post-mortem "Why E2E Kept Missing the Coach Regressions".
 # Most tiers drive a scripted mock model, or a local one, and so verify the
 # pipeline's reaction to model behaviour an author imagined. This one replays every
-# incident against the models athletes are served by, through production's transport
-# — the pinned Copilot runtime over embacle's copilot_sdk provider, native MCP tool
-# calling — and the real chat pipeline, and grades the DELIVERED message.
+# incident against the models athletes are served by, through production's transports
+# — embacle's Anthropic Messages API provider with native tool calling at the head,
+# the pinned Copilot runtime over its copilot_sdk provider behind it — and the real
+# chat pipeline, and grades the DELIVERED message.
 #
 # WHOSE MODEL ANSWERS
 #
 # Dev's chain, PIERRE_LLM_CHAIN read from infra/environments/dev/main.tf so the lane
-# follows it: copilot_sdk serving the coaching model, then claude_code on its own
-# model and its second account (claude-code#2), then gemini on its own. Every tier runs
-# on the live dev credential, from the Secret Manager entry the service reads; the
-# two account probes check the Copilot and first Claude ones every morning
-# (copilot-health-probe.yml, claude-health-probe.yml).
+# follows it: anthropic serving the coaching model on the Messages API and its second
+# organization (anthropic#2), then copilot_sdk on its own model, then claude_code and
+# its second account (claude-code#2), then gemini. Every tier runs on the live dev
+# credential, from the Secret Manager entry the service reads; the two account probes
+# check the Copilot and first Claude ones every morning (copilot-health-probe.yml,
+# claude-health-probe.yml).
 #
 # The whole chain runs, not its head alone (decided 2026-10-12, carnet#504): a turn the
-# Copilot account cannot serve — a spent quota, a timeout, an empty answer — is
-# re-run down the chain, Claude then Gemini, as it is for an athlete, and that answer
-# is what gets graded. The server log marks such a turn with "falling back to the
-# chain's tail". The cost of that choice is stated rather than hidden: a Copilot
-# quota hit in this lane spends the Claude accounts.
+# head cannot serve — a spent credit, a timeout, an empty answer — is re-run down the
+# chain, as it is for an athlete, and that answer is what gets graded. The server log
+# marks such a turn with "Runtime LLM fallback engaged". The cost of that choice is
+# stated rather than hidden: this lane spends the Anthropic organizations' credit,
+# and a spent credit spends the Copilot and Claude accounts behind it.
 #
 # HOW AN OUTAGE STAYS OUT OF THE FINDINGS
 #
@@ -39,12 +41,12 @@
 #
 # ONE PASS A NIGHT
 #
-# The lane sent 186 prompts a night at three passes (run 35502201927), about 5,600 a
-# month against the account's 7,000 premium requests if each counts as one. One pass
-# is about 1,900, ~27%, and copilot-health-probe.yml opens an issue when less than a
-# quarter of the month is left. With one pass the reproduce rule (a finding reds only
-# when it reproduces in a majority of passes) is one of one, so every gating finding
-# reds. A dispatch with attempts=3 is the way to tell a defect from a draw.
+# The lane sent 186 prompts a night at three passes (run 35502201927). Those were
+# Copilot premium requests while copilot_sdk led the chain; with the anthropic head
+# they are Haiku calls against the organizations' prepaid credit, and Copilot is
+# spent only on a turn Anthropic could not serve. With one pass the reproduce rule
+# (a finding reds only when it reproduces in a majority of passes) is one of one, so
+# every gating finding reds. A dispatch with attempts=3 is the way to tell a defect from a draw.
 #
 # WHY THERE IS NO `push:` TRIGGER
 #
@@ -76,7 +78,7 @@ on:
   workflow_dispatch:
     inputs:
       attempts:
-        description: "Passes over the whole corpus (a finding reds only when it reproduces in a majority); each pass spends the Copilot account like one nightly run"
+        description: "Passes over the whole corpus (a finding reds only when it reproduces in a majority); each pass spends the Anthropic credit like one nightly run"
         required: true
         default: "1"
       episodes:
@@ -134,7 +136,7 @@ jobs:
       # variable the server reads. The step that reads the chain checks
       # PIERRE_LLM_CHAIN's providers against these, because each tier needs its
       # own runtime and token provisioned below.
-      LANE_LLM_PROVIDERS: copilot_sdk,claude_code,gemini
+      LANE_LLM_PROVIDERS: anthropic,copilot_sdk,claude_code,gemini
       # Dev's value: the synthetic probe's ping is a real turn on the primary's
       # account. Athlete turns are what this lane spends that account on.
       PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS: "0"
@@ -288,7 +290,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       # The live credentials, read where the dev service reads them (the
-      # account probes read the first two the same way); the deployer account
+      # account probes read the Copilot and first Claude ones the same way); the deployer account
       # holds secretAccessor on the project. The repo secret
       # DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN is a copy: this lane once ran on
       # it after the live token had rotated, and every Copilot call answered
@@ -299,7 +301,9 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}"
-          for PAIR in copilot:dravr-mcp-server-copilot-github-token \
+          for PAIR in anthropic:dravr-mcp-server-anthropic-api-key \
+                      anthropic2:dravr-mcp-server-anthropic-api-key-2 \
+                      copilot:dravr-mcp-server-copilot-github-token \
                       claude:dravr-mcp-server-claude-code-oauth-token \
                       claude2:dravr-mcp-server-claude-code-oauth-token-2 \
                       gemini:dravr-mcp-server-gemini-api-key; do
@@ -328,6 +332,8 @@ jobs:
       # summary line puts both counts on the run page whatever the verdict.
       - name: Run the incident corpus
         env:
+          ANTHROPIC_API_KEY: ${{ steps.tokens.outputs.anthropic }}
+          ANTHROPIC_API_KEY_2: ${{ steps.tokens.outputs.anthropic2 }}
           COPILOT_GITHUB_TOKEN: ${{ steps.tokens.outputs.copilot }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.tokens.outputs.claude }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ steps.tokens.outputs.claude2 }}

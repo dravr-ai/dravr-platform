@@ -15,20 +15,21 @@
 //! > model behavior no author scripted.
 //!
 //! A mock cannot regress the way a model does. This lane is the tier that can:
-//! it drives a **real** model through production's transport — the pinned
-//! Copilot runtime over embacle's `copilot_sdk` provider, with native MCP tool
-//! calling — and the **real** chat pipeline, over the **real** prompt corpus,
-//! and grades what came out.
+//! it drives a **real** model through production's transports — embacle's
+//! Anthropic Messages API provider at the head, the pinned Copilot runtime
+//! over its `copilot_sdk` provider behind it, both with native tool calling —
+//! and the **real** chat pipeline, over the **real** prompt corpus, and
+//! grades what came out.
 //!
 //! Which model answers is the environment's choice. The nightly lane runs
-//! dev's chain: `PIERRE_LLM_CHAIN` with `copilot_sdk` serving the deployed
-//! coaching model at its head and `claude_code` (both of dev's accounts) and
-//! then `gemini` behind it, so a turn the Copilot account
-//! cannot serve — a spent quota, a timeout — is answered further down the
-//! chain exactly as it would be for an athlete. A
+//! dev's chain: `PIERRE_LLM_CHAIN` with `anthropic` serving the deployed
+//! coaching model at its head (both of dev's organizations), then
+//! `copilot_sdk`, `claude_code` (both of dev's accounts) and `gemini` behind
+//! it, so a turn the head cannot serve — a spent credit, a timeout — is
+//! answered further down the chain exactly as it would be for an athlete. A
 //! finding is therefore a statement about what the athlete would have
 //! received, whichever tier wrote it; the server log marks a turn the chain
-//! moved with `falling back to the chain's tail`. A turn no tier answered
+//! moved with `Runtime LLM fallback engaged`. A turn no tier answered
 //! reaches the athlete as canned copy with no assistant row behind it, and
 //! is reported as an infra error, never as a finding.
 //!

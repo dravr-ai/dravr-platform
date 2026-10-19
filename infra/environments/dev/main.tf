@@ -321,57 +321,60 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain (JF, 2026-10-01): one ordered list, PIERRE_LLM_CHAIN,
-      # each entry `provider=model` (crates/pierre-llm/src/config.rs, LlmChain).
-      # The first entry serves every turn; a provider fault or an empty answer
+      # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
+      # carnet#875): one ordered list, PIERRE_LLM_CHAIN, each entry
+      # `provider=model` (crates/pierre-llm/src/config.rs, LlmChain). The
+      # first entry serves every turn; a provider fault or an empty answer
       # moves the turn to the next one, each tier on its own model. A pooled
-      # provider's further accounts sit right behind it wherever it is: here
-      # claude_code is followed by claude-code#2, from CLAUDE_CODE_OAUTH_TOKEN_2
+      # provider's further accounts sit right behind it wherever it is:
+      # anthropic is followed by anthropic#2 (ANTHROPIC_API_KEY_2) and
+      # claude_code by claude-code#2 (CLAUDE_CODE_OAUTH_TOKEN_2), both bound
       # below — a spent account moves the turn to the next account before the
-      # chain leaves Claude (carnet#480, carnet#688). Cohere is out.
+      # chain leaves that provider (carnet#480, carnet#688). Cohere is out.
       #
-      # 1. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
-      #    jfarcand Copilot account, serving claude-sonnet-5.5 (JF,
-      #    2026-10-01). Its monthly credits reset on the 1st and have no
-      #    overage: on 2026-09-21 every turn answered quota_exceeded and the
-      #    athlete saw "temporairement indisponible" (carnet#478). A tier's
-      #    RateLimit falls through to the next tier, so a spent Copilot is
-      #    skipped rather than ending the turn — any quota answer fires
-      #    dravr-llm-tier-rate-limited and more than three skips in five
-      #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
-      #    A whole turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a
-      #    turn that ends on "copilot-sdk: turn exceeded 300s" is the signal
-      #    that the model is too slow for that cap.
-      # 2. claude_code = the direct Anthropic subscription — the one switched
+      # 1. anthropic = the Anthropic Messages API on claude-haiku-5-5, over a
+      #    pool of organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2), each
+      #    with its own prepaid credit under a $199/month Console spend limit.
+      #    A spent credit answers HTTP 402, which embacle maps to RateLimit, so
+      #    it falls through like a quota: to anthropic#2, then copilot_sdk. Any
+      #    quota answer fires dravr-llm-tier-rate-limited and more than three
+      #    skips in five minutes fire dravr-llm-chain-fallthrough
+      #    (llm_chain_monitoring.tf). Haiku is also the model
+      #    PIERRE_LLM_MODEL_TOOL_ITERATION defaults to on anthropic
+      #    (carnet#888), so with this head every tool-loop iteration and the
+      #    reply already run on the same model and nothing is rerouted.
+      # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
+      #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
+      #    credits reset on the 1st and have no overage (carnet#478). A whole
+      #    turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
+      #    that ends on "copilot-sdk: turn exceeded 300s" is the signal that
+      #    the model is too slow for that cap.
+      # 3. claude_code = the direct Anthropic subscription — the one switched
       #    off on 2026-05-13 for burning Opus credits during Copilot blips with
       #    no spend cap — so it runs Sonnet, then its pooled second account.
-      # 3. gemini = the Google free tier via GEMINI_API_KEY.
+      #    Binding ANTHROPIC_API_KEY does not move it off its subscription:
+      #    since embacle 0.35.0 the claude_code runner withholds the API key
+      #    from every `claude` child that holds an OAuth token (claude_code.rs,
+      #    withholds_api_key).
+      # 4. gemini = the Google free tier via GEMINI_API_KEY.
       #
       # The head's model is also the model every turn asks for and the one a
       # new conversation records (carnet#824).
       #
-      # Planned (carnet#875): an `anthropic=claude-haiku-5-5` head — the
-      # Anthropic Messages API on a pool of organizations (ANTHROPIC_API_KEY,
-      # ANTHROPIC_API_KEY_2, secrets module), each with its own prepaid credit
-      # under a $199/month Console spend limit; a spent credit (HTTP 402) falls
-      # through like a quota, to anthropic#2 and then to copilot_sdk. It waits
-      # on the two keys in Secret Manager, their binding to this service, and
-      # the chat/messaging eval on Haiku, whose coaching has only been benched
-      # on Sonnet. Binding ANTHROPIC_API_KEY does not move the claude_code
-      # tiers off their subscription: since embacle 0.35.0 the claude_code
-      # runner withholds the API key from every `claude` child that holds an
-      # OAuth token (claude_code.rs, withholds_api_key).
+      # The live incident eval lane reads this value and refuses to run when
+      # its provider list differs from LANE_LLM_PROVIDERS
+      # (.github/workflows/live-incident-eval.yml): change both together.
       #
       # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
       # reads it is the Gemini provider built with no model of its own — a
       # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
       # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_CHAIN         = "anthropic=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
       # The synthetic LLM probe runs once per instance start and never again:
-      # its "ping" is a real turn on the primary's account — a Copilot credit
-      # each time, from a monthly allowance with no overage. Athlete turns
+      # its "ping" is a real turn on the head's account — a call billed
+      # against the Anthropic organization's prepaid credit. Athlete turns
       # and the chain-fallthrough alert cover a credential that dies mid-day.
       # (JF, 2026-09-21: "startup only".)
       PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS = "0"
@@ -661,9 +664,14 @@ module "backend" {
     # (claude-code#2). Further accounts are _3, _4, … — the platform reads
     # them in order and stops at the first unset one (carnet#480).
     CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
-    OPENWEATHER_API_KEY       = module.secrets.secret_ids["openweather_api_key"]
-    RESEND_API_KEY            = module.secrets.secret_ids["resend_api_key"]
-    POSTHOG_API_KEY           = module.secrets.secret_ids["posthog_api_key"]
+    # The Anthropic Messages API key pool, the chain's head (carnet#875): one
+    # key per organization, each with its own credit. Further organizations
+    # are _3, _4, … — read in order until the first unset one.
+    ANTHROPIC_API_KEY   = module.secrets.secret_ids["anthropic_api_key"]
+    ANTHROPIC_API_KEY_2 = module.secrets.secret_ids["anthropic_api_key_2"]
+    OPENWEATHER_API_KEY = module.secrets.secret_ids["openweather_api_key"]
+    RESEND_API_KEY      = module.secrets.secret_ids["resend_api_key"]
+    POSTHOG_API_KEY     = module.secrets.secret_ids["posthog_api_key"]
 
     # Provider webhook secrets. WHOOP signs every push with the app's client
     # secret, so the WHOOP endpoint's WHOOP_WEBHOOK_SECRET reads that same
@@ -1099,7 +1107,7 @@ module "sciotte" {
     # COPILOT_HEADLESS_MODEL is the vision model: the service builds its
     # analyzer from embacle's CopilotHeadlessConfig::from_env and sends each
     # screenshot with no per-request model. claude-sonnet-5.5 is the model
-    # the chat primary runs (JF, 2026-10-01).
+    # the chat chain's copilot_sdk tier runs (JF, 2026-10-01).
     DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
     COPILOT_HEADLESS_MODEL    = "claude-sonnet-5.5"
     DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"

@@ -451,8 +451,9 @@ resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
 # spend limit, which is what turns the credit into a ceiling: with a payment
 # method on file and no limit, a spent credit bills the card instead of
 # answering 402. Filled by hand; the placeholder is ignored by lifecycle, as
-# for the other API keys. Not bound to the service yet — see the
-# PIERRE_LLM_CHAIN comment in infra/environments/dev/main.tf.
+# for the other API keys. Bound to the service as ANTHROPIC_API_KEY, the
+# chain's head — see the PIERRE_LLM_CHAIN comment in
+# infra/environments/dev/main.tf.
 resource "google_secret_manager_secret" "anthropic_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-anthropic-api-key"
@@ -478,7 +479,7 @@ resource "google_secret_manager_secret_version" "anthropic_api_key_placeholder" 
 # the turn to the next organization before the chain leaves Anthropic.
 # Further organizations are _3, _4, … — read in order until the first unset
 # one. Filled by hand and deliberately WITHOUT a placeholder version, like
-# claude_code_oauth_token_2: the service will bind `latest`, so a placeholder
+# claude_code_oauth_token_2: the service binds `latest`, so a placeholder
 # added after the real key would replace it.
 resource "google_secret_manager_secret" "anthropic_api_key_2" {
   project   = var.project_id
