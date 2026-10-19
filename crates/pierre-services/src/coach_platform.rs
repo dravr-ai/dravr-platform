@@ -583,7 +583,7 @@ fn named_coach_platform(
 /// # Errors
 ///
 /// Returns the repository error when the credentials cannot be read.
-async fn connected_coach_platforms(
+pub(crate) async fn connected_coach_platforms(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
     coach_user_id: Uuid,

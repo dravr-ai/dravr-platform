@@ -191,6 +191,13 @@ interface ChatTabProps {
    * `discover/<agentId>`, which is where the edit sheet lives.
    */
   onNavigate?: (route: string) => void;
+  /**
+   * A thread whose info drawer the shell wants open, once that thread is the
+   * one on screen — `#chat/<id>/info`, where a group link proposal waits.
+   */
+  openInfoFor?: string | null;
+  /** Called once the drawer above has been opened. */
+  onOpenInfoConsumed?: () => void;
   /** Text the shell wants drafted or sent in a thread — the invite deep link uses it. */
   pendingComposerAction?: PendingComposerAction | null;
   /** Called once the action above has been drafted or dispatched. */
@@ -215,6 +222,8 @@ export default function ChatTab({
   selectedConversation,
   onSelectConversation,
   onNavigate,
+  openInfoFor = null,
+  onOpenInfoConsumed,
   pendingComposerAction,
   onPendingComposerActionConsumed,
   layout = 'shell',
@@ -605,6 +614,16 @@ export default function ChatTab({
       inputRef.current?.focus();
     }
   }, [selectedConversation]);
+
+  // A link that names a thread's info opens its drawer once that thread is on
+  // screen. Declared after the close above, so a change of thread that brings
+  // the request closes the old drawer and then opens this one.
+  useEffect(() => {
+    if (openInfoFor === null || openInfoFor !== selectedConversation) return;
+    setInfoOpensParticipants(false);
+    setInfoOpen(true);
+    onOpenInfoConsumed?.();
+  }, [openInfoFor, selectedConversation, onOpenInfoConsumed]);
 
   // OAuth completion listener
   useEffect(() => {

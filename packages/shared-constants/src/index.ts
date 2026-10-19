@@ -130,7 +130,10 @@ export type {
 
 // Notification → destination, resolved once for both platforms.
 export {
+  MOBILE_THREAD_INFO_GROUP,
+  MOBILE_THREAD_INFO_PARAM,
   MOBILE_THREAD_PATHNAME,
+  WEB_THREAD_INFO_SUBVIEW,
   resolveNotificationDestination,
   webNotificationRoute,
   mobileNotificationTarget,

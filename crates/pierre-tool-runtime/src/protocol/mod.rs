@@ -32,6 +32,7 @@ mod tool_response;
 pub mod types;
 
 pub use auth::AuthService;
+pub use coach_calendar::delegation_services;
 pub use executor::UniversalExecutor;
 pub use types::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalTool,

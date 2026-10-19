@@ -139,6 +139,7 @@ import { SETTINGS_TABS, type SettingsTab } from './settings/settingsTabs';
 import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRoute';
 import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
 import { homeConversationRoute, parseHomeConversation } from './home/homeRoute';
+import { parseChatSubview } from './chat/chatRoute';
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
 function parseSettingsTab(segment: string): SettingsTab | null {
@@ -264,15 +265,22 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // The Groups tab's open room. The tab keeps its `chat` id, so `#chat/<id>`
   // links — notifications, bookmarks — still land.
+  const initialChat = initialTabSeg === 'chat' ? parseChatSubview(initialSubSeg) : null;
   const [selectedConversation, setSelectedConversation] = useState<string | null>(
-    initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+    initialChat?.conversationId ?? null,
   );
   // A `#chat/<id>` link names a thread without saying which side it lives on.
   // Once the list says, a personal one moves to Home. Only links do this: a
   // room being created in the Groups tab is plain until `/group create` binds
   // it, and must not be pulled away mid-command.
   const [linkedChatConversation, setLinkedChatConversation] = useState<string | null>(
-    initialTabSeg === 'chat' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
+    initialChat?.conversationId ?? null,
+  );
+  // The room whose info a `#chat/<id>/info` link opens — a group link
+  // proposal's notice, whose answer waits there. Opened once, then dropped:
+  // the route itself keeps only the room, so Back never reopens the drawer.
+  const [chatInfoRequest, setChatInfoRequest] = useState<string | null>(
+    initialChat?.openInfo ? initialChat.conversationId : null,
   );
 
   // Home's open conversation, from `#home/chat/<id>`. `null` is the athlete's
@@ -386,9 +394,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     const sub = tab !== requested || slash === -1 ? '' : raw.slice(slash + 1);
     setActiveTab(tab);
     setEditingCoachId(tab === 'discover' && sub ? decodeURIComponent(sub) : null);
-    const chatConversation = tab === 'chat' && sub ? decodeURIComponent(sub) : null;
+    const chat = tab === 'chat' ? parseChatSubview(sub) : null;
+    const chatConversation = chat?.conversationId ?? null;
     setSelectedConversation(chatConversation);
     setLinkedChatConversation(chatConversation);
+    setChatInfoRequest(chat?.openInfo ? chat.conversationId : null);
     setHomeConversation(tab === 'home' ? parseHomeConversation(sub) : null);
     const activity = tab === 'home' ? parseActivitySubview(sub) : null;
     // A fresh object per route would reset the view's thread on every hash
@@ -1125,6 +1135,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               selectedConversation={selectedConversation}
               onSelectConversation={setSelectedConversation}
               onNavigate={applyRoute}
+              openInfoFor={chatInfoRequest}
+              onOpenInfoConsumed={() => setChatInfoRequest(null)}
               pendingComposerAction={pendingComposerAction}
               onPendingComposerActionConsumed={() => {
                 setPendingComposerAction(null);

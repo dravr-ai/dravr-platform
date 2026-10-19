@@ -1,5 +1,5 @@
 // ABOUTME: Every athlete on a coach's coaching-platform roster reads as one link state against the coach's groups
-// ABOUTME: A stand-in platform pins the states, the email rule the picker suggests by, and the no-access refusal on propose
+// ABOUTME: A stand-in platform pins the states, the picker's email rule, the no-access refusal, and the link a join proposes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,26 +19,38 @@
 //!   coach's groups, exactly like an email no one holds;
 //! - the picker of one group suggests that group's member the roster email
 //!   binds, and leaves out an athlete a link holds in another group;
-//! - an athlete the platform gives the coach no access to is never proposed.
+//! - an athlete the platform gives the coach no access to is never proposed;
+//! - a member who joins by `/group join` is proposed the link the picker
+//!   would suggest for them, with every consent left to them, and nothing
+//!   else: the join stands whatever the roster says or fails to say, and a
+//!   cached roster that binds no one is read once more, live;
+//! - the request opens the group's info over the member's own copy of the
+//!   group's chat, or their connections when they hold no such room in the
+//!   tenant they read the request in.
 
 mod common;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use pierre_commands::group_membership::GroupJoinHandler;
+use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    Activity, Athlete, ConnectionType, DelegatedConnection, LinkConsents, RosterAccess,
-    RosterAthlete, Stats, TenantId, UserOAuthToken,
+    Activity, Athlete, ConnectionType, DelegatedConnection, DelegationStatus, LinkConsents,
+    RosterAccess, RosterAthlete, Stats, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_notifications::models::Notification;
+use pierre_notifications::TenantId as NoticeTenant;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -47,23 +59,29 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
+use pierre_runtime_context::CommandCtx;
 use pierre_services::coach_platform::coach_platform;
 use pierre_services::delegated_connections::{
     propose, roster_for_group, DelegationServices, Proposal, RosterEntry,
 };
 use pierre_services::delegated_link_states::{roster_link_states, LinkState, RosterLinkState};
 use pierre_test_support::delegation::create_group_agent;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 /// The stand-in coaching platform, named nowhere in the platform's code.
 const COACHHUB: &str = "coachhub";
 const COACH_EMAIL: &str = "coach@link-states.test";
+/// How long a notice's spawned dispatch may take to reach the feed.
+const NOTICE_DEADLINE: StdDuration = StdDuration::from_secs(10);
 
-/// The roster the stand-in serves, and how many times it was read.
+/// The roster the stand-in serves, how many times it was read, and whether
+/// the platform is down.
 #[derive(Clone, Default)]
 struct Roster {
     athletes: Arc<Mutex<Vec<RosterAthlete>>>,
     reads: Arc<AtomicUsize>,
+    down: Arc<AtomicBool>,
 }
 
 impl Roster {
@@ -73,6 +91,10 @@ impl Roster {
 
     fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
+    }
+
+    fn set_down(&self, down: bool) {
+        self.down.store(down, Ordering::SeqCst);
     }
 }
 
@@ -176,6 +198,9 @@ impl FitnessProvider for CoachHub {
             return Err(AppError::internal("roster read without a credential"));
         }
         self.roster.reads.fetch_add(1, Ordering::SeqCst);
+        if self.roster.down.load(Ordering::SeqCst) {
+            return Err(AppError::internal("CoachHub is down"));
+        }
         Ok(CoachRoster {
             account_email: Some(COACH_EMAIL.to_owned()),
             athletes: self.roster.athletes.lock().unwrap().clone(),
@@ -415,6 +440,107 @@ impl World {
         )
         .await
         .unwrap()
+    }
+
+    /// `who` joins `group` by redeeming a fresh member invite with
+    /// `/group join`, as every surface does, typed in `thread` when there is
+    /// one (a dispatch with none files no room); returns the reply they read.
+    async fn join_by_code(
+        &self,
+        group: &CoachingGroup,
+        who: Person,
+        thread: Option<&str>,
+    ) -> String {
+        let invite = self
+            .res
+            .common
+            .group_service
+            .create_invite(
+                group.id,
+                self.owner.id,
+                self.owner.tenant,
+                None,
+                None,
+                GroupInviteKind::Member,
+            )
+            .await
+            .unwrap();
+        let ctx = PlatformCommandContext {
+            user_id: who.id,
+            tenant_id: who.tenant,
+            channel_type: "web".to_owned(),
+            args: vec![invite.code.clone()],
+            raw_text: format!("/group join {}", invite.code),
+            ctx: Arc::<ServerContext>::clone(&self.res) as Arc<dyn CommandCtx>,
+            locale: "en".to_owned(),
+            is_direct_message: true,
+            ambient_group_fallback: false,
+            conversation_id: thread.map(str::to_owned),
+            conversation_tenant_id: who.tenant,
+            sender_id: None,
+            rotation: ConversationRotation::default(),
+            tool_runtime: Arc::<ServerContext>::clone(&self.res),
+        };
+        let reply = GroupJoinHandler.execute(&ctx).await.unwrap().text;
+        assert!(
+            self.res
+                .common
+                .repos
+                .groups
+                .get_member(&group.id.to_string(), who.id)
+                .await
+                .unwrap()
+                .is_some(),
+            "the join stands: {reply}"
+        );
+        reply
+    }
+
+    /// The link request `who` reads in their feed, once its dispatch has
+    /// landed.
+    async fn link_request(&self, who: Person) -> Notification {
+        let service = self
+            .res
+            .common
+            .notification_service
+            .as_ref()
+            .expect("the test server wires notifications");
+        let started = Instant::now();
+        loop {
+            let (rows, _total, _unread) = service
+                .list_notifications(
+                    who.id,
+                    NoticeTenant(who.tenant.as_uuid()),
+                    20,
+                    0,
+                    Some("coach"),
+                    false,
+                )
+                .await
+                .unwrap();
+            if let Some(row) = rows
+                .into_iter()
+                .find(|row| row.notification_type == "delegation_proposed")
+            {
+                return row;
+            }
+            assert!(
+                started.elapsed() < NOTICE_DEADLINE,
+                "no link request reached the member"
+            );
+            sleep(StdDuration::from_millis(100)).await;
+        }
+    }
+
+    /// The live links `member` holds in `group`.
+    async fn links_of(&self, group: &CoachingGroup, member: Person) -> Vec<DelegatedConnection> {
+        self.res
+            .common
+            .repos
+            .delegated_connections
+            .list_live_for_member_in_group(group.id, member.id)
+            .await
+            .unwrap()
     }
 
     /// `group`'s picker, read live.
@@ -855,4 +981,247 @@ async fn an_athlete_the_platform_gives_no_access_to_is_never_proposed() {
     .unwrap();
     assert_eq!(link.member_user_id, follower.id);
     assert_eq!(link.provider_athlete_id, "c2");
+}
+
+#[tokio::test]
+async fn a_member_who_joins_under_their_roster_email_is_proposed_the_link() {
+    let w = World::new().await;
+    // A group's coach is in the group's tenant and reads their roster there,
+    // as the group's picker does.
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    let joiner = person(&w.res, "joiner@link-states.test", true).await;
+    w.roster.set(vec![
+        athlete("d1", Some("someone-else@link-states.test")),
+        // Emails bind in their normalized form.
+        athlete("d2", Some(" Joiner@Link-States.test ")),
+    ]);
+
+    let reply = w.join_by_code(&squad, joiner, None).await;
+    assert!(
+        !reply.contains("d2") && !reply.to_lowercase().contains("joiner@"),
+        "nothing from the roster reaches the reply: {reply}"
+    );
+
+    let links = w.links_of(&squad, joiner).await;
+    assert_eq!(links.len(), 1, "one proposal: {links:?}");
+    let link = &links[0];
+    assert_eq!(link.status, DelegationStatus::Proposed);
+    assert_eq!(link.provider, COACHHUB);
+    assert_eq!(link.provider_athlete_id, "d2");
+    assert_eq!(link.coach_user_id, w.coach.id);
+    assert_eq!(link.coach_tenant_id, w.owner.tenant);
+    assert_eq!(link.member_tenant_id, None, "the member confirms it");
+    assert!(
+        !link.calendar_write && !link.wellness_read,
+        "every consent waits on the member: {link:?}"
+    );
+
+    // Joined from no thread, so no room was filed for them: the request opens
+    // their connections, whose card names the group.
+    let request = w.link_request(joiner).await;
+    let data = request.data.expect("the request carries its route");
+    assert_eq!(data["screen"], "connections", "{data}");
+    assert_eq!(data["provider"], COACHHUB, "{data}");
+}
+
+#[tokio::test]
+async fn a_join_typed_in_a_thread_asks_the_member_over_their_group_room() {
+    let w = World::new().await;
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    let joiner = person(&w.res, "room@link-states.test", true).await;
+    w.roster
+        .set(vec![athlete("g1", Some("room@link-states.test"))]);
+    let repos = &w.res.common.repos;
+    let member = joiner.id.to_string();
+    let thread = repos
+        .chat
+        .create_conversation(&member, joiner.tenant, "Chat", "test-model", None, None)
+        .await
+        .unwrap();
+
+    w.join_by_code(&squad, joiner, Some(&thread.id)).await;
+
+    let room = repos
+        .chat
+        .find_group_conversation(&member, joiner.tenant, &squad.id.to_string())
+        .await
+        .unwrap()
+        .expect("the join filed the member's own copy of the group's chat");
+    assert_ne!(room.id, thread.id, "the room is filed beside the thread");
+    // The request opens the group's info over that room, where the link
+    // waits with its consents.
+    let request = w.link_request(joiner).await;
+    let data = request.data.expect("the request carries its route");
+    assert_eq!(data["screen"], "group_info", "{data}");
+    assert_eq!(data["id"], room.id.as_str(), "{data}");
+    assert_eq!(w.links_of(&squad, joiner).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_link_request_names_no_room_outside_the_tenant_the_member_reads_it_in() {
+    let w = World::new().await;
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    let joiner = person(&w.res, "two-tenants@link-states.test", true).await;
+    w.roster
+        .set(vec![athlete("h1", Some("two-tenants@link-states.test"))]);
+    let repos = &w.res.common.repos;
+    // The member also belongs to the group's tenant, joined after their own,
+    // which stays the one they sign in to and read their feed in.
+    repos
+        .users
+        .update_tenant_id(joiner.id, w.owner.tenant)
+        .await
+        .unwrap();
+    let tenants: Vec<TenantId> = repos
+        .tenants
+        .list_for_user(joiner.id)
+        .await
+        .unwrap()
+        .iter()
+        .map(|tenant| tenant.id)
+        .collect();
+    assert_eq!(tenants, [joiner.tenant, w.owner.tenant]);
+    // Their only copy of the group's chat is filed under the group's tenant.
+    let member = joiner.id.to_string();
+    let squad_id = squad.id.to_string();
+    repos
+        .chat
+        .create_conversation(
+            &member,
+            w.owner.tenant,
+            "Squad",
+            "test-model",
+            Some(&squad.agent_id),
+            Some(&squad_id),
+        )
+        .await
+        .unwrap();
+    assert!(repos
+        .chat
+        .find_group_conversation(&member, w.owner.tenant, &squad_id)
+        .await
+        .unwrap()
+        .is_some());
+
+    w.join_by_code(&squad, joiner, None).await;
+
+    // A session in their own tenant cannot open that room, so the request
+    // opens their connections instead.
+    let request = w.link_request(joiner).await;
+    let data = request.data.expect("the request carries its route");
+    assert_eq!(data["screen"], "connections", "{data}");
+    assert_eq!(w.links_of(&squad, joiner).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_join_proposes_nothing_the_roster_does_not_bind() {
+    let w = World::new().await;
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    let unverified = person(&w.res, "unverified@link-states.test", false).await;
+    let blocked = person(&w.res, "blocked@link-states.test", true).await;
+    let stranger = person(&w.res, "stranger@link-states.test", true).await;
+    w.roster.set(vec![
+        athlete("e1", Some("unverified@link-states.test")),
+        athlete("e2", Some("blocked@link-states.test")).with_access(Some(RosterAccess::NoAccess)),
+        athlete("e3", None),
+    ]);
+
+    for (who, why) in [
+        (unverified, "an unverified email binds no one"),
+        (blocked, "the platform gives the coach no access to them"),
+        (stranger, "no roster athlete carries their email"),
+    ] {
+        w.join_by_code(&squad, who, None).await;
+        assert!(w.links_of(&squad, who).await.is_empty(), "{why}");
+    }
+    let live = w
+        .res
+        .common
+        .repos
+        .delegated_connections
+        .list_live_for_coach(w.coach.id, w.owner.tenant, COACHHUB)
+        .await
+        .unwrap();
+    assert!(live.is_empty(), "nothing was proposed: {live:?}");
+}
+
+#[tokio::test]
+async fn a_join_reads_the_roster_in_the_group_s_tenant_and_stands_when_it_cannot() {
+    let w = World::new().await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    w.roster.set(vec![
+        athlete("f1", Some("first@link-states.test")),
+        athlete("f2", Some("second@link-states.test")),
+        athlete("f3", Some("third@link-states.test")),
+    ]);
+
+    // The coach's only credential is in their own tenant, not the group's:
+    // the group's picker could not read it either, so nothing is read.
+    let first = person(&w.res, "first@link-states.test", true).await;
+    w.join_by_code(&squad, first, None).await;
+    assert!(w.links_of(&squad, first).await.is_empty());
+    assert_eq!(w.roster.reads(), 0, "no roster is read for the group");
+
+    // The platform is down: the member is still let in, and nothing is
+    // proposed or cached.
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    w.roster.set_down(true);
+    let second = person(&w.res, "second@link-states.test", true).await;
+    w.join_by_code(&squad, second, None).await;
+    assert!(w.links_of(&squad, second).await.is_empty());
+    assert_eq!(w.roster.reads(), 1, "the roster was asked for");
+
+    // Back up, the next join reads it afresh and is proposed.
+    w.roster.set_down(false);
+    let third = person(&w.res, "third@link-states.test", true).await;
+    w.join_by_code(&squad, third, None).await;
+    let links = w.links_of(&squad, third).await;
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].provider_athlete_id, "f3");
+    assert_eq!(w.roster.reads(), 2);
+}
+
+#[tokio::test]
+async fn a_join_reads_a_cached_roster_live_once_more_when_it_binds_no_one() {
+    let w = World::new().await;
+    connect_coachhub(&w.res, w.coach, w.owner.tenant).await;
+    let squad = w.group("Squad", w.coach, 3).await;
+    w.roster
+        .set(vec![athlete("i1", Some("early@link-states.test"))]);
+
+    // Nothing is cached yet: the roster is read live, and a live read that
+    // binds no one is not read again.
+    let stranger = person(&w.res, "stranger@link-states.test", true).await;
+    w.join_by_code(&squad, stranger, None).await;
+    assert!(w.links_of(&squad, stranger).await.is_empty());
+    assert_eq!(w.roster.reads(), 1);
+
+    // The cached roster binds the next member: nothing is read.
+    let early = person(&w.res, "early@link-states.test", true).await;
+    w.join_by_code(&squad, early, None).await;
+    let links = w.links_of(&squad, early).await;
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].provider_athlete_id, "i1");
+    assert_eq!(w.roster.reads(), 1, "the cached roster served the join");
+
+    // The coach adds an athlete on the platform after that read. The cached
+    // roster binds no one for them, so it is read once more, live.
+    w.roster.set(vec![
+        athlete("i1", Some("early@link-states.test")),
+        athlete("i2", Some("late@link-states.test")),
+    ]);
+    let late = person(&w.res, "late@link-states.test", true).await;
+    w.join_by_code(&squad, late, None).await;
+    let links = w.links_of(&squad, late).await;
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].provider_athlete_id, "i2");
+    assert_eq!(
+        w.roster.reads(),
+        2,
+        "one live read found the athlete just added"
+    );
 }

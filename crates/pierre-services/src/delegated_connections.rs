@@ -10,8 +10,10 @@
 //! roster, such as `TrainingPeaks` or Intervals.icu) lets a coach's own
 //! account read the athletes who share with it. A group's
 //! human coach links one of those roster athletes to a live member of the
-//! group ([`propose`]); the member confirms ([`confirm`]), and that
-//! confirmation is their consent to having their workouts on that platform
+//! group ([`propose`]), and a member who joins under the email the roster
+//! lists them by is proposed as they join
+//! ([`crate::delegated_link_on_join`]); the member confirms ([`confirm`]),
+//! and that confirmation is their consent to having their workouts on that platform
 //! read through the coach's account. Anything beyond that read is a consent
 //! of the member's own, per link ([`crate::delegated_link_consents`]). Either
 //! side can end the link ([`end`]); the group lifecycle and a disconnect end
@@ -83,7 +85,8 @@ pub struct RosterEntry {
     /// The live member of the group whose verified Dravr email is the
     /// athlete's roster email, when no link of the coach's holds the athlete
     /// or the member and the platform gives the coach access to the athlete.
-    /// A hint that preselects the picker; it never proposes on its own.
+    /// It preselects the picker, and is the member a join proposes
+    /// ([`crate::delegated_link_on_join::propose_on_join`]).
     pub suggested_member_user_id: Option<Uuid>,
 }
 
@@ -907,7 +910,9 @@ impl<'a> Notices<'a> {
         Self { repos, service }
     }
 
-    /// Ask the member to confirm, in the tenant they sign in to.
+    /// Ask the member to confirm, in the tenant they sign in to, opening the
+    /// group's info over their own copy of the group's chat in that tenant
+    /// when they have one there.
     async fn proposed(&self, link: &DelegatedConnection, group_name: &str) {
         let (Some(service), Some(parties)) = (self.service, self.parties(link).await) else {
             return;
@@ -915,14 +920,40 @@ impl<'a> Notices<'a> {
         let Some(member_tenant) = self.home_tenant(link.member_user_id).await else {
             return;
         };
+        let room = self.member_room(link, member_tenant).await;
         triggers::trigger_delegation_proposed(
             service,
             link.member_user_id,
-            member_tenant,
+            notice_tenant(member_tenant),
             link_platform(link),
             &parties.coach_name,
             group_name,
+            room.as_deref(),
         );
+    }
+
+    /// The member's own copy of `link`'s group chat in `tenant`, the tenant
+    /// their notice is read in, or `None` when they have none there — the
+    /// app files one on first open — or it cannot be read (logged). A copy
+    /// filed under another of their tenants is not named: a session in
+    /// `tenant` cannot open it.
+    async fn member_room(&self, link: &DelegatedConnection, tenant: TenantId) -> Option<String> {
+        match self
+            .repos
+            .chat
+            .find_group_conversation(
+                &link.member_user_id.to_string(),
+                tenant,
+                &link.group_id.to_string(),
+            )
+            .await
+        {
+            Ok(room) => room.map(|room| room.id),
+            Err(e) => {
+                warn!(link_id = %link.id, error = %e, "Link notice opens no room: room read failed");
+                None
+            }
+        }
     }
 
     /// Tell the coach the member confirmed.
@@ -989,14 +1020,14 @@ impl<'a> Notices<'a> {
             &group_name,
         );
         let member_tenant = match link.member_tenant_id {
-            Some(tenant) => Some(notice_tenant(tenant)),
+            Some(tenant) => Some(tenant),
             None => self.home_tenant(link.member_user_id).await,
         };
         if let Some(member_tenant) = member_tenant {
             triggers::trigger_delegation_off_coach_roster(
                 service,
                 link.member_user_id,
-                member_tenant,
+                notice_tenant(member_tenant),
                 link_platform(link),
                 &parties.coach_name,
                 &group_name,
@@ -1034,9 +1065,9 @@ impl<'a> Notices<'a> {
 
     /// The tenant a user signs in to by default, where their feed is read:
     /// the first of their tenants, as login picks it.
-    async fn home_tenant(&self, user_id: Uuid) -> Option<NoticeTenantId> {
+    async fn home_tenant(&self, user_id: Uuid) -> Option<TenantId> {
         match self.repos.tenants.list_for_user(user_id).await {
-            Ok(tenants) => tenants.first().map(|tenant| notice_tenant(tenant.id)),
+            Ok(tenants) => tenants.first().map(|tenant| tenant.id),
             Err(e) => {
                 warn!(user_id = %user_id, error = %e, "Link notice skipped: tenant read failed");
                 None

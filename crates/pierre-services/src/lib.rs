@@ -434,6 +434,9 @@ pub mod delegated_link_states;
 /// What a member lets a confirmed coach link do beyond reading workouts: calendar writes, wellness reads.
 pub mod delegated_link_consents;
 
+/// The coaching-platform link a member who joins a coached group is proposed as they join.
+pub mod delegated_link_on_join;
+
 /// Whether a member's coaching-platform read goes through their human coach's own credential, decided once.
 pub mod delegated_read;
 

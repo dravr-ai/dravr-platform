@@ -28,6 +28,20 @@ describe('mobileNotificationTarget', () => {
     });
   });
 
+  it('opens a group room with its info over it for a link proposal', () => {
+    // The member's own copy of the group's chat, whose info holds the link
+    // their coach proposed and the consents they answer it with.
+    expect(mobileNotificationTarget({ screen: 'group_info', id: 'room-7' })).toEqual({
+      pathname: THREAD_ROUTE,
+      params: { conversationId: 'room-7', info: 'group' },
+    });
+  });
+
+  it('opens nothing for a group info payload that names no room', () => {
+    expect(mobileNotificationTarget({ screen: 'group_info' })).toBeNull();
+    expect(mobileNotificationTarget({ screen: 'group_info', id: 7 })).toBeNull();
+  });
+
   it('opens nothing for a coach payload that names no thread', () => {
     // The chat tab is a list of threads: without one there is nothing to show.
     expect(mobileNotificationTarget({ screen: 'coach' })).toBeNull();

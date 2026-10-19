@@ -60,6 +60,16 @@ const FEED: NotificationItem[] = [
     data: { screen: 'coach', action: 'chat', id: 'conv-abc-123' },
     actions: [{ id: 'reply', title: 'Reply', action_type: 'quick_reply' }],
   }),
+  // A coach proposed linking the member's coaching platform: it names the
+  // member's own copy of the group's chat, whose info holds the link.
+  notification({
+    id: 'link-proposal',
+    category: 'coach',
+    notification_type: 'delegation_proposed',
+    title: 'Link your intervals.icu workouts?',
+    body: 'Coach Ana asked to read them in Squad',
+    data: { screen: 'group_info', id: 'room-7' },
+  }),
   // A sync failure stored when its screen was `settings`, which no longer
   // names a destination: its Reconnect button would lead nowhere.
   notification({
@@ -96,11 +106,16 @@ vi.mock('../ChatTab', () => ({
   default: (props: {
     layout?: string;
     selectedConversation: string | null;
+    openInfoFor?: string | null;
     pendingComposerAction?: PendingComposerAction | null;
   }) => {
     // Home is ChatTab's personal layout; only the Groups tab's props are asserted here.
     if (props.layout === 'personal') return <div data-testid="home-tab" />;
-    chatTabProps({ selected: props.selectedConversation, action: props.pendingComposerAction ?? null });
+    chatTabProps({
+      selected: props.selectedConversation,
+      info: props.openInfoFor ?? null,
+      action: props.pendingComposerAction ?? null,
+    });
     return <div data-testid="chat-tab" />;
   },
 }));
@@ -171,7 +186,7 @@ describe('Dashboard — where a notification row goes', () => {
 
     expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#chat/conv-fitness-1'));
-    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-fitness-1', action: null });
+    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-fitness-1', info: null, action: null });
   });
 
   it('opens Home for a personal record', async () => {
@@ -206,6 +221,19 @@ describe('Dashboard — where a notification row goes', () => {
     expect(stored).toHaveTextContent('Strava could not sync');
   });
 
+  it("opens a link proposal on the group room's info, and leaves the drawer out of the hash", async () => {
+    await openNotifications();
+
+    await act(async () => {
+      screen.getByTestId('notification-row-link-proposal').click();
+    });
+
+    expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
+    // The route keeps the room alone, so Back never reopens the drawer.
+    await waitFor(() => expect(window.location.hash).toBe('#chat/room-7'));
+    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'room-7', info: 'room-7', action: null });
+  });
+
   it("opens an agent message's thread from its Reply button", async () => {
     await openNotifications();
     const reply = within(screen.getByTestId('notification-row-agent-message')).getByRole('button', {
@@ -218,6 +246,6 @@ describe('Dashboard — where a notification row goes', () => {
 
     expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#chat/conv-abc-123'));
-    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-abc-123', action: null });
+    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-abc-123', info: null, action: null });
   });
 });

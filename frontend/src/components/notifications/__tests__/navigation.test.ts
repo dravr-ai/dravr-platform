@@ -25,6 +25,20 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute(data)).toBe(`chat/${encodeURIComponent('conv/with space')}`);
   });
 
+  it('opens a group room with its info over it for a link proposal', () => {
+    // The member's own copy of the group's chat, whose info holds the link
+    // their coach proposed and the consents they answer it with.
+    expect(webNotificationRoute({ screen: 'group_info', id: 'room-7' })).toBe('chat/room-7/info');
+    expect(webNotificationRoute({ screen: 'group_info', id: 'room/7' })).toBe(
+      `chat/${encodeURIComponent('room/7')}/info`,
+    );
+  });
+
+  it('opens nothing for a group info payload that names no room', () => {
+    expect(webNotificationRoute({ screen: 'group_info' })).toBeNull();
+    expect(webNotificationRoute({ screen: 'group_info', id: 7 })).toBeNull();
+  });
+
   it('opens nothing for a coach payload that names no thread', () => {
     // The chat is a list of threads: without one there is nothing to show, and
     // landing on the empty chat was the dead end.

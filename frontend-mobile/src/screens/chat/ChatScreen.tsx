@@ -24,6 +24,7 @@ import { NotificationBellButton } from '../../components/notifications/Notificat
 import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
 import { providerStatusLine } from '@pierre/chat-utils';
+import { MOBILE_THREAD_INFO_GROUP, MOBILE_THREAD_INFO_PARAM } from '@pierre/shared-constants';
 import type { TurnSendOptions } from '@pierre/shared-types';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
@@ -50,7 +51,12 @@ export function ChatScreen() {
   const headerHeight = useHeaderHeight();
   const colors = useThemeColors();
   const router = useRouter();
-  const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
+  const params = useLocalSearchParams<{
+    conversationId?: string;
+    draft?: string;
+    send?: string;
+    [MOBILE_THREAD_INFO_PARAM]?: string;
+  }>();
   const inputRef = useRef<TextInput>(null);
 
   // UI State
@@ -280,6 +286,20 @@ export function ChatScreen() {
     sentRef.current = send;
     void sendText(send);
   }, [params.send, sendText]);
+
+  // A notice about a group's link opens its thread with the info over it
+  // (`info=group`), where the link waits for the athlete's answer: once the
+  // thread the route names is the one loaded, and once per thread.
+  const infoOpenedForRef = useRef<string | null>(null);
+  const openedThreadId = conversations.currentConversation?.id;
+  const infoRequested = params[MOBILE_THREAD_INFO_PARAM] === MOBILE_THREAD_INFO_GROUP;
+  const routedThreadId = params.conversationId;
+  useEffect(() => {
+    if (!infoRequested || !openedThreadId || openedThreadId !== routedThreadId) return;
+    if (infoOpenedForRef.current === openedThreadId) return;
+    infoOpenedForRef.current = openedThreadId;
+    setInfoVisible(true);
+  }, [infoRequested, openedThreadId, routedThreadId]);
 
   // Info sheet handlers
   const openInfoSheet = useCallback(() => {

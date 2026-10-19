@@ -344,11 +344,12 @@ pub fn trigger_sync_failure(
 // when TrainingPeaks drops the athlete from the coach's roster. They bypass
 // the daily cap like agent traffic: each is a one-off answer between two
 // people, and a coach linking a whole squad must not lose the last replies.
-// The member's notices open their connections, where the TrainingPeaks card
-// names the link; the coach's name the group and carry no destination, like
-// the group's weekly digest. Each of the coach's names the member it concerns
-// under `SUBJECT_ATHLETE_DATA_KEY`, which is what a `per_athlete` persona
-// digest rolls the coach's withheld notices up on.
+// The member's request opens the group's info over their copy of the group's
+// chat, where they answer it; their other notices open their connections,
+// where the TrainingPeaks card names the link. The coach's name the group and
+// carry no destination, like the group's weekly digest. Each of the coach's
+// names the member it concerns under `SUBJECT_ATHLETE_DATA_KEY`, which is what
+// a `per_athlete` persona digest rolls the coach's withheld notices up on.
 
 /// A delegated-connection notice for `user_id`, in category `coach`.
 fn delegation_dispatch(
@@ -401,8 +402,22 @@ fn connections_route(provider: &str) -> Value {
     })
 }
 
+/// The recipient's own copy of a group's chat, `conversation_id`, with the
+/// group's info over it: where a member answers a link and grants its
+/// consents.
+fn group_info_route(conversation_id: &str) -> Value {
+    json!({
+        "screen": NotificationScreen::GroupInfo.as_str(),
+        "id": conversation_id,
+    })
+}
+
 /// Trigger notification asking a member to confirm the link on `platform`
 /// their group's coach proposed. Their confirmation is the consent to the read.
+///
+/// It opens the group's info over `member_room`, the member's own copy of the
+/// group's chat, where the link waits with its consents; a member with no
+/// copy yet is sent to their connections, whose card names the group.
 pub fn trigger_delegation_proposed(
     service: &Arc<NotificationService>,
     member_id: Uuid,
@@ -410,6 +425,7 @@ pub fn trigger_delegation_proposed(
     platform: LinkPlatform<'_>,
     coach_name: &str,
     group_name: &str,
+    member_room: Option<&str>,
 ) {
     let dispatch = delegation_dispatch(
         member_id,
@@ -420,7 +436,7 @@ pub fn trigger_delegation_proposed(
             "group_name": group_name,
             "platform_name": platform.name,
         }),
-        connections_route(platform.provider),
+        member_room.map_or_else(|| connections_route(platform.provider), group_info_route),
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }

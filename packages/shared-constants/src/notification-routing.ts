@@ -29,13 +29,32 @@ export interface NotificationDestination {
   /** Where the destination the notification points at is served. */
   routes: DestinationRoutes;
   /**
-   * The thread a `coach` payload names in `id`: the conversation an agent
-   * message was sent in, or the one where the agent computed the insight the
-   * notification reports. The server sends
-   * `{ screen: "coach", action: "chat", id: <conversation_id> }` for both.
+   * The thread a chat payload names in `id`. For `coach`, the conversation an
+   * agent message was sent in, or the one where the agent computed the
+   * insight the notification reports: the server sends
+   * `{ screen: "coach", action: "chat", id: <conversation_id> }` for both. For
+   * `group_info`, the athlete's own copy of a group's chat.
    */
   conversationId?: string;
+  /**
+   * Open the thread's info over it: a `group_info` payload, whose subject — a
+   * link the group's coach proposed — waits for the athlete's answer there.
+   */
+  openInfo?: boolean;
 }
+
+/**
+ * The web sub-view after a thread's id that opens its info over it:
+ * `chat/<conversationId>/info`.
+ */
+export const WEB_THREAD_INFO_SUBVIEW = 'info' as const;
+
+/**
+ * The phone's thread-route param that opens the thread's info over it,
+ * and the value a group's info is asked for with.
+ */
+export const MOBILE_THREAD_INFO_PARAM = 'info' as const;
+export const MOBILE_THREAD_INFO_GROUP = 'group' as const;
 
 /** Read a value as a screen name the server declares, or null. */
 function asScreen(value: unknown): NotificationScreen | null {
@@ -67,11 +86,15 @@ export function resolveNotificationDestination(
   const routes = destinationRoutes(surface);
   if (!routes) return null;
 
-  // Only the coach screen names a conversation in `id`; a personal record's
-  // `id` is its activity, and reading it as a thread would open a
+  // Only a screen that opens the chat names a conversation in `id`; a personal
+  // record's `id` is its activity, and reading it as a thread would open a
   // conversation that does not exist.
-  const conversationId = screen === 'coach' && typeof data?.id === 'string' ? data.id : null;
-  if (conversationId !== null) return { routes, conversationId };
+  const conversationId = surface === 'chat' && typeof data?.id === 'string' ? data.id : null;
+  if (conversationId !== null) {
+    return screen === 'group_info'
+      ? { routes, conversationId, openInfo: true }
+      : { routes, conversationId };
+  }
 
   // The chat is a list of threads. A notification that names none has nothing
   // there to show, and opening the empty chat is the dead end this refuses.
@@ -79,8 +102,9 @@ export function resolveNotificationDestination(
 }
 
 /**
- * The Dashboard route a notification opens on web: a `tab`, or `tab/subview`
- * for an agent message that names its conversation.
+ * The Dashboard route a notification opens on web: a `tab`, `tab/subview`
+ * for a payload that names its conversation, or `chat/<id>/info` for one that
+ * opens the thread's info over it.
  */
 export function webNotificationRoute(
   data: Record<string, unknown> | null | undefined,
@@ -89,9 +113,9 @@ export function webNotificationRoute(
   const web = destination?.routes.web;
   if (!web) return null;
 
-  return destination.conversationId
-    ? `${web}/${encodeURIComponent(destination.conversationId)}`
-    : web;
+  if (!destination.conversationId) return web;
+  const thread = `${web}/${encodeURIComponent(destination.conversationId)}`;
+  return destination.openInfo ? `${thread}/${WEB_THREAD_INFO_SUBVIEW}` : thread;
 }
 
 /**
@@ -131,8 +155,12 @@ export function mobileNotificationTarget(
 
   // A conversation opens the thread route, which sits beside the tabs, not
   // the chat tab's list.
-  const { conversationId } = destination;
-  return conversationId
-    ? { pathname: MOBILE_THREAD_PATHNAME, params: { conversationId } }
-    : { pathname };
+  const { conversationId, openInfo } = destination;
+  if (!conversationId) return { pathname };
+  return {
+    pathname: MOBILE_THREAD_PATHNAME,
+    params: openInfo
+      ? { conversationId, [MOBILE_THREAD_INFO_PARAM]: MOBILE_THREAD_INFO_GROUP }
+      : { conversationId },
+  };
 }

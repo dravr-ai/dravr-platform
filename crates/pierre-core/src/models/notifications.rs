@@ -41,6 +41,10 @@ pub enum NotificationScreen {
     Coach,
     /// The athlete's connected data providers.
     Connections,
+    /// A group's info, opened over the recipient's own copy of the group's
+    /// chat, named by the notification's `id`: where a member answers the
+    /// coaching-platform link the group's coach proposed.
+    GroupInfo,
 }
 
 impl NotificationScreen {
@@ -52,6 +56,7 @@ impl NotificationScreen {
             Self::Activities,
             Self::Coach,
             Self::Connections,
+            Self::GroupInfo,
         ]
     }
 
@@ -63,6 +68,7 @@ impl NotificationScreen {
             Self::Activities => "activities",
             Self::Coach => "coach",
             Self::Connections => "connections",
+            Self::GroupInfo => "group_info",
         }
     }
 
@@ -80,8 +86,10 @@ impl NotificationScreen {
             Self::Activity | Self::Activities => "home",
             // The chat is a list of threads, so it is a destination only for a
             // notification that names one: the clients open nothing for a
-            // `coach` payload without an `id`.
-            Self::Coach => "chat",
+            // `coach` or `group_info` payload without an `id`. A group's info
+            // is drawn over its chat, so `group_info` opens the thread with
+            // the info over it.
+            Self::Coach | Self::GroupInfo => "chat",
             Self::Connections => "connections",
         }
     }

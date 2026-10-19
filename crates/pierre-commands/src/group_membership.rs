@@ -1,5 +1,5 @@
 // ABOUTME: Handlers for /group create and /group join — how a coaching group enters a conversation list
-// ABOUTME: Create and a coach's join bind the fresh thread typed in; a member's join files their own group conversation
+// ABOUTME: Create and a coach's join bind the thread typed in; a member's join files their group conversation and is proposed their roster link
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,7 +27,9 @@ use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::coach_access::name_requested_group;
 use pierre_services::default_agent::group_default;
 use pierre_services::delegated_connections::person_name;
+use pierre_services::delegated_link_on_join::propose_on_join;
 use pierre_services::locale::user_locale;
+use pierre_tool_runtime::protocol::delegation_services;
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -351,9 +353,9 @@ impl CommandHandler for GroupCreateHandler {
 /// the caller is not eligible for — gets one fixed reply that never echoes
 /// the code back.
 ///
-/// LIMITATION(registre#1071): `GroupJoinHandler` proposes no delegated link
-/// on a member join, even when the joiner's verified email is on the coach's
-/// roster: the coach proposes it by hand.
+/// A member whose verified email is on the coach's coaching-platform roster
+/// is proposed the link to that roster athlete as they join
+/// ([`propose_on_join`]), so the coach has nothing to propose by hand.
 pub struct GroupJoinHandler;
 
 impl GroupJoinHandler {
@@ -459,6 +461,8 @@ impl GroupJoinHandler {
             "Joined coaching group via /group join"
         );
 
+        Self::propose_coach_link(ctx, group, group_tenant).await;
+
         // Joining shares the athlete's training with the group's coach
         // (ADR-002), so both sides are told: the athlete in this reply, with
         // the way to revoke it, and the coach in their copy of the group's
@@ -484,6 +488,37 @@ impl GroupJoinHandler {
 
         let welcome = reg.render(KEY_GROUP_JOINED, locale, &[&group.name]);
         Ok(CommandResponse::text(format!("{welcome}\n\n{sharing}")))
+    }
+
+    /// Propose the joining member's coaching-platform link, when the group's
+    /// coach reads a roster that lists them by their verified email
+    /// ([`propose_on_join`]): the link the coach would otherwise propose from
+    /// the group's picker. The member is asked through the proposal's own
+    /// notice and confirms in the app, granting no consent until they choose
+    /// to. A failure is logged and never fails the join, which has already
+    /// happened, nor changes its reply.
+    async fn propose_coach_link(
+        ctx: &PlatformCommandContext,
+        group: &CoachingGroup,
+        group_tenant: TenantId,
+    ) {
+        let services = delegation_services(ctx.tool_runtime.as_ref());
+        match propose_on_join(services, group, group_tenant, ctx.user_id).await {
+            Ok(Some(link)) => info!(
+                user_id = %ctx.user_id,
+                group_id = %group.id,
+                link_id = %link.id,
+                provider = %link.provider,
+                "Proposed the joining member's coaching-platform link"
+            ),
+            Ok(None) => {}
+            Err(e) => warn!(
+                user_id = %ctx.user_id,
+                group_id = %group.id,
+                error = %e,
+                "Could not propose the joining member's coaching-platform link"
+            ),
+        }
     }
 
     /// Tell the group's coach, in their own copy of the group's chat, that an

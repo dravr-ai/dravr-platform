@@ -113,6 +113,8 @@ function renderChatTab(
     onSelectConversation?: (id: string | null) => void;
     layout?: 'shell' | 'personal';
     pendingComposerAction?: PendingComposerAction | null;
+    openInfoFor?: string | null;
+    onOpenInfoConsumed?: () => void;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -123,6 +125,8 @@ function renderChatTab(
       <ToastProvider>
         <ComposerActionHost
           initial={props.pendingComposerAction ?? null}
+          initialInfoFor={props.openInfoFor ?? null}
+          onOpenInfoConsumed={props.onOpenInfoConsumed}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           onNavigate={props.onNavigate}
           layout={props.layout}
@@ -132,20 +136,31 @@ function renderChatTab(
   );
 }
 
-/** Holds a composer action and clears it once consumed, as the app's hosts do. */
+/**
+ * Holds a composer action and a request to open a thread's info, and clears
+ * each once consumed, as the app's hosts do.
+ */
 function ComposerActionHost(props: {
   initial: PendingComposerAction | null;
+  initialInfoFor: string | null;
+  onOpenInfoConsumed?: () => void;
   onSelectConversation: (id: string | null) => void;
   onNavigate?: (route: string) => void;
   layout?: 'shell' | 'personal';
 }) {
   const [action, setAction] = useState<PendingComposerAction | null>(props.initial);
+  const [infoFor, setInfoFor] = useState<string | null>(props.initialInfoFor);
   return (
     <ChatTab
       selectedConversation={CONVERSATION_ID}
       onSelectConversation={props.onSelectConversation}
       onNavigate={props.onNavigate}
       layout={props.layout}
+      openInfoFor={infoFor}
+      onOpenInfoConsumed={() => {
+        setInfoFor(null);
+        props.onOpenInfoConsumed?.();
+      }}
       pendingComposerAction={action}
       onPendingComposerActionConsumed={() => setAction(null)}
     />
@@ -992,6 +1007,40 @@ describe('ChatTab header info drawer', () => {
     await user.click(screen.getByTestId('conversation-header-title'));
 
     expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
+  });
+
+  it("opens Group info unasked when the shell routes to this thread's info, once", async () => {
+    // A group link proposal's notice opens `chat/<id>/info`: the member's
+    // copy of the group's chat, with the info holding the link over it.
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          title: 'Sunday Riders',
+          agent_id: COACH_ID,
+          group_id: 'group-7',
+          group_name: 'Sunday Riders',
+        },
+      ],
+      total: 1,
+    });
+    getGroup.mockResolvedValue(groupRecord());
+    const consumed = vi.fn();
+    renderChatTab({ openInfoFor: CONVERSATION_ID, onOpenInfoConsumed: consumed });
+
+    expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
+    expect(consumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens no drawer when the shell routes to another thread's info", async () => {
+    const consumed = vi.fn();
+    renderChatTab({ openInfoFor: 'conv-elsewhere', onOpenInfoConsumed: consumed });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('conversation-header-title')).toHaveTextContent('Sunday long run'),
+    );
+    expect(screen.queryByTestId('conversation-info-panel')).toBeNull();
+    expect(consumed).not.toHaveBeenCalled();
   });
 
   it("names the athlete under the title of a coach's plan thread, and opens their info", async () => {
