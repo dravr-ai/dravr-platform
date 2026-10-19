@@ -1499,8 +1499,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=3861611613d
 
 [[package]]
 name = "dravr-enforme"
-version = "0.11.4"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.4#2b8f04f6cf01c3a66e5522ef2f5fcbbb1b26bec7"
+version = "0.11.5"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.5#864c72e4b404f82b436833fb56c84064c12b7cfc"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1564,8 +1564,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.26.3"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.3#95cc1098fb2f16a5091f97f82f92122988c871d5"
+version = "0.26.4"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.4#c2e317126903856acc658a7a135083a3d4823ccc"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2575,7 +2575,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5055,7 +5055,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5093,7 +5093,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7387,7 +7387,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
