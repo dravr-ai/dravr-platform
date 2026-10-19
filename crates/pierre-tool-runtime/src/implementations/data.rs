@@ -15,6 +15,7 @@
 //! - `GetRecoveryMetricsTool` - Query stored recovery and readiness metrics
 //! - `GetHealthSnapshotsTool` - Query stored health snapshots (body composition, vitals)
 //! - `ListDataSourcesTool` - List connected data sources (devices and providers)
+//! - `GetHeartRateSeriesTool` - Query stored intraday heart rate and HRV series
 //!
 //! Stored-data tools (sleep sessions, recovery metrics, health snapshots, data
 //! sources) execute their query bodies inline. Provider-API tools (activities,
@@ -53,6 +54,7 @@ use crate::conversions::{
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::activity_detail_promotion::promote_to_detail;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
+use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
     pagination_has_more, read_only_annotations, response_cache_eligible, window_fetch_limit,
@@ -1163,6 +1165,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(GetRecoveryMetricsTool),
         Box::new(GetHealthSnapshotsTool),
         Box::new(ListDataSourcesTool),
+        Box::new(GetHeartRateSeriesTool),
     ]
 }
 

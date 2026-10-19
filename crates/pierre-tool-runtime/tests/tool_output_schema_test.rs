@@ -28,6 +28,7 @@ use pierre_core::models::{
     MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
+use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::conversions::Formatted;
@@ -94,6 +95,9 @@ use pierre_tool_runtime::implementations::configuration_output::{
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderResult, ConnectProviderTool, ConnectionStatusResult, DisconnectProviderResult,
     DisconnectProviderTool, GetConnectionStatusTool, ProviderConnectionStatus,
+};
+use pierre_tool_runtime::implementations::continuous_series::{
+    GetHeartRateSeriesTool, HeartRateSeriesResult, SeriesWindow,
 };
 use pierre_tool_runtime::implementations::endurance_workouts::{
     ListWorkoutTemplatesTool, PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
@@ -1208,6 +1212,71 @@ fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
         &output_schema_for::<Formatted<DataSourcesResult>>(),
         &sample,
         "list_data_sources",
+    );
+}
+
+/// Both arms of a series answer: a sample read's `points` and a windowed
+/// read's `windows`, each riviere's own type forwarded unprojected.
+#[test]
+fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
+    use chrono::{Duration, TimeZone, Utc};
+    use dravr_riviere::{AggregatedPoint, DataPoint};
+
+    let at = Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap();
+    let range = || DateRange {
+        start: "2026-10-12T06:00:00+00:00".to_owned(),
+        end: "2026-10-12T07:00:00+00:00".to_owned(),
+    };
+    let declared =
+        <GetHeartRateSeriesTool as McpTool<dyn ToolRuntime>>::definition(&GetHeartRateSeriesTool)
+            .output_schema;
+    let points = Formatted::Json(HeartRateSeriesResult {
+        metric: "heart_rate".to_owned(),
+        unit: "bpm".to_owned(),
+        window: None,
+        count: 1,
+        sources: vec![SourceSeries {
+            data_source_id: "ds-whoop".to_owned(),
+            provider: "whoop".to_owned(),
+            points: vec![DataPoint::new(at, 52.0)],
+            windows: vec![],
+        }],
+        attribution: None,
+        range: range(),
+    });
+    assert_declares_and_accepts(
+        declared.clone(),
+        &output_schema_for::<Formatted<HeartRateSeriesResult>>(),
+        &points,
+        "get_heart_rate_series",
+    );
+    let windows = Formatted::Json(HeartRateSeriesResult {
+        metric: "hrv_rmssd".to_owned(),
+        unit: "ms".to_owned(),
+        window: Some(SeriesWindow {
+            minutes: 15,
+            aggregation: "avg".to_owned(),
+        }),
+        count: 1,
+        sources: vec![SourceSeries {
+            data_source_id: "ds-whoop".to_owned(),
+            provider: "whoop".to_owned(),
+            points: vec![],
+            windows: vec![AggregatedPoint {
+                window_start: at,
+                window_end: at + Duration::minutes(15),
+                value: 61.5,
+                sample_count: 15,
+            }],
+        }],
+        attribution: Some("Garmin Forerunner 965".to_owned()),
+        range: range(),
+    });
+    assert_declares_and_accepts(
+        declared,
+        &output_schema_for::<Formatted<HeartRateSeriesResult>>(),
+        &windows,
+        "get_heart_rate_series",
     );
 }
 

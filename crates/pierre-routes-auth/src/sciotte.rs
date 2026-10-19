@@ -66,13 +66,13 @@ struct RemoteFlowState {
 
 /// How long a remembered flow stays usable.
 ///
-/// Mirrors the parked flow's own lifetime on the scraper service
-/// (`DRAVR_SCIOTTE_PARKED_PERMIT_TTL_SECS`, deployed at 600s). It is the cache
-/// entry's TTL, so once the service's reaper has released that browser and its
-/// permit the entry is gone on its own — the id names nothing, and the
-/// continuation is refused with actionable copy instead of being answered with
-/// the service's `no_pending_login` 404.
-pub const REMOTE_FLOW_TTL_SECS: u64 = 600;
+/// Mirrors the pending-login window on the scraper service — one window
+/// since dravr-sciotte 0.24.0, `DRAVR_SCIOTTE_PENDING_LOGIN_TTL`, 30 minutes
+/// by default (carnet#979). It is the cache entry's TTL, so once the
+/// service's reaper has released that browser the entry is gone on its own —
+/// the id names nothing, and the continuation is refused with actionable copy
+/// instead of being answered with the service's `no_pending_login` 404.
+pub const REMOTE_FLOW_TTL_SECS: u64 = 1800;
 
 /// Provider namespace of the cache key a parked flow is filed under.
 ///

@@ -23,6 +23,9 @@
 //!    breaks a count.
 //! 4. A wholesale-deleted auto-start would pass the group half vacuously —
 //!    the DM control exists so it cannot.
+//! 5. An ordinary room turn stamped under the bot tenant again (carnet#926)
+//!    leaves the athlete's workspace without the room fact, and a stage 7e
+//!    reading the bot tenant drops the North Star from the next prompt.
 
 mod common;
 mod helpers;
@@ -33,7 +36,7 @@ mod room_walk_e2e {
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
     use pierre_core::models::groups::{GroupRespondMode, GroupRole};
     use pierre_core::models::WalkAudience;
-    use pierre_memory::FactSource;
+    use pierre_memory::{FactKind, FactSource};
     use serial_test::serial;
     use std::env;
     use std::sync::atomic::Ordering;
@@ -54,6 +57,7 @@ mod room_walk_e2e {
     const CHAT_WALK: i64 = -100_811_001;
     const CHAT_EXEMPT: i64 = -100_811_002;
     const CHAT_FRESH: i64 = -100_811_003;
+    const CHAT_FACTS: i64 = -100_811_004;
 
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
@@ -290,6 +294,110 @@ mod room_walk_e2e {
             dm_state.is_some(),
             "a fresh DM conversation must still auto-start the guided flow"
         );
+    }
+
+    /// carnet#926. In a room the conversation sits under the bot tenant while
+    /// the athlete's tools run under their own workspace, and every turn kind
+    /// files the athlete's facts there: an ordinary message ("my knee") and a
+    /// guided North Star answer alike. The next room turn's prompt then
+    /// carries the North Star, read back from that workspace, and the bot
+    /// tenant holds nothing of theirs. The extracted objects are worded
+    /// differently from what the athlete typed, so a prompt carrying them got
+    /// them from the facts, not from the transcript.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn every_room_fact_lands_in_the_athletes_workspace_and_reaches_the_next_room_turn() {
+        const KNEE_SAID: &str = "mon genou me fait mal depuis la sortie de dimanche";
+        const KNEE_OBJECT: &str = "right knee pain after long runs";
+        const NORTH_STAR_SAID: &str = "je vise l'ultra de montagne avec mon frere";
+        const NORTH_STAR_OBJECT: &str = "finish the Chic-Chocs ultra beside my brother";
+        let knee_json = format!(
+            r#"[{{"kind":"injury","predicate_code":"have","object":"{KNEE_OBJECT}","confidence":0.9,"stated_by":"user"}}]"#
+        );
+        let north_star_json = format!(
+            r#"[{{"kind":"goal","predicate_code":"working_toward","object":"{NORTH_STAR_OBJECT}","confidence":0.9,"stated_by":"user"}}]"#
+        );
+
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+        e2e.llm.set_turn_replies(&TURN_REPLIES);
+        // The North Star rule first: the first matching needle wins.
+        e2e.llm
+            .extraction_rule("ultra de montagne", &north_star_json);
+        e2e.llm.extraction_rule("genou", &knee_json);
+
+        // The coach owns the room; the athlete is a member whose own
+        // workspace differs from the bot tenant the room sits under.
+        let coach = e2e.linked_member(false).await;
+        let athlete = e2e.linked_member(true).await;
+        let room =
+            RoomE2e::bind_room(Arc::clone(&e2e), CHAT_FACTS, GroupRespondMode::All, &coach).await;
+        room.add_member(&athlete, GroupRole::Member).await;
+        assert_ne!(athlete.home_tenant, e2e.bot_tenant);
+
+        // An ordinary room message: its fact is the athlete's, at home.
+        room.send_room(&athlete, KNEE_SAID).await;
+        assert!(e2e.wait_llm_turns(1).await, "the room turn must run");
+        let facts = e2e
+            .wait_facts(athlete.home_tenant, &athlete, FactSource::Conversation, 1)
+            .await;
+        assert!(
+            facts.iter().any(|f| f.object == KNEE_OBJECT),
+            "the room fact must land in the athlete's own workspace, got: {facts:?}"
+        );
+
+        // A guided walk in the same room: probe 1 is the North Star.
+        room.send_room_slash(&athlete, "/pillars").await;
+        let state = room
+            .onboarding_state(&athlete)
+            .await
+            .expect("/pillars must open the room walk");
+        assert_eq!(state.audience, WalkAudience::Room);
+        room.send_room(&athlete, "on commence").await;
+        assert!(
+            e2e.wait_llm_turns(2).await,
+            "the walk's first turn must run"
+        );
+        let probes = wait_probes(&room, &athlete, 1).await;
+        assert_eq!(probes.first().map(String::as_str), Some("north_star"));
+
+        // The answer, filed at home and forced to the North Star kind.
+        room.send_room(&athlete, NORTH_STAR_SAID).await;
+        assert!(e2e.wait_llm_turns(3).await, "the answer turn must run");
+        let answers = e2e
+            .wait_facts(athlete.home_tenant, &athlete, FactSource::Onboarding, 1)
+            .await;
+        assert!(
+            answers
+                .iter()
+                .any(|f| f.object == NORTH_STAR_OBJECT && f.kind == FactKind::NorthStar),
+            "the North Star answer must land in the athlete's own workspace, got: {answers:?}"
+        );
+
+        // The next room turn reads it back from there.
+        let before = e2e.llm.seen_turn_requests.lock().unwrap().len();
+        room.send_room(&athlete, "et pour cette fin de semaine ?")
+            .await;
+        assert!(e2e.wait_llm_turns(4).await, "the next room turn must run");
+        let next_turn = e2e.llm.seen_turn_requests.lock().unwrap()[before..].join("\n");
+        assert!(
+            next_turn.contains(NORTH_STAR_OBJECT),
+            "the next room turn's prompt must carry the North Star filed in the athlete's workspace"
+        );
+
+        // Nothing of the athlete's sits under the room's bot tenant.
+        for source in [FactSource::Conversation, FactSource::Onboarding] {
+            assert!(
+                e2e.facts_now(e2e.bot_tenant, &athlete, source)
+                    .await
+                    .is_empty(),
+                "no {source:?} fact of the athlete's may land under the bot tenant"
+            );
+        }
     }
 
     /// Poll (≤20s) until the walker's probe ledger holds `at_least` entries;

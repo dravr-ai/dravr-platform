@@ -189,7 +189,6 @@ export {
   civilDayOfMonth,
   civilMonthTitle,
   civilShortDate,
-  civilWeekdayLong,
   civilWeekdayNarrow,
   formatCivilDate,
   formatInstant,

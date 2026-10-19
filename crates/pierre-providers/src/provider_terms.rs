@@ -1,5 +1,5 @@
 // ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy, TransportPolicy and cache TTL
-// ABOUTME: WHOOP keeps scores out of prompts; Strava and WHOOP stay first-party; Nolio caches 7 days
+// ABOUTME: WHOOP keeps scores out of prompts; Strava and WHOOP stay first-party; Strava caches 30 days, Nolio 7
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,10 +28,10 @@
 //! over every transport and settles the Garmin-recorded data it relays by its
 //! own terms (carnet#767; read: dravr-vault `Work Log/2026-10/Provider
 //! Transport Terms — Garmin, COROS, TrainingPeaks, intervals.icu
-//! (2026-10-07).md`). No shipped provider's descriptor declares a cache TTL:
-//! enforcing Strava's 7-day cache cap is a product decision
-//! not yet taken, and WHOOP's tier-1–2 measurements are kept under the athlete's
-//! owner authorization (carnet#539).
+//! (2026-10-07).md`). Strava's descriptors declare the one shipped cache TTL,
+//! 30 days ([`STRAVA_CACHE_TTL`], carnet#950) — longer than the 7 days its
+//! API Policy §6.2 states, by product decision. WHOOP's tier-1–2 measurements
+//! are kept under the athlete's owner authorization (carnet#539).
 
 use std::time::Duration;
 
@@ -75,6 +75,23 @@ pub const WHOOP: SourcePolicy = SourcePolicy {
 /// Read and Action Plan (2026-08-16).md`, Part 2.
 #[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
 pub const STRAVA_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
+
+/// How long a copy of Strava data is held: 30 days, the product decision of
+/// 2026-10-14 (carnet#950).
+///
+/// Strava API Policy (effective 2026-06-01) §6.2 says Strava Data "may not"
+/// stay in a cache "for longer than seven (7) days". This cap is longer than
+/// that on purpose: Strava copies are held up to 23 days past §6.2 by the
+/// owner's decision, not by oversight, and a shorter cap is a one-constant
+/// change here. Both the `strava` API provider and the sciotte
+/// Strava backend declare it, so the cache TTL sweep evicts every Strava copy
+/// last synced more than 30 days ago, with the sync state describing it.
+/// Other providers keep only the 180-day activity cache prune.
+///
+/// Read: the same terms read as [`STRAVA_TRANSPORT`], Part 2 (Policy §6.2)
+/// and Part 5 B2.
+#[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
+pub const STRAVA_CACHE_TTL: Duration = Duration::from_hours(30 * 24);
 
 /// WHOOP API Terms (effective 2026-10-06): WHOOP data stays inside Dravr's
 /// own surfaces.
@@ -340,10 +357,6 @@ mod tests {
             "Strava API Policy §5.16"
         );
         assert_eq!(registry.transport_policy("not-a-provider"), None);
-        assert!(
-            registry.cache_ttls().is_empty(),
-            "no shipped provider caps how long a copy is held"
-        );
         // WHOOP's §4 bars training on its data; Wahoo's restriction (iii)
         // bars aggregating user information until a lawyer reads it.
         let barred: &[&str] = if cfg!(feature = "provider-wahoo") {
@@ -352,6 +365,23 @@ mod tests {
             &["whoop"]
         };
         assert_eq!(registry.cross_athlete_learning_barred(), barred);
+    }
+
+    /// Strava's two descriptors — the API and the sciotte scraper of
+    /// strava.com — cap a copy at 30 days, and no other shipped provider
+    /// declares a cap (carnet#950).
+    #[cfg(feature = "provider-strava")]
+    #[test]
+    fn strava_copies_are_capped_at_thirty_days_and_no_other_provider_is() {
+        let registry = ProviderRegistry::new();
+        let mut expected = vec![("strava", STRAVA_CACHE_TTL)];
+        if cfg!(feature = "provider-sciotte") {
+            expected.push(("sciotte", STRAVA_CACHE_TTL));
+        }
+        expected.sort_unstable();
+        let mut declared = registry.cache_ttls();
+        declared.sort_unstable();
+        assert_eq!(declared, expected);
     }
 
     /// The sciotte Strava backend is registered as `sciotte`, and every

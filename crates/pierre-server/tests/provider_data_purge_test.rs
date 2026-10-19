@@ -1094,8 +1094,8 @@ const ONE_ROW_EXPIRED_TABLES: [&str; 9] = [
 ];
 
 /// The declared Nolio cap, applied to the fixture's WHOOP rows: the sweep
-/// reads a provider's cap from the registry in production, and no shipped
-/// provider declares one.
+/// reads a provider's cap from the registry in production, where WHOOP
+/// declares none.
 fn whoop_under_nolio_cap() -> [(&'static str, StdDuration); 1] {
     [("whoop", NOLIO_CACHE_TTL)]
 }

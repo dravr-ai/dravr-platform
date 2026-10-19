@@ -28,7 +28,7 @@ client-messaging = [
 # Push notification dispatch in coach_followup_scheduler
 client-notifications = []
 # Health-data sync adapter (health_sync)
-health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync", "dep:dravr-riviere"]
+health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync"]
 # PostHog analytics implementation
 analytics-posthog = []
 
@@ -68,7 +68,9 @@ dravr-sciotte = { workspace = true, features = ["client"] }
 
 dravr-tronc = { workspace = true, features = ["notifications"] }
 dravr-equilibre-sync = { workspace = true, optional = true }
-dravr-riviere = { workspace = true, optional = true }
+# riviere's TimeSeriesStore: the health-sync adapter writes continuous series
+# through it, and `continuous_series` reads them back.
+dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
 base64 = "0.22"

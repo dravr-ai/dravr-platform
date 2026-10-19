@@ -58,11 +58,6 @@ export function civilWeekdayNarrow(date: string, language: string): string {
   return formatCivilDate(date, language, { weekday: 'narrow' });
 }
 
-/** The full weekday of a strip cell, for the spoken label its single letter cannot carry. */
-export function civilWeekdayLong(date: string, language: string): string {
-  return formatCivilDate(date, language, { weekday: 'long' });
-}
-
 /** The day of the month a strip cell prints, as a figure; NaN for a string that is not a calendar day. */
 export function civilDayOfMonth(date: string): number {
   const match = CIVIL_DATE.exec(date);

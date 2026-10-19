@@ -437,13 +437,13 @@ describe('the week strip', () => {
       'home-week-day-2026-09-27',
     ]);
     expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityState).toEqual({ selected: true });
-    expect(screen.getByTestId('home-week-day-2026-09-22').props.accessibilityLabel).toBe('Tuesday 22 — Rest');
+    expect(screen.getByTestId('home-week-day-2026-09-22').props.accessibilityLabel).toBe('Tuesday, September 22 — Rest');
     // The spoken label carries the session's sport, minutes and intensity, as on the web.
     expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityLabel).toBe(
-      'Thursday 24 — Tempo run · Run · 50 min · Z3',
+      'Thursday, September 24 — Tempo run · Run · 50 min · Z3',
     );
     expect(screen.getByTestId('home-week-day-2026-09-27').props.accessibilityLabel).toBe(
-      "Sunday 27 — Your plan doesn't cover this day.",
+      "Sunday, September 27 — Your plan doesn't cover this day.",
     );
     expect(within(screen.getByTestId('home-week-day-2026-09-22')).getByTestId('home-week-mark-rest')).toBeTruthy();
     expect(within(screen.getByTestId('home-week-day-2026-09-24')).getByTestId('home-week-mark-session')).toBeTruthy();

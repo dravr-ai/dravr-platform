@@ -7,7 +7,8 @@
 //! Provider cache TTL enforcement (carnet#725).
 //!
 //! A provider's terms can cap how long a copy of its data may be held: Nolio
-//! allows a transient copy, any cache included, seven days (API terms §7.1).
+//! allows a transient copy, any cache included, seven days (API terms §7.1),
+//! and Strava copies are held 30 days by product decision (carnet#950).
 //! The cap is declared on the provider's descriptor
 //! ([`ProviderDescriptor::cache_ttl`]) and collected by
 //! [`ProviderRegistry::cache_ttls`]; this sweep enforces it.
@@ -41,8 +42,8 @@ use crate::periodic::spawn_periodic;
 /// The ledger name the sweep runs under.
 const WORKER_NAME: &str = "provider cache ttl sweeper";
 
-/// Sweep cadence. The shortest declared cap is seven days, so an hourly pass
-/// holds a copy at most an hour past its cap.
+/// Sweep cadence. A declared cap is counted in days (Strava's 30, Nolio's
+/// seven), so an hourly pass holds a copy at most an hour past its cap.
 const SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 
 /// Evict every copy of each capped provider's data older than its cap at

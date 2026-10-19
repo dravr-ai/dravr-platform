@@ -295,6 +295,8 @@ pub mod strava_seat_reclaim;
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;
 
+/// Stored continuous heart-rate and HRV series, read under each source's provider terms.
+pub mod continuous_series;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;

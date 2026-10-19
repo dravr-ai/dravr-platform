@@ -124,6 +124,11 @@ pub mod data_helpers;
 #[cfg(feature = "tools-data")]
 pub mod stored_data;
 
+/// `get_heart_rate_series` — the stored intraday heart-rate and HRV series
+/// (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod continuous_series;
+
 /// Endurance Phase 5 workout tools: `list_workout_templates`, `prescribe_workout`
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]

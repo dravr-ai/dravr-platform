@@ -642,8 +642,8 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
 
     // Start the provider cache TTL sweeper (carnet#725): an hourly pass that
     // evicts every copy of a provider's data held past the cap its terms
-    // declare on its descriptor (Nolio: seven days). Not started when no
-    // registered provider declares one.
+    // declare on its descriptor (Strava: 30 days, carnet#950). Not started
+    // when no registered provider declares one.
     {
         use pierre_mcp_server::start_provider_cache_sweeper;
         start_provider_cache_sweeper(

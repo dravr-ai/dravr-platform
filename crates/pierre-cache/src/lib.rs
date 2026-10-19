@@ -342,7 +342,7 @@ pub enum CacheResource {
     /// awaiting its OTP/2FA continuation. Shared rather than process-local so a
     /// continuation reaches the flow whichever pod it lands on. TTL is
     /// caller-specified because it has to track the scraper service's own
-    /// deployed parked-flow lifetime (`DRAVR_SCIOTTE_PARKED_PERMIT_TTL_SECS`),
+    /// deployed pending-login window (`DRAVR_SCIOTTE_PENDING_LOGIN_TTL`),
     /// a knob this crate has no visibility into — so `recommended_ttl` returns
     /// 0 for it, as it does for [`CacheResource::Custom`].
     SciotteLoginFlow,

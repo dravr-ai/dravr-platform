@@ -69,6 +69,8 @@ pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-external = { version = "0.3.0", path = "../pierre-external", optional = true }
 
 dravr-meteo = { workspace = true }
+# The series types and aggregations get_heart_rate_series reads riviere's store with.
+dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
 base64 = "0.22"

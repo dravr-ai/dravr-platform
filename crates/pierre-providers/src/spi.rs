@@ -600,6 +600,10 @@ impl ProviderDescriptor for StravaDescriptor {
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::STRAVA_TRANSPORT
     }
+
+    fn cache_ttl(&self) -> Option<Duration> {
+        Some(provider_terms::STRAVA_CACHE_TTL)
+    }
 }
 
 /// Garmin provider descriptor
@@ -886,6 +890,11 @@ impl ProviderDescriptor for SciotteDescriptor {
     /// This backend reads strava.com, so what it serves is Strava data.
     fn transport_policy(&self) -> TransportPolicy {
         provider_terms::STRAVA_TRANSPORT
+    }
+
+    /// Strava data, so Strava's cache cap.
+    fn cache_ttl(&self) -> Option<Duration> {
+        Some(provider_terms::STRAVA_CACHE_TTL)
     }
 }
 

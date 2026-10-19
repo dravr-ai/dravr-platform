@@ -35,7 +35,7 @@ use pierre_core::constants::oauth_providers::{
 };
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope::{self, StoredHealthRecord};
@@ -135,14 +135,32 @@ async fn governed<T: StoredHealthRecord>(
     tenant: &TenantId,
     records: Vec<T>,
 ) -> AppResult<StoredHealth<T>> {
+    let sources = if records.is_empty() || !ai_scope::policies_apply() {
+        Vec::new()
+    } else {
+        repos
+            .data_sources
+            .list_data_sources(user_id, tenant)
+            .await?
+    };
+    governed_by_sources(repos, terms, user_id, tenant, records, &sources).await
+}
+
+/// [`governed`] for a reader that already holds the athlete's data
+/// `sources`, as the continuous-series read does: it lists them to know which
+/// series to read.
+pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    user_id: Uuid,
+    tenant: &TenantId,
+    records: Vec<T>,
+    sources: &[DataSource],
+) -> AppResult<StoredHealth<T>> {
     let records = if records.is_empty() || !ai_scope::policies_apply() {
         records
     } else {
-        let sources = repos
-            .data_sources
-            .list_data_sources(user_id, tenant)
-            .await?;
-        ai_scope::filter_stored_health(terms, records, &sources)
+        ai_scope::filter_stored_health(terms, records, sources)
     };
     let attribution = attribution_of(repos, user_id, tenant, serves_intervals(&records)).await?;
     Ok(StoredHealth {

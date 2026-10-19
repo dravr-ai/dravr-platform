@@ -50,9 +50,7 @@ pub use repositories::DatabaseProvider;
 pub use repository_registry::RepositoryRegistry;
 pub use views::{AgentRepos, AuthRepos, ContentRepos, FitnessRepos, UsageRepos};
 
-// The continuous time-series store is riviere's `TimeSeriesStore`. Re-export the
-// trait and its data types so consumers of the `time_series_points` registry
-// field can drive it without taking their own dravr-riviere dependency.
-pub use dravr_riviere::{
-    AggregatedPoint, Aggregation, DataPoint, QueryResult, SeriesType, TimeRange, TimeSeriesStore,
-};
+// The continuous time-series store is riviere's `TimeSeriesStore`: the
+// `time_series_points` registry field is that trait object, and nothing here
+// re-exports its types. A crate driving the field names riviere's types, so it
+// depends on dravr-riviere itself, as pierre-services and pierre-tool-runtime do.

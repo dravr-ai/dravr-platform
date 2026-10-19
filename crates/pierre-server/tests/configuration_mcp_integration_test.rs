@@ -257,9 +257,12 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-10-16: publish_training_plan added (113→114, total 119→120) — a
     // human coach's draft of a coached athlete's plan made live or discarded,
     // carnet#1069.
+    // 2026-10-19: get_heart_rate_series added (114→115, total 120→121) — the
+    // stored intraday heart rate and HRV read back from riviere's store,
+    // carnet#999.
     assert_eq!(
-        fitness_tools, 114,
-        "Expected exactly 114 non-configuration tools"
+        fitness_tools, 115,
+        "Expected exactly 115 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -267,5 +270,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 120, "Expected total of 120 tools"); // 114 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 121, "Expected total of 121 tools"); // 115 non-configuration + 6 configuration
 }

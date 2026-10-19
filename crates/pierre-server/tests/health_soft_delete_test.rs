@@ -25,9 +25,9 @@
 mod common;
 
 use chrono::Utc;
+use dravr_riviere::{Aggregation, DataPoint, SeriesType, TimeRange};
 use pierre_core::models::{StoredSleepSession, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::{Aggregation, DataPoint, SeriesType, TimeRange};
 
 use std::sync::Arc;
 use uuid::Uuid;

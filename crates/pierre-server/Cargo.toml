@@ -354,6 +354,9 @@ dravr-meteo = { workspace = true }
 # through pierre-services' health-sync. A dev-dependency cannot be optional,
 # so the test build always carries it.
 dravr-equilibre-sync = { workspace = true }
+# The time-series tests key riviere's store with its SeriesType, DataPoint and
+# TimeRange; production reaches riviere through pierre-services.
+dravr-riviere = { workspace = true }
 # tronc's MCP test client, which the MCP end-to-end tests drive /mcp with
 # (carnet#1000).
 dravr-tronc = { workspace = true, features = ["testkit"] }

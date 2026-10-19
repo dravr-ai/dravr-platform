@@ -30,7 +30,6 @@ import {
   calendarDayLabel,
   civilDayMonth,
   civilDayOfMonth,
-  civilWeekdayLong,
   civilWeekdayNarrow,
   DRAFT_DATE,
   formatCivilDate,
@@ -223,7 +222,7 @@ function WeekStrip({
                   onPress={() => setSelected(date)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={calendarDayLabel(t, `${civilWeekdayLong(date, language)} ${civilDayOfMonth(date)}`, day, today)}
+                  accessibilityLabel={calendarDayLabel(t, formatCivilDate(date, language, DRAFT_DATE), day, today)}
                   className={`flex-1 items-center py-2 min-h-11 rounded-lg ${
                     isSelected ? 'bg-primary-container' : ''
                   } ${isToday ? 'border border-primary' : ''} ${day?.beforeHistory ? 'opacity-40' : ''}`}

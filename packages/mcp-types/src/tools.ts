@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 120
+// Tool count: 121
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -970,6 +970,31 @@ export interface GetHealthSnapshotsParams {
 
   /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
+}
+
+
+/**
+ * Get the athlete's stored intraday heart rate or HRV samples over a time range, one series per connected source, or one aggregated value per window when `window_minutes` is given. For daily resting heart rate and overnight HRV use get_recovery_metrics.
+ */
+export interface GetHeartRateSeriesParams {
+
+  /** How a window's samples fold into its value, with `window_minutes`; defaults to avg. One of: avg, min, max, count, first, last. */
+  aggregation?: string;
+
+  /** End of the range as RFC3339 timestamp, exclusive. Defaults to now. */
+  end?: string;
+
+  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  format?: string;
+
+  /** The series to read; defaults to heart_rate. One of: heart_rate, hrv_rmssd, hrv_sdnn. */
+  metric?: string;
+
+  /** Start of the range as RFC3339 timestamp, inclusive. Defaults to 24 hours before `end`. A sample read spans at most 48 hours and a windowed read 31 days; a wider range keeps its most recent part. */
+  start?: string;
+
+  /** Fold the samples into one value per window of this many minutes (at most 1000 windows over the range). Omit to read every sample. */
+  window_minutes?: number;
 }
 
 
@@ -2430,6 +2455,7 @@ export const TOOL_NAMES = [
   "get_food_details",
   "get_group_member_activities",
   "get_health_snapshots",
+  "get_heart_rate_series",
   "get_nutrient_timing",
   "get_planned_workouts",
   "get_provider_roster",
@@ -2561,6 +2587,7 @@ export interface ToolParamsMap {
   "get_food_details": GetFoodDetailsParams;
   "get_group_member_activities": GetGroupMemberActivitiesParams;
   "get_health_snapshots": GetHealthSnapshotsParams;
+  "get_heart_rate_series": GetHeartRateSeriesParams;
   "get_nutrient_timing": GetNutrientTimingParams;
   "get_planned_workouts": GetPlannedWorkoutsParams;
   "get_provider_roster": GetProviderRosterParams;
