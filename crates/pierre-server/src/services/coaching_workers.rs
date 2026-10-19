@@ -53,6 +53,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         Arc::clone(&resources.mcp.prompt_registry),
         Arc::clone(&resources.fitness.provider_registry) as Arc<dyn ProviderTerms>,
         Arc::clone(&resources.fitness.cageux_config_registry),
+        resources.common.turns.tracker(),
     );
 
     // Daily archetype aggregation: rolls per-user playbooks into k-anonymous
@@ -74,6 +75,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         resources.common.chat_provider.as_ref().map(Arc::clone),
         Arc::clone(&resources.fitness.harness_config_registry),
         resources.memory_extraction_prompt(),
+        resources.common.turns.tracker(),
     );
 
     // Fails the A2A tasks an instance died holding, closes their stream

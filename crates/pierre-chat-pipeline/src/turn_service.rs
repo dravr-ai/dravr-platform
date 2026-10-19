@@ -62,6 +62,7 @@ use crate::hooks::PipelineHooks;
 use crate::language::{resolve_turn_locale, LocaleClassifier};
 use crate::next_steps::{NextSteps, StepsAfter, StepsFor};
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
+use crate::recorders::usage_sink;
 use crate::stages::agent_mention::resolve_agent_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
@@ -424,7 +425,7 @@ async fn execute_turn(
     )
     .ok();
     let classification_recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&ctx.repos.llm_usage),
+        usage_sink(ctx),
         request.conversation_tenant_id.to_string(),
         user_id_str.clone(),
         Some(request.conversation_id.clone()),

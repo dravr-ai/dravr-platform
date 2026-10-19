@@ -22,7 +22,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_auth::oauth2_server::models::OAuth2Error;
-use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::oauth2_server::rate_limiting::{OAuth2RateLimiter, SignInAttempt};
 use pierre_auth::rate_limiting::{OAuth2Endpoint, OAuth2RateLimitStatus};
 use tracing::{error, warn};
 
@@ -117,37 +117,42 @@ pub async fn page_refusal(
     }
 }
 
-/// Decide whether a password sign-in on the hosted login form, from `client`
-/// naming `email`, may be tried, before the password is checked
-/// (carnet#804): `None` admits it; `Some` is the page `render` draws —
-/// `too_many_requests` with its `Retry-After` when the address's or the
-/// account's window of refused passwords is full, `temporarily_unavailable`
-/// when the limiter could not read them.
-pub async fn sign_in_page_refusal(
+/// Count a password sign-in on the hosted login form, from `client` naming
+/// `email`, in its windows before the password is checked (carnet#804,
+/// carnet#908): `Ok` admits it, with the attempt to refund once the password
+/// verifies; `Err` is the page `render` draws — `too_many_requests` with its
+/// `Retry-After` when the address's or the account's window is full,
+/// `temporarily_unavailable` when the limiter could not count the attempt.
+///
+/// # Errors
+///
+/// The refusal page, as above.
+pub async fn sign_in_page_admission(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
     email: &str,
     render: impl FnOnce(&OAuth2Error) -> Response,
-) -> Option<Response> {
-    match limiter.sign_in_wait(client, email).await {
-        Ok(None) => None,
-        Ok(Some(retry_after)) => {
-            warn!(retry_after, "Hosted sign-in refused: too many attempts");
-            let mut response = render(&OAuth2Error::too_many_requests(
-                "Too many sign-in attempts. Wait a minute, then try again.",
-            ));
-            response
-                .headers_mut()
-                .insert(RETRY_AFTER, HeaderValue::from(retry_after));
-            Some(response)
-        }
+) -> Result<SignInAttempt, Box<Response>> {
+    let attempt = match limiter.begin_sign_in(client, email).await {
+        Ok(attempt) => attempt,
         Err(failure) => {
-            error!(error = %failure, "Hosted sign-in limiter could not read its windows");
-            Some(render(&OAuth2Error::temporarily_unavailable(
+            error!(error = %failure, "Hosted sign-in limiter could not count the attempt");
+            return Err(Box::new(render(&OAuth2Error::temporarily_unavailable(
                 LIMITER_UNAVAILABLE,
-            )))
+            ))));
         }
-    }
+    };
+    let Some(retry_after) = attempt.retry_after() else {
+        return Ok(attempt);
+    };
+    warn!(retry_after, "Hosted sign-in refused: too many attempts");
+    let mut response = render(&OAuth2Error::too_many_requests(
+        "Too many sign-in attempts. Wait a minute, then try again.",
+    ));
+    response
+        .headers_mut()
+        .insert(RETRY_AFTER, HeaderValue::from(retry_after));
+    Err(Box::new(response))
 }
 
 /// Set the limiter's wait as `Retry-After`.

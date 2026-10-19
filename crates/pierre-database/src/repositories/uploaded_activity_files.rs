@@ -59,6 +59,22 @@ pub trait UploadedActivityFileRepository: Send + Sync {
     /// Returns a database error when the read fails.
     async fn has_uploaded_files(&self, tenant_id: &TenantId, user_id: Uuid) -> AppResult<bool>;
 
+    /// Whether any activity the file `file_sha256` became is still cached for
+    /// the user in this tenant: an `upload` row whose id is the hash followed
+    /// by a session index (`<sha>-<index>`).
+    ///
+    /// Read from the ids the cache already holds, so the stored file is not
+    /// decoded again to learn how many sessions it named.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails.
+    async fn file_backs_cached_activity(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<bool>;
+
     /// Delete one uploaded file, once the athlete has deleted every activity
     /// it became.
     ///
@@ -95,6 +111,30 @@ pub(crate) const HAS_UPLOADED_FILES_SQL: &str = r"
     FROM uploaded_activity_files
     WHERE tenant_id = $1 AND user_id = $2
     LIMIT 1";
+
+/// Whether any cached `upload` activity of the owner's carries an id
+/// starting with `$3`, a LIKE prefix whose wildcards are escaped. `SQLite`'s
+/// LIKE ignores ASCII case, which changes nothing here: every id is a
+/// lowercase hex hash, a dash and a decimal index.
+pub(crate) const FILE_BACKS_CACHED_ACTIVITY_SQL: &str = r"
+    SELECT 1 AS held
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = 'upload'
+      AND activity_id LIKE $3 ESCAPE '\'
+    LIMIT 1";
+
+/// The LIKE pattern matching every activity id the file `file_sha256` names.
+pub(crate) fn file_activity_id_pattern(file_sha256: &str) -> String {
+    let mut pattern = String::with_capacity(file_sha256.len() + 2);
+    for c in file_sha256.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push_str("-%");
+    pattern
+}
 
 /// Delete one file, by its owner and hash.
 pub(crate) const DELETE_UPLOADED_FILE_SQL: &str = r"
@@ -164,6 +204,22 @@ macro_rules! impl_uploaded_activity_file_repository {
                 Ok(row.is_some())
             }
 
+            async fn file_backs_cached_activity(
+                &self,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+                file_sha256: &str,
+            ) -> AppResult<bool> {
+                let row = sqlx::query(FILE_BACKS_CACHED_ACTIVITY_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(file_activity_id_pattern(file_sha256))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("file_backs_cached_activity: {e}")))?;
+                Ok(row.is_some())
+            }
+
             async fn delete_uploaded_file(
                 &self,
                 tenant_id: &TenantId,
@@ -183,3 +239,18 @@ macro_rules! impl_uploaded_activity_file_repository {
     };
 }
 pub(crate) use impl_uploaded_activity_file_repository;
+
+#[cfg(test)]
+mod tests {
+    use super::file_activity_id_pattern;
+
+    #[test]
+    fn the_pattern_is_the_hash_a_dash_and_any_index() {
+        assert_eq!(file_activity_id_pattern("ab12"), "ab12-%");
+    }
+
+    #[test]
+    fn like_wildcards_in_the_hash_are_matched_literally() {
+        assert_eq!(file_activity_id_pattern("a_b%c\\d"), "a\\_b\\%c\\\\d-%");
+    }
+}

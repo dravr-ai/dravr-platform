@@ -24,6 +24,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::Utc;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
@@ -125,8 +126,12 @@ impl TenantRoutes {
         Json(request): Json<SwitchTenantRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
-        // The switch mints a session for the new tenant: never from an API key.
-        auth.auth_method.refuse_api_key_upgrade()?;
+        // The switch mints a token for the new tenant: never from an API key,
+        // and an impersonation stays an impersonation.
+        let impersonation = auth.auth_method.impersonation().cloned();
+        if impersonation.is_none() {
+            auth.auth_method.refuse_session_upgrade()?;
+        }
 
         info!(
             user_id = %auth.user_id,
@@ -176,18 +181,29 @@ impl TenantRoutes {
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
-        // Generate new JWT with active_tenant_id set, still naming the client
-        // the session was signed in to
-        let token = resources
-            .auth
-            .auth_manager
-            .generate_client_session_token(
+        // Generate new JWT with active_tenant_id set: the same impersonation
+        // (operator, session, no later expiry) for an impersonation token,
+        // else a session still naming the client it was signed in to
+        let auth_manager = &resources.auth.auth_manager;
+        let jwks_manager = &resources.auth.jwks_manager;
+        let active_tenant = Some(tenant_id.to_string());
+        let token = match &impersonation {
+            Some(grant) => {
+                auth_manager.reissue_impersonation_token(&user, grant, jwks_manager, active_tenant)
+            }
+            None => auth_manager.generate_client_session_token(
                 &user,
-                &resources.auth.jwks_manager,
-                Some(tenant_id.to_string()),
+                jwks_manager,
+                active_tenant,
                 auth.client_id.as_deref(),
-            )
-            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
+            ),
+        }
+        .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
+        // A reissued impersonation token expires when the one it replaces
+        // does, which is never past its hour; a session lasts the default day
+        let expires_in = impersonation.as_ref().map_or(86400, |grant| {
+            u64::try_from(grant.expires_at - Utc::now().timestamp()).unwrap_or(0)
+        });
 
         info!(
             user_id = %auth.user_id,
@@ -203,7 +219,7 @@ impl TenantRoutes {
                 active_tenant_id: tenant_id.to_string(),
                 tenant_name: tenant.name,
                 role: role_str,
-                expires_in: 86400, // 24 hours (matches default token expiry)
+                expires_in,
             }),
         )
             .into_response())

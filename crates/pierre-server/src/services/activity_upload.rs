@@ -32,6 +32,7 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use chrono::{Duration, Utc};
 use pierre_cache::CacheKey;
 use pierre_core::constants::oauth_providers::UPLOAD;
@@ -45,6 +46,7 @@ use pierre_providers::upload_provider::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
+use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -83,18 +85,23 @@ pub struct UploadOutcome {
 /// Decode `bytes` as a completed workout's `.fit` file and keep every session
 /// the athlete does not already hold.
 ///
+/// The file is decoded and hashed once, together, on the blocking pool: both
+/// are CPU-bound, and a 16 MiB upload would otherwise hold a runtime worker,
+/// and every request scheduled on it, for the length of the decode.
+///
 /// # Errors
 ///
 /// - [`AppError::invalid_input`] when the upload is empty or larger than
 ///   [`MAX_UPLOAD_BYTES`], is not a FIT file, is a FIT file of another kind
-///   (a course, a workout), or holds no completed session;
+///   (a course, a workout), declares more fields than one workout records,
+///   or holds no completed session;
 /// - [`AppError::already_exists`] when every session in it is already held;
 /// - a database error when a read or a write fails.
 pub async fn upload_activity_file(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
-    bytes: &[u8],
+    bytes: Bytes,
 ) -> AppResult<UploadOutcome> {
     if bytes.is_empty() {
         return Err(AppError::invalid_input("the upload holds no file"));
@@ -105,10 +112,13 @@ pub async fn upload_activity_file(
             MAX_UPLOAD_BYTES / (1024 * 1024)
         )));
     }
-    let file = FitActivityFile::parse(bytes).map_err(|e| {
-        AppError::invalid_input(format!("the file is not a completed activity: {e}"))
-    })?;
-    let sha = file_sha256(bytes);
+    let decoding = bytes.clone(); // Safe: a refcount bump, not a copy of the file
+    let (file, sha) = spawn_blocking(move || {
+        FitActivityFile::parse(&decoding).map(|file| (file, file_sha256(&decoding)))
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("decoding the uploaded file: {e}")))?
+    .map_err(|e| AppError::invalid_input(format!("the file is not a completed activity: {e}")))?;
     let sessions = file.activities(|index| upload_activity_id(&sha, index), UPLOAD);
 
     let mut stored = Vec::with_capacity(sessions.len());
@@ -131,7 +141,7 @@ pub async fn upload_activity_file(
     let repos = runtime.repos();
     repos
         .uploaded_activity_files
-        .store_uploaded_file(&tenant_id, user_id, &sha, bytes)
+        .store_uploaded_file(&tenant_id, user_id, &sha, &bytes)
         .await?;
     repos
         .activity_cache
@@ -183,7 +193,11 @@ pub async fn delete_uploaded_activity(
     if removed == 0 {
         return Err(not_found());
     }
-    let file_deleted = if file_activities_remain(runtime, tenant_id, user_id, sha).await? {
+    let file_deleted = if repos
+        .uploaded_activity_files
+        .file_backs_cached_activity(&tenant_id, user_id, sha)
+        .await?
+    {
         false
     } else {
         repos
@@ -200,42 +214,6 @@ pub async fn delete_uploaded_activity(
         "uploaded activity deleted"
     );
     Ok(())
-}
-
-/// Whether any other activity the file `sha` became is still cached.
-///
-/// The file names how many sessions it holds; each one's id is derived from
-/// the hash and its index. A file that no longer decodes holds nothing any
-/// activity could read, so it keeps none.
-async fn file_activities_remain(
-    runtime: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    sha: &str,
-) -> AppResult<bool> {
-    let repos = runtime.repos();
-    let Some(bytes) = repos
-        .uploaded_activity_files
-        .get_uploaded_file(&tenant_id, user_id, sha)
-        .await?
-    else {
-        return Ok(false);
-    };
-    let Ok(file) = FitActivityFile::parse(&bytes) else {
-        warn!(%user_id, file_sha256 = sha, "stored upload no longer decodes; deleting it");
-        return Ok(false);
-    };
-    for index in 0..file.session_count() {
-        if repos
-            .activity_cache
-            .get_cached_activity(user_id, &tenant_id, UPLOAD, &upload_activity_id(sha, index))
-            .await?
-            .is_some()
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// The copy of `session` the athlete already holds in this tenant, if any:

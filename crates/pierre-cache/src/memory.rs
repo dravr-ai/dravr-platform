@@ -274,6 +274,24 @@ impl CacheProvider for InMemoryCache {
         })
     }
 
+    async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()> {
+        let key = key.to_string();
+        let mut store = self.store.write().await;
+
+        // One write guard covers the read and the write, as in
+        // `count_in_window`.
+        let Some(entry) = store.peek(&key).filter(|entry| !entry.is_expired()) else {
+            return Ok(());
+        };
+        let counted: u64 = serde_json::from_slice(&entry.data)
+            .map_err(|e| AppError::internal(format!("Cache entry is not a window counter: {e}")))?;
+        let expires_at = entry.expires_at;
+        let data = counted.saturating_sub(1).to_string().into_bytes();
+        store.push(key, CacheEntry { data, expires_at });
+        drop(store);
+        Ok(())
+    }
+
     async fn health_check(&self) -> AppResult<()> {
         // In-memory cache is always healthy
         Ok(())

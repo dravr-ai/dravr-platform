@@ -36,7 +36,7 @@ use pierre_memory::FactSource;
 use pierre_services::advice_capture::{
     AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
-use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
+use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_services::memory_dedup::DedupConfig;
 use pierre_services::memory_extraction::{
     run_extraction_job, spawn_extract_for_turn, ExtractionJobPayload, SpawnedExtractionRequest,
@@ -44,6 +44,7 @@ use pierre_services::memory_extraction::{
 use pierre_services::memory_extraction_resume::resume_extraction_jobs;
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
+use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 /// The model each request a scripted runner received asked for, in order.
@@ -133,6 +134,11 @@ fn requested(log: &ModelLog) -> Vec<Option<String>> {
     mem::take(&mut *log.lock().unwrap_or_else(PoisonError::into_inner))
 }
 
+/// The `llm_usage` sink over `repos`, its writes on a tracker of their own.
+fn usage(repos: &RepositoryRegistry) -> LlmUsageSink {
+    LlmUsageSink::new(Arc::clone(&repos.llm_usage), TaskTracker::new())
+}
+
 /// The rows billed to `turn`, waiting for the recorder's spawned write.
 async fn rows_for(repos: &RepositoryRegistry, turn: ConversationTurnId) -> Vec<LlmUsageRecord> {
     for _ in 0..100 {
@@ -183,7 +189,7 @@ async fn memory_extraction_bills_its_own_row_to_the_turn_that_owed_it() {
 
     run_extraction_job(
         repos.memory.as_ref(),
-        &repos.llm_usage,
+        &usage(repos),
         &provider,
         DEDUP,
         "SYSTEM",
@@ -230,7 +236,7 @@ async fn a_guided_answer_bills_its_extraction_to_the_conversation_tenant() {
     let run = spawn_extract_for_turn(
         Arc::clone(&repos.memory),
         Arc::clone(&repos.memory_extraction_jobs),
-        Arc::clone(&repos.llm_usage),
+        usage(repos),
         Some(Arc::new(provider)),
         DEDUP,
         "SYSTEM".to_owned(),
@@ -296,7 +302,7 @@ async fn a_resumed_extraction_bills_the_usage_tenant_its_row_recorded() {
             .unwrap();
     }
 
-    let ran = resume_extraction_jobs(repos, &provider, DEDUP, "SYSTEM")
+    let ran = resume_extraction_jobs(repos, &provider, DEDUP, "SYSTEM", &TaskTracker::new())
         .await
         .unwrap();
 
@@ -322,7 +328,7 @@ async fn advice_capture_bills_its_own_row_to_the_turn_it_read() {
     let user_id = Uuid::new_v4().to_string();
     let turn = ConversationTurnId::new();
     let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&repos.llm_usage),
+        usage(repos),
         tenant_id.to_string(),
         user_id.clone(),
         Some("conv-2".to_owned()),
@@ -365,7 +371,7 @@ async fn a_reply_the_gate_turns_away_costs_no_call_and_no_row() {
     let (provider, log) = copilot_sdk_head("[]");
     let turn = ConversationTurnId::new();
     let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&repos.llm_usage),
+        usage(repos),
         TenantId::generate().to_string(),
         Uuid::new_v4().to_string(),
         None,

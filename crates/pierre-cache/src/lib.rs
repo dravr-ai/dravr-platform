@@ -169,6 +169,18 @@ pub trait CacheProvider: Send + Sync + Clone {
     /// value that is not a window counter
     async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount>;
 
+    /// Take back one hit counted by [`Self::count_in_window`] at `key`.
+    ///
+    /// The window keeps its lifetime, and its count never goes below zero: a
+    /// window that has already closed (or never opened) is left absent. The
+    /// read and the decrement are one atomic step in every backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot be reached, or if `key` holds a
+    /// value that is not a window counter
+    async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()>;
+
     /// Verify cache backend is healthy
     ///
     /// # Errors

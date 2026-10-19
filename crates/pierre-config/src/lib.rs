@@ -1,5 +1,5 @@
 // ABOUTME: Configuration types and loaders for the Pierre platform extracted from pierre-server
-// ABOUTME: Owns ServerConfig + sibling configs (network, security, cache, database, MCP, logging, runtime, catalog, validation)
+// ABOUTME: Owns ServerConfig + sibling configs (network, security, cache, database, MCP, logging, parameter values, catalog, validation)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,7 +47,7 @@ pub mod mcp;
 pub mod network;
 /// The nutrition admin parameters (`nutrition.*`) and the athlete protein override reader
 pub mod nutrition_params;
-/// Runtime configuration management with session-scoped overrides
+/// The typed value a configuration parameter takes
 pub mod runtime;
 /// Security configuration (auth, headers, monitoring)
 pub mod security;

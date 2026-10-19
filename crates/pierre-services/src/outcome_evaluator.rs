@@ -31,7 +31,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::llm_usage_recorder::UsageRepoCallRecorder;
+use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health;
@@ -55,6 +55,7 @@ use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
 use pierre_providers::ai_scope;
 use serde::Deserialize;
+use tokio_util::task::TaskTracker;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -210,6 +211,8 @@ struct SweepInputs<'a> {
     terms: &'a dyn ProviderTerms,
     /// The training-load configuration a recomputed history is scored by.
     algorithms: &'a AlgorithmConfig,
+    /// Where the judge's `llm_usage` rows go.
+    usage: &'a LlmUsageSink,
 }
 
 /// Everything one advice evaluation needs, bundled so each per-metric helper
@@ -488,7 +491,7 @@ async fn run_judge(
         judge_request(ctx.inputs.judge_prompt, &summary, 0.0),
     );
     let recorder: Arc<dyn LlmCallRecorder> = Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&ctx.repos().llm_usage),
+        ctx.inputs.usage.clone(),
         ctx.tenant_id.to_string(),
         ctx.user_id.to_string(),
         None,
@@ -516,19 +519,22 @@ async fn run_judge(
 /// is logged, never propagated. Needs the shared [`ChatProvider`] singleton for
 /// the LLM judge; without it, ambiguous cases fall back to the data heuristic.
 /// `provider_terms` (the provider registry) governs what the judge may see,
-/// and `cageux` scores a history recomputed without withheld sessions.
+/// `cageux` scores a history recomputed without withheld sessions, and the
+/// judge's `llm_usage` rows are written on `usage_writes`.
 pub fn spawn_outcome_evaluator(
     repos: Arc<RepositoryRegistry>,
     chat_provider: Option<Arc<ChatProvider>>,
     prompt_registry: Arc<PromptRegistry>,
     provider_terms: Arc<dyn ProviderTerms>,
     cageux: Arc<CageuxConfigRegistry>,
+    usage_writes: TaskTracker,
 ) {
     let interval_secs = env::var(OUTCOME_EVAL_INTERVAL_ENV_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_OUTCOME_EVAL_INTERVAL_SECS);
     let ledger = Arc::clone(&repos.worker_runs);
+    let usage = LlmUsageSink::new(Arc::clone(&repos.llm_usage), usage_writes);
     spawn_periodic(
         "outcome evaluator",
         Duration::from_secs(interval_secs),
@@ -541,6 +547,7 @@ pub fn spawn_outcome_evaluator(
             let judge_prompt = prompt_registry.outcome_judge_prompt();
             let provider_terms = Arc::clone(&provider_terms);
             let config = cageux.current();
+            let usage = usage.clone();
             async move {
                 run_one_sweep(SweepInputs {
                     repos: &repos,
@@ -548,6 +555,7 @@ pub fn spawn_outcome_evaluator(
                     judge_prompt: judge_prompt.trim(),
                     terms: provider_terms.as_ref(),
                     algorithms: &config.algorithms,
+                    usage: &usage,
                 })
                 .await;
                 Ok(())
@@ -786,12 +794,17 @@ mod tests {
     async fn judge_reads(fx: &Athlete, advice: &PendingAdvice) -> (AdviceResolution, Vec<String>) {
         let (judge, asked) = RecordingJudge::wired();
         let algorithms = AlgorithmConfig::default();
+        let usage = LlmUsageSink::new(
+            Arc::clone(&fx.db.repositories().llm_usage),
+            TaskTracker::new(),
+        );
         let inputs = SweepInputs {
             repos: fx.db.repositories(),
             chat_provider: Some(&judge),
             judge_prompt: "Label the outcome.",
             terms: &NolioTerms,
             algorithms: &algorithms,
+            usage: &usage,
         };
         let resolution = evaluate_advice(advice, inputs).await;
         let asked = asked.lock().unwrap().clone();
@@ -1017,12 +1030,17 @@ mod tests {
             )),
         );
         let algorithms = AlgorithmConfig::default();
+        let usage = LlmUsageSink::new(
+            Arc::clone(&fx.db.repositories().llm_usage),
+            TaskTracker::new(),
+        );
         let inputs = SweepInputs {
             repos: fx.db.repositories(),
             chat_provider: Some(&judge),
             judge_prompt: "Label the outcome.",
             terms: &NolioTerms,
             algorithms: &algorithms,
+            usage: &usage,
         };
 
         let resolution = evaluate_advice(&advice, inputs).await;

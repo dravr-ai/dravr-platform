@@ -3867,6 +3867,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
@@ -3945,9 +3946,7 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4617,6 +4616,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "tokio",
+ "tokio-util",
  "tracing",
  "url",
  "urlencoding",

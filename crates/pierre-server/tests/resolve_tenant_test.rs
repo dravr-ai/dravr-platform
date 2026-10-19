@@ -31,6 +31,7 @@ fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "starter".to_owned(),
+            impersonation: None,
         },
         active_tenant_id,
     }

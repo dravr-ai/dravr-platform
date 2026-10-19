@@ -130,12 +130,31 @@ function makeProvider(config = {}, serverUrl = SERVER_URL) {
   return provider;
 }
 
-/** Provider whose callback listener is bound and ready to take requests. */
+/** How many fresh ports startProvider tries before a bind failure is the test's to see. */
+const FREE_PORT_ATTEMPTS = 5;
+
+/**
+ * Provider whose callback listener is bound and ready to take requests.
+ *
+ * A port from freePort() is released before the provider binds it, so a
+ * parallel test can take it in between (CI on 2026-10-18 lost port 45761 that
+ * way). When the caller named no port, a lost race picks another one; a port
+ * the caller chose is bound once and its failure is returned as is.
+ */
 async function startProvider(config = {}, serverUrl = SERVER_URL) {
-  const port = config.callbackPort ?? (await freePort());
-  const provider = makeProvider({ ...config, callbackPort: port }, serverUrl);
-  const boundPort = await provider.ensureCallbackServerBound();
-  return { provider, port, boundPort };
+  const chosen = config.callbackPort !== undefined;
+  for (let attempt = 1; ; attempt += 1) {
+    const port = chosen ? config.callbackPort : await freePort();
+    const provider = makeProvider({ ...config, callbackPort: port }, serverUrl);
+    try {
+      const boundPort = await provider.ensureCallbackServerBound();
+      return { provider, port, boundPort };
+    } catch (error) {
+      if (chosen || attempt >= FREE_PORT_ATTEMPTS || !/already in use/.test(error.message)) {
+        throw error;
+      }
+    }
+  }
 }
 
 function stopProvider(provider) {

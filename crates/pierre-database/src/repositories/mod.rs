@@ -83,6 +83,8 @@ pub mod health;
 pub mod health_persistence;
 /// Repository trait, statements and shared body for super-admin impersonation sessions.
 pub mod impersonation;
+/// The one consume body every selector.verifier link token shares.
+pub(crate) mod link_token_consume;
 /// How each backend stores a list-of-strings column.
 pub(crate) mod list_columns;
 /// Shared statements and body for tenant and user LLM provider credentials.

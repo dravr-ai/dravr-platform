@@ -63,6 +63,11 @@ pub trait CoachAccessRequestRepository: Send + Sync {
         decided_by: Option<Uuid>,
         decided_at: DateTime<Utc>,
     ) -> AppResult<bool>;
+    /// Put a granted request back to pending, clearing its decision. A grant
+    /// claims the request before applying its effects; when an effect fails,
+    /// this undoes the claim so the row never says granted for access that
+    /// was not given. `false` when the request is not granted.
+    async fn reopen(&self, id: Uuid) -> AppResult<bool>;
 }
 
 /// Open a request; a second pending one for the same user hits the partial
@@ -115,6 +120,13 @@ pub(crate) const DECIDE_REQUEST_SQL: &str = r"
             UPDATE coach_access_requests
             SET status = $2, decided_at = $3, decided_by = $4
             WHERE id = $1 AND status = 'pending'
+            ";
+
+/// Undo a grant's claim; matches nothing unless the request is granted.
+pub(crate) const REOPEN_REQUEST_SQL: &str = r"
+            UPDATE coach_access_requests
+            SET status = 'pending', decided_at = NULL, decided_by = NULL
+            WHERE id = $1 AND status = 'granted'
             ";
 
 /// Parse a text id column.
@@ -281,6 +293,17 @@ macro_rules! impl_coach_access_request_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to decide coach access request: {e}"))
+                    })?;
+                Ok(result.rows_affected() == 1)
+            }
+
+            async fn reopen(&self, id: Uuid) -> AppResult<bool> {
+                let result = sqlx::query(REOPEN_REQUEST_SQL)
+                    .bind(id.to_string())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to reopen coach access request: {e}"))
                     })?;
                 Ok(result.rows_affected() == 1)
             }

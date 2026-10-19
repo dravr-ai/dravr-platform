@@ -106,7 +106,7 @@ async fn upload_activity(
 ) -> AppResult<(StatusCode, Json<ActivityUploadResponse>)> {
     let tenant_id = active_tenant(&auth)?;
     let runtime = into_runtime(&resources);
-    let outcome = upload_activity_file(&runtime, tenant_id, auth.user_id, &body).await?;
+    let outcome = upload_activity_file(&runtime, tenant_id, auth.user_id, body).await?;
     let activities = outcome
         .stored
         .into_iter()

@@ -27,6 +27,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
+use fitparser::de::{DecodeOption, FitObject, FitStreamProcessor};
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
 
@@ -38,6 +39,18 @@ use crate::utils::conversions::{f64_to_f32, f64_to_u32, f64_to_u64};
 /// per 180 degrees.
 const DEGREES_PER_SEMICIRCLE: f64 = 180.0 / 2_147_483_648.0;
 
+/// The most data-message fields one file may carry, counted as the file
+/// declares them, before any is decoded or dropped.
+///
+/// Decoding costs memory and CPU per field, and a file can declare a hundred
+/// one-byte fields per message: 16 MiB of that decoded to 2 GiB in 11 s, past
+/// an instance's whole memory. The Fenix ride the tests decode carries 1014
+/// fields over its 60 s, about 17 a second; a 24-hour recording at that
+/// density at 1 Hz is 1.46 million. Two million covers it with room for
+/// richer sensors, and caps a decode at a few hundred MiB whatever the file
+/// holds.
+pub(crate) const MAX_DECODED_FIELDS: usize = 2_000_000;
+
 /// Why a file is not an activity this decoder can read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FitFileError {
@@ -48,6 +61,9 @@ pub enum FitFileError {
     NotAnActivity(String),
     /// An activity file holding no session: nothing was completed in it.
     NoSession,
+    /// A file declaring more than `MAX_DECODED_FIELDS` fields: no single
+    /// workout's recording is that large.
+    TooLarge,
 }
 
 impl fmt::Display for FitFileError {
@@ -56,6 +72,10 @@ impl fmt::Display for FitFileError {
             Self::NotFit(reason) => write!(f, "not a FIT file: {reason}"),
             Self::NotAnActivity(kind) => write!(f, "a FIT {kind} file, not an activity"),
             Self::NoSession => f.write_str("the activity file holds no completed session"),
+            Self::TooLarge => write!(
+                f,
+                "the file declares more than {MAX_DECODED_FIELDS} fields, more than one workout records"
+            ),
         }
     }
 }
@@ -343,14 +363,49 @@ impl FitActivityFile {
 
     /// Decode `bytes` as they are, whatever kind of FIT file they hold.
     ///
+    /// Fields and messages the FIT profile does not know are dropped, since
+    /// nothing here reads them, and the fields the file declares are counted
+    /// as each message is read, so a file past `MAX_DECODED_FIELDS` stops
+    /// before it has cost more than that. CPU-bound: an async caller runs it
+    /// on the blocking pool.
+    ///
     /// # Errors
     ///
     /// Returns [`FitFileError::NotFit`] when the bytes are not a FIT file or
-    /// fail its checksum.
-    pub fn decode(bytes: &[u8]) -> Result<Self, FitFileError> {
-        fitparser::from_bytes(bytes)
-            .map(|records| Self { records })
-            .map_err(|e| FitFileError::NotFit(e.to_string()))
+    /// fail its checksum, and [`FitFileError::TooLarge`] when they declare
+    /// more than `MAX_DECODED_FIELDS` fields.
+    pub fn decode(mut bytes: &[u8]) -> Result<Self, FitFileError> {
+        let not_fit = |e: fitparser::Error| FitFileError::NotFit(e.to_string());
+        let mut processor = FitStreamProcessor::new();
+        processor.add_option(DecodeOption::DropUnknownFields);
+        processor.add_option(DecodeOption::DropUnknownMessages);
+        let mut records = Vec::new();
+        let mut declared_fields = 0_usize;
+        // The loop `fitparser::from_bytes_with_options` runs, with the budget.
+        while !bytes.is_empty() {
+            let (rest, object) = processor.deserialize_next(bytes).map_err(not_fit)?;
+            match object {
+                FitObject::Crc(..) => processor.reset(),
+                FitObject::DataMessage(message) => {
+                    declared_fields = declared_fields
+                        .saturating_add(message.fields().len())
+                        .saturating_add(message.developer_fields().len());
+                    if declared_fields > MAX_DECODED_FIELDS {
+                        return Err(FitFileError::TooLarge);
+                    }
+                    // An unknown message is still decoded, as the crate's own
+                    // loop does: it may carry the time offset later records
+                    // are timed from.
+                    let record = processor.decode_message(message).map_err(not_fit)?;
+                    if MesgNum::is_named_variant(record.kind().as_i64()) {
+                        records.push(record);
+                    }
+                }
+                FitObject::Header(..) | FitObject::DefinitionMessage(..) => {}
+            }
+            bytes = rest;
+        }
+        Ok(Self { records })
     }
 
     fn of_kind(&self, kind: MesgNum) -> impl Iterator<Item = &FitDataRecord> {
@@ -556,6 +611,7 @@ fn summary(session: &Session<'_>, id: String, provider: &str) -> ActivityBuilder
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_test_support::fit::{bloated_file, FitWorkout};
 
     /// A one-minute ride a Garmin fenix 5 recorded on 2017-06-12: GPS, wrist
     /// heart rate, one lap. Provenance: the `fitparser` 0.11.0 crate's test
@@ -720,5 +776,48 @@ mod tests {
             sport_of(Some("floor_climbing"), None),
             SportType::Other("floor_climbing".to_owned())
         );
+    }
+
+    /// When the bloated test files are said to be made.
+    fn created() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_760_000_000, 0).unwrap_or_default()
+    }
+
+    /// A file declaring a hundred fields per message is refused once its
+    /// declared fields pass the budget, before it is decoded whole: 16 MiB of
+    /// one decoded to 2 GiB in 11 s.
+    #[test]
+    fn a_file_past_the_field_budget_is_refused_as_too_large() {
+        let file = bloated_file(created(), 4 * 1024 * 1024);
+        assert!(matches!(
+            FitActivityFile::parse(&file),
+            Err(FitFileError::TooLarge)
+        ));
+    }
+
+    /// The same shape under the budget decodes; holding no session, it is
+    /// refused for that, not for its size.
+    #[test]
+    fn a_file_under_the_field_budget_is_decoded() {
+        let file = bloated_file(created(), 1024 * 1024);
+        assert!(matches!(
+            FitActivityFile::parse(&file),
+            Err(FitFileError::NoSession)
+        ));
+    }
+
+    /// A whole day recorded every second fits the budget.
+    #[test]
+    fn a_day_recorded_every_second_decodes_to_its_one_session() {
+        let day = FitWorkout::ride(created(), 86_400).encode();
+        let file = FitActivityFile::parse(&day).unwrap_or_else(|e| panic!("a day decodes: {e}"));
+        assert_eq!(file.session_count(), 1);
+    }
+
+    /// Dropping the fields and messages the profile does not know leaves
+    /// everything the device file is read for.
+    #[test]
+    fn the_device_file_still_decodes_to_exactly_one_session() {
+        assert_eq!(ride().session_count(), 1);
     }
 }

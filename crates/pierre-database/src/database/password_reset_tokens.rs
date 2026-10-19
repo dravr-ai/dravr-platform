@@ -10,11 +10,11 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
+use crate::repositories::link_token_consume::consume_link_token;
 use crate::repositories::password_reset_tokens::{
-    impl_password_reset_repository, invalid_reset_token, CONSUME_RESET_TOKEN_SQL,
-    COUNT_RECENT_RESET_TOKENS_SQL, INVALIDATE_USER_RESET_TOKENS_SQL, LOAD_RESET_TOKEN_SQL,
-    LOCK_RESET_TOKEN_SQL, RECORD_RESET_ATTEMPT_SQL, RESET_MAX_VERIFY_ATTEMPTS,
-    RESET_TOKEN_TTL_MINUTES, STORE_RESET_TOKEN_SQL,
+    impl_password_reset_repository, COUNT_RECENT_RESET_TOKENS_SQL,
+    INVALIDATE_USER_RESET_TOKENS_SQL, RESET_LINK_TOKEN, RESET_TOKEN_TTL_MINUTES,
+    STORE_RESET_TOKEN_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::PasswordResetRepository;

@@ -99,6 +99,32 @@ pub fn course_file(created: DateTime<Utc>) -> Vec<u8> {
     fit_file(&data)
 }
 
+/// Fields each message of [`bloated_file`] declares.
+pub const BLOATED_FIELDS_PER_MESSAGE: u8 = 100;
+
+/// A valid FIT activity file of about `bytes` bytes that is nothing but fields.
+///
+/// One definition of [`BLOATED_FIELDS_PER_MESSAGE`] one-byte fields in a
+/// message the profile does not know, repeated, each message 101 bytes. Every
+/// checksum holds, so only a decoder that bounds what it decodes
+/// refuses it before decoding all of it.
+#[must_use]
+pub fn bloated_file(created: DateTime<Utc>, bytes: usize) -> Vec<u8> {
+    let message_bytes = 1 + usize::from(BLOATED_FIELDS_PER_MESSAGE);
+    let mut data = Vec::with_capacity(bytes);
+    file_id(&mut data, 4, created);
+    let fields: Vec<(u8, u8, u8)> = (0..BLOATED_FIELDS_PER_MESSAGE)
+        .map(|number| (number, 1, UINT8))
+        .collect();
+    // 0xFF00: the first manufacturer-specific global message number.
+    define(&mut data, 5, 0xFF00, &fields);
+    while data.len() + message_bytes <= bytes {
+        data.push(5);
+        data.extend((0..BLOATED_FIELDS_PER_MESSAGE).map(|field| field.wrapping_mul(7)));
+    }
+    fit_file(&data)
+}
+
 /// FIT's CRC-16, nibble by nibble, as the FIT SDK specifies it.
 #[must_use]
 pub fn fit_crc(bytes: &[u8]) -> u16 {

@@ -60,18 +60,20 @@ pub trait OAuthTokenRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<UserOAuthToken>>;
-    /// Resolve the single user who owns a provider-side account id.
+    /// Every holder of a token for a provider-side account id.
     ///
     /// Maps a provider's own user identifier (e.g. a Strava athlete id delivered
-    /// in a webhook `owner_id`) back to the `(user_id, tenant_id)` of the matching
-    /// stored token. Returns `None` when no token carries that `provider_user_id`,
-    /// which callers must treat as "unknown owner" — never as a signal to fan out
-    /// to every connected user.
-    async fn find_user_by_provider_user_id(
+    /// in a webhook `owner_id`) back to the `(user_id, tenant_id)` of each
+    /// stored token carrying it, newest token first. Nothing keeps two
+    /// tokens from naming one provider account — one person linked in two
+    /// tenants, or two Dravr accounts linking the same athlete — so the
+    /// caller decides what more than one holder means; an empty list is
+    /// "unknown owner", never a signal to fan out to every connected user.
+    async fn list_users_by_provider_user_id(
         &self,
         provider: &str,
         provider_user_id: &str,
-    ) -> AppResult<Option<(Uuid, String)>>;
+    ) -> AppResult<Vec<(Uuid, String)>>;
     /// List Strava shared-app pool apps — the extra DB-configured apps beside
     /// the env `STRAVA_CLIENT_ID` app. Secrets are never included. When
     /// `only_enabled` is true, disabled apps are omitted (the connect-selection

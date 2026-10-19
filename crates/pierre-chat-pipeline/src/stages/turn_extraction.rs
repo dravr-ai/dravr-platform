@@ -15,6 +15,7 @@ use pierre_services::memory_extraction::{
 };
 use tracing::debug;
 
+use crate::recorders::usage_sink;
 use crate::stages::group_subject::TurnStanding;
 use crate::stages::onboarding::{extraction_params_or_default, GuidedTarget};
 use crate::{ChatPipelineContext, TurnInput};
@@ -112,7 +113,7 @@ pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
     spawn_extract_for_turn(
         Arc::clone(&ctx.repos.memory),
         Arc::clone(&ctx.repos.memory_extraction_jobs),
-        Arc::clone(&ctx.repos.llm_usage),
+        usage_sink(ctx),
         ctx.chat_provider.as_ref().map(Arc::clone),
         DedupConfig {
             candidate_limit: memory_config.dedup_candidate_limit as usize,

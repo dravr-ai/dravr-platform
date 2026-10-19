@@ -47,6 +47,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};
+use pierre_providers::ai_scope;
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::ProviderRegistry;
 use serde::Serialize;
@@ -590,7 +591,9 @@ fn cancel_requested(params: &PushPlanParams<'_>) -> bool {
 ///
 /// # Errors
 ///
-/// Returns an error when the athlete has no active plan, or when the ledger,
+/// Returns `UnavailableOverTransport` when the plan is stamped
+/// first-party-only and the caller is an external transport. Returns an
+/// error when the athlete has no active plan, or when the ledger,
 /// the athlete's medical flag or the provider's calendar cannot be read at
 /// all. Per-entry write failures are reported in [`PushReport::failed`], not
 /// raised.
@@ -611,6 +614,16 @@ pub async fn push_active_plan(
                  save_training_plan first",
             )
         })?;
+    // A plan derived from first-party-only data does not leave through an
+    // external transport, the same rule `get_training_plan` applies to reading
+    // it: an MCP or A2A caller refused the plan must not be able to copy its
+    // sessions onto a third-party calendar instead (carnet#901). A push from
+    // Dravr's own surfaces to the athlete's calendar stays allowed.
+    if !ai_scope::admit_derived(plan.transport_policy) {
+        return Err(AppError::unavailable_over_transport(
+            "this athlete's training plan is not available over this interface",
+        ));
+    }
     let weeks = repos
         .training_plans
         .list_plan_weeks(&tenant_str, &user_str, &plan.id, false)

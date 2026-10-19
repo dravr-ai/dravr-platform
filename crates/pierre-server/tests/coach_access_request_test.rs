@@ -21,12 +21,15 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named};
-use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::errors::ErrorCode;
+use pierre_core::models::{CoachAccessStatus, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::coach_access;
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -419,6 +422,193 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
     assert!(
         repos.coach_access_requests.get(request_id).await?.is_none(),
         "the request must go with the account"
+    );
+    Ok(())
+}
+
+/// A grant racing a decline on the same request (two operators, or one
+/// double-submit): whichever claims the decision first decides it, and the
+/// access state follows the row — never a `declined` row over a user who
+/// holds coach access and coaches the group (carnet#902).
+#[tokio::test]
+#[serial]
+async fn a_grant_racing_a_decline_leaves_the_row_and_the_access_in_agreement() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let operator = session(&resources, "race-super@example.com", UserRole::SuperAdmin).await?;
+
+    for round in 0..30 {
+        let coach = session(
+            &resources,
+            &format!("race-coach-{round}@example.com"),
+            UserRole::User,
+        )
+        .await?;
+        let group = coachless_group(&resources, &coach).await?;
+        let (status, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
+        assert_eq!(status, 201, "{opened}");
+        let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+
+        let (granted, declined) = tokio::join!(
+            coach_access::grant(repos, request_id, Some(operator.user_id)),
+            coach_access::decline(repos, request_id, Some(operator.user_id)),
+        );
+        assert!(
+            granted.is_ok() != declined.is_ok(),
+            "exactly one decision wins (round {round}): grant {granted:?}, decline {declined:?}"
+        );
+
+        let row = repos
+            .coach_access_requests
+            .get(request_id)
+            .await?
+            .expect("request");
+        let is_granted = row.status == CoachAccessStatus::Granted;
+        assert_eq!(is_granted, granted.is_ok(), "round {round}: {row:?}");
+        let user = repos.users.get_global(coach.user_id).await?.expect("coach");
+        assert_eq!(
+            user.manages_roster, is_granted,
+            "round {round}: coach access must follow the row ({:?})",
+            row.status
+        );
+        let attached = repos
+            .groups
+            .get_group(&group.to_string(), coach.tenant_id)
+            .await?
+            .expect("group");
+        assert_eq!(
+            attached.coach_user_id == Some(coach.user_id),
+            is_granted,
+            "round {round}: the group attachment must follow the row ({:?})",
+            row.status
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[serial]
+async fn a_grant_after_a_decline_is_refused_and_gives_nothing() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let coach = session(&resources, "late-grant-coach@example.com", UserRole::User).await?;
+    let group = coachless_group(&resources, &coach).await?;
+    let (_, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
+    let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+    let operator = session(
+        &resources,
+        "late-grant-super@example.com",
+        UserRole::SuperAdmin,
+    )
+    .await?;
+
+    coach_access::decline(repos, request_id, Some(operator.user_id)).await?;
+    let error = coach_access::grant(repos, request_id, Some(operator.user_id))
+        .await
+        .expect_err("a decided request cannot be granted");
+    assert_eq!(error.code, ErrorCode::ResourceAlreadyExists);
+
+    let user = repos.users.get_global(coach.user_id).await?.expect("coach");
+    assert!(!user.manages_roster);
+    let kept = repos
+        .groups
+        .get_group(&group.to_string(), coach.tenant_id)
+        .await?
+        .expect("group");
+    assert_eq!(kept.coach_user_id, None);
+    Ok(())
+}
+
+/// Make every later write to `coaching_groups` fail, so a grant fails at the
+/// group attachment, after it gave coach access.
+async fn refuse_group_writes(resources: &ServerContext) {
+    const NAME: &str = "fault_coaching_groups_refused";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(&format!(
+                "CREATE TRIGGER {NAME} BEFORE UPDATE ON coaching_groups \
+                 BEGIN SELECT RAISE(ABORT, 'group write refused'); END"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(&format!(
+                "CREATE FUNCTION {NAME}() RETURNS trigger LANGUAGE plpgsql \
+                 AS $$ BEGIN RAISE EXCEPTION 'group write refused'; END $$"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+            sqlx::query(&format!(
+                "CREATE TRIGGER {NAME} BEFORE UPDATE ON coaching_groups \
+                 FOR EACH ROW EXECUTE FUNCTION {NAME}()"
+            ))
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+    }
+}
+
+/// carnet#902: a grant that fails at the group attachment is undone, but the
+/// undo puts coach access back to what it was before the grant. A requester
+/// with no access before loses the access the grant gave; one an operator
+/// granted by hand meanwhile keeps it. Either way the request is pending again.
+#[tokio::test]
+#[serial]
+async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let repos = &resources.common.repos;
+    let operator = session(&resources, "undo-super@example.com", UserRole::SuperAdmin).await?;
+
+    let fresh = session(&resources, "undo-fresh@example.com", UserRole::User).await?;
+    let fresh_group = coachless_group(&resources, &fresh).await?;
+    let (_, opened) = ask(&resources, &fresh.auth, json!({ "group_id": fresh_group })).await;
+    let fresh_request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+
+    let granted_by_hand = session(&resources, "undo-hand@example.com", UserRole::User).await?;
+    let hand_group = coachless_group(&resources, &granted_by_hand).await?;
+    let (_, opened) = ask(
+        &resources,
+        &granted_by_hand.auth,
+        json!({ "group_id": hand_group }),
+    )
+    .await;
+    let hand_request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
+    repos
+        .users
+        .set_manages_roster_by_operator(granted_by_hand.user_id, true, Some(operator.user_id))
+        .await?;
+
+    refuse_group_writes(&resources).await;
+    for request in [fresh_request, hand_request] {
+        coach_access::grant(repos, request, Some(operator.user_id))
+            .await
+            .expect_err("the group attachment is refused");
+        let reopened = repos
+            .coach_access_requests
+            .get(request)
+            .await?
+            .expect("request");
+        assert_eq!(reopened.status, CoachAccessStatus::Pending);
+    }
+
+    let fresh_user = repos.users.get_global(fresh.user_id).await?.expect("user");
+    assert!(
+        !fresh_user.manages_roster,
+        "the grant's own access is taken back"
+    );
+    let hand_user = repos
+        .users
+        .get_global(granted_by_hand.user_id)
+        .await?
+        .expect("user");
+    assert!(
+        hand_user.manages_roster,
+        "an operator's earlier grant survives the undo"
     );
     Ok(())
 }

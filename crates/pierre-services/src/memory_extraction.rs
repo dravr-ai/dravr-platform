@@ -36,8 +36,8 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, LlmUsageRepository, MemoryExtractionJobRepository,
-    MemoryExtractionJobRow, MergeUserFactParams, UpsertUserFactParams,
+    HarnessMemoryRepository, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    MergeUserFactParams, UpsertUserFactParams,
 };
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::stage::LlmStage;
@@ -49,7 +49,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::llm_usage_recorder::UsageRepoCallRecorder;
+use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
 };
@@ -804,11 +804,11 @@ impl ExtractionJobPayload {
     /// `usage_tenant_id`.
     fn recorder(
         &self,
-        llm_usage: &Arc<dyn LlmUsageRepository>,
+        usage: &LlmUsageSink,
         usage_tenant_id: TenantId,
     ) -> Arc<dyn LlmCallRecorder> {
         Arc::new(UsageRepoCallRecorder::new(
-            Arc::clone(llm_usage),
+            usage.clone(),
             usage_tenant_id.to_string(),
             self.user_id.clone(),
             self.conversation_id.clone(),
@@ -873,12 +873,12 @@ pub struct SpawnedExtractionRequest {
 /// semaphore (shutdown). Every one leaves the job runnable, so the caller
 /// must keep the row for the sweep rather than finish it.
 ///
-/// The extraction call writes its own `llm_usage` row through `llm_usage`,
+/// The extraction call writes its own `llm_usage` row through `usage`,
 /// typed [`LlmStage::MemoryExtraction`], keyed on the payload's turn and
 /// billed under the job's usage tenant.
 pub async fn run_extraction_job(
     memory_repo: &dyn HarnessMemoryRepository,
-    llm_usage: &Arc<dyn LlmUsageRepository>,
+    usage: &LlmUsageSink,
     chat_provider: &ChatProvider,
     dedup: DedupConfig,
     system_prompt: &str,
@@ -889,7 +889,7 @@ pub async fn run_extraction_job(
             "memory extraction permits are closed; the process is shutting down",
         )
     })?;
-    let recorder = job.payload.recorder(llm_usage, job.usage_tenant_id);
+    let recorder = job.payload.recorder(usage, job.usage_tenant_id);
     let outcome = extract_and_persist(
         memory_repo,
         chat_provider,
@@ -981,7 +981,7 @@ async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, job_id:
 pub async fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
     jobs: Arc<dyn MemoryExtractionJobRepository>,
-    llm_usage: Arc<dyn LlmUsageRepository>,
+    usage: LlmUsageSink,
     chat_provider: Option<Arc<ChatProvider>>,
     dedup: DedupConfig,
     system_prompt: String,
@@ -1001,7 +1001,7 @@ pub async fn spawn_extract_for_turn(
         };
         match run_extraction_job(
             memory_repo.as_ref(),
-            &llm_usage,
+            &usage,
             provider,
             dedup,
             &system_prompt,

@@ -18,11 +18,15 @@
 //!   that confirmed `delegated_connections` row to the member, to be read
 //!   with the coach's connection.
 //!
-//! The token owner is tried first and wins. A link that is only proposed, or
-//! that ended, resolves to nobody, and so does one the group relation no
-//! longer backs (the member left, the group is archived, the coach was
-//! replaced): the same relation the member's read path follows. So does one
-//! whose roster athlete is not the member by email
+//! The token owner is tried first and wins, when exactly one stored token
+//! carries the id. Tokens are keyed per user, tenant and provider, so one
+//! provider account linked by one person in two tenants, or by two Dravr
+//! accounts, leaves two holders: that id is ambiguous, is dropped with a
+//! warning, and does not fall through to a delegated link. A link that is
+//! only proposed, or that ended, resolves to nobody, and so does one the
+//! group relation no longer backs (the member left, the group is archived,
+//! the coach was replaced): the same relation the member's read path
+//! follows. So does one whose roster athlete is not the member by email
 //! ([`link_binding`]): the member's read refuses that link, so an event
 //! through it would announce data the member cannot read. An event is never
 //! broadcast: an id that names no one, or more than one member, is dropped.
@@ -60,10 +64,50 @@ pub struct WebhookOwner {
     pub read_through: Option<CoachConnection>,
 }
 
+/// Who the stored tokens say holds a provider-side id.
+enum TokenHolder {
+    /// No stored token carries it.
+    None,
+    /// Exactly one does: its owner.
+    One(WebhookOwner),
+    /// More than one does, so it names nobody.
+    Ambiguous,
+}
+
+/// The single token holder of `provider_user_id`, when there is one.
+async fn token_holder(
+    repos: &RepositoryRegistry,
+    provider: &str,
+    provider_user_id: &str,
+) -> AppResult<TokenHolder> {
+    let holders = repos
+        .oauth_tokens
+        .list_users_by_provider_user_id(provider, provider_user_id)
+        .await?;
+    Ok(match holders.as_slice() {
+        [] => TokenHolder::None,
+        [(user_id, tenant_id)] => TokenHolder::One(WebhookOwner {
+            user_id: *user_id,
+            tenant_id: tenant_id.clone(),
+            read_through: None,
+        }),
+        _ => {
+            warn!(
+                provider = %provider,
+                provider_user_id = %provider_user_id,
+                holders = holders.len(),
+                "webhook provider id is held by more than one stored token; not guessing a holder"
+            );
+            TokenHolder::Ambiguous
+        }
+    })
+}
+
 /// Resolve the user a provider-side id names, for a push event of `provider`.
 ///
-/// Returns `None` when the id names no token owner and no single confirmed,
-/// still-backed delegated link whose athlete is the member by email.
+/// Returns `None` when more than one stored token carries the id, or when it
+/// names no token owner and no single confirmed, still-backed delegated link
+/// whose athlete is the member by email.
 ///
 /// Neither lookup filters by tenant: the event carries none, so the
 /// provider-side id is the key and the tenant is read from the matched row.
@@ -76,16 +120,10 @@ pub async fn resolve_webhook_owner(
     provider: &str,
     provider_user_id: &str,
 ) -> AppResult<Option<WebhookOwner>> {
-    if let Some((user_id, tenant_id)) = repos
-        .oauth_tokens
-        .find_user_by_provider_user_id(provider, provider_user_id)
-        .await?
-    {
-        return Ok(Some(WebhookOwner {
-            user_id,
-            tenant_id,
-            read_through: None,
-        }));
+    match token_holder(repos, provider, provider_user_id).await? {
+        TokenHolder::None => {}
+        TokenHolder::One(owner) => return Ok(Some(owner)),
+        TokenHolder::Ambiguous => return Ok(None),
     }
 
     let links = repos

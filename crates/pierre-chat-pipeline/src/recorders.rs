@@ -24,7 +24,7 @@ use pierre_core::models::{AddMessageParams, TenantId, TurnOrigin};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::ChatRepository;
 use pierre_llm::call_record::LlmCallRecorder;
-use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
+use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
 use tracing::warn;
@@ -63,13 +63,19 @@ pub(crate) fn turn_call_recorder(
     call_type: &'static str,
 ) -> Arc<dyn LlmCallRecorder> {
     Arc::new(UsageRepoCallRecorder::new(
-        Arc::clone(&ctx.repos.llm_usage),
+        usage_sink(ctx),
         input.conversation_tenant_id.to_string(),
         input.user_id.clone(),
         Some(input.conversation_id.clone()),
         input.turn_id,
         call_type,
     ))
+}
+
+/// Where `ctx`'s `llm_usage` rows go: its repository, each write spawned on
+/// the drain-tracked [`ChatPipelineContext::usage_writes`].
+pub(crate) fn usage_sink(ctx: &ChatPipelineContext) -> LlmUsageSink {
+    LlmUsageSink::new(Arc::clone(&ctx.repos.llm_usage), ctx.usage_writes.clone())
 }
 
 /// Persists each tool dispatch round as `chat_messages` rows.
