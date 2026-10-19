@@ -15,8 +15,8 @@ use pierre_services::memory_extraction::{
 };
 use tracing::debug;
 
+use crate::stages::group_subject::TurnStanding;
 use crate::stages::onboarding::{extraction_params_or_default, GuidedTarget};
-use crate::stages::subject_athlete::files_on_sender;
 use crate::{ChatPipelineContext, TurnInput};
 
 /// The two tenants one turn's extraction runs under.
@@ -56,28 +56,52 @@ impl ExtractionTenants {
     }
 }
 
+/// The finished turn one extraction reads.
+pub(crate) struct ExtractedTurn<'a> {
+    /// Shared pipeline context.
+    pub ctx: &'a ChatPipelineContext,
+    /// The turn: whose message, under which tenants.
+    pub input: &'a TurnInput,
+    /// Its conversation, which names the agent the facts are attached to.
+    pub conv: &'a ConversationRecord,
+    /// Who the turn is about, and so whether it is filed on its sender.
+    pub standing: TurnStanding,
+    /// The reply, or the marker standing in for it.
+    pub assistant_reply: &'a str,
+    /// The stored reply the facts cite.
+    pub assistant_message_id: &'a str,
+    /// The guided topic the athlete's inbound message replies to (see
+    /// [`stages::onboarding::answered_target`]), which is what extraction
+    /// reads — never the topic this turn goes on to ask.
+    pub answered: Option<GuidedTarget>,
+    /// Whether `save_training_plan` ran on the turn.
+    pub plan_was_saved: bool,
+}
+
 /// Fire the Tier 2 background fact extraction for a completed turn, stamping the
 /// onboarding pillar/source/force-kind when the conversation is mid pillar walk.
 ///
-/// `answered` is the guided topic the athlete's inbound message replies to (see
-/// [`stages::onboarding::answered_target`]), which is what extraction reads —
-/// never the topic this turn goes on to ask.
-///
 /// Every extraction a turn owes is spawned here — after the reply, on a
-/// scope-rail answer and on a guided walk's closing answer — so a coach's
-/// thread about one athlete is refused here, once: what it says is filed on
-/// nobody's account ([`files_on_sender`]).
-pub(crate) async fn spawn_turn_extraction(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    conv: &ConversationRecord,
-    assistant_reply: &str,
-    assistant_message_id: &str,
-    answered: Option<GuidedTarget>,
-    plan_was_saved: bool,
-) {
-    if !files_on_sender(conv) {
-        debug!("coach's athlete thread: nothing it says is extracted as a fact");
+/// scope-rail answer and on a guided walk's closing answer — so the turns
+/// that file nothing are refused here, once ([`TurnStanding::files_on_sender`]).
+/// From a group's coach seat or in a coach's thread about one athlete, what
+/// the coach says is about the room or the athlete: filed as theirs it would
+/// reach the coach's own dossier, and it is not the athlete's own statement
+/// either, so it is filed on nobody's account. The one exception is a guided
+/// walk the coach runs on themselves in their room, whose answers are theirs.
+pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
+    let ExtractedTurn {
+        ctx,
+        input,
+        conv,
+        standing,
+        assistant_reply,
+        assistant_message_id,
+        answered,
+        plan_was_saved,
+    } = turn;
+    if !standing.files_on_sender() {
+        debug!(seat = ?standing.seat, "the sender is not this turn's subject: nothing it says is extracted");
         return;
     }
     let (pillar, source, force_kind) = extraction_params_or_default(answered);

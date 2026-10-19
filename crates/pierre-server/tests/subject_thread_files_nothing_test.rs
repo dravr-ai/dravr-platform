@@ -1,5 +1,5 @@
-// ABOUTME: A coach's thread about one athlete files nothing on the coach's account, prefetches none of their rides, runs no walk
-// ABOUTME: Real turns against a scripted model; the coach's own conversation is the control that still learns, writes, prefetches, walks
+// ABOUTME: A coach's athlete thread and group-room seat read none of their rides and file nothing on them, save a room walk on themselves
+// ABOUTME: Real turns against a scripted model; the coach's own conversation and the athlete in the room are the controls
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,9 +25,17 @@
 //! the new ones nowhere. The same commands still run in the coach's own
 //! conversation.
 //!
-//! The tests run one at a time: the prefetch test points the server's scraper
-//! client at a local stand-in through the environment, which must not change
-//! while another test builds its server.
+//! carnet#1084. In a group room the coach holds the coach's seat, and the same
+//! holds there: what the coach says of an athlete is filed on nobody's
+//! account, and neither the prefetches nor capability recovery read the
+//! coach's own rides as the room's. The athlete speaking in the same room is
+//! the control: her own message is still extracted, as hers. The one thing
+//! filed from the coach's seat is a guided walk the coach runs on themselves
+//! there: its state names the coach, and its answers are the coach's own.
+//!
+//! The tests run one at a time: the prefetch and recovery tests point the
+//! server's scraper client at a local stand-in through the environment, which
+//! must not change while another test builds its server.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -52,6 +60,7 @@ use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use helpers::axum_test::AxumTestRequest;
 use helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper_serving};
+use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use pierre_chat_pipeline::stages::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
 use pierre_chat_pipeline::{
     ChatPipelineContext, CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId,
@@ -100,6 +109,8 @@ const ADVICE_REPLY: &str =
 /// The message on which the model writes through every memory tool at once.
 const WRITE_ASK: &str = "Garde tout ça en mémoire pour la suite.";
 const PLAIN_ASK: &str = "Comment s'est passée la semaine ?";
+/// The coach asking their room about one athlete, by her roster name.
+const ROOM_ASK_ABOUT_ATHLETE: &str = "Comment va Mira Subject cette semaine ?";
 const REMEMBERED: &str = "seuil à 250 W";
 const NOTE: &str = "genou sensible après les côtes";
 const FOLLOWUP: &str = "demander comment va le genou";
@@ -434,6 +445,15 @@ fn web_profile() -> SurfaceProfile {
     })
 }
 
+/// A group room the coach coaches ([`Fixture::room`]).
+struct Room {
+    group: Uuid,
+    /// The coach's conversation in it.
+    coach: String,
+    /// The athlete's conversation in it.
+    athlete: String,
+}
+
 /// A group whose agent declares an activity window, coached by the coach;
 /// the athlete a consenting member. The coach's thread about her is open, and
 /// so is the coach's own conversation with the same agent.
@@ -509,24 +529,30 @@ impl Fixture {
         &self.res.common.repos
     }
 
-    /// What the coach typing `content` in `conversation` is served, on the
-    /// in-app web surface.
-    async fn serve(&self, conversation: &str, content: &str) -> ServedTurn {
+    /// What `who` typing `content` in `conversation` is served, on the in-app
+    /// web surface. `direct` is false in a group's room.
+    async fn serve_as(
+        &self,
+        who: &Person,
+        conversation: &str,
+        content: &str,
+        direct: bool,
+    ) -> ServedTurn {
         pierre_chat_pipeline::execute(
             &self.ctx,
             TurnRequest {
                 origin: TurnOrigin::Athlete,
                 input_source: InputSource::Typed,
                 conversation_id: conversation.to_owned(),
-                user_id: self.coach.id,
-                conversation_tenant_id: self.coach.tenant,
-                tool_tenant_id: self.coach.tenant,
+                user_id: who.id,
+                conversation_tenant_id: who.tenant,
+                tool_tenant_id: who.tenant,
                 content: content.to_owned(),
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
                 channel_type: "web",
                 transport: Transport::WebApp,
-                is_direct_message: true,
+                is_direct_message: direct,
                 ambient_group_fallback: false,
                 command_persistence: CommandPersistence::Always,
                 sender_id: None,
@@ -538,6 +564,12 @@ impl Fixture {
         .expect("the turn is served")
     }
 
+    /// What the coach typing `content` in a direct `conversation` is served.
+    async fn serve(&self, conversation: &str, content: &str) -> ServedTurn {
+        self.serve_as(&self.coach, conversation, content, true)
+            .await
+    }
+
     /// One coach turn in `conversation`: the envelope, and the index of the
     /// first model call the turn made.
     async fn turn(&self, conversation: &str, content: &str) -> (TurnEnvelope, usize) {
@@ -546,6 +578,111 @@ impl Fixture {
             panic!("a coaching turn, not a command");
         };
         (*envelope, from)
+    }
+
+    /// One turn by `who` in the group room `conversation`: the envelope, and
+    /// the index of the first model call the turn made.
+    async fn room_turn(
+        &self,
+        who: &Person,
+        conversation: &str,
+        content: &str,
+    ) -> (TurnEnvelope, usize) {
+        let from = self.model.calls_so_far();
+        let ServedTurn::Pipeline(envelope) = self.serve_as(who, conversation, content, false).await
+        else {
+            panic!("a coaching turn, not a command");
+        };
+        (*envelope, from)
+    }
+
+    /// A group the coach owns and coaches in their own tenant, the athlete a
+    /// consenting member with no training source, and each one's conversation
+    /// in its room.
+    async fn room(&self) -> Room {
+        let repos = self.repos();
+        let now = Utc::now();
+        let group = repos
+            .groups
+            .create_group(
+                self.coach.tenant,
+                &CoachingGroup {
+                    id: Uuid::new_v4(),
+                    tenant_id: self.coach.tenant.to_string(),
+                    name: "Tempo Room".to_owned(),
+                    description: None,
+                    agent_id: self.agent_id.clone(),
+                    owner_id: self.coach.id,
+                    coach_user_id: Some(self.coach.id),
+                    peer_data_sharing: false,
+                    respond_mode: GroupRespondMode::default(),
+                    digest_mode: GroupDigestMode::Off,
+                    max_members: 20,
+                    is_active: true,
+                    channel_type: None,
+                    channel_chat_id: None,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .await
+            .unwrap();
+        for (who, role) in [
+            (&self.coach, GroupRole::Owner),
+            (&self.subject, GroupRole::Member),
+        ] {
+            repos
+                .groups
+                .add_member(&GroupMember {
+                    id: Uuid::new_v4(),
+                    group_id: group.id,
+                    user_id: who.id,
+                    tenant_id: self.coach.tenant.to_string(),
+                    role,
+                    peer_sharing_consent: false,
+                    coach_sharing_consent: true,
+                    consent_given_at: now,
+                    joined_at: now,
+                    left_at: None,
+                    display_name: None,
+                })
+                .await
+                .unwrap();
+        }
+        Room {
+            group: group.id,
+            coach: self.room_conversation(&self.coach, group.id).await,
+            athlete: self.room_conversation(&self.subject, group.id).await,
+        }
+    }
+
+    /// A conversation of `who`'s in the room of `group`, opened the way the
+    /// in-app clients open one.
+    async fn room_conversation(&self, who: &Person, group: Uuid) -> String {
+        let resp = AxumTestRequest::post("/api/chat/conversations")
+            .header("authorization", &who.auth)
+            .json(&json!({ "title": "Tempo Room", "group_id": group.to_string() }))
+            .send(ChatRoutes::routes(Arc::clone(&self.res)))
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::CREATED);
+        resp.json::<Value>()["id"].as_str().unwrap().to_owned()
+    }
+
+    /// Connect the coach's own rides, which the stand-in scraper serves
+    /// ([`stand_in_scraper`]).
+    async fn coach_rides(&self) {
+        self.repos()
+            .provider_connections
+            .register_connection(
+                self.coach.id,
+                self.coach.tenant,
+                "sciotte",
+                &ConnectionType::Manual,
+                None,
+            )
+            .await
+            .unwrap();
+        seed_sciotte_session(&self.res, self.coach.id, self.coach.tenant).await;
     }
 
     /// The reply the coach reads to the slash command `typed`.
@@ -724,17 +861,29 @@ impl Fixture {
         notes.chain(followups).chain(commitments).collect()
     }
 
-    /// Wait for `object` to land among the coach's facts.
-    async fn coach_fact_lands(&self, object: &str) {
+    /// Wait for `object` to land among `who`'s facts.
+    async fn fact_lands(&self, who: &Person, object: &str) {
         let deadline = Instant::now() + PATIENCE;
-        while !self.facts(&self.coach).await.iter().any(|o| o == object) {
+        while !self.facts(who).await.iter().any(|o| o == object) {
             assert!(
                 Instant::now() < deadline,
-                "{object:?} never reached the coach's facts"
+                "{object:?} never reached their facts"
             );
             sleep(StdDuration::from_millis(20)).await;
         }
     }
+}
+
+/// Point the server's scraper client at a local stand-in that serves one ride
+/// from yesterday to whichever session asks. Called before the server is
+/// built, which reads the environment once.
+async fn stand_in_scraper() {
+    let ride_start = (Utc::now() - Duration::hours(20)).to_rfc3339_opts(SecondsFormat::Secs, true);
+    let scraper = spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start).await;
+    env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper);
+    // The remote client is both-or-neither: a URL with no audience disables
+    // it, because unsigned requests are refused by the scraper rather than served.
+    env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
 }
 
 /// The agent the group runs: it declares an activity window, so both
@@ -868,7 +1017,7 @@ async fn what_the_coach_says_of_the_athlete_in_her_thread_is_learned_by_nobody()
         })
         .await
         .expect("the advice in the coach's own conversation is still captured");
-    fx.coach_fact_lands(OWN_OBJECT).await;
+    fx.fact_lands(&fx.coach, OWN_OBJECT).await;
     // The thread's passes were spawned before the control's: by now they
     // would have reached the model.
     sleep(SETTLE).await;
@@ -973,25 +1122,9 @@ async fn a_write_on_the_coachs_own_account_is_neither_offered_nor_run_in_her_thr
 #[tokio::test]
 #[serial]
 async fn the_athlete_thread_prefetches_none_of_the_coachs_rides() {
-    let ride_start = (Utc::now() - Duration::hours(20)).to_rfc3339_opts(SecondsFormat::Secs, true);
-    let scraper = spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start).await;
-    env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper);
-    // The remote client is both-or-neither: a URL with no audience disables
-    // it, because unsigned requests are refused by the scraper rather than served.
-    env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
+    stand_in_scraper().await;
     let fx = Fixture::new().await;
-    fx.repos()
-        .provider_connections
-        .register_connection(
-            fx.coach.id,
-            fx.coach.tenant,
-            "sciotte",
-            &ConnectionType::Manual,
-            None,
-        )
-        .await
-        .unwrap();
-    seed_sciotte_session(&fx.res, fx.coach.id, fx.coach.tenant).await;
+    fx.coach_rides().await;
 
     // The control: the coach's own conversation with the same agent is
     // grounded on the coach's ride, on its first turn and on the next.
@@ -1120,4 +1253,209 @@ async fn the_same_walk_in_the_coachs_own_conversation_still_starts() {
             );
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// The coach's seat in a group room
+// ════════════════════════════════════════════════════════════════════════
+
+/// In their group room the coach is not the turn's subject, so what they say
+/// of an athlete there is extracted as nobody's fact and captured as nobody's
+/// advice (carnet#1084). The athlete's own message in the same room is the
+/// control: it is still extracted, and filed as hers.
+#[tokio::test]
+#[serial]
+async fn what_the_coach_says_in_their_group_room_is_learned_by_nobody() {
+    let fx = Fixture::new().await;
+    let room = fx.room().await;
+    let from = fx.model.calls_so_far();
+
+    fx.room_turn(&fx.coach, &room.coach, THREAD_FACT).await;
+    fx.room_turn(&fx.subject, &room.athlete, OWN_FACT).await;
+
+    fx.model
+        .call_matching(from, |c| {
+            fx.model.is_extraction(c) && c.conversation.contains(OWN_FACT)
+        })
+        .await
+        .expect("the athlete's own message in the room is still extracted");
+    fx.fact_lands(&fx.subject, OWN_OBJECT).await;
+    // The coach's passes were spawned before the athlete's: by now they would
+    // have reached the model.
+    sleep(SETTLE).await;
+
+    let learned_from_coach: Vec<Call> = fx
+        .model
+        .calls_since(from)
+        .into_iter()
+        .filter(|c| fx.model.is_extraction(c) || fx.model.is_advice_capture(c))
+        .filter(|c| c.conversation.contains(THREAD_FACT))
+        .collect();
+    assert!(
+        learned_from_coach.is_empty(),
+        "a learning pass read the coach's room message: {learned_from_coach:?}"
+    );
+    assert!(
+        fx.facts(&fx.coach).await.is_empty(),
+        "nothing said from the coach's seat is filed on the coach"
+    );
+    assert_eq!(
+        fx.facts(&fx.subject).await,
+        vec![OWN_OBJECT.to_owned()],
+        "the athlete holds her own fact, and nothing the coach said of her"
+    );
+}
+
+/// Neither the activity prefetches nor capability recovery read the coach's
+/// own rides for their group room, on its first turn or a later one. A "how
+/// was the week" turn there looks ungrounded, and was re-asked with the
+/// coach's rides as the room's; it now stands as written. The coach's own
+/// conversation is the control that the rides are served at all.
+#[tokio::test]
+#[serial]
+async fn the_coach_seat_never_reads_the_coachs_own_rides_for_the_room() {
+    stand_in_scraper().await;
+    let fx = Fixture::new().await;
+    fx.coach_rides().await;
+    let coach_room = fx.room().await.coach;
+
+    let (own, _) = fx.turn(&fx.own, PLAIN_ASK).await;
+    assert!(
+        own.telemetry.activities_prefetched,
+        "the fixture serves the coach's rides to their own conversation"
+    );
+
+    for turn in ["first", "later"] {
+        let (envelope, from) = fx.room_turn(&fx.coach, &coach_room, PLAIN_ASK).await;
+        assert!(
+            !envelope.telemetry.activities_prefetched,
+            "the {turn} room turn was prefetched with the coach's rides"
+        );
+        assert!(
+            !envelope
+                .telemetry
+                .tools_called
+                .iter()
+                .any(|tool| tool == "get_activities"),
+            "the {turn} room turn read the coach's own activities: {:?}",
+            envelope.telemetry.tools_called
+        );
+        for call in fx.model.calls_since(from) {
+            assert!(
+                !call.carries(COACH_RIDE),
+                "the coach's ride reached the {turn} room turn: …{}…",
+                call.around(COACH_RIDE)
+            );
+        }
+    }
+}
+
+/// When the coach asks their room about one athlete, the recovery re-ask
+/// grounds on her side alone and tells the model the coach's own activities
+/// are not read in the group — never that their data source failed, and
+/// never with the coach's rides as evidence.
+#[tokio::test]
+#[serial]
+async fn a_coach_seat_re_ask_about_an_athlete_never_reads_the_coachs_side() {
+    stand_in_scraper().await;
+    let fx = Fixture::new().await;
+    fx.coach_rides().await;
+    let coach_room = fx.room().await.coach;
+
+    let (_, from) = fx
+        .room_turn(&fx.coach, &coach_room, ROOM_ASK_ABOUT_ATHLETE)
+        .await;
+
+    let calls = fx.model.calls_since(from);
+    let reask = calls
+        .iter()
+        .find(|c| c.carries(REPAIR_EVIDENCE_FRAME))
+        .expect("the room ask about one athlete is re-asked with her side");
+    assert!(
+        reask.carries("coaches this group, and their own activities are never read here"),
+        "the re-ask says whose data is not read: …{}…",
+        reask.around(REPAIR_EVIDENCE_FRAME)
+    );
+    assert!(
+        !reask.carries("did not respond"),
+        "never an outage that did not happen: …{}…",
+        reask.around("did not respond")
+    );
+    for call in &calls {
+        assert!(
+            !call.carries(COACH_RIDE),
+            "the coach's ride reached the room: …{}…",
+            call.around(COACH_RIDE)
+        );
+    }
+}
+
+/// A guided walk the coach starts on themselves in their room interviews the
+/// coach about the coach, so its answers are filed on the coach exactly as
+/// every walk files them: the exemption follows the walk state, which names
+/// the coach as its subject. An ordinary message the coach sends in the same
+/// room right after, outside that walk, still files nothing; the athlete's own
+/// message, sent last, is the control that extraction still ran.
+#[tokio::test]
+#[serial]
+async fn a_walk_the_coach_runs_on_themselves_in_their_room_files_its_answers_on_the_coach() {
+    let fx = Fixture::new().await;
+    let room = fx.room().await;
+
+    let opener = fx
+        .serve_as(&fx.coach, &room.coach, "/pillars training", false)
+        .await;
+    assert!(
+        matches!(opener, ServedTurn::Command { .. }),
+        "/pillars runs as a command"
+    );
+    let walk = fx
+        .walk_state(&room.coach)
+        .await
+        .expect("the walk opened in the coach's room conversation");
+    assert_eq!(walk.flow, GuidedFlow::Pillars);
+    assert_eq!(
+        walk.subject_user_id.as_deref(),
+        Some(fx.coach.id.to_string().as_str()),
+        "the walk is bound to the coach"
+    );
+
+    // The coach answers their own walk: the answer is theirs, filed on them.
+    let from = fx.model.calls_so_far();
+    fx.room_turn(&fx.coach, &room.coach, OWN_FACT).await;
+    fx.model
+        .call_matching(from, |c| {
+            fx.model.is_extraction(c) && c.conversation.contains(OWN_FACT)
+        })
+        .await
+        .expect("the coach's walk answer is extracted");
+    fx.fact_lands(&fx.coach, OWN_OBJECT).await;
+
+    // Right after, in the same room but outside the walk, an ordinary message.
+    let ordinary = fx.room_conversation(&fx.coach, room.group).await;
+    let after_walk = fx.model.calls_so_far();
+    fx.room_turn(&fx.coach, &ordinary, THREAD_FACT).await;
+    fx.room_turn(&fx.subject, &room.athlete, OWN_FACT).await;
+    fx.fact_lands(&fx.subject, OWN_OBJECT).await;
+    // The coach's ordinary message was spawned before the athlete's: by now
+    // its passes would have reached the model.
+    sleep(SETTLE).await;
+
+    let learned_from_room: Vec<Call> = fx
+        .model
+        .calls_since(after_walk)
+        .into_iter()
+        .filter(|c| fx.model.is_extraction(c) || fx.model.is_advice_capture(c))
+        .filter(|c| c.conversation.contains(THREAD_FACT))
+        .collect();
+    assert!(
+        learned_from_room.is_empty(),
+        "a learning pass read the coach's ordinary room message: {learned_from_room:?}"
+    );
+    assert_eq!(
+        fx.facts(&fx.coach).await,
+        vec![OWN_OBJECT.to_owned()],
+        "the coach holds their walk answer, and nothing they said of the room"
+    );
+    assert_eq!(fx.facts(&fx.subject).await, vec![OWN_OBJECT.to_owned()]);
 }

@@ -286,44 +286,15 @@ async fn emit_step(hooks: &PipelineHooks<'_>, step: &str, status: &str) {
     }
 }
 
-/// Parameters for [`assemble_prompt_stage`]. Bundled into a struct to stay
-/// under the workspace `clippy::too_many_arguments` budget.
-struct AssemblePromptArgs<'a> {
-    /// Pipeline hooks for AG-UI step emissions.
-    hooks: &'a PipelineHooks<'a>,
-    /// Shared pipeline context.
-    ctx: &'a ChatPipelineContext,
-    /// Turn input (user message + identifiers).
-    input: &'a TurnInput,
-    /// What the turn's surface can render, plus its resolved locale.
-    profile: &'a SurfaceProfile,
-    /// Resolved conversation record.
-    conv: &'a ConversationRecord,
-    /// Optional agent runtime context.
-    agent_ctx: Option<&'a AgentRuntimeContext>,
-    /// Persisted conversation history.
-    history: &'a [MessageRecord],
-    /// Onboarding turn context when the conversation is mid pillar walk.
-    onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
-}
-
 /// Run [`stages::prompt_assembly::assemble_prompt_and_messages`] between
 /// AG-UI `STEP_STARTED`/`STEP_FINISHED`, outside [`run_turn`]'s complexity.
 async fn assemble_prompt_stage(
-    args: AssemblePromptArgs<'_>,
+    hooks: &PipelineHooks<'_>,
+    turn: stages::prompt_assembly::PromptTurn<'_>,
 ) -> AppResult<stages::prompt_assembly::AssembledPrompt> {
-    emit_step_started(args.hooks, "prompt_assembly").await;
-    let result = stages::prompt_assembly::assemble_prompt_and_messages(
-        args.ctx,
-        args.input,
-        args.profile,
-        args.conv,
-        args.agent_ctx,
-        args.history,
-        args.onboarding,
-    )
-    .await;
-    emit_step_finished(args.hooks, "prompt_assembly").await;
+    emit_step_started(hooks, "prompt_assembly").await;
+    let result = stages::prompt_assembly::assemble_prompt_and_messages(turn).await;
+    emit_step_finished(hooks, "prompt_assembly").await;
     result
 }
 
@@ -652,6 +623,11 @@ async fn run_turn(
     // identifiers alongside user/tenant/conversation/turn.
     record_turn_span_context(input.turn_agent_id(&conv), conv.group_id.as_deref());
 
+    // Stage 4.1: who the turn is about, named once. Every stage below that
+    // reads, fetches or files the sender's own data follows it.
+    let standing = stages::group_subject::turn_standing(&ctx.repos, &conv, &input).await;
+    let seat = standing.seat;
+
     // Stage 4.5: Guided mode. If this conversation is mid pillars walk, mid
     // calibration interview or mid season walk, resolve the topic being probed
     // (and clear the flag once complete). Drives the prompt directive (below)
@@ -672,6 +648,7 @@ async fn run_turn(
             active_model: &active_model,
             user_message: &user_message,
             conv: &conv,
+            standing,
         })
         .await?
         {
@@ -696,6 +673,7 @@ async fn run_turn(
                 active_model: &active_model,
                 user_message: &user_message,
                 conv: &conv,
+                standing,
                 guided_answer: onboarding_turn
                     .as_ref()
                     .and_then(|turn| stages::onboarding::answered_target(&turn.state)),
@@ -761,18 +739,20 @@ async fn run_turn(
         source_ids,
         group_roster,
         intro,
-        seat,
         turn_clock,
-    ) = assemble_prompt_stage(AssemblePromptArgs {
+    ) = assemble_prompt_stage(
         hooks,
-        ctx,
-        input: &input,
-        profile,
-        conv: &conv,
-        agent_ctx: agent_ctx.as_ref(),
-        history: &history,
-        onboarding: onboarding_turn.as_ref(),
-    })
+        stages::prompt_assembly::PromptTurn {
+            ctx,
+            input: &input,
+            profile,
+            conv: &conv,
+            standing,
+            agent_ctx: agent_ctx.as_ref(),
+            history: &history,
+            onboarding: onboarding_turn.as_ref(),
+        },
+    )
     .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
@@ -963,6 +943,7 @@ async fn run_turn(
         introduction: intro.as_ref(),
         leak_replaced,
         plan_was_saved,
+        standing,
     })
     .await;
 
@@ -1070,6 +1051,7 @@ struct GuidedStageInputs<'a> {
     active_model: &'a str,
     user_message: &'a MessageRecord,
     conv: &'a ConversationRecord,
+    standing: stages::group_subject::TurnStanding,
 }
 
 /// What Stage 4.5 concluded: either the turn is already answered, or it carries
@@ -1099,6 +1081,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
         active_model,
         user_message,
         conv,
+        standing,
     } = inputs;
 
     let guided = stages::onboarding::resolve(
@@ -1138,15 +1121,18 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             // speed, which is safety-critical and the sole writer of its kind,
             // so its absence is exactly what the wrap-up would have named.
             stages::turn_extraction::spawn_turn_extraction(
-                ctx,
-                input,
-                conv,
-                PLATFORM_REPLY_TRANSCRIPT_MARKER,
-                &result.assistant.message.id,
-                answered,
-                // A walk's closing turn skips the LLM entirely, so no tool
-                // ran and no plan was stored.
-                false,
+                stages::turn_extraction::ExtractedTurn {
+                    ctx,
+                    input,
+                    conv,
+                    standing,
+                    assistant_reply: PLATFORM_REPLY_TRANSCRIPT_MARKER,
+                    assistant_message_id: &result.assistant.message.id,
+                    answered,
+                    // A walk's closing turn skips the LLM entirely, so no tool
+                    // ran and no plan was stored.
+                    plan_was_saved: false,
+                },
             )
             .await;
             Ok(GuidedOutcome::Answered(Box::new(result)))

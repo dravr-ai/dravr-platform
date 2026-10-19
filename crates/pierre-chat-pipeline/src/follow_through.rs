@@ -26,7 +26,8 @@ use pierre_services::memory_extraction::WITHHELD_REPLY_TRANSCRIPT_MARKER;
 use tracing::{debug, info};
 
 use crate::recorders::turn_call_recorder;
-use crate::stages::subject_athlete::files_on_sender;
+use crate::stages::group_subject::TurnStanding;
+use crate::stages::turn_extraction::{spawn_turn_extraction, ExtractedTurn};
 #[cfg(feature = "tools-verification")]
 use crate::stages::verification::persist_pending_verdicts;
 use crate::{stages, ChatPipelineContext, TurnInput};
@@ -38,19 +39,28 @@ use crate::{stages, ChatPipelineContext, TurnInput};
 /// [`HeuristicGatedLlmExtraction`]; swapping it (see `DRAVR-BACKLOG.md`) is a
 /// one-line change here once a config selector exists.
 ///
-/// Nothing is captured in a coach's thread about one athlete
-/// ([`files_on_sender`]): the advice there is for the athlete, and captured
-/// under the sender it would be judged against the coach's own training and
-/// reinforce the coach's own playbooks.
+/// Nothing is captured when the sender is not the turn's subject
+/// ([`pierre_tool_runtime::coach_seat::TurnSeat::sender_is_subject`]): from a
+/// group's coach seat or in a coach's thread about one athlete, the advice is
+/// for the room or the athlete, and captured under the sender it would be
+/// judged against the coach's own training and reinforce the coach's own
+/// playbooks. That holds during a walk the coach runs on themselves too: the
+/// walk's answers are theirs, but the agent's replies in the room are not
+/// advice for them.
 fn spawn_turn_advice_capture(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    conv: &ConversationRecord,
+    inputs: &FinishTurnInputs<'_>,
     assistant_reply: &str,
     assistant_message_id: &str,
 ) {
-    if !files_on_sender(conv) {
-        debug!("coach's athlete thread: no advice it gives is captured");
+    let FinishTurnInputs {
+        ctx,
+        input,
+        conv,
+        standing,
+        ..
+    } = *inputs;
+    if !standing.seat.sender_is_subject() {
+        debug!(seat = ?standing.seat, "the sender is not this turn's subject: no advice it gives is captured");
         return;
     }
     let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction::new(
@@ -108,36 +118,29 @@ async fn spawn_turn_background_learning(
         ctx,
         input,
         conv,
+        standing,
         assistant_reply,
         assistant_message_id,
         leak_replaced,
         plan_was_saved,
         ..
     } = *inputs;
-    if leak_replaced {
-        stages::turn_extraction::spawn_turn_extraction(
-            ctx,
-            input,
-            conv,
-            WITHHELD_REPLY_TRANSCRIPT_MARKER,
-            assistant_message_id,
-            answered,
-            plan_was_saved,
-        )
-        .await;
-        return;
-    }
-    stages::turn_extraction::spawn_turn_extraction(
+    let extracted = |assistant_reply| ExtractedTurn {
         ctx,
         input,
         conv,
+        standing,
         assistant_reply,
         assistant_message_id,
         answered,
         plan_was_saved,
-    )
-    .await;
-    spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
+    };
+    if leak_replaced {
+        spawn_turn_extraction(extracted(WITHHELD_REPLY_TRANSCRIPT_MARKER)).await;
+        return;
+    }
+    spawn_turn_extraction(extracted(assistant_reply)).await;
+    spawn_turn_advice_capture(inputs, assistant_reply, assistant_message_id);
 }
 
 /// Record that this turn's guided-flow probe reached the athlete, so the next
@@ -204,6 +207,10 @@ pub struct FinishTurnInputs<'a> {
     /// memory extractor may drop an agent-prescription schedule fact on the
     /// grounds that the plan is stored elsewhere (registre#203).
     pub plan_was_saved: bool,
+    /// Who the turn is about: off the subject's seat, nothing the turn says
+    /// is learned on anyone's account, save a guided walk's answers on the
+    /// coach who runs it on themselves.
+    pub standing: TurnStanding,
 }
 
 /// Everything the turn still owes once its reply is persisted: Tier 2 memory

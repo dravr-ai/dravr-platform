@@ -114,6 +114,19 @@ pub fn resolve_ask_subject(
     }
 }
 
+/// What a subject re-ask has of the requester's own activities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnActivities {
+    /// Fetched for this turn: the `get_activities` result in the evidence is
+    /// theirs.
+    Fetched,
+    /// Their data source did not answer.
+    Unavailable,
+    /// Not read: the requester is not the turn's subject — a group's coach —
+    /// so their fetch was never attempted, and nothing failed.
+    NotRead,
+}
+
 /// Build the instruction appended after the subject evidence.
 ///
 /// Every sentence names whose data it is about, so the model can never read
@@ -121,12 +134,13 @@ pub fn resolve_ask_subject(
 /// English on purpose, like the requester-path instruction: the platform's
 /// system corpus is English and the model answers in the athlete's locale.
 ///
-/// `fetched` are the peers whose activities sit in the tool results above;
-/// `pregrounded` are the peers the platform had already injected before the
-/// model ran; `declined` pairs a peer with the tool's own refusal text.
+/// `own` is what became of the requester's own side; `fetched` are the peers
+/// whose activities sit in the tool results above; `pregrounded` are the
+/// peers the platform had already injected before the model ran; `declined`
+/// pairs a peer with the tool's own refusal text.
 #[must_use]
 pub fn subject_reask_instruction(
-    own_fetched: bool,
+    own: OwnActivities,
     fetched: &[String],
     pregrounded: &[String],
     declined: &[(String, String)],
@@ -157,17 +171,21 @@ pub fn subject_reask_instruction(
             join_names(&all)
         );
     }
-    if own_fetched {
-        out.push_str(
+    out.push_str(match own {
+        OwnActivities::Fetched => {
             "The `get_activities` result above is the athlete's OWN activities — the person \
-             you are talking to — never anyone else's. ",
-        );
-    } else {
-        out.push_str(
+             you are talking to — never anyone else's. "
+        }
+        OwnActivities::Unavailable => {
             "The athlete's OWN activities could not be read this turn — their data source did \
-             not respond. Say so plainly and do not state any of their numbers. ",
-        );
-    }
+             not respond. Say so plainly and do not state any of their numbers. "
+        }
+        OwnActivities::NotRead => {
+            "The person you are talking to coaches this group, and their own activities are \
+             never read here: state none of their numbers, and do not say their data could \
+             not be read. "
+        }
+    });
     for (name, reason) in declined {
         let _ = write!(
             out,
@@ -176,7 +194,7 @@ pub fn subject_reask_instruction(
              {name}'s. "
         );
     }
-    if declined.is_empty() && own_fetched {
+    if declined.is_empty() && own != OwnActivities::Unavailable {
         out.push_str("Do not claim any connection or tool problem.");
     } else {
         out.push_str(
@@ -245,8 +263,37 @@ struct SubjectEvidence {
     /// Payload text per peer with data (fetched or pre-grounded), for the
     /// claim re-check and a repair.
     payloads: Vec<(String, String)>,
-    /// The requester's own activities, when their fetch succeeded.
-    own_payload: Option<String>,
+    /// What became of the requester's own activities.
+    own: OwnEvidence,
+}
+
+/// The requester's own side, with the payload when it was fetched.
+enum OwnEvidence {
+    /// Their activities, as the fetch returned them.
+    Fetched(String),
+    /// Their data source did not answer.
+    Unavailable,
+    /// Not read: they are not the turn's subject.
+    NotRead,
+}
+
+impl OwnEvidence {
+    /// What the re-ask instruction says of it.
+    const fn activities(&self) -> OwnActivities {
+        match self {
+            Self::Fetched(_) => OwnActivities::Fetched,
+            Self::Unavailable => OwnActivities::Unavailable,
+            Self::NotRead => OwnActivities::NotRead,
+        }
+    }
+
+    /// The fetched payload, if there is one.
+    fn payload(&self) -> Option<&str> {
+        match self {
+            Self::Fetched(payload) => Some(payload),
+            Self::Unavailable | Self::NotRead => None,
+        }
+    }
 }
 
 impl SubjectEvidence {
@@ -257,7 +304,7 @@ impl SubjectEvidence {
             pregrounded: Vec::new(),
             declined: Vec::new(),
             payloads: Vec::new(),
-            own_payload: None,
+            own: OwnEvidence::Unavailable,
         }
     }
 
@@ -270,19 +317,20 @@ impl SubjectEvidence {
 
     /// Whether anything at all — data or a reason — reached the re-ask.
     fn is_empty(&self) -> bool {
-        self.responses.is_empty() && self.pregrounded.is_empty() && self.own_payload.is_none()
+        self.responses.is_empty() && self.pregrounded.is_empty() && self.own.payload().is_none()
     }
 
     /// Whether the model was told that some side could not be read: a peer
-    /// declined, or the requester's own source unavailable.
+    /// declined, or the requester's own source unavailable. A requester whose
+    /// own activities are not the turn's to read was told nothing failed.
     fn relays_a_decline(&self) -> bool {
-        !self.declined.is_empty() || self.own_payload.is_none()
+        !self.declined.is_empty() || matches!(self.own, OwnEvidence::Unavailable)
     }
 
     /// The evidence text the claim verifier reads on top of the turn's own.
     fn evidence_text(&self) -> String {
         let mut text = String::new();
-        if let Some(own) = &self.own_payload {
+        if let Some(own) = self.own.payload() {
             text.push_str(own);
             text.push('\n');
         }
@@ -297,7 +345,7 @@ impl SubjectEvidence {
     /// attributed instruction.
     fn prompt(&self) -> String {
         let instruction = subject_reask_instruction(
-            self.own_payload.is_some(),
+            self.own.activities(),
             &self.fetched,
             &self.pregrounded,
             &self.declined,
@@ -331,7 +379,7 @@ impl SubjectEvidence {
 
     /// Record the requester's own activities.
     fn record_own(&mut self, payload: serde_json::Value) {
-        self.own_payload = Some(payload.to_string());
+        self.own = OwnEvidence::Fetched(payload.to_string());
         self.responses.push(FunctionResponse {
             name: VERIFICATION_TOOL.to_owned(),
             response: payload,
@@ -394,6 +442,9 @@ async fn fetch_peer_subjects(
 /// attributed, never assumed. `false` when the requester's provider needs
 /// re-auth: that outcome is routed on `result` and the reconnect
 /// re-challenge takes the turn.
+///
+/// A group's coach is not the turn's subject, so their own side is not read
+/// at all, and the re-ask says so rather than that it failed.
 async fn fetch_own_side(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
@@ -415,6 +466,10 @@ async fn fetch_own_side(
             info!(
                 "capability_subject: the requester's own fetch failed non-auth; relayed as unavailable"
             );
+            true
+        }
+        VerificationOutcome::NotTheSubject => {
+            evidence.own = OwnEvidence::NotRead;
             true
         }
         VerificationOutcome::Verified(payload) => {
@@ -463,7 +518,7 @@ fn subject_reply_accepted(
             deps.peer_roster,
             requester,
         );
-    let own_fetched = evidence.own_payload.is_some();
+    let own_fetched = evidence.own.payload().is_some();
     let own_denial_ok = !narration::contains_capability_failure(reply)
         || (evidence.relays_a_decline() && !own_fetched);
     !denies_a_grounded_peer && own_denial_ok
@@ -567,7 +622,7 @@ pub(super) async fn apply_subject_recovery(
         fetched = ?evidence.fetched,
         pregrounded = ?evidence.pregrounded,
         declined = evidence.declined.len(),
-        own_fetched = evidence.own_payload.is_some(),
+        own = ?evidence.own.activities(),
         reply_len = reply.len(),
         "capability_subject_reask_recovered: re-ask with the subject's data produced a usable reply"
     );

@@ -157,9 +157,10 @@ pub struct CapabilityRecoveryDeps<'a> {
     /// [`recovery_trigger`].
     pub guided_walk: Option<&'a OnboardingState>,
     /// Whose data the turn's tools ran against. The verification fetch reads
-    /// the sender's own activities, which in a coach's thread about one
-    /// athlete (carnet#1070) are not what the turn is about: there it does
-    /// not run, exactly as the activity prefetches do not.
+    /// the sender's own activities, which off the subject's seat — a group's
+    /// coach (carnet#1084), a coach in their athlete thread (carnet#1070) —
+    /// are not what the turn is about: there it does not run, exactly as the
+    /// activity prefetches do not.
     pub seat: TurnSeat,
     /// Records each re-ask completion, here and in [`super::capability_subject`].
     pub reask_recorder: &'a Arc<dyn LlmCallRecorder>,
@@ -223,10 +224,11 @@ pub async fn apply_capability_recovery(
             // this moment only — stamp it out of every later prompt.
             result.capability_claim_unverified = true;
         }
-        VerificationOutcome::Unverifiable => {
-            // The claim may be an honest outage report, so it still reaches the
-            // athlete — but the platform could not stand behind it, so it does
-            // not get to teach the model anything on a later turn.
+        // The claim may be an honest outage report, so it still reaches the
+        // athlete — but the platform could not stand behind it, so it does not
+        // get to teach the model anything on a later turn. A sender who is not
+        // the turn's subject has nothing of theirs to check it against either.
+        VerificationOutcome::Unverifiable | VerificationOutcome::NotTheSubject => {
             result.capability_claim_unverified = claimed_failure;
         }
         VerificationOutcome::Verified(payload) => {
@@ -584,6 +586,10 @@ pub(super) enum VerificationOutcome {
     /// The fetch failed non-auth (backpressure, scraper fault): the claim may
     /// be an honest outage report, so the reply stands. Already logged.
     Unverifiable,
+    /// Not fetched: the sender is not the turn's subject, so their own
+    /// activities say nothing about it. Nothing was attempted, and nothing
+    /// failed.
+    NotTheSubject,
     /// The fetch succeeded: the claim is disproven. Carries the tool payload.
     Verified(serde_json::Value),
 }
@@ -591,19 +597,17 @@ pub(super) enum VerificationOutcome {
 /// Run one read-only [`VERIFICATION_TOOL`] fetch of the sender's own
 /// activities and classify what it proves.
 ///
-/// In a coach's thread about one athlete it does not run and the outcome is
-/// [`VerificationOutcome::Unverifiable`]: the coach's own rides are not the
-/// athlete's, and a re-ask with them would present them as hers
+/// Off the subject's seat it does not run ([`VerificationOutcome::NotTheSubject`]):
+/// a group coach's or an athlete thread's coach's own rides are not the
+/// room's or the athlete's, and a re-ask with them would present them as such
 /// ([`CapabilityRecoveryDeps::seat`]).
 pub(super) async fn run_verification_fetch(
     deps: &CapabilityRecoveryDeps<'_>,
     input: &TurnInput,
 ) -> VerificationOutcome {
-    if deps.seat == TurnSeat::AthleteThread {
-        info!(
-            "capability_recovery: a coach's athlete thread is not about the coach's own activities; not fetched"
-        );
-        return VerificationOutcome::Unverifiable;
+    if !deps.seat.sender_is_subject() {
+        info!(seat = ?deps.seat, "capability_recovery: the sender is not this turn's subject; their activities are not fetched");
+        return VerificationOutcome::NotTheSubject;
     }
     fetch_sender_activities(deps.ctx, input).await
 }

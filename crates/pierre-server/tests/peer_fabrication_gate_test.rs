@@ -25,8 +25,8 @@ use pierre_chat_pipeline::stages::capability_recovery::{
     parse_unsupported_verdict, peer_repair_prompt,
 };
 use pierre_chat_pipeline::stages::capability_subject::{
-    resolve_ask_subject, subject_reask_instruction, AskSubject, SUBJECT_DECLINED_MARKER,
-    SUBJECT_FETCHED_MARKER,
+    resolve_ask_subject, subject_reask_instruction, AskSubject, OwnActivities,
+    SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
 };
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
@@ -270,7 +270,7 @@ fn the_subject_instruction_attributes_every_side_and_relays_each_decline() {
          `/group consent yes`."
             .to_owned(),
     )];
-    let text = subject_reask_instruction(true, &fetched, &pregrounded, &declined);
+    let text = subject_reask_instruction(OwnActivities::Fetched, &fetched, &pregrounded, &declined);
 
     assert!(
         !text.contains("on your behalf"),
@@ -294,7 +294,12 @@ fn the_subject_instruction_attributes_every_side_and_relays_each_decline() {
 /// closer is the strict one.
 #[test]
 fn the_subject_instruction_is_strict_when_nothing_was_declined() {
-    let text = subject_reask_instruction(true, &["Jean-Daniel Tremblay".to_owned()], &[], &[]);
+    let text = subject_reask_instruction(
+        OwnActivities::Fetched,
+        &["Jean-Daniel Tremblay".to_owned()],
+        &[],
+        &[],
+    );
     assert!(text.ends_with("Do not claim any connection or tool problem."));
     assert!(!text.contains(SUBJECT_DECLINED_MARKER));
 }
@@ -303,8 +308,38 @@ fn the_subject_instruction_is_strict_when_nothing_was_declined() {
 /// hidden behind a "everything works" closer.
 #[test]
 fn the_subject_instruction_relays_the_requesters_own_outage() {
-    let text = subject_reask_instruction(false, &["Jean-Daniel Tremblay".to_owned()], &[], &[]);
+    let text = subject_reask_instruction(
+        OwnActivities::Unavailable,
+        &["Jean-Daniel Tremblay".to_owned()],
+        &[],
+        &[],
+    );
     assert!(text.contains("athlete's OWN activities could not be read this turn"));
     assert!(text.contains("do not state any of their numbers"));
     assert!(text.contains("Nothing beyond what is listed above is unavailable"));
+}
+
+/// A group's coach is not the turn's subject, so their own activities are
+/// never read in the group (carnet#1084). The instruction says so, and never
+/// that their data source failed: nothing was attempted, nothing failed, and
+/// the strict closer stands.
+#[test]
+fn the_subject_instruction_tells_the_coachs_seat_their_own_data_is_not_read() {
+    let text = subject_reask_instruction(
+        OwnActivities::NotRead,
+        &["Jean-Daniel Tremblay".to_owned()],
+        &[],
+        &[],
+    );
+    assert!(text.contains("coaches this group, and their own activities are never read here"));
+    assert!(text.contains("state none of their numbers"));
+    assert!(
+        !text.contains("did not respond") && !text.contains("could not be read this turn"),
+        "never an outage that did not happen: {text}"
+    );
+    assert!(
+        !text.contains("athlete's OWN activities"),
+        "never a claim that own activities sit above: {text}"
+    );
+    assert!(text.ends_with("Do not claim any connection or tool problem."));
 }

@@ -37,8 +37,9 @@ use pierre_core::errors::AppResult;
 use super::deterministic_reply::{
     deliver, DeterministicReplyInputs, PlatformReply, PLATFORM_REPLY_TRANSCRIPT_MARKER,
 };
+use super::group_subject::TurnStanding;
 use super::onboarding::GuidedTarget;
-use super::turn_extraction::spawn_turn_extraction;
+use super::turn_extraction::{spawn_turn_extraction, ExtractedTurn};
 use crate::envelope::TurnEnvelope;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
@@ -90,6 +91,9 @@ pub struct OffScopeTurn<'a> {
     pub user_message: &'a MessageRecord,
     /// Conversation the turn belongs to.
     pub conv: &'a ConversationRecord,
+    /// Who the turn is about, and so whether the message is filed on the
+    /// sender.
+    pub standing: TurnStanding,
     /// The guided-walk topic the message answers, if the athlete is mid walk,
     /// so the extracted fact keeps its provenance.
     pub guided_answer: Option<GuidedTarget>,
@@ -120,6 +124,7 @@ pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEn
         active_model,
         user_message,
         conv,
+        standing,
         guided_answer,
     } = turn;
     let Some((rail, reply)) = scope_rail_reply(
@@ -147,15 +152,16 @@ pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEn
     // A refusal or an emergency redirect offers nothing to tap: the next move
     // is the athlete's own, or a call to emergency services.
     let result = deliver(inputs, PlatformReply::text_only(reply)).await?;
-    spawn_turn_extraction(
+    spawn_turn_extraction(ExtractedTurn {
         ctx,
         input,
         conv,
-        PLATFORM_REPLY_TRANSCRIPT_MARKER,
-        &result.assistant.message.id,
-        guided_answer,
-        false,
-    )
+        standing,
+        assistant_reply: PLATFORM_REPLY_TRANSCRIPT_MARKER,
+        assistant_message_id: &result.assistant.message.id,
+        answered: guided_answer,
+        plan_was_saved: false,
+    })
     .await;
     Ok(Some(result))
 }

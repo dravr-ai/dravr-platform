@@ -57,6 +57,19 @@ pub enum TurnSeat {
 }
 
 impl TurnSeat {
+    /// Whether the caller is the turn's subject — the one seat on which their
+    /// own data is what the turn is about.
+    ///
+    /// Off it, the caller is a coach (of the room, or in their thread about one
+    /// athlete): none of their activities is read for the model on the
+    /// platform's initiative, and what the turn says is not filed as theirs —
+    /// save the answers to a guided walk they run on themselves in their room,
+    /// which the chat pipeline's turn standing lets through.
+    #[must_use]
+    pub const fn sender_is_subject(self) -> bool {
+        matches!(self, Self::Subject)
+    }
+
     /// Whether `tool_name` is withheld on this seat.
     ///
     /// An unknown tool is not withheld here: the executor already refuses a

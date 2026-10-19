@@ -31,10 +31,11 @@
 //! athlete's too: the coach's draft over their live weeks, or their live
 //! season ([`GrantedSubject::plan_shown`]).
 //!
-//! What the thread says is filed on nobody's account ([`files_on_sender`]):
-//! no extracted fact or playbook advice, and no tool that writes the coach's
-//! own data (`TurnSeat::AthleteThread`). The plan tools are the one write, and
-//! they write the athlete's draft.
+//! What the thread says is filed on nobody's account: no extracted fact
+//! (`TurnStanding::files_on_sender`) or playbook advice
+//! (`TurnSeat::sender_is_subject`), and no tool that writes the coach's own
+//! data (`TurnSeat::AthleteThread`). The plan tools are the one write, and they
+//! write the athlete's draft.
 
 use std::fmt::Write as _;
 
@@ -191,23 +192,6 @@ pub async fn subject_access(
             Err(SubjectRefusal::Unconfirmed)
         }
     }
-}
-
-/// Whether what a turn in `conv` says may be filed on its sender's own
-/// account: the facts extracted from it, which compose the sender's dossier,
-/// and the advice captured from it, which is evaluated against the sender's
-/// own training and reinforces their playbooks.
-///
-/// Not in a coach's thread about one athlete. Every turn there is about the
-/// athlete, in their coach's words: filed under the sender, "her FTP is 250"
-/// becomes the coach's own FTP and reaches every conversation that reads the
-/// coach's dossier, a group room the coach shares with other members among
-/// them. Nor is it filed under the athlete: what their coach says of them is
-/// not the athlete's own statement, and the athlete never agreed to it
-/// entering their memory. The thread's messages are its record.
-#[must_use]
-pub fn files_on_sender(conv: &ConversationRecord) -> bool {
-    conv.subject().is_none()
 }
 
 /// The turn's standing in a coach's thread about one athlete, or `None` for

@@ -29,11 +29,11 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
-use pierre_tool_runtime::coach_seat::TurnSeat;
 use tracing::error;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
+use super::group_subject::TurnStanding;
 use super::memory::{append_plan_block, inject_training_plan, PlanShown};
 #[cfg(feature = "tools-groups")]
 use super::prompt_builder::resolve_group_context;
@@ -495,8 +495,7 @@ pub fn resolve_agent_base_prompt(
 /// per surviving message) that Tier 1 compaction uses to anchor block ids,
 /// the group roster snapshots (empty outside a group conversation) that
 /// peer grounding and the peer-claim verifier match names against, and the
-/// introduction the reply was asked to open with, recorded once it has, and
-/// the turn's seat: whose data its tools run against.
+/// introduction the reply was asked to open with, recorded once it has.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
     Vec<String>,
@@ -504,9 +503,28 @@ pub(crate) type AssembledPrompt = (
     Vec<Option<String>>,
     Vec<MemberFitnessSnapshot>,
     Option<super::introduction::PendingIntroduction>,
-    TurnSeat,
     String,
 );
+
+/// The turn [`assemble_prompt_and_messages`] builds the prompt for.
+pub(crate) struct PromptTurn<'a> {
+    /// Shared pipeline context.
+    pub ctx: &'a ChatPipelineContext,
+    /// Turn input (user message + identifiers).
+    pub input: &'a TurnInput,
+    /// What the turn's surface can render, plus its resolved locale.
+    pub profile: &'a SurfaceProfile,
+    /// Resolved conversation record.
+    pub conv: &'a ConversationRecord,
+    /// Who the turn is about, named once when the conversation resolved.
+    pub standing: TurnStanding,
+    /// Optional agent runtime context.
+    pub agent_ctx: Option<&'a AgentRuntimeContext>,
+    /// Persisted conversation history.
+    pub history: &'a [MessageRecord],
+    /// Onboarding turn context when the conversation is mid pillar walk.
+    pub onboarding: Option<&'a super::onboarding::OnboardingTurn>,
+}
 
 /// Assemble the hardened system prompt and flatten history into an
 /// LLM-ready message list.
@@ -537,23 +555,27 @@ pub(crate) type AssembledPrompt = (
 #[tracing::instrument(
     skip_all,
     fields(
-        turn_id = %input.turn_id,
-        channel = profile.surface.as_str(),
-        agent_id = input.turn_agent_id(conv).unwrap_or("none"),
-        history_len = history.len(),
+        turn_id = %turn.input.turn_id,
+        channel = turn.profile.surface.as_str(),
+        agent_id = turn.input.turn_agent_id(turn.conv).unwrap_or("none"),
+        history_len = turn.history.len(),
         prompt_len = field::Empty,
         msg_count = field::Empty,
     )
 )]
 pub(crate) async fn assemble_prompt_and_messages(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    profile: &SurfaceProfile,
-    conv: &ConversationRecord,
-    agent_ctx: Option<&AgentRuntimeContext>,
-    history: &[MessageRecord],
-    onboarding: Option<&super::onboarding::OnboardingTurn>,
+    turn: PromptTurn<'_>,
 ) -> AppResult<AssembledPrompt> {
+    let PromptTurn {
+        ctx,
+        input,
+        profile,
+        conv,
+        standing,
+        agent_ctx,
+        history,
+        onboarding,
+    } = turn;
     // Stage 7a: Build the base prompt in two layers — platform contract, then
     // persona.
     // For contremaitre-sourced agents we consult the in-memory
@@ -601,37 +623,27 @@ pub(crate) async fn assemble_prompt_and_messages(
         &base_prompt,
     );
 
-    // Stage 7a.1b: Name the coach's seat. In a group the sender coaches, the
-    // sender is not the subject: none of the athlete-data stages below may load
-    // their own training as the group's (carnet#741).
-    let coach_seat = super::group_subject::coach_seat(
-        &ctx.repos,
-        conv,
-        input.conversation_tenant_id,
-        &input.user_id,
-    )
-    .await;
+    // Stage 7a.1b: the turn's seat, named when the conversation resolved. In a
+    // group the sender coaches the sender is not the subject (carnet#741), and
+    // none of the athlete-data stages below may load their own training as the
+    // group's.
+    let TurnStanding {
+        seat,
+        coach: coach_seat,
+        ..
+    } = standing;
 
     // Stage 7a.1c: A coach's thread bound to one athlete (carnet#1070). The
     // coaching gates run again on this turn, and the athlete — never the coach
     // writing — is what every athlete-data stage below is about.
     let subject_turn = subject_athlete::resolve(&ctx.repos, conv, &input.user_id).await;
 
-    // The turn's seat, named once from the conversation: the tools withheld
-    // here, in the declarations and at execution all follow it, and so do the
-    // activity prefetches.
-    let seat = match (coach_seat, subject_turn.as_ref()) {
-        (Some(_), _) => TurnSeat::Coach,
-        (None, Some(_)) => TurnSeat::AthleteThread,
-        (None, None) => TurnSeat::Subject,
-    };
-
     // The sender is the turn's subject outside both of those alone. Neither
     // the coach's seat nor a coach's athlete thread reads the sender's own
     // providers (7b), dossier, playbooks, notes, followups and commitments
     // (7d–7f.1) or plan (7f.2): the coach's own training does not belong in a
     // group's turn or in an athlete's workspace.
-    let sender_is_subject = seat == TurnSeat::Subject;
+    let sender_is_subject = seat.sender_is_subject();
 
     // Stage 7a.2: State that the tool set is closed. The tools themselves are
     // advertised once, by the provider layer — embacle renders the full schemas
@@ -1113,7 +1125,6 @@ pub(crate) async fn assemble_prompt_and_messages(
         source_ids,
         group_roster,
         introduction,
-        seat,
         format_current_date(user_timezone.as_deref(), &profile.locale),
     ))
 }

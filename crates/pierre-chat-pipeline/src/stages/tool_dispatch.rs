@@ -165,7 +165,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // Whose activities the prefetches may put in front of the model: the
     // sender's, unless the sender is coaching — a group from its coach's
     // seat, or one athlete in their thread.
-    let sender_is_subject = seat == TurnSeat::Subject;
+    let sender_is_subject = seat.sender_is_subject();
     // Stage 9: MCP executor for tool calls. Bind the originating conversation id
     // so a tool that spawns detached work (e.g. a historical activity backfill)
     // can route a completion notice back to the channel that triggered it.
@@ -392,7 +392,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // seat every tool that would read or write the coach's own data
     // (carnet#742), in their athlete thread every tool that would write it
     // (carnet#1070). The executor refuses them as well.
-    if seat != TurnSeat::Subject {
+    if !seat.sender_is_subject() {
         let before = tools.function_declarations.len();
         tools
             .function_declarations
