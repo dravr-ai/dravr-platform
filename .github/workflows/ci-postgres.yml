@@ -372,17 +372,35 @@ jobs:
           fi
           printf '  %s\n' "${SHARD_TESTS[@]}"
           # A top-level suite is its own binary, named by `--test`; a suite of
-          # the `it` binary runs as a `<module>::` filter on that one binary.
+          # the `it` binary is a module, run through that one binary's filters.
           SHARD_BINS=()
-          IT_FILTERS=()
+          IT_MODULES=()
           for suite in "${SHARD_TESTS[@]}"; do
             if grep -qxF "$suite" "$IT_SUITES"; then
-              IT_FILTERS+=("${suite}::")
+              IT_MODULES+=("$suite")
             else
               SHARD_BINS+=("$suite")
             fi
           done
           RUN_TESTS=("${SHARD_BINS[@]}")
+          # The shard's modules as libtest arguments: a `<module>::` filter each,
+          # and a --skip for every other module a filter would also match by
+          # substring, so a test runs on its own module's shard only.
+          IT_ARGS=()
+          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
+            # Gate on it-args' exit status: `mapfile < <(...)` would discard it.
+            if ! IT_ARG_LINES="$(scripts/ci/server-suites.sh it-args "${IT_MODULES[@]}")"; then
+              echo "::error::server-suites.sh it-args failed for ${IT_MODULES[*]}"
+              exit 1
+            fi
+            mapfile -t IT_ARGS <<< "$IT_ARG_LINES"
+            # Fewer arguments than modules would run the whole binary, or part
+            # of it, rather than this shard's share.
+            if [ "${#IT_ARGS[@]}" -lt "${#IT_MODULES[@]}" ]; then
+              echo "::error::server-suites.sh it-args returned ${#IT_ARGS[@]} arguments for ${#IT_MODULES[@]} modules — refusing to run the it binary unfiltered."
+              exit 1
+            fi
+          fi
           DB_TESTS=()
           PKGS=()
           if [ "$SHARD" -eq 1 ]; then
@@ -477,7 +495,7 @@ jobs:
           for test_file in "${RUN_TESTS[@]}"; do
             TEST_ARGS+=(--test "$test_file")
           done
-          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
+          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
             TEST_ARGS+=(--test it)
           fi
           ARTIFACT_JSON="$RUNNER_TEMP/pg-shard-artifacts.json"
@@ -508,7 +526,7 @@ jobs:
               *) UNMAPPED+=("crates/pierre-server/tests/${test_file}.rs") ;;
             esac
           done
-          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
+          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
             case "${TEST_BINARIES[it]:-}" in
               *"/crates/pierre-server"$'\t'*) ;;
               *) UNMAPPED+=("crates/pierre-server/tests/it/main.rs") ;;
@@ -538,12 +556,12 @@ jobs:
             done <<< "${TEST_BINARIES[$test_file]}"
             echo "::endgroup::"
           done
-          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
-            echo "::group::it (${#IT_FILTERS[@]} suites)"
+          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
+            echo "::group::it (${#IT_MODULES[@]} suites)"
             while IFS=$'\t' read -r package_dir executable; do
               [ -n "$executable" ] || continue
               echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
-              if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_FILTERS[@]}" ); then
+              if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_ARGS[@]}" ); then
                 echo "::error::PostgreSQL suites in the it binary failed"
                 FAILED=1
               fi
