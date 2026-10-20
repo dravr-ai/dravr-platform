@@ -29,6 +29,10 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.actor"            = "assertion.actor"
     "attribute.repository"       = "assertion.repository"
     "attribute.repository_owner" = "assertion.repository_owner"
+    # Repository and ref in one value, so the runner binding below names one
+    # branch of one repository: a ref alone would also admit the main branch of
+    # every sister repo in additional_repositories.
+    "attribute.repository_ref" = "assertion.repository + '/' + assertion.ref"
   }
 
   # Allow the primary platform repo plus any extra sister repos under the
@@ -57,9 +61,16 @@ resource "google_service_account_iam_member" "workload_identity_binding" {
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_org}/${var.github_repo}"
 }
 
-# Allow GitHub to impersonate the terraform runner service account (same pool, same provider)
+# Let GitHub Actions impersonate the terraform runner ONLY from main of this
+# repo. The runner holds projectIamAdmin (it can grant itself owner), so a
+# repo-wide binding would let any branch's workflow mint owner-equivalent
+# credentials: a branch can edit the workflow and drop the Environment reviewer
+# gate, which is a per-job control. Same scoping as infra/artifacts'
+# terraform_runner_wif.
+# A plan or drift check dispatched from another branch is refused; both run
+# from main on push and on schedule.
 resource "google_service_account_iam_member" "terraform_runner_workload_identity_binding" {
   service_account_id = var.terraform_runner_service_account_name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_org}/${var.github_repo}"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository_ref/${var.github_org}/${var.github_repo}/refs/heads/main"
 }
