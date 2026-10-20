@@ -55,6 +55,7 @@ export default function OnboardingCoachProposal({
     retry: 1,
   });
 
+  // LIMITATION(registre#1095): `handleStart` opens one agent's topic and adds nothing to a team; Skip adds nothing either.
   const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {

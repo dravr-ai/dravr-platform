@@ -260,6 +260,8 @@ pub async fn search_store(
 /// The returned [`StoreAgent`] describes that copy: it has no listing of its
 /// own, so `install_count` is 0 and the listing-only fields are absent.
 ///
+/// LIMITATION(registre#1096): `install_store_agent` copies a system agent into a private row whose prompt never refreshes.
+///
 /// # Errors
 ///
 /// Returns [`pierre_core::errors::AppError::invalid_input`] when `agent_id` is

@@ -270,6 +270,8 @@ impl UseCase {
 }
 
 /// The parsed catalogue, in priority order.
+///
+/// LIMITATION(registre#1099): `UseCaseCatalogue` has no meet-your-team or daily check-in entry and no first-run marking.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UseCaseCatalogue {
     entries: Vec<UseCase>,

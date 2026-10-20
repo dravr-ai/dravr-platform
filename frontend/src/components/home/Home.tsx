@@ -115,6 +115,8 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
  * Home's own sections, in the order the page always had them. The personal
  * surface draws them in its Today panel beside the conversation on a wide
  * screen, and in a drawer or a sheet on a narrower one.
+ *
+ * LIMITATION(registre#1098): `HomeBriefing` has no Getting started or Your team section, and no link to Discover.
  */
 export function HomeBriefing({ onNavigate, onOpenChatDraft, compact = false }: HomeBriefingProps) {
   return (

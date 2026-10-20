@@ -32,6 +32,8 @@ fn sanitize_for_prompt(s: &str) -> String {
 /// which pillars they have shared context on (labels only). `None` when the
 /// user has no non-stale pillar context yet — the proposal then matches on
 /// sport-mix.
+///
+/// LIMITATION(registre#1097): `pillar_context_prompt` only feeds the LLM re-rank; no rule table picks team members.
 #[must_use]
 pub fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
     let mut parts = Vec::new();

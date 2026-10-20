@@ -29,6 +29,8 @@ use pierre_core::models::agents::Agent;
 /// own thread (dravr-contremaitre `prompts/agents/coaching/roster-agent`).
 ///
 /// It reviews the coach's athletes there through `get_roster_overview`.
+///
+/// LIMITATION(registre#1103): `ROSTER_AGENT_HANDLE` is a coach's whole first run: no team step, Getting started or flows.
 pub const ROSTER_AGENT_HANDLE: &str = "roster-agent";
 
 /// The first agent an athlete may be answered by.
@@ -50,6 +52,8 @@ pub fn roster_agent(system: &[Agent]) -> Option<&Agent> {
 /// A coach who does not train gets the roster agent and never an athlete's:
 /// with no roster agent seeded yet, the thread runs on the house prompt
 /// rather than read them as an athlete.
+///
+/// LIMITATION(registre#1101): `own_thread_default` serves the signup pick; onboarding's lead never writes `selected_agent_id`.
 #[must_use]
 pub fn own_thread_default(system: &[Agent], coach_only: bool) -> Option<String> {
     let agent = if coach_only {

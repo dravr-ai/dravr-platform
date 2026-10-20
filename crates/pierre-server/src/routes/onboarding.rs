@@ -393,6 +393,8 @@ pub struct SetOnboardingStepRequest {
 /// each step completes so onboarding follows the user across devices. Scoped by
 /// the authenticated `user_id`.
 ///
+/// LIMITATION(registre#1100): `handle_step_put` emits no `onboarding.step_completed` event; flows emit no `flow.completed`.
+///
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the step id or status is not

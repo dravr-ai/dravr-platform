@@ -39,6 +39,7 @@ pub enum Pillar {
     /// Sleep & Recovery — sleep habits and rest.
     SleepAndRecovery,
     /// Mental Resilience — stress and psychological load.
+    // LIMITATION(registre#1104): `Pillar::MentalResilience` has no catalogue agent to offer an athlete.
     MentalResilience,
     /// Community & Connection — social support.
     CommunityAndConnection,

@@ -29,6 +29,7 @@ import { HomeStatus } from './HomeStatus';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
 
+// LIMITATION(registre#1102): `HomeScreen` has no Getting started, Your team or team empty state on the native app.
 export function HomeScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
