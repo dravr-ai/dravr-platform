@@ -35,7 +35,7 @@ use embacle::{
 use pierre_core::http_client::llm_inner_client;
 use tracing::{debug, info};
 
-use crate::config::{HttpProvider, LlmModelConfig};
+use crate::config::{ChainEntry, HttpProvider, LlmModelConfig};
 use crate::embacle_provider::EmbacleProvider;
 use crate::errors::AppError;
 use crate::LlmCapabilities;
@@ -78,18 +78,18 @@ fn anthropic_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, A
 /// The further accounts of the Anthropic tier, in order.
 ///
 /// One per `ANTHROPIC_API_KEY_N` (`_2`, `_3`, …, read until the first unset
-/// or blank one), every other setting shared with the first, on
-/// `model_override` like the tier itself. Account N is named `anthropic#N` by
-/// [`PooledTier`], so a usage row, an alert label or a health line says which
-/// organization's credit served — and pricing keys it on the `anthropic`
-/// family.
+/// or blank one), every other setting shared with the first, on the model
+/// `entry` gives account N (its `anthropic#N=model`, else the tier's own).
+/// Account N is named `anthropic#N` by [`PooledTier`], so a usage row, an
+/// alert label or a health line says which organization's credit served — and
+/// pricing keys it on the `anthropic` family.
 ///
 /// Empty when there is no second key, and when the pool cannot be read at
 /// all: an unset `ANTHROPIC_API_KEY` or an invalid `ANTHROPIC_*` setting fails
 /// the first account the same way, and that tier's own failure is the one the
 /// chain assembly reports.
 #[must_use]
-pub(crate) fn anthropic_pooled_accounts(model_override: Option<&str>) -> Vec<EmbacleProvider> {
+pub(crate) fn anthropic_pooled_accounts(entry: &ChainEntry) -> Vec<EmbacleProvider> {
     let configs = match AnthropicConfig::pool_from_env() {
         Ok(configs) => configs,
         Err(err) => {
@@ -103,7 +103,7 @@ pub(crate) fn anthropic_pooled_accounts(model_override: Option<&str>) -> Vec<Emb
         .skip(1)
         .map(|(position, config)| {
             let tier = PooledTier::new(
-                anthropic_provider(anthropic_config(config, model_override)),
+                anthropic_provider(anthropic_config(config, entry.account_model(position + 1))),
                 position,
             );
             info!(

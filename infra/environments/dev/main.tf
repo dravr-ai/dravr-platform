@@ -322,27 +322,31 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
-      # carnet#875): one ordered list, PIERRE_LLM_CHAIN, each entry
-      # `provider=model` (crates/pierre-llm/src/config.rs, LlmChain). The
-      # first entry serves every turn; a provider fault or an empty answer
-      # moves the turn to the next one, each tier on its own model. A pooled
-      # provider's further accounts sit right behind it wherever it is:
-      # anthropic is followed by anthropic#2 (ANTHROPIC_API_KEY_2) and
-      # claude_code by claude-code#2 (CLAUDE_CODE_OAUTH_TOKEN_2), both bound
-      # below — a spent account moves the turn to the next account before the
-      # chain leaves that provider (carnet#480, carnet#688). Cohere is out.
+      # carnet#875; Opus head 2026-10-20, carnet#1108): one ordered list,
+      # PIERRE_LLM_CHAIN, each entry `provider=model`
+      # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
+      # every turn; a provider fault or an empty answer moves the turn to the
+      # next one, each tier on its own model. A pooled provider's further
+      # accounts sit right behind it wherever it is: anthropic is followed by
+      # anthropic#2 (ANTHROPIC_API_KEY_2) and claude_code by claude-code#2
+      # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a spent account moves
+      # the turn to the next account before the chain leaves that provider
+      # (carnet#480, carnet#688). An account runs its provider's model unless
+      # a `provider#N=model` entry names its own; that entry sets the model
+      # only, never the position. Cohere is out.
       #
-      # 1. anthropic = the Anthropic Messages API on claude-haiku-5-5, over a
-      #    pool of organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2), each
-      #    with its own prepaid credit under a $199/month Console spend limit.
-      #    A spent credit answers HTTP 402, which embacle maps to RateLimit, so
-      #    it falls through like a quota: to anthropic#2, then copilot_sdk. Any
-      #    quota answer fires dravr-llm-tier-rate-limited and more than three
-      #    skips in five minutes fire dravr-llm-chain-fallthrough
-      #    (llm_chain_monitoring.tf). Haiku is also the model
-      #    PIERRE_LLM_MODEL_TOOL_ITERATION defaults to on anthropic
-      #    (carnet#888), so with this head every tool-loop iteration and the
-      #    reply already run on the same model and nothing is rerouted.
+      # 1. anthropic = the Anthropic Messages API, over a pool of
+      #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2), each with
+      #    its own prepaid credit under a $199/month Console spend limit. The
+      #    first organization serves the reply on claude-opus-5-5; the second
+      #    (anthropic#2) stays on claude-haiku-5-5. A spent credit answers HTTP
+      #    402, which embacle maps to RateLimit, so it falls through like a
+      #    quota: to anthropic#2, then copilot_sdk. Any quota answer fires
+      #    dravr-llm-tier-rate-limited and more than three skips in five
+      #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
+      #    Tool-loop iterations that only pick the next tool stay on
+      #    claude-haiku-5-5, the model PIERRE_LLM_MODEL_TOOL_ITERATION defaults
+      #    to on anthropic (carnet#888); Opus writes the reply.
       # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
       #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
       #    credits reset on the 1st and have no overage (carnet#478). A whole
@@ -352,6 +356,9 @@ module "backend" {
       # 3. claude_code = the direct Anthropic subscription — the one switched
       #    off on 2026-05-13 for burning Opus credits during Copilot blips with
       #    no spend cap — so it runs Sonnet, then its pooled second account.
+      #    `sonnet` is the alias the claude CLI publishes (it lists only
+      #    sonnet, opus, haiku), so the boot model check accepts it; the CLI
+      #    resolves it to its current Sonnet.
       #    Binding ANTHROPIC_API_KEY does not move it off its subscription:
       #    since embacle 0.35.0 the claude_code runner withholds the API key
       #    from every `claude` child that holds an OAuth token (claude_code.rs,
@@ -369,7 +376,7 @@ module "backend" {
       # reads it is the Gemini provider built with no model of its own — a
       # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
       # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "anthropic=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
       # The synthetic LLM probe runs once per instance start and never again:

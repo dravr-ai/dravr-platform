@@ -401,7 +401,7 @@ pub fn register_llm_provider_config<S: BuildHasher>(
             key: "llm.chain".to_owned(),
             display_name: "LLM Provider Chain".to_owned(),
             description:
-                "Ordered LLM providers for chat and recipe generation, comma-separated, each 'provider' or 'provider=model' (e.g. 'copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest'). The first entry serves every turn; a provider fault or an empty answer falls through to the next. A pooled provider's further accounts (CLAUDE_CODE_OAUTH_TOKEN_2, ANTHROPIC_API_KEY_2, ...) follow it. Unset is Gemini on PIERRE_LLM_DEFAULT_MODEL"
+                "Ordered LLM providers for chat and recipe generation, comma-separated, each 'provider' or 'provider=model' (e.g. 'copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest'). The first entry serves every turn; a provider fault or an empty answer falls through to the next. A pooled provider's further accounts (CLAUDE_CODE_OAUTH_TOKEN_2, ANTHROPIC_API_KEY_2, ...) follow it on its model, unless a 'provider#N=model' entry (e.g. 'anthropic#2=claude-haiku-5-5') names that account's own. Unset is Gemini on PIERRE_LLM_DEFAULT_MODEL"
                     .to_owned(),
             category: "llm_provider".to_owned(),
             data_type: ConfigDataType::String,

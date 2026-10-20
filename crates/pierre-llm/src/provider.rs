@@ -144,7 +144,7 @@ impl ChatProvider {
             tiers.push(ChainTier {
                 kind: entry.provider,
                 built: EmbacleProvider::from_provider_type(entry.provider, model).await,
-                accounts: EmbacleProvider::pooled_accounts(entry.provider, model),
+                accounts: EmbacleProvider::pooled_accounts(entry),
             });
         }
         Ok(Self::assemble_runtime_chain(tiers)?.with_stage_models_from_env())

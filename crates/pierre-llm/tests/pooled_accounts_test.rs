@@ -14,7 +14,7 @@
 use std::env;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::{ChainEntry, LlmChain, LlmProviderType};
 use pierre_llm::{EmbacleProvider, LlmProvider};
 
 /// The tests in this file share process environment; each holds this for its
@@ -48,6 +48,10 @@ fn set(var: &str, value: &str) {
     env::set_var(var, value);
 }
 
+fn entry(provider: LlmProviderType, model: Option<&str>) -> ChainEntry {
+    ChainEntry::new(provider, model)
+}
+
 #[test]
 fn numbered_tokens_become_named_tiers_in_order() {
     let _env = exclusive();
@@ -56,7 +60,7 @@ fn numbered_tokens_become_named_tiers_in_order() {
     set("CLAUDE_CODE_OAUTH_TOKEN_2", "tok-2");
     set("CLAUDE_CODE_OAUTH_TOKEN_3", "tok-3");
 
-    let accounts = EmbacleProvider::pooled_accounts(LlmProviderType::ClaudeCode, None);
+    let accounts = EmbacleProvider::pooled_accounts(&entry(LlmProviderType::ClaudeCode, None));
     let names: Vec<&str> = accounts.iter().map(LlmProvider::name).collect();
     assert_eq!(names, ["claude-code#2", "claude-code#3"]);
     clear();
@@ -70,7 +74,7 @@ fn the_first_gap_ends_the_pool() {
     set("CLAUDE_CODE_OAUTH_TOKEN_2", "tok-2");
     set("CLAUDE_CODE_OAUTH_TOKEN_4", "tok-4");
 
-    let accounts = EmbacleProvider::pooled_accounts(LlmProviderType::ClaudeCode, None);
+    let accounts = EmbacleProvider::pooled_accounts(&entry(LlmProviderType::ClaudeCode, None));
     assert_eq!(accounts.len(), 1, "_4 behind an unset _3 is not read");
     clear();
 }
@@ -80,7 +84,7 @@ fn no_numbered_token_means_no_further_account() {
     let _env = exclusive();
     clear();
     set("CLI_LLM_BINARY", "/bin/sh");
-    assert!(EmbacleProvider::pooled_accounts(LlmProviderType::ClaudeCode, None).is_empty());
+    assert!(EmbacleProvider::pooled_accounts(&entry(LlmProviderType::ClaudeCode, None)).is_empty());
     clear();
 }
 
@@ -90,7 +94,7 @@ fn a_runner_without_a_credential_variable_never_pools() {
     clear();
     set("CLI_LLM_BINARY", "/bin/sh");
     set("CLAUDE_CODE_OAUTH_TOKEN_2", "tok-2");
-    assert!(EmbacleProvider::pooled_accounts(LlmProviderType::WarpCli, None).is_empty());
+    assert!(EmbacleProvider::pooled_accounts(&entry(LlmProviderType::WarpCli, None)).is_empty());
     clear();
 }
 
@@ -102,8 +106,10 @@ fn numbered_anthropic_keys_become_named_tiers_on_the_entry_model() {
     set("ANTHROPIC_API_KEY_2", "sk-ant-2");
     set("ANTHROPIC_API_KEY_3", "sk-ant-3");
 
-    let accounts =
-        EmbacleProvider::pooled_accounts(LlmProviderType::Anthropic, Some("claude-sonnet-5-5"));
+    let accounts = EmbacleProvider::pooled_accounts(&entry(
+        LlmProviderType::Anthropic,
+        Some("claude-sonnet-5-5"),
+    ));
     let names: Vec<&str> = accounts.iter().map(LlmProvider::name).collect();
     assert_eq!(
         names,
@@ -130,7 +136,7 @@ fn an_anthropic_pool_without_its_first_key_is_empty() {
     clear();
     set("ANTHROPIC_API_KEY_2", "sk-ant-2");
     assert!(
-        EmbacleProvider::pooled_accounts(LlmProviderType::Anthropic, None).is_empty(),
+        EmbacleProvider::pooled_accounts(&entry(LlmProviderType::Anthropic, None)).is_empty(),
         "the tier itself fails without ANTHROPIC_API_KEY, and its accounts go with it"
     );
     clear();
@@ -143,7 +149,7 @@ fn an_invalid_shared_anthropic_setting_pools_nothing() {
     set("ANTHROPIC_API_KEY", "sk-ant-1");
     set("ANTHROPIC_API_KEY_2", "sk-ant-2");
     set("ANTHROPIC_EFFORT", "extreme");
-    assert!(EmbacleProvider::pooled_accounts(LlmProviderType::Anthropic, None).is_empty());
+    assert!(EmbacleProvider::pooled_accounts(&entry(LlmProviderType::Anthropic, None)).is_empty());
     clear();
 }
 
@@ -154,6 +160,48 @@ fn the_copilot_runtime_never_pools() {
     set("CLAUDE_CODE_OAUTH_TOKEN_2", "tok-2");
     set("ANTHROPIC_API_KEY", "sk-ant-1");
     set("ANTHROPIC_API_KEY_2", "sk-ant-2");
-    assert!(EmbacleProvider::pooled_accounts(LlmProviderType::CopilotSdk, None).is_empty());
+    assert!(EmbacleProvider::pooled_accounts(&entry(LlmProviderType::CopilotSdk, None)).is_empty());
+    clear();
+}
+
+#[test]
+fn an_anthropic_account_entry_puts_that_organization_on_its_own_model() {
+    let _env = exclusive();
+    clear();
+    set("ANTHROPIC_API_KEY", "sk-ant-1");
+    set("ANTHROPIC_API_KEY_2", "sk-ant-2");
+    set("ANTHROPIC_API_KEY_3", "sk-ant-3");
+
+    let chain = LlmChain::parse("anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5");
+    let accounts = EmbacleProvider::pooled_accounts(chain.head());
+    let models: Vec<(&str, &str)> = accounts
+        .iter()
+        .map(|account| (account.name(), account.default_model()))
+        .collect();
+    assert_eq!(
+        models,
+        [
+            ("anthropic#2", "claude-haiku-5-5"),
+            ("anthropic#3", "claude-opus-5-5"),
+        ],
+        "#2 runs its own model; #3 has none and runs the tier's"
+    );
+    clear();
+}
+
+#[test]
+fn a_cli_account_entry_puts_that_account_on_its_own_model() {
+    let _env = exclusive();
+    clear();
+    set("CLI_LLM_BINARY", "/bin/sh");
+    set("CLAUDE_CODE_OAUTH_TOKEN_2", "tok-2");
+
+    let chain = LlmChain::parse("claude_code=sonnet,claude_code#2=haiku");
+    let accounts = EmbacleProvider::pooled_accounts(chain.head());
+    let models: Vec<(&str, &str)> = accounts
+        .iter()
+        .map(|account| (account.name(), account.default_model()))
+        .collect();
+    assert_eq!(models, [("claude-code#2", "haiku")]);
     clear();
 }

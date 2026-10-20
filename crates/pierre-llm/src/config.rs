@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use embacle::pool::credential_env_key;
 use embacle::CliRunnerType;
 use embacle::{AnthropicConfig, CopilotHeadlessConfig, CopilotSdkConfig};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -223,6 +225,24 @@ impl LlmProviderType {
         }
     }
 
+    /// Whether this provider has further accounts behind it: a CLI runner
+    /// whose credential embacle pools (`<CREDENTIAL>_2`, …), or the Anthropic
+    /// API (`ANTHROPIC_API_KEY_2`, …). Exactly the providers
+    /// [`EmbacleProvider::pooled_accounts`](crate::EmbacleProvider::pooled_accounts)
+    /// can build accounts for, so a `provider#N=model` entry naming any other
+    /// sets a model nothing reads.
+    #[must_use]
+    pub(crate) const fn pools_accounts(self) -> bool {
+        match self.construction() {
+            ProviderConstruction::Cli(runner_type) => credential_env_key(runner_type).is_some(),
+            ProviderConstruction::HttpApi(provider) => matches!(provider, HttpProvider::Anthropic),
+            ProviderConstruction::CopilotHeadless
+            | ProviderConstruction::CopilotSdk
+            | ProviderConstruction::OpenAiApi
+            | ProviderConstruction::Router => false,
+        }
+    }
+
     /// The model this provider runs when its chain entry names none, as far
     /// as the environment says without building the provider.
     ///
@@ -298,8 +318,8 @@ const RETIRED_CHAIN_ENV_VARS: [&str; 10] = [
     "PIERRE_LLM_TERTIARY_PROVIDER_MODEL",
 ];
 
-/// One tier of the LLM chain as configured: a provider and, optionally, the
-/// model it runs.
+/// One tier of the LLM chain as configured: a provider, optionally the model
+/// it runs, and optionally the model each of its pooled accounts runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainEntry {
     /// The provider this tier is built as.
@@ -307,9 +327,23 @@ pub struct ChainEntry {
     /// The model the entry names (`provider=model`); `None` leaves the
     /// provider's own default, as the environment sets it.
     pub model: Option<String>,
+    /// The model a pooled account runs instead of [`Self::model`], by account
+    /// number (`anthropic#2=claude-haiku-5-5` is account 2). An account with
+    /// no entry here runs [`Self::model`].
+    pub account_models: BTreeMap<usize, String>,
 }
 
 impl ChainEntry {
+    /// An entry for `provider` on `model`, whose pooled accounts all run it.
+    #[must_use]
+    pub fn new(provider: LlmProviderType, model: Option<&str>) -> Self {
+        Self {
+            provider,
+            model: model.map(str::to_owned),
+            account_models: BTreeMap::new(),
+        }
+    }
+
     /// The model this tier runs: the entry's own, else the provider's default.
     #[must_use]
     pub fn effective_model(&self) -> Option<String> {
@@ -317,15 +351,37 @@ impl ChainEntry {
             .clone()
             .or_else(|| self.provider.default_model_from_env())
     }
+
+    /// The model pooled account `account` (2, 3, …) is built on: its own
+    /// `provider#N=model` entry, else the tier's.
+    #[must_use]
+    pub fn account_model(&self, account: usize) -> Option<&str> {
+        self.account_models
+            .get(&account)
+            .or(self.model.as_ref())
+            .map(String::as_str)
+    }
 }
 
 impl Display for ChainEntry {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.model {
-            Some(model) => write!(f, "{}={model}", self.provider),
-            None => write!(f, "{}", self.provider),
+            Some(model) => write!(f, "{}={model}", self.provider)?,
+            None => write!(f, "{}", self.provider)?,
         }
+        for (account, model) in &self.account_models {
+            write!(f, ",{}#{account}={model}", self.provider)?;
+        }
+        Ok(())
     }
+}
+
+/// A `provider#N` name split into its provider and account number; the number
+/// is `None` unless it is 2 or more, since account 1 is the tier itself.
+fn split_account_name(name: &str) -> Option<(&str, Option<usize>)> {
+    let (provider, account) = name.split_once('#')?;
+    let account = account.trim().parse::<usize>().ok().filter(|n| *n >= 2);
+    Some((provider.trim(), account))
 }
 
 /// The ordered LLM chain the platform serves turns on, from `PIERRE_LLM_CHAIN`.
@@ -335,7 +391,7 @@ impl Display for ChainEntry {
 /// tier a provider fault or an empty answer falls through to, in order:
 ///
 /// ```text
-/// PIERRE_LLM_CHAIN=anthropic=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=claude-sonnet-5,gemini=gemini-flash-lite-latest
+/// PIERRE_LLM_CHAIN=anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest
 /// ```
 ///
 /// One entry is a single provider with no fallback to another one; a pooled
@@ -343,6 +399,12 @@ impl Display for ChainEntry {
 /// `ANTHROPIC_API_KEY_2`, …) still follow it, whatever its position. Unset or
 /// blank is the platform default: one Gemini entry with no model of its own,
 /// which runs `PIERRE_LLM_DEFAULT_MODEL`.
+///
+/// A pooled account runs its provider's model unless an entry
+/// `provider#N=model` names its own: `anthropic#2=claude-haiku-5-5` puts the
+/// second Anthropic organization on Haiku. It sets the account's model only —
+/// the account still sits right behind its provider, and it exists only when
+/// its numbered credential does. It must follow its provider's entry.
 ///
 /// The grammar is forgiving where a mistake is harmless and loud where it is
 /// not, and every repair is recorded in [`Self::issues`] for the boot log:
@@ -354,6 +416,9 @@ impl Display for ChainEntry {
 ///   provider — a typo must not boot a tier nobody configured;
 /// - a provider named twice keeps its first entry: the later one would be
 ///   the same account behind itself;
+/// - a `provider#N` entry with no model, an account number below 2, a
+///   provider that pools no accounts, or no earlier entry for its provider is
+///   skipped;
 /// - a value with no valid entry at all is the platform default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmChain {
@@ -411,6 +476,14 @@ impl LlmChain {
                 Some((name, model)) => (name.trim(), Some(model.trim())),
                 None => (item, None),
             };
+            if let Some((provider_name, account)) = split_account_name(name) {
+                if let Err(issue) =
+                    Self::attach_account_model(&mut entries, provider_name, account, model)
+                {
+                    issues.push(format!("entry {} {issue}; skipped", position + 1));
+                }
+                continue;
+            }
             let Some(provider) = LlmProviderType::parse(name) else {
                 issues.push(format!(
                     "entry {} names no known provider ({name:?}); skipped",
@@ -425,10 +498,7 @@ impl LlmChain {
                 ));
                 continue;
             }
-            entries.push(ChainEntry {
-                provider,
-                model: model.filter(|m| !m.is_empty()).map(str::to_owned),
-            });
+            entries.push(ChainEntry::new(provider, model.filter(|m| !m.is_empty())));
         }
         if entries.is_empty() {
             issues.push(format!(
@@ -444,13 +514,49 @@ impl LlmChain {
         Self { entries, issues }
     }
 
+    /// Record a `provider#N=model` entry on the entry of the provider it
+    /// names, or say why it cannot be: the account's model is the whole point
+    /// of the entry, and an account belongs to a provider already listed.
+    fn attach_account_model(
+        entries: &mut [ChainEntry],
+        provider_name: &str,
+        account: Option<usize>,
+        model: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(provider) = LlmProviderType::parse(provider_name) else {
+            return Err(format!("names no known provider ({provider_name:?})"));
+        };
+        if !provider.pools_accounts() {
+            return Err(format!("names an account of {provider}, which pools none"));
+        }
+        let Some(account) = account else {
+            return Err(format!(
+                "names no pooled account of {provider} (accounts are numbered from 2)"
+            ));
+        };
+        let Some(model) = model.filter(|m| !m.is_empty()) else {
+            return Err(format!(
+                "names no model for {provider}#{account} (an account follows its provider's model without one)"
+            ));
+        };
+        let Some(entry) = entries.iter_mut().find(|entry| entry.provider == provider) else {
+            return Err(format!(
+                "names {provider}#{account} before any {provider} entry"
+            ));
+        };
+        if entry.account_models.contains_key(&account) {
+            return Err(format!(
+                "repeats {provider}#{account}; the first {provider}#{account} entry is kept"
+            ));
+        }
+        entry.account_models.insert(account, model.to_owned());
+        Ok(())
+    }
+
     /// One Gemini entry on its default model: what an unset chain runs.
     fn platform_default() -> Self {
         Self {
-            entries: vec![ChainEntry {
-                provider: LlmProviderType::default(),
-                model: None,
-            }],
+            entries: vec![ChainEntry::new(LlmProviderType::default(), None)],
             issues: Vec::new(),
         }
     }
@@ -568,10 +674,7 @@ mod tests {
     }
 
     fn entry(provider: LlmProviderType, model: Option<&str>) -> ChainEntry {
-        ChainEntry {
-            provider,
-            model: model.map(str::to_owned),
-        }
+        ChainEntry::new(provider, model)
     }
 
     #[test]
@@ -658,10 +761,87 @@ mod tests {
     }
 
     #[test]
-    fn a_pool_tier_name_is_not_an_entry() {
-        // `anthropic#2` comes from ANTHROPIC_API_KEY_2, never from the list.
+    fn a_pool_account_without_a_model_is_not_an_entry() {
+        // `anthropic#2` exists because ANTHROPIC_API_KEY_2 does; naming it
+        // without a model changes nothing, and is reported.
         let chain = LlmChain::parse("anthropic,anthropic#2");
         assert_eq!(chain.entries(), [entry(LlmProviderType::Anthropic, None)]);
+        assert!(
+            chain.issues()[0].contains("names no model for anthropic#2"),
+            "{:?}",
+            chain.issues()
+        );
+    }
+
+    #[test]
+    fn a_pool_account_entry_sets_that_account_model_only() {
+        let chain = LlmChain::parse(
+            "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,claude-code#3=haiku,claude_code=sonnet",
+        );
+        let [anthropic, claude_code] = chain.entries() else {
+            panic!("an account entry is not a tier: {:?}", chain.entries());
+        };
+        assert_eq!(anthropic.model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(anthropic.account_model(2), Some("claude-haiku-5-5"));
+        assert_eq!(
+            anthropic.account_model(3),
+            Some("claude-opus-5-5"),
+            "an account with no entry of its own runs its provider's model"
+        );
+        assert!(
+            claude_code.account_models.is_empty(),
+            "claude-code#3 came before any claude_code entry"
+        );
+        assert_eq!(claude_code.account_model(2), Some("sonnet"));
+        assert!(
+            chain.issues()[0].contains("before any claude_code entry"),
+            "{:?}",
+            chain.issues()
+        );
+    }
+
+    #[test]
+    fn a_malformed_pool_account_entry_is_skipped_and_reported() {
+        let chain = LlmChain::parse(
+            "anthropic=claude-opus-5-5,anthropic#1=x,anthropic#two=x,anthropc#2=x,anthropic#2=a,anthropic#2=b",
+        );
+        let [anthropic] = chain.entries() else {
+            panic!("{:?}", chain.entries());
+        };
+        assert_eq!(anthropic.account_model(2), Some("a"), "the first wins");
+        let issues = chain.issues().join(" | ");
+        assert_eq!(chain.issues().len(), 4, "{issues}");
+        for expected in [
+            "no pooled account of anthropic",
+            "names no known provider (\"anthropc\")",
+            "repeats anthropic#2",
+        ] {
+            assert!(issues.contains(expected), "{expected}: {issues}");
+        }
+    }
+
+    #[test]
+    fn an_account_of_a_provider_that_pools_none_is_skipped_and_reported() {
+        let chain = LlmChain::parse("copilot_sdk=claude-sonnet-5.5,copilot_sdk#2=claude-haiku-5.5");
+        let [copilot_sdk] = chain.entries() else {
+            panic!("{:?}", chain.entries());
+        };
+        assert!(
+            copilot_sdk.account_models.is_empty(),
+            "the Copilot runtime has no second account to run it"
+        );
+        assert_eq!(
+            chain.issues(),
+            ["entry 2 names an account of copilot_sdk, which pools none; skipped"]
+        );
+    }
+
+    #[test]
+    fn the_deployed_chain_with_account_models_round_trips() {
+        let raw = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest";
+        let chain = LlmChain::parse(raw);
+        assert!(chain.issues().is_empty(), "{:?}", chain.issues());
+        assert_eq!(chain.to_string(), raw);
     }
 
     #[test]

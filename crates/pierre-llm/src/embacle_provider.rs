@@ -31,7 +31,7 @@ use tracing::{info, info_span, warn, Instrument, Span};
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
 use crate::chain_guard::copilot_headroom_checker;
 use crate::chain_observer::ChainObserver;
-use crate::config::{HttpProvider, LlmProviderType, ProviderConstruction};
+use crate::config::{ChainEntry, HttpProvider, LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::http_env;
 use crate::provider::ChatProvider;
@@ -311,21 +311,19 @@ impl EmbacleProvider {
         }
     }
 
-    /// The further accounts of the tier `kind` names, each an ordinary tier
-    /// right behind it wherever it sits in the chain, on `model_override` like
-    /// the tier itself. A pooled CLI runner reads them from
-    /// `<CREDENTIAL>_2`, `_3`, … (`pooled_cli_accounts`); the
+    /// The further accounts of the tier `entry` configures, each an ordinary
+    /// tier right behind it wherever it sits in the chain, on the model
+    /// [`ChainEntry::account_model`] gives that account. A pooled CLI runner
+    /// reads them from `<CREDENTIAL>_2`, `_3`, … (`pooled_cli_accounts`); the
     /// Anthropic API from `ANTHROPIC_API_KEY_2`, `_3`, …
     /// (`http_env::anthropic_pooled_accounts`). Empty for every other
     /// provider, and for a pooled one with a single credential.
     #[must_use]
-    pub fn pooled_accounts(kind: LlmProviderType, model_override: Option<&str>) -> Vec<Self> {
-        match kind.construction() {
-            ProviderConstruction::Cli(runner_type) => {
-                Self::pooled_cli_accounts(runner_type, model_override)
-            }
+    pub fn pooled_accounts(entry: &ChainEntry) -> Vec<Self> {
+        match entry.provider.construction() {
+            ProviderConstruction::Cli(runner_type) => Self::pooled_cli_accounts(runner_type, entry),
             ProviderConstruction::HttpApi(HttpProvider::Anthropic) => {
-                http_env::anthropic_pooled_accounts(model_override)
+                http_env::anthropic_pooled_accounts(entry)
             }
             ProviderConstruction::HttpApi(_)
             | ProviderConstruction::CopilotHeadless
@@ -345,7 +343,7 @@ impl EmbacleProvider {
     /// An account whose runner fails to build is skipped with a warning:
     /// the binary is the tier's own, so what breaks one breaks all, and that
     /// tier's own failure is the one the chain assembly reports.
-    fn pooled_cli_accounts(runner_type: CliRunnerType, model_override: Option<&str>) -> Vec<Self> {
+    fn pooled_cli_accounts(runner_type: CliRunnerType, entry: &ChainEntry) -> Vec<Self> {
         let Some(key) = credential_env_key(runner_type) else {
             return Vec::new();
         };
@@ -357,7 +355,7 @@ impl EmbacleProvider {
             if token.trim().is_empty() {
                 break;
             }
-            match cli_runner_config(runner_type, model_override) {
+            match cli_runner_config(runner_type, entry.account_model(position + 1)) {
                 Ok(config) => {
                     let runner = Self::cli_runner(runner_type, config.with_env(key, token));
                     let tier = PooledTier::new(runner, position);

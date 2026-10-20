@@ -215,6 +215,9 @@ jobs:
               echo "::error::dev's PIERRE_LLM_CHAIN entry '${ENTRY}' (${TF}) names no model" >&2
               exit 1
             fi
+            # `provider#N=model` sets a pooled account's model, not a tier:
+            # the account comes with its provider's numbered credential.
+            case "${ENTRY%%=*}" in *'#'*) continue ;; esac
             PROVIDERS="${PROVIDERS:+${PROVIDERS},}${ENTRY%%=*}"
           done
           if [ "${PROVIDERS}" != "${LANE_LLM_PROVIDERS}" ]; then
