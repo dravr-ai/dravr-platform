@@ -1,4 +1,4 @@
-// ABOUTME: The agent seeder deletes catalogue-owned agents whose markdown directory is gone
+// ABOUTME: The agent seeder deletes catalogue-owned agents whose markdown directory is gone, and never mistakes an install for one
 // ABOUTME: A merged agent hands its conversations, groups, installs, plans and pushed workouts over
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -835,4 +835,86 @@ async fn a_merged_agent_counts_the_installs_it_absorbed() {
         1,
         "the counter follows the install it absorbed"
     );
+}
+
+/// Replace `slug`'s instructions so the next seed sees changed content.
+fn rewrite_instructions(checkout: &Path, slug: &str, instructions: &str) {
+    let path = checkout.join("mobility").join(slug).join("en.md");
+    let body = fs::read_to_string(&path).unwrap();
+    let (head, _) = body.split_once("## Instructions\n").unwrap();
+    fs::write(&path, format!("{head}## Instructions\n{instructions}\n")).unwrap();
+}
+
+async fn prompt_of(
+    repos: &RepositoryRegistry,
+    agent: &str,
+    user: Uuid,
+    tenant: TenantId,
+) -> String {
+    repos
+        .agents
+        .get_by_id(agent, user, tenant)
+        .await
+        .unwrap()
+        .expect("the agent exists")
+        .system_prompt
+}
+
+/// An install is a copy that keeps its origin's slug, and the seed path finds
+/// the catalogue row by slug. On PostgreSQL an updated row moves to the end of
+/// the heap, so once the origin has been updated an unordered lookup can return
+/// the copy instead: the next seed then rewrites the athlete's copy and leaves
+/// the catalogue row stale. Every seed must land on the origin, and the drift
+/// gate's slug lookup must read it.
+#[tokio::test]
+async fn a_reseed_updates_the_catalogue_row_never_an_installed_copy() {
+    let (repos, admin, tenant) = seeded_repos().await;
+    let checkout = TempDir::new().unwrap();
+    write_agent(checkout.path(), KEPT, None);
+    assert!(seed(&repos, checkout.path(), false).await);
+    let origin = agent_id(&repos, KEPT, tenant).await.unwrap();
+    let copy = repos
+        .store_listings
+        .install_from_store(&origin, admin, tenant)
+        .await
+        .unwrap()
+        .id
+        .to_string();
+    let installed_prompt = prompt_of(&repos, &copy, admin, tenant).await;
+
+    for instructions in [
+        "You are kept-coach. Say it twice.",
+        "You are kept-coach. Say it three times.",
+    ] {
+        rewrite_instructions(checkout.path(), KEPT, instructions);
+        assert!(seed(&repos, checkout.path(), false).await);
+
+        assert_eq!(
+            agent_id(&repos, KEPT, tenant).await.as_deref(),
+            Some(origin.as_str()),
+            "the slug names the catalogue row, never the install"
+        );
+        assert_eq!(
+            repos
+                .seeder
+                .seed_find_agent_drift_info(KEPT)
+                .await
+                .unwrap()
+                .map(|(source, _)| source)
+                .as_deref(),
+            Some("contremaitre"),
+            "the drift gate reads the catalogue row, never the install"
+        );
+        assert!(
+            prompt_of(&repos, &origin, admin, tenant)
+                .await
+                .contains(instructions),
+            "the catalogue row carries the new instructions"
+        );
+        assert_eq!(
+            prompt_of(&repos, &copy, admin, tenant).await,
+            installed_prompt,
+            "the athlete's copy is left as it was installed"
+        );
+    }
 }

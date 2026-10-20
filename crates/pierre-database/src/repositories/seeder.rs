@@ -192,7 +192,8 @@ pub trait SeederRepository: Send + Sync {
 
     // ---- Agent seeder ----
 
-    /// Find an agent by slug and tenant, returning `(id, content_hash)` if found
+    /// Find an agent by slug and tenant, returning `(id, content_hash)` if found.
+    /// An installed copy carries its origin's slug and is never returned.
     async fn seed_find_agent_by_slug(
         &self,
         slug: &str,
@@ -202,8 +203,8 @@ pub trait SeederRepository: Send + Sync {
     /// Look up `(source, content_hash)` for an agent by slug, tenant-agnostic.
     ///
     /// Used by `pierre-cli check-drift agents` (the daily contremaitre→DB
-    /// drift gate); not used by the seed write path. Returns `None` when
-    /// no row matches the slug.
+    /// drift gate); not used by the seed write path. Installed copies share
+    /// the slug and are skipped. Returns `None` when no other row matches it.
     async fn seed_find_agent_drift_info(
         &self,
         slug: &str,
@@ -605,14 +606,17 @@ macro_rules! insert_a2a_usage_sql {
 }
 pub(crate) use insert_a2a_usage_sql;
 
-/// An agent's id and content hash by slug within a tenant.
-pub(crate) const AGENT_BY_SLUG_SQL: &str =
-    "SELECT id, content_hash FROM agents WHERE slug = $1 AND tenant_id = $2";
+/// An agent's id and content hash by slug within a tenant. An athlete's
+/// install is a copy carrying its origin's slug, so copies are excluded: the
+/// seed path must update the catalogue row, never an install.
+pub(crate) const AGENT_BY_SLUG_SQL: &str = "SELECT id, content_hash FROM agents \
+     WHERE slug = $1 AND tenant_id = $2 AND forked_from IS NULL";
 
 /// An agent's source and content hash by slug, tenant-agnostic on purpose:
-/// used by `pierre-cli check-drift agents`, never by the seed path.
+/// used by `pierre-cli check-drift agents`, never by the seed path. Installed
+/// copies share the slug and are excluded, as in [`AGENT_BY_SLUG_SQL`].
 pub(crate) const AGENT_DRIFT_INFO_SQL: &str =
-    "SELECT source, content_hash FROM agents WHERE slug = $1 LIMIT 1";
+    "SELECT source, content_hash FROM agents WHERE slug = $1 AND forked_from IS NULL LIMIT 1";
 
 /// Every catalogue agent of a tenant, by slug.
 pub(crate) const CATALOGUE_AGENTS_SQL: &str = concat!(
