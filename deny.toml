@@ -10,6 +10,24 @@ version = 2
 # Ignored advisories with risk assessment and mitigation plans
 ignore = [
     # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0381: webpki-roots trusts distrusted emSign intermediates
+    # -------------------------------------------------------------------------
+    # Severity: crypto-failure (the bundled emSign ECC Root CA - G3 lets
+    # certificate paths through distrusted intermediates whose keys are public).
+    # Affected in-tree version: webpki-roots 0.26.11, which sqlx-core 0.8.6
+    # depends on. Fixed in webpki-roots 1.0.10, which Cargo.lock resolves.
+    # 0.26.11 is a compatibility shim holding no roots of its own: it depends
+    # on and re-exports webpki-roots 1.x, which resolves to 1.0.10 here
+    # (`cargo tree -p webpki-roots@0.26.11`), so its root store is the patched
+    # one. The advisory marks only `>= 1.0.10` as patched, so it flags the
+    # shim by version number alone.
+    #
+    # Risk Assessment: NOT AFFECTED (the shim serves the 1.0.10 roots)
+    # Remove when sqlx moves off webpki-roots 0.26.
+    # Next Review: 2026-11-20
+    "RUSTSEC-2026-0381",
+
+    # -------------------------------------------------------------------------
     # RUSTSEC-2026-0367 + RUSTSEC-2026-0368 + RUSTSEC-2026-0369: zip extraction
     # -------------------------------------------------------------------------
     # Severity: privilege escalation, only through `ZipArchive::extract()` and
