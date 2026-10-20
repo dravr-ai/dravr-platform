@@ -145,6 +145,7 @@ macro_rules! impl_chat_row_parsers {
                     row.try_get("first_party_only")
                         .map_err(|e| chat_column_error("first_party_only", &e))?,
                 ),
+                channel_type: opt("channel_type")?,
             })
         }
 

@@ -14,6 +14,8 @@
 //! resources (Discord/Slack gateways, messaging ingress, endurance
 //! training history compute, chat verdict materialization).
 
+/// One lock per conversation that every chat turn holds while it runs.
+pub mod conversation_turn_lock;
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.
 pub mod turn_lifecycle;
 /// Where a messaging turn is started: in this process, or as a Cloud Tasks request.

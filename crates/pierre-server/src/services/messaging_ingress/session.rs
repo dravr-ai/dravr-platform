@@ -32,6 +32,7 @@ use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{
     refresh_channel_group_title, resolve_or_create_channel_group, ChannelChatBinding,
 };
+use pierre_services::personal_thread::{resolve_dm_thread, PersonalForge};
 
 use super::linking::hydrate_analytics_consent;
 use super::ResolvedSession;
@@ -49,10 +50,11 @@ pub(super) struct ChannelChatRef<'a> {
 
 /// Resolve the conversation id a session should use for this turn.
 ///
-/// LIMITATION(registre#840): a messaging DM keeps a conversation of its own here; it is not yet routed into the athlete's personal thread.
+/// A direct message writes into the athlete's personal thread, the one Home
+/// shows ([`route_dm_into_personal_thread`], carnet#840).
 ///
-/// Returns the stored `pierre_conversation_id` when it points to a
-/// row that the linked user can read; otherwise forges a fresh
+/// A room session returns the stored `pierre_conversation_id` when it points
+/// to a row that the linked user can read; otherwise forges a fresh
 /// conversation, repoints the session at it, and returns the new id.
 /// The unreachable cases collapse into one branch: NULL column (FK
 /// `ON DELETE SET NULL` fired), row deleted out from under the FK,
@@ -70,7 +72,18 @@ async fn resolve_session_conversation(
     channel_type: &str,
     is_direct_message: bool,
 ) -> Result<String, AppError> {
-    if let Some(id) = session["pierre_conversation_id"].as_str() {
+    let stored = session["pierre_conversation_id"].as_str();
+    if is_direct_message {
+        return route_dm_into_personal_thread(
+            resources,
+            Some(session_id),
+            user_id,
+            tenant_id,
+            stored,
+        )
+        .await;
+    }
+    if let Some(id) = stored {
         if resources
             .common
             .repos
@@ -89,17 +102,66 @@ async fn resolve_session_conversation(
         user_id,
         tenant_id,
         channel_type,
-        is_direct_message,
     )
     .await
 }
 
-/// Create a fresh `chat_conversation` and repoint the session at it.
+/// The athlete's personal thread, which their messaging DM writes into
+/// (carnet#840): the app and the DM are one conversation, so a reply on
+/// either reads what was said on the other.
 ///
-/// Called from `resolve_session_conversation` whenever the session's
+/// The thread the DM was already writing into, `stored`, is adopted when it is
+/// the athlete's most recent own thread and none is designated yet, so an
+/// athlete who only ever wrote on Telegram keeps their history. With no thread
+/// at all, one is forged with the guided walk, as a first DM always opened.
+/// When the session pointed elsewhere it is repointed at the thread; the
+/// thread it left stays readable in History.
+async fn route_dm_into_personal_thread(
+    resources: &ServerContext,
+    session_id: Option<&str>,
+    user_id: &str,
+    tenant_id: TenantId,
+    stored: Option<&str>,
+) -> Result<String, AppError> {
+    let title_fallback = fresh_title_fallback(resources, user_id).await;
+    let thread = resolve_dm_thread(
+        &resources.common.repos,
+        user_id,
+        tenant_id,
+        stored,
+        PersonalForge {
+            title_fallback: &title_fallback,
+            guided_flow: true,
+        },
+    )
+    .await?;
+    let thread_id = thread.conversation.id;
+    if let Some(session_id) = session_id.filter(|_| stored != Some(thread_id.as_str())) {
+        resources
+            .common
+            .repos
+            .messaging
+            .set_session_conversation(session_id, &thread_id)
+            .await?;
+        info!(
+            session_id,
+            conversation_id = %thread_id,
+            previous = stored.unwrap_or("none"),
+            forged = thread.forged,
+            "Messaging DM routed into the athlete's personal thread"
+        );
+    }
+    Ok(thread_id)
+}
+
+/// Create a fresh `chat_conversation` for a room session and repoint the
+/// session at it.
+///
+/// Called from `resolve_session_conversation` whenever a room session's
 /// `pierre_conversation_id` cannot be reused for the current linked
 /// user (NULL column, deleted row, rebind to a different user, or
-/// cross-tenant move). Returns the new conversation id.
+/// cross-tenant move). Returns the new conversation id. A DM never comes
+/// here: it writes into the athlete's personal thread.
 ///
 /// The row itself is forged by the shared ceremony in
 /// `pierre_services::conversation_forge`, which `/reset` and a first-ever
@@ -111,7 +173,6 @@ pub(super) async fn forge_fresh_session_conversation(
     user_id: &str,
     tenant_id: TenantId,
     channel_type: &str,
-    is_direct_message: bool,
 ) -> Result<String, AppError> {
     warn!(
         session_id = %session_id,
@@ -127,22 +188,16 @@ pub(super) async fn forge_fresh_session_conversation(
             tenant_id,
             title_fallback: &title_fallback,
             model: None,
-            // A messaging session carries no agent of its own, so the
-            // athlete's tenant-level selection is the answer — with the
-            // system-agent fallback on a DM only. A room session's row is
-            // forged ungrouped here and retrofitted on the next turn, and
-            // must not carry a system agent in the meantime.
-            agent: if is_direct_message {
-                ForgeAgent::Selected
-            } else {
-                ForgeAgent::SelectedInRoom
-            },
+            // A room session's row is forged ungrouped here and retrofitted on
+            // the next turn, and must not carry a system agent in the
+            // meantime.
+            agent: ForgeAgent::SelectedInRoom,
             group_id: None,
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,
-            guided_flow: is_direct_message,
-            // The platform repairs or opens the channel's thread; refusing it
-            // at the cap would leave the channel dead.
+            guided_flow: false,
+            // The platform repairs the channel's thread; refusing it at the
+            // cap would leave the channel dead.
             quota: SlotQuota::Exempt,
         },
     )
@@ -384,7 +439,10 @@ async fn resume_existing_session(
     // athlete picks after it was opened has to reach the thread they are
     // already in. Bound only at creation, selection appeared to do nothing
     // until `/reset` forged a new conversation — which is why `/reset` looked
-    // like the way to change agent, at the cost of the whole history.
+    // like the way to change agent, at the cost of the whole history. A DM's
+    // thread is the personal one the app shows (carnet#840); every way the
+    // athlete picks its agent — `/agent add`, the DM's own choice, "+" with a
+    // specialist in the app — moves the selection too, so this follows them.
     rebind_conversation_agent(resources, tenant_id, &user_id, &conversation).await;
 
     if let Err(e) = db.touch_session(&session_id).await {
@@ -595,33 +653,33 @@ async fn open_new_session(
     )
     .await;
 
-    let title_fallback = fresh_title_fallback(resources, &user_id).await;
-    let conversation_id = forge_conversation(
-        &resources.common.repos,
-        ForgeParams {
-            user_id: &user_id,
-            tenant_id,
-            title_fallback: &title_fallback,
-            model: None,
-            // A DM takes the selection with the system-agent fallback; a
-            // room member's row the selection alone — whether or not the
-            // group resolved above, since `is_direct_message` is what says
-            // which kind of thread this is.
-            agent: if is_direct_message {
-                ForgeAgent::Selected
-            } else {
-                ForgeAgent::SelectedInRoom
+    let conversation_id = if is_direct_message {
+        // A first DM writes into the athlete's personal thread, adopted or
+        // forged (carnet#840); the session is created pointing at it below.
+        route_dm_into_personal_thread(resources, None, &user_id, tenant_id, None).await?
+    } else {
+        let title_fallback = fresh_title_fallback(resources, &user_id).await;
+        forge_conversation(
+            &resources.common.repos,
+            ForgeParams {
+                user_id: &user_id,
+                tenant_id,
+                title_fallback: &title_fallback,
+                model: None,
+                // A room member's row takes the selection alone, whether or
+                // not the group resolved above.
+                agent: ForgeAgent::SelectedInRoom,
+                group_id: group_id_opt.as_deref(),
+                channel_type,
+                selection_source: AgentSelectionSource::MessagingSession,
+                guided_flow: false,
+                // The platform opens the channel's thread; refusing it at the
+                // cap would leave the channel dead.
+                quota: SlotQuota::Exempt,
             },
-            group_id: group_id_opt.as_deref(),
-            channel_type,
-            selection_source: AgentSelectionSource::MessagingSession,
-            guided_flow: is_direct_message,
-            // The platform repairs or opens the channel's thread; refusing it
-            // at the cap would leave the channel dead.
-            quota: SlotQuota::Exempt,
-        },
-    )
-    .await?;
+        )
+        .await?
+    };
     let session_id = Uuid::new_v4().to_string();
 
     let session_params = CreateSessionParams {

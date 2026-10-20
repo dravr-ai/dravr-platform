@@ -114,6 +114,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await?;
 

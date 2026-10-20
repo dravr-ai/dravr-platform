@@ -100,6 +100,23 @@ impl SurfaceId {
         }
     }
 
+    /// The wire word of the channel, as `chat_messages.channel_type` stores it
+    /// on every row a turn on this surface writes: the in-app clients' own
+    /// words (`web`, `mobile`) and each messaging channel's name. A thread the
+    /// app and a messaging DM share (carnet#840) tags its rows from it.
+    #[must_use]
+    pub const fn wire_channel(self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Mobile => "mobile",
+            Self::Telegram => "telegram",
+            Self::WhatsApp => "whatsapp",
+            Self::Discord => "discord",
+            Self::Slack => "slack",
+            Self::Messenger => "messenger",
+        }
+    }
+
     /// The `call_type` stamped on this surface's per-call `llm_usage` rows.
     #[must_use]
     pub const fn call_type(self) -> &'static str {

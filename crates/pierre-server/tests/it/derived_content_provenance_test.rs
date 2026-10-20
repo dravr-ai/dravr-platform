@@ -71,6 +71,7 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
                 model: None,
                 content_blocks: None,
                 transport_policy: policy,
+                channel_type: None,
             })
             .await
             .unwrap();
@@ -442,6 +443,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
             model: None,
             content_blocks: None,
             transport_policy: FirstPartyOnly,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -672,6 +674,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
                     model: None,
                     content_blocks: None,
                     transport_policy: policy,
+                    channel_type: None,
                 })
                 .await
                 .unwrap();

@@ -183,6 +183,7 @@ pub async fn persist_command_turn(
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: Some(request.channel_type),
         })
         .await?;
 
@@ -204,6 +205,7 @@ pub async fn persist_command_turn(
             model: None,
             content_blocks: content_blocks.as_deref(),
             transport_policy: ai_scope::derived_policy(),
+            channel_type: Some(request.channel_type),
         })
         .await?;
 

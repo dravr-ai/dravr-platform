@@ -115,6 +115,15 @@ export const QUERY_KEYS = {
     /** The caller's one personal thread, as the server resolves it. */
     personal: () => ['chat-personal'] as const,
     messages: (conversationId: string | null) => ['chat-messages', conversationId] as const,
+    /**
+     * The older windows of a thread the reader scrolled back through, joined
+     * before the newest window `messages` holds. Kept apart so a re-read of
+     * the newest window never drops what was read back.
+     */
+    earlierMessages: (conversationId: string | null) =>
+      ['chat-messages-earlier', conversationId] as const,
+    /** A thread's topics — one per divider, plus its opening — newest first. */
+    topics: (conversationId: string | null) => ['chat-topics', conversationId] as const,
     /** Who can read and post in the conversation, owner first. */
     participants: (conversationId: string | null) =>
       ['chat-participants', conversationId] as const,

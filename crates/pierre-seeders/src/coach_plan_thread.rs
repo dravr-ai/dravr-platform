@@ -345,6 +345,7 @@ async fn seed_card_reply(
                 model: assistant.then_some(model),
                 content_blocks,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await?;
     }

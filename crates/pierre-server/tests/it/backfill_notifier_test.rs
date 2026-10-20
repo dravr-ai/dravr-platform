@@ -561,6 +561,7 @@ impl PlatformPost for FakePost {
                     content_blocks: None,
                     created_at: "2026-09-22T20:22:00Z".to_owned(),
                     transport_policy: TransportPolicy::AnyTransport,
+                    channel_type: None,
                 },
                 blocks,
                 finish_reason: Some("stop".to_owned()),
@@ -608,6 +609,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -734,6 +736,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -848,6 +851,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
                 model: None,
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await
             .unwrap();
@@ -941,6 +945,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1045,6 +1050,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1506,6 +1512,7 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1595,6 +1602,7 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1714,6 +1722,116 @@ async fn push_still_drops_a_reset_messaging_thread() {
     assert!(
         messages.is_empty(),
         "an archived messaging thread must not be written into: {messages:?}"
+    );
+}
+
+/// A personal thread adopted from the athlete's Telegram DM keeps the channel
+/// that opened it, yet the app shows it (carnet#840). Asked in the app, the
+/// notice answers in that thread: the DM's session still points at it, but
+/// the athlete is reading the app, and the thread's own channel is no sign of
+/// a `/reset` that left it.
+#[tokio::test]
+async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    repos
+        .chat
+        .set_conversation_channel(&conversation_id, &user_id, tenant_id, "telegram")
+        .await
+        .unwrap();
+    assert!(repos
+        .chat
+        .designate_personal_conversation(&conversation_id, &user_id, tenant_id)
+        .await
+        .unwrap());
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_840",
+        None,
+        &conversation_id,
+    )
+    .await;
+    repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: "Compare my Septembers",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
+            channel_type: Some("web"),
+        })
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a-1", "Sortie longue", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let notifier = ServerBackfillNotifier::with_resolver(
+        repos.clone(),
+        strings(),
+        resolver,
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
+
+    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            after_ts,
+            1,
+        )
+        .await;
+
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "asked in the app, the notice is not sent on Telegram"
+    );
+    let messages = repos
+        .chat
+        .get_recent_messages(
+            &conversation_id,
+            &user_id,
+            tenant_id,
+            10,
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await
+        .unwrap();
+    let assistant: Vec<_> = messages.iter().filter(|m| m.role == "assistant").collect();
+    assert_eq!(
+        assistant.len(),
+        1,
+        "the notice lands once in the personal thread: {messages:?}"
+    );
+    assert!(
+        assistant[0].content.contains("Sortie longue"),
+        "the turn carries the athlete's warmed activities: {}",
+        assistant[0].content
     );
 }
 

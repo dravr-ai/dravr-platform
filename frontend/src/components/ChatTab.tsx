@@ -15,7 +15,9 @@ import {
   deriveKind,
   scopeOfKind,
   composeRoomThread,
+  hasEarlierMessages,
   initialsFor,
+  joinMessageWindows,
   PLAN_THREAD_KEYS,
   providerStatusLine,
   readLostTurn,
@@ -44,6 +46,8 @@ import VerdictDrawer from './chat/VerdictDrawer';
 import type { VerdictSource } from './chat/VerdictDrawer';
 import ChatShell from './chat/ChatShell';
 import ThreadHeader from './chat/ThreadHeader';
+import PersonalTopics from './chat/PersonalTopics';
+import { topicAnchorId } from './chat/utils';
 import ConversationList from './dashboard/ConversationList';
 import { useIsDesktop, useIsMobile } from '../hooks/useBreakpoint';
 import { useComposerFocused } from '../hooks/useComposerFocused';
@@ -56,12 +60,13 @@ import {
   useConversationMutations,
 } from '../hooks/useConversationList';
 import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
+import { useEarlierMessages } from '../hooks/useEarlierMessages';
 import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useGroup } from '../hooks/useGroups';
 import { Button, Sheet, useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { replySceneBlocks } from '@pierre/api-client';
+import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -76,7 +81,6 @@ import type {
   MessageFeedback,
   OAuthNotification,
 } from './chat';
-import type { MessageFeedbackEntry } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 
@@ -279,6 +283,9 @@ export default function ChatTab({
   // Home's sheets and its docked Today panel. The panel's open state is the
   // athlete's choice and outlives the page; the sheets close with it.
   const [historyOpen, setHistoryOpen] = useState(false);
+  // A topic picked in History: the thread opens where it starts, reading
+  // windows back until its divider is held (carnet#840).
+  const [pendingTopic, setPendingTopic] = useState<{ conversationId: string; dividerId: string | null } | null>(null);
   const [todaySheetOpen, setTodaySheetOpen] = useState(false);
   const [todayDocked, setTodayDocked] = useState(readTodayDocked);
   // Whether the transcript is scrolled to its latest message. Home's folded
@@ -311,7 +318,7 @@ export default function ChatTab({
   // Fetch messages for selected conversation — the caller's own rows. In a
   // group thread these are the model's context store, and the room below is
   // woven through them.
-  const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[]; feedback?: MessageFeedbackEntry[] }>({
+  const { data: messagesData, isLoading: messagesLoading } = useQuery<MessagesResponse>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
     enabled: !!selectedConversation,
@@ -418,7 +425,45 @@ export default function ChatTab({
   // reaching back to its own oldest row, so the read is keyed by that reach:
   // a thread never paints a room read that stopped short of its history.
   const roomGroupId = activeConversation?.group_id ?? null;
-  const ownMessages = messagesData?.messages;
+  // The thread is read in windows from the newest back (carnet#840): the
+  // windows read back on a scroll to the top sit before the newest one.
+  const { earlier, loading: earlierLoading, loadBefore } = useEarlierMessages(selectedConversation);
+  const ownMessages = useMemo(
+    () => (messagesData ? joinMessageWindows(earlier?.messages, messagesData.messages) : undefined),
+    [earlier, messagesData],
+  );
+  const hasEarlier = hasEarlierMessages(earlier, messagesData?.has_more);
+  // Every persisted row held — an optimistic row is the turn's, not the thread's.
+  const heldRows = useMemo(
+    () => (ownMessages ?? []).filter(m => !m.id.startsWith(OPTIMISTIC_USER_ID_PREFIX)),
+    [ownMessages],
+  );
+  const handleReachStart = useCallback(() => {
+    if (hasEarlier && heldRows.length > 0) void loadBefore(heldRows);
+  }, [hasEarlier, heldRows, loadBefore]);
+
+  // Open a picked topic: read back until its divider — or, for the thread's
+  // opening, its first row — is held, then bring it into view.
+  useEffect(() => {
+    if (!pendingTopic || pendingTopic.conversationId !== selectedConversation || !messagesData) return;
+    const { dividerId } = pendingTopic;
+    const held = dividerId === null ? !hasEarlier : (ownMessages ?? []).some(m => m.id === dividerId);
+    if (held) {
+      setPendingTopic(null);
+      requestAnimationFrame(() => {
+        const target = dividerId
+          ? document.getElementById(topicAnchorId(dividerId))
+          : document.querySelector('[data-testid="message-row"]');
+        target?.scrollIntoView({ block: 'start' });
+      });
+      return;
+    }
+    if (!hasEarlier || heldRows.length === 0) {
+      setPendingTopic(null);
+      return;
+    }
+    if (!earlierLoading) void loadBefore(heldRows);
+  }, [pendingTopic, selectedConversation, messagesData, ownMessages, hasEarlier, heldRows, earlierLoading, loadBefore]);
   const roomSince = useMemo(
     () => ownMessages?.find(m => !m.id.startsWith(OPTIMISTIC_USER_ID_PREFIX))?.created_at ?? null,
     [ownMessages],
@@ -764,7 +809,8 @@ export default function ChatTab({
     // from the transcript. It is cancelled first; the turn's answer brings
     // what the thread holds.
     await queryClient.cancelQueries({ queryKey: conversationKey });
-    queryClient.setQueryData(conversationKey, (old: { messages: Message[] } | undefined) => ({
+    queryClient.setQueryData(conversationKey, (old: MessagesResponse | undefined) => ({
+      ...old,
       messages: [...(old?.messages || []), tempUserMessage],
     }));
 
@@ -814,7 +860,8 @@ export default function ChatTab({
         // the athlete was shown.
         const echoed = turn.user_message;
         if (echoed?.content) {
-          queryClient.setQueryData(conversationKey, (old: { messages: Message[] } | undefined) => ({
+          queryClient.setQueryData(conversationKey, (old: MessagesResponse | undefined) => ({
+            ...old,
             messages: (old?.messages ?? []).map(m =>
               m.id === userMessageId
                 ? { ...m, id: echoed.id, content: echoed.content, created_at: echoed.created_at }
@@ -866,12 +913,12 @@ export default function ChatTab({
           };
           queryClient.setQueryData(
             QUERY_KEYS.chat.messages(selectedConversation),
-            (old: { messages: Message[] } | undefined) => {
+            (old: MessagesResponse | undefined) => {
               const existing = old?.messages ?? [];
               if (existing.some(m => m.id === persisted.id)) {
-                return { messages: existing };
+                return { ...old, messages: existing };
               }
-              return { messages: [...existing, persisted] };
+              return { ...old, messages: [...existing, persisted] };
             },
           );
         }
@@ -884,12 +931,12 @@ export default function ChatTab({
         if (welcome) {
           queryClient.setQueryData(
             QUERY_KEYS.chat.messages(selectedConversation),
-            (old: { messages: Message[] } | undefined) => {
+            (old: MessagesResponse | undefined) => {
               const existing = old?.messages ?? [];
               if (existing.some(m => m.id === welcome.id)) {
-                return { messages: existing };
+                return { ...old, messages: existing };
               }
-              return { messages: [...existing, welcome] };
+              return { ...old, messages: [...existing, welcome] };
             },
           );
         }
@@ -1231,7 +1278,8 @@ export default function ChatTab({
 
     queryClient.setQueryData(
       QUERY_KEYS.chat.messages(selectedConversation),
-      (old: { messages: Message[] } | undefined) => ({
+      (old: MessagesResponse | undefined) => ({
+        ...old,
         messages: (old?.messages ?? []).filter(m => m.id !== messageId),
       }),
     );
@@ -1384,6 +1432,9 @@ export default function ChatTab({
             onAskAboutClaim={handleAskAboutClaim}
             onActionClick={handleActionClick}
             followOnOpen={layout !== 'embedded'}
+            hasEarlier={hasEarlier}
+            loadingEarlier={earlierLoading}
+            onReachStart={handleReachStart}
           />
         </div>
       </div>
@@ -1528,6 +1579,10 @@ export default function ChatTab({
           runComposerAction({ kind: 'draft', text });
         }}
         onSelectConversation={onSelectConversation}
+        onOpenTopic={(conversationId, dividerId) => {
+          setPendingTopic({ conversationId, dividerId });
+          onSelectConversation(conversationId);
+        }}
         onNewConversation={() => startConversation()}
         creating={createConversation.isPending}
         renderHeader={(lead, trail) =>
@@ -1637,6 +1692,8 @@ interface PersonalSurfaceProps {
   peekHidden: boolean;
   onDraft: (text: string) => void;
   onSelectConversation: (id: string | null) => void;
+  /** Open the personal thread where one of its topics starts. */
+  onOpenTopic: (conversationId: string, dividerId: string | null) => void;
   onNewConversation: () => void;
   creating: boolean;
   /**
@@ -1676,6 +1733,7 @@ function PersonalSurface({
   peekHidden,
   onDraft,
   onSelectConversation,
+  onOpenTopic,
   onNewConversation,
   creating,
   renderHeader,
@@ -1809,15 +1867,25 @@ function PersonalSurface({
             </button>
           }
         >
-          <ConversationList
-            scope="personal"
-            showTitle={false}
-            selectedConversation={selectedConversation}
-            onSelectConversation={(id) => {
-              onHistoryOpenChange(false);
-              onSelectConversation(id);
-            }}
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            <PersonalTopics
+              onOpenTopic={(conversationId, dividerId) => {
+                onHistoryOpenChange(false);
+                onOpenTopic(conversationId, dividerId);
+              }}
+            />
+            <div className="min-h-0 flex-1">
+              <ConversationList
+                scope="personal"
+                showTitle={false}
+                selectedConversation={selectedConversation}
+                onSelectConversation={(id) => {
+                  onHistoryOpenChange(false);
+                  onSelectConversation(id);
+                }}
+              />
+            </div>
+          </div>
         </Sheet>
       )}
 

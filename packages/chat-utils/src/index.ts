@@ -38,6 +38,17 @@ export {
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
 
+// A thread read in windows (carnet#840): the windows read back joined to the
+// newest one, and the tag an athlete's messaging-app row carries in the
+// personal thread the app and their DM share.
+export {
+  hasEarlierMessages,
+  joinMessageWindows,
+  messageChannelOrigin,
+  prependWindow,
+} from './message-window';
+export type { EarlierWindows } from './message-window';
+
 // A turn lost while the athlete was away: when both clients keep its note,
 // and when a re-read of the thread has answered it.
 export { readLostTurn, reduceLostTurn } from './lost-turn';

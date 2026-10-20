@@ -44,10 +44,10 @@ use super::resume::{
 };
 use super::slash::command_body;
 use super::turn_guard::{
-    acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_bounded, run_guarded,
-    TurnInterruption, TurnOutcome,
+    new_correlation_id, run_bounded, run_guarded, TurnInterruption, TurnOutcome,
 };
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
+use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
 
@@ -526,7 +526,7 @@ pub enum TurnClose {
 /// The body of [`dispatch_and_respond`]; separate so every early return
 /// passes through one place that settles the resumable row.
 async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
-    let lock = acquire_dispatch_lock(&dispatch.session.conversation);
+    let lock = acquire_turn_lock(&dispatch.session.conversation);
     let dispatch_guard = lock.lock().await;
 
     let start = Instant::now();
@@ -553,13 +553,13 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
         ChannelConfigLookup::Loaded(config) => *config,
         ChannelConfigLookup::Absent => {
             drop(dispatch_guard);
-            evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+            evict_idle_turn_lock(&dispatch.session.conversation, &lock);
             return TurnClose::Finished;
         }
         ChannelConfigLookup::Unavailable => {
             release_turn_for_retry(dispatch).await;
             drop(dispatch_guard);
-            evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+            evict_idle_turn_lock(&dispatch.session.conversation, &lock);
             return TurnClose::HandedOff;
         }
     };
@@ -655,7 +655,7 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
 
     // Held until here to serialize dispatches for the same conversation
     drop(dispatch_guard);
-    evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+    evict_idle_turn_lock(&dispatch.session.conversation, &lock);
     TurnClose::Finished
 }
 

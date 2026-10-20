@@ -4,7 +4,7 @@
 // ABOUTME: The thread's transcript — bubbles grouped by author, a day pill between days, and the live rows of a turn
 // ABOUTME: Streaming text, the thinking dots, an error and a provider notice all speak from the agent's side of the thread
 
-import { useRef, useEffect, useMemo, type ReactNode } from 'react';
+import { useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -14,6 +14,7 @@ import {
   isDivider,
   isSameMessageGroup,
   localDayKey,
+  messageChannelOrigin,
 } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import MessageBubble from './MessageBubble';
@@ -22,7 +23,7 @@ import TopicDivider from './TopicDivider';
 import CoachAvatar from './CoachAvatar';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
-import { linkifyUrls } from './utils';
+import { linkifyUrls, topicAnchorId } from './utils';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
 
@@ -83,6 +84,26 @@ interface MessageListProps {
    * only the turns that arrive after.
    */
   followOnOpen?: boolean;
+  /**
+   * Older rows remain before the first one drawn: the thread is read in
+   * windows from the newest back, and reaching its top reads the next one.
+   */
+  hasEarlier?: boolean;
+  /** The window before the first row drawn is being read. */
+  loadingEarlier?: boolean;
+  /** The reader reached the top of what is drawn while older rows remain. */
+  onReachStart?: () => void;
+}
+
+/** The nearest ancestor that scrolls, which holds the thread's position. */
+function scrollParent(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const { overflowY } = getComputedStyle(current);
+    if (overflowY === 'auto' || overflowY === 'scroll') return current;
+    current = current.parentElement;
+  }
+  return null;
 }
 
 export default function MessageList({
@@ -113,23 +134,70 @@ export default function MessageList({
   onAskAboutClaim,
   onActionClick,
   followOnOpen = true,
+  hasEarlier = false,
+  loadingEarlier = false,
+  onReachStart,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
   const author = assistantLabel ?? t('shell.brandName');
+  const firstMessageId = messages[0]?.id;
+  const lastMessageId = messages[messages.length - 1]?.id;
 
-  // Auto-scroll to bottom when messages change. The first rows a thread
-  // paints are its opening: a thread read back, which `followOnOpen` may
-  // leave where it is, or the athlete's own first question, always followed.
+  // Reaching the top of what is drawn reads the window before it. The
+  // sentinel sits above the first row, so it shows only once the reader has
+  // scrolled back through everything held.
+  useEffect(() => {
+    const start = startRef.current;
+    if (!start || !hasEarlier || loadingEarlier || !onReachStart) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) onReachStart();
+    });
+    observer.observe(start);
+    return () => observer.disconnect();
+  }, [hasEarlier, loadingEarlier, onReachStart, firstMessageId]);
+
+  // A window read back lands above the rows the reader is looking at: the
+  // view stays on them rather than jumping by the height of what arrived.
+  const anchorRef = useRef<{ firstId?: string; lastId?: string; height: number }>({ height: 0 });
+  useLayoutEffect(() => {
+    const scroller = scrollParent(rootRef.current);
+    const previous = anchorRef.current;
+    if (
+      scroller &&
+      previous.firstId &&
+      firstMessageId !== previous.firstId &&
+      lastMessageId === previous.lastId
+    ) {
+      scroller.scrollTop += scroller.scrollHeight - previous.height;
+    }
+    anchorRef.current = {
+      firstId: firstMessageId,
+      lastId: lastMessageId,
+      height: scroller?.scrollHeight ?? 0,
+    };
+  });
+
+  // Auto-scroll to bottom when a row lands at the end. The first rows a
+  // thread paints are its opening: a thread read back, which `followOnOpen`
+  // may leave where it is, or the athlete's own first question, always
+  // followed. A window read back lands at the top and is not followed.
+  // The opening jump is instant: a smooth scroll would leave the top of the
+  // window in view for its first frames, and the reader would be taken for
+  // having scrolled back to it.
   const openedRef = useRef(false);
   useEffect(() => {
     if (!openedRef.current) {
-      if (messages.length === 0) return;
+      if (!lastMessageId) return;
       openedRef.current = true;
       if (!followOnOpen && !isStreaming) return;
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      return;
     }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, followOnOpen, isStreaming]);
+  }, [lastMessageId, streamingContent, followOnOpen, isStreaming]);
 
   // Filter out internal LLM plumbing rows (tool_call / tool_result) so their
   // raw <tool_call>/<tool_result> XML never renders — this matters most for
@@ -169,6 +237,7 @@ export default function MessageList({
         out.push(
           <TopicDivider
             key={msg.id}
+            anchorId={topicAnchorId(msg.id)}
             label={t('chat.newChat')}
             time={formatMessageTime(msg.created_at, language)}
           />,
@@ -180,6 +249,10 @@ export default function MessageList({
       // Copy, rating and retry act on a row of the caller's own conversation;
       // a row the group thread shows from the room is not one, so it has none.
       const ownReply = msg.role === 'assistant' && !msg.room;
+      // The personal thread is shared with the athlete's messaging DM: their
+      // words from a messaging app say where they came from.
+      const origin = messageChannelOrigin(msg);
+      const time = formatMessageTime(msg.created_at, language);
       out.push(
         <MessageItem
           key={msg.id}
@@ -192,7 +265,7 @@ export default function MessageList({
           blocks={messageBlocks?.get(msg.id)}
           verdicts={verdicts}
           assistantLabel={assistantLabel}
-          timestamp={formatMessageTime(msg.created_at, language)}
+          timestamp={origin ? `${time} · ${t('chat.fromChannel', { channel: origin.label })}` : time}
           groupStart={groupStart}
           // The bubble hands back the reply as a reader outside the app can
           // use it — its charts named rather than left as ⟦viz:N⟧ markers —
@@ -243,7 +316,14 @@ export default function MessageList({
 
   return (
     // The thread's one reading column: 720px like the composer under it.
-    <div className="mx-auto flex w-full max-w-[720px] flex-col">
+    <div ref={rootRef} className="mx-auto flex w-full max-w-[720px] flex-col [overflow-anchor:none]">
+      {hasEarlier ? (
+        <div ref={startRef} data-testid="earlier-messages" className="flex justify-center py-3">
+          {loadingEarlier ? (
+            <div className="pierre-spinner h-4 w-4" role="status" aria-label={t('chat.loadingMessages')} />
+          ) : null}
+        </div>
+      ) : null}
       {rows}
 
       {/* OAuth connection notification */}

@@ -89,11 +89,13 @@ pub struct OnboardingReset {
 /// participants; either is somebody else's history too, so neither matches.
 /// Nor does a human coach's thread bound to one athlete (carnet#1070): it is
 /// work on that athlete's plan, kept like a room, and never the coach's own
-/// thread for the platform to adopt or post into.
+/// thread for the platform to adopt or post into. The designated personal
+/// thread always matches, whichever channel opened it: one adopted from the
+/// athlete's messaging DM carries that channel (carnet#840).
 macro_rules! personal_conversation {
     () => {
         "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND subject_user_id IS NULL \
-         AND channel_type IN ('web', 'mobile') \
+         AND (channel_type IN ('web', 'mobile') OR personal = TRUE) \
          AND NOT EXISTS (SELECT 1 FROM conversation_participants p \
          WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"
     };

@@ -1,7 +1,7 @@
 // ABOUTME: Chat message list — one switch over the turn's reply blocks, and the empty thread's line and ranked starters
 // ABOUTME: The server decided what this surface draws; nothing here re-derives it from the reply prose
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import {
   Animated,
   View,
@@ -26,6 +26,7 @@ import {
   filterDisplayMessages,
   formatMessageTime,
   isDivider,
+  messageChannelOrigin,
   isModelReply,
   isSameMessageGroup,
   localDayKey,
@@ -456,6 +457,15 @@ interface MessageListProps {
   starters?: UseCaseStarter[];
   /** Open the thread on a starter: the host sends its postback under its label. */
   onStarter?: (starter: UseCaseStarter) => void;
+  /**
+   * Older rows remain before the first one drawn: the thread is read in
+   * windows from the newest back, and reaching its top reads the next one.
+   */
+  hasEarlier?: boolean;
+  /** The window before the first row drawn is being read. */
+  loadingEarlier?: boolean;
+  /** The reader reached the top of what is drawn while older rows remain. */
+  onReachStart?: () => void;
 }
 
 export function MessageList({
@@ -480,6 +490,9 @@ export function MessageList({
   header,
   starters,
   onStarter,
+  hasEarlier = false,
+  loadingEarlier = false,
+  onReachStart,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -768,7 +781,11 @@ export function MessageList({
   };
 
   const renderMessage = (item: Message, groupStart: boolean) => {
-    const clock = item.created_at ? formatMessageTime(item.created_at, language) : '';
+    const time = item.created_at ? formatMessageTime(item.created_at, language) : '';
+    // The personal thread is shared with the athlete's messaging DM: their
+    // words from a messaging app say where they came from.
+    const origin = messageChannelOrigin(item);
+    const clock = origin ? `${time} · ${t('chat.fromChannel', { channel: origin.label })}` : time;
     // A coach's correction is a room row on every thread, the athlete's own
     // included: it is the coach speaking, not the athlete.
     if (item.room && (!item.room.own || item.room.speaker === 'correction')) {
@@ -944,6 +961,20 @@ export function MessageList({
     return out;
   }, [messages, language, t]);
 
+  // A new last row is followed to the bottom. A window read back lands at the
+  // top, and from then on the reader stays where they are reading — a chart
+  // laying out in an old row resizes the list too — until a new row lands.
+  const lastRowKey = rows[rows.length - 1]?.key;
+  const firstRowKey = rows[0]?.key;
+  const followedRef = useRef<{ first?: string; last?: string; reading: boolean }>({ reading: false });
+  const handleContentSizeChange = useCallback(() => {
+    const followed = followedRef.current;
+    const sameLast = followed.last !== undefined && followed.last === lastRowKey;
+    const reading = sameLast && (followed.reading || followed.first !== firstRowKey);
+    followedRef.current = { first: firstRowKey, last: lastRowKey, reading };
+    if (!reading) onScrollToBottom();
+  }, [firstRowKey, lastRowKey, onScrollToBottom]);
+
   const renderRow = ({ item }: { item: ChatRow }) => {
     switch (item.kind) {
       case 'day':
@@ -1062,11 +1093,27 @@ export function MessageList({
 
         contentContainerStyle={{ padding: spacing.md }}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={onScrollToBottom}
+        onContentSizeChange={handleContentSizeChange}
+        // The thread is read in windows from the newest back: reaching its
+        // top reads the window before it, which lands above the rows in
+        // view without moving them (FlashList keeps the visible position).
+        onStartReached={hasEarlier && !loadingEarlier ? onReachStart : undefined}
+        onStartReachedThreshold={0.5}
         // A header's controls — an activity's suggested questions — answer
         // the first tap with the composer's keyboard up.
         keyboardShouldPersistTaps={header === undefined ? undefined : 'handled'}
-        ListHeaderComponent={header}
+        ListHeaderComponent={
+          loadingEarlier ? (
+            <View>
+              <View className="items-center py-3" testID="earlier-messages-loading">
+                <ActivityIndicator color={colors.tokens.primary} />
+              </View>
+              {header}
+            </View>
+          ) : (
+            header
+          )
+        }
         ListFooterComponent={isSending || isLoading ? renderFooter : null}
       />
     </View>

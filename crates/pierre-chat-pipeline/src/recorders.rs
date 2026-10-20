@@ -183,6 +183,7 @@ impl ToolRoundRows {
                 model: None,
                 content_blocks: None,
                 transport_policy,
+                channel_type: None,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_call message: {e}");
@@ -202,6 +203,7 @@ impl ToolRoundRows {
                 model: None,
                 content_blocks: None,
                 transport_policy,
+                channel_type: None,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_result message: {e}");

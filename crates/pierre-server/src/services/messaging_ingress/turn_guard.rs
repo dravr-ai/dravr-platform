@@ -1,4 +1,4 @@
-// ABOUTME: The two guards around a messaging turn — per-conversation ordering and the panic boundary
+// ABOUTME: The guards around a messaging turn — the panic boundary and the wall-clock and drain endings
 // ABOUTME: Both are load-bearing and invisible when working, so both are driven directly by tests
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,8 +13,9 @@
 //!    messages sent a second apart in the same conversation start two
 //!    background tasks. Without a lock, the second one's reply can land first
 //!    — the athlete reads an answer to the question they have not asked yet.
-//!    [`acquire_dispatch_lock`] serializes per conversation and lets unrelated
-//!    conversations run in parallel.
+//!    The per-conversation turn lock
+//!    (`crate::services::conversation_turn_lock`), which the in-app turn holds
+//!    too, serializes them and lets unrelated conversations run in parallel.
 //!
 //! 2. **Containment.** A panic in any pipeline stage would otherwise escape
 //!    the spawned task, and the athlete would get silence — no reply, no
@@ -36,55 +37,15 @@
 
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use dashmap::DashMap;
 use futures_util::FutureExt;
 use pierre_chat_pipeline::ServedTurn;
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_core::errors::{AppError, ErrorCode};
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-
-/// Per-conversation dispatch locks ensuring sequential LLM processing.
-///
-/// Without this, concurrent webhook calls for the same conversation race:
-/// message 2's dispatch can finish before message 1's, producing out-of-order
-/// replies. The lock serializes dispatches per conversation while allowing
-/// different conversations to proceed in parallel.
-static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<TokioMutex<()>>>> =
-    LazyLock::new(DashMap::new);
-
-/// The lock that serializes dispatches for `conversation_id`.
-///
-/// Callers hold the returned handle for the whole turn, `lock().await` on it,
-/// and hand it back to [`evict_idle_dispatch_lock`] when the turn ends.
-#[must_use]
-pub fn acquire_dispatch_lock(conversation_id: &str) -> Arc<TokioMutex<()>> {
-    CONVERSATION_DISPATCH_LOCKS
-        .entry(conversation_id.to_owned())
-        .or_insert_with(|| Arc::new(TokioMutex::new(())))
-        .clone()
-}
-
-/// Remove the per-conversation lock from the shared map if no other task still
-/// holds it.
-///
-/// Prevents unbounded growth of the lock map under high conversation
-/// cardinality while staying safe: if a concurrent dispatch cloned the `Arc`
-/// before we got here, the strong count exceeds 2 and we leave the entry in
-/// place. The next waiter simply reinserts on a later call if it was already
-/// evicted.
-pub fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) {
-    // Strong references: the one in the DashMap entry + `local` held here.
-    // Any higher count means another dispatch task is waiting on this lock.
-    CONVERSATION_DISPATCH_LOCKS.remove_if(conversation_id, |_, stored| {
-        Arc::ptr_eq(stored, local) && Arc::strong_count(stored) <= 2
-    });
-}
 
 /// How one guarded turn ended.
 ///

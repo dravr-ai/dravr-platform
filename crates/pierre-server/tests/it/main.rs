@@ -644,6 +644,7 @@ mod tenant_middleware_test;
 mod terra_provider_test;
 mod test_layout_test;
 mod text_guardrails_test;
+mod thread_windows_test;
 mod tid_cuts_config_test;
 mod token_consumption_analysis_test;
 mod token_efficiency_test;

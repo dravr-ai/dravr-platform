@@ -34,6 +34,11 @@ jest.mock('@pierre/chat-utils', () => ({
   // and a stub would decide nothing about when a failure's note stands.
   readLostTurn: jest.requireActual('@pierre/chat-utils').readLostTurn,
   reduceLostTurn: jest.requireActual('@pierre/chat-utils').reduceLostTurn,
+  // The real window helpers: the thread is read in windows from the newest
+  // back, and a stub would decide nothing about which rows the screen holds.
+  joinMessageWindows: jest.requireActual('@pierre/chat-utils').joinMessageWindows,
+  hasEarlierMessages: jest.requireActual('@pierre/chat-utils').hasEarlierMessages,
+  prependWindow: jest.requireActual('@pierre/chat-utils').prependWindow,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
@@ -196,6 +201,66 @@ describe('useMessages', () => {
         result.current.setIsSending(false);
       });
       expect(result.current.isSending).toBe(false);
+    });
+  });
+
+  describe('a thread read in windows', () => {
+    const row = (id: string): Message =>
+      createMockMessage({ id, role: 'user', content: id, created_at: '2026-10-20T14:00:00Z' });
+
+    it('reads the window before the oldest row and puts it first', async () => {
+      mockGetConversationMessages
+        .mockResolvedValueOnce({ messages: [row('c'), row('d')], has_more: true })
+        .mockResolvedValueOnce({ messages: [row('a'), row('b')], has_more: false });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual(['c', 'd']);
+      expect(result.current.hasEarlier).toBe(true);
+
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+      expect(mockGetConversationMessages).toHaveBeenLastCalledWith('conv-1', { before: 'c' });
+      expect(result.current.messages.map((m) => m.id)).toEqual(['a', 'b', 'c', 'd']);
+      expect(result.current.hasEarlier).toBe(false);
+      expect(result.current.loadingEarlier).toBe(false);
+    });
+
+    it('keeps what was read back when the newest window is read again', async () => {
+      mockGetConversationMessages
+        .mockResolvedValueOnce({ messages: [row('c'), row('d')], has_more: true })
+        .mockResolvedValueOnce({ messages: [row('a'), row('b')], has_more: false })
+        .mockResolvedValueOnce({ messages: [row('d'), row('e')], has_more: true });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+      expect(result.current.hasEarlier).toBe(false);
+    });
+
+    it('reads nothing more once the whole thread is held', async () => {
+      mockGetConversationMessages.mockResolvedValueOnce({ messages: [row('a')], has_more: false });
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.loadMessages('conv-1');
+      });
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+      expect(mockGetConversationMessages).toHaveBeenCalledTimes(1);
+      expect(result.current.hasEarlier).toBe(false);
     });
   });
 

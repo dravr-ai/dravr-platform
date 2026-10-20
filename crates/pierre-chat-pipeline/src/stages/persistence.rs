@@ -141,6 +141,7 @@ pub async fn persist_user_message(
     user_id: &str,
     tenant_id: TenantId,
     content: &str,
+    channel: &str,
 ) -> AppResult<UserMessageResult> {
     // Verify ownership and get conversation details
     let conversation = database
@@ -165,6 +166,7 @@ pub async fn persist_user_message(
         content_blocks: author.as_deref(),
         // The athlete's own words, derived from no provider data.
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: Some(channel),
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -204,6 +206,7 @@ pub async fn resolve_turn_prompt(
     database: &dyn ChatRepository,
     groups: &dyn CoachingGroupRepository,
     input: &TurnInput,
+    channel: &str,
 ) -> AppResult<UserMessageResult> {
     let conversation_id = input.conversation_id.as_str();
     let user_id = input.user_id.as_str();
@@ -217,6 +220,7 @@ pub async fn resolve_turn_prompt(
             user_id,
             tenant_id,
             content,
+            channel,
         )
         .await
     } else {
@@ -286,6 +290,7 @@ pub async fn resolve_platform_turn(
         content_blocks: None,
         transport_policy: TransportPolicy::AnyTransport,
         created_at: Utc::now().to_rfc3339(),
+        channel_type: None,
     };
 
     Ok(UserMessageResult {
@@ -431,6 +436,7 @@ mod tests {
             content_blocks: None,
             created_at: String::new(),
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         }
     }
 

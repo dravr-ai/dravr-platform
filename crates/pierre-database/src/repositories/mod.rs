@@ -43,6 +43,8 @@ pub(crate) mod chat_backend;
 pub(crate) mod chat_rows;
 /// A coach's thread bound to one athlete: its row, statements and open attempt.
 pub mod chat_subject;
+/// A thread read in windows, and the topics its dividers open.
+pub(crate) mod chat_windows;
 /// Repository trait for the check-in cadence each athlete chose.
 pub mod check_in_preferences;
 /// Statements and decoders for the blind-grading pool of claim verdicts.

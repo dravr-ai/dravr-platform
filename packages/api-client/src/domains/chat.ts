@@ -71,6 +71,20 @@ export interface MessagesResponse {
    * conversation. Clients hydrate their per-message feedback state from this.
    */
   feedback?: MessageFeedbackEntry[];
+  /**
+   * Whether older messages remain before the first one returned. A thread is
+   * read in windows from the newest back; the next window is asked for with
+   * `before` set to the oldest message held.
+   */
+  has_more?: boolean;
+}
+
+/** Which window of a thread to read. */
+export interface MessageWindow {
+  /** Messages per window (the server clamps it to 1–200; 100 when absent). */
+  limit?: number;
+  /** The oldest message already held: the window holds the ones before it. */
+  before?: string;
 }
 
 /**
@@ -415,11 +429,19 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
     },
 
     /**
-     * Get messages in a conversation.
+     * Get one window of a conversation's messages, oldest first: the newest
+     * by default, or the one before `window.before`.
      */
-    async getConversationMessages(conversationId: string): Promise<MessagesResponse> {
+    async getConversationMessages(
+      conversationId: string,
+      window: MessageWindow = {}
+    ): Promise<MessagesResponse> {
+      const params: Record<string, string | number> = {};
+      if (window.limit !== undefined) params.limit = window.limit;
+      if (window.before) params.before = window.before;
       const response = await axios.get<MessagesResponse>(
-        ENDPOINTS.CHAT.MESSAGES(conversationId)
+        ENDPOINTS.CHAT.MESSAGES(conversationId),
+        { params }
       );
       return response.data;
     },

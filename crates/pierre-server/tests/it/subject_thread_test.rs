@@ -577,6 +577,7 @@ async fn reset_in_a_subject_thread_opens_a_topic_and_keeps_the_binding() {
                 model: None,
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await
             .unwrap();

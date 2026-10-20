@@ -47,13 +47,16 @@ use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{
     ConversationRecord, ConversationTurnId, MessageRecord, CHANNEL_TYPE_WEB,
 };
+use pierre_mcp_server::services::conversation_turn_lock::{
+    acquire_turn_lock, evict_idle_turn_lock,
+};
 use pierre_mcp_server::services::messaging_ingress::block_render::plain_prose;
 use pierre_mcp_server::services::messaging_ingress::block_render::{
     channel_ceiling, fan_out, render_reply,
 };
 use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_request;
 use pierre_mcp_server::services::messaging_ingress::turn_guard::{
-    acquire_dispatch_lock, evict_idle_dispatch_lock, new_correlation_id, run_guarded, TurnOutcome,
+    new_correlation_id, run_guarded, TurnOutcome,
 };
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -88,6 +91,7 @@ fn message(id: &str, role: &str, content: &str) -> MessageRecord {
         content_blocks: None,
         created_at: "2026-08-24T00:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     }
 }
 
@@ -400,7 +404,7 @@ async fn two_turns_in_one_conversation_are_serialized() {
     let conversation = format!("conv-{}", Uuid::new_v4());
     let (tx, mut order) = mpsc::unbounded_channel::<&'static str>();
 
-    let first_lock = acquire_dispatch_lock(&conversation);
+    let first_lock = acquire_turn_lock(&conversation);
     let first_guard = first_lock.lock().await;
     tx.send("first-entered").unwrap();
 
@@ -408,11 +412,11 @@ async fn two_turns_in_one_conversation_are_serialized() {
         let conversation = conversation.clone();
         let tx = tx.clone();
         async move {
-            let lock = acquire_dispatch_lock(&conversation);
+            let lock = acquire_turn_lock(&conversation);
             let guard = lock.lock().await;
             tx.send("second-entered").unwrap();
             drop(guard);
-            evict_idle_dispatch_lock(&conversation, &lock);
+            evict_idle_turn_lock(&conversation, &lock);
         }
     });
 
@@ -420,7 +424,7 @@ async fn two_turns_in_one_conversation_are_serialized() {
     sleep(Duration::from_millis(50)).await;
     tx.send("first-leaving").unwrap();
     drop(first_guard);
-    evict_idle_dispatch_lock(&conversation, &first_lock);
+    evict_idle_turn_lock(&conversation, &first_lock);
     second.await.unwrap();
     drop(tx);
 
@@ -442,10 +446,10 @@ async fn different_conversations_do_not_block_each_other() {
     let one = format!("conv-{}", Uuid::new_v4());
     let two = format!("conv-{}", Uuid::new_v4());
 
-    let lock_one = acquire_dispatch_lock(&one);
+    let lock_one = acquire_turn_lock(&one);
     let held = lock_one.lock().await;
 
-    let lock_two = acquire_dispatch_lock(&two);
+    let lock_two = acquire_turn_lock(&two);
     let free = timeout(Duration::from_millis(200), lock_two.lock()).await;
 
     assert!(
@@ -454,8 +458,8 @@ async fn different_conversations_do_not_block_each_other() {
     );
     drop(free);
     drop(held);
-    evict_idle_dispatch_lock(&one, &lock_one);
-    evict_idle_dispatch_lock(&two, &lock_two);
+    evict_idle_turn_lock(&one, &lock_one);
+    evict_idle_turn_lock(&two, &lock_two);
 }
 
 /// The same conversation gets the same lock while a turn is in flight, and a
@@ -465,21 +469,21 @@ async fn different_conversations_do_not_block_each_other() {
 async fn the_lock_map_is_shared_while_busy_and_swept_when_idle() {
     let conversation = format!("conv-{}", Uuid::new_v4());
 
-    let first = acquire_dispatch_lock(&conversation);
-    let again = acquire_dispatch_lock(&conversation);
+    let first = acquire_turn_lock(&conversation);
+    let again = acquire_turn_lock(&conversation);
     assert!(
         Arc::ptr_eq(&first, &again),
         "two turns in one conversation must contend for ONE lock"
     );
 
     drop(again);
-    evict_idle_dispatch_lock(&conversation, &first);
-    let after_sweep = acquire_dispatch_lock(&conversation);
+    evict_idle_turn_lock(&conversation, &first);
+    let after_sweep = acquire_turn_lock(&conversation);
     assert!(
         !Arc::ptr_eq(&first, &after_sweep),
         "an idle conversation's lock must leave the map"
     );
-    evict_idle_dispatch_lock(&conversation, &after_sweep);
+    evict_idle_turn_lock(&conversation, &after_sweep);
 }
 
 // ============================================================================

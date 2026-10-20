@@ -196,6 +196,7 @@ async fn the_first_landing_posts_once_into_the_athletes_own_thread() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -325,6 +326,43 @@ async fn an_open_dm_gets_its_own_post() {
         panic!("a text post, got {:?}", sent[0].content);
     };
     assert!(body.contains("70%"), "the post's own words: {body}");
+}
+
+/// A DM that writes into the athlete's personal thread (carnet#840) is one
+/// destination, not two: the post made on the DM is the one the app shows,
+/// so the app gets no second post saying the same thing.
+#[tokio::test]
+async fn a_dm_writing_into_the_personal_thread_gets_one_post() {
+    let fx = fixture(RecordingPost::posting(true)).await;
+    let dm = whatsapp_dm(&fx, Utc::now() - Duration::hours(2)).await;
+    assert!(fx
+        .resources
+        .common
+        .repos
+        .chat
+        .designate_personal_conversation(&dm, &fx.user_id.to_string(), fx.tenant_id)
+        .await
+        .unwrap());
+
+    fx.poster
+        .data_landed(fx.user_id, fx.tenant_id, "whoop")
+        .await;
+
+    let asked = fx.post.asked();
+    assert_eq!(asked.len(), 1, "one post for the one thread: {asked:?}");
+    assert_eq!(
+        asked[0].surface,
+        PostSurface::Channel(ChannelType::WhatsApp)
+    );
+    assert_eq!(
+        asked[0].conversation_id, dm,
+        "stored in the personal thread"
+    );
+    assert_eq!(
+        fx.channel.sent.lock().unwrap().len(),
+        1,
+        "the reply goes out once on the chat"
+    );
 }
 
 /// Outside Meta's 24-hour window a plain `WhatsApp` send is rejected, so no

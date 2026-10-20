@@ -164,6 +164,13 @@ export interface Message {
    * ride the block list instead.
    */
   actions?: MessageActions;
+  /**
+   * The channel the turn that wrote this row came over (`web`, `mobile`,
+   * `telegram`, …). The personal thread is shared with the athlete's
+   * messaging DM, so a row from a messaging app is tagged with it. Absent on
+   * a row no turn wrote.
+   */
+  channel_type?: string;
   /** Model used for assistant messages */
   model?: string;
   /** Execution time in milliseconds */

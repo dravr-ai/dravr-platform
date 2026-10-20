@@ -596,6 +596,12 @@ pub struct MessageResponse {
     /// ride the block list instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions: Option<MessageActionsResponse>,
+    /// The channel the turn that wrote this row came over (`web`, `mobile`,
+    /// `telegram`, …). The personal thread is shared with the athlete's
+    /// messaging DM, so a client tags the rows that came from a messaging app.
+    /// Absent for a row no turn wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_type: Option<String>,
     /// Creation timestamp
     pub created_at: String,
 }
@@ -640,6 +646,31 @@ pub struct MessagesListResponse {
     /// `MessageResponse`) so clients hydrate their feedback map directly and
     /// the send path that builds `MessageResponse` needs no change.
     pub feedback: Vec<MessageFeedbackEntry>,
+    /// Whether older messages remain before the first one served: the thread
+    /// is read in windows from the newest back (carnet#840).
+    pub has_more: bool,
+}
+
+/// One topic of a thread, for the History list.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TopicResponse {
+    /// The divider that opens the topic; absent for the thread's opening,
+    /// which starts at the thread's first row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub divider_id: Option<String>,
+    /// When the topic opened (RFC 3339).
+    pub started_at: String,
+    /// The athlete's first words in the topic, trimmed to a title; absent
+    /// while nobody has spoken in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// The topics of a thread, newest first.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TopicsListResponse {
+    /// The topics, newest first.
+    pub topics: Vec<TopicResponse>,
 }
 
 /// A thumbs up/down rating value for a chat message.

@@ -355,6 +355,7 @@ fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>
         content_blocks: blocks,
         created_at: "2026-10-01T10:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     }
 }
 

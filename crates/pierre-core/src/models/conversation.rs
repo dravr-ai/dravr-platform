@@ -602,6 +602,13 @@ pub struct MessageRecord {
     /// surfaces (carnet#769). An external caller never reads such a row.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The channel the turn that wrote this row came over, as its wire word
+    /// (`web`, `mobile`, `telegram`, …). The personal thread is shared by the
+    /// app and the athlete's messaging DM (carnet#840), so a client tags the
+    /// turns that came from a messaging app. `None` for a row no turn wrote —
+    /// a divider, a platform post — and for rows written before it existed.
+    #[serde(default)]
+    pub channel_type: Option<String>,
 }
 
 impl MessageRecord {
@@ -673,6 +680,32 @@ pub struct ConversationPage {
     /// How many conversations the participant is in altogether — the number
     /// the client pages against, not the page length.
     pub total: i64,
+}
+
+/// One window of a conversation's transcript, as a participant reads it.
+///
+/// The personal thread never rotates (carnet#840), so it is read in windows
+/// from the newest back rather than whole.
+#[derive(Debug, Clone)]
+pub struct MessagePage {
+    /// The window, oldest first — the order a chat view paints.
+    pub messages: Vec<MessageRecord>,
+    /// Whether older rows remain before the window's first row.
+    pub has_more: bool,
+}
+
+/// One topic of a thread: the stretch a divider opens, or the thread's own
+/// opening before its first divider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadTopic {
+    /// The divider row that opens the topic; `None` for the thread's opening.
+    pub divider_id: Option<String>,
+    /// When the topic opened (RFC 3339): its divider, or the opening's first
+    /// row.
+    pub started_at: String,
+    /// The athlete's first words in the topic — its title (the plan's D3) —
+    /// or `None` while nobody has spoken in it.
+    pub first_words: Option<String>,
 }
 
 /// Summary of a conversation for listing
@@ -764,6 +797,9 @@ pub struct AddMessageParams<'a> {
     /// (carnet#769). A row nothing first-party-only fed is
     /// [`TransportPolicy::AnyTransport`].
     pub transport_policy: TransportPolicy,
+    /// The channel the turn writing this row came over, as its wire word; see
+    /// [`MessageRecord::channel_type`]. `None` for a row no turn writes.
+    pub channel_type: Option<&'a str>,
 }
 
 /// Database representation of a user's thumbs up/down feedback on a message.

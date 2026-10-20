@@ -9,8 +9,9 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::roster_display_name;
 use pierre_core::models::{
     AddMessageParams, ConversationLastMessage, ConversationPage, ConversationParticipant,
-    ConversationRecord, ConversationSummary, MessageFeedbackRecord, MessageRecord, ParticipantRole,
-    TenantId, UpsertMessageFeedbackParams, CHANNEL_TYPE_WEB, DIVIDER_FINISH_REASON,
+    ConversationRecord, ConversationSummary, MessageFeedbackRecord, MessagePage, MessageRecord,
+    ParticipantRole, TenantId, ThreadTopic, UpsertMessageFeedbackParams, CHANNEL_TYPE_WEB,
+    COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use sqlx::postgres::PgRow;
@@ -28,7 +29,7 @@ use crate::repositories::chat::{
     CREATE_OWNER_PARTICIPANT_SQL, DELETE_CONVERSATION_SQL, DELETE_FEEDBACK_SQL,
     DESIGNATE_PERSONAL_SQL, FIND_GROUP_CONVERSATION_SQL, GET_CONVERSATION_SQL, GET_FEEDBACK_SQL,
     GET_MESSAGES_SQL, GET_PARTICIPANT_SQL, GET_RECENT_MESSAGES_SQL, HAS_AGENT_INTRODUCTION_SQL,
-    IS_ARCHIVED_SQL, LATEST_DIVIDER_SQL, LATEST_PERSONAL_CONVERSATION_SQL, LIST_CONVERSATIONS_SQL,
+    IS_ARCHIVED_SQL, LATEST_PERSONAL_CONVERSATION_SQL, LIST_CONVERSATIONS_SQL,
     LIST_ONBOARDING_STATES_SQL, LIST_PARTICIPANTS_SQL, PERSONAL_CONVERSATION_SQL,
     REACTIVATE_CONVERSATION_SQL, READ_TARGET_SQL, RECENT_CONVERSATIONS_ADMIN_SQL,
     RECORD_AGENT_INTRODUCTION_SQL, REMOVE_PARTICIPANT_SQL, SET_AGENT_ID_SQL, SET_CHANNEL_SQL,

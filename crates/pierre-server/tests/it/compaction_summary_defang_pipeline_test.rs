@@ -219,6 +219,7 @@ async fn long_conversation(fx: &Fixture) -> String {
             model: Some("mock-model"),
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();

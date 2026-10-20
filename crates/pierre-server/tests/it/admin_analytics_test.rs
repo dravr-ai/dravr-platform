@@ -215,6 +215,7 @@ async fn seed_conversations_and_messages(
                 model: Some("gemini-2.0-flash"),
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             };
             resources
                 .common

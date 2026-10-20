@@ -26,6 +26,7 @@ mod conversations;
 mod dto;
 mod feedback;
 mod group_transcript;
+mod messages;
 mod participants;
 mod personal;
 mod read_marker;
@@ -133,10 +134,15 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/read",
                 post(read_marker::mark_read).delete(read_marker::mark_unread),
             )
-            // Messages
+            // Messages, read in windows from the newest back, and the topics
+            // the dividers open (carnet#840)
             .route(
                 "/api/chat/conversations/{conversation_id}/messages",
-                get(conversations::get_messages),
+                get(messages::get_messages),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/topics",
+                get(messages::list_topics),
             )
             // Shared group room transcript (membership-gated, consent-filtered)
             .route(

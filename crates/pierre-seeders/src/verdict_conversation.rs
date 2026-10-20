@@ -127,6 +127,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
                 model: (role == "assistant").then_some(model.as_str()),
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await?;
         if role == "assistant" {

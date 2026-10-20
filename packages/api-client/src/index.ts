@@ -43,6 +43,7 @@ export type {
   Message,
   ConversationsResponse,
   MessagesResponse,
+  MessageWindow,
   TurnEnvelope,
   SendTurnOptions,
   ChatMessageAction,

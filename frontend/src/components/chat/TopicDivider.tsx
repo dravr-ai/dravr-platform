@@ -9,10 +9,20 @@
  * divide the one thread instead of starting another, and the coach reads the
  * thread from here on — so the athlete sees where it started over.
  */
-export default function TopicDivider({ label, time }: { label: string; time: string }) {
+export default function TopicDivider({
+  label,
+  time,
+  anchorId,
+}: {
+  label: string;
+  time: string;
+  /** The element id History's topic list scrolls to. */
+  anchorId?: string;
+}) {
   const text = time ? `${label} · ${time}` : label;
   return (
     <div
+      id={anchorId}
       role="separator"
       aria-label={text}
       data-testid="topic-divider"

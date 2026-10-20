@@ -927,6 +927,7 @@ async fn the_welcome_write_is_once_per_thread_even_when_racing() {
         model: None,
         content_blocks: None,
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     };
 
     let (a, b) = tokio::join!(

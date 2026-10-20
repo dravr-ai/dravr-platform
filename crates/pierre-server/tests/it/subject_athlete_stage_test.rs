@@ -921,6 +921,7 @@ async fn an_old_stored_card_reads_back_unchanged() {
             model: None,
             content_blocks: Some(&stored),
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();

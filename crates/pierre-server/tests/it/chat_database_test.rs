@@ -157,6 +157,7 @@ async fn add_row(
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap()
@@ -866,6 +867,7 @@ async fn test_add_message() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -908,6 +910,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -950,6 +953,7 @@ async fn test_get_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -966,6 +970,7 @@ async fn test_get_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -982,6 +987,7 @@ async fn test_get_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1031,6 +1037,7 @@ async fn test_get_recent_messages() {
                 model: None,
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await
             .unwrap();
@@ -1089,6 +1096,7 @@ async fn test_message_updates_conversation_tokens() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1105,6 +1113,7 @@ async fn test_message_updates_conversation_tokens() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1151,6 +1160,7 @@ async fn test_cascade_delete_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1167,6 +1177,7 @@ async fn test_cascade_delete_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1229,6 +1240,7 @@ async fn test_persist_tool_round_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1249,6 +1261,7 @@ async fn test_persist_tool_round_messages() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1266,6 +1279,7 @@ async fn test_persist_tool_round_messages() {
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1315,6 +1329,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1332,6 +1347,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1350,6 +1366,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1399,6 +1416,7 @@ async fn seed_conversation_with_message(
             model: Some("gemini-1.5-flash"),
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -1654,6 +1672,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await;
     assert!(refused.is_err());
@@ -1704,6 +1723,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -2299,6 +2319,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 model: None,
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await
             .unwrap();

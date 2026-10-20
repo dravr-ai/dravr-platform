@@ -359,6 +359,9 @@ export function ChatThread({
         header={header}
         starters={starters}
         onStarter={handleStarter}
+        hasEarlier={messagesHook.hasEarlier}
+        loadingEarlier={messagesHook.loadingEarlier}
+        onReachStart={() => void messagesHook.loadEarlier()}
       />
 
       <ChatProgressStrip statusText={messagesHook.progressText} />

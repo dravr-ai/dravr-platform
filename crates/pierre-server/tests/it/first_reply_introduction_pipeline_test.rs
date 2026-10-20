@@ -594,6 +594,7 @@ async fn platform_rows_do_not_stand_in_for_the_introduction() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();

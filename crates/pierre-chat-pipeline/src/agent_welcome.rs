@@ -341,6 +341,7 @@ pub async fn post_agent_welcome(
         content_blocks: blocks.as_deref(),
         // Starters chosen from the athlete's state carry what it was read from.
         transport_policy,
+        channel_type: None,
     };
     let Some(message) = repos
         .chat

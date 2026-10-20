@@ -100,6 +100,7 @@ fn message(id: &str, role: &str, content: &str, blocks: Option<&str>) -> Message
         content_blocks: blocks.map(str::to_owned),
         created_at: "2026-08-24T00:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     }
 }
 

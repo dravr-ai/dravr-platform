@@ -1,5 +1,5 @@
 // ABOUTME: Tests /reset (/nouveau, /new) — the catalogue matches it, and the rotation it performs
-// ABOUTME: The confirmation speaks the stored locale, the session lands on a new thread, the old one is archived off the cap; a failed repoint rolls back
+// ABOUTME: The confirmation speaks the stored locale; a DM divides the personal thread, a room thread rotates off the cap; a failed repoint rolls back
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -64,18 +64,19 @@ fn the_catalogue_matches_only_the_explicit_reset_forms() {
 #[cfg(feature = "client-messaging")]
 mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
-    use crate::helpers::command_e2e::{CommandE2e, Member, RouterLlm};
+    use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
     use crate::helpers::notify_capture::{capture_logs, named, only};
     use dravr_canot::rich_text::{parse_markdown, render_rich_text};
     use pierre_commands::reset::ResetHandler;
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
     use pierre_contremaitre::messaging_strings::{
-        DEFAULT_LOCALE, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_NEW_CONVERSATION_TITLE_PREFIX,
-        KEY_RESET_CONFIRM, KEY_RESET_QUOTA, KEY_RESET_WALK_INTERRUPTED,
+        DEFAULT_LOCALE, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
+        KEY_RESET_WALK_INTERRUPTED,
     };
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
+    use pierre_core::models::groups::GroupRespondMode;
     use pierre_core::models::{MessageRecord, PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
@@ -85,6 +86,8 @@ mod reset_locale {
     use std::env;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use tracing::Level;
 
     /// A fresh linked member whose profile locale is `en` — written through
@@ -240,15 +243,13 @@ mod reset_locale {
         );
     }
 
-    /// The rotation itself: the session ends up on a different conversation,
-    /// and the one it left is still there.
-    ///
-    /// This is what a canned confirmation would not do — the reply can be
-    /// perfect while nothing moved, which is exactly the state the command
-    /// existed to fix.
+    /// `/reset` on a DM opens a topic in the athlete's personal thread, which
+    /// the DM writes into (carnet#840): the session keeps its thread, a
+    /// divider row marks where the model reads from, and nothing is archived
+    /// or forged.
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
-    async fn reset_moves_the_session_onto_a_fresh_conversation_and_keeps_the_old_one() {
+    async fn reset_on_a_dm_opens_a_topic_in_the_personal_thread() {
         env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
@@ -261,26 +262,191 @@ mod reset_locale {
             .conversation_id(&member, member.home_tenant, &member.channel_user_id)
             .await
             .expect("the primed session names its conversation");
+        // A topic nobody has spoken in gets no divider, so the athlete speaks
+        // first.
+        e2e.send_dm(&member, "How was my week?").await;
+        let spoken = e2e.wait_outbound_for_session(&session, baseline + 1).await;
 
-        // Rename the thread being left, so the title assertion below can tell
-        // "named itself" from "inherited what it replaced".
-        e2e.resources
-            .common
-            .repos
-            .chat
-            .update_conversation_title(
-                &before,
-                &member.user_id.to_string(),
-                member.home_tenant,
-                "Ancienne discussion",
-            )
-            .await
-            .unwrap();
-
-        let _ = reset_bodies(&e2e, &member, &session, baseline).await;
+        let _ = reset_bodies(&e2e, &member, &session, spoken).await;
 
         let after = e2e
             .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the session still names a conversation after the reset");
+        assert_eq!(
+            before, after,
+            "a DM /reset keeps the athlete in their personal thread"
+        );
+
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        let thread = chat
+            .get_conversation(&before, &user, member.home_tenant)
+            .await
+            .unwrap()
+            .expect("the personal thread reads back");
+        assert!(
+            thread.personal,
+            "the DM writes into the athlete's personal thread"
+        );
+        assert!(
+            !chat
+                .is_conversation_archived(&before, &user, member.home_tenant)
+                .await
+                .unwrap(),
+            "nothing is archived"
+        );
+        let rows = chat
+            .get_messages(&before, &user, member.home_tenant)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.iter().filter(|row| row.is_divider()).count(),
+            1,
+            "the reset wrote one divider"
+        );
+        assert_eq!(
+            chat.list_conversations(
+                &user,
+                member.home_tenant,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly
+            )
+            .await
+            .unwrap()
+            .items
+            .len(),
+            1,
+            "no thread was forged"
+        );
+    }
+
+    /// The chat id every room test binds; each test runs on its own database.
+    const ROOM_CHAT: i64 = -100_840_001;
+
+    /// A fresh linked member in `en`, enrolled in a room bound to [`ROOM_CHAT`]
+    /// and primed with `/status` there, so their own room thread and session
+    /// exist. A room member's thread is the one `/reset` still rotates: a DM
+    /// writes into the personal thread instead (carnet#840). Returns the room,
+    /// the member, the room session, its ledger baseline and the thread.
+    async fn primed_room_member(e2e: &Arc<CommandE2e>) -> (RoomE2e, Member, String, i64, String) {
+        let member = e2e.linked_member(false).await;
+        e2e.resources
+            .common
+            .repos
+            .users
+            .update_locale(member.user_id, "en")
+            .await
+            .unwrap();
+        let room =
+            RoomE2e::bind_room(Arc::clone(e2e), ROOM_CHAT, GroupRespondMode::All, &member).await;
+        let prime = room.send_room_slash(&member, "/status").await;
+        assert_eq!(
+            prime.messages_stored(),
+            0,
+            "the /status prime must dispatch as a command"
+        );
+        let session = room
+            .session_id(&member)
+            .await
+            .expect("the prime must forge the room session");
+        let baseline = e2e.wait_outbound_for_session(&session, 1).await;
+        let conversation = room
+            .conversation_id(&member)
+            .await
+            .expect("the room session names its conversation");
+        (room, member, session, baseline, conversation)
+    }
+
+    /// What was ledgered on `session` after `baseline`, once a row carries
+    /// `needle`. A room command can ledger more than one row — the notice
+    /// that the answer went private, the answer itself — and in either order,
+    /// so the test waits for the row it asserts on, not for a count.
+    async fn bodies_once_carrying(
+        e2e: &CommandE2e,
+        session: &str,
+        baseline: i64,
+        needle: &str,
+    ) -> Vec<String> {
+        for _ in 0..1200 {
+            let bodies: Vec<String> = e2e
+                .outbound_bodies_for_session(session)
+                .await
+                .into_iter()
+                .skip(usize::try_from(baseline).unwrap())
+                .collect();
+            if bodies.iter().any(|body| body.contains(needle)) {
+                return bodies;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+        panic!("no row carrying {needle:?} was ledgered on {session} after {baseline}");
+    }
+
+    /// Send `/reset` in the room and return what was ledgered after the
+    /// baseline once a row carries `expected`. Asserts it was recognised and
+    /// never reached the model.
+    async fn room_reset_bodies(
+        room: &RoomE2e,
+        member: &Member,
+        session: &str,
+        baseline: i64,
+        expected: &str,
+    ) -> Vec<String> {
+        let e2e = &room.base;
+        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
+        let ack = room.send_room_slash(member, "/reset").await;
+        assert_eq!(
+            ack.messages_stored(),
+            0,
+            "/reset must dispatch as a command"
+        );
+        let bodies = bodies_once_carrying(e2e, session, baseline, expected).await;
+        assert_eq!(
+            e2e.llm.turn_calls.load(Ordering::SeqCst),
+            turns_before,
+            "/reset must not reach the LLM"
+        );
+        bodies
+    }
+
+    /// The rotation itself, on a room member's thread: the session ends up on
+    /// a different conversation, and the one it left is still there.
+    ///
+    /// This is what a canned confirmation would not do — the reply can be
+    /// perfect while nothing moved, which is exactly the state the command
+    /// existed to fix.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_moves_the_room_session_onto_a_fresh_conversation_and_keeps_the_old_one() {
+        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+
+        let (room, member, session, baseline, before) = primed_room_member(&e2e).await;
+        let tenant = e2e.bot_tenant;
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+
+        // Rename the thread being left, so the title assertion below can tell
+        // "named itself" from "inherited what it replaced".
+        chat.update_conversation_title(&before, &user, tenant, "Ancienne discussion")
+            .await
+            .unwrap();
+
+        let confirm =
+            e2e.resources
+                .mcp
+                .messaging_strings_registry
+                .render(KEY_RESET_CONFIRM, "en", &[]);
+        let _ = room_reset_bodies(&room, &member, &session, baseline, &confirm).await;
+
+        let after = room
+            .conversation_id(&member)
             .await
             .expect("the session still names a conversation after the reset");
         assert_ne!(
@@ -288,20 +454,13 @@ mod reset_locale {
             "the session must point at a different conversation after /reset"
         );
 
-        let chat = e2e.resources.common.repos.chat.as_ref();
-        let user = member.user_id.to_string();
-        let archived = chat
-            .get_conversation(&before, &user, member.home_tenant)
+        let previous = chat
+            .get_conversation(&before, &user, tenant)
             .await
-            .unwrap();
-        assert!(
-            archived.is_some(),
-            "the conversation the athlete left must survive the reset, not be deleted"
-        );
-
-        let previous = archived.expect("the archived conversation reads back");
+            .unwrap()
+            .expect("the conversation the athlete left must survive the reset, not be deleted");
         let fresh = chat
-            .get_conversation(&after, &user, member.home_tenant)
+            .get_conversation(&after, &user, tenant)
             .await
             .unwrap()
             .expect("the forged conversation is readable by its owner");
@@ -310,31 +469,19 @@ mod reset_locale {
             "the fresh thread must run on the same model as the one it replaced"
         );
         assert_eq!(
-            fresh.agent_id, previous.agent_id,
-            "a reset changes the thread, not the coach the athlete trains with"
+            fresh.group_id, previous.group_id,
+            "a reset changes the thread, not the room it belongs to"
         );
-        // The fresh thread names itself. Inheriting the old title left the
-        // list with rows an athlete could not tell apart (observed on dev,
-        // 2026-09-02). A thread with neither a room nor an agent — the
-        // member's home tenant seeds no system agent — takes the dated stamp
-        // in the athlete's `en` locale, never the channel's machine name.
+        // The fresh thread names itself after its room. Inheriting the old
+        // title left the list with rows an athlete could not tell apart
+        // (observed on dev, 2026-09-02).
         assert_eq!(
             previous.title, "Ancienne discussion",
             "the archived thread keeps the name it had"
         );
-        assert!(
-            fresh.agent_id.is_none(),
-            "fixture precondition: no agent to name the fresh thread after"
-        );
-        let prefix = e2e.resources.mcp.messaging_strings_registry.render(
-            KEY_NEW_CONVERSATION_TITLE_PREFIX,
-            "en",
-            &[],
-        );
-        assert!(
-            fresh.title.starts_with(&format!("{prefix} ")),
-            "a thread with nothing to be named after takes the dated stamp in the athlete's locale: {:?}",
-            fresh.title
+        assert_ne!(
+            fresh.title, previous.title,
+            "the fresh thread names itself rather than inheriting what it replaced"
         );
         assert!(
             !fresh.title.starts_with("Messaging:"),
@@ -343,38 +490,29 @@ mod reset_locale {
         );
     }
 
-    /// The primed member, their session and ledger baseline, and the
-    /// conversation the session names — filled up so the member owns exactly
-    /// `owned` active threads, that one included.
-    async fn member_owning(e2e: &CommandE2e, owned: usize) -> (Member, String, i64, String) {
-        let (member, session, baseline) = primed_en_member(e2e).await;
-        let before = e2e
-            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
-            .await
-            .expect("the primed session names its conversation");
-        // The primed DM thread is one owned row; fill the rest.
+    /// The primed room member, their session, ledger baseline and room
+    /// thread — filled up so the member owns exactly `owned` active threads
+    /// under the room's tenant, that one included.
+    async fn member_owning(
+        e2e: &Arc<CommandE2e>,
+        owned: usize,
+    ) -> (RoomE2e, Member, String, i64, String) {
+        let (room, member, session, baseline, before) = primed_room_member(e2e).await;
+        let tenant = e2e.bot_tenant;
+        // The room thread is one owned row; fill the rest.
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
         for i in 1..owned {
-            chat.create_conversation(
-                &user,
-                member.home_tenant,
-                &format!("Fill {i}"),
-                "m",
-                None,
-                None,
-            )
-            .await
-            .unwrap();
+            chat.create_conversation(&user, tenant, &format!("Fill {i}"), "m", None, None)
+                .await
+                .unwrap();
         }
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             i64::try_from(owned).unwrap(),
             "fixture precondition: the athlete owns exactly {owned} active threads"
         );
-        (member, session, baseline, before)
+        (room, member, session, baseline, before)
     }
 
     /// `/reset` is a swap: the thread it leaves is archived and stops holding
@@ -392,52 +530,45 @@ mod reset_locale {
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
-        let (member, session, baseline, before) = member_owning(&e2e, cap).await;
+        let (room, member, session, baseline, before) = member_owning(&e2e, cap).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
 
-        let bodies = reset_bodies(&e2e, &member, &session, baseline).await;
         let confirm =
             e2e.resources
                 .mcp
                 .messaging_strings_registry
                 .render(KEY_RESET_CONFIRM, "en", &[]);
+        let bodies = room_reset_bodies(&room, &member, &session, baseline, &confirm).await;
         assert!(
             bodies.iter().any(|b| b.contains(&confirm)),
             "a reset at the cap is confirmed; ledgered after the prime: {bodies:?}"
         );
 
-        let after = e2e
-            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+        let after = room
+            .conversation_id(&member)
             .await
             .expect("the session still names a conversation");
         assert_ne!(before, after, "the session moves onto the fresh thread");
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS,
             "the fresh thread takes the slot the archived one freed"
         );
         assert!(
-            chat.get_conversation(&before, &user, member.home_tenant)
+            chat.get_conversation(&before, &user, tenant)
                 .await
                 .unwrap()
                 .is_some(),
             "the archived thread stays readable"
         );
         assert_eq!(
-            chat.list_conversations(
-                &user,
-                member.home_tenant,
-                50,
-                0,
-                TransportPolicy::FirstPartyOnly
-            )
-            .await
-            .unwrap()
-            .items
-            .len(),
+            chat.list_conversations(&user, tenant, 50, 0, TransportPolicy::FirstPartyOnly)
+                .await
+                .unwrap()
+                .items
+                .len(),
             cap + 1,
             "the archived thread is still listed beside the fresh one"
         );
@@ -445,7 +576,7 @@ mod reset_locale {
         // archive of it frees nothing.
         assert!(
             !chat
-                .archive_conversation(&before, &user, member.home_tenant)
+                .archive_conversation(&before, &user, tenant)
                 .await
                 .unwrap(),
             "the reset already archived the thread it left"
@@ -467,60 +598,41 @@ mod reset_locale {
         let e2e = CommandE2e::start(resources, llm).await;
 
         let owned = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap() + 1;
-        let (member, session, baseline, before) = member_owning(&e2e, owned).await;
+        let (room, member, session, baseline, before) = member_owning(&e2e, owned).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
 
-        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
-        let ack = e2e.send_dm(&member, "/reset").await;
-        assert_eq!(
-            ack.messages_stored(),
-            0,
-            "/reset must dispatch as a command"
+        let quota_line = e2e.resources.mcp.messaging_strings_registry.render(
+            KEY_RESET_QUOTA,
+            "en",
+            &[&DEFAULT_MAX_ACTIVE_CONVERSATIONS.to_string()],
         );
-        e2e.wait_outbound_for_session(&session, baseline + 1).await;
-        assert_eq!(
-            e2e.llm.turn_calls.load(Ordering::SeqCst),
-            turns_before,
-            "a refused /reset must not reach the LLM"
-        );
+        let bodies = room_reset_bodies(&room, &member, &session, baseline, &quota_line).await;
 
-        let after = e2e
-            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+        let after = room
+            .conversation_id(&member)
             .await
             .expect("the session still names a conversation");
         assert_eq!(before, after, "a refused /reset must not move the session");
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             i64::try_from(owned).unwrap(),
             "a refused /reset forges nothing and restores the thread it archived"
         );
         assert!(
-            chat.archive_conversation(&before, &user, member.home_tenant)
+            chat.archive_conversation(&before, &user, tenant)
                 .await
                 .unwrap(),
             "the thread the session still names is active again"
         );
 
         let reg = &e2e.resources.mcp.messaging_strings_registry;
-        let quota_line = reg.render(
-            KEY_RESET_QUOTA,
-            "en",
-            &[&DEFAULT_MAX_ACTIVE_CONVERSATIONS.to_string()],
-        );
         assert!(
             quota_line.contains(&DEFAULT_MAX_ACTIVE_CONVERSATIONS.to_string()),
             "the refusal names the cap: {quota_line:?}"
         );
         let confirm = reg.render(KEY_RESET_CONFIRM, "en", &[]);
-        let bodies: Vec<String> = e2e
-            .outbound_bodies_for_session(&session)
-            .await
-            .into_iter()
-            .skip(usize::try_from(baseline).unwrap())
-            .collect();
         assert!(
             bodies.iter().any(|b| b.contains(&quota_line)),
             "the athlete hears the quota line {quota_line:?}; ledgered after the prime: {bodies:?}"
@@ -531,32 +643,32 @@ mod reset_locale {
         );
     }
 
-    /// The session's own thread archived out from under it, with `slots_left`
-    /// free slots once it is: the member, session, baseline and that thread.
+    /// The room session's own thread archived out from under it, with
+    /// `slots_left` free slots once it is: the room, member, session, baseline
+    /// and that thread.
     async fn member_on_archived_thread(
-        e2e: &CommandE2e,
+        e2e: &Arc<CommandE2e>,
         slots_left: usize,
-    ) -> (Member, String, i64, String) {
+    ) -> (RoomE2e, Member, String, i64, String) {
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
-        let (member, session, baseline, before) = member_owning(e2e, cap - slots_left).await;
+        let (room, member, session, baseline, before) = member_owning(e2e, cap - slots_left).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
         assert!(chat
-            .archive_conversation(&before, &user, member.home_tenant)
+            .archive_conversation(&before, &user, tenant)
             .await
             .unwrap());
         // Refill to the intended number of free slots.
-        chat.create_conversation(&user, member.home_tenant, "Refill", "m", None, None)
+        chat.create_conversation(&user, tenant, "Refill", "m", None, None)
             .await
             .unwrap();
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS - i64::try_from(slots_left).unwrap(),
             "fixture precondition: {slots_left} free slot(s), the session's thread archived"
         );
-        (member, session, baseline, before)
+        (room, member, session, baseline, before)
     }
 
     /// The refusal an athlete hears for a turn into an archived thread at the
@@ -578,12 +690,13 @@ mod reset_locale {
         line
     }
 
-    /// A message on a messaging channel whose session names an archived
-    /// thread takes that thread's slot back when one is free: the same choke
-    /// point the app's turns pass, so the channel cannot route around it.
+    /// A DM writes into the athlete's personal thread, which holds no slot of
+    /// the cap (carnet#840): archived from under the session, it takes the
+    /// DM's next turn back into the active set even with every slot taken,
+    /// and the turn is written into it.
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
-    async fn a_dm_into_an_archived_thread_under_the_cap_reactivates_it() {
+    async fn a_dm_into_the_archived_personal_thread_reactivates_it_at_the_cap() {
         env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
@@ -591,98 +704,66 @@ mod reset_locale {
             .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
-        let (member, session, baseline, before) = member_on_archived_thread(&e2e, 1).await;
+        let (member, session, baseline) = primed_en_member(&e2e).await;
+        let thread = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the primed session names its conversation");
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
-        let rows_before = chat
-            .get_messages(&before, &user, member.home_tenant)
+        for i in 0..DEFAULT_MAX_ACTIVE_CONVERSATIONS {
+            chat.create_conversation(
+                &user,
+                member.home_tenant,
+                &format!("Fill {i}"),
+                "m",
+                None,
+                None,
+            )
             .await
-            .unwrap()
-            .len();
-
-        e2e.send_dm(&member, "How was my week?").await;
-        e2e.wait_outbound_for_session(&session, baseline + 1).await;
-
+            .unwrap();
+        }
+        assert!(chat
+            .archive_conversation(&thread, &user, member.home_tenant)
+            .await
+            .unwrap());
         assert_eq!(
             chat.count_conversations(&user, member.home_tenant)
                 .await
                 .unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS,
-            "the session's thread holds a slot again"
+            "fixture precondition: every slot taken, the personal thread archived"
         );
-        assert!(
-            chat.get_messages(&before, &user, member.home_tenant)
-                .await
-                .unwrap()
-                .len()
-                > rows_before,
-            "the turn was written into the reactivated thread"
-        );
-    }
-
-    /// At the cap, that message is refused before anything is written: the
-    /// athlete hears the conversation-cap line, the model is never called,
-    /// and the thread stays archived.
-    #[tokio::test(flavor = "multi_thread")]
-    #[serial]
-    async fn a_dm_into_an_archived_thread_at_the_cap_is_refused_and_writes_nothing() {
-        env::set_var("PIERRE_LLM_CHAIN", "gemini=gemini-2.0-flash-exp");
-        let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
-        let e2e = CommandE2e::start(resources, llm).await;
-
-        let (member, session, baseline, before) = member_on_archived_thread(&e2e, 0).await;
-        let chat = e2e.resources.common.repos.chat.as_ref();
-        let user = member.user_id.to_string();
         let rows_before = chat
-            .get_messages(&before, &user, member.home_tenant)
+            .get_messages(&thread, &user, member.home_tenant)
             .await
             .unwrap()
             .len();
-        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
 
         e2e.send_dm(&member, "How was my week?").await;
         e2e.wait_outbound_for_session(&session, baseline + 1).await;
 
-        assert_eq!(
-            e2e.llm.turn_calls.load(Ordering::SeqCst),
-            turns_before,
-            "a refused turn must not reach the LLM"
-        );
-        assert_eq!(
-            chat.get_messages(&before, &user, member.home_tenant)
+        assert!(
+            !chat
+                .is_conversation_archived(&thread, &user, member.home_tenant)
                 .await
-                .unwrap()
-                .len(),
-            rows_before,
-            "a refused turn persists no message row"
+                .unwrap(),
+            "the personal thread is active again"
         );
         assert_eq!(
             chat.count_conversations(&user, member.home_tenant)
                 .await
                 .unwrap(),
-            DEFAULT_MAX_ACTIVE_CONVERSATIONS
+            DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+            "the personal thread took no slot back"
         );
         assert!(
-            !chat
-                .archive_conversation(&before, &user, member.home_tenant)
+            chat.get_messages(&thread, &user, member.home_tenant)
                 .await
-                .unwrap(),
-            "the refused thread stays archived"
-        );
-
-        let quota_line = archived_quota_line(&e2e);
-        let bodies: Vec<String> = e2e
-            .outbound_bodies_for_session(&session)
-            .await
-            .into_iter()
-            .skip(usize::try_from(baseline).unwrap())
-            .collect();
-        assert!(
-            bodies.iter().any(|b| b.contains(&quota_line)),
-            "the athlete hears the conversation-cap line {quota_line:?}; ledgered after the prime: {bodies:?}"
+                .unwrap()
+                .len()
+                > rows_before,
+            "the turn was written into the personal thread"
         );
     }
 
@@ -700,40 +781,38 @@ mod reset_locale {
             .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
-        let (member, session, baseline, before) = member_on_archived_thread(&e2e, 0).await;
+        let (room, member, session, baseline, before) = member_on_archived_thread(&e2e, 0).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
         let quota_line = archived_quota_line(&e2e);
 
-        e2e.send_dm(&member, "/help").await;
-        e2e.wait_outbound_for_session(&session, baseline + 1).await;
-        e2e.send_dm(&member, "/pillars").await;
-        e2e.wait_outbound_for_session(&session, baseline + 2).await;
-
-        let bodies: Vec<String> = e2e
+        room.send_room_slash(&member, "/help").await;
+        let helped = e2e.wait_outbound_for_session(&session, baseline + 1).await;
+        let after_help: Vec<String> = e2e
             .outbound_bodies_for_session(&session)
             .await
             .into_iter()
             .skip(usize::try_from(baseline).unwrap())
             .collect();
         assert!(
-            !bodies[0].contains(&quota_line),
-            "/help is answered, not refused: {bodies:?}"
+            !after_help.iter().any(|b| b.contains(&quota_line)),
+            "/help is answered, not refused: {after_help:?}"
         );
+        room.send_room_slash(&member, "/pillars").await;
+        let bodies = bodies_once_carrying(&e2e, &session, helped, &quota_line).await;
         assert!(
-            bodies.last().is_some_and(|b| b.contains(&quota_line)),
+            bodies.iter().any(|b| b.contains(&quota_line)),
             "/pillars is refused with the cap line: {bodies:?}"
         );
         assert!(
-            chat.is_conversation_archived(&before, &user, member.home_tenant)
+            chat.is_conversation_archived(&before, &user, tenant)
                 .await
                 .unwrap(),
             "neither command reactivated the thread"
         );
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS
         );
     }
@@ -815,8 +894,9 @@ mod reset_locale {
         }
     }
 
-    /// The context the messaging ingress hands `/reset` for a DM from
-    /// `member` on `conversation`, over the real server context.
+    /// The context the messaging ingress hands `/reset` for a room message
+    /// from `member` on their room `conversation`, over the real server
+    /// context.
     fn reset_ctx(e2e: &CommandE2e, member: &Member, conversation: &str) -> PlatformCommandContext {
         PlatformCommandContext {
             user_id: member.user_id,
@@ -826,10 +906,10 @@ mod reset_locale {
             raw_text: "/reset".to_owned(),
             ctx: Arc::<ServerContext>::clone(&e2e.resources) as Arc<dyn CommandCtx>,
             locale: "en".to_owned(),
-            is_direct_message: true,
+            is_direct_message: false,
             ambient_group_fallback: true,
             conversation_id: Some(conversation.to_owned()),
-            conversation_tenant_id: member.home_tenant,
+            conversation_tenant_id: e2e.bot_tenant,
             sender_id: Some(member.channel_user_id.clone()),
             rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&e2e.resources),
@@ -870,7 +950,8 @@ mod reset_locale {
         error
     }
 
-    /// The ids of every thread the athlete is listed with, archived included.
+    /// The ids of every thread the athlete is listed with under the room's
+    /// tenant, archived included.
     async fn listed_ids(e2e: &CommandE2e, member: &Member) -> Vec<String> {
         e2e.resources
             .common
@@ -878,7 +959,7 @@ mod reset_locale {
             .chat
             .list_conversations(
                 &member.user_id.to_string(),
-                member.home_tenant,
+                e2e.bot_tenant,
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
@@ -908,7 +989,8 @@ mod reset_locale {
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
-        let (member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let (room, member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
         let mut listed_before = listed_ids(&e2e, &member).await;
@@ -925,22 +1007,18 @@ mod reset_locale {
         );
         assert!(
             !chat
-                .is_conversation_archived(&before, &user, member.home_tenant)
+                .is_conversation_archived(&before, &user, tenant)
                 .await
                 .unwrap(),
             "the thread the athlete is still on is active again"
         );
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS,
             "the athlete holds exactly the slots they held before /reset"
         );
         assert_eq!(
-            e2e.conversation_id(&member, member.home_tenant, &member.channel_user_id)
-                .await
-                .as_deref(),
+            room.conversation_id(&member).await.as_deref(),
             Some(before.as_str()),
             "the session still names the thread it named before /reset"
         );
@@ -962,7 +1040,8 @@ mod reset_locale {
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
-        let (member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let (room, member, _session, _baseline, before) = member_owning(&e2e, cap).await;
+        let tenant = e2e.bot_tenant;
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
         let listed_before = listed_ids(&e2e, &member).await;
@@ -1018,28 +1097,24 @@ mod reset_locale {
 
         assert!(
             !chat
-                .is_conversation_archived(&before, &user, member.home_tenant)
+                .is_conversation_archived(&before, &user, tenant)
                 .await
                 .unwrap(),
             "the thread the athlete is still on is active again"
         );
         assert_eq!(
-            chat.count_conversations(&user, member.home_tenant)
-                .await
-                .unwrap(),
+            chat.count_conversations(&user, tenant).await.unwrap(),
             DEFAULT_MAX_ACTIVE_CONVERSATIONS + 1,
             "the old thread is restored past the cap the orphan already fills"
         );
         assert_eq!(
-            e2e.conversation_id(&member, member.home_tenant, &member.channel_user_id)
-                .await
-                .as_deref(),
+            room.conversation_id(&member).await.as_deref(),
             Some(before.as_str()),
             "the session still names the thread it named before /reset"
         );
     }
 
-    /// The starters the agent `/reset` carries onto the fresh thread offers.
+    /// The starters the agent the topic opens with offers.
     const WELCOME_STARTERS: [&str; 3] = [
         "Plan my tempo week",
         "Check my tempo pace",
@@ -1047,10 +1122,10 @@ mod reset_locale {
     ];
 
     /// `/reset` on an agent-bound DM (carnet#750): the athlete hears the
-    /// confirmation, then the agent opening the fresh thread with its starters
+    /// confirmation, then the agent opening the new topic with its starters
     /// as buttons — the same welcome as any new thread, a card on Telegram
-    /// (carnet#829) — and the row is in the thread the session now names, not
-    /// the one it left.
+    /// (carnet#829) — and the row lands after the topic's divider in the
+    /// personal thread the DM writes into (carnet#840).
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn reset_of_an_agent_thread_sends_the_agent_welcome_after_the_confirmation() {
@@ -1067,7 +1142,7 @@ mod reset_locale {
             .get(KEY_RESET_CONFIRM, "en");
 
         let (member, session, baseline) = primed_en_member(&e2e).await;
-        let before = e2e
+        let thread = e2e
             .conversation_id(&member, member.home_tenant, &member.channel_user_id)
             .await
             .expect("the primed session names its conversation");
@@ -1077,7 +1152,7 @@ mod reset_locale {
             .common
             .repos
             .chat
-            .set_conversation_onboarding_state(&before, None, member.home_tenant)
+            .set_conversation_onboarding_state(&thread, None, member.home_tenant)
             .await
             .unwrap();
         let agent = e2e
@@ -1113,15 +1188,19 @@ mod reset_locale {
         e2e.send_dm(&member, &format!("/agent add {agent}")).await;
         // The bind's own answer and welcome.
         let bound = e2e.wait_outbound_for_session(&session, baseline + 2).await;
+        // A topic nobody has spoken in is already a fresh start, so the
+        // athlete speaks before resetting it.
+        e2e.send_dm(&member, "How was my week?").await;
+        let spoken = e2e.wait_outbound_for_session(&session, bound + 1).await;
 
-        reset_bodies(&e2e, &member, &session, bound).await;
+        reset_bodies(&e2e, &member, &session, spoken).await;
         // The welcome is ledgered after the confirmation `reset_bodies` waited on.
-        e2e.wait_outbound_for_session(&session, bound + 2).await;
+        e2e.wait_outbound_for_session(&session, spoken + 2).await;
         let bodies: Vec<String> = e2e
             .outbound_bodies_for_session(&session)
             .await
             .into_iter()
-            .skip(usize::try_from(bound).unwrap())
+            .skip(usize::try_from(spoken).unwrap())
             .collect();
         assert_eq!(
             bodies.len(),
@@ -1134,30 +1213,32 @@ mod reset_locale {
             .outbound_types_for_session(&session)
             .await
             .into_iter()
-            .skip(usize::try_from(bound).unwrap())
+            .skip(usize::try_from(spoken).unwrap())
             .collect();
         assert_eq!(types[1], "card", "the starters ride as buttons: {types:?}");
         assert!(!bodies[1].contains("uc:") && !bodies[1].contains("ex:"));
 
-        let fresh = e2e
-            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
-            .await
-            .expect("the session names the fresh thread");
-        assert_ne!(fresh, before, "the session moved onto the fresh thread");
-        let welcomes = |rows: Vec<MessageRecord>| {
-            rows.into_iter()
-                .filter(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
-                .count()
-        };
+        assert_eq!(
+            e2e.conversation_id(&member, member.home_tenant, &member.channel_user_id)
+                .await
+                .as_deref(),
+            Some(thread.as_str()),
+            "the session stays on the personal thread"
+        );
         let chat = e2e.resources.common.repos.chat.as_ref();
         let user = member.user_id.to_string();
-        let fresh_rows = chat
-            .get_messages(&fresh, &user, member.home_tenant)
+        let rows = chat
+            .get_messages(&thread, &user, member.home_tenant)
             .await
             .unwrap();
+        let divider = rows
+            .iter()
+            .rposition(MessageRecord::is_divider)
+            .expect("the reset opened a topic");
+        let topic = &rows[divider + 1..];
         // Starters ranked from the athlete's state lead (carnet#828); the
         // agent's first example fills a slot they leave.
-        let buttons: Vec<String> = fresh_rows
+        let buttons: Vec<String> = topic
             .iter()
             .filter(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
             .filter_map(|row| row.content_blocks.as_deref())
@@ -1178,15 +1259,16 @@ mod reset_locale {
             "{:?} missing from {buttons:?}",
             WELCOME_STARTERS[0]
         );
-        assert_eq!(welcomes(fresh_rows), 1, "the agent opened the fresh thread");
+        let welcomes = |rows: &[MessageRecord]| {
+            rows.iter()
+                .filter(|row| row.finish_reason.as_deref() == Some(AGENT_WELCOME_FINISH_REASON))
+                .count()
+        };
+        assert_eq!(welcomes(topic), 1, "the agent opened the new topic");
         assert_eq!(
-            welcomes(
-                chat.get_messages(&before, &user, member.home_tenant)
-                    .await
-                    .unwrap()
-            ),
+            welcomes(&rows[..divider]),
             1,
-            "the thread left behind keeps only the bind's welcome"
+            "the topic before it keeps only the bind's welcome"
         );
     }
 }

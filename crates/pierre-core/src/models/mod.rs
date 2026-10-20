@@ -272,12 +272,12 @@ pub use conversation::{
     is_in_app_channel, is_turn_marker_block, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSubject, ConversationSummary, ConversationTurnId, InputSource,
-    MessageFeedbackRecord, MessageRecord, ParticipantRole, PersistedAction, PersistedReplyBlock,
-    TurnOrigin, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE, AGENT_WELCOME_FINISH_REASON,
-    CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON,
-    FILTERED_REPLY_FINISH_REASON, STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR,
-    TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE,
-    UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
+    MessageFeedbackRecord, MessagePage, MessageRecord, ParticipantRole, PersistedAction,
+    PersistedReplyBlock, ThreadTopic, TurnOrigin, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
+    AGENT_WELCOME_FINISH_REASON, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
+    DIVIDER_FINISH_REASON, FILTERED_REPLY_FINISH_REASON, STOPPED_TURN_FINISH_REASON,
+    STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE,
+    TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 
 // API key types for authentication and rate limiting

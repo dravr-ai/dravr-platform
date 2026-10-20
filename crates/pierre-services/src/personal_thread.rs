@@ -22,14 +22,19 @@
 //! that writes into the thread — "+", a tapped starter, the coach's own post —
 //! forges one, through [`resolve_personal_thread`].
 //!
+//! The athlete's messaging DM writes into it too, through
+//! [`resolve_dm_thread`], which adopts the thread the DM was already writing
+//! into when that is the athlete's most recent one.
+//!
 //! Starting over inside it is [`open_topic`]: a divider row, after which the
 //! model reads the thread from the divider on (see
 //! [`DIVIDER_FINISH_REASON`]).
 
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    AddMessageParams, ConversationRecord, MessageRecord, OnboardingState, TenantId,
-    CHANNEL_TYPE_WEB, DIVIDER_FINISH_REASON,
+    is_in_app_channel, AddMessageParams, ConversationRecord, MessageRecord, OnboardingState,
+    TenantId, CHANNEL_TYPE_WEB, DIVIDER_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
@@ -65,6 +70,47 @@ pub async fn find_personal_thread(
         return designated(repos, user_id, tenant_id).await.map(Some);
     }
     Ok(None)
+}
+
+/// How many of a thread's newest rows [`athlete_last_wrote_in_app`] reads to
+/// find the athlete's latest words.
+const ORIGIN_PEEK_ROWS: i64 = 20;
+
+/// Whether the athlete's latest words in `conversation_id` were typed in the
+/// app rather than on a messaging channel.
+///
+/// The personal thread is shared by the app and the athlete's DM
+/// (carnet#840), so a notice owed to that thread answers where the athlete
+/// last wrote: in the app when they asked there, on the DM when they asked on
+/// it. A thread whose latest user row names no channel — written before rows
+/// carried one — reads as not the app, which is how a DM's thread was
+/// answered before.
+///
+/// # Errors
+///
+/// Returns the repository error when the thread cannot be read.
+pub async fn athlete_last_wrote_in_app(
+    repos: &RepositoryRegistry,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<bool> {
+    let rows = repos
+        .chat
+        .get_recent_messages(
+            conversation_id,
+            user_id,
+            tenant_id,
+            ORIGIN_PEEK_ROWS,
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await?;
+    Ok(rows
+        .iter()
+        .rev()
+        .find(|row| row.role == "user")
+        .and_then(|row| row.channel_type.as_deref())
+        .is_some_and(is_in_app_channel))
 }
 
 /// How [`resolve_personal_thread`] forges the thread for an athlete with none.
@@ -113,6 +159,91 @@ pub async fn resolve_personal_thread(
         });
     }
     forge_personal(repos, user_id, tenant_id, forge).await
+}
+
+/// The athlete's personal thread as their messaging DM reaches it: the DM
+/// writes into the thread Home shows (carnet#840).
+///
+/// The designated thread when there is one. Otherwise the newest of the two
+/// threads that are the athlete's alone — their newest in-app one and the one
+/// the DM has been writing into, `dm_thread` — is adopted, so an athlete who
+/// has only ever written on Telegram keeps their history rather than meeting
+/// an empty thread. With neither, one is forged as for any other first write.
+///
+/// # Errors
+///
+/// Returns the repository error when a thread cannot be read, designated or
+/// forged, and an internal error when a designation reports a winner the next
+/// read cannot find.
+pub async fn resolve_dm_thread(
+    repos: &RepositoryRegistry,
+    user_id: &str,
+    tenant_id: TenantId,
+    dm_thread: Option<&str>,
+    forge: PersonalForge<'_>,
+) -> AppResult<PersonalThread> {
+    let chat = repos.chat.as_ref();
+    if let Some(conversation) = chat.personal_conversation(user_id, tenant_id).await? {
+        return Ok(PersonalThread {
+            conversation,
+            forged: false,
+        });
+    }
+    let in_app = chat
+        .latest_personal_conversation(user_id, tenant_id)
+        .await?;
+    let dm = match dm_thread {
+        Some(id) => chat
+            .get_conversation(id, user_id, tenant_id)
+            .await?
+            .filter(|thread| is_own_thread(thread, user_id)),
+        None => None,
+    };
+    let Some(candidate) = newest_of(in_app, dm) else {
+        return forge_personal(repos, user_id, tenant_id, forge).await;
+    };
+    let adopted = chat
+        .designate_personal_conversation(&candidate.id, user_id, tenant_id)
+        .await?;
+    info!(
+        user_id,
+        conversation_id = %candidate.id,
+        adopted,
+        "personal thread: adopted for the athlete's messaging DM"
+    );
+    // A refused designation is a racing request that designated first; the
+    // winner is read either way.
+    designated(repos, user_id, tenant_id)
+        .await
+        .map(|conversation| PersonalThread {
+            conversation,
+            forged: false,
+        })
+}
+
+/// Whether `thread` is one the athlete may be given as their personal one:
+/// theirs, outside any room, and about no other athlete.
+fn is_own_thread(thread: &ConversationRecord, user_id: &str) -> bool {
+    thread.user_id == user_id && thread.group_id.is_none() && thread.subject_user_id.is_none()
+}
+
+/// The more recently active of two candidate threads.
+fn newest_of(
+    a: Option<ConversationRecord>,
+    b: Option<ConversationRecord>,
+) -> Option<ConversationRecord> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(if activity(&b) > activity(&a) { b } else { a }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// When a thread was last active, for ordering two of them; an unreadable
+/// stamp orders first, so a readable one wins.
+fn activity(thread: &ConversationRecord) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&thread.updated_at)
+        .ok()
+        .map(|at| at.with_timezone(&Utc))
 }
 
 /// Designate the athlete's newest in-app thread of their own, when they have
@@ -285,7 +416,8 @@ pub async fn open_topic(
 
 /// Bind the thread to `agent_id` when it names an agent the thread is not
 /// already bound to — the rebind `/agent add` makes, refused like it for an
-/// agent the athlete cannot read or a coach-facing one. Answers whether it did.
+/// agent the athlete cannot read or a coach-facing one, and in the personal
+/// thread made the athlete's selection like it. Answers whether it did.
 async fn rebind_agent(
     repos: &RepositoryRegistry,
     thread: &ConversationRecord,
@@ -310,6 +442,16 @@ async fn rebind_agent(
         .chat
         .set_conversation_agent_id(&thread.id, Some(agent_id), tenant_id)
         .await?;
+    // In the personal thread the pick is the athlete's latest word on who
+    // they talk to, as `/agent add` makes it: their messaging DM writes into
+    // this thread and rebinds it to the selection on every turn (carnet#840).
+    // A coach's thread about an athlete is work, never the coach's own pick.
+    if thread.personal {
+        repos
+            .tenants
+            .set_selected_agent(tenant_id, user, Some(agent_id))
+            .await?;
+    }
     record_agent_usage(
         repos,
         agent_id,
@@ -342,6 +484,7 @@ async fn write_divider(
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
 }

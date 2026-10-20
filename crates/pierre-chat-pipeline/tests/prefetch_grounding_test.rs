@@ -170,6 +170,7 @@ fn row(role: &str, finish_reason: Option<&str>) -> MessageRecord {
         content_blocks: None,
         created_at: "2026-10-02T12:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     }
 }
 

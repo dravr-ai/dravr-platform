@@ -45,6 +45,7 @@ async fn content_blocks_survive_a_round_trip() {
             model: Some("claude-sonnet-5"),
             content_blocks: Some(BLOCKS),
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -108,6 +109,7 @@ async fn an_ordinary_reply_stores_null_blocks() {
             model: None,
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();
@@ -162,6 +164,7 @@ async fn blocks_are_readable_only_under_the_conversations_own_tenant() {
             model: Some("claude-sonnet-5"),
             content_blocks: Some(BLOCKS),
             transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
         })
         .await
         .unwrap();

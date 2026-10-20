@@ -534,6 +534,7 @@ async fn seed_coaching_exchange(
                 model: None,
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
             })
             .await
             .unwrap();

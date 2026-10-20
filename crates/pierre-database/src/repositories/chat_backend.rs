@@ -28,6 +28,7 @@ macro_rules! impl_chat_repository {
     ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal) => {
         $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
         $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
+        $crate::repositories::chat_windows::impl_chat_windows!($ty, $ids);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -387,6 +388,7 @@ macro_rules! impl_chat_repository {
                     .bind(&tenant)
                     .bind(params.content_blocks)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind(params.channel_type)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -436,6 +438,7 @@ macro_rules! impl_chat_repository {
                     content_blocks: params.content_blocks.map(ToOwned::to_owned),
                     created_at: now.to_rfc3339(),
                     transport_policy: params.transport_policy,
+                    channel_type: params.channel_type.map(ToOwned::to_owned),
                 })
             }
 
@@ -980,7 +983,7 @@ macro_rules! impl_chat_repository {
                 conversation_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<Option<String>> {
-                sqlx::query_scalar(LATEST_DIVIDER_SQL)
+                sqlx::query_scalar($crate::repositories::chat_windows::LATEST_DIVIDER_SQL)
                     .bind(conversation_id)
                     .bind(tenant_id.to_string())
                     .bind(DIVIDER_FINISH_REASON)
@@ -989,6 +992,29 @@ macro_rules! impl_chat_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to read the newest divider: {e}"))
                     })
+            }
+
+            async fn get_message_page(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                before: Option<&str>,
+                limit: i64,
+            ) -> AppResult<MessagePage> {
+                self.message_page(conversation_id, user_id, tenant_id, before, limit)
+                    .await
+            }
+
+            async fn list_topics(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                limit: i64,
+            ) -> AppResult<Vec<ThreadTopic>> {
+                self.thread_topics(conversation_id, user_id, tenant_id, limit)
+                    .await
             }
 
             async fn set_conversation_agent_id(
@@ -1085,6 +1111,7 @@ macro_rules! impl_chat_repository {
                     .bind(&tenant)
                     .bind(params.content_blocks)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind(params.channel_type)
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1114,6 +1141,7 @@ macro_rules! impl_chat_repository {
                     content_blocks: params.content_blocks.map(ToOwned::to_owned),
                     created_at: now.to_rfc3339(),
                     transport_policy: params.transport_policy,
+                    channel_type: params.channel_type.map(ToOwned::to_owned),
                 }))
             }
         }

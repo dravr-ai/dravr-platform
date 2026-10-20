@@ -12,6 +12,7 @@ use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_core::models::{ConversationPage, ConversationParticipant, ConversationRecord};
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
+use pierre_core::models::{MessagePage, ThreadTopic};
 use pierre_core::transport::TransportPolicy;
 
 use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread};
@@ -232,6 +233,24 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>>;
+    /// One window of a thread for a participant, oldest first: the newest `limit` rows
+    /// before `before` on `(created_at, id)`, else the newest; an unknown `before` reads none.
+    async fn get_message_page(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        before: Option<&str>,
+        limit: i64,
+    ) -> AppResult<MessagePage>;
+    /// A thread's topics for a participant, newest first: one per divider, plus its opening.
+    async fn list_topics(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<ThreadTopic>>;
     /// Get recent messages for a conversation (verifies the user is a participant)
     ///
     /// `readable` is the strictest stamp a returned row may carry
@@ -595,13 +614,15 @@ macro_rules! conversation_columns {
 }
 pub(crate) use conversation_columns;
 
-/// The ten columns every message read returns.
+/// The twelve columns every message read returns.
 macro_rules! message_columns {
     () => {
         "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
-         m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only"
+         m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only, \
+         m.channel_type"
     };
 }
+pub(crate) use message_columns;
 
 /// The nine columns every feedback read returns.
 macro_rules! feedback_columns {
@@ -637,6 +658,7 @@ macro_rules! participant_scope {
          AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)"
     };
 }
+pub(crate) use participant_scope;
 
 /// Insert the conversation row. `$n` placeholders throughout this module:
 /// sqlx accepts them on `SQLite` as well as Postgres. Ids the caller holds
@@ -816,8 +838,8 @@ pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id
@@ -845,7 +867,7 @@ pub(crate) const GET_MESSAGES_SQL: &str = concat!(
      JOIN conversation_participants p ON p.conversation_id = c.id \
      WHERE m.conversation_id = $1 AND ",
     participant_scope!(),
-    " ORDER BY m.created_at ASC"
+    " ORDER BY m.created_at ASC, m.id ASC"
 );
 
 /// The newest `$4` messages of a conversation, newest first, for a
@@ -1053,15 +1075,6 @@ pub(crate) const PERSONAL_CONVERSATION_SQL: &str = concat!(
     " FROM chat_conversations c \
      WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.personal = TRUE"
 );
-
-/// The newest divider row of a conversation in a tenant. `$3` is the divider
-/// stamp, bound rather than spelled so the one constant names it.
-pub(crate) const LATEST_DIVIDER_SQL: &str = r"
-    SELECT m.id FROM chat_messages m
-    JOIN chat_conversations c ON c.id = m.conversation_id
-    WHERE m.conversation_id = $1 AND c.tenant_id = $2 AND m.finish_reason = $3
-    ORDER BY m.created_at DESC, m.id DESC
-    LIMIT 1";
 
 /// Designate one of the owner's threads their personal one. A room never
 /// qualifies, nor does a coach's thread about one athlete: the platform posts

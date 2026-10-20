@@ -68,6 +68,7 @@ use uuid::Uuid;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use pierre_services::messaging_broadcast::proactive_text;
+use pierre_services::personal_thread::athlete_last_wrote_in_app;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
@@ -181,10 +182,31 @@ impl ServerCommitmentReporter {
         }
     }
 
+    /// Whether the athlete's latest words in the thread were typed in the
+    /// app; a failed read answers `false`, the channel the thread's session
+    /// names.
+    async fn made_in_app(&self, conversation_id: &str, user_id: &str, tenant_id: TenantId) -> bool {
+        athlete_last_wrote_in_app(&self.repos, conversation_id, user_id, tenant_id)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "commitment verdict: could not tell where the athlete wrote");
+                false
+            })
+    }
+
     /// Resolve the channel the promise was made in, if it is still reachable.
     async fn resolve_route(&self, commitment: &Commitment) -> Option<ChannelRoute> {
         let conversation_id = commitment.conversation_id.as_deref()?;
         let tenant_id = TenantId::parse_str(&commitment.tenant_id).ok()?;
+
+        // The athlete's personal thread is shared by the app and their DM
+        // (carnet#840): a promise made in the app is answered by app push.
+        if self
+            .made_in_app(conversation_id, &commitment.user_id, tenant_id)
+            .await
+        {
+            return None;
+        }
 
         let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
         let session = match db

@@ -28,6 +28,7 @@ fn row(content: String, finish_reason: Option<&str>) -> MessageRecord {
         content_blocks: None,
         created_at: "2026-09-25T00:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     }
 }
 

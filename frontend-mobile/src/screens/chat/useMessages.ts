@@ -23,6 +23,10 @@ import type {
 import {
   composeRoomThread,
   filterDisplayMessages,
+  hasEarlierMessages,
+  joinMessageWindows,
+  prependWindow,
+  type EarlierWindows,
   readLostTurn,
   reduceLostTurn,
   statusForProgress,
@@ -87,6 +91,14 @@ export interface MessagesState {
    * the caller's own side of it — said on screen rather than left as a gap.
    */
   roomUnavailable: boolean;
+  /**
+   * Older rows remain before the first one on screen: the thread is read in
+   * windows from the newest back (carnet#840), and `loadEarlier` reads the
+   * window before.
+   */
+  hasEarlier: boolean;
+  /** The window before the first row on screen is being read. */
+  loadingEarlier: boolean;
 }
 
 export interface MessagesActions {
@@ -95,6 +107,11 @@ export interface MessagesActions {
    * thread, whose room is woven through the caller's own conversation.
    */
   loadMessages: (conversationId: string, groupId?: string | null) => Promise<void>;
+  /**
+   * Read the window before the oldest row of the open thread, when older rows
+   * remain. One read at a time; the rows in view stay where they are.
+   */
+  loadEarlier: () => Promise<void>;
   /**
    * Re-read the conversation's claim verdicts.
    *
@@ -171,6 +188,19 @@ export function useMessages(): MessagesState & MessagesActions {
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
   const [roomUnavailable, setRoomUnavailable] = useState(false);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  // The thread is read in windows from the newest back (carnet#840): the
+  // newest window as last read, and the windows read back before it, each
+  // named with its thread so one thread's rows never join another's.
+  const newestWindowRef = useRef<{ conversationId: string; response: MessagesResponse } | null>(null);
+  const earlierRef = useRef<{ conversationId: string; windows: EarlierWindows } | null>(null);
+  const loadingEarlierRef = useRef(false);
+  const earlierOf = useCallback(
+    (conversationId: string): EarlierWindows | undefined =>
+      earlierRef.current?.conversationId === conversationId ? earlierRef.current.windows : undefined,
+    [],
+  );
   const flatListRef = useRef<FlashListRef<ChatRow>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The thread these rows belong to, so a re-read scheduled for one thread
@@ -251,12 +281,17 @@ export function useMessages(): MessagesState & MessagesActions {
     conversationId: string,
     response: MessagesResponse,
     room: readonly GroupTranscriptEntry[] | null,
+    follow = true,
   ) => {
+    // The newest window as read, after the windows the reader read back.
+    newestWindowRef.current = { conversationId, response };
+    const earlier = earlierOf(conversationId);
+    setHasEarlier(hasEarlierMessages(earlier, response.has_more));
     // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
     // <tool_call>/<tool_result> XML never renders — critical for
     // messaging-origin conversations (Telegram etc.) that carry the same
     // scaffolding rows as native chat.
-    const transcript = response.messages || [];
+    const transcript = joinMessageWindows(earlier?.messages, response.messages || []);
     const own = filterDisplayMessages(transcript);
     const rows = room ? composeRoomThread(own, room) : own;
     const lost = lostTurnRef.current;
@@ -289,8 +324,8 @@ export function useMessages(): MessagesState & MessagesActions {
 
     await refreshVerdicts(conversationId);
 
-    deferredScrollToBottom(100);
-  }, [deferredScrollToBottom, refreshVerdicts]);
+    if (follow) deferredScrollToBottom(100);
+  }, [deferredScrollToBottom, earlierOf, refreshVerdicts]);
 
   /**
    * Read a thread: the caller's own conversation and, for a group thread, the
@@ -307,7 +342,9 @@ export function useMessages(): MessagesState & MessagesActions {
       return { response, room: null };
     }
     try {
-      const room = await groupsApi.readRoom(groupId, response.messages?.[0]?.created_at ?? null);
+      // The room reaches back to the oldest row held, windows read back included.
+      const oldest = earlierOf(conversationId)?.messages[0] ?? response.messages?.[0];
+      const room = await groupsApi.readRoom(groupId, oldest?.created_at ?? null);
       setRoomUnavailable(false);
       return { response, room };
     } catch (roomErr) {
@@ -315,7 +352,7 @@ export function useMessages(): MessagesState & MessagesActions {
       setRoomUnavailable(true);
       return { response, room: null };
     }
-  }, []);
+  }, [earlierOf]);
 
   const loadMessages = useCallback(async (conversationId: string, groupId: string | null = null) => {
     openConversationRef.current = conversationId;
@@ -741,9 +778,54 @@ export function useMessages(): MessagesState & MessagesActions {
 
   // The block lists are keyed by message id, so a thread's live turns would
   // otherwise keep drawing over whatever conversation is opened next.
+  /**
+   * Read the window before the oldest row held. A group thread's room is read
+   * again to reach back as far, so no stretch of it shows one side only.
+   */
+  const loadEarlier = useCallback(async () => {
+    const conversationId = openConversationRef.current;
+    const newest = newestWindowRef.current;
+    if (!conversationId || newest?.conversationId !== conversationId || loadingEarlierRef.current) return;
+    const earlier = earlierOf(conversationId);
+    if (!hasEarlierMessages(earlier, newest.response.has_more)) return;
+    // Every row held, the newest window included: it moves on as rows land.
+    const held = joinMessageWindows(earlier?.messages, newest.response.messages || []);
+    const oldestId = held[0]?.id;
+    if (!oldestId) return;
+    loadingEarlierRef.current = true;
+    setLoadingEarlier(true);
+    try {
+      const window = await chatApi.getConversationMessages(conversationId, { before: oldestId });
+      if (openConversationRef.current !== conversationId) return;
+      const windows = prependWindow(held, window);
+      earlierRef.current = { conversationId, windows };
+      const groupId = roomGroupOf(conversationId);
+      let room: readonly GroupTranscriptEntry[] | null = null;
+      if (groupId) {
+        try {
+          room = await groupsApi.readRoom(groupId, windows.messages[0]?.created_at ?? null);
+          setRoomUnavailable(false);
+        } catch (roomErr) {
+          console.error('Failed to read the group room:', roomErr);
+          setRoomUnavailable(true);
+        }
+      }
+      if (openConversationRef.current !== conversationId) return;
+      await showTranscript(conversationId, newest.response, room, false);
+    } catch (err) {
+      console.error('Failed to read earlier messages:', err);
+    } finally {
+      loadingEarlierRef.current = false;
+      setLoadingEarlier(false);
+    }
+  }, [earlierOf, roomGroupOf, showTranscript]);
+
   const clearMessages = useCallback(() => {
     openConversationRef.current = null;
     openRoomRef.current = null;
+    newestWindowRef.current = null;
+    earlierRef.current = null;
+    setHasEarlier(false);
     setRoomUnavailable(false);
     setMessages([]);
     setMessageBlocks({});
@@ -764,7 +846,10 @@ export function useMessages(): MessagesState & MessagesActions {
     quotaNotice,
     progressText,
     roomUnavailable,
+    hasEarlier,
+    loadingEarlier,
     loadMessages,
+    loadEarlier,
     refreshVerdicts,
     sendTurn,
     stopTurn,

@@ -57,6 +57,9 @@ export { invitationsApi } from './invitations';
 export { coachRepliesApi } from './coachReplies';
 export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
+// The personal thread's topics, which the web History lists (carnet#840).
+export { topicsApi } from './topics';
+export type { ThreadTopic } from './topics';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 
 // Export types from shared package

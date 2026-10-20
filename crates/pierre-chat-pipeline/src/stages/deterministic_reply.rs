@@ -153,6 +153,7 @@ pub async fn deliver(
         model: Some(&active_model),
         content_blocks: content_blocks.as_deref(),
         transport_policy: ai_scope::derived_policy(),
+        channel_type: Some(profile.surface.wire_channel()),
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

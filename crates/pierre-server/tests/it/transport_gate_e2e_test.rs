@@ -905,6 +905,7 @@ async fn write_row(
             model: None,
             content_blocks: None,
             transport_policy,
+            channel_type: None,
         })
         .await
         .unwrap();

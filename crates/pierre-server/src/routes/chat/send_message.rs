@@ -35,6 +35,7 @@ use tracing::{field, info, instrument, trace, warn, Span};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
 use pierre_auth::auth::AuthMethod;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::suggestions::is_postback;
@@ -247,8 +248,14 @@ pub async fn send_message(
         stop: Some(TurnStop::armed()),
         ..pipeline::PipelineHooks::none()
     };
-    let served = pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await?;
-    let response = egress.into_response_body(served, &request, start_time);
+    // The thread may be the athlete's personal one, which their messaging DM
+    // writes into too: one turn on it at a time (carnet#840).
+    let lock = acquire_turn_lock(&egress.conversation.id);
+    let held = lock.lock().await;
+    let served = pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+    drop(held);
+    evict_idle_turn_lock(&egress.conversation.id, &lock);
+    let response = egress.into_response_body(served?, &request, start_time);
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -437,6 +444,7 @@ fn unpersisted_message(role: &str, content: String, created_at: String) -> Messa
         scene_blocks: None,
         finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
         actions: None,
+        channel_type: None,
         created_at,
     }
 }
@@ -505,13 +513,20 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             ..pipeline::PipelineHooks::none()
         };
         let ctx = egress.resources.chat_pipeline_context();
+        // One turn at a time on the thread, which the athlete's messaging DM
+        // may share (carnet#840). Taken inside the turn's own future, so a
+        // drain that fires while it waits drops the wait with the turn.
+        let conversation_id = egress.conversation.id.clone();
+        let lock = acquire_turn_lock(&conversation_id);
         // Pinned to the heap: `select!` holds every branch inline, and the
         // chat state machine is far too large for the task's stack.
-        let run = Box::pin(pipeline::execute(
-            &ctx,
-            egress.turn_request(&request, hooks),
-            &profile,
-        ));
+        let run = Box::pin(async {
+            let held = lock.lock().await;
+            let served =
+                pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+            drop(held);
+            served
+        });
         let outcome = tokio::select! {
             // Biased: a turn that finished in the same poll as the drain is
             // the truthful answer, not an interruption.
@@ -522,6 +537,7 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                 Err(AppError::internal("turn interrupted by shutdown"))
             }
         };
+        evict_idle_turn_lock(&conversation_id, &lock);
         for event in terminal_events(outcome) {
             // A send error means the client hung up; the turn is already
             // persisted, so there is nothing left to do about it.
@@ -630,6 +646,7 @@ async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
         content_blocks: None,
         // Platform text that quotes nothing the turn read.
         transport_policy: TransportPolicy::AnyTransport,
+        channel_type: None,
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),

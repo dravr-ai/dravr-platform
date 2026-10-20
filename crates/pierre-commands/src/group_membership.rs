@@ -600,6 +600,7 @@ impl GroupJoinHandler {
                     content_blocks: None,
                     // Names and the group title only, built from no provider data.
                     transport_policy: TransportPolicy::AnyTransport,
+                    channel_type: None,
                 })
                 .await?;
             delivered += 1;

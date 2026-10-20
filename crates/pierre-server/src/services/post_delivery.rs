@@ -20,14 +20,17 @@
 //!
 //! Each destination is its own turn, laid out for its surface and stored in
 //! its own conversation, so a reply in either thread reads the post as
-//! history.
+//! history. A DM that writes into the personal thread (carnet#840) is one
+//! destination, not two: the post made there is the one the app shows.
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::messaging_broadcast::resolve_linked_targets;
-use pierre_services::personal_thread::{resolve_personal_thread, PersonalForge};
+use pierre_services::personal_thread::{
+    find_personal_thread, resolve_personal_thread, PersonalForge,
+};
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -64,6 +67,32 @@ pub struct OpenDm {
     channel_tenant_id: TenantId,
     /// When the athlete last wrote on the DM.
     last_inbound: Option<DateTime<Utc>>,
+}
+
+impl OpenDm {
+    /// Whether the DM writes into the athlete's personal thread (carnet#840),
+    /// so a post made there is the in-app post as well: the app shows that
+    /// thread, and a second post into it would say the same thing twice.
+    pub async fn shares_personal_thread(
+        &self,
+        resources: &ServerContext,
+        athlete: PostAthlete,
+    ) -> bool {
+        match find_personal_thread(
+            &resources.common.repos,
+            &athlete.user_id.to_string(),
+            athlete.tenant_id,
+        )
+        .await
+        {
+            Ok(Some(thread)) => thread.id == self.conversation_id,
+            Ok(None) => false,
+            Err(e) => {
+                warn!(error = %e, "Platform post: the athlete's personal thread could not be read");
+                false
+            }
+        }
+    }
 }
 
 /// The athlete's linked DMs as a post sees them now.

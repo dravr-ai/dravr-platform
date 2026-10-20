@@ -148,11 +148,13 @@ impl FirstSyncPoster {
         // Decided before any turn runs: the DM the athlete last wrote from,
         // when its window is open; a held DM gets no turn.
         let dms = linked_dms(&resources, athlete, Utc::now()).await;
+        // A DM writing into the personal thread posts into the thread the app
+        // shows, so the app gets no second post (carnet#840).
+        let dm_is_the_thread = match &dms.open {
+            Some(dm) => dm.shares_personal_thread(&resources, athlete).await,
+            None => false,
+        };
 
-        let posted_in_app = post_in_app(&resources, self.post.as_ref(), athlete, &prompt).await;
-        if let Some(posted) = posted_in_app {
-            report_first_post(&subject, PostSurface::InApp, posted);
-        }
         let posted_to_dm = match dms.open {
             Some(dm) => {
                 let surface = PostSurface::Channel(dm.channel_type);
@@ -172,6 +174,16 @@ impl FirstSyncPoster {
             }
             None => None,
         };
+        // A shared DM with no instruction in its language attempted nothing,
+        // so the app's post, in the athlete's own, still goes out.
+        let posted_in_app = if dm_is_the_thread && posted_to_dm.is_some() {
+            None
+        } else {
+            post_in_app(&resources, self.post.as_ref(), athlete, &prompt).await
+        };
+        if let Some(posted) = posted_in_app {
+            report_first_post(&subject, PostSurface::InApp, posted);
+        }
 
         if posted_in_app == Some(true) || posted_to_dm == Some(true) {
             mark_first_post_posted(&resources, user_id, tenant_id).await;

@@ -75,6 +75,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
+use pierre_services::personal_thread::athlete_last_wrote_in_app;
 use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
@@ -471,6 +472,41 @@ impl ServerBackfillNotifier {
         })
     }
 
+    /// The messaging route that answers this conversation, unless the athlete
+    /// asked in the app.
+    ///
+    /// Their personal thread is shared by the app and their DM (carnet#840),
+    /// so the DM's session points at a thread the app reads too: a request
+    /// typed in the app is answered there, not on Telegram.
+    async fn channel_route(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> Option<ResolvedRoute> {
+        let route = self
+            .resolve_route(tenant_id, pierre_conversation_id)
+            .await?;
+        match athlete_last_wrote_in_app(
+            &self.repos,
+            pierre_conversation_id,
+            &user_id.to_string(),
+            tenant_id,
+        )
+        .await
+        {
+            Ok(true) => {
+                info!("Backfill push: the athlete asked in the app; answering in the thread");
+                None
+            }
+            Ok(false) => Some(route),
+            Err(e) => {
+                warn!(error = %e, "Backfill push: could not tell where the athlete asked; answering on the channel");
+                Some(route)
+            }
+        }
+    }
+
     /// Decide how this conversation is reachable, or `None` when it is not.
     ///
     /// A messaging session wins: that conversation is read in the channel app,
@@ -486,7 +522,10 @@ impl ServerBackfillNotifier {
         tenant_id: TenantId,
         pierre_conversation_id: &str,
     ) -> Option<Destination> {
-        if let Some(route) = self.resolve_route(tenant_id, pierre_conversation_id).await {
+        if let Some(route) = self
+            .channel_route(user_id, tenant_id, pierre_conversation_id)
+            .await
+        {
             return Some(Destination::Channel(Box::new(route)));
         }
 
@@ -494,7 +533,9 @@ impl ServerBackfillNotifier {
             .lookup_conversation(user_id, tenant_id, pierre_conversation_id)
             .await?;
 
-        if !is_in_app_channel(&conversation.channel_type) {
+        // The personal thread is the app's whichever channel opened it: one
+        // adopted from the athlete's DM keeps that channel (carnet#840).
+        if !is_in_app_channel(&conversation.channel_type) && !conversation.personal {
             info!(
                 channel = %conversation.channel_type,
                 "Backfill push skipped: messaging session moved or gone (user likely /reset)"
@@ -986,7 +1027,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
-        let Some(route) = self.resolve_route(tenant_id, pierre_conversation_id).await else {
+        let Some(route) = self
+            .channel_route(user_id, tenant_id, pierre_conversation_id)
+            .await
+        else {
             return;
         };
         let locale = self.resolve_locale(user_id, tenant_id, Some(&route)).await;

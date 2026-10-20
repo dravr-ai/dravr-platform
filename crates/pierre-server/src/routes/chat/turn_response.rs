@@ -266,6 +266,7 @@ pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
         scene_blocks: None,
         finish_reason: record.finish_reason,
         actions: None,
+        channel_type: record.channel_type,
         created_at: record.created_at,
     }
 }

@@ -608,7 +608,8 @@ async fn run_turn(
     // Stage 2: Resolve the prompt this turn answers. Persisted as the
     // athlete's message when they sent it, and deliberately not when the
     // platform composed it — see `resolve_turn_prompt`.
-    let msg_result = resolve_turn_prompt(database, ctx.repos.groups.as_ref(), &input).await?;
+    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
+    let msg_result = resolve_turn_prompt(database, groups, &input, channel).await?;
     let user_message = msg_result.message;
     turn_stop::question_stored(hooks, &user_message);
     let conv = msg_result.conversation;
@@ -897,6 +898,7 @@ async fn run_turn(
         content_blocks: content_blocks.as_deref(),
         // Stamped with what the turn served so far (carnet#769).
         transport_policy: ai_scope::derived_policy(),
+        channel_type: Some(profile.surface.wire_channel()),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);

@@ -1,4 +1,4 @@
-// ABOUTME: CRUD handlers for /api/chat/conversations — create/list/get/update/delete + messages
+// ABOUTME: CRUD handlers for /api/chat/conversations — create/list/get/update/delete
 // ABOUTME: No LLM dispatch; pure chat_pipeline persistence + chat repo calls
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -36,11 +36,10 @@ use pierre_services::locale::{resolve_user_locale, user_locale};
 use pierre_tool_runtime::derived_content;
 
 use super::common::{conversation_response, get_tenant_id, verify_group_membership};
-use super::dto::{preview_text, resolve_stored_blocks};
+use super::dto::preview_text;
 use super::dto::{
     ConversationListResponse, ConversationSummaryResponse, CreateConversationRequest,
-    LastMessageResponse, ListConversationsQuery, MessageFeedbackEntry, MessageResponse,
-    MessagesListResponse, UpdateConversationRequest,
+    LastMessageResponse, ListConversationsQuery, UpdateConversationRequest,
 };
 use super::send_message::client_surface;
 
@@ -423,115 +422,4 @@ pub async fn delete_conversation(
     }
 
     Ok((StatusCode::NO_CONTENT, ()).into_response())
-}
-
-/// List all messages in a conversation after verifying the caller is a participant.
-///
-/// LIMITATION(registre#840): `get_messages` returns the whole transcript; the personal thread, which never rotates, is not yet read in windows.
-///
-/// Reading the thread is reading it: the caller's read marker advances to the
-/// newest turn, so the list row's unread badge clears on the next list. The
-/// marker write is best-effort — the rows are what the caller asked for, and a
-/// marker that failed to move costs one spurious badge, not the transcript.
-pub async fn get_messages(
-    State(resources): State<Arc<ServerContext>>,
-    auth: AuthenticatedUser,
-    Path(conversation_id): Path<String>,
-) -> Result<Response, AppError> {
-    let auth = auth.into_inner();
-    let tenant_id = get_tenant_id(&auth, &resources).await?;
-
-    // Verify the caller participates in this conversation
-    resources
-        .common
-        .repos
-        .chat
-        .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
-
-    // A thread opened from a first-party-only activity is about it
-    // throughout (carnet#769).
-    derived_content::refuse_withheld_thread(
-        resources.as_ref(),
-        &tenant_id,
-        auth.user_id,
-        &conversation_id,
-    )
-    .await?;
-
-    let user_id_str = auth.user_id.to_string();
-    let mut messages = resources
-        .common
-        .repos
-        .chat
-        .get_messages(&conversation_id, &user_id_str, tenant_id)
-        .await?;
-    // A row derived from first-party-only data is withheld from an external
-    // caller; the rest of the transcript is served (carnet#769).
-    ai_scope::retain_admitted(&mut messages, |m| m.transport_policy);
-
-    // The stored locale rather than a per-turn detection: a chart written three
-    // weeks ago should not relabel its axis because the athlete's last message
-    // happened to be in another language.
-    let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
-
-    let messages_list: Vec<MessageResponse> = messages
-        .into_iter()
-        .map(|m| {
-            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), &locale);
-            MessageResponse {
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                token_count: m.token_count,
-                scene_blocks: blocks.scene_blocks,
-                finish_reason: m.finish_reason,
-                actions: blocks.actions,
-                created_at: m.created_at,
-            }
-        })
-        .collect();
-
-    match resources
-        .common
-        .repos
-        .chat
-        .mark_conversation_read(&conversation_id, &user_id_str, tenant_id, None)
-        .await
-    {
-        Ok(true) => {}
-        Ok(false) => tracing::warn!(
-            conversation_id = %conversation_id,
-            "read marker did not advance for a participant who just read the thread"
-        ),
-        Err(e) => tracing::warn!(
-            conversation_id = %conversation_id,
-            error = %e,
-            "read marker could not advance after the thread was read"
-        ),
-    }
-
-    // The caller's own thumbs up/down feedback for this conversation, so the
-    // client re-renders the rating state (and any saved reason) after a reload.
-    let feedback: Vec<MessageFeedbackEntry> = resources
-        .common
-        .repos
-        .chat
-        .get_conversation_feedback(&conversation_id, &user_id_str, tenant_id)
-        .await?
-        .into_iter()
-        .map(|f| MessageFeedbackEntry {
-            message_id: f.message_id,
-            rating: f.rating,
-            comment: f.comment,
-        })
-        .collect();
-
-    let response = MessagesListResponse {
-        messages: messages_list,
-        feedback,
-    };
-
-    Ok((StatusCode::OK, Json(response)).into_response())
 }
