@@ -1,0 +1,1414 @@
+// ABOUTME: Integration tests for OAuth flow in multi-tenant mode
+// ABOUTME: Tests OAuth authentication, authorization, and token management
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Integration tests for OAuth flow in multi-tenant mode
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use crate::common;
+
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_config::environment::{
+    AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GoalManagementConfig,
+    HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
+    OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    WeatherServiceConfig,
+};
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_services::oauth_flow::AuthUrlOptions;
+use pierre_services::provider_revocation::DisconnectReason;
+use pierre_test_support::db::create_test_db_with_key;
+use std::{collections::HashMap, sync::Arc};
+use uuid::Uuid;
+
+#[tokio::test]
+async fn test_oauth_authorization_url_generation() {
+    common::init_server_config();
+
+    // Setup
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+
+    database.migrate().await.unwrap();
+
+    let auth_manager = AuthManager::new(24);
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database.clone(),
+            auth_manager.clone(),
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+
+    let auth_routes = AuthService::new(
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
+        server_resources.data(),
+    );
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    // Create admin user first
+    let admin_user = User {
+        id: Uuid::new_v4(),
+        email: "admin@example.com".to_owned(),
+        display_name: Some("Admin".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: None,
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    };
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
+        .await
+        .unwrap();
+
+    // Create tenant
+    let tenant_id = TenantId::generate();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: "Test Tenant".to_owned(),
+        slug: "test-tenant".to_owned(),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: admin_id,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+
+    // Store tenant OAuth credentials for Strava
+    let strava_credentials = TenantOAuthCredentials {
+        tenant_id,
+        provider: "strava".to_owned(),
+        client_id: "test_client_id".to_owned(),
+        client_secret: "test_client_secret".to_owned(),
+        redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
+        scopes: vec!["activity:read_all".to_owned()],
+        rate_limit_per_day: 15000,
+    };
+    database
+        .repositories()
+        .tenants
+        .store_oauth_credentials(&strava_credentials)
+        .await
+        .unwrap();
+
+    // Register and login user
+    let register_request = RegisterRequest {
+        email: "oauth_test@example.com".to_owned(),
+        password: "password123".to_owned(),
+        display_name: Some("OAuth Test User".to_owned()),
+    };
+
+    let register_response = auth_routes.register(register_request).await.unwrap();
+    let user_id = Uuid::parse_str(&register_response.user_id).unwrap();
+
+    // Test Strava OAuth URL generation
+    let strava_auth = oauth_routes
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
+        .await
+        .unwrap();
+
+    assert!(strava_auth
+        .authorization_url
+        .contains("https://www.strava.com/oauth/authorize"));
+    assert!(strava_auth.authorization_url.contains("client_id="));
+    assert!(strava_auth.authorization_url.contains("redirect_uri="));
+    assert!(strava_auth
+        .authorization_url
+        .contains("scope=activity%3Aread_all"));
+    assert!(strava_auth.state.contains(&user_id.to_string()));
+    assert_eq!(strava_auth.expires_in_minutes, 10);
+    // The plain call must NOT embed a return segment: `{user_id}:{uuid}`.
+    assert_eq!(
+        strava_auth.state.split(':').count(),
+        2,
+        "plain get_auth_url state must have exactly two segments"
+    );
+
+    // A `return_redirect` option embeds the post-OAuth return URL as the third
+    // (base64) state segment so the session-less callback bounces success/
+    // failure there — the channel-initiated hosted connect flow relies on this
+    // to send a failed Strava OAuth back to the picker's Sciotte fallback.
+    let return_url = "http://localhost:8081/providers/connect?token=abc.def";
+    let with_return = oauth_routes
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "strava",
+            AuthUrlOptions {
+                return_redirect: Some(return_url),
+            },
+        )
+        .await
+        .unwrap();
+    let segments: Vec<&str> = with_return.state.split(':').collect();
+    assert_eq!(
+        segments.len(),
+        3,
+        "state must carry the embedded return segment"
+    );
+    let decoded = String::from_utf8(
+        URL_SAFE_NO_PAD
+            .decode(segments[2])
+            .expect("third state segment is base64"),
+    )
+    .expect("decoded return URL is utf-8");
+    assert_eq!(decoded, return_url, "embedded return URL round-trips");
+
+    // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
+    // Garmin data now flows through Sciotte's headless login (`sciotte_garmin`).
+    // The Strava block above is the canonical OAuth-URL-generation check
+    // for this test's intent.
+}
+
+#[tokio::test]
+async fn test_oauth_state_validation() {
+    common::init_server_config();
+
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+
+    let auth_manager = AuthManager::new(24);
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+
+    let _oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    // Test valid state format
+    let user_id = Uuid::new_v4();
+    let state_id = Uuid::new_v4();
+    let valid_state = format!("{user_id}:{state_id}");
+
+    // This should parse correctly (we can't test the full callback without mocking the HTTP client)
+    // But we can verify the state format is what we expect
+    assert!(valid_state.contains(':'));
+    let parts: Vec<&str> = valid_state.split(':').collect();
+    assert_eq!(parts.len(), 2);
+    assert!(Uuid::parse_str(parts[0]).is_ok());
+    assert!(Uuid::parse_str(parts[1]).is_ok());
+}
+
+#[tokio::test]
+async fn test_connection_status_no_providers() {
+    common::init_server_config();
+
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+    let auth_manager = AuthManager::new(24);
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    let user_id = Uuid::new_v4();
+
+    // Create a test user in the database for the connection status check
+    let user = User {
+        id: user_id,
+        email: format!("test_{user_id}@example.com"),
+        display_name: None,
+        password_hash: "test_hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: Some(chrono::Utc::now()),
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    };
+    database.repositories().users.create(&user).await.unwrap();
+
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    let statuses = oauth_routes.get_connection_status(user_id).await.unwrap();
+
+    // Verify every OAuth provider registered by the current feature set
+    // starts disconnected. The exact list follows the compiled feature set
+    // (Strava + Whoop in the default build). Derive count + iterate so a
+    // future provider addition or removal doesn't silently break this test.
+    let expected_oauth_provider_count = server_resources
+        .data()
+        .provider_registry()
+        .oauth_providers()
+        .len();
+    assert_eq!(statuses.len(), expected_oauth_provider_count);
+    assert!(
+        expected_oauth_provider_count > 0,
+        "test setup must register at least one OAuth provider"
+    );
+    for status in &statuses {
+        assert!(!status.connected);
+        assert!(status.expires_at.is_none());
+        assert!(status.scopes.is_none());
+    }
+}
+
+#[tokio::test]
+async fn test_invalid_provider_error() {
+    common::init_server_config();
+
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+    database.migrate().await.unwrap();
+    let auth_manager = AuthManager::new(24);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    let user_id = Uuid::new_v4();
+    let tenant_id = TenantId::generate();
+    let result = oauth_routes
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "invalid_provider",
+            AuthUrlOptions::default(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Unsupported provider"));
+}
+
+#[tokio::test]
+async fn test_disconnect_provider() {
+    common::init_server_config();
+
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+    let auth_manager = AuthManager::new(24);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    let user_id = Uuid::new_v4();
+
+    // Create a test user in the database
+    let user = User {
+        id: user_id,
+        email: format!("test_{user_id}@example.com"),
+        display_name: None,
+        password_hash: "test_hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: Some(chrono::Utc::now()),
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    };
+    server_resources
+        .common
+        .repos
+        .users
+        .create(&user)
+        .await
+        .unwrap();
+
+    // Create tenant so disconnect_provider can resolve user's tenant
+    let tenant = Tenant {
+        id: TenantId::generate(),
+        name: "Test Tenant".to_owned(),
+        slug: "test-disconnect".to_owned(),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: user_id,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    server_resources
+        .common
+        .repos
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+
+    // Test disconnecting Strava (should succeed even if not connected)
+    let result = oauth_routes
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await;
+    assert!(result.is_ok());
+
+    // Test disconnecting invalid provider
+    let result = oauth_routes
+        .disconnect_provider(
+            user_id,
+            "invalid",
+            Some(tenant.id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Unsupported provider"));
+}
+
+#[tokio::test]
+async fn test_oauth_urls_contain_required_parameters() {
+    common::init_server_config();
+
+    let encryption_key = generate_encryption_key().to_vec();
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+    database.migrate().await.unwrap();
+
+    // Create admin user first
+    let admin_user = User {
+        id: Uuid::new_v4(),
+        email: "admin@example.com".to_owned(),
+        display_name: Some("Admin".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: None,
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    };
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
+        .await
+        .unwrap();
+
+    // Create tenant
+    let tenant_id = TenantId::generate();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: "Test Tenant".to_owned(),
+        slug: "test-tenant".to_owned(),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: admin_id,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
+
+    // Store tenant OAuth credentials
+    let strava_credentials = TenantOAuthCredentials {
+        tenant_id,
+        provider: "strava".to_owned(),
+        client_id: "test_client_id".to_owned(),
+        client_secret: "test_client_secret".to_owned(),
+        redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
+        scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
+        rate_limit_per_day: 15000,
+    };
+    database
+        .repositories()
+        .tenants
+        .store_oauth_credentials(&strava_credentials)
+        .await
+        .unwrap();
+
+    let auth_manager = AuthManager::new(24);
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Arc::new(ServerConfig {
+        http_port: 8080,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: temp_dir.path().to_path_buf(),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_strava_client_id".to_owned()),
+                client_secret: Some("test_strava_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: Some("test_garmin_client_id".to_owned()),
+                client_secret: Some("test_garmin_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
+                scopes: vec![],
+                enabled: true,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2025-06-18".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            database,
+            auth_manager,
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    let user_id = Uuid::new_v4();
+
+    // Test Strava URL parameters
+    let strava_auth = oauth_routes
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
+        .await
+        .unwrap();
+    let strava_url = url::Url::parse(&strava_auth.authorization_url).unwrap();
+    let strava_params: HashMap<_, _> = strava_url.query_pairs().collect();
+
+    assert!(strava_params.contains_key("client_id"));
+    assert!(strava_params.contains_key("redirect_uri"));
+    assert!(strava_params.contains_key("response_type"));
+    assert_eq!(strava_params.get("response_type").unwrap(), "code");
+    assert!(strava_params.contains_key("scope"));
+    assert!(strava_params.contains_key("state"));
+
+    // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
+    // Garmin flows through Sciotte's headless login (`sciotte_garmin`).
+    // The Strava parameter coverage above is the canonical check.
+}

@@ -48,6 +48,8 @@ pub mod followups;
 pub mod notes;
 /// Procedural coaching playbooks reinforced by automatic outcome labels.
 pub mod playbooks;
+/// Review state of a fact: approved or a draft, with its verbatim evidence.
+pub mod review;
 /// Isolation boundary for every memory record.
 pub mod scope;
 /// Long-lived coaching sessions that span conversations and channels.
@@ -69,6 +71,10 @@ pub use playbooks::{
     sanitize_sport_slug, wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Band, Intervention,
     InterventionKind, LabelSource, MetricBaseline, OutcomeLabel, OutcomeMetric, PendingAdvice,
     Playbook, TriggerKind, TriggerPattern, MAX_SPORT_SLUG_LEN,
+};
+pub use review::{
+    evidence_from, find_verbatim, idempotency_key, EvidenceSource, FactEvidence, FactProposal,
+    FactStatus, ProposedClaim,
 };
 pub use scope::MemoryScope;
 pub use sessions::{AgentSession, SessionStatus};

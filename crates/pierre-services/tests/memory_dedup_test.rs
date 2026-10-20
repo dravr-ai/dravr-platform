@@ -8,7 +8,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_core::transport::TransportPolicy;
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
+use pierre_memory::{FactKind, FactSource, FactStatus, MemoryScope, PredicateCode, UserFact};
 use pierre_services::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
 };
@@ -85,6 +85,8 @@ impl Stored {
             created_at: created,
             updated_at: created,
             transport_policy: TransportPolicy::AnyTransport,
+            status: FactStatus::Approved,
+            evidence: None,
         }
     }
 }

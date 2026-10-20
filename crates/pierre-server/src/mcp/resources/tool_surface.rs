@@ -49,6 +49,7 @@ use pierre_tool_runtime::implementations::guided_flow::{
 };
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
 use pierre_tool_runtime::tool_results::project_activities_payload;
 use serde_json::Value;
@@ -178,7 +179,10 @@ impl ToolSurface for TurnToolSurface {
             .map(|s| McpToolDefinition {
                 name: s.name,
                 description: s.description,
-                input_schema: serde_json::to_value(&s.input_schema).unwrap_or(Value::Null),
+                // Key order is part of the prompt prefix the ACP agent caches;
+                // the properties are a `HashMap`, so sort them like every
+                // other surface does.
+                input_schema: to_canonical_value(&s.input_schema),
             })
             .collect()
     }

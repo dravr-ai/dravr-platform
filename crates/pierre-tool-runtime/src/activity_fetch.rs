@@ -21,7 +21,7 @@ use pierre_core::civil_time::resolve_zone;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
-use pierre_core::models::{Activity, ConnectionStatus, TenantId};
+use pierre_core::models::{Activity, ConnectionStatus, RefreshConfig, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
 use pierre_providers::CoreFitnessProvider;
@@ -38,6 +38,8 @@ use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use serde_json::{json, Value};
 
+/// A live list read that answers its turn inside the refresh budget
+pub mod budgeted_read;
 /// The session a cache write lands, and the `per_session` persona digest it sends
 #[cfg(feature = "client-notifications")]
 mod session_landing;
@@ -48,6 +50,7 @@ pub mod uploads;
 /// The activity cache's write-through, and what a write says about freshness
 pub mod write_through;
 
+use budgeted_read::refresh_head_within_budget;
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
     HeadVerdict, LiveRead,
@@ -418,7 +421,11 @@ const STALE_HEAD_REFRESH_DAYS: i64 = 30;
 ///
 /// Best-effort. A failed refresh leaves the cached window exactly as it was —
 /// slightly old data beats no data, which is the same posture
-/// [`fetch_provider_activities`] already takes on a provider blip.
+/// [`fetch_provider_activities`] already takes on a provider blip. The read
+/// gets the refresh budget ([`refresh_head_within_budget`]). Returns whether
+/// the head served is behind — stale and not refreshed this turn — so the
+/// caller can say the newest sessions may be missing instead of serving the
+/// window as current.
 pub async fn refresh_stale_head(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -426,9 +433,9 @@ pub async fn refresh_stale_head(
     tenant_id: TenantId,
     before: Option<i64>,
     served: &mut Vec<Activity>,
-) {
+) -> bool {
     if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
-        return;
+        return false;
     }
 
     let last_sync = runtime
@@ -440,7 +447,7 @@ pub async fn refresh_stale_head(
 
     let freshness = DataFreshness::from_last_sync(last_sync);
     if matches!(freshness, DataFreshness::Fresh | DataFreshness::Recent) {
-        return;
+        return false;
     }
     let failure = runtime
         .repos()
@@ -455,7 +462,7 @@ pub async fn refresh_stale_head(
             %retry_at,
             "activity head is stale, but its last refreshes failed; backing off before reading it again"
         );
-        return;
+        return true;
     }
 
     info!(
@@ -465,11 +472,15 @@ pub async fn refresh_stale_head(
         freshness = freshness.label(),
         "activity head is stale; re-reading the recent window before grounding"
     );
-    let Some(live) = refresh_head(runtime, provider_slug, user_id, tenant_id).await else {
-        return;
+    let budget = RefreshConfig::default().wait_for_refresh_timeout();
+    let Some(live) =
+        refresh_head_within_budget(runtime, provider_slug, user_id, tenant_id, budget).await
+    else {
+        return true;
     };
 
     merge_live_head(served, live);
+    false
 }
 
 /// Re-read a provider's recent head — the last [`STALE_HEAD_REFRESH_DAYS`] —
@@ -587,7 +598,7 @@ pub async fn serve_historical_window(
     before: Option<i64>,
     coverage_before: Option<i64>,
     mut served: Vec<Activity>,
-) -> Vec<Activity> {
+) -> HistoricalServe {
     if let Some(head_after) = historical_head_slice(before, coverage_before, Utc::now().timestamp())
     {
         let head_params = ActivityQueryParams {
@@ -606,7 +617,7 @@ pub async fn serve_historical_window(
     // The covered gate proves the window is deep enough; it says nothing about
     // whether it is current. Top up the head when the provider may be holding
     // something we have never seen.
-    refresh_stale_head(
+    let head_behind = refresh_stale_head(
         runtime,
         provider_slug,
         user_id,
@@ -615,7 +626,19 @@ pub async fn serve_historical_window(
         &mut served,
     )
     .await;
-    served
+    HistoricalServe {
+        activities: served,
+        head_behind,
+    }
+}
+
+/// A covered historical window as [`serve_historical_window`] serves it.
+pub struct HistoricalServe {
+    /// The window, head slice and top-up included.
+    pub activities: Vec<Activity>,
+    /// The head is stale and was not refreshed this turn: the newest sessions
+    /// may be missing.
+    pub head_behind: bool,
 }
 
 /// Fetch activities for a single provider connection, authenticating (and

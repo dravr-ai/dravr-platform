@@ -23,13 +23,13 @@ use pierre_core::llm::{
 };
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, InsertAgentFollowupParams, InsertAgentNoteParams,
+    ApproveFactOutcome, HarnessMemoryRepository, InsertAgentFollowupParams, InsertAgentNoteParams,
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 use pierre_llm::ChatProvider;
 use pierre_memory::{
-    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactSource, PredicateCode,
-    UserFact, UserFactMetrics,
+    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactProposal, FactSource,
+    FactStatus, PredicateCode, UserFact, UserFactMetrics,
 };
 use pierre_services::memory_dedup::DedupConfig;
 use pierre_services::memory_extraction::{extract_and_persist, ExtractionRequest};
@@ -185,9 +185,42 @@ impl HarnessMemoryRepository for RecordingFacts {
             created_at: now,
             updated_at: now,
             transport_policy: TransportPolicy::AnyTransport,
+            status: FactStatus::Approved,
+            evidence: None,
         };
         self.upserts.lock().unwrap().push(row.clone());
         Ok(row)
+    }
+    async fn propose_user_fact(
+        &self,
+        params: &UpsertUserFactParams<'_>,
+        proposal: &FactProposal,
+    ) -> AppResult<UserFact> {
+        let mut row = self.upsert_user_fact(params).await?;
+        row.status = proposal.status;
+        row.evidence.clone_from(&proposal.evidence);
+        let mut upserts = self.upserts.lock().unwrap();
+        if let Some(last) = upserts.last_mut() {
+            last.clone_from(&row);
+        }
+        Ok(row)
+    }
+    async fn list_draft_user_facts(
+        &self,
+        _tenant_id: TenantId,
+        _user_id: &str,
+        _limit: i64,
+        _readable: TransportPolicy,
+    ) -> AppResult<Vec<UserFact>> {
+        Err(off_path("list_draft_user_facts"))
+    }
+    async fn approve_user_fact(
+        &self,
+        _fact_id: &str,
+        _tenant_id: TenantId,
+        _user_id: &str,
+    ) -> AppResult<ApproveFactOutcome> {
+        Err(off_path("approve_user_fact"))
     }
     async fn merge_user_fact(
         &self,

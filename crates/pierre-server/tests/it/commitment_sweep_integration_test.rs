@@ -1,0 +1,615 @@
+// ABOUTME: Commitment sweep end to end — counts real cached activities, labels met/partial/missed, reports once
+// ABOUTME: Pins the two guards that decide when NOT to speak: data freshness and the per-athlete cadence cap
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Drives `commitment_sweep::tick` against a real database and a real activity
+//! cache. Every assertion is on content — a sweep that silently returned
+//! nothing would fail each of these, which an `is_ok()` check would not.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use pierre_core::transport::TransportPolicy;
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
+use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_database::backends::factory::Database;
+use pierre_database::RepositoryRegistry;
+use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
+use pierre_services::commitment_sweep::{tick, ActivityRefresher, CommitmentReporter};
+use uuid::Uuid;
+
+use crate::db_fixtures;
+use db_fixtures::{create_test_db, seed_user};
+
+/// Captures what the sweep asked to deliver, and can refuse a route.
+struct RecordingReporter {
+    delivered: Mutex<Vec<Commitment>>,
+    route: Option<String>,
+}
+
+impl RecordingReporter {
+    fn open() -> Self {
+        Self {
+            delivered: Mutex::new(Vec::new()),
+            route: Some("telegram".to_owned()),
+        }
+    }
+
+    /// A reporter with no open delivery route — every channel window shut.
+    fn closed() -> Self {
+        Self {
+            delivered: Mutex::new(Vec::new()),
+            route: None,
+        }
+    }
+
+    fn delivered(&self) -> Vec<Commitment> {
+        self.delivered.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl CommitmentReporter for RecordingReporter {
+    async fn report(&self, commitment: &Commitment) -> Option<String> {
+        if self.route.is_some() {
+            self.delivered.lock().unwrap().push(commitment.clone());
+        }
+        self.route.clone()
+    }
+}
+
+/// Stands in for the server-side refresher: records what the sweep asked for
+/// and warms the cache the way a real provider fetch's write-through would —
+/// upserting whatever "the provider" returned and stamping the fetch-freshness
+/// mark either way. An empty `activities` models an athlete who genuinely did
+/// nothing: the mark still advances, the rows do not.
+struct WarmingRefresher {
+    repos: Arc<RepositoryRegistry>,
+    activities: Vec<Activity>,
+    requests: Mutex<Vec<(Uuid, TenantId, DateTime<Utc>)>>,
+}
+
+impl WarmingRefresher {
+    fn returning(repos: Arc<RepositoryRegistry>, activities: Vec<Activity>) -> Self {
+        Self {
+            repos,
+            activities,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<(Uuid, TenantId, DateTime<Utc>)> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl ActivityRefresher for WarmingRefresher {
+    async fn request_refresh(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        window_start: DateTime<Utc>,
+    ) -> bool {
+        self.requests
+            .lock()
+            .unwrap()
+            .push((user_id, *tenant_id, window_start));
+        self.repos
+            .activity_cache
+            .upsert_activities(user_id, tenant_id, "strava", &self.activities)
+            .await
+            .unwrap();
+        self.repos
+            .activity_cache
+            .record_activity_fetch(user_id, tenant_id, "strava", Utc::now())
+            .await
+            .unwrap();
+        true
+    }
+}
+
+/// A commitment whose window ran from `days_ago` to one hour ago.
+fn closed_window_commitment(
+    tenant: TenantId,
+    user: Uuid,
+    sport: Option<&str>,
+    target: u32,
+    days_ago: i64,
+) -> Commitment {
+    let now = Utc::now();
+    Commitment {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant.to_string(),
+        user_id: user.to_string(),
+        agent_id: Some("marathon-coach".to_owned()),
+        conversation_id: None,
+        statement: "three easy runs this week".to_owned(),
+        sport: sport.map(str::to_owned),
+        target_sessions: target,
+        window_start: now - Duration::days(days_ago),
+        window_end: now - Duration::hours(1),
+        status: CommitmentStatus::Open,
+        outcome: None,
+        completed_sessions: None,
+        swept_at: None,
+        reported_at: None,
+        created_at: now - Duration::days(days_ago),
+        updated_at: now - Duration::days(days_ago),
+        transport_policy: TransportPolicy::AnyTransport,
+    }
+}
+
+fn activity_at(id: &str, sport: SportType, start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        id.to_owned(),
+        format!("session {id}"),
+        sport,
+        start,
+        3_600,
+        "strava".to_owned(),
+    )
+    .distance_meters(10_000.0)
+    .build()
+}
+
+/// Seed activities into the durable cache, which also stamps a fresh
+/// `synced_at` — the signal the freshness guard reads.
+async fn seed_activities(db: &Database, user: Uuid, tenant: TenantId, activities: &[Activity]) {
+    db.repositories()
+        .activity_cache
+        .upsert_activities(user, &tenant, "strava", activities)
+        .await
+        .unwrap();
+}
+
+async fn fixture() -> (Database, Uuid, TenantId) {
+    let db = create_test_db().await;
+    let (user, tenant) = seed_user(&db).await;
+    (db, user, tenant)
+}
+
+#[tokio::test]
+async fn three_of_three_is_met_and_reaches_the_athlete() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[
+            activity_at("r1", SportType::Run, now - Duration::days(5)),
+            activity_at("r2", SportType::Run, now - Duration::days(3)),
+            activity_at("r3", SportType::Run, now - Duration::days(2)),
+        ],
+    )
+    .await;
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, now, 50).await.unwrap();
+
+    assert_eq!(outcome.scanned, 1);
+    assert_eq!(outcome.labeled, 1, "the due commitment was counted");
+    assert_eq!(outcome.reported, 1, "and the verdict went out");
+    assert_eq!(outcome.errors, 0);
+
+    let delivered = reporter.delivered();
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].outcome, Some(CommitmentOutcome::Met));
+    assert_eq!(delivered[0].completed_sessions, Some(3));
+    assert_eq!(delivered[0].target_sessions, 3);
+}
+
+#[tokio::test]
+async fn two_of_three_is_partial_and_carries_both_numbers() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[
+            activity_at("r1", SportType::Run, now - Duration::days(5)),
+            activity_at("r2", SportType::Run, now - Duration::days(2)),
+        ],
+    )
+    .await;
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, now, 50).await.unwrap();
+    assert_eq!(outcome.labeled, 1);
+    assert_eq!(outcome.reported, 1);
+
+    let delivered = reporter.delivered();
+    assert_eq!(
+        delivered[0].outcome,
+        Some(CommitmentOutcome::Partial),
+        "two of three is neither a success nor a failure"
+    );
+    assert_eq!(delivered[0].completed_sessions, Some(2));
+    assert_eq!(delivered[0].target_sessions, 3);
+}
+
+#[tokio::test]
+async fn the_wrong_sport_does_not_count() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    // A ride inside the window warms the cache — so the data IS fresh and a
+    // shortfall is believable — but it is not a run.
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[activity_at("b1", SportType::Ride, now - Duration::days(2))],
+    )
+    .await;
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, now, 50).await.unwrap();
+    assert_eq!(outcome.labeled, 1);
+    assert_eq!(
+        reporter.delivered()[0].outcome,
+        Some(CommitmentOutcome::Missed)
+    );
+    assert_eq!(reporter.delivered()[0].completed_sessions, Some(0));
+}
+
+#[tokio::test]
+async fn a_sport_agnostic_commitment_counts_anything() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, None, 2, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[
+            activity_at("r1", SportType::Run, now - Duration::days(4)),
+            activity_at("b1", SportType::Ride, now - Duration::days(2)),
+        ],
+    )
+    .await;
+
+    let reporter = RecordingReporter::open();
+    tick(&repos, Some(&reporter), None, now, 50).await.unwrap();
+    assert_eq!(
+        reporter.delivered()[0].outcome,
+        Some(CommitmentOutcome::Met)
+    );
+    assert_eq!(reporter.delivered()[0].completed_sessions, Some(2));
+}
+
+#[tokio::test]
+async fn a_cold_cache_defers_instead_of_accusing() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    // No activities seeded at all: the athlete may well have run three times
+    // and simply not opened the app since. Nothing has proven a miss.
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.scanned, 1);
+    assert_eq!(outcome.deferred, 1, "held for the data to catch up");
+    assert_eq!(outcome.labeled, 0, "no verdict was invented");
+    assert_eq!(outcome.reported, 0);
+    assert!(
+        reporter.delivered().is_empty(),
+        "the athlete was told nothing"
+    );
+
+    // Still open, so a later sweep will try again.
+    let due = repos
+        .commitments
+        .due_commitments(Utc::now().timestamp(), 50)
+        .await
+        .unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].status, CommitmentStatus::Open);
+}
+
+#[tokio::test]
+async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 30);
+    // Eight days past its window with the data still cold — beyond the sweep's
+    // staleness horizon, so it must stop head-of-line blocking newer rows.
+    c.window_end = Utc::now() - Duration::days(8);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.expired, 1);
+    assert_eq!(outcome.labeled, 0);
+    assert_eq!(reporter.delivered(), []);
+    assert_eq!(
+        repos
+            .commitments
+            .due_commitments(Utc::now().timestamp(), 50)
+            .await
+            .unwrap(),
+        []
+    );
+}
+
+#[tokio::test]
+async fn a_closed_route_holds_the_verdict_for_the_next_tick() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+    )
+    .await;
+
+    // Every window shut — WhatsApp outside its 24h re-engagement window, say.
+    let shut = RecordingReporter::closed();
+    let first = tick(&repos, Some(&shut), None, now, 50).await.unwrap();
+    assert_eq!(first.labeled, 1, "the verdict was still computed");
+    assert_eq!(first.reported, 0);
+    assert_eq!(first.held, 1, "and held rather than burned");
+
+    // The athlete says something; the window reopens; the next tick delivers.
+    let open = RecordingReporter::open();
+    let second = tick(&repos, Some(&open), None, Utc::now(), 50)
+        .await
+        .unwrap();
+    assert_eq!(second.scanned, 0, "nothing new was due");
+    assert_eq!(second.reported, 1);
+    assert_eq!(
+        open.delivered()[0].outcome,
+        Some(CommitmentOutcome::Partial)
+    );
+}
+
+#[tokio::test]
+async fn the_cadence_cap_stops_two_verdicts_landing_at_once() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    // Two promises closing the same hour.
+    let runs = closed_window_commitment(tenant, user, Some("run"), 2, 7);
+    let swims = closed_window_commitment(tenant, user, Some("swim"), 2, 7);
+    repos.commitments.insert_commitment(&runs).await.unwrap();
+    repos.commitments.insert_commitment(&swims).await.unwrap();
+
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+    )
+    .await;
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, now, 50).await.unwrap();
+
+    assert_eq!(outcome.labeled, 2, "both were counted");
+    assert_eq!(
+        outcome.reported, 1,
+        "but the athlete hears about one of them today"
+    );
+    assert_eq!(outcome.held, 1);
+    assert_eq!(reporter.delivered().len(), 1);
+
+    // The held one is still labeled and waiting, not lost.
+    let pending = repos.commitments.unreported_commitments(50).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].status, CommitmentStatus::Labeled);
+}
+
+#[tokio::test]
+async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+    )
+    .await;
+
+    // A build with no messaging rail compiled in.
+    let outcome = tick(&repos, None, None, now, 50).await.unwrap();
+    assert_eq!(outcome.labeled, 1);
+    assert_eq!(outcome.reported, 0);
+    assert_eq!(outcome.held, 1);
+
+    // Much later, with still nothing able to deliver, the verdict ages out
+    // instead of queueing forever.
+    let stale = tick(&repos, None, None, now + Duration::days(8), 50)
+        .await
+        .unwrap();
+    assert_eq!(stale.expired, 1);
+    assert_eq!(
+        repos.commitments.unreported_commitments(50).await.unwrap(),
+        []
+    );
+}
+
+#[tokio::test]
+async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    // The athlete ran three times but never opened a chat, so nothing warmed
+    // the cache. The refresher stands in for the provider fetch the sweep
+    // requests.
+    let now = Utc::now();
+    let refresher = WarmingRefresher::returning(
+        Arc::clone(&repos),
+        vec![
+            activity_at("r1", SportType::Run, now - Duration::days(5)),
+            activity_at("r2", SportType::Run, now - Duration::days(3)),
+            activity_at("r3", SportType::Run, now - Duration::days(2)),
+        ],
+    );
+
+    let reporter = RecordingReporter::open();
+    let first = tick(&repos, Some(&reporter), Some(&refresher), now, 50)
+        .await
+        .unwrap();
+    assert_eq!(first.deferred, 1, "the cold window was not read as a miss");
+    assert_eq!(first.refreshes, 1, "and a refresh was started for it");
+    assert_eq!(first.labeled, 0);
+    assert_eq!(reporter.delivered(), []);
+
+    let requests = refresher.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, user);
+    assert_eq!(requests[0].1, tenant);
+    // `window_start` is stored as unix seconds, so compare at that granularity.
+    assert_eq!(
+        requests[0].2.timestamp(),
+        c.window_start.timestamp(),
+        "asked for the promise's window"
+    );
+
+    // The refresh warmed the cache; the next tick counts and delivers.
+    let second = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
+        .await
+        .unwrap();
+    assert_eq!(second.labeled, 1);
+    assert_eq!(second.reported, 1);
+    assert_eq!(second.refreshes, 0, "fresh data needs no second refresh");
+
+    let delivered = reporter.delivered();
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].outcome, Some(CommitmentOutcome::Met));
+    assert_eq!(delivered[0].completed_sessions, Some(3));
+}
+
+#[tokio::test]
+async fn a_refresh_that_finds_nothing_lets_missed_land_instead_of_expiring() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    // The provider answers honestly: no activities at all. The fetch-freshness
+    // mark still advances, which is exactly what lets the sweep believe the
+    // zero instead of deferring this row into unlabeled expiry.
+    let refresher = WarmingRefresher::returning(Arc::clone(&repos), Vec::new());
+    let reporter = RecordingReporter::open();
+
+    let first = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
+        .await
+        .unwrap();
+    assert_eq!(first.deferred, 1);
+    assert_eq!(first.refreshes, 1);
+
+    let second = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
+        .await
+        .unwrap();
+    assert_eq!(second.labeled, 1, "an honest zero is a believable verdict");
+    assert_eq!(second.reported, 1);
+
+    let delivered = reporter.delivered();
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].outcome, Some(CommitmentOutcome::Missed));
+    assert_eq!(delivered[0].completed_sessions, Some(0));
+}
+
+#[tokio::test]
+async fn a_fresh_met_count_requests_no_refresh() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let now = Utc::now();
+    seed_activities(
+        &db,
+        user,
+        tenant,
+        &[
+            activity_at("r1", SportType::Run, now - Duration::days(4)),
+            activity_at("r2", SportType::Run, now - Duration::days(2)),
+        ],
+    )
+    .await;
+
+    let refresher = WarmingRefresher::returning(Arc::clone(&repos), Vec::new());
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), Some(&refresher), now, 50)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.labeled, 1);
+    assert_eq!(outcome.refreshes, 0, "the sessions were already here");
+    assert_eq!(refresher.requests(), []);
+    assert_eq!(
+        reporter.delivered()[0].outcome,
+        Some(CommitmentOutcome::Met)
+    );
+}
+
+#[tokio::test]
+async fn a_future_window_is_left_alone() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
+    c.window_end = Utc::now() + Duration::days(3);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.scanned, 0, "the week is not over yet");
+    assert_eq!(outcome.labeled, 0);
+    assert_eq!(reporter.delivered(), []);
+}

@@ -1,0 +1,966 @@
+// ABOUTME: Integration tests for the hosted connect picker routes (page, oauth-init, success)
+// ABOUTME: Pins connect-token gating, picker render, the Strava-OAuth connected merge, and the channel each page names
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use crate::common;
+use crate::helpers;
+
+use std::sync::Arc;
+
+use dravr_canot::channels::descriptor_for;
+use helpers::axum_test::AxumTestRequest;
+use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::feature_flags::FeatureKey;
+use pierre_core::models::messaging::{channel_label, ChannelType};
+use pierre_core::models::{ConnectionType, TenantId};
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_middleware::provider_link_token::{
+    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
+};
+use pierre_routes_auth::AuthRoutes;
+use uuid::Uuid;
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
+
+async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("user has a tenant")
+        .id;
+    // These tests pin the pages against their English text; an athlete's own
+    // language is `connect_hosted_locale_test`'s subject.
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "en")
+        .await
+        .expect("store the athlete's locale");
+    (resources, user_id, tenant_id)
+}
+
+/// Arm the `provider_exposure_notice` flag for `user_id`, as an operator
+/// onboarding the athlete does; it is off by default.
+async fn arm_notice(resources: &Arc<ServerContext>, user_id: Uuid) {
+    resources
+        .common
+        .repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .expect("arm the exposure notice flag");
+}
+
+fn connect_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
+    mint_connect_link_token(
+        user_id,
+        tenant_id.as_uuid(),
+        "telegram",
+        None,
+        &resources.auth.admin_jwt_secret,
+    )
+    .expect("mint connect token")
+}
+
+/// `compute_providers_status` reads connected state from `provider_connections`
+/// (the single source of truth), so the merge test registers a real connection
+/// row rather than seeding a bare oauth token.
+async fn register_connection(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, provider, &ConnectionType::OAuth, None)
+        .await
+        .expect("register test connection");
+}
+
+// ============================================================================
+// GET /providers/connect — token gating + picker render
+// ============================================================================
+
+#[tokio::test]
+async fn connect_page_without_token_renders_error_page() {
+    let (resources, _, _) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let resp = AxumTestRequest::get("/providers/connect")
+        .header("accept-language", "en")
+        .send(app)
+        .await;
+
+    assert_eq!(resp.status(), 200, "error page is a friendly 200 HTML page");
+    let body = resp.text();
+    assert!(
+        body.contains("This link is incomplete. Please request a fresh link from your chat."),
+        "missing-token copy expected: {body}"
+    );
+    assert!(
+        !body.contains("\"provider\""),
+        "no provider cards may render without a token"
+    );
+    assert!(
+        body.contains("@media (prefers-color-scheme: dark)")
+            && body.contains(
+                r#"<div class="status-icon status-icon-error" aria-hidden="true">!</div>"#
+            ),
+        "the error page draws with the shared Boreal sheet, in both schemes"
+    );
+    assert!(!body.contains("{{"), "no placeholder survives the render");
+}
+
+#[tokio::test]
+async fn connect_page_rejects_garbage_token() {
+    let (resources, _, _) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let resp = AxumTestRequest::get("/providers/connect?token=not-a-jwt")
+        .header("accept-language", "en")
+        .send(app)
+        .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("invalid or has expired"),
+        "invalid-token copy expected: {body}"
+    );
+    assert!(!body.contains("\"provider\""));
+}
+
+/// A narrow per-provider token (the Canot-minted `provider:sciotte:login`) must
+/// never open the connect picker — only the connect superset scope may.
+#[tokio::test]
+async fn connect_page_rejects_narrow_sciotte_token() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let narrow = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target: "strava",
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .unwrap();
+
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&narrow)
+    ))
+    .header("accept-language", "en")
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("invalid or has expired"),
+        "narrow scope must be rejected: {body}"
+    );
+    assert!(!body.contains("\"provider\""));
+}
+
+#[tokio::test]
+async fn connect_page_renders_picker_for_valid_connect_token() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    // The cards are serialized as JSON into the page; the Strava-path and
+    // Garmin-path cards must both be offered, and with no connection seeded
+    // nothing may render as already connected.
+    assert!(
+        body.contains("\"target\":\"strava\""),
+        "Strava-path card expected: {body}"
+    );
+    assert!(
+        body.contains("\"target\":\"garmin\""),
+        "Garmin-path card expected: {body}"
+    );
+    assert!(
+        !body.contains("\"connected\":true"),
+        "no card may show connected without a seeded connection"
+    );
+}
+
+/// Regression: the raw `strava` OAuth row is hidden from the picker, but its
+/// connected state must merge into the Strava-path card — an already-connected
+/// user must not be offered a needless re-consent (web
+/// `ProviderConnectionCards` parity).
+#[tokio::test]
+async fn connect_page_merges_strava_oauth_connection_into_card() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("\"connected\":true"),
+        "the Strava-path card must show connected when a strava OAuth row exists: {body}"
+    );
+}
+
+/// Regression (carnet#352): a `garmin` OAuth row ALONE must not read as
+/// connected. `resolve_backend` routes every Garmin request to `sciotte_garmin`
+/// unconditionally, because the official Garmin API is partner-gated and
+/// uncredentialed — so an athlete holding only the OAuth row saw
+/// `connected: true, needs_reauth: false` on every status surface while each
+/// coach call failed with "Provider `sciotte_garmin` requires authentication".
+#[tokio::test]
+async fn connect_page_does_not_show_garmin_connected_on_an_oauth_row_alone() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        !body.contains("\"connected\":true"),
+        "a garmin OAuth row serves no fetch, so no card may render connected: {body}"
+    );
+}
+
+/// The other half of the pair, so the fix above is a correction and not simply
+/// "Garmin is never connected": the mirror row is the one that actually serves,
+/// and it must read as connected.
+#[tokio::test]
+async fn connect_page_shows_garmin_connected_on_the_mirror_row() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("\"connected\":true"),
+        "the sciotte_garmin row is the backend every Garmin fetch uses, so the card must show connected: {body}"
+    );
+}
+
+// ============================================================================
+// GET /api/providers/connect/oauth-init/{provider} — token gating
+// ============================================================================
+
+#[tokio::test]
+async fn oauth_init_rejects_missing_token() {
+    let (resources, _, _) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let resp = AxumTestRequest::get("/api/providers/connect/oauth-init/strava")
+        .send(app)
+        .await;
+
+    assert_ne!(resp.status(), 302, "no redirect without a token");
+    assert!(
+        resp.status() >= 400,
+        "missing token must be an auth error, got {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
+async fn oauth_init_rejects_narrow_sciotte_token() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let narrow = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target: "strava",
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .unwrap();
+
+    let resp = AxumTestRequest::get(&format!(
+        "/api/providers/connect/oauth-init/strava?token={}",
+        urlencoding::encode(&narrow)
+    ))
+    .send(app)
+    .await;
+
+    assert_ne!(resp.status(), 302, "narrow scope must not initiate OAuth");
+    assert!(
+        resp.status() >= 400,
+        "narrow token must be an auth error, got {}",
+        resp.status()
+    );
+}
+
+/// An unknown provider path param must never 302 — the provider registry is
+/// the allowlist, and the failure renders the friendly error page.
+#[tokio::test]
+async fn oauth_init_rejects_unknown_provider() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/api/providers/connect/oauth-init/not_a_provider?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_ne!(resp.status(), 302, "unknown provider must not redirect");
+    let body = resp.text();
+    assert!(
+        body.contains("We couldn&#x27;t start the connection for this provider."),
+        "unknown provider renders the error path: {body}"
+    );
+}
+
+// ============================================================================
+// GET /providers/connect/success
+// ============================================================================
+
+#[tokio::test]
+async fn success_page_renders_with_channel_and_target() {
+    let (resources, _, _) = test_setup().await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let resp = AxumTestRequest::get("/providers/connect/success?channel=telegram&target=strava")
+        .send(app)
+        .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.to_lowercase().contains("telegram"),
+        "success page should reference the originating channel: {body}"
+    );
+}
+
+/// TrainingPeaks has only the scrape path, so the picker offers it as a
+/// credential card, and its mirror row is what lights it.
+#[tokio::test]
+async fn connect_page_offers_trainingpeaks_and_lights_it_on_the_mirror_row() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let before = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(before.status(), 200);
+    let body = before.text();
+    assert!(
+        body.contains("\"provider\":\"sciotte_trainingpeaks\"")
+            && body.contains("\"target\":\"trainingpeaks\""),
+        "a TrainingPeaks credential card is offered: {body}"
+    );
+    assert!(!body.contains("\"connected\":true"));
+
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let after = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    assert!(
+        after.contains("\"connected\":true"),
+        "the sciotte_trainingpeaks row must show the TrainingPeaks card connected: {after}"
+    );
+}
+
+#[tokio::test]
+async fn success_page_names_trainingpeaks() {
+    let (resources, _, _) = test_setup().await;
+    let resp =
+        AxumTestRequest::get("/providers/connect/success?channel=telegram&target=trainingpeaks")
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("TrainingPeaks"),
+        "the success page names the provider just connected, not a generic label: {body}"
+    );
+}
+
+// ============================================================================
+// The TrainingPeaks exposure notice on the hosted pages
+// ============================================================================
+
+/// The hosted login page for `target`, rendered from a freshly minted link
+/// token (each render burns its token).
+async fn hosted_login_page(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    target: &str,
+) -> String {
+    let token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target,
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .expect("mint hosted-login token");
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/sciotte/login?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(AuthRoutes::routes(resources.auth_routes_context()))
+    .await;
+    assert_eq!(resp.status(), 200);
+    resp.text()
+}
+
+/// The hosted TrainingPeaks login states the exposure above the credentials
+/// and holds Log In until the box is ticked — until this account has accepted
+/// the notice, after which a reconnect goes straight to the form. Garmin never
+/// shows it.
+#[tokio::test]
+async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_it() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
+
+    let page = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
+    assert!(
+        page.contains("TrainingPeaks could suspend my account"),
+        "the acceptance is stated on the page: {page}"
+    );
+    assert!(page.contains("Terms of Use (section 13)"));
+    assert!(
+        page.contains(
+            // The page HTML-escapes the apostrophe.
+            "If yours is a human coach&#x27;s account, Dravr also uses it to read the \
+             calendars of the athletes who confirm a link in a group you oversee."
+        ),
+        "the notice says a coach's account reads the athletes who confirm a link: {page}"
+    );
+    assert!(
+        page.contains("id=\"consent-block\">"),
+        "the notice starts visible"
+    );
+    // The notice opens with its title, as the web and mobile modals show it,
+    // on the warning callout with the acceptance as its outlined checkbox.
+    assert!(
+        page.contains(r#"<div class="callout" role="note" id="consent-block">"#)
+            && page.contains(r#"<p class="callout-title">Before you connect TrainingPeaks</p>"#),
+        "the hosted notice carries its title: {page}"
+    );
+    assert!(
+        page.find("Before you connect TrainingPeaks").unwrap()
+            < page.find("Terms of Use (section 13)").unwrap(),
+        "the title heads the notice body"
+    );
+    assert!(page.contains(r#"<label class="check"><input type="checkbox" id="tos-consent">"#));
+    assert!(
+        page.contains("@media (prefers-color-scheme: dark)"),
+        "the login page draws with the shared Boreal sheet, in both schemes"
+    );
+    assert!(!page.contains("{{"), "no placeholder survives the render");
+    assert!(page.contains("consentRequired: true"));
+    // TrainingPeaks signs in with a username; an email-typed field would
+    // refuse the account before it was ever sent.
+    assert!(
+        page.contains("<label for=\"email\">Username</label>")
+            && page.contains("type=\"text\" id=\"email\"")
+            && page.contains("autocomplete=\"username\""),
+        "the TrainingPeaks login asks for a username"
+    );
+    let notice_at = page.find("id=\"consent-block\"").unwrap();
+    let form_at = page.find("id=\"login-form\"").unwrap();
+    assert!(
+        notice_at < form_at,
+        "the notice comes before the credentials, not after them"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(user_id, TP_NOTICE_BACKEND, tp_terms_version())
+        .await
+        .unwrap();
+    let accepted = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
+    assert!(accepted.contains("consentRequired: false"));
+    assert!(accepted.contains("id=\"consent-block\" hidden>"));
+
+    let garmin = hosted_login_page(&resources, user_id, tenant_id, "garmin").await;
+    assert!(garmin.contains("consentRequired: false"));
+    // A Garmin Connect account from before email sign-in has a username, so
+    // the field takes either and is not typed `email` (carnet#873).
+    assert!(
+        garmin.contains("<label for=\"email\">Email or username</label>")
+            && garmin.contains("type=\"text\" id=\"email\""),
+        "Garmin's login takes an email or a username"
+    );
+    assert!(garmin.contains("id=\"consent-block\" hidden>"));
+}
+
+/// The COROS hosted login states COROS' own notice before an email field, and
+/// asks until this account accepts that notice.
+#[tokio::test]
+async fn hosted_coros_login_asks_for_the_coros_notice_until_accepted() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
+    let page = hosted_login_page(&resources, user_id, tenant_id, "coros").await;
+    assert!(page.contains("consentRequired: true"));
+    assert!(
+        page.contains(r#"<p class="callout-title">Before you connect COROS</p>"#),
+        "the page shows COROS' notice, not another provider's: {page}"
+    );
+    assert!(page.contains("Terms of Service (sections 4 and 7)"));
+    assert!(
+        !page.contains("Before you connect TrainingPeaks")
+            && !page.contains("TrainingPeaks could suspend my account"),
+        "the COROS page carries no TrainingPeaks notice"
+    );
+    assert!(
+        page.contains("<label for=\"email\">Email</label>")
+            && page.contains("type=\"email\" id=\"email\""),
+        "COROS signs in with an email"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "sciotte_coros",
+            provider_terms_version("sciotte_coros").unwrap(),
+        )
+        .await
+        .unwrap();
+    let accepted = hosted_login_page(&resources, user_id, tenant_id, "coros").await;
+    assert!(accepted.contains("consentRequired: false"));
+    assert!(accepted.contains("id=\"consent-block\" hidden>"));
+}
+
+/// The cards the picker page embeds, as the page's script reads them.
+fn picker_cards(body: &str) -> Vec<serde_json::Value> {
+    let start = body.find("providers: ").expect("the page embeds its cards") + "providers: ".len();
+    let json = &body[start..];
+    let end = json.find(",\n").expect("the card list ends its line");
+    serde_json::from_str(&json[..end]).expect("the embedded cards are JSON")
+}
+
+fn picker_card<'a>(cards: &'a [serde_json::Value], target: &str) -> &'a serde_json::Value {
+    cards
+        .iter()
+        .find(|c| c["target"] == target)
+        .unwrap_or_else(|| panic!("the picker offers a {target} card"))
+}
+
+/// The picker carries the notice block hidden and empty, and each card
+/// carries its own notice and whether to show it: TrainingPeaks and COROS ask,
+/// each with its own text and each until accepted; Garmin asks nothing.
+#[tokio::test]
+async fn picker_asks_each_provider_for_its_own_notice() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    assert!(body.contains("id=\"consent-block\" hidden>"));
+    assert!(
+        body.contains(r#"<p class="callout-title"></p>"#),
+        "the block starts empty; a picked card fills it"
+    );
+    // A card's glyph takes its provider's ink per scheme, from PROVIDER_GLYPH_INK.
+    assert!(body.contains(r#".pc-glyph[data-provider="sciotte_trainingpeaks"]"#));
+    assert!(body.contains(r#".pc-glyph[data-provider="sciotte_coros"]"#));
+
+    let cards = picker_cards(&body);
+    let trainingpeaks = picker_card(&cards, "trainingpeaks");
+    assert_eq!(trainingpeaks["consent_required"], true);
+    assert_eq!(
+        trainingpeaks["notice"]["title"],
+        "Before you connect TrainingPeaks"
+    );
+    assert!(trainingpeaks["notice"]["consent"]
+        .as_str()
+        .unwrap()
+        .contains("TrainingPeaks could suspend my account"));
+    assert_eq!(trainingpeaks["login_identifier"], "username");
+
+    let coros = picker_card(&cards, "coros");
+    assert_eq!(coros["provider"], "sciotte_coros");
+    assert_eq!(coros["display_name"], "COROS");
+    assert_eq!(coros["consent_required"], true);
+    assert_eq!(coros["notice"]["title"], "Before you connect COROS");
+    assert!(coros["notice"]["body"]
+        .as_str()
+        .unwrap()
+        .contains("sections 4 and 7"));
+    assert_eq!(coros["login_identifier"], "email");
+
+    let garmin = picker_card(&cards, "garmin");
+    assert_eq!(garmin["consent_required"], false);
+    assert!(garmin.get("notice").is_none(), "Garmin has no notice");
+    // A Garmin Connect account from before Garmin moved to email sign-in
+    // still has a username (carnet#873), so the card takes either.
+    assert_eq!(garmin["login_identifier"], "email_or_username");
+    assert!(
+        cards.iter().all(|c| c["provider"] != "coros"),
+        "COROS' raw OAuth card, which Pierre cannot complete, is never offered"
+    );
+    assert!(
+        body.contains(r#""tagUsernamePassword":"Username / password""#),
+        "the picker names the username a TrainingPeaks card asks for"
+    );
+    assert!(
+        body.contains(r#""tagEmailOrUsernamePassword":"Email or username / password""#),
+        "the picker names the email or username a Garmin card takes"
+    );
+
+    // Accepting one provider's notice answers that provider alone.
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(user_id, TP_NOTICE_BACKEND, tp_terms_version())
+        .await
+        .unwrap();
+    let accepted = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    let cards = picker_cards(&accepted);
+    assert_eq!(
+        picker_card(&cards, "trainingpeaks")["consent_required"],
+        false,
+        "an account that accepted is not asked again"
+    );
+    assert_eq!(
+        picker_card(&cards, "coros")["consent_required"],
+        true,
+        "the TrainingPeaks answer says nothing about COROS"
+    );
+}
+
+// ============================================================================
+// GET /r/{code} — the expired short-link page
+// ============================================================================
+
+/// A lapsed short link lands on a hosted page like the others: the shared
+/// Boreal sheet in both schemes, the lockup, and the copy in the browser's
+/// language.
+#[tokio::test]
+async fn expired_short_link_page_draws_with_the_boreal_sheet() {
+    let (resources, _, _) = test_setup().await;
+    let resp = AxumTestRequest::get("/r/0123456789abcdef0123456789abcdef")
+        .header("accept-language", "en-CA,en;q=0.9")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_eq!(resp.status(), 404);
+    let body = resp.text();
+    assert!(
+        body.contains("<h1>This link has expired</h1>"),
+        "the page speaks the browser's language: {body}"
+    );
+    assert!(body.contains(r#"<div class="lockup" role="img" aria-label="Dravr"></div>"#));
+    let dark_at = body
+        .find("@media (prefers-color-scheme: dark)")
+        .expect("the page carries the dark scheme");
+    assert!(body[..dark_at].contains("--color-primary: 37 95 77;"));
+    assert!(body[dark_at..].contains("--color-primary: 163 208 190;"));
+    assert!(
+        !body.contains("style=\""),
+        "no inline style is left on the page"
+    );
+}
+
+/// Left at its default, the `provider_exposure_notice` flag asks for no
+/// notice: neither the picker's TrainingPeaks and COROS cards nor their hosted
+/// login pages show it, which is how a demo account connects.
+#[tokio::test]
+async fn an_unarmed_account_is_asked_for_no_notice() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    let cards = picker_cards(&body);
+    for target in ["trainingpeaks", "coros"] {
+        assert_eq!(
+            picker_card(&cards, target)["consent_required"],
+            false,
+            "the {target} card asks nothing of an unarmed account"
+        );
+        let page = hosted_login_page(&resources, user_id, tenant_id, target).await;
+        assert!(
+            page.contains("consentRequired: false"),
+            "the {target} hosted login asks nothing of an unarmed account"
+        );
+        assert!(
+            page.contains("id=\"consent-block\" hidden>"),
+            "the {target} notice block stays hidden"
+        );
+    }
+}
+
+/// Each picker card carries the description `/api/providers` serves, in the
+/// user's own locale, and the page renders it under the name (carnet#574).
+#[tokio::test]
+async fn picker_cards_carry_the_served_description() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    resources
+        .common
+        .repos
+        .users
+        .update_locale(user_id, "fr")
+        .await
+        .expect("set the user's locale");
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    let cards = picker_cards(&body);
+    assert_eq!(
+        picker_card(&cards, "coros")["description"],
+        "Activités et indicateurs de récupération des montres COROS"
+    );
+    assert_eq!(
+        picker_card(&cards, "strava")["description"],
+        "Activités de course, de vélo et de natation"
+    );
+    assert!(
+        body.contains("description.className = 'pc-desc'"),
+        "the page renders each card's description under its name"
+    );
+}
+
+// ============================================================================
+// The chat each hosted page says the athlete came from
+// ============================================================================
+
+/// Every channel canot declares. The match is exhaustive, so a channel canot
+/// adds stops this file compiling until it is listed here, rather than going
+/// untested.
+fn every_channel() -> [ChannelType; 5] {
+    let channels = [
+        ChannelType::WhatsApp,
+        ChannelType::Messenger,
+        ChannelType::Discord,
+        ChannelType::Slack,
+        ChannelType::Telegram,
+    ];
+    for channel in channels {
+        match channel {
+            ChannelType::WhatsApp
+            | ChannelType::Messenger
+            | ChannelType::Discord
+            | ChannelType::Slack
+            | ChannelType::Telegram => {}
+        }
+    }
+    channels
+}
+
+/// The body of a GET on an unauthenticated hosted page, from a browser that
+/// reads English: a page with no token to name its athlete follows it.
+async fn page(resources: &Arc<ServerContext>, url: &str) -> String {
+    let resp = AxumTestRequest::get(url)
+        .header("accept-language", "en")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 200, "{url} renders");
+    resp.text()
+}
+
+/// Every hosted page names the chat by the name its canot descriptor declares
+/// — the login and picker pills and both success pages — with no platform
+/// spelling of its own beside it.
+#[tokio::test]
+async fn every_hosted_page_names_the_channel_by_its_canot_display_name() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    for channel in every_channel() {
+        let slug = channel.to_string();
+        let name = descriptor_for(channel)
+            .unwrap_or_else(|| panic!("the server build compiles the {slug} adapter"))
+            .display_name();
+        assert_eq!(channel_label(&slug), name, "{slug} is labelled by canot");
+
+        for success in ["/providers/connect/success", "/providers/sciotte/success"] {
+            let body = page(
+                &resources,
+                &format!("{success}?channel={slug}&target=strava"),
+            )
+            .await;
+            assert!(
+                body.contains(&format!("You can return to {name} to continue")),
+                "{success} names {slug} as {name}: {body}"
+            );
+        }
+
+        let connect = mint_connect_link_token(
+            user_id,
+            tenant_id.as_uuid(),
+            &slug,
+            None,
+            &resources.auth.admin_jwt_secret,
+        )
+        .expect("mint connect token");
+        let picker = page(
+            &resources,
+            &format!("/providers/connect?token={}", urlencoding::encode(&connect)),
+        )
+        .await;
+        assert!(
+            picker.contains(&format!("Linked from {name}</span>")),
+            "the picker names {slug} as {name}: {picker}"
+        );
+
+        let login = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id,
+                tenant_id: tenant_id.as_uuid(),
+                provider: "sciotte",
+                target: "strava",
+                channel: &slug,
+                channel_thread: None,
+            },
+            &resources.auth.admin_jwt_secret,
+        )
+        .expect("mint hosted-login token");
+        let login_page = page(
+            &resources,
+            &format!(
+                "/providers/sciotte/login?token={}",
+                urlencoding::encode(&login)
+            ),
+        )
+        .await;
+        assert!(
+            login_page.contains(&format!("Linked from {name}</span>")),
+            "the hosted login names {slug} as {name}: {login_page}"
+        );
+    }
+}
+
+/// A link minted on an in-app surface, or a success URL with no channel,
+/// names no messaging channel, so the page says "your chat app" instead of
+/// capitalizing the slug into `Web_chat`.
+#[tokio::test]
+async fn a_surface_that_is_not_a_channel_reads_as_your_chat_app() {
+    let (resources, _, _) = test_setup().await;
+
+    for slug in ["web_chat", "mobile_chat", "", "carrier-pigeon"] {
+        assert_eq!(channel_label(slug), "your chat app", "{slug:?}");
+        let body = page(
+            &resources,
+            &format!("/providers/connect/success?channel={slug}&target=strava"),
+        )
+        .await;
+        assert!(
+            body.contains("You can return to your chat app to continue"),
+            "{slug:?} reads as the generic label: {body}"
+        );
+        assert!(
+            !body.contains("Web_chat") && !body.contains("Mobile_chat"),
+            "no slug is capitalized into a name: {body}"
+        );
+    }
+}

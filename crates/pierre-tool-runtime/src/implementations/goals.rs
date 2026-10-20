@@ -503,9 +503,11 @@ fn detect_primary_sport(activities: &[Activity]) -> Vec<String> {
         *sport_counts.entry(sport_name).or_insert(0) += 1;
     }
 
+    // Ties go to the alphabetically first sport, so the same history names
+    // the same primary sport on every call (`HashMap` order is random).
     sport_counts
         .into_iter()
-        .max_by_key(|(_, count)| *count)
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
         .map(|(sport, _)| vec![sport])
         .unwrap_or_default()
 }

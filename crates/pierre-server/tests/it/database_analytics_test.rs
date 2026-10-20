@@ -1,0 +1,104 @@
+// ABOUTME: Integration tests for database analytics functionality
+// ABOUTME: Tests JWT usage tracking, goals management, insights storage, and system stats
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use chrono::Utc;
+use pierre_core::models::User;
+use pierre_core::models::{JwtUsage, MonthlyLimitOverride};
+use pierre_database::backends::factory::Database;
+use uuid::Uuid;
+
+use crate::common;
+use common::*;
+
+async fn create_test_user(db: &Database) -> User {
+    let uuid = Uuid::new_v4();
+    let (_user_id, user) =
+        create_test_user_with_email(db, &format!("analytics_{uuid}@example.com"))
+            .await
+            .expect("Failed to create user");
+    user
+}
+
+#[tokio::test]
+async fn test_jwt_usage_tracking() {
+    let db = common::create_test_database()
+        .await
+        .expect("Failed to create test database");
+
+    let user = create_test_user(&db).await;
+
+    // Record JWT usage
+    let usage = JwtUsage {
+        id: None,
+        user_id: user.id,
+        timestamp: Utc::now(),
+        endpoint: "/api/v1/profile".into(),
+        method: "GET".into(),
+        status_code: 200,
+        response_time_ms: Some(25),
+        request_size_bytes: Some(128),
+        response_size_bytes: Some(512),
+        ip_address: Some("192.168.1.1".into()),
+        user_agent: Some("TestClient/1.0".into()),
+    };
+
+    let repos = db.repositories();
+    repos
+        .usage
+        .record_jwt_usage(&usage)
+        .await
+        .expect("Failed to record JWT usage");
+
+    // Check current usage (use a more generous time window for tests)
+    let current_usage = repos
+        .usage
+        .get_jwt_current_usage(user.id)
+        .await
+        .expect("Failed to get current JWT usage");
+    assert_eq!(current_usage.used, 1);
+    assert_eq!(
+        current_usage.monthly_override,
+        MonthlyLimitOverride::NotSet,
+        "no override row: the tier's limit applies"
+    );
+}
+
+#[tokio::test]
+async fn test_goals_management() {
+    let db = common::create_test_database()
+        .await
+        .expect("Failed to create test database");
+
+    let user = create_test_user(&db).await;
+
+    // Create a goal
+    let goal_data = serde_json::json!({
+        "type": "weekly_distance",
+        "target": 50.0,
+        "unit": "km",
+        "current": 0.0
+    });
+
+    let repos = db.repositories();
+    let goal_id = repos
+        .profiles
+        .create_goal(user.id, goal_data.clone())
+        .await
+        .expect("Failed to create goal");
+
+    // Get user goals
+    let goals = repos
+        .profiles
+        .get_goals(user.id)
+        .await
+        .expect("Failed to get user goals");
+    assert_eq!(goals.len(), 1);
+    assert_eq!(goals[0]["type"], "weekly_distance");
+    assert_eq!(goals[0]["goal_id"].as_str(), Some(goal_id.as_str()));
+}

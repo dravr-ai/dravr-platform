@@ -1,0 +1,953 @@
+// ABOUTME: HTTP integration tests for authentication routes
+// ABOUTME: Tests all authentication endpoints including registration, login, refresh, and provider status
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+#![allow(clippy::uninlined_format_args)]
+
+//! Comprehensive HTTP integration tests for authentication routes
+//!
+//! This test suite validates that all authentication endpoints are correctly registered
+//! in the router and handle HTTP requests appropriately.
+
+use crate::common;
+use crate::helpers;
+
+use chrono::{DateTime, Duration, Utc};
+use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::{
+    first_party_router, redeem, FirstPartyClient, SignIn, DEFAULT_PEER,
+};
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
+use pierre_core::models::{Tenant, TenantId, User};
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
+use serde_json::json;
+use std::sync::Arc;
+use uuid::Uuid;
+
+/// Test setup helper for authentication route testing
+struct AuthTestSetup {
+    resources: Arc<ServerContext>,
+}
+
+impl AuthTestSetup {
+    async fn new() -> anyhow::Result<Self> {
+        common::init_server_config();
+        let database = common::create_test_database().await?;
+        let auth_manager = common::create_test_auth_manager();
+        let cache = common::create_test_cache().await?;
+
+        // Create ServerContext
+        let temp_dir = tempfile::tempdir()?;
+        let config = Arc::new(ServerConfig {
+            http_port: 8081,
+            database: DatabaseConfig {
+                url: DatabaseUrl::Memory,
+                backup: BackupConfig {
+                    directory: temp_dir.path().to_path_buf(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            app_behavior: AppBehaviorConfig {
+                ci_mode: true,
+                auto_approve_users: false,
+                ..Default::default()
+            },
+            security: SecurityConfig {
+                headers: SecurityHeadersConfig {
+                    environment: Environment::Testing,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let resources = Arc::new(
+            ServerContext::new(
+                (*database).clone(),
+                (*auth_manager).clone(),
+                "test_jwt_secret",
+                config,
+                cache,
+                ServerContextOptions {
+                    rsa_key_size_bits: Some(2048),
+                    jwks_manager: Some(common::get_shared_test_jwks()),
+                    llm_provider: None,
+                    chat_provider: None,
+                    extra_tools: Vec::new(),
+                    billing_provider: None,
+                    turn_runner: None,
+                },
+            )
+            .await
+            .unwrap(),
+        );
+
+        Ok(Self { resources })
+    }
+
+    fn routes(&self) -> axum::Router {
+        AuthRoutes::routes(self.resources.auth_routes_context())
+    }
+
+    /// Create a test admin token for authentication
+    async fn create_admin_token(&self) -> anyhow::Result<String> {
+        use pierre_core::admin::models::CreateAdminTokenRequest;
+
+        // Create admin token request
+        let request = CreateAdminTokenRequest {
+            service_name: "test_admin".to_owned(),
+            service_description: Some("Auto-generated test admin token".to_owned()),
+            permissions: None, // Super admin by default
+            expires_in_days: Some(1),
+            is_super_admin: true,
+            tenant_id: None,
+            operator_user_id: None,
+        };
+
+        // Use repository to create admin token
+        let generated_token = self
+            .resources
+            .common
+            .repos
+            .admin
+            .create_token(
+                &request,
+                "test_jwt_secret",
+                &self.resources.auth.jwks_manager,
+            )
+            .await?;
+
+        Ok(generated_token.jwt_token)
+    }
+}
+
+// ============================================================================
+// POST /api/auth/register - User Registration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_register_success() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "newuser@example.com",
+        "password": "securePassword123",
+        "display_name": "New User"
+    });
+
+    let response = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 201);
+
+    let body: serde_json::Value = response.json();
+    assert!(body["user_id"].is_string());
+    assert!(body["message"].is_string());
+}
+
+#[tokio::test]
+async fn test_public_register_creates_pending_user() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "public@example.com",
+        "password": "password123",
+        "display_name": "Public User"
+    });
+
+    // Public self-registration should succeed without admin auth
+    // (creates user in Pending status, requires admin approval)
+    let response = AxumTestRequest::post("/api/auth/register")
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        201,
+        "Public registration should succeed with 201 Created"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["user_id"].is_string(),
+        "Response should contain user_id"
+    );
+    let message = body["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("pending") || message.contains("approval"),
+        "Message should indicate pending approval: {}",
+        message
+    );
+}
+
+#[tokio::test]
+async fn test_register_invalid_email() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "invalid-email",
+        "password": "password123"
+    });
+
+    let response = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    // Should fail validation
+    assert!(response.status() == 400 || response.status() == 422);
+}
+
+#[tokio::test]
+async fn test_register_weak_password() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "user@example.com",
+        "password": "weak"
+    });
+
+    let response = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    // Should fail validation (password too short)
+    assert!(response.status() == 400 || response.status() == 422);
+}
+
+#[tokio::test]
+async fn test_register_duplicate_email() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "duplicate@example.com",
+        "password": "password123",
+        "display_name": "Duplicate User"
+    });
+
+    // First registration should succeed
+    let _response1 = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes.clone())
+        .await;
+
+    // Second registration with same email should fail
+    let response2 = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    // First should succeed or have valid error, second should fail
+    assert_ne!(response2.status(), 201);
+}
+
+#[tokio::test]
+async fn test_register_missing_required_fields() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    let routes = setup.routes();
+
+    let register_request = json!({
+        "email": "user@example.com"
+        // Missing password
+    });
+
+    let response = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(routes)
+        .await;
+
+    // Should fail validation
+    assert_ne!(response.status(), 201);
+}
+
+// ============================================================================
+// POST /oauth/token - User Login Tests (OAuth2 ROPC)
+// ============================================================================
+
+#[tokio::test]
+async fn test_login_success() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    // Create a test user first
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    // The web app's sign-in: hosted login page, then the code redeemed with PKCE
+    // ("password123" is create_test_user's default password).
+    let response = SignIn::new(&user.email, "password123")
+        .run(&setup.resources)
+        .await
+        .token();
+
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+
+    let body: serde_json::Value = response.json();
+    assert!(body["access_token"].is_string());
+    assert_eq!(body["token_type"].as_str(), Some("Bearer"));
+    assert!(body["expires_in"].is_number());
+    assert!(body["user"]["user_id"].is_string());
+    assert!(body["user"]["email"].is_string());
+}
+
+#[tokio::test]
+async fn test_login_no_auth_required() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    // The sign-in needs no authentication header: an unknown account is
+    // refused for its credentials by the hosted login form, never for a
+    // missing header and never with a server error.
+    let refused = SignIn::new("user@example.com", "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401, "{}", refused.body_text());
+}
+
+#[tokio::test]
+async fn test_login_invalid_credentials() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    // The hosted login form refuses bad credentials; no code reaches the app.
+    let refused = SignIn::new("nonexistent@example.com", "wrongpassword")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401);
+    assert!(refused.header("set-cookie").is_none());
+}
+
+#[tokio::test]
+async fn test_login_wrong_password() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    // Create a test user first
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    // The hosted login form refuses a wrong password; no code reaches the app.
+    let refused = SignIn::new(&user.email, "wrongpassword")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+    assert_eq!(refused.status(), 401);
+    assert!(refused.header("set-cookie").is_none());
+}
+
+#[tokio::test]
+async fn test_login_missing_fields() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // A form the token request type cannot read at all: no grant_type
+    let login_request = [("client_id", "dravr-web"), ("code", "some-code")];
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&login_request)
+        .send(routes)
+        .await;
+
+    // RFC 6749 §5.2: a malformed/missing-parameter token request returns a 400
+    // with an `invalid_request` JSON error — not the bare framework 422 that
+    // leaks the internal field name. (Regression for the Phase-7 finding.)
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+    // The internal deserializer field name must not leak into the response.
+    assert!(!body.to_string().contains("missing field"));
+}
+
+// ============================================================================
+// POST /oauth/token - Refresh Token Tests (offline_access + refresh_token grant)
+// ============================================================================
+
+/// Log the shared test user in the way the mobile app does — asking for a
+/// refresh token — and return the JSON body.
+async fn login_with_offline_access(setup: &AuthTestSetup, email: &str) -> serde_json::Value {
+    SignIn::new(email, "password123")
+        .client(FirstPartyClient::Mobile)
+        .offline_access()
+        .run(&setup.resources)
+        .await
+        .signed_in()
+}
+
+/// Exchange a refresh token at the token endpoint.
+async fn exchange(setup: &AuthTestSetup, refresh_token: &str) -> (u16, serde_json::Value) {
+    let refresh_request = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+    ];
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&refresh_request)
+        .send(setup.routes())
+        .await;
+    let status = response.status();
+    (status, response.json())
+}
+
+#[tokio::test]
+async fn test_login_with_offline_access_returns_a_refresh_token() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let body = login_with_offline_access(&setup, &user.email).await;
+
+    assert!(body["access_token"].is_string());
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .expect("offline_access login carries a refresh token");
+    // 32 random bytes, base64url without padding.
+    assert_eq!(refresh_token.len(), 43);
+}
+
+#[tokio::test]
+async fn test_login_without_offline_access_returns_no_refresh_token() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let body = SignIn::new(&user.email, "password123")
+        .run(&setup.resources)
+        .await
+        .signed_in();
+    assert!(body["access_token"].is_string());
+    // The web app never asked, so nothing exchangeable was written for it.
+    assert!(body.get("refresh_token").is_none());
+}
+
+#[tokio::test]
+async fn test_refresh_grant_rotates_the_token_and_kills_a_replayed_family() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    let first = login["refresh_token"].as_str().unwrap().to_owned();
+    let login_jwt = login["access_token"].as_str().unwrap().to_owned();
+
+    // Exchange: a new JWT, the same user, and a successor token.
+    let (status, refreshed) = exchange(&setup, &first).await;
+    assert_eq!(status, 200, "{refreshed}");
+    let refreshed_jwt = refreshed["access_token"].as_str().unwrap();
+    assert_ne!(refreshed_jwt, login_jwt, "the exchange mints a new JWT");
+    assert_eq!(refreshed["token_type"].as_str(), Some("Bearer"));
+    assert!(refreshed["expires_in"].as_i64().unwrap() > 0);
+    assert!(refreshed["csrf_token"].is_string());
+    assert_eq!(
+        refreshed["user"]["user_id"].as_str(),
+        Some(user_id.to_string().as_str())
+    );
+    assert_eq!(
+        refreshed["user"]["email"].as_str(),
+        Some(user.email.as_str())
+    );
+    let second = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    assert_ne!(second, first, "the exchange rotates the refresh token");
+
+    // The token just exchanged is dead.
+    let (status, replay) = exchange(&setup, &first).await;
+    assert_eq!(status, 400);
+    assert_eq!(replay["error"].as_str(), Some("invalid_grant"));
+
+    // And replaying it revoked its successor: a copied credential stops
+    // working the moment the real device has moved on.
+    let (status, successor) = exchange(&setup, &second).await;
+    assert_eq!(status, 400);
+    assert_eq!(successor["error"].as_str(), Some("invalid_grant"));
+}
+
+/// Give `user_id` a second tenant it joined after its own, owned by another
+/// user, and return both tenant ids: the one the login resolves first, then
+/// the one it moves to once removed from the first.
+async fn second_tenant_membership(setup: &AuthTestSetup, user_id: Uuid) -> (TenantId, TenantId) {
+    let repos = setup.resources.agent.database.repositories();
+    let first = repos.tenants.list_for_user(user_id).await.unwrap()[0].id;
+
+    let owner = User::new(
+        "second-owner@example.com".to_owned(),
+        "unused-hash".to_owned(),
+        Some("Second Owner".to_owned()),
+    );
+    repos.users.create(&owner).await.unwrap();
+    let second = TenantId::generate();
+    repos
+        .tenants
+        .create(&Tenant {
+            id: second,
+            name: "Second Tenant".to_owned(),
+            slug: format!("second-tenant-{second}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: owner.id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    let joined = Utc::now() + Duration::seconds(5);
+    insert_member(setup, user_id, second, joined).await;
+    (first, second)
+}
+
+/// File `user_id` as a member of `tenant_id`, joined at `at`.
+async fn insert_member(
+    setup: &AuthTestSetup,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    at: DateTime<Utc>,
+) {
+    match setup.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4().to_string())
+                .bind(tenant_id.to_string())
+                .bind(user_id.to_string())
+                .bind(at.to_rfc3339())
+                .bind(at.to_rfc3339())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        // `tenant_users` keys are `uuid` columns and the timestamps are
+        // `timestamptz` on PostgreSQL, so the binds carry the native types.
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(INSERT_MEMBER)
+                .bind(Uuid::new_v4())
+                .bind(tenant_id.as_uuid())
+                .bind(user_id)
+                .bind(at)
+                .bind(at)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// Remove `user_id` from `tenant_id`, the way an operator's removal leaves it.
+async fn delete_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId) {
+    match setup.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(DELETE_MEMBER)
+                .bind(user_id.to_string())
+                .bind(tenant_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(DELETE_MEMBER)
+                .bind(user_id)
+                .bind(tenant_id.as_uuid())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// A tenant membership row, filed the way the invitation flows file it.
+const INSERT_MEMBER: &str =
+    "INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at) \
+     VALUES ($1, $2, $3, 'member', $4, $5)";
+/// A tenant membership removed.
+const DELETE_MEMBER: &str = "DELETE FROM tenant_users WHERE user_id = $1 AND tenant_id = $2";
+
+#[tokio::test]
+async fn test_refresh_grant_drops_a_tenant_the_user_was_removed_from() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+    let (first, second) = second_tenant_membership(&setup, user_id).await;
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    assert_eq!(
+        login["user"]["tenant_id"].as_str(),
+        Some(first.to_string().as_str())
+    );
+    let refresh_token = login["refresh_token"].as_str().unwrap().to_owned();
+
+    // Removed from the tenant the login recorded, while the phone keeps its
+    // refresh token.
+    delete_member(&setup, user_id, first).await;
+
+    let (status, refreshed) = exchange(&setup, &refresh_token).await;
+    assert_eq!(status, 200, "{refreshed}");
+    // The refreshed session names the tenant the user still belongs to, not
+    // the one the family recorded at login.
+    assert_eq!(
+        refreshed["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str())
+    );
+
+    // And so does the successor's own exchange.
+    let successor = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    let (status, again) = exchange(&setup, &successor).await;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(
+        again["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str())
+    );
+}
+
+#[tokio::test]
+async fn test_session_restore_drops_a_tenant_the_user_was_removed_from() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+    let (first, second) = second_tenant_membership(&setup, user_id).await;
+
+    // A JWT minted while the user belonged to the first tenant.
+    let jwt = setup
+        .resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(
+            &user,
+            &setup.resources.auth.jwks_manager,
+            Some(first.to_string()),
+        )
+        .unwrap();
+    delete_member(&setup, user_id, first).await;
+
+    let response = AxumTestRequest::get("/api/auth/session")
+        .header("authorization", &format!("Bearer {jwt}"))
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["user"]["tenant_id"].as_str(),
+        Some(second.to_string().as_str()),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn test_refresh_grant_with_unknown_token_is_invalid_grant() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let (status, body) = exchange(&setup, "never-issued").await;
+
+    assert_eq!(status, 400);
+    assert_eq!(body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_refresh_grant_without_token_is_invalid_request() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[("grant_type", "refresh_token")])
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+}
+
+/// Post a password grant with `client_id` (omitted when `None`), returning
+/// the status and body.
+async fn password_grant_as(
+    setup: &AuthTestSetup,
+    email: &str,
+    password: &str,
+    client_id: Option<&str>,
+) -> (u16, serde_json::Value) {
+    let mut form = vec![
+        ("grant_type", "password"),
+        ("username", email),
+        ("password", password),
+    ];
+    if let Some(client_id) = client_id {
+        form.push(("client_id", client_id));
+    }
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&form)
+        .send(setup.routes())
+        .await;
+    let status = response.status();
+    (status, response.json())
+}
+
+/// The password grant is not served (carnet#787, RFC 9700 §2.4): not to
+/// Dravr's own apps, not to anyone. Whatever the caller knows of the
+/// athlete's password, it walks away with nothing, and the answer is the
+/// same whether the password is right, wrong or names no account — so the
+/// endpoint is no password oracle either.
+#[tokio::test]
+async fn test_password_grant_is_unsupported_for_every_client() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    for client_id in [
+        Some("dravr-web"),
+        Some("dravr-mobile"),
+        Some("my-mcp-client"),
+        None,
+    ] {
+        let (status, right) =
+            password_grant_as(&setup, &user.email, "password123", client_id).await;
+        assert_eq!(status, 400, "client_id {client_id:?}: {right}");
+        assert_eq!(
+            right["error"].as_str(),
+            Some("unsupported_grant_type"),
+            "client_id {client_id:?}: {right}"
+        );
+        assert!(
+            right["access_token"].is_null(),
+            "no session minted: {right}"
+        );
+        assert!(
+            right["refresh_token"].is_null(),
+            "no refresh token: {right}"
+        );
+
+        let (_, wrong) =
+            password_grant_as(&setup, &user.email, "not-the-password", client_id).await;
+        let (_, unknown) =
+            password_grant_as(&setup, "nobody@example.com", "password123", client_id).await;
+        assert_eq!(right, wrong, "client_id {client_id:?}");
+        assert_eq!(right, unknown, "client_id {client_id:?}");
+    }
+}
+
+/// The authorization-code grant at `/oauth/token` mints a first-party
+/// session, so it serves Dravr's own apps only: any other client id — an
+/// MCP client, an empty one, a near-miss spelling — is `invalid_client`
+/// before the code is looked at.
+#[tokio::test]
+async fn test_code_grant_with_an_unknown_client_id_is_invalid_client() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let router = first_party_router(&setup.resources, DEFAULT_PEER);
+
+    for client_id in ["my-mcp-client", "", "DRAVR-WEB", "dravr-web "] {
+        let response = redeem(
+            router.clone(),
+            client_id,
+            "some-code",
+            "dravr://auth/callback",
+            Some("a-verifier-that-is-long-enough-to-be-a-real-pkce-verifier-0123"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), 401, "client_id {client_id:?}");
+        let body: serde_json::Value = response.json();
+        assert_eq!(
+            body["error"].as_str(),
+            Some("invalid_client"),
+            "client_id {client_id:?}: {body}"
+        );
+        assert!(
+            body["access_token"].is_null(),
+            "client_id {client_id:?}: {body}"
+        );
+    }
+}
+
+/// Both first-party apps are served.
+#[tokio::test]
+async fn test_sign_in_serves_both_first_party_apps() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    for client in [FirstPartyClient::Web, FirstPartyClient::Mobile] {
+        let body = SignIn::new(&user.email, "password123")
+            .client(client)
+            .run(&setup.resources)
+            .await
+            .signed_in();
+        assert!(body["access_token"].is_string(), "{client:?}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn test_code_grant_without_a_code_is_invalid_request() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", "dravr-web"),
+            ("redirect_uri", "http://localhost:8081/auth/callback"),
+        ])
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+}
+
+#[tokio::test]
+async fn test_logout_revokes_the_presented_refresh_token() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    let refresh_token = login["refresh_token"].as_str().unwrap().to_owned();
+
+    // No bearer: a phone whose JWT already lapsed can still log out.
+    let response = AxumTestRequest::post("/api/auth/logout")
+        .json(&json!({ "refresh_token": refresh_token }))
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let (status, body) = exchange(&setup, &refresh_token).await;
+    assert_eq!(status, 400);
+    assert_eq!(body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_logout_without_a_body_still_clears_the_cookie_session() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/api/auth/logout")
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 200);
+}
+
+// ============================================================================
+// Additional Integration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_all_auth_endpoints_registered() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // Test that all endpoints are registered (not 404)
+    let endpoints = vec![
+        ("/api/auth/register", "POST"),
+        ("/oauth/token", "POST"), // The apps' code + refresh grants (carnet#787)
+        ("/api/auth/logout", "POST"),
+        ("/api/providers", "GET"),
+    ];
+
+    for (endpoint, method) in endpoints {
+        let response = if method == "POST" {
+            AxumTestRequest::post(endpoint)
+                .json(&json!({}))
+                .send(routes.clone())
+                .await
+        } else {
+            AxumTestRequest::get(endpoint).send(routes.clone()).await
+        };
+
+        // Should not be 404 (endpoint not found)
+        assert_ne!(
+            response.status(),
+            404,
+            "{} {} should be registered",
+            method,
+            endpoint
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_register_and_login_flow() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let admin_token = setup
+        .create_admin_token()
+        .await
+        .expect("Failed to create admin token");
+    // Step 1: Register a new user (with admin auth)
+    let email = format!("flowtest{}@example.com", uuid::Uuid::new_v4());
+    let password = "securePassword123";
+
+    let register_request = json!({
+        "email": email,
+        "password": password,
+        "display_name": "Flow Test User"
+    });
+
+    let register_response = AxumTestRequest::post("/api/auth/register")
+        .header("Authorization", &format!("Bearer {}", admin_token))
+        .json(&register_request)
+        .send(setup.routes())
+        .await;
+
+    // Registration might fail in some test scenarios, so we'll be flexible
+    if register_response.status() != 201 {
+        return;
+    }
+
+    // Step 2: Sign in with the registered credentials through the hosted
+    // login page, as the web app does. A pending account signs in too (the
+    // app shows it the approval it awaits), so the sign-in succeeds either way.
+    let body = SignIn::new(&email, password)
+        .run(&setup.resources)
+        .await
+        .signed_in();
+    assert_eq!(
+        body["user"]["email"].as_str(),
+        Some(email.as_str()),
+        "{body}"
+    );
+}

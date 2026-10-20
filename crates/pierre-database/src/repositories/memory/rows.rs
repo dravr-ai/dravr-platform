@@ -17,8 +17,9 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::Pillar;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{
-    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
-    MemoryScope, PredicateCode, SessionStatus, UserFact, UserFactMetrics,
+    AgentFollowup, AgentNote, AgentSession, CompactionBlock, EvidenceSource, FactEvidence,
+    FactKind, FactSource, FactStatus, FollowupStatus, MemoryScope, PredicateCode, SessionStatus,
+    UserFact, UserFactMetrics,
 };
 
 /// Clamp a signed row count to `u64`, folding impossible negatives to `0`.
@@ -118,6 +119,10 @@ where
     let source_str: String = row
         .try_get("source")
         .unwrap_or_else(|_| "conversation".into());
+    let status: String = column(row, "status")?;
+    let evidence_quote: Option<String> = column(row, "evidence")?;
+    let evidence_source: Option<String> = column(row, "evidence_source")?;
+    let evidence = evidence_quote.zip(evidence_source.as_deref().and_then(EvidenceSource::parse));
     Ok(UserFact {
         id: column(row, "id")?,
         tenant_id: column(row, "tenant_id")?,
@@ -135,6 +140,8 @@ where
         created_at: column(row, "created_at")?,
         updated_at: column(row, "updated_at")?,
         transport_policy: transport_policy_column(row)?,
+        status: FactStatus::parse_lenient(&status),
+        evidence: evidence.map(|(quote, source)| FactEvidence { quote, source }),
     })
 }
 

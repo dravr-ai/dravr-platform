@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Runs the workspace's tests under cargo-llvm-cov in batches, deleting each batch's test executables
-# ABOUTME: Disk peaks at one batch of instrumented binaries instead of all ~880, and one lcov file merges every batch
+# ABOUTME: Disk peaks at one batch of instrumented binaries instead of all of them, and one lcov file merges every batch
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai

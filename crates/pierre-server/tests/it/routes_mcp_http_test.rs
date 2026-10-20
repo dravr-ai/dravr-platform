@@ -1,0 +1,1495 @@
+// ABOUTME: HTTP integration tests for MCP (Model Context Protocol) routes
+// ABOUTME: Tests all MCP endpoints including tool discovery and JSON-RPC request handling
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+#![allow(clippy::uninlined_format_args)]
+
+//! Comprehensive HTTP integration tests for MCP routes
+//!
+//! This test suite validates that all MCP endpoints are correctly registered
+//! in the router and handle HTTP requests appropriately.
+
+use crate::common;
+use crate::helpers;
+
+use helpers::axum_test::AxumTestRequest;
+use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
+use pierre_config::mcp::McpConfig;
+use pierre_core::models::{CreateUserMcpTokenRequest, Tenant, TenantId, User, UserStatus};
+use pierre_mcp_server::{
+    mcp::resources::{ServerContext, ServerContextOptions},
+    routes::{mcp::McpRoutes, user_mcp_tokens::UserMcpTokenRoutes},
+};
+use serde_json::json;
+use std::sync::Arc;
+
+/// Test setup helper for MCP route testing
+#[allow(dead_code)]
+struct McpTestSetup {
+    resources: Arc<ServerContext>,
+    user_id: uuid::Uuid,
+    jwt_token: String,
+    /// The same user's first-party session token, which `/mcp` refuses.
+    session_token: String,
+}
+
+impl McpTestSetup {
+    async fn new() -> anyhow::Result<Self> {
+        Self::with_allowed_origins(Vec::new()).await
+    }
+
+    /// Build a setup whose MCP origin allowlist is exactly `allowed_origins`.
+    /// An empty list admits only loopback browser origins (the engine's own
+    /// semantics); a request with no `Origin` is never gated.
+    async fn with_allowed_origins(allowed_origins: Vec<String>) -> anyhow::Result<Self> {
+        common::init_server_config();
+        let database = common::create_test_database().await?;
+        let auth_manager = common::create_test_auth_manager();
+        let cache = common::create_test_cache().await?;
+
+        // Create test user
+        let (user_id, user) = common::create_test_user(&database).await?;
+
+        // Create ServerContext
+        let temp_dir = tempfile::tempdir()?;
+        let config = Arc::new(ServerConfig {
+            http_port: 8081,
+            database: DatabaseConfig {
+                url: DatabaseUrl::Memory,
+                backup: BackupConfig {
+                    directory: temp_dir.path().to_path_buf(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            app_behavior: AppBehaviorConfig {
+                ci_mode: true,
+                auto_approve_users: false,
+                ..Default::default()
+            },
+            security: SecurityConfig {
+                headers: SecurityHeadersConfig {
+                    environment: Environment::Testing,
+                },
+                ..Default::default()
+            },
+            mcp: McpConfig {
+                allowed_origins,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let resources = Arc::new(
+            ServerContext::new(
+                (*database).clone(),
+                (*auth_manager).clone(),
+                "test_jwt_secret",
+                config,
+                cache,
+                ServerContextOptions {
+                    rsa_key_size_bits: Some(2048),
+                    jwks_manager: Some(common::get_shared_test_jwks()),
+                    llm_provider: None,
+                    chat_provider: None,
+                    extra_tools: Vec::new(),
+                    billing_provider: None,
+                    turn_runner: None,
+                },
+            )
+            .await
+            .unwrap(),
+        );
+
+        // The credential an MCP client holds: a delegated OAuth grant. A
+        // first-party session token is refused on `/mcp` (carnet#768).
+        let jwt_token = common::generate_delegated_test_token(&resources, &user).await;
+        let session_token = auth_manager
+            .generate_token(&user, &resources.auth.jwks_manager)
+            .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
+
+        Ok(Self {
+            resources,
+            user_id,
+            jwt_token,
+            session_token,
+        })
+    }
+
+    fn routes(&self) -> axum::Router {
+        McpRoutes::routes(self.resources.clone())
+    }
+
+    fn auth_header(&self) -> String {
+        format!("Bearer {}", self.jwt_token)
+    }
+}
+
+// ============================================================================
+// GET /mcp/tools - Tool Discovery Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_mcp_tools_discovery_success() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    assert!(body["tools"].is_array());
+}
+
+/// The discovery endpoint is tiered exactly like JSON-RPC `tools/list`: with no
+/// bearer it returns the RFC 9728 401 challenge, never the tool catalog. It used
+/// to dump every registered schema — admin tools included — to anonymous
+/// callers, protected only by `mcp` being absent from the deployed nginx
+/// alternation (registre#12).
+#[tokio::test]
+async fn test_mcp_tools_requires_auth() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::get("/mcp/tools").send(routes).await;
+
+    assert_eq!(response.status(), 401);
+    assert!(
+        response
+            .header("www-authenticate")
+            .is_some_and(|v| v.contains("oauth-protected-resource")),
+        "401 must carry the RFC 9728 resource-metadata challenge"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body.get("tools").is_none(),
+        "an unauthenticated response must not carry any tool schemas: {body}"
+    );
+}
+
+/// An authenticated non-admin caller must not see `ADMIN_ONLY` tools, matching
+/// what `tools/list` withholds for the same bearer.
+#[tokio::test]
+async fn test_mcp_tools_withholds_admin_tools_from_non_admin() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let admin_only: Vec<String> = setup
+        .resources
+        .mcp
+        .tool_registry
+        .admin_tool_schemas()
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect();
+    assert!(
+        !admin_only.is_empty(),
+        "registry must register admin-only tools for this test to mean anything"
+    );
+
+    let routes = setup.routes();
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let returned: Vec<&str> = body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(
+        !returned.is_empty(),
+        "a tenant member must still see their own tools"
+    );
+
+    let leaked: Vec<&&str> = returned
+        .iter()
+        .filter(|name| admin_only.iter().any(|admin| admin == *name))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "GET /mcp/tools leaked admin-only tools to a non-admin caller: {leaked:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_tools_response_structure() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    assert!(body.is_object());
+    assert!(body["tools"].is_array());
+
+    // Verify each tool has required fields
+    let tools = body["tools"].as_array().unwrap();
+    for tool in tools {
+        assert!(tool["name"].is_string());
+        assert!(tool["description"].is_string());
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_tools_returns_available_tools() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let tools = body["tools"].as_array().unwrap();
+
+    // Should have at least some tools registered
+    assert!(!tools.is_empty(), "Should return at least one tool");
+}
+
+#[tokio::test]
+async fn test_mcp_tools_concurrent_requests() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    // Make multiple tool discovery requests concurrently
+    let mut handles = vec![];
+
+    for _ in 0..5 {
+        let routes = setup.routes();
+        let auth = setup.auth_header();
+        let handle = tokio::spawn(async move {
+            AxumTestRequest::get("/mcp/tools")
+                .header("authorization", &auth)
+                .send(routes)
+                .await
+        });
+
+        handles.push(handle);
+    }
+
+    // All requests should succeed
+    for handle in handles {
+        let response = handle.await.expect("Task panicked");
+        assert_eq!(response.status(), 200);
+    }
+}
+
+// ============================================================================
+// POST /mcp - JSON-RPC Request Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_mcp_request_with_auth() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    // Should process the request (200) or return accepted (202)
+    assert!(response.status() == 200 || response.status() == 202);
+}
+
+#[tokio::test]
+async fn test_mcp_request_without_auth() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    // MCP can work without auth for some methods, should not be 401
+    // Might be 200, 202, or 400 depending on method requirements
+    assert_ne!(response.status(), 500);
+}
+
+#[tokio::test]
+async fn test_mcp_request_with_session() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let session_id = format!("session_{}", uuid::Uuid::new_v4());
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .header("mcp-session-id", &session_id)
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    // Should process and may return session ID header
+    assert!(response.status() == 200 || response.status() == 202);
+}
+
+#[tokio::test]
+async fn test_mcp_request_invalid_json() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // Empty/non-JSON body fails to parse into a JSON-RPC envelope.
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .header("content-type", "application/json")
+        .send(routes)
+        .await;
+
+    // A body the server cannot accept is an HTTP 400 (Streamable HTTP), and the
+    // body still carries the JSON-RPC parse error: text that is not JSON is
+    // -32700.
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32700,
+        "parse failure must carry the JSON-RPC parse-error code: {:?}",
+        body["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_request_invalid_jsonrpc_format() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let invalid_request = json!({
+        "not_jsonrpc": "invalid"
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&invalid_request)
+        .send(routes)
+        .await;
+
+    // Valid JSON that is not a JSON-RPC request is -32600 (Invalid Request), not
+    // the parse error: the text parsed, the envelope did not. Like any body the
+    // server cannot accept, it is an HTTP 400.
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32600,
+        "an invalid JSON-RPC envelope must carry the invalid-request code: {:?}",
+        body["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_request_empty_body() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .send(routes)
+        .await;
+
+    // A body that does not declare `application/json` (here, no Content-Type at
+    // all) is refused with 415 before it is parsed: browsers send `text/plain`
+    // and form bodies cross-origin without a CORS preflight, so parsing them
+    // would let a page reach the tools without the CORS policy being consulted.
+    // The refusal still carries a JSON-RPC invalid-request error. The same
+    // empty body declared as JSON is the parse error
+    // `test_mcp_request_invalid_json` pins.
+    assert_eq!(response.status(), 415);
+    let body: serde_json::Value = response.json();
+    assert_eq!(
+        body["error"]["code"], -32600,
+        "an undeclared body must carry the invalid-request code: {:?}",
+        body["error"]
+    );
+}
+
+#[tokio::test]
+async fn test_mcp_request_with_notification() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // JSON-RPC notification (no id field)
+    let notification_request = json!({
+        "jsonrpc": "2.0",
+        "method": "notification/test",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&notification_request)
+        .send(routes)
+        .await;
+
+    // A notification (no `id`) yields no JSON-RPC response: Streamable HTTP
+    // answers an accepted notification 202 Accepted with no body.
+    assert_eq!(response.status(), 202);
+    assert!(response.bytes().is_empty(), "a notification gets no body");
+}
+
+#[tokio::test]
+async fn test_mcp_request_tools_list_method() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert!(response.status() == 200 || response.status() == 202);
+
+    if response.status() == 200 {
+        let body: serde_json::Value = response.json();
+        // JSON-RPC response should have id and result or error
+        assert!(body["id"].is_number() || body["id"].is_string());
+    }
+}
+
+// ============================================================================
+// Additional Integration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_all_mcp_endpoints_registered() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let endpoints = vec![("/mcp/tools", "GET"), ("/mcp", "POST")];
+
+    for (endpoint, method) in endpoints {
+        let response = if method == "GET" {
+            AxumTestRequest::get(endpoint).send(routes.clone()).await
+        } else {
+            AxumTestRequest::post(endpoint)
+                .json(&json!({}))
+                .send(routes.clone())
+                .await
+        };
+
+        // Should not be 404 (endpoint not found)
+        assert_ne!(
+            response.status(),
+            404,
+            "{} {} should be registered",
+            method,
+            endpoint
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_request_user_isolation() {
+    let setup1 = McpTestSetup::new().await.expect("Setup 1 failed");
+    let setup2 = McpTestSetup::new().await.expect("Setup 2 failed");
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // User 1 makes a request
+    let routes1 = setup1.routes();
+    let response1 = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup1.auth_header())
+        .json(&mcp_request)
+        .send(routes1)
+        .await;
+
+    // User 2 makes a request
+    let routes2 = setup2.routes();
+    let response2 = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup2.auth_header())
+        .json(&mcp_request)
+        .send(routes2)
+        .await;
+
+    // Both should succeed independently
+    assert!(response1.status() == 200 || response1.status() == 202);
+    assert!(response2.status() == 200 || response2.status() == 202);
+}
+
+#[tokio::test]
+async fn test_mcp_concurrent_requests() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // Make multiple MCP requests concurrently
+    let mut handles = vec![];
+
+    for i in 0..5 {
+        let routes = setup.routes();
+        let auth = setup.auth_header();
+        let mut request = mcp_request.clone();
+        request["id"] = json!(i);
+
+        let handle = tokio::spawn(async move {
+            AxumTestRequest::post("/mcp")
+                .header("authorization", &auth)
+                .json(&request)
+                .send(routes)
+                .await
+        });
+
+        handles.push(handle);
+    }
+
+    // All requests should succeed
+    for handle in handles {
+        let response = handle.await.expect("Task panicked");
+        assert!(response.status() == 200 || response.status() == 202);
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_session_persistence() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // The tronc Streamable-HTTP transport is stateless: it carries no session
+    // store and never issues an `Mcp-Session-Id`. The MCP spec makes session ids
+    // OPTIONAL — a server MAY assign one only in the `InitializeResult` response,
+    // and a stateless server simply omits it. Each request therefore stands on
+    // its own bearer; there is no server-issued session to persist or replay.
+    let response1 = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&mcp_request)
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(response1.status(), 200);
+    assert!(
+        response1.header("mcp-session-id").is_none(),
+        "the stateless transport must not issue an Mcp-Session-Id header"
+    );
+
+    // A second request without its own bearer is rejected: there is no stored
+    // session to supply the credential. Auth is per-request, not session-based.
+    let response2 = AxumTestRequest::post("/mcp")
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response2.status(), 401);
+}
+
+// ============================================================================
+// tools/list Visibility Gating Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_tools_list_unauthenticated_returns_401() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // Send request WITHOUT auth header. Per the MCP authorization spec (RFC 9728),
+    // a protected resource server rejects unauthenticated requests with a 401.
+    let response = AxumTestRequest::post("/mcp")
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 401);
+
+    // The 401 must carry a WWW-Authenticate challenge pointing at the protected
+    // resource metadata so clients can discover the authorization server.
+    let challenge = response
+        .header("www-authenticate")
+        .expect("401 must include a WWW-Authenticate header")
+        .to_owned();
+    assert!(
+        challenge.contains("resource_metadata="),
+        "WWW-Authenticate must carry resource_metadata: {challenge}"
+    );
+    assert!(
+        challenge.contains("oauth-protected-resource"),
+        "resource_metadata must point at the protected resource metadata: {challenge}"
+    );
+
+    // No tools are disclosed to unauthenticated callers.
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["result"].get("tools").is_none(),
+        "Unauthenticated tools/list must not return any tools"
+    );
+}
+
+#[tokio::test]
+async fn test_tools_list_authenticated_returns_tools() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes_unauth = setup.routes();
+    let routes_auth = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // Unauthenticated requests are rejected with 401.
+    let response_unauth = AxumTestRequest::post("/mcp")
+        .json(&mcp_request)
+        .send(routes_unauth)
+        .await;
+    assert_eq!(response_unauth.status(), 401);
+
+    // Authenticated requests receive the tool set.
+    let response_auth = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&mcp_request)
+        .send(routes_auth)
+        .await;
+
+    assert_eq!(response_auth.status(), 200);
+    let body_auth: serde_json::Value = response_auth.json();
+    let tools_auth = body_auth["result"]["tools"]
+        .as_array()
+        .expect("tools should be an array");
+
+    assert!(
+        !tools_auth.is_empty(),
+        "Authenticated tools/list should return tools"
+    );
+    assert!(
+        tools_auth
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .any(|n| n == "get_activities"),
+        "Authenticated tools/list should include get_activities"
+    );
+}
+
+#[tokio::test]
+async fn test_tools_list_invalid_token_returns_401() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    // A present-but-invalid token must be rejected with 401, not silently
+    // downgraded to a public tool subset (MCP authorization spec / RFC 6750).
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", "Bearer invalid_token_12345")
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 401);
+
+    let challenge = response
+        .header("www-authenticate")
+        .expect("401 must include a WWW-Authenticate header")
+        .to_owned();
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "Invalid-token challenge must carry error=invalid_token: {challenge}"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["result"].get("tools").is_none(),
+        "Invalid-token tools/list must not return any tools"
+    );
+}
+
+/// `/mcp` accepts every API key format `POST /api/keys` issues, exactly as
+/// REST does: a trial key (`pk_trial_`, the default) used to fail here with
+/// 401 while it worked on REST, because the transport rebuilt the header by
+/// recognising only `pk_live_`.
+#[tokio::test]
+async fn test_tools_list_accepts_every_issued_api_key_format() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    for (tier, prefix) in [
+        (ApiKeyTier::Trial, "pk_trial_"),
+        (ApiKeyTier::Starter, "pk_live_"),
+    ] {
+        let (api_key, full_key) = ApiKeyManager::new()
+            .create_api_key(
+                setup.user_id,
+                CreateApiKeyRequest {
+                    name: format!("{prefix} key"),
+                    description: None,
+                    tier,
+                    rate_limit_requests: None,
+                    expires_in_days: None,
+                },
+            )
+            .unwrap();
+        assert!(full_key.starts_with(prefix), "{prefix} key issued");
+        setup
+            .resources
+            .common
+            .repos
+            .api_keys
+            .create(&api_key)
+            .await
+            .unwrap();
+
+        let response = AxumTestRequest::post("/mcp")
+            .header("authorization", &format!("Bearer {full_key}"))
+            .json(&mcp_request)
+            .send(setup.routes())
+            .await;
+
+        assert_eq!(response.status(), 200, "a {prefix} key authenticates /mcp");
+        let body: serde_json::Value = response.json();
+        let tools = body["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{prefix} key: tools/list returns tools: {body}"));
+        assert!(
+            tools
+                .iter()
+                .filter_map(|t| t["name"].as_str())
+                .any(|n| n == "get_activities"),
+            "{prefix} key: the tool set includes get_activities"
+        );
+    }
+
+    // A key-shaped token of a format this server never issues is refused.
+    let response = AxumTestRequest::post("/mcp")
+        .header(
+            "authorization",
+            &format!("Bearer pk_test_{}", "a".repeat(32)),
+        )
+        .json(&mcp_request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 401);
+    let challenge = response
+        .header("www-authenticate")
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "an unknown key format is an invalid token: {challenge}"
+    );
+}
+
+#[tokio::test]
+async fn test_tools_list_admin_user_sees_all_tools_including_admin() {
+    // Admin tool visibility is gated on the GLOBAL `User.is_admin` flag, not the
+    // per-tenant Owner/Admin role — so this needs a genuine global admin, which
+    // the default tenant-owner test user is not.
+    let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
+        .await
+        .expect("Setup failed");
+    let routes = McpRoutes::routes(resources.clone());
+
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {jwt}"))
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let tools = body["result"]["tools"]
+        .as_array()
+        .expect("tools should be an array");
+
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    // Admin user should see admin tools
+    assert!(
+        tool_names.iter().any(|n| n.starts_with("admin_")),
+        "Admin user should see admin tools in tools/list, got: {:?}",
+        tool_names
+    );
+
+    // Admin user should also see all non-admin tools
+    assert!(
+        tool_names.contains(&"get_activities"),
+        "Admin should see get_activities"
+    );
+    assert!(
+        tool_names.contains(&"connect_provider"),
+        "Admin should see connect_provider"
+    );
+
+    // Admin should also see write/mutation tools, proving it's the full set, not
+    // just the read-only core.
+    assert!(
+        tool_names.contains(&"set_goal"),
+        "Admin should see write tool set_goal"
+    );
+}
+
+#[tokio::test]
+async fn test_tools_list_params_token_in_body_is_not_an_auth_path() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // Carrying the bearer in the JSON-RPC `params.token` field — instead of the
+    // `Authorization` header — was a non-spec platform extension. The MCP
+    // authorization spec (RFC 9728) defines bearer auth via the `Authorization`
+    // header only, which the tronc transport's auth hook reads. `params.token` is
+    // not honored on the `/mcp` HTTP route, and no production HTTP client sends it
+    // (the SDK authenticates via the OAuth `authProvider` Authorization header).
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {
+            "token": setup.jwt_token
+        }
+    });
+
+    // No Authorization header — the body-embedded token is ignored, so the request
+    // is unauthenticated and rejected with a 401 + WWW-Authenticate challenge.
+    let response = AxumTestRequest::post("/mcp")
+        .json(&mcp_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        401,
+        "params.token must not authenticate the request; auth requires the Authorization header"
+    );
+    assert!(
+        response.header("www-authenticate").is_some(),
+        "the 401 must carry a WWW-Authenticate challenge"
+    );
+}
+
+// ============================================================================
+// ADMIN_ONLY gate — global User.is_admin, NOT tenant Owner/Admin role
+// ============================================================================
+
+/// Build a `ServerContext` and create a tenant-owning user with an explicit
+/// global-admin flag, returning the user's API key for the wire.
+///
+/// `global_admin` controls only `User.is_admin`; the user is always created as
+/// the **owner** of its own tenant. This separates the two privilege axes the
+/// `ADMIN_ONLY` gate must distinguish: a tenant owner (`TenantContext::is_admin`)
+/// is admin *of their tenant*, which must not grant system-wide admin powers —
+/// only the global `User.is_admin` flag does.
+async fn setup_with_admin_flag(
+    email: &str,
+    global_admin: bool,
+) -> anyhow::Result<(Arc<ServerContext>, String)> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+    let auth_manager = common::create_test_auth_manager();
+    let cache = common::create_test_cache().await?;
+
+    let temp_dir = tempfile::tempdir()?;
+    let config = Arc::new(ServerConfig {
+        http_port: 8081,
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            backup: BackupConfig {
+                directory: temp_dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            ci_mode: true,
+            auto_approve_users: false,
+            ..Default::default()
+        },
+        security: SecurityConfig {
+            headers: SecurityHeadersConfig {
+                environment: Environment::Testing,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    let resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            (*auth_manager).clone(),
+            "test_jwt_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+
+    let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+    let mut user = User::new(
+        email.to_owned(),
+        password_hash,
+        Some("Wire Test User".to_owned()),
+    );
+    user.user_status = UserStatus::Active;
+    user.approved_by = Some(user.id);
+    user.approved_at = Some(chrono::Utc::now());
+    user.is_admin = global_admin;
+    let user_id = user.id;
+
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
+
+    // Always create the user as the OWNER of its own tenant.
+    let tenant_id = TenantId::generate();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: format!("Wire Tenant for {email}"),
+        slug: format!("wire-tenant-{tenant_id}"),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: user_id,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    repos.tenants.create(&tenant).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
+
+    // The user's own API key: the self grant, so `admin` is in scope and the
+    // role gate alone decides. A delegated OAuth grant never carries `admin`,
+    // and `/mcp` refuses a first-party session token (carnet#768).
+    let api_key = common::issue_test_api_key(&database, user_id, "wire admin test").await?;
+
+    Ok((resources, api_key))
+}
+
+/// Issue a `tools/call` for an `ADMIN_ONLY` tool over the `/mcp` wire and return
+/// the parsed JSON-RPC response body.
+async fn call_admin_only_tool(
+    resources: &Arc<ServerContext>,
+    jwt_token: &str,
+) -> serde_json::Value {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "admin_list_system_agents",
+            "arguments": {}
+        }
+    });
+
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {jwt_token}"))
+        .json(&request)
+        .send(McpRoutes::routes(resources.clone()))
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "an authenticated tools/call returns the JSON-RPC result in-band"
+    );
+    response.json()
+}
+
+/// Regression guard for the `/mcp` wire privilege-escalation: a tenant OWNER who
+/// is NOT a global admin must be DENIED an `ADMIN_ONLY` tool. The auth hook
+/// resolves the gate flag from the global `User.is_admin`, not the per-tenant
+/// `TenantContext::is_admin` (which is true for any Owner/Admin role).
+#[tokio::test]
+async fn test_tenant_owner_without_global_admin_is_denied_admin_tool() {
+    let (resources, jwt) = setup_with_admin_flag("wire_owner_not_admin@example.com", false)
+        .await
+        .expect("setup failed");
+
+    let body = call_admin_only_tool(&resources, &jwt).await;
+
+    assert_eq!(
+        body["result"]["isError"],
+        json!(true),
+        "tenant owner without global admin must be denied the ADMIN_ONLY tool, got: {body}"
+    );
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("error result must carry text content");
+    assert!(
+        text.contains("Admin access required"),
+        "denial must come from the ADMIN_ONLY gate, got: {text}"
+    );
+}
+
+/// Companion to the escalation guard: a user with the global `User.is_admin`
+/// flag set IS allowed past the `ADMIN_ONLY` gate (reaches the tool body), so
+/// the fix denies tenant owners without over-denying genuine system admins.
+#[tokio::test]
+async fn test_global_admin_user_is_allowed_admin_tool() {
+    let (resources, jwt) = setup_with_admin_flag("wire_global_admin@example.com", true)
+        .await
+        .expect("setup failed");
+
+    let body = call_admin_only_tool(&resources, &jwt).await;
+
+    // The global admin clears the gate and runs the tool body, which lists the
+    // (empty) system-agent set — a successful, non-error result.
+    assert_eq!(
+        body["result"]["isError"],
+        json!(false),
+        "global admin must clear the ADMIN_ONLY gate, got: {body}"
+    );
+    if let Some(text) = body["result"]["content"][0]["text"].as_str() {
+        assert!(
+            !text.contains("Admin access required"),
+            "global admin must not hit the admin-privileges denial, got: {text}"
+        );
+    }
+}
+
+/// DNS-rebinding protection must cover BOTH MCP routes, not just the JSON-RPC
+/// one. `GET /mcp/tools` returns the same catalog `tools/list` returns and is
+/// proxied publicly, but it was mounted outside the engine's router, so the
+/// engine's origin gate never ran for it — a browser on any origin with a valid
+/// bearer could enumerate the caller's whole tool surface.
+#[tokio::test]
+async fn test_mcp_tools_rejects_disallowed_origin() {
+    let setup = McpTestSetup::with_allowed_origins(vec!["https://app.dravr.ai".to_owned()])
+        .await
+        .expect("Setup failed");
+
+    // A browser origin that is not on the list is refused before authentication,
+    // so the catalog never renders even with a good bearer.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://evil.example.com")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a disallowed origin must be refused, not served the tool catalog"
+    );
+
+    // The listed origin still works, so the gate is a filter and not a blanket
+    // denial that would break the web client.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://app.dravr.ai")
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["tools"].is_array(),
+        "an allowed origin must still receive the catalog"
+    );
+
+    // A non-browser client sends no Origin at all and must keep working — this
+    // is the CLI/stdio case the engine deliberately permits.
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an absent Origin is a non-browser client and must not be blocked"
+    );
+}
+
+/// With no allowlist configured, `GET /mcp/tools` applies the engine's own
+/// rule: only a loopback browser origin is admitted. The route used to carry
+/// its own copy of the predicate that read an empty list as permit-any, so a
+/// page on any site could read the catalog of a server whose
+/// `MCP_ALLOWED_ORIGINS` was unset while `POST /mcp` refused the same page.
+#[tokio::test]
+async fn test_mcp_tools_empty_allowlist_admits_only_loopback_origins() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "https://evil.example.com")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "an empty allowlist must refuse a non-loopback browser origin"
+    );
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("origin", "http://localhost:3000")
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an empty allowlist must admit a loopback origin"
+    );
+}
+
+/// The tool catalog carries a cache validator, and honours it. This is only
+/// coherent because the registry is name-ordered: over a randomly-ordered list
+/// the digest would change on every process and the validator would be noise.
+///
+/// The digest covers the caller's *filtered* view, so two principals entitled
+/// to different tools can never collide on one cache entry — asserted here by
+/// checking a mismatched validator still returns the body rather than a 304.
+#[tokio::test]
+async fn test_mcp_tools_carries_and_honours_a_cache_validator() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let first = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .send(setup.routes())
+        .await;
+    assert_eq!(first.status(), 200);
+    let etag = first
+        .header("etag")
+        .expect("the catalog must ship an ETag")
+        .to_owned();
+    assert!(
+        etag.starts_with('"') && etag.ends_with('"'),
+        "expected a strong quoted entity tag, got {etag}"
+    );
+    assert_eq!(
+        first.header("cache-control"),
+        Some("private, no-cache, must-revalidate"),
+        "a principal-specific catalog must not be publicly cacheable"
+    );
+
+    // The same catalog re-requested with its validator is not re-sent. This is
+    // the assertion that fails if the list is not deterministic: a reshuffled
+    // catalog digests differently and returns 200 forever.
+    let second = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("if-none-match", &etag)
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        second.status(),
+        304,
+        "an unchanged catalog must answer 304, not re-send the body"
+    );
+
+    // A stale validator gets the real body back, not a spurious 304.
+    let stale = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &setup.auth_header())
+        .header("if-none-match", "\"not-the-current-catalog\"")
+        .send(setup.routes())
+        .await;
+    assert_eq!(stale.status(), 200);
+    let body: serde_json::Value = stale.json();
+    assert!(body["tools"].is_array());
+}
+
+// ============================================================================
+// First-party session tokens are refused (carnet#768)
+// ============================================================================
+
+/// A first-party session token is Dravr's own app signed in, not an MCP
+/// client's credential: `POST /mcp` refuses it with the 401 `invalid_token`
+/// challenge that sends a spec-following client into the OAuth flow, while
+/// the same user's delegated grant is served.
+#[tokio::test]
+async fn test_mcp_refuses_a_first_party_session_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {}", setup.session_token))
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a session token must not authenticate /mcp"
+    );
+    let challenge = refused
+        .header("www-authenticate")
+        .expect("the refusal must carry a WWW-Authenticate challenge");
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "a session token is an invalid token for /mcp: {challenge}"
+    );
+
+    let served = AxumTestRequest::post("/mcp")
+        .header("authorization", &setup.auth_header())
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(served.status(), 200, "the delegated grant is still served");
+    assert!(served.json::<serde_json::Value>()["result"]["tools"].is_array());
+}
+
+/// `GET /mcp/tools`, the REST twin of `tools/list`, refuses the session token
+/// the same way.
+#[tokio::test]
+async fn test_mcp_tools_refuses_a_first_party_session_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &format!("Bearer {}", setup.session_token))
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 401);
+    assert!(response.header("www-authenticate").is_some());
+}
+
+// ============================================================================
+// Personal MCP tokens (carnet#788)
+// ============================================================================
+
+/// Mint a personal MCP token for `user_id` through the repository the
+/// Settings pane and the approval flow use, and return its raw value.
+async fn mint_personal_mcp_token(resources: &Arc<ServerContext>, user_id: uuid::Uuid) -> String {
+    let created = resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .create_token(
+            user_id,
+            &CreateUserMcpTokenRequest {
+                name: "Claude Desktop".to_owned(),
+                expires_in_days: None,
+            },
+        )
+        .await
+        .expect("mint the personal MCP token");
+    assert!(created.token_value.starts_with("pmcp_"));
+    created.token_value
+}
+
+/// The token an athlete mints in Settings authenticates `POST /mcp` and the
+/// `GET /mcp/tools` twin, and each use is counted on the token's row.
+#[tokio::test]
+async fn test_mcp_serves_a_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+
+    let served = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(served.status(), 200, "the personal MCP token is served");
+    assert!(served.json::<serde_json::Value>()["result"]["tools"].is_array());
+
+    let discovery = AxumTestRequest::get("/mcp/tools")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(setup.routes())
+        .await;
+    assert_eq!(discovery.status(), 200);
+
+    let listed = setup
+        .resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed[0].usage_count, 2,
+        "each authenticated call is counted"
+    );
+    assert!(listed[0].last_used_at.is_some());
+}
+
+/// A revoked personal MCP token is an invalid token: the 401 `invalid_token`
+/// challenge, as for any credential the server no longer honours.
+#[tokio::test]
+async fn test_mcp_refuses_a_revoked_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+    let repos = &setup.resources.common.repos;
+    let token_id = repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap()[0]
+        .id
+        .clone();
+    repos
+        .user_mcp_tokens
+        .revoke_token(&token_id, setup.user_id)
+        .await
+        .unwrap();
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }))
+        .send(setup.routes())
+        .await;
+    assert_eq!(
+        refused.status(),
+        401,
+        "a revoked token authenticates nothing"
+    );
+    assert!(refused
+        .header("www-authenticate")
+        .is_some_and(|challenge| challenge.contains("error=\"invalid_token\"")));
+}
+
+/// A personal MCP token is an MCP client's credential, never the athlete's
+/// own: a REST route, which acts with the athlete's whole authority, refuses
+/// it with 403 — here, the route that would let it mint more tokens.
+#[tokio::test]
+async fn test_rest_refuses_a_personal_mcp_token() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let token = mint_personal_mcp_token(&setup.resources, setup.user_id).await;
+
+    let refused = AxumTestRequest::get("/api/user/mcp-tokens")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(UserMcpTokenRoutes::routes(setup.resources.clone()))
+        .await;
+    assert_eq!(
+        refused.status(),
+        403,
+        "a personal MCP token must not reach a REST route"
+    );
+    let listed = setup
+        .resources
+        .common
+        .repos
+        .user_mcp_tokens
+        .list_tokens(setup.user_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed[0].usage_count, 0,
+        "the refusal reads and writes nothing for the token"
+    );
+}
+
+/// The grant a personal MCP token carries is every delegable scope and never
+/// `admin`: a global admin's token is refused an `ADMIN_ONLY` tool with the
+/// RFC 6750 `insufficient_scope` challenge, while the same admin's API key
+/// (the self grant) clears it in `test_global_admin_user_is_allowed_admin_tool`.
+#[tokio::test]
+async fn test_personal_mcp_token_never_carries_admin() {
+    let email = "pmcp_global_admin@example.com";
+    let (resources, _api_key) = setup_with_admin_flag(email, true)
+        .await
+        .expect("setup failed");
+    let admin = resources
+        .common
+        .repos
+        .users
+        .get_by_email_required(email)
+        .await
+        .unwrap();
+    let token = mint_personal_mcp_token(&resources, admin.id).await;
+
+    let refused = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "admin_list_system_agents", "arguments": {} }
+        }))
+        .send(McpRoutes::routes(resources.clone()))
+        .await;
+    assert_eq!(refused.status(), 403, "admin is never in a token's grant");
+    let challenge = refused
+        .header("www-authenticate")
+        .expect("the refusal must carry a WWW-Authenticate challenge");
+    assert!(
+        challenge.contains("insufficient_scope") && challenge.contains("admin"),
+        "the challenge names the missing scope: {challenge}"
+    );
+}

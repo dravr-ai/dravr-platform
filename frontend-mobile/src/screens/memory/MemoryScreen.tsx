@@ -15,6 +15,7 @@ import { userApi } from '../../services/api';
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import { presentMemoryFactMenu } from './presentMemoryFactMenu';
+import { MemoryReviewSection } from './MemoryReviewSection';
 import { describeApiError } from '@pierre/ui-logic';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
@@ -106,6 +107,8 @@ export function MemoryScreen(): React.JSX.Element {
           />
         }
       >
+        <MemoryReviewSection />
+
         <Text className="text-sm text-text-secondary px-4 pt-2 pb-2.5">{t('app.memoryPanelBlurb')}</Text>
 
         <TextTabs

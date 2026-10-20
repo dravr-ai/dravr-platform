@@ -1,4 +1,4 @@
-// ABOUTME: User-facing memory fact service — list and forget what the agent remembers
+// ABOUTME: User-facing memory fact service — list, approve and forget what the agent remembers
 // ABOUTME: Wraps HarnessMemoryRepository with user-scoped wire shapes for the GDPR Forget UX
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,6 +14,7 @@
 
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
+use std::slice;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -21,8 +22,9 @@ use uuid::Uuid;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_database::repositories::ApproveFactOutcome;
 use pierre_database::AgentRepos;
-use pierre_memory::{FactKind, PredicateCode};
+use pierre_memory::{FactKind, FactStatus, PredicateCode, UserFact};
 
 /// Default page size when the client omits `limit`. Bounded to 100 by
 /// [`MAX_LIST_LIMIT`] so a misconfigured client cannot drag the database.
@@ -60,6 +62,12 @@ pub struct UserFactRow {
     pub source_msg_id: Option<String>,
     /// RFC3339 timestamp of the most recent update to this fact.
     pub updated_at: String,
+    /// `approved` (the agent reads it) or `draft` (waiting on the athlete).
+    pub status: String,
+    /// The words the fact was taken from, verbatim; `null` for a form answer.
+    pub evidence: Option<String>,
+    /// Whose words `evidence` quotes: `athlete` or `agent`.
+    pub evidence_source: Option<String>,
 }
 
 /// Response envelope for `GET /api/memory/facts`.
@@ -69,6 +77,24 @@ pub struct UserFactListResponse {
     pub facts: Vec<UserFactRow>,
     /// Total number of facts returned in this response.
     pub total: usize,
+}
+
+/// Response envelope for `POST /api/memory/facts/:fact_id/approve`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApproveFactResponse {
+    /// The fact as it now stands: approved.
+    pub fact: UserFactRow,
+}
+
+/// What approving a draft came to.
+#[derive(Debug)]
+pub enum ApproveFact {
+    /// Approved; the agent reads it from the next turn.
+    Approved(Box<ApproveFactResponse>),
+    /// A newer fact about the same thing was saved after the draft.
+    Superseded,
+    /// No fact of this user has that id.
+    NotFound,
 }
 
 /// Response envelope for `DELETE /api/memory/facts/:fact_id`.
@@ -119,6 +145,13 @@ impl<'a> SentenceRenderer<'a> {
     }
 }
 
+/// The status a list asks for: `draft` for the review list, anything else
+/// (or nothing) for the kept facts.
+#[must_use]
+pub fn fact_status_from_query(raw: Option<&str>) -> FactStatus {
+    raw.map_or(FactStatus::Approved, FactStatus::parse_lenient)
+}
+
 /// Parse a `snake_case` fact-kind filter into a [`FactKind`] enum value.
 #[must_use]
 pub fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
@@ -140,49 +173,119 @@ pub async fn list_user_facts(
     sentences: SentenceRenderer<'_>,
     tenant_id: TenantId,
     user_id: &str,
-    agent_id: Option<&str>,
-    kind: Option<FactKind>,
-    limit: i64,
+    query: FactListQuery<'_>,
 ) -> AppResult<UserFactListResponse> {
+    let FactListQuery {
+        agent_id,
+        kind,
+        status,
+        limit,
+    } = query;
     let clamped = limit.clamp(1, MAX_LIST_LIMIT);
-    let mut facts = repos
-        .memory
-        .list_user_facts(
-            tenant_id,
-            user_id,
-            agent_id,
-            kind,
-            clamped,
-            ai_scope::readable_policy(),
-        )
-        .await?;
+    let mut facts = match status {
+        FactStatus::Approved => {
+            repos
+                .memory
+                .list_user_facts(
+                    tenant_id,
+                    user_id,
+                    agent_id,
+                    kind,
+                    clamped,
+                    ai_scope::readable_policy(),
+                )
+                .await?
+        }
+        FactStatus::Draft => {
+            repos
+                .memory
+                .list_draft_user_facts(tenant_id, user_id, clamped, ai_scope::readable_policy())
+                .await?
+        }
+    };
     // A fact derived from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
 
     let agent_titles = agent_titles_for(repos, &facts, user_id, tenant_id).await;
-
     let rows: Vec<UserFactRow> = facts
         .into_iter()
-        .map(|f| UserFactRow {
-            id: f.id,
-            agent_title: f
-                .agent_id
-                .as_deref()
-                .and_then(|id| agent_titles.get(id).cloned()),
-            agent_id: f.agent_id,
-            kind: f.kind.as_str().to_owned(),
-            predicate_code: f.predicate_code.as_str().to_owned(),
-            sentence: sentences.render(f.predicate_code, &f.object),
-            object: f.object,
-            confidence: f.confidence,
-            source_msg_id: f.source_msg_id,
-            updated_at: f.updated_at.to_rfc3339(),
-        })
+        .map(|f| fact_row(f, sentences, &agent_titles))
         .collect();
 
     let total = rows.len();
     Ok(UserFactListResponse { facts: rows, total })
+}
+
+/// Which of a user's facts a list returns.
+#[derive(Debug, Clone, Copy)]
+pub struct FactListQuery<'a> {
+    /// Only facts attached to this agent (kept facts only).
+    pub agent_id: Option<&'a str>,
+    /// Only facts of this kind (kept facts only).
+    pub kind: Option<FactKind>,
+    /// The kept facts, or the drafts waiting on the athlete.
+    pub status: FactStatus,
+    /// Page size, clamped to `1..=100`.
+    pub limit: i64,
+}
+
+/// Keep one of the user's drafts, unless a newer fact about the same thing
+/// was saved after it.
+///
+/// # Errors
+///
+/// Returns repository errors propagated from
+/// [`pierre_database::repositories::HarnessMemoryRepository::approve_user_fact`].
+pub async fn approve_user_fact(
+    repos: &AgentRepos,
+    sentences: SentenceRenderer<'_>,
+    fact_id: &str,
+    tenant_id: TenantId,
+    user_id: &str,
+) -> AppResult<ApproveFact> {
+    Ok(
+        match repos
+            .memory
+            .approve_user_fact(fact_id, tenant_id, user_id)
+            .await?
+        {
+            ApproveFactOutcome::Approved(fact) => {
+                let titles =
+                    agent_titles_for(repos, slice::from_ref(&fact), user_id, tenant_id).await;
+                ApproveFact::Approved(Box::new(ApproveFactResponse {
+                    fact: fact_row(*fact, sentences, &titles),
+                }))
+            }
+            ApproveFactOutcome::Superseded => ApproveFact::Superseded,
+            ApproveFactOutcome::NotFound => ApproveFact::NotFound,
+        },
+    )
+}
+
+fn fact_row(
+    f: UserFact,
+    sentences: SentenceRenderer<'_>,
+    agent_titles: &HashMap<String, String>,
+) -> UserFactRow {
+    UserFactRow {
+        id: f.id,
+        agent_title: f
+            .agent_id
+            .as_deref()
+            .and_then(|id| agent_titles.get(id).cloned()),
+        agent_id: f.agent_id,
+        kind: f.kind.as_str().to_owned(),
+        predicate_code: f.predicate_code.as_str().to_owned(),
+        sentence: sentences.render(f.predicate_code, &f.object),
+        object: f.object,
+        confidence: f.confidence,
+        source_msg_id: f.source_msg_id,
+        updated_at: f.updated_at.to_rfc3339(),
+        status: f.status.as_str().to_owned(),
+        evidence_source: f.evidence.as_ref().map(|e| e.source.as_str().to_owned()),
+        evidence: f.evidence.map(|e| e.quote),
+    }
 }
 
 /// The title of every agent the facts name, one lookup per distinct agent.

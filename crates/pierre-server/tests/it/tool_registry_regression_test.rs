@@ -1,0 +1,401 @@
+// ABOUTME: Regression tests for unified tool registry architecture.
+// ABOUTME: Ensures core tools stay registered and tool count stays above threshold.
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![doc = "Tool registry regression tests for unified architecture"]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::panic)]
+
+use pierre_mcp_server::tools::registry_builtin::{get_tools, register_builtin_tools};
+use pierre_tool_runtime::registry::ToolRegistry;
+use std::collections::HashSet;
+
+/// Minimum number of user-visible tools. This threshold prevents silent regressions
+/// where tools disappear from the registry without anyone noticing.
+const MIN_USER_VISIBLE_TOOLS: usize = 55;
+
+#[test]
+fn test_user_visible_tool_count_above_threshold() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let user_schemas = registry.user_visible_schemas();
+    let count = user_schemas.len();
+
+    assert!(
+        count >= MIN_USER_VISIBLE_TOOLS,
+        "User-visible tool count ({count}) dropped below minimum threshold ({MIN_USER_VISIBLE_TOOLS}).\n\
+         This indicates a regression: tools may have been accidentally removed.\n\
+         If this is intentional, update MIN_USER_VISIBLE_TOOLS."
+    );
+
+    println!("User-visible tools: {count} (threshold: {MIN_USER_VISIBLE_TOOLS})");
+}
+
+#[test]
+fn test_all_transports_return_consistent_tool_list() {
+    // The ToolRegistry is the single source of truth for all transports.
+    // Verify that get_tools() (used by tests/legacy) returns the same tools
+    // as ToolRegistry.all_schemas().
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let registry_tools: HashSet<String> =
+        registry.all_schemas().into_iter().map(|t| t.name).collect();
+
+    let get_tools_result: HashSet<String> = get_tools().into_iter().map(|t| t.name).collect();
+
+    assert_eq!(
+        registry_tools,
+        get_tools_result,
+        "get_tools() and ToolRegistry.all_schemas() return different tool sets.\n\
+         Only in registry: {:?}\n\
+         Only in get_tools: {:?}",
+        registry_tools
+            .difference(&get_tools_result)
+            .collect::<Vec<_>>(),
+        get_tools_result
+            .difference(&registry_tools)
+            .collect::<Vec<_>>()
+    );
+
+    println!(
+        "All {} tools are consistent across transports",
+        registry_tools.len()
+    );
+}
+
+#[test]
+fn test_chat_callable_surface_includes_agent_prompt_dependencies() {
+    // Agent prompts in dravr-contremaitre `prompts/agents/training/` reference
+    // these tool names. They must all be in chat_callable_schemas(), otherwise
+    // the LLM gets the prose name advertised in "Available Tools" but no
+    // matching function declaration — producing truthful "no callable tool"
+    // refusals (the bug fixed in this commit).
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    // These names appear in agent prompts and must be callable at chat time.
+    // The list is conservative — add new names as agents reference new tools.
+    let required = [
+        // Endurance dossier/history (drove the regression that motivated this test)
+        "export_dossier",
+        "export_latest_snapshot",
+        "get_training_history",
+        "compute_training_history",
+        // Endurance workout templates / prescription
+        "list_workout_templates",
+        "prescribe_workout",
+        "withdraw_prescribed_workout",
+        "push_training_plan",
+        // Endurance per-activity exports
+        "export_intervals",
+        "export_routes",
+        "extract_activity_streams",
+        // Legacy 15 — must stay callable
+        "get_connection_status",
+        "connect_provider",
+        "disconnect_provider",
+        "get_activities",
+        "get_athlete",
+        "get_stats",
+        "analyze_activity",
+        "get_activity_intelligence",
+        "analyze_performance_trends",
+        "compare_activities",
+        "calculate_fitness_score",
+        "analyze_training_load",
+        "calculate_recovery_score",
+        "suggest_rest_day",
+        "generate_recommendations",
+    ];
+
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|name| !chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "chat_callable_schemas() is missing {} tool(s) referenced by coach prompts: {:?}\n\
+         If a tool was intentionally moved off the chat surface, audit the \
+         dravr-contremaitre `prompts/agents/` for prose that still says \
+         `call \\`{{name}}\\`` and update those prompts in the same commit.",
+        missing.len(),
+        missing
+    );
+
+    println!(
+        "chat_callable surface ({} tools) covers all {} coach-prompt tool references",
+        chat_surface.len(),
+        required.len()
+    );
+}
+
+#[cfg(feature = "tools-groups")]
+#[test]
+fn test_chat_callable_surface_includes_group_peer_fetch() {
+    // get_group_member_activities is the ONLY path that reads a group peer's
+    // data, and the group agent prompt (write_peer_fetch_instructions) steers
+    // the LLM to call it. It registers under the "groups" category, so it is
+    // chat-callable only if "groups" is in CHAT_CALLABLE_CATEGORIES. When it was
+    // not, the agent was steered toward a tool the LLM could never see and
+    // silently fell back to get_activities (the requester's own data) — the
+    // exact "no callable tool" failure this surface is meant to prevent.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    assert!(
+        chat_surface.contains("get_group_member_activities"),
+        "get_group_member_activities (consent-gated peer fetch) is not chat-callable.\n\
+         It is the only path that reads a peer's data and the group prompt steers \
+         the LLM to it. Add its category (\"groups\") to CHAT_CALLABLE_CATEGORIES \
+         in ToolRegistry::chat_callable_schemas()."
+    );
+}
+
+#[test]
+fn test_chat_callable_surface_excludes_admin_and_management_tools() {
+    // Tools that should NOT be callable from chat: agent create/delete/assign
+    // (UI actions), store install/uninstall (UI actions), admin_* (operator),
+    // config write/delete (admin-ish), verify_claim (debug). The LLM should
+    // not fire these on natural-language input.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    let forbidden = [
+        "create_agent",
+        "delete_agent",
+        "update_agent",
+        "admin_assign_agent",
+        "admin_create_system_agent",
+        "verify_claim",
+    ];
+
+    let leaked: Vec<&str> = forbidden
+        .iter()
+        .copied()
+        .filter(|name| chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        leaked.is_empty(),
+        "Management/admin tool(s) leaked into the chat-callable surface: {leaked:?}\n\
+         These categories must stay off function-calling: coaches, admin, store, \
+         verification, configuration, fitness_config."
+    );
+}
+
+#[test]
+fn test_chat_callable_surface_grounds_fr_dinner_incident() {
+    // Regression (2026-07-24): a training-agent turn asking "recommande quoi
+    // comme dîner" fabricated a meal from memory because the (now-deleted)
+    // per-turn keyword prefilter dropped the recipe/nutrition tools when the
+    // FR-CA meal word matched no keyword rule. The fix removed the prefilter
+    // entirely: every coaching turn now sees the full chat-callable surface, so
+    // the tools that turn needed can NEVER be absent because of phrasing.
+    //
+    // This asserts the tools structurally, independent of any keyword: as long
+    // as their categories stay in CHAT_CALLABLE_CATEGORIES, a dinner/activity
+    // ask always has search_recipes (grounded in get_recipe_constraints) and
+    // get_activities available — no keyword table to whack-a-mole.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let chat_surface: HashSet<String> = registry
+        .chat_callable_schemas()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    let required = [
+        // The recipe suite the "dîner" turn needed — real suggestions grounded
+        // in the user's dietary constraints, not a hand-written meal.
+        "search_recipes",
+        "get_recipe_constraints",
+        // The activity read that grounds any "et une course" clause in the same
+        // turn — the pinned core the deleted prefilter used to guarantee.
+        "get_activities",
+    ];
+
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|name| !chat_surface.contains(*name))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "chat_callable_schemas() is missing {} tool(s) the FR \"dîner\" turn \
+         depends on: {:?}\n\
+         With the per-turn prefilter deleted, these are absent only if their \
+         category left CHAT_CALLABLE_CATEGORIES — audit that list in \
+         ToolRegistry::chat_callable_schemas().",
+        missing.len(),
+        missing
+    );
+
+    // Consent-gated peer fetch: the deleted prefilter pinned it explicitly; it
+    // now survives only because its "groups" category is chat-callable, so a
+    // future edit dropping "groups" from CHAT_CALLABLE_CATEGORIES is caught here.
+    #[cfg(feature = "tools-groups")]
+    assert!(
+        chat_surface.contains("get_group_member_activities"),
+        "get_group_member_activities (consent-gated peer fetch) left the \
+         chat-callable surface; add its category (\"groups\") back to \
+         CHAT_CALLABLE_CATEGORIES in ToolRegistry::chat_callable_schemas()."
+    );
+}
+
+#[test]
+fn test_five_analytics_tools_are_registered() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let required_analytics = [
+        "analyze_activity",
+        "get_activity_intelligence",
+        "calculate_metrics",
+        "analyze_performance_trends",
+        "compare_activities",
+    ];
+
+    for tool_name in &required_analytics {
+        assert!(
+            registry.contains(tool_name),
+            "Analytics tool '{tool_name}' is not registered in ToolRegistry.\n\
+             This was a known regression from Feb 2026. These tools must be registered."
+        );
+    }
+
+    println!("All 5 previously-missing analytics tools are registered");
+}
+
+#[test]
+fn test_annotations_present_on_analytics_tools() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let analytics_tools = registry.tools_in_category("analytics");
+
+    assert!(
+        !analytics_tools.is_empty(),
+        "No analytics tools registered in 'analytics' category"
+    );
+
+    let schemas = registry.all_schemas();
+    for schema in &schemas {
+        if analytics_tools.contains(&schema.name.as_str()) {
+            assert!(
+                schema.annotations.is_some(),
+                "Analytics tool '{}' is missing annotations. \
+                 All analytics tools should have readOnlyHint annotations.",
+                schema.name
+            );
+        }
+    }
+
+    println!(
+        "All {} analytics tools have annotations",
+        analytics_tools.len()
+    );
+}
+
+#[cfg(feature = "tools-all")]
+fn registered_names() -> HashSet<String> {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    registry
+        .tool_names()
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every tool-name constant in `pierre_core::constants::tools` names a tool the
+/// full build registers. A constant that outlives its tool turns every
+/// comparison against it into a silent miss.
+#[cfg(feature = "tools-all")]
+#[test]
+fn test_every_tool_name_constant_is_registered() {
+    // A scanner over a catalogue: Rust cannot enumerate a module's constants at
+    // runtime, so the declarations are the data under test.
+    let source = include_str!("../../../pierre-core/src/constants/tools/identifiers.rs");
+    let constant = regex::Regex::new(r#"pub const [A-Z0-9_]+: &str = "([a-z0-9_]+)";"#).unwrap();
+    let names: Vec<&str> = constant
+        .captures_iter(source)
+        .map(|c| c.get(1).unwrap().as_str())
+        .collect();
+    // Every declaration parses, so a constant the pattern misses fails here
+    // rather than silently leaving the scan.
+    assert_eq!(
+        names.len(),
+        source.matches("pub const ").count(),
+        "a constant in identifiers.rs did not parse"
+    );
+    let registered = registered_names();
+    let unregistered: Vec<&&str> = names
+        .iter()
+        .filter(|name| !registered.contains(**name))
+        .collect();
+    assert!(
+        unregistered.is_empty(),
+        "tool-name constants with no registered tool: {unregistered:?}"
+    );
+}
+
+/// The tools a guided flow withholds must exist, or the withholding is a no-op
+/// that still reads as protection.
+#[cfg(feature = "tools-all")]
+#[test]
+fn test_guided_flow_withholds_only_registered_tools() {
+    use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
+    let registered = registered_names();
+    for name in GUIDED_FLOW_WITHHELD_TOOLS {
+        assert!(
+            registered.contains(*name),
+            "GUIDED_FLOW_WITHHELD_TOOLS names `{name}`, which no tool registers"
+        );
+    }
+}
+
+/// Each A2A agent-card skill is invoked as a tool call by its id, so an id with
+/// no registered tool advertises a skill every client call would fail.
+#[cfg(all(feature = "tools-all", feature = "protocol-a2a"))]
+#[test]
+fn test_a2a_agent_card_skills_are_registered_tools() {
+    use pierre_a2a::agent_card::AgentCard;
+    let registered = registered_names();
+    let card = AgentCard::new();
+    let unregistered: Vec<&str> = card
+        .skills
+        .iter()
+        .map(|skill| skill.id.as_str())
+        .filter(|id| !registered.contains(*id))
+        .collect();
+    assert!(
+        unregistered.is_empty(),
+        "A2A skills with no registered tool: {unregistered:?}"
+    );
+}

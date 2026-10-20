@@ -48,7 +48,7 @@ on:
   push:
     paths:
       - "crates/pierre-server/tests/helpers/chat_scenario/**"
-      - "crates/pierre-server/tests/chat_scenario_test.rs"
+      - "crates/pierre-server/tests/it/chat_scenario_test.rs"
       - "crates/pierre-server/tests/live/chat_scenario_live_test.rs"
       - "crates/pierre-server/tests/scenarios/**"
       - ".github/workflows/chat-conversation-eval.yml"
@@ -112,7 +112,7 @@ jobs:
         # through the tee, and the grep refuses a run that executed nothing.
         run: |
           set -o pipefail
-          cargo test --test chat_scenario_test 2>&1 | tee "$RUNNER_TEMP/chat-scenario-structural.log"
+          cargo test --test it -- chat_scenario_test:: 2>&1 | tee "$RUNNER_TEMP/chat-scenario-structural.log"
           grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/chat-scenario-structural.log"
 
   # ---------------------------------------------------------------------------

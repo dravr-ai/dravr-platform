@@ -1,0 +1,688 @@
+// ABOUTME: Universal protocol edge cases and error path tests
+// ABOUTME: Tests error conditions, edge cases, and untested paths in universal layer
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+//! Universal Protocol Edge Cases and Error Path Tests
+//!
+//! Tests for error conditions, edge cases, and untested paths
+//! in the universal tool execution layer.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use anyhow::Result;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
+use pierre_auth::auth::AuthManager;
+use pierre_config::environment::*;
+use pierre_core::errors::protocol::ProtocolError;
+use pierre_core::models::{ConnectionType, Tenant, User, UserOAuthToken};
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_mcp_server::{
+    constants::oauth_providers,
+    mcp::resources::{ServerContext, ServerContextOptions},
+};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use serde_json::json;
+use std::{path::PathBuf, sync::Arc};
+use uuid::Uuid;
+
+use crate::common;
+
+/// Create test user without saving to database (local helper)
+fn create_test_user(email: &str, display_name: Option<String>) -> User {
+    User::new(email.to_owned(), "test_hash".to_owned(), display_name)
+}
+
+/// Create test configuration
+fn create_test_config() -> Arc<ServerConfig> {
+    Arc::new(ServerConfig {
+        http_port: 4000,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: PathBuf::from("test_backups"),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_client_id".to_owned()),
+                client_secret: Some("test_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
+                scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
+                enabled: true,
+            },
+            // Use defaults for providers not needed in this test
+            garmin: OAuthProviderConfig::default(),
+            whoop: OAuthProviderConfig::default(),
+            terra: OAuthProviderConfig::default(),
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Development,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2024-11-05".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: "0.1.0".to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        ..Default::default()
+    })
+}
+
+/// Create test config without OAuth
+fn create_test_config_no_oauth() -> Arc<ServerConfig> {
+    let mut config = (*create_test_config()).clone();
+    config.oauth.strava.client_id = None;
+    config.oauth.strava.client_secret = None;
+    Arc::new(config)
+}
+
+/// Create test executor - duplicated from `protocols_universal_test.rs`
+async fn create_test_executor() -> Result<UniversalToolExecutor> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+
+    let _intelligence = Arc::new(ActivityIntelligence::new(
+        "Test intelligence".to_owned(),
+        vec![],
+        PerformanceMetrics {
+            relative_effort: Some(75.0),
+            zone_distribution: None,
+            personal_records: vec![],
+            efficiency_score: Some(80.0),
+            trend_indicators: TrendIndicators {
+                pace_trend: TrendDirection::Stable,
+                effort_trend: TrendDirection::Stable,
+                distance_trend: TrendDirection::Stable,
+                consistency_score: 85.0,
+            },
+        },
+        ContextualFactors {
+            weather: None,
+            location: None,
+            time_of_day: TimeOfDay::Morning,
+            days_since_last_activity: Some(1),
+            weekly_load: None,
+            seasonal_context: None,
+        },
+    ));
+
+    let config = create_test_config();
+    // Create ServerContext for the test
+    let auth_manager = AuthManager::new(24);
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            auth_manager,
+            "test_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))
+}
+
+/// Create executor with missing OAuth configuration
+async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+
+    let _intelligence = Arc::new(ActivityIntelligence::new(
+        "Test intelligence".to_owned(),
+        vec![],
+        PerformanceMetrics {
+            relative_effort: Some(75.0),
+            zone_distribution: None,
+            personal_records: vec![],
+            efficiency_score: Some(80.0),
+            trend_indicators: TrendIndicators {
+                pace_trend: TrendDirection::Stable,
+                effort_trend: TrendDirection::Stable,
+                distance_trend: TrendDirection::Stable,
+                consistency_score: 85.0,
+            },
+        },
+        ContextualFactors {
+            weather: None,
+            location: None,
+            time_of_day: TimeOfDay::Morning,
+            days_since_last_activity: Some(1),
+            weekly_load: None,
+            seasonal_context: None,
+        },
+    ));
+
+    // Create config without OAuth credentials
+    let config = create_test_config_no_oauth();
+    // Create ServerContext for the test
+    let auth_manager = AuthManager::new(24);
+    let cache = common::create_test_cache().await.unwrap();
+    let server_resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            auth_manager,
+            "test_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+
+    Ok(UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()))
+}
+
+/// Test OAuth configuration errors
+#[tokio::test]
+async fn test_oauth_configuration_errors() -> Result<()> {
+    let executor = create_executor_no_oauth().await?;
+
+    // Create tenant first
+    // Create test user first so they can be tenant owner
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // User is now the owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Missing OAuth *config* is the subject. The athlete has to be connected to
+    // reach config resolution at all — the dispatch chokepoint refuses a user
+    // with no connection and no token before any provider is constructed.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
+    // Test get_activities with missing OAuth config
+    // Must specify a real provider (strava) - default provider is "synthetic" which doesn't need OAuth
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({"provider": "strava"}),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant.id.to_string()),
+    };
+
+    // A token-less provider short-circuits as the typed auth-required error —
+    // the chat pipeline turns this into a localized reconnect link, instead of
+    // an in-band error payload the LLM would have to rephrase.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without OAuth credentials must short-circuit as auth-required");
+    assert!(
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
+    );
+
+    Ok(())
+}
+
+/// Test invalid provider token scenarios
+#[tokio::test]
+async fn test_invalid_provider_tokens() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    // Create test user
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Store an invalid/expired token
+    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
+    let oauth_token = UserOAuthToken::new(
+        user_id,
+        "00000000-0000-0000-0000-000000000000".to_owned(), // tenant_id
+        oauth_providers::STRAVA.to_owned(),
+        "invalid_access_token".to_owned(),
+        Some("invalid_refresh_token".to_owned()),
+        Some(expires_at),
+        Some("read".to_owned()), // scope as String
+    );
+    executor
+        .resources
+        .repos()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await?;
+
+    // Test get_activities with expired token
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({
+            "limit": 10,
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    // An expired token whose refresh cannot succeed short-circuits as the
+    // typed auth-required error (the reconnect re-challenge path). A refresh
+    // that somehow succeeds is also acceptable — the athlete keeps their data.
+    match executor.execute_tool(request).await {
+        Ok(response) => assert!(
+            response.success,
+            "an in-band failure must not survive: auth failures are typed now, got {:?}",
+            response.error
+        ),
+        Err(err) => assert!(
+            matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+            "unexpected error shape: {err:?}"
+        ),
+    }
+
+    Ok(())
+}
+
+/// Test malformed UUID handling
+#[tokio::test]
+async fn test_malformed_user_id() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: "not-a-valid-uuid".to_owned(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let result = executor.execute_tool(request).await;
+    // Should return ProtocolError for invalid user ID format
+    assert!(result.is_err());
+    let error = result.err().unwrap();
+    assert!(
+        error.to_string().contains("Invalid user ID")
+            || error.to_string().contains("Invalid parameters")
+            || error.to_string().contains("Invalid user ID format")
+    );
+
+    Ok(())
+}
+
+/// Test non-existent user scenarios
+#[tokio::test]
+async fn test_non_existent_user() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let non_existent_user_id = Uuid::new_v4();
+    let synthetic_tenant_id = Uuid::new_v4();
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: non_existent_user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(synthetic_tenant_id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // Should handle non-existent user gracefully
+    if response.success {
+        // If successful, continue with any additional checks
+    } else {
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+/// Test invalid tool parameters
+#[tokio::test]
+async fn test_invalid_tool_parameters() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Invalid Params Test Tenant".to_owned(),
+        format!("invalid-params-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Test get_activities with invalid limit
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({
+            "limit": "not_a_number",
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant_id.to_string()),
+    };
+
+    // The auth gate runs before parameter validation for provider-backed tools,
+    // so the invalid limit is never reached. A user who does not exist holds
+    // neither a provider connection nor a token, which is precisely the shape
+    // the dispatch chokepoint refuses — in-band, so the turn survives. A typed
+    // auth-required short-circuit or a parameter rejection are both still
+    // acceptable should ordering change; what must never happen is success.
+    match executor.execute_tool(request).await {
+        Ok(response) => {
+            assert!(!response.success, "an invalid limit must not succeed");
+            let error = response.error.unwrap_or_default();
+            println!("Error from get_activities with invalid limit: {error}");
+            assert!(
+                error.contains("No fitness provider connected")
+                    || error.contains("Invalid parameters")
+                    || error.contains("limit")
+                    || error.contains("not_a_number"),
+                "unexpected error text: {error}"
+            );
+        }
+        Err(err) => assert!(
+            matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+            "unexpected error shape: {err:?}"
+        ),
+    }
+
+    // Test set_goal with invalid goal data
+    let request = UniversalRequest {
+        tool_name: "set_goal".to_owned(),
+        parameters: json!({
+            "goal_type": "invalid_goal_type",
+            "target_value": "not_a_number"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant_id.to_string()),
+    };
+
+    let result = executor.execute_tool(request).await;
+    // Should return ProtocolError for invalid parameters
+    assert!(result.is_err());
+    let error = result.err().unwrap();
+    assert!(
+        error.to_string().contains("Invalid parameters")
+            || error.to_string().contains("target_value is required")
+            || error.to_string().contains("invalid_goal_type")
+    );
+
+    Ok(())
+}
+
+/// Test database connection failures simulation
+#[tokio::test]
+async fn test_database_error_handling() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let synthetic_tenant_id = Uuid::new_v4();
+
+    // Try to access a very large invalid user ID to potentially trigger DB errors
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: "00000000-0000-0000-0000-000000000000".to_owned(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(synthetic_tenant_id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // Should handle gracefully regardless of database state
+    assert!(response.success || response.error.is_some());
+
+    Ok(())
+}
+
+/// Test concurrent tool execution
+#[tokio::test]
+async fn test_concurrent_tool_execution() -> Result<()> {
+    let executor = Arc::new(create_test_executor().await?);
+
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Concurrent Exec Test Tenant".to_owned(),
+        format!("concurrent-exec-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Create multiple concurrent requests
+    let mut handles = vec![];
+
+    for i in 0..5 {
+        let executor_clone = executor.clone();
+        let user_id_str = user_id.to_string();
+        let tenant_id_str = tenant_id.to_string();
+
+        let handle = tokio::spawn(async move {
+            let request = UniversalRequest {
+                tool_name: "get_connection_status".to_owned(),
+                parameters: json!({}),
+                user_id: user_id_str.clone(),
+                protocol: format!("test_{i}"),
+                tenant_id: Some(tenant_id_str),
+            };
+
+            executor_clone.execute_tool(request).await
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all requests to complete
+    for handle in handles {
+        let result = handle.await?;
+        assert!(result.is_ok());
+        let response = result?;
+        assert!(response.success || response.error.is_some());
+    }
+
+    Ok(())
+}
+
+/// Test tool response metadata
+#[tokio::test]
+async fn test_tool_response_metadata() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    let tenant = Tenant::new(
+        "Response Metadata Test Tenant".to_owned(),
+        format!("response-metadata-tenant-{}", Uuid::new_v4()),
+        Some(format!("{}.example.com", Uuid::new_v4())),
+        "starter".to_owned(),
+        user_id,
+    );
+    let tenant_id = tenant.id;
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant_id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+
+    // Check response structure
+    assert!(response.success || response.error.is_some());
+
+    // Metadata might be present
+    if let Some(metadata) = response.metadata {
+        assert!(!metadata.is_empty());
+    }
+
+    Ok(())
+}
+
+/// Test intelligence integration edge cases
+#[tokio::test]
+async fn test_intelligence_integration_errors() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Test analytics tools with invalid data
+    let request = UniversalRequest {
+        tool_name: "analyze_performance_trends".to_owned(),
+        parameters: json!({
+            "activities": [], // Empty activities array
+            "metrics": ["invalid_metric"]
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // Should handle empty/invalid data gracefully
+    assert!(response.success || response.error.is_some());
+
+    Ok(())
+}
+
+/// Test provider unavailable scenarios
+#[tokio::test]
+async fn test_provider_unavailable() -> Result<()> {
+    let executor = create_test_executor().await?;
+
+    let user_id = Uuid::new_v4();
+    let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
+    user.id = user_id;
+    user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Test with unsupported provider
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({
+            "limit": 10,
+            "provider": "unsupported_provider"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If successful, continue with any additional checks
+    } else {
+        assert!(response.error.is_some());
+        let error = response.error.unwrap();
+        println!("Error from unsupported provider: {error}");
+        assert!(
+            error.contains("provider")
+                || error.contains("Unsupported")
+                || error.contains("not found")
+                || error.contains("No") && error.contains("token")
+        );
+    }
+
+    Ok(())
+}

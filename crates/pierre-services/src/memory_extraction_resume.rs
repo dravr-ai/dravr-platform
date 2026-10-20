@@ -37,7 +37,8 @@ use tracing::{info, warn};
 use crate::llm_usage_recorder::LlmUsageSink;
 use crate::memory_dedup::DedupConfig;
 use crate::memory_extraction::{
-    run_extraction_job, ExtractionJobPayload, SpawnedExtractionRequest, EXTRACTION_JOB_LEASE,
+    keep_extraction_lease, run_extraction_job, ExtractionJobPayload, SpawnedExtractionRequest,
+    EXTRACTION_JOB_LEASE,
 };
 use crate::periodic::spawn_periodic;
 
@@ -151,6 +152,12 @@ async fn resume_one(
         usage_tenant_id: row.usage_tenant_id.unwrap_or(row.tenant_id),
         payload,
     };
+    // The claim leased the row; keep it leased while the run is alive, as
+    // the turn's own run does.
+    let renewal = keep_extraction_lease(
+        Arc::clone(&repos.memory_extraction_jobs),
+        Some(row.id.clone()),
+    );
     let run = run_extraction_job(
         repos.memory.as_ref(),
         usage,
@@ -160,6 +167,7 @@ async fn resume_one(
         &job,
     )
     .await;
+    drop(renewal);
     match run {
         Ok(()) => {
             finish(repos, &row.id).await;

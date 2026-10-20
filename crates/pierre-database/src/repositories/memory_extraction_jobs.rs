@@ -63,6 +63,11 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
         claim: ExtractionJobClaim,
     ) -> AppResult<Vec<MemoryExtractionJobRow>>;
 
+    /// Extend a running job's lease to `leased_until_ms`. `false` when the row
+    /// is gone or another runner holds it past that moment; the caller stops
+    /// renewing.
+    async fn renew_extraction_job_lease(&self, id: &str, leased_until_ms: i64) -> AppResult<bool>;
+
     /// The extraction landed: delete the row.
     async fn finish_extraction_job(&self, id: &str) -> AppResult<()>;
 
@@ -104,6 +109,10 @@ macro_rules! claim_extraction_jobs_sql {
     };
 }
 pub(crate) use claim_extraction_jobs_sql;
+
+pub(crate) const RENEW_EXTRACTION_JOB_LEASE_SQL: &str =
+    "UPDATE memory_extraction_jobs SET leased_until_ms = $1 \
+     WHERE id = $2 AND leased_until_ms <= $1";
 
 pub(crate) const FINISH_EXTRACTION_JOB_SQL: &str =
     "DELETE FROM memory_extraction_jobs WHERE id = $1";
@@ -185,6 +194,22 @@ macro_rules! impl_memory_extraction_job_repository {
                         AppError::database(format!("Failed to claim extraction jobs: {e}"))
                     })?;
                 rows.iter().map(extraction_job_from_row).collect()
+            }
+
+            async fn renew_extraction_job_lease(
+                &self,
+                id: &str,
+                leased_until_ms: i64,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(RENEW_EXTRACTION_JOB_LEASE_SQL)
+                    .bind(leased_until_ms)
+                    .bind(id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to renew extraction job lease: {e}"))
+                    })?;
+                Ok(result.rows_affected() == 1)
             }
 
             async fn finish_extraction_job(&self, id: &str) -> AppResult<()> {

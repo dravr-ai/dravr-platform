@@ -88,9 +88,58 @@ pub(crate) const MERGE_USER_FACT_SQL: &str = r"
 pub(crate) const GET_USER_FACT_BY_ID_SQL: &str = r"
             SELECT id, tenant_id, user_id, agent_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
-                   source_msg_id, created_at, updated_at, first_party_only
+                   source_msg_id, created_at, updated_at, first_party_only,
+                   status, evidence, evidence_source
             FROM user_facts
             WHERE id = $1 AND tenant_id = $2
+            ";
+
+/// A user's drafts waiting on them, newest first. The one read of a draft:
+/// every list above keeps to approved rows, so no prompt sees one.
+pub(crate) const LIST_DRAFT_USER_FACTS_SQL: &str = r"
+            SELECT * FROM user_facts
+            WHERE tenant_id = $1 AND user_id = $2 AND status = 'draft'
+              AND (first_party_only = FALSE OR $4)
+            ORDER BY updated_at DESC
+            LIMIT $3
+            ";
+
+/// Write a fact the agent proposes. A second write of the same claim (same
+/// idempotency key) lands on the first row; it can only promote a draft to
+/// approved, with the new evidence, never demote one. `$14` is both
+/// `created_at` and `updated_at`.
+pub(crate) const PROPOSE_USER_FACT_SQL: &str = r"
+            INSERT INTO user_facts (
+                id, tenant_id, user_id, agent_id, scope, kind, pillar,
+                predicate_code, object, confidence, source, valid_until,
+                source_msg_id, created_at, updated_at, first_party_only,
+                status, evidence, evidence_source, idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15,
+                    $16, $17, $18, $19)
+            ON CONFLICT (tenant_id, user_id, idempotency_key) DO UPDATE
+            SET evidence = CASE WHEN user_facts.status = 'draft' AND excluded.status = 'approved'
+                                THEN excluded.evidence ELSE user_facts.evidence END,
+                evidence_source = CASE WHEN user_facts.status = 'draft' AND excluded.status = 'approved'
+                                       THEN excluded.evidence_source ELSE user_facts.evidence_source END,
+                status = CASE WHEN excluded.status = 'approved' THEN 'approved' ELSE user_facts.status END,
+                updated_at = excluded.updated_at
+            RETURNING id
+            ";
+
+/// Approved facts of the same kind and code written after `$5`: what makes
+/// a draft out of date. `states` names no topic, so it never supersedes.
+pub(crate) const COUNT_SUPERSEDING_FACTS_SQL: &str = r"
+            SELECT COUNT(*) FROM user_facts
+            WHERE tenant_id = $1 AND user_id = $2 AND status = 'approved'
+              AND kind = $3 AND predicate_code = $4 AND predicate_code <> 'states'
+              AND updated_at > $5
+            ";
+
+/// Keep a draft. Matches only a draft, so approving twice changes nothing.
+pub(crate) const APPROVE_USER_FACT_SQL: &str = r"
+            UPDATE user_facts SET status = 'approved', updated_at = $4
+            WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND status = 'draft'
             ";
 
 /// A user's facts filtered by agent and kind, newest first.
@@ -98,6 +147,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_AND_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND kind = $4
                       AND (first_party_only = FALSE OR $6)
+                      AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $5
                     ";
@@ -107,6 +157,7 @@ pub(crate) const LIST_USER_FACTS_BY_AGENT_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3
                       AND (first_party_only = FALSE OR $5)
+                      AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $4
                     ";
@@ -116,6 +167,7 @@ pub(crate) const LIST_USER_FACTS_BY_KIND_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2 AND kind = $3
                       AND (first_party_only = FALSE OR $5)
+                      AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $4
                     ";
@@ -125,6 +177,7 @@ pub(crate) const LIST_USER_FACTS_SQL: &str = r"
                     SELECT * FROM user_facts
                     WHERE tenant_id = $1 AND user_id = $2
                       AND (first_party_only = FALSE OR $4)
+                      AND status = 'approved'
                     ORDER BY updated_at DESC
                     LIMIT $3
                     ";
@@ -135,6 +188,7 @@ pub(crate) const LIST_USER_FACTS_BY_SOURCE_SQL: &str = r"
             WHERE tenant_id = $1 AND user_id = $2 AND source = $3
               AND (valid_until IS NULL OR valid_until > $4)
               AND (first_party_only = FALSE OR $6)
+              AND status = 'approved'
             ORDER BY updated_at DESC
             LIMIT $5
             ";
@@ -423,7 +477,110 @@ macro_rules! impl_harness_memory_repository {
                     created_at: now,
                     updated_at: now,
                     transport_policy: params.transport_policy,
+                    status: FactStatus::Approved,
+                    evidence: None,
                 })
+            }
+
+            async fn propose_user_fact(
+                &self,
+                params: &UpsertUserFactParams<'_>,
+                proposal: &FactProposal,
+            ) -> AppResult<UserFact> {
+                let tenant = params.tenant_id.to_string();
+                let id: String = sqlx::query_scalar(PROPOSE_USER_FACT_SQL)
+                    .bind(Uuid::new_v4().to_string())
+                    .bind(&tenant)
+                    .bind(params.user_id)
+                    .bind(params.agent_id)
+                    .bind(params.scope.as_str())
+                    .bind(params.kind.as_str())
+                    .bind(params.pillar.map(Pillar::as_str))
+                    .bind(params.predicate_code.as_str())
+                    .bind(params.object)
+                    .bind(params.confidence)
+                    .bind(params.source.as_str())
+                    .bind(params.valid_until)
+                    .bind(params.source_msg_id)
+                    .bind(Utc::now())
+                    .bind(params.transport_policy.is_first_party_only())
+                    .bind(proposal.status.as_str())
+                    .bind(proposal.evidence.as_ref().map(|e| e.quote.as_str()))
+                    .bind(proposal.evidence.as_ref().map(|e| e.source.as_str()))
+                    .bind(&proposal.idempotency_key)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to propose user fact: {e}")))?;
+
+                let row = sqlx::query(GET_USER_FACT_BY_ID_SQL)
+                    .bind(&id)
+                    .bind(&tenant)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read proposed user fact: {e}"))
+                    })?;
+                user_fact_from_row(&row)
+            }
+
+            async fn list_draft_user_facts(
+                &self,
+                tenant_id: TenantId,
+                user_id: &str,
+                limit: i64,
+                readable: TransportPolicy,
+            ) -> AppResult<Vec<UserFact>> {
+                let rows = sqlx::query(LIST_DRAFT_USER_FACTS_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id)
+                    .bind(limit)
+                    .bind(readable.is_first_party_only())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to list draft facts: {e}")))?;
+                rows.iter().map(user_fact_from_row).collect()
+            }
+
+            async fn approve_user_fact(
+                &self,
+                fact_id: &str,
+                tenant_id: TenantId,
+                user_id: &str,
+            ) -> AppResult<ApproveFactOutcome> {
+                let tenant = tenant_id.to_string();
+                let Some(draft) = self.get_user_fact(fact_id, tenant_id, user_id).await? else {
+                    return Ok(ApproveFactOutcome::NotFound);
+                };
+                if draft.status == FactStatus::Approved {
+                    return Ok(ApproveFactOutcome::Approved(Box::new(draft)));
+                }
+                let newer: i64 = sqlx::query_scalar(COUNT_SUPERSEDING_FACTS_SQL)
+                    .bind(&tenant)
+                    .bind(user_id)
+                    .bind(draft.kind.as_str())
+                    .bind(draft.predicate_code.as_str())
+                    .bind(draft.created_at)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to check a draft's staleness: {e}"))
+                    })?;
+                if newer > 0 {
+                    return Ok(ApproveFactOutcome::Superseded);
+                }
+                sqlx::query(APPROVE_USER_FACT_SQL)
+                    .bind(fact_id)
+                    .bind(&tenant)
+                    .bind(user_id)
+                    .bind(Utc::now())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to approve user fact: {e}")))?;
+                self.get_user_fact(fact_id, tenant_id, user_id)
+                    .await?
+                    .map_or(Ok(ApproveFactOutcome::NotFound), |fact| {
+                        Ok(ApproveFactOutcome::Approved(Box::new(fact)))
+                    })
             }
 
             async fn merge_user_fact(

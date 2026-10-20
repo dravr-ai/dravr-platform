@@ -1,0 +1,558 @@
+// ABOUTME: End-to-end tests for mobility MCP tools (stretching exercises and yoga poses)
+// ABOUTME: Tests full MCP protocol flow from request to response
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use anyhow::Result;
+use dravr_tronc::mcp::tool::ToolContext;
+use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_mcp_server::constants::tools::{
+    GET_STRETCHING_EXERCISE, GET_YOGA_POSE, LIST_STRETCHING_EXERCISES, LIST_YOGA_POSES,
+    SUGGEST_STRETCHES_FOR_ACTIVITY, SUGGEST_YOGA_SEQUENCE,
+};
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
+use pierre_seeders::mobility;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use serde_json::{json, Value};
+use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::common;
+
+/// MCP handler for E2E mobility tool testing
+struct MobilityMcpHandler {
+    resources: Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+}
+
+impl MobilityMcpHandler {
+    /// Create new handler with test resources
+    async fn new() -> Result<Self> {
+        let resources = common::create_test_server_resources().await?;
+        let (user_id, _user) = common::create_test_user(&resources.agent.database).await?;
+        let tenants = resources.common.repos.tenants.get_all().await?;
+        let tenant = tenants
+            .iter()
+            .find(|t| t.owner_user_id == user_id)
+            .expect("a fresh user owns a tenant");
+
+        Ok(Self {
+            resources,
+            user_id,
+            tenant_id: tenant.id,
+        })
+    }
+
+    /// Run a tools/call through the live post-auth dispatch — the same entry
+    /// the tronc auth hook reaches on `POST /mcp` — and wrap the tool's
+    /// [`dravr_tronc::mcp::schema::ToolResponse`] as the JSON-RPC result a
+    /// client sees. Tool failures arrive in-band as `isError`, never as a
+    /// JSON-RPC `error`.
+    async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value> {
+        let state: Arc<dyn ToolRuntime> = Arc::clone(&self.resources) as Arc<dyn ToolRuntime>;
+        let tool_context = ToolContext {
+            user_id: Some(self.user_id.to_string()),
+            tenant_id: Some(self.tenant_id.to_string()),
+            auth_method: Some("jwt_bearer".to_owned()),
+            request_id: Some(json!(1)),
+            is_admin: false,
+            scopes: OAuthScope::self_grant()
+                .iter()
+                .map(|scope| scope.as_str().to_owned())
+                .collect(),
+            ..Default::default()
+        };
+        let response = ToolHandlers::dispatch_tool_call(
+            &self.resources,
+            &state,
+            &tool_context,
+            self.user_id,
+            self.tenant_id,
+            tool_name,
+            arguments,
+        )
+        .await;
+
+        Ok(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": serde_json::to_value(&response)?
+        }))
+    }
+}
+
+// =============================================================================
+// E2E Tests for Stretching Exercise Tools
+// =============================================================================
+
+#[tokio::test]
+async fn test_e2e_list_stretching_exercises() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(LIST_STRETCHING_EXERCISES, json!({}))
+        .await?;
+
+    // Verify MCP protocol compliance
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none(), "Should not have error");
+
+    let result = &response["result"];
+    assert!(result.get("content").is_some(), "Should have content");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_stretching_with_category_filter() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_STRETCHING_EXERCISES,
+            json!({
+                "category": "static"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_stretching_with_difficulty_filter() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_STRETCHING_EXERCISES,
+            json!({
+                "difficulty": "beginner"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_stretching_with_pagination() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_STRETCHING_EXERCISES,
+            json!({
+                "limit": 10,
+                "offset": 0
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_get_stretching_exercise_missing_id() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(GET_STRETCHING_EXERCISE, json!({}))
+        .await?;
+
+    // Should return error for missing required parameter
+    assert_eq!(response["jsonrpc"], "2.0");
+    // Either an error in the response or success: false in the content
+    let has_error = response.get("error").is_some()
+        || response["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("error") || t.contains("required"));
+    assert!(has_error, "Should indicate error for missing id");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_stretches_for_activity() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            SUGGEST_STRETCHES_FOR_ACTIVITY,
+            json!({
+                "activity_type": "running"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_stretches_with_focus_and_limit() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+    mobility::run(&handler.resources.common.repos).await?;
+
+    let response = handler
+        .call_tool(
+            SUGGEST_STRETCHES_FOR_ACTIVITY,
+            json!({
+                "activity_type": "cycling",
+                "focus": "cooldown",
+                "limit": 3
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+    let suggestion = &response["result"]["structuredContent"];
+    assert_eq!(
+        suggestion["count"], 3,
+        "the limit reaches the tool: {response}"
+    );
+    let exercises = suggestion["exercises"].as_array().unwrap();
+    assert!(
+        exercises.iter().all(|e| e["category"] == "static"),
+        "a cool-down holds static stretches only: {suggestion}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_stretches_missing_activity_type() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(SUGGEST_STRETCHES_FOR_ACTIVITY, json!({}))
+        .await?;
+
+    // Should return error for missing required parameter
+    assert_eq!(response["jsonrpc"], "2.0");
+    let has_error = response.get("error").is_some()
+        || response["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("error") || t.contains("required"));
+    assert!(has_error, "Should indicate error for missing activity_type");
+
+    Ok(())
+}
+
+// =============================================================================
+// E2E Tests for Yoga Pose Tools
+// =============================================================================
+
+#[tokio::test]
+async fn test_e2e_list_yoga_poses() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler.call_tool(LIST_YOGA_POSES, json!({})).await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    let result = &response["result"];
+    assert!(result.get("content").is_some(), "Should have content");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_yoga_with_category_filter() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_YOGA_POSES,
+            json!({
+                "category": "standing"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_yoga_with_pose_type_filter() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_YOGA_POSES,
+            json!({
+                "pose_type": "stretch"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_yoga_with_recovery_context() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_YOGA_POSES,
+            json!({
+                "recovery_context": "post_cardio"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_list_yoga_with_pagination() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            LIST_YOGA_POSES,
+            json!({
+                "limit": 10,
+                "offset": 5
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_get_yoga_pose_missing_id() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler.call_tool(GET_YOGA_POSE, json!({})).await?;
+
+    // Should return error for missing required parameter
+    assert_eq!(response["jsonrpc"], "2.0");
+    let has_error = response.get("error").is_some()
+        || response["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("error") || t.contains("required"));
+    assert!(has_error, "Should indicate error for missing id");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_yoga_sequence_for_recovery() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            SUGGEST_YOGA_SEQUENCE,
+            json!({
+                "purpose": "recovery"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_yoga_sequence_with_duration() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            SUGGEST_YOGA_SEQUENCE,
+            json!({
+                "purpose": "post_run",
+                "duration_minutes": 20
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_yoga_sequence_with_difficulty() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler
+        .call_tool(
+            SUGGEST_YOGA_SEQUENCE,
+            json!({
+                "purpose": "morning",
+                "difficulty": "beginner"
+            }),
+        )
+        .await?;
+
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert!(response.get("error").is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_suggest_yoga_sequence_missing_purpose() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    let response = handler.call_tool(SUGGEST_YOGA_SEQUENCE, json!({})).await?;
+
+    // Should return error for missing required parameter
+    assert_eq!(response["jsonrpc"], "2.0");
+    let has_error = response.get("error").is_some()
+        || response["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("error") || t.contains("required"));
+    assert!(has_error, "Should indicate error for missing purpose");
+
+    Ok(())
+}
+
+// =============================================================================
+// E2E Tests for Combined Workflows
+// =============================================================================
+
+#[tokio::test]
+async fn test_e2e_complete_stretching_workflow() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    // Step 1: List all stretching exercises
+    let list_response = handler
+        .call_tool(LIST_STRETCHING_EXERCISES, json!({}))
+        .await?;
+    assert!(list_response.get("error").is_none(), "List should succeed");
+
+    // Step 2: Get suggestions for an activity
+    let suggest_response = handler
+        .call_tool(
+            SUGGEST_STRETCHES_FOR_ACTIVITY,
+            json!({
+                "activity_type": "running",
+                "duration_minutes": 10
+            }),
+        )
+        .await?;
+    assert!(
+        suggest_response.get("error").is_none(),
+        "Suggest should succeed"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_e2e_complete_yoga_workflow() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    // Step 1: List yoga poses with filter
+    let list_response = handler
+        .call_tool(
+            LIST_YOGA_POSES,
+            json!({
+                "difficulty": "beginner"
+            }),
+        )
+        .await?;
+    assert!(list_response.get("error").is_none(), "List should succeed");
+
+    // Step 2: Get a yoga sequence suggestion
+    let sequence_response = handler
+        .call_tool(
+            SUGGEST_YOGA_SEQUENCE,
+            json!({
+                "purpose": "rest_day",
+                "duration_minutes": 15,
+                "difficulty": "beginner"
+            }),
+        )
+        .await?;
+    assert!(
+        sequence_response.get("error").is_none(),
+        "Sequence should succeed"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// E2E Tests for MCP Protocol Compliance
+// =============================================================================
+
+#[tokio::test]
+async fn test_e2e_mcp_protocol_compliance() -> Result<()> {
+    let handler = MobilityMcpHandler::new().await?;
+
+    // Test all mobility tools respond with valid MCP protocol structure
+    let tools = [
+        (LIST_STRETCHING_EXERCISES, json!({})),
+        (
+            SUGGEST_STRETCHES_FOR_ACTIVITY,
+            json!({"activity_type": "running"}),
+        ),
+        (LIST_YOGA_POSES, json!({})),
+        (SUGGEST_YOGA_SEQUENCE, json!({"purpose": "recovery"})),
+    ];
+
+    for (tool_name, args) in tools {
+        let response = handler.call_tool(tool_name, args).await?;
+
+        // Verify MCP JSON-RPC structure
+        assert_eq!(
+            response["jsonrpc"], "2.0",
+            "{tool_name}: Should have jsonrpc 2.0"
+        );
+        assert!(
+            response.get("id").is_some(),
+            "{tool_name}: Should have request id"
+        );
+
+        // Should have either result or error
+        let has_result = response.get("result").is_some();
+        let has_error = response.get("error").is_some();
+        assert!(
+            has_result || has_error,
+            "{tool_name}: Should have result or error"
+        );
+    }
+
+    Ok(())
+}

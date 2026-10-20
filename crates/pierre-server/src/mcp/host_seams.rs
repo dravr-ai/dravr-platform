@@ -670,6 +670,10 @@ impl PierreToolDispatcher {
                     .tool_registry
                     .uncatalogued_user_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
+                // Each half comes out of the registry in name order, but the
+                // concatenation does not: re-sort so a non-admin `tools/list`
+                // is ordered like the admin one (cache prefix, ETag, fixture).
+                schemas.sort_by(|a, b| a.name.cmp(&b.name));
 
                 schemas
             }

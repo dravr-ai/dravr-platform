@@ -26,6 +26,9 @@ jest.mock('../src/services/api', () => ({
   },
 }));
 
+// The drafts section queries the same endpoint; its own suite covers it.
+jest.mock('../src/screens/memory/MemoryReviewSection', () => ({ MemoryReviewSection: () => null }));
+
 import { MemoryScreen } from '../src/screens/memory/MemoryScreen';
 import { networkFailure } from '../integration/app/helpers/apiRefusal';
 

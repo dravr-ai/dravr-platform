@@ -291,8 +291,8 @@ fi
 # completeness: it raises when a call site's name is not a readable literal. The
 # one premise added here is the one only a name list needs: no two call sites
 # register the same name.
-EXPECTED_FILE="crates/pierre-server/tests/contremaitre_test.rs"
-COUNT_FILE="crates/pierre-server/tests/configuration_mcp_integration_test.rs"
+EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
+COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7

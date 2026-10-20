@@ -10,10 +10,10 @@
 //! remote admin subcommands (`strava-pool`, …) read it. The file holds a
 //! bearer token, so it is created with `0600` permissions and never logged.
 
-use std::fs;
-#[cfg(unix)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::process;
 
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -97,6 +97,11 @@ impl CachedCredentials {
 
     /// Persist credentials to `~/.pierre/credentials.json` with `0600` perms.
     ///
+    /// Written whole to a sibling file created owner-only, flushed, then
+    /// renamed over the old one: the token is never readable by anyone else,
+    /// not even between a create and a `chmod`, and a crash mid-write leaves
+    /// the previous credentials rather than a truncated file.
+    ///
     /// # Errors
     /// Returns an error if the directory or file cannot be created/written.
     pub fn save(&self) -> AppResult<()> {
@@ -108,11 +113,7 @@ impl CachedCredentials {
         }
         let body = serde_json::to_string_pretty(self)
             .map_err(|e| AppError::internal(format!("Failed to serialize credentials: {e}")))?;
-        fs::write(&path, body)
-            .map_err(|e| AppError::internal(format!("Failed to write {}: {e}", path.display())))?;
-        #[cfg(unix)]
-        restrict_permissions(&path)?;
-        Ok(())
+        write_owner_only(&path, body.as_bytes())
     }
 
     /// Delete the credential file (`pierre-cli auth logout`). Absent file is a no-op.
@@ -130,17 +131,31 @@ impl CachedCredentials {
     }
 }
 
-/// Restrict the credential file to owner-read/write (`0600`). Unix-only —
-/// non-Unix platforms have no mode bits, so `save` skips the call there.
-#[cfg(unix)]
-fn restrict_permissions(path: &Path) -> AppResult<()> {
-    use std::fs::Permissions;
-    use std::os::unix::fs::PermissionsExt;
-    let perms = Permissions::from_mode(0o600);
-    fs::set_permissions(path, perms).map_err(|e| {
-        AppError::internal(format!(
-            "Failed to set 0600 permissions on {}: {e}",
-            path.display()
-        ))
+/// Write `body` to `path` atomically, the file owner-read/write (`0600`) from
+/// the moment it exists. Non-Unix platforms have no mode bits; the rename
+/// still makes the write atomic there.
+fn write_owner_only(path: &Path, body: &[u8]) -> AppResult<()> {
+    let failed = |action: &str, target: &Path, e: io::Error| {
+        AppError::internal(format!("Failed to {action} {}: {e}", target.display()))
+    };
+    let staging = path.with_extension(format!("json.tmp-{}", process::id()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&staging).and_then(|mut file| {
+        file.write_all(body)?;
+        file.sync_all()
+    });
+    if let Err(e) = written {
+        let _ = fs::remove_file(&staging);
+        return Err(failed("write", &staging, e));
+    }
+    fs::rename(&staging, path).map_err(|e| {
+        let _ = fs::remove_file(&staging);
+        failed("replace", path, e)
     })
 }

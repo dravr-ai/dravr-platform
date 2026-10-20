@@ -1,5 +1,5 @@
 // ABOUTME: Phase B Sprint C5 — user-facing memory panel with GDPR Forget per-fact
-// ABOUTME: Lists pierre-memory user_facts grouped by kind, lets users forget individual rows
+// ABOUTME: Lists kept user_facts grouped by kind under the drafts to review; any row can be forgotten
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,6 +12,7 @@ import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
 import { Section, Button, Badge, ConfirmDialog } from '../ui';
+import MemoryReviewSection from './MemoryReviewSection';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -85,6 +86,7 @@ export default function MemoryPanel() {
 
   return (
     <div className="space-y-8">
+      <MemoryReviewSection />
       <Section
         title={t('shell.memoryTitle')}
         description={t('app.memoryPanelBlurb')}

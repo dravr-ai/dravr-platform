@@ -33,3 +33,16 @@ export const MEMORY_FACT_KINDS = [
 
 /** One of {@link MEMORY_FACT_KINDS}. */
 export type MemoryFactKind = (typeof MEMORY_FACT_KINDS)[number];
+
+/**
+ * Whether a memory fact reaches the coach's prompt. The agent writes what the
+ * athlete stated in their own words as `approved`; what it inferred waits as a
+ * `draft` until the athlete keeps it.
+ */
+export const MEMORY_FACT_STATUSES = ['approved', 'draft'] as const;
+
+/** One of {@link MEMORY_FACT_STATUSES}. */
+export type MemoryFactStatus = (typeof MEMORY_FACT_STATUSES)[number];
+
+/** Whose words a fact's evidence quotes: the athlete's message or the agent's reply. */
+export type MemoryEvidenceSource = 'athlete' | 'agent';

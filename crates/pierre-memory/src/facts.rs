@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::Pillar;
 use serde::{Deserialize, Serialize};
 
+use crate::review::{FactEvidence, FactStatus};
 use crate::scope::MemoryScope;
 
 /// Semantic category of a [`UserFact`].
@@ -411,6 +412,12 @@ pub struct UserFact {
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// Whether the fact reaches the agent's prompt: a draft waits on the athlete.
+    #[serde(default)]
+    pub status: FactStatus,
+    /// The words the fact was taken from, verbatim; `None` for a form answer.
+    #[serde(default)]
+    pub evidence: Option<FactEvidence>,
 }
 
 impl UserFact {

@@ -18,7 +18,7 @@
 //! mode does not fill are absent rather than null, so what is present is what
 //! was measured.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -137,7 +137,8 @@ pub struct RacePredictionSummary {
     /// The athlete's VDOT, the number the paces come from.
     pub vdot: f64,
     /// Predicted times in minutes, keyed by the distance's name.
-    pub race_times: HashMap<String, f64>,
+    // A BTreeMap so the same prediction serializes the same way every call.
+    pub race_times: BTreeMap<String, f64>,
 }
 
 /// One meal, with what it is for.

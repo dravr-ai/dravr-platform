@@ -19,12 +19,12 @@
 use std::sync::Arc;
 
 use axum::{
-    routing::{delete, get},
+    routing::{delete, get, post},
     Router,
 };
 
 use crate::mcp::resources::ServerContext;
-use crate::services::memory_facts::{forget_fact_handler, get_facts_handler};
+use crate::services::memory_facts::{approve_fact_handler, forget_fact_handler, get_facts_handler};
 
 /// User-facing harness memory routes.
 pub struct MemoryRoutes;
@@ -35,6 +35,10 @@ impl MemoryRoutes {
         Router::new()
             .route("/api/memory/facts", get(get_facts_handler))
             .route("/api/memory/facts/{fact_id}", delete(forget_fact_handler))
+            .route(
+                "/api/memory/facts/{fact_id}/approve",
+                post(approve_fact_handler),
+            )
             .with_state(resources)
     }
 }

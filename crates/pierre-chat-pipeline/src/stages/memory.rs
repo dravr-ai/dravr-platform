@@ -14,7 +14,7 @@
 //! Complementary to [`pierre_services::memory_extraction`], which runs after
 //! the turn completes and distills new facts from the exchange.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
 use std::time::Instant;
 
@@ -389,7 +389,8 @@ async fn fetch_archetype_priors(
     user_id: &str,
     playbooks: &[Playbook],
 ) -> Vec<ArchetypePrior> {
-    let mut keys: HashSet<String> = playbooks
+    // Ordered, so the query binds its keys the same way on every call.
+    let mut keys: BTreeSet<String> = playbooks
         .iter()
         .filter_map(|p| p.trigger.sport.clone())
         .collect();

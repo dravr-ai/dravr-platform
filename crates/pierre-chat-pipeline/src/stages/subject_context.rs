@@ -18,7 +18,7 @@ use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
 use super::memory::{inject_agent_notes, inject_okf_bundle, inject_playbooks};
-use super::refresh::inject_refresh_context;
+use super::refresh::refresh_and_hint;
 use crate::ChatPipelineContext;
 
 /// What the subject-context stages read.
@@ -37,14 +37,22 @@ pub struct SubjectContextInputs<'a> {
     pub user_timezone: Option<&'a str>,
 }
 
+/// The subject's own athlete context, as [`inject_subject_context`] built it.
+pub struct SubjectContext {
+    /// The system prompt with the subject's blocks appended.
+    pub prompt: String,
+    /// The followups it surfaced, marked delivered after the turn succeeds.
+    pub pending_followup_ids: Vec<String>,
+    /// The provider freshness hint, sent with the turn clock rather than in
+    /// the cached prompt (see [`super::refresh`]).
+    pub freshness_hint: Option<String>,
+}
+
 /// Append the subject's own athlete context to `base_prompt`.
-///
-/// Returns the prompt with the ids of the followups it surfaced, which are
-/// marked delivered after the turn succeeds.
 pub async fn inject_subject_context(
     inputs: SubjectContextInputs<'_>,
     base_prompt: String,
-) -> (String, Vec<String>) {
+) -> SubjectContext {
     let SubjectContextInputs {
         ctx,
         input,
@@ -54,11 +62,11 @@ pub async fn inject_subject_context(
         user_timezone,
     } = inputs;
 
-    // Stage 7d: Trigger background provider refresh and append freshness hint.
+    // Stage 7d: Trigger the chat refresh and build the freshness hint.
     // How stale the athlete's provider data is has the same bearing on the
     // answer on every surface, so no surface suppresses it.
     let auth_repos = ctx.repos.auth_repos();
-    let base_prompt = inject_refresh_context(
+    let freshness_hint = refresh_and_hint(
         super::refresh::RefreshDeps {
             auth_repos: &auth_repos,
             activity_cache: ctx.repos.activity_cache.clone(),
@@ -71,7 +79,6 @@ pub async fn inject_subject_context(
         },
         &input.user_id,
         input.tool_tenant_id,
-        base_prompt,
     )
     .await;
 
@@ -142,5 +149,9 @@ pub async fn inject_subject_context(
     )
     .await;
 
-    (base_prompt, pending_followup_ids)
+    SubjectContext {
+        prompt: base_prompt,
+        pending_followup_ids,
+        freshness_hint,
+    }
 }

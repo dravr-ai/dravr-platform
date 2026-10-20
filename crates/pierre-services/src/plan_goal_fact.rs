@@ -22,7 +22,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_memory::{FactKind, FactSource, FactStatus, MemoryScope, PredicateCode};
 use pierre_providers::ai_scope;
 use tracing::warn;
 
@@ -75,7 +75,8 @@ pub async fn fact_belongs_to_user(
         .memory
         .get_user_fact(fact_id, tenant, user_id)
         .await?
-        .is_some_and(|fact| fact.kind == FactKind::Goal))
+        // A draft is not the athlete's goal until they keep it.
+        .is_some_and(|fact| fact.kind == FactKind::Goal && fact.status == FactStatus::Approved))
 }
 
 /// The goal fact a plan links to, together with the agent-agnostic goal facts

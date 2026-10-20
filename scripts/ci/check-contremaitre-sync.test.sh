@@ -41,7 +41,7 @@ chmod +x "$TMP/bin/cargo"
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
 tree() {
     local root="$TMP/$1"
-    mkdir -p "$root/scripts/ci" "$root/crates/demo/src" "$root/crates/pierre-server/tests" \
+    mkdir -p "$root/scripts/ci" "$root/crates/demo/src" "$root/crates/pierre-server/tests/it" \
              "$root/packages/mcp-types/src"
     cp "$UNDER_TEST" "$root/scripts/ci/check-contremaitre-sync.sh"
     cp "$SCRIPT_DIR/tool_schema_properties.py" "$root/scripts/ci/tool_schema_properties.py"
@@ -61,9 +61,9 @@ impl McpTool for Beta {
 }
 RS
     printf 'const EXPECTED_TOOLS: &[&str] = &[\n    "alpha_tool",\n    "beta_tool",\n];\n' \
-        > "$root/crates/pierre-server/tests/contremaitre_test.rs"
+        > "$root/crates/pierre-server/tests/it/contremaitre_test.rs"
     printf 'fn count() {\n    assert_eq!(tools.len(), 2);\n}\n' \
-        > "$root/crates/pierre-server/tests/configuration_mcp_integration_test.rs"
+        > "$root/crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
     printf '// Tool count: 2\nexport type ToolName = "alpha_tool" | "beta_tool";\n' \
         > "$root/packages/mcp-types/src/tools.ts"
     echo "$root"

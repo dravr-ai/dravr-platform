@@ -565,6 +565,7 @@ fn remember_fact_declares_a_schema_that_accepts_its_payload() {
         fact_id: "fact-1".to_owned(),
         kind: "preference".to_owned(),
         confidence: 0.9,
+        status: "draft".to_owned(),
     };
     assert_declares_and_accepts(
         <RememberFactTool as McpTool<dyn ToolRuntime>>::definition(&RememberFactTool).output_schema,

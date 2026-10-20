@@ -1,5 +1,5 @@
-// ABOUTME: Provider data freshness stage — triggers background refresh and injects agent hint
-// ABOUTME: Provides inject_refresh_context — augments the system prompt with refresh status
+// ABOUTME: Provider data freshness stage — triggers the chat refresh and builds the agent hint
+// ABOUTME: Provides refresh_and_hint — the hint rides the turn clock, outside the cached prompt
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,15 @@
 //! Provider data freshness hint.
 //!
 //! Checks whether connected fitness providers have recent data, triggers a
-//! non-blocking background refresh for stale ones, and optionally appends a
-//! "some data may be stale" hint to the system prompt so the agent can
-//! acknowledge the limitation to the user rather than silently analyzing
-//! outdated data.
+//! non-blocking background refresh for stale ones, and optionally builds a
+//! "some data may be stale" hint so the agent can acknowledge the limitation
+//! to the user rather than silently analyzing outdated data.
+//!
+//! The hint names each stale provider's age ("3h ago"), so it changes as time
+//! passes. It rides the turn clock message, after the cache breakpoints, for
+//! the clock's own reason (carnet#895): inside the system prompt it sat ahead
+//! of the memory, playbook and plan blocks and re-wrote all of them in the
+//! cache every time an age ticked over.
 //!
 //! Controlled by [`pierre_core::models::RefreshConfig`] — the stage is a
 //! no-op when `on_chat_enabled` is false.
@@ -31,7 +36,7 @@ use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_sse::SseManager;
 
-/// Inputs to [`inject_refresh_context`].
+/// Inputs to [`refresh_and_hint`].
 ///
 /// Bundles the per-call dependencies so the function signature stays
 /// under clippy's `too_many_arguments` ceiling and the caller does not
@@ -61,21 +66,20 @@ pub struct RefreshDeps<'a> {
     pub sse_manager: &'a Arc<SseManager>,
 }
 
-/// Trigger a background provider refresh and append a freshness hint.
+/// Trigger the chat refresh and build the freshness hint for this turn.
 ///
-/// The refresh runs non-blocking; the appended hint makes the agent
-/// aware that some data may be stale so it can acknowledge the
-/// limitation to the user rather than silently analyzing outdated data.
+/// The hint makes the agent aware that some data may be stale so it can
+/// acknowledge the limitation to the user rather than silently analyzing
+/// outdated data. The caller sends it with the turn clock.
 ///
 /// When [`RefreshConfig::on_chat_enabled`] is false the stage is a no-op
-/// and returns `base_prompt` unchanged. When the agent hint is disabled
-/// the refresh still fires but nothing is appended to the prompt.
-pub async fn inject_refresh_context(
+/// and returns `None`. When the agent hint is disabled the refresh still
+/// fires but no hint is returned.
+pub async fn refresh_and_hint(
     deps: RefreshDeps<'_>,
     user_id: &str,
     tenant_id: TenantId,
-    base_prompt: String,
-) -> String {
+) -> Option<String> {
     let RefreshDeps {
         auth_repos,
         activity_cache,
@@ -88,11 +92,11 @@ pub async fn inject_refresh_context(
     } = deps;
     let config = RefreshConfig::default();
     if !config.on_chat_enabled {
-        return base_prompt;
+        return None;
     }
 
     let Ok(user_uuid) = parse_uuid(user_id) else {
-        return base_prompt;
+        return None;
     };
 
     #[cfg(feature = "health-sync")]
@@ -113,11 +117,8 @@ pub async fn inject_refresh_context(
         .await;
 
     if !config.inject_agent_hint {
-        return base_prompt;
+        return None;
     }
 
-    match RefreshService::build_agent_hint(&status.details) {
-        Some(hint) => format!("{base_prompt}\n\n{hint}"),
-        None => base_prompt,
-    }
+    RefreshService::build_agent_hint(&status.details)
 }

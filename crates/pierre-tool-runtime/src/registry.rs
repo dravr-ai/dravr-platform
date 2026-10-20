@@ -440,7 +440,7 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, _)| allowed_names.contains(&name.as_str()))
-            .map(|(_, tool)| schema_from_definition(tool.definition()))
+            .map(|(_, tool)| self.build_schema(tool))
             .collect()
     }
 
@@ -455,7 +455,7 @@ impl ToolRegistry {
         self.tools
             .iter()
             .filter(|(name, _)| name_set.contains(name.as_str()))
-            .map(|(_, tool)| schema_from_definition(tool.definition()))
+            .map(|(_, tool)| self.build_schema(tool))
             .collect()
     }
 
@@ -474,7 +474,7 @@ impl ToolRegistry {
                 !catalogued_set.contains(name.as_str())
                     && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
             })
-            .map(|(_, tool)| schema_from_definition(tool.definition()))
+            .map(|(_, tool)| self.build_schema(tool))
             .collect()
     }
 

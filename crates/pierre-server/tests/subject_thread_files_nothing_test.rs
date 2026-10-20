@@ -803,20 +803,28 @@ impl Fixture {
     }
 
     /// The facts `who` has on file, by object.
+    /// Kept or waiting on the athlete alike: the question is whose account a
+    /// fact is filed on, not whether they have approved it yet.
     async fn facts(&self, who: &Person) -> Vec<String> {
-        self.repos()
-            .memory
+        let memory = &self.repos().memory;
+        let user = who.id.to_string();
+        let kept = memory
             .list_user_facts(
                 who.tenant,
-                &who.id.to_string(),
+                &user,
                 None,
                 None,
                 50,
                 TransportPolicy::FirstPartyOnly,
             )
             .await
-            .unwrap()
-            .into_iter()
+            .unwrap();
+        let drafts = memory
+            .list_draft_user_facts(who.tenant, &user, 50, TransportPolicy::FirstPartyOnly)
+            .await
+            .unwrap();
+        kept.into_iter()
+            .chain(drafts)
             .map(|fact| fact.object)
             .collect()
     }

@@ -92,6 +92,14 @@ fn save_load_expiry_clear_roundtrip() {
     }
     .save()
     .unwrap();
+    // The save replaced the file whole: no staging copy of the token is left
+    // beside it.
+    let credentials_dir = CachedCredentials::path().unwrap();
+    let siblings: Vec<String> = fs::read_dir(credentials_dir.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(siblings, ["credentials.json"], "{siblings:?}");
     assert!(
         CachedCredentials::require(500).is_ok(),
         "valid before expiry"

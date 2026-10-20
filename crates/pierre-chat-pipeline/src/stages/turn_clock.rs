@@ -56,6 +56,19 @@ pub fn inject_turn_clock(llm_messages: &mut Vec<ChatMessage>, clock: &str) {
     );
 }
 
+/// The turn clock with the provider freshness hint after it, when there is one.
+///
+/// The hint names each stale provider's age, which moves as time passes, so it
+/// rides this message for the clock's own reason: after the cache breakpoints,
+/// never summarized, never replayed into a later turn.
+#[must_use]
+pub fn with_freshness(clock: String, freshness_hint: Option<String>) -> String {
+    match freshness_hint {
+        Some(hint) => format!("{clock}\n\n{hint}"),
+        None => clock,
+    }
+}
+
 /// Granularity the prompt's "now" values are floored to, in seconds.
 ///
 /// Five minutes: short enough that the clock the agent reads is never

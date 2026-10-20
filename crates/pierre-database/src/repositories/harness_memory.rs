@@ -65,6 +65,18 @@ pub struct UpsertUserFactParams<'a> {
     pub transport_policy: TransportPolicy,
 }
 
+/// What [`HarnessMemoryRepository::approve_user_fact`] did with a draft.
+#[derive(Debug, Clone)]
+pub enum ApproveFactOutcome {
+    /// The fact is approved now (or already was) and reaches the prompt.
+    Approved(Box<pierre_memory::UserFact>),
+    /// An approved fact of the same kind and code was written after the
+    /// draft, so the draft no longer says what is current. It is left as is.
+    Superseded,
+    /// No fact of this user has that id.
+    NotFound,
+}
+
 /// Parameters for persisting a compaction block.
 pub struct InsertCompactionBlockParams<'a> {
     /// Tenant that owns the block.
@@ -155,6 +167,49 @@ pub trait HarnessMemoryRepository: Send + Sync {
         params: &UpsertUserFactParams<'_>,
     ) -> AppResult<pierre_memory::UserFact>;
 
+    /// Write a fact the agent proposes: approved when the athlete stated it
+    /// in their own words, else a draft that reaches no prompt until the
+    /// athlete keeps it.
+    ///
+    /// A second write with the same idempotency key lands on the first row and
+    /// returns it; it may promote a draft to approved, never the reverse.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::database`] when the statement fails.
+    async fn propose_user_fact(
+        &self,
+        params: &UpsertUserFactParams<'_>,
+        proposal: &pierre_memory::FactProposal,
+    ) -> AppResult<pierre_memory::UserFact>;
+
+    /// A user's drafts, newest first: the only read that returns one. Every
+    /// other list returns approved facts alone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::database`] when the statement fails.
+    async fn list_draft_user_facts(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        limit: i64,
+        readable: TransportPolicy,
+    ) -> AppResult<Vec<pierre_memory::UserFact>>;
+
+    /// Keep a draft, unless an approved fact of the same kind and code was
+    /// written after it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::database`] when a statement fails.
+    async fn approve_user_fact(
+        &self,
+        fact_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<ApproveFactOutcome>;
+
     /// Merge a restatement into the fact it restates.
     ///
     /// Returns the anchor as it now stands, or `None` when no such fact exists
@@ -169,8 +224,8 @@ pub trait HarnessMemoryRepository: Send + Sync {
         params: &MergeUserFactParams<'_>,
     ) -> AppResult<Option<pierre_memory::UserFact>>;
 
-    /// List user facts for recall. Filters by user, optional agent, and
-    /// optional kind.
+    /// List approved user facts for recall. Filters by user, optional agent,
+    /// and optional kind; a draft is never returned.
     ///
     /// `readable` is the strictest stamp a returned row may carry
     /// (carnet#769): [`TransportPolicy::AnyTransport`] leaves stamped rows

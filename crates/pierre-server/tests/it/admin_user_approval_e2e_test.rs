@@ -1,0 +1,433 @@
+// ABOUTME: End-to-end integration test for complete admin setup and user approval workflow
+// ABOUTME: Tests server-first admin creation, user registration, and approval process with database cleanup
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use crate::common;
+use crate::helpers;
+
+use anyhow::Result;
+use helpers::axum_test::AxumTestRequest;
+use pierre_auth::auth::AuthManager;
+use pierre_config::mcp::AppBehaviorConfig;
+use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::models::CoachingPersona;
+use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
+use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_test_support::db::create_test_db_with_key;
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use serde_json::Value;
+use std::sync::Arc;
+
+/// Complete end-to-end test for admin setup and user approval workflow
+// Long function: Comprehensive test covering admin setup, user creation, approval, and cleanup
+#[tokio::test]
+async fn test_complete_admin_user_approval_workflow() -> Result<()> {
+    // Initialize test database
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
+
+    // Initialize JWT secret
+    let jwt_secret = "test_jwt_secret_for_admin_approval_e2e_testing";
+    let auth_manager = AuthManager::new(24);
+
+    // Create JWKS manager for RS256 with 2048-bit test keys for faster execution
+    let jwks_manager = common::get_shared_test_jwks();
+
+    // Create admin API context
+    let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
+    let database_arc = Arc::new(database.clone());
+    let repos_arc = Arc::clone(database_arc.repositories());
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager.clone()),
+        jwks_manager: jwks_manager.clone(),
+        admin_api_key_monthly_limit,
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
+        prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+        tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+        evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+        messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
+        cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+        persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
+        contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
+    });
+
+    // Create admin routes
+    let admin_routes = AdminRoutes::routes(admin_context);
+
+    println!("Starting complete admin user approval workflow test");
+
+    // Step 1: Create admin user via server-first setup endpoint
+    println!("1️⃣ Testing admin setup endpoint...");
+    let admin_setup_response = AxumTestRequest::post("/admin/setup")
+        .json(&serde_json::json!({
+            "email": "test_admin@example.com",
+            "password": "admin_password_123",
+            "display_name": "Test Admin"
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(admin_setup_response.status(), 201);
+    let response_bytes = admin_setup_response.bytes();
+    let admin_body: Value = serde_json::from_slice(&response_bytes)?;
+    let admin_token = admin_body["data"]["admin_token"]
+        .as_str()
+        .expect("Admin token should be present")
+        .to_owned();
+
+    println!(
+        " Admin created successfully with token: {}...",
+        &admin_token[0..20]
+    );
+
+    // Step 2: Register a regular user (this would normally be done via main API)
+    println!("2️⃣ Creating test user directly in database...");
+    let test_user = User {
+        id: uuid::Uuid::new_v4(),
+        email: "test_user@example.com".to_owned(),
+        display_name: Some("Test User".to_owned()),
+        password_hash: "hashed_password".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        is_active: true,
+        user_status: UserStatus::Pending, // Start as pending
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: None,
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
+        locale: "fr".to_owned(),
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
+        timezone: None,
+        theme: None,
+    };
+
+    let user_id = database.repositories().users.create(&test_user).await?;
+    println!(" Test user created with ID: {user_id}");
+
+    // Step 3: Verify user is in pending status
+    println!("3️⃣ Verifying user is in pending status...");
+    let pending_users_response = AxumTestRequest::get("/admin/pending-users")
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .send(admin_routes.clone())
+        .await;
+
+    let status = pending_users_response.status();
+    println!("Pending users response status: {status}");
+    let response_bytes = pending_users_response.bytes();
+    if status != 200 {
+        println!(
+            "Response body: {}",
+            String::from_utf8_lossy(&response_bytes)
+        );
+    }
+    assert_eq!(status, 200);
+    let pending_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(pending_body["success"], true);
+    assert!(pending_body["data"]["count"].as_u64().unwrap() > 0);
+    println!(" User found in pending users list");
+
+    // Step 4: Approve the user using admin token
+    println!("4️⃣ Testing user approval...");
+    let approval_response = AxumTestRequest::post(&format!("/admin/approve-user/{user_id}"))
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .json(&serde_json::json!({
+            "reason": "End-to-end test approval"
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(approval_response.status(), 200);
+    let response_bytes = approval_response.bytes();
+    let approval_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(approval_body["success"], true);
+    assert_eq!(approval_body["data"]["user"]["user_status"], "active");
+    assert!(approval_body["data"]["user"]["approved_at"].is_string());
+
+    println!(" User approved successfully");
+
+    // Step 5: Verify user is no longer in pending list
+    println!("5️⃣ Verifying user is no longer pending...");
+    let pending_users_response_after = AxumTestRequest::get("/admin/pending-users")
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(pending_users_response_after.status(), 200);
+    let response_bytes = pending_users_response_after.bytes();
+    let pending_body_after: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(pending_body_after["success"], true);
+
+    // The user should no longer be in pending status
+    let remaining_pending_count = pending_body_after["data"]["count"].as_u64().unwrap();
+    assert_eq!(
+        remaining_pending_count, 0,
+        "No users should be pending after approval"
+    );
+
+    println!(" User successfully removed from pending list");
+
+    // Step 6: Test that we can't create another admin (conflict handling)
+    println!("6️⃣ Testing admin conflict prevention...");
+    let duplicate_admin_response = AxumTestRequest::post("/admin/setup")
+        .json(&serde_json::json!({
+            "email": "another_admin@example.com",
+            "password": "another_password",
+            "display_name": "Another Admin"
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(duplicate_admin_response.status(), 409); // Conflict
+    let response_bytes = duplicate_admin_response.bytes();
+    let duplicate_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(duplicate_body["success"], false);
+    assert!(duplicate_body["message"]
+        .as_str()
+        .unwrap()
+        .contains("Admin user already exists"));
+
+    println!(" Admin conflict prevention working correctly");
+
+    println!("COMPLETE ADMIN USER APPROVAL WORKFLOW TEST PASSED!");
+    println!(" Server-first admin setup working");
+    println!(" User approval workflow working");
+    println!(" Database state transitions correct");
+    println!(" Authorization working properly");
+    println!(" Conflict handling working");
+
+    Ok(())
+}
+
+/// Test admin token management functionality
+// Long function: Comprehensive test covering token creation, listing, and revocation workflow
+#[tokio::test]
+async fn test_admin_token_management_workflow() -> Result<()> {
+    // Initialize test database
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
+
+    let jwt_secret = "test_jwt_secret_for_token_management";
+    let auth_manager = AuthManager::new(24);
+
+    // Create JWKS manager for RS256 with 2048-bit test keys for faster execution
+    let jwks_manager = common::get_shared_test_jwks();
+
+    let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
+    let database_arc = Arc::new(database.clone());
+    let repos_arc = Arc::clone(database_arc.repositories());
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager),
+        jwks_manager: jwks_manager.clone(),
+        admin_api_key_monthly_limit,
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
+        prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+        tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+        evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+        messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
+        cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+        persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
+        contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
+    });
+    let admin_routes = AdminRoutes::routes(admin_context);
+
+    println!("Starting admin token management workflow test");
+
+    // Step 1: Create initial admin
+    let admin_setup_response = AxumTestRequest::post("/admin/setup")
+        .json(&serde_json::json!({
+            "email": "token_admin@example.com",
+            "password": "admin_pass_123",
+            "display_name": "Token Admin"
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(admin_setup_response.status(), 201);
+    let response_bytes = admin_setup_response.bytes();
+    let admin_body: Value = serde_json::from_slice(&response_bytes)?;
+    let admin_token = admin_body["data"]["admin_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // Step 2: Create additional admin token
+    let create_token_response = AxumTestRequest::post("/admin/tokens")
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .json(&serde_json::json!({
+            "service_name": "test_service_token",
+            "service_description": "Test service token",
+            "is_super_admin": false,
+            "expires_in_days": 30,
+            "permissions": ["manage_users"]
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(create_token_response.status(), 201);
+    let response_bytes = create_token_response.bytes();
+    let create_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(create_body["success"], true);
+
+    let service_token_id = create_body["data"]["token_id"].as_str().unwrap();
+    println!(" Service token created: {service_token_id}");
+
+    // Step 3: List admin tokens
+    let list_tokens_response = AxumTestRequest::get("/admin/tokens")
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(list_tokens_response.status(), 200);
+    let response_bytes = list_tokens_response.bytes();
+    let list_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(list_body["success"], true);
+    assert!(list_body["data"]["count"].as_u64().unwrap() >= 2); // At least initial + service token
+
+    println!(" Token listing working");
+
+    // Step 4: Get token details
+    let token_details_response = AxumTestRequest::get(&format!("/admin/tokens/{service_token_id}"))
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(token_details_response.status(), 200);
+    let response_bytes = token_details_response.bytes();
+    let details_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(details_body["success"], true);
+    assert_eq!(details_body["data"]["service_name"], "test_service_token");
+
+    println!(" Token details retrieval working");
+
+    // Step 5: Revoke the service token
+    let revoke_response =
+        AxumTestRequest::post(&format!("/admin/tokens/{service_token_id}/revoke"))
+            .header("Authorization", &format!("Bearer {admin_token}"))
+            .send(admin_routes.clone())
+            .await;
+
+    assert_eq!(revoke_response.status(), 200);
+    let response_bytes = revoke_response.bytes();
+    let revoke_body: Value = serde_json::from_slice(&response_bytes)?;
+    assert_eq!(revoke_body["success"], true);
+
+    println!(" Token revocation working");
+
+    println!("ADMIN TOKEN MANAGEMENT WORKFLOW TEST PASSED!");
+
+    Ok(())
+}
+
+/// Test error handling and edge cases
+#[tokio::test]
+async fn test_admin_workflow_error_handling() -> Result<()> {
+    let database = create_test_db_with_key(b"test_encryption_key_32_bytes_long".to_vec()).await?;
+
+    let jwt_secret = "test_jwt_secret_for_error_handling";
+    let auth_manager = AuthManager::new(24);
+
+    // Create JWKS manager for RS256 with 2048-bit test keys for faster execution
+    let jwks_manager = common::get_shared_test_jwks();
+
+    let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
+    let database_arc = Arc::new(database);
+    let repos_arc = Arc::clone(database_arc.repositories());
+    let admin_context = AdminApiContext::new(AdminApiContextInit {
+        database: database_arc,
+        repos: repos_arc,
+        jwt_secret: jwt_secret.to_owned(),
+        auth_manager: Arc::new(auth_manager),
+        jwks_manager,
+        admin_api_key_monthly_limit,
+        harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+        guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
+        prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+        tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+        evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+        messaging_strings_registry: Arc::new(pierre_contremaitre::MessagingStringsRegistry::new()),
+        cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+        persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+        training_catalogue_registry: Arc::new(pierre_contremaitre::TrainingCatalogueRegistry::new()),
+        contremaitre_config: None,
+        app_behavior: AppBehaviorConfig::default(),
+    });
+    let admin_routes = AdminRoutes::routes(admin_context);
+
+    println!("Starting admin workflow error handling test");
+
+    // Test 1: Try to approve non-existent user
+    let fake_admin_token = "fake_token_12345";
+    let fake_user_id = uuid::Uuid::new_v4();
+
+    let approve_fake_user_response =
+        AxumTestRequest::post(&format!("/admin/approve-user/{fake_user_id}"))
+            .header("Authorization", &format!("Bearer {fake_admin_token}"))
+            .json(&serde_json::json!({"reason": "Test"}))
+            .send(admin_routes.clone())
+            .await;
+
+    // Should fail with unauthorized due to invalid token
+    assert_eq!(approve_fake_user_response.status(), 401);
+    println!(" Invalid token properly rejected");
+
+    // Test 2: Try to access admin endpoints without token
+    let no_auth_response = AxumTestRequest::get("/admin/pending-users")
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(no_auth_response.status(), 400); // Missing auth header
+    println!(" Missing authorization properly rejected");
+
+    // Test 3: Try to approve with malformed user ID
+    let admin_setup_response = AxumTestRequest::post("/admin/setup")
+        .json(&serde_json::json!({
+            "email": "error_admin@example.com",
+            "password": "admin_pass_123",
+            "display_name": "Error Test Admin"
+        }))
+        .send(admin_routes.clone())
+        .await;
+
+    let response_bytes = admin_setup_response.bytes();
+    let admin_body: Value = serde_json::from_slice(&response_bytes)?;
+    let admin_token = admin_body["data"]["admin_token"].as_str().unwrap();
+
+    let malformed_id_response = AxumTestRequest::post("/admin/approve-user/not-a-uuid")
+        .header("Authorization", &format!("Bearer {admin_token}"))
+        .json(&serde_json::json!({"reason": "Test"}))
+        .send(admin_routes.clone())
+        .await;
+
+    assert_eq!(malformed_id_response.status(), 400); // Bad request for malformed UUID
+    println!(" Malformed UUID properly rejected");
+
+    println!("ADMIN WORKFLOW ERROR HANDLING TEST PASSED!");
+
+    Ok(())
+}

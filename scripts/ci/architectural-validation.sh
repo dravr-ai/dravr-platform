@@ -405,6 +405,28 @@ if [ -n "$AI_POLICY_BYPASS" ]; then
     fail_validation "Model-facing cache reads must apply the provider AI policies"
 fi
 
+# Transactions stay in pierre-database. A transaction is a held lock and a
+# held pool connection; opened anywhere that also reaches a provider, an LLM
+# or another service, it holds both across a network call that can take
+# minutes. Today every `.begin()` lives in pierre-database, which depends on
+# none of those clients, so the rule is true by construction — this keeps it
+# true. Long work coordinates through leased job rows instead.
+echo -e "${BLUE}Checking that database transactions stay in pierre-database...${NC}"
+TX_SCAN_RC=0
+TX_OUTSIDE=$(rg -nU '\.begin\(\)\s*\.await|\.begin_with\(' crates/*/src \
+    -g '*.rs' -g '!crates/pierre-database/**') || TX_SCAN_RC=$?
+# rg exits 1 for no match, which is the pass; 2 is a scan that crashed.
+if [ "$TX_SCAN_RC" -gt 1 ]; then
+    fail_validation "Transaction scan crashed (rg exit $TX_SCAN_RC)"
+fi
+if [ -n "$TX_OUTSIDE" ]; then
+    echo -e "${RED}❌ CRITICAL: a database transaction is opened outside pierre-database${NC}"
+    echo "$TX_OUTSIDE"
+    echo "   Put the transaction behind a repository method in pierre-database, which"
+    echo "   cannot reach a provider or an LLM, so no network call ever runs inside it."
+    fail_validation "Database transactions must stay in pierre-database"
+fi
+
 # NULL UUID detection (absolute blocker)
 if [ "$NULL_UUIDS" -gt 0 ]; then
     echo -e "${RED}❌ CRITICAL: Found $NULL_UUIDS null UUIDs (test/placeholder code)${NC}"

@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+#[cfg(feature = "health-sync")]
+use futures_util::future::join_all;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus,
@@ -265,8 +267,13 @@ impl RefreshService {
 
         let mut refreshing = Vec::new();
         let mut fresh = Vec::new();
+        // Providers the turn waits on. Each wait is bounded on its own, and they
+        // run together below, so the turn waits for the slowest of them rather
+        // than for the sum: N stale providers once cost N times the budget.
+        #[cfg(feature = "health-sync")]
+        let mut blocking: Vec<usize> = Vec::new();
 
-        for pf in &mut freshness_list {
+        for (index, pf) in freshness_list.iter_mut().enumerate() {
             if !config.is_provider_eligible(&pf.provider) {
                 fresh.push(pf.provider.clone());
                 continue;
@@ -302,22 +309,7 @@ impl RefreshService {
                 }
 
                 if config.wait_for_refresh {
-                    let result = bound_blocking_sync(
-                        &pf.provider,
-                        config.wait_for_refresh_timeout(),
-                        self.sync_provider_blocking(user_id, tenant_id, &pf.provider),
-                    )
-                    .await;
-                    if result.success {
-                        // Reflect the just-completed sync so build_agent_hint
-                        // (which reads .freshness) treats it as Fresh and
-                        // omits the stale-data warning.
-                        pf.last_sync_at = Some(Utc::now());
-                        pf.freshness = DataFreshness::Fresh;
-                        fresh.push(pf.provider.clone());
-                    } else {
-                        refreshing.push(pf.provider.clone());
-                    }
+                    blocking.push(index);
                 } else {
                     self.spawn_provider_sync(user_id, tenant_id, pf.provider.clone());
                     refreshing.push(pf.provider.clone());
@@ -325,8 +317,38 @@ impl RefreshService {
             }
             #[cfg(not(feature = "health-sync"))]
             {
-                let _ = (user_id, tenant_id, config);
+                let _ = (user_id, tenant_id, config, index);
                 refreshing.push(pf.provider.clone());
+            }
+        }
+
+        #[cfg(feature = "health-sync")]
+        {
+            let budget = config.wait_for_refresh_timeout();
+            let syncs = blocking.iter().map(|&index| {
+                let provider = freshness_list[index].provider.clone();
+                async move {
+                    bound_blocking_sync(
+                        &provider,
+                        budget,
+                        self.sync_provider_blocking(user_id, tenant_id, &provider),
+                    )
+                    .await
+                }
+            });
+            let results = join_all(syncs).await;
+            for (&index, result) in blocking.iter().zip(results) {
+                let pf = &mut freshness_list[index];
+                if result.success {
+                    // Reflect the just-completed sync so build_agent_hint
+                    // (which reads .freshness) treats it as Fresh and
+                    // omits the stale-data warning.
+                    pf.last_sync_at = Some(Utc::now());
+                    pf.freshness = DataFreshness::Fresh;
+                    fresh.push(pf.provider.clone());
+                } else {
+                    refreshing.push(pf.provider.clone());
+                }
             }
         }
 

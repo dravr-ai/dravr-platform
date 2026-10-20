@@ -497,11 +497,10 @@ jobs:
           # on 2026-08-26 a doc comment in a test file reddened main that way,
           # and the same gap covers every integration test in the repo. A single
           # changed test binary is cheap to lint on its own, so name the targets.
+          # A suite under tests/it/ is a module of the `it` binary, and so is
+          # every shared helper, which a per-file binary never linted on its own.
           TEST_TARGETS=$(git diff --name-only "$BASE" HEAD 2>/dev/null \
-              | grep '^crates/pierre-server/tests/[^/]*\.rs$' \
-              | sed 's|.*/||; s|\.rs$||' \
-              | sort -u \
-              || true)
+              | scripts/ci/server-suites.sh changed-targets)
           if [ -n "$TEST_TARGETS" ]; then
               echo "Changed pierre-server test targets:"
               echo "$TEST_TARGETS"
@@ -559,13 +558,13 @@ jobs:
           done <<< "${{ steps.detect.outputs.crates }}"
 
           # Changed integration-test binaries, one target at a time. `--test X`
-          # builds the library plus that one binary, not all ~500 of them, which
-          # is what makes this affordable here.
+          # builds the library plus that one binary, which is what makes this
+          # affordable here.
           while IFS= read -r target; do
               [ -z "$target" ] && continue
               # A target derived from the diff may have been DELETED by the
               # diff; cargo errors on a nonexistent test target, so skip it.
-              if [ ! -f "crates/pierre-server/tests/$target.rs" ]; then
+              if [ ! -f "crates/pierre-server/tests/$target.rs" ] && [ ! -f "crates/pierre-server/tests/$target/main.rs" ]; then
                   echo "test target $target no longer exists in this tree; skipping"
                   continue
               fi
@@ -749,9 +748,9 @@ jobs:
   # catalogue, messaging locales) used to run ONLY in the full suite — cron
   # SQLite shards, full-on-main ci-postgres, coverage. Since features merge by
   # local squash with no PR, the branch never executed them: drift false-greened
-  # the branch and red main post-merge. Running the four files on every push
-  # moves that verdict before the merge. Four test binaries, not ~500, and it
-  # runs alongside the ~10-12 min clippy job, so it costs no critical path.
+  # the branch and red main post-merge. Running the four suites on every push
+  # moves that verdict before the merge. Four suites filtered out of the one
+  # `it` binary, not the whole suite, and it runs alongside the ~10-12 min clippy job, so it costs no critical path.
   contremaitre-sync:
     name: Contremaitre Coupling Tests
     timeout-minutes: 20  # four catalogue tests, ~5 min
@@ -774,12 +773,11 @@ jobs:
 
       - name: Coupling tests (tool list, notify catalogue, locales)
         run: |
-          cargo test \
-            --test contremaitre_test \
-            --test notify_catalogue_test \
-            --test messaging_locale_test \
-            --test configuration_mcp_integration_test \
-            -- --test-threads=4
+          scripts/ci/server-suites.sh run \
+            contremaitre_test \
+            notify_catalogue_test \
+            messaging_locale_test \
+            configuration_mcp_integration_test
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -921,12 +919,14 @@ jobs:
       - name: Run test shard ${{ matrix.shard }}/4
         run: |
           mapfile -t ALL_TESTS < <(
-            find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
-              | sed 's/\.rs$//' \
-              | grep -v '^common$' \
-              | grep -v 'database_plugins_postgresql_test' \
-              | sort
+            scripts/ci/server-suites.sh list \
+              | cut -f1 \
+              | grep -v 'database_plugins_postgresql_test'
           )
+          if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
+            echo "::error::no server suites listed — refusing to report green."
+            exit 1
+          fi
           TOTAL=${#ALL_TESTS[@]}
           SHARD=${{ matrix.shard }}
           SHARDS=4
@@ -938,23 +938,11 @@ jobs:
             fi
           done
 
-          echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of $TOTAL test files ==="
+          echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of $TOTAL suites ==="
           printf '  %s\n' "${SHARD_TESTS[@]}"
           echo ""
 
-          FAILED=0
-          for test_file in "${SHARD_TESTS[@]}"; do
-            echo "::group::$test_file"
-            if ! cargo test --test "$test_file" -- --test-threads=4; then
-              echo "::error::Test file $test_file failed"
-              FAILED=1
-            fi
-            echo "::endgroup::"
-          done
-
-          if [ $FAILED -ne 0 ]; then
-            exit 1
-          fi
+          scripts/ci/server-suites.sh run "${SHARD_TESTS[@]}"
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -1083,7 +1071,7 @@ jobs:
           PIERRE_RSA_KEY_SIZE: "2048"
 
   # The pierre-server test files THIS push added or edited, run immediately.
-  # The full server suite (~500 files) runs per-push on main, feature(s)/* and
+  # The full server suite runs per-push on main, feature(s)/* and
   # claude/* (ci-postgres) and in coverage; a fix/debug/copilot push runs only
   # the PG smoke besides this job, and even on main a file broken at birth
   # used to be reported an hour later. This job closes the
@@ -1126,7 +1114,9 @@ jobs:
             echo "No base to diff against; nothing to run."
             exit 0
           fi
-          FILES="$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'crates/pierre-server/tests/*.rs'             | grep -E '^crates/pierre-server/tests/[^/]+\.rs$'             | grep -v '/common\.rs$' || true)"
+          FILES="$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'crates/pierre-server/tests/*.rs' 'crates/pierre-server/tests/it/*.rs' \
+            | grep -E '^crates/pierre-server/tests/(it/)?[^/]+\.rs$' \
+            | grep -v -E '/(common|main)\.rs$' || true)"
           echo "Changed server test files:"
           printf '  %s\n' $FILES
           {
@@ -1169,18 +1159,8 @@ jobs:
       - name: Run this push's test files
         if: steps.changed.outputs.files != ''
         run: |
-          FAILED=0
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            target="$(basename "$f" .rs)"
-            echo "::group::$target"
-            if ! cargo test --test "$target" -- --test-threads=4; then
-              echo "::error::Changed test file $target failed"
-              FAILED=1
-            fi
-            echo "::endgroup::"
-          done <<< "${{ steps.changed.outputs.files }}"
-          exit $FAILED
+          mapfile -t CHANGED < <(grep -v '^$' <<< "${{ steps.changed.outputs.files }}")
+          scripts/ci/server-suites.sh run "${CHANGED[@]}"
         timeout-minutes: 45
         env:
           DATABASE_URL: "sqlite::memory:"

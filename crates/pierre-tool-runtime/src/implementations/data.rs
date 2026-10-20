@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use pierre_core::models::TenantId;
+use pierre_core::models::{RefreshConfig, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, error, field, info, Span};
 
@@ -37,6 +37,9 @@ use uuid::Uuid;
 use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
+};
+use crate::activity_fetch::budgeted_read::{
+    read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
@@ -696,7 +699,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         served,
                     )
                     .await;
-                    (served, None)
+                    stood_in = served.head_behind.then(|| PrimaryStandIn::Stale(provider_name.clone()));
+                    (served.activities, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's
                     // connection is flagged needs_reauth/revoked, a background
@@ -845,23 +849,44 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     .await;
 
                 match authenticated {
-                    Ok(provider) => {
+                    Ok(provider) => 'live: {
                         // Judged, recorded and written through on the provider's
                         // full answer inside `read_live_window`; what comes back
-                        // is already as a model may see it (carnet#723).
-                        let read = read_live_window(
-                            &context.resources,
-                            provider.as_ref(),
-                            LiveRead {
+                        // is already as a model may see it (carnet#723). Past the
+                        // refresh budget the cached window answers, labelled stale.
+                        let (read, provider) = if context.tenant_id.is_some() {
+                            let owned = OwnedLiveRead {
+                                provider_slug: provider_name.clone(),
+                                user_id: context.user_id,
+                                tenant_id,
+                                params: query_params.clone(),
+                                attempt_started_at,
+                            };
+                            let budget = RefreshConfig::default().wait_for_refresh_timeout();
+                            match read_live_window_within_budget(
+                                &context.resources, provider, owned, budget,
+                            )
+                            .await
+                            {
+                                BudgetedRead::Answered { read, provider } => (read, provider),
+                                BudgetedRead::Cached(rows) => {
+                                    stood_in = Some(PrimaryStandIn::Stale(provider_name.clone()));
+                                    break 'live (rows, None);
+                                }
+                            }
+                        } else {
+                            let live = LiveRead {
                                 provider_slug: &provider_name,
                                 user_id: context.user_id,
                                 tenant_id: tenant_id_str.as_deref(),
                                 params: &query_params,
                                 attempt_started_at,
-                            },
-                            context.tenant_id.is_some().then_some(tenant_id),
-                        )
-                        .await;
+                            };
+                            let read =
+                                read_live_window(&context.resources, provider.as_ref(), live, None)
+                                    .await;
+                            (read, Some(provider))
+                        };
                         let live = match read {
                             Ok(HeadRead {
                                 activities,
@@ -884,7 +909,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             }
                         };
                         match live {
-                            Ok(activities) => (activities, Some(provider)),
+                            Ok(activities) => (activities, provider),
                             Err(reason) => {
                                 let cached_rows = if context.tenant_id.is_some() {
                                     serve_stale_activities(

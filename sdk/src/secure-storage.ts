@@ -13,6 +13,7 @@ import {
   unlinkSync,
   chmodSync,
   mkdirSync,
+  renameSync,
   statSync,
 } from 'fs';
 import { join, dirname } from 'path';
@@ -303,10 +304,23 @@ export class EncryptedFileStorage implements SecureTokenStorage {
       const encrypted = this.encrypt(serialized);
       this.ensureParentDirectory();
       this.restrictFilePermissions();
-      writeFileSync(this.encryptedFilePath, encrypted, {
-        encoding: 'utf8',
-        mode: TOKEN_FILE_MODE,
-      });
+      // Written whole to an owner-only sibling, then renamed over the old
+      // file: a crash mid-write leaves the previous tokens, never a truncated
+      // file the next start cannot decrypt.
+      const staging = `${this.encryptedFilePath}.tmp-${process.pid}`;
+      try {
+        writeFileSync(staging, encrypted, {
+          encoding: 'utf8',
+          mode: TOKEN_FILE_MODE,
+          flag: 'wx',
+        });
+        renameSync(staging, this.encryptedFilePath);
+      } catch (writeError) {
+        if (existsSync(staging)) {
+          unlinkSync(staging);
+        }
+        throw writeError;
+      }
       this.log('Saved tokens to owner-only token file');
     } catch (error) {
       this.log(`Failed to save tokens to encrypted file: ${error}`);

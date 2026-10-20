@@ -42,7 +42,7 @@ use super::prompt_builder::{
 };
 use super::subject_athlete::{self, SubjectTurn};
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
-use super::turn_clock::{format_current_date, CURRENT_DATE_POINTER};
+use super::turn_clock::{format_current_date, with_freshness, CURRENT_DATE_POINTER};
 use super::viz_blocks;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
@@ -753,25 +753,31 @@ pub(crate) async fn assemble_prompt_and_messages(
     // it whole — the coach's own training is not the group's. A coach's
     // athlete thread carries the athlete's coach view in its place: the gates'
     // answer, and on access the roster line, plan, draft and linked wellness.
-    let (base_prompt, pending_followup_ids) = if let Some(turn) = subject_turn.as_ref() {
-        let block = subject_athlete::block(ctx, turn).await;
-        (format!("{base_prompt}{block}"), Vec::new())
-    } else if sender_is_subject {
-        inject_subject_context(
-            SubjectContextInputs {
-                ctx,
-                input,
-                profile,
-                user_uuid,
-                turn_agent_id,
-                user_timezone: user_timezone.as_deref(),
-            },
-            base_prompt,
-        )
-        .await
-    } else {
-        (base_prompt, Vec::new())
-    };
+    let (base_prompt, pending_followup_ids, freshness_hint) =
+        if let Some(turn) = subject_turn.as_ref() {
+            let block = subject_athlete::block(ctx, turn).await;
+            (format!("{base_prompt}{block}"), Vec::new(), None)
+        } else if sender_is_subject {
+            let subject = inject_subject_context(
+                SubjectContextInputs {
+                    ctx,
+                    input,
+                    profile,
+                    user_uuid,
+                    turn_agent_id,
+                    user_timezone: user_timezone.as_deref(),
+                },
+                base_prompt,
+            )
+            .await;
+            (
+                subject.prompt,
+                subject.pending_followup_ids,
+                subject.freshness_hint,
+            )
+        } else {
+            (base_prompt, Vec::new(), None)
+        };
 
     // Stage 7f.2: Render the athlete's persisted training plan (outline +
     // current/next week). Scoped to the TOOL tenant — the tenant
@@ -1125,7 +1131,10 @@ pub(crate) async fn assemble_prompt_and_messages(
         source_ids,
         group_roster,
         introduction,
-        format_current_date(user_timezone.as_deref(), &profile.locale),
+        with_freshness(
+            format_current_date(user_timezone.as_deref(), &profile.locale),
+            freshness_hint,
+        ),
     ))
 }
 

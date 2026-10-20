@@ -1,0 +1,1924 @@
+// ABOUTME: Universal protocol integration tests for tool execution layer
+// ABOUTME: Tests protocol-agnostic interfaces for MCP and A2A
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+//! Universal Protocol Integration Tests
+//!
+//! Comprehensive tests for the universal tool execution layer
+//! that provides protocol-agnostic interfaces for MCP and A2A.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use anyhow::Result;
+use dravr_cageux::insights::{Insight, InsightType};
+use dravr_cageux::types::ContextualWeeklyLoad;
+use dravr_cageux::types::{
+    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
+    TrendIndicators,
+};
+use pierre_auth::auth::AuthManager;
+use pierre_cache::{Cache, CacheConfig};
+use pierre_config::environment::{self, *};
+use pierre_core::errors::protocol::ProtocolError;
+use pierre_core::models::{ConnectionType, Tenant, User};
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use serde_json::json;
+use std::{path::PathBuf, sync::Arc, time::Duration};
+use uuid::Uuid;
+
+use crate::common;
+
+/// Test configuration for universal protocols
+async fn create_test_executor() -> Result<UniversalToolExecutor> {
+    let database = common::create_test_database().await?;
+
+    // Create ActivityIntelligence with proper constructor
+    let _intelligence = Arc::new(ActivityIntelligence::new(
+        "Test intelligence analysis".to_owned(),
+        vec![Insight {
+            insight_type: InsightType::Achievement,
+            message: "Test insight".to_owned(),
+            confidence: 90.0,
+            data: None,
+        }],
+        PerformanceMetrics {
+            relative_effort: Some(85.0),
+            zone_distribution: None,
+            personal_records: vec![],
+            efficiency_score: Some(82.5),
+            trend_indicators: TrendIndicators {
+                pace_trend: TrendDirection::Improving,
+                effort_trend: TrendDirection::Stable,
+                distance_trend: TrendDirection::Improving,
+                consistency_score: 90.0,
+            },
+        },
+        ContextualFactors {
+            weather: None,
+            location: None,
+            time_of_day: TimeOfDay::Morning,
+            days_since_last_activity: Some(1),
+            weekly_load: Some(ContextualWeeklyLoad {
+                total_distance_km: 50.0,
+                total_duration_hours: 5.0,
+                activity_count: 3,
+                load_trend: TrendDirection::Stable,
+            }),
+            seasonal_context: None,
+        },
+    ));
+
+    // Create test config with correct structure
+    let config = Arc::new(ServerConfig {
+        http_port: 4000,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: PathBuf::from("test_backups"),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_client_id".to_owned()),
+                client_secret: Some("test_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
+                scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Development,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            garmin_api: GarminApiConfig {
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
+                ..Default::default()
+            },
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2024-11-05".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: environment::CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    // Create ServerContext for the test
+    let auth_manager = AuthManager::new(24);
+
+    // Create test cache with background cleanup disabled
+    let cache_config = CacheConfig {
+        max_entries: 1000,
+        redis_url: None,
+        cleanup_interval: Duration::from_mins(1),
+        enable_background_cleanup: false,
+        ..Default::default()
+    };
+    let cache = Cache::new(cache_config)
+        .await
+        .expect("Failed to create test cache");
+
+    let server_resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            auth_manager,
+            "test_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
+    Ok(executor)
+}
+
+#[tokio::test]
+async fn test_universal_executor_creation() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Verify basic functionality
+    assert_ne!(
+        executor.resources.tool_registry().tool_names(),
+        [] as [&str; 0]
+    );
+
+    // Check that core tools are registered
+    assert!(executor.has_tool("get_connection_status"));
+    assert!(executor.has_tool("set_goal"));
+    assert!(executor.has_tool("get_activities"));
+    assert!(executor.has_tool("analyze_activity"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tool_registration() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Verify all expected tools are registered in the shared ToolRegistry
+    let tool_names: Vec<String> = executor
+        .resources
+        .tool_registry()
+        .tool_names()
+        .iter()
+        .map(|n| (*n).to_owned())
+        .collect();
+
+    let expected_tools = vec![
+        "get_connection_status",
+        "set_goal",
+        "get_activities",
+        "analyze_activity",
+        "disconnect_provider",
+        "calculate_metrics",
+        "analyze_performance_trends",
+        "compare_activities",
+        "detect_patterns",
+        "track_progress",
+        "suggest_goals",
+        "analyze_goal_feasibility",
+        "generate_recommendations",
+        "calculate_fitness_score",
+        "predict_performance",
+        "analyze_training_load",
+    ];
+
+    for expected_tool in expected_tools {
+        assert!(
+            tool_names.contains(&expected_tool.to_owned()),
+            "Missing tool: {expected_tool}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tool_execution_invalid_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "nonexistent_tool".to_owned(),
+        parameters: json!({}),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let result = executor.execute_tool(request).await;
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_connection_status_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "connection-status@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Connection Status User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Connection Status Tenant".to_owned(),
+        "connection-status-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant.id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+    assert!(response.result.is_some());
+
+    // Should indicate no connection (no valid token)
+    let result = response.result.unwrap();
+    assert!(result["providers"].is_object());
+    assert_eq!(result["providers"]["strava"]["connected"], false);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_connect_strava_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Create tenant and user for testing (user first, then tenant)
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "test@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // Owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Connected, but holding no token — the case this test is about. Without the
+    // connection row the dispatch chokepoint refuses first and the OAuth error
+    // handling below is never reached.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
+    // Test with explicit strava provider to verify OAuth error handling
+    // Default provider is "synthetic" which doesn't need OAuth
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({"provider": "strava"}),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant.id.to_string()),
+    };
+
+    // A token-less provider short-circuits as the typed auth-required error —
+    // the chat pipeline turns this into a localized reconnect link, instead of
+    // an in-band error payload the LLM would have to rephrase.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
+    assert!(
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_activity_without_tenant_context() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "analyze_activity".to_owned(),
+        parameters: json!({
+            "activity_id": "test_activity_123"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // analyze_activity may fail without proper tenant context, which is expected
+    if response.success {
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(result["analysis"].is_object() || result["error"].is_string());
+    } else {
+        // Failing is also acceptable for this test scenario
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_set_goal_tool() -> Result<()> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+    let (user_id, _) = common::create_test_user(&database).await?;
+
+    // Create ActivityIntelligence with proper constructor
+    let _intelligence = Arc::new(ActivityIntelligence::new(
+        "Test intelligence analysis".to_owned(),
+        vec![Insight {
+            insight_type: InsightType::Achievement,
+            message: "Test insight".to_owned(),
+            confidence: 90.0,
+            data: None,
+        }],
+        PerformanceMetrics {
+            relative_effort: Some(85.0),
+            zone_distribution: None,
+            personal_records: vec![],
+            efficiency_score: Some(82.5),
+            trend_indicators: TrendIndicators {
+                pace_trend: TrendDirection::Improving,
+                effort_trend: TrendDirection::Stable,
+                distance_trend: TrendDirection::Improving,
+                consistency_score: 90.0,
+            },
+        },
+        ContextualFactors {
+            weather: None,
+            location: None,
+            time_of_day: TimeOfDay::Morning,
+            days_since_last_activity: Some(1),
+            weekly_load: Some(ContextualWeeklyLoad {
+                total_distance_km: 50.0,
+                total_duration_hours: 5.0,
+                activity_count: 3,
+                load_trend: TrendDirection::Stable,
+            }),
+            seasonal_context: None,
+        },
+    ));
+
+    // Create test config with correct structure
+    let config = Arc::new(ServerConfig {
+        http_port: 4000,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: PathBuf::from("test_backups"),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_client_id".to_owned()),
+                client_secret: Some("test_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
+                scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Development,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            garmin_api: GarminApiConfig {
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
+                ..Default::default()
+            },
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2024-11-05".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: environment::CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    // Create ServerContext for the test
+    let auth_manager = AuthManager::new(24);
+
+    // Create test cache with background cleanup disabled
+    let cache_config = CacheConfig {
+        max_entries: 1000,
+        redis_url: None,
+        cleanup_interval: Duration::from_mins(1),
+        enable_background_cleanup: false,
+        ..Default::default()
+    };
+    let cache = Cache::new(cache_config)
+        .await
+        .expect("Failed to create test cache");
+
+    let server_resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            auth_manager,
+            "test_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
+
+    let request = UniversalRequest {
+        tool_name: "set_goal".to_owned(),
+        parameters: json!({
+            "goal_type": "distance",
+            "target_value": 1000.0,
+            "timeframe": "year",
+            "title": "Run 1000km this year"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+    assert!(response.result.is_some());
+
+    let result = response.result.unwrap();
+    assert!(result["goal_id"].is_string());
+    assert_eq!(result["status"], "created");
+    assert_eq!(result["timeframe"], "year");
+
+    Ok(())
+}
+
+/// `calculate_metrics` answers only for an activity it can fetch.
+///
+/// It used to accept an `activity` object inline and compute from that, which
+/// is what this test exercised — but the tool's schema declares `provider` and
+/// `activity_id` required and never mentions `activity`, so no caller following
+/// the definition could reach it. The old assertions were `is_number()` type
+/// checks on a path production could not take; this pins the contract the
+/// schema actually advertises.
+#[tokio::test]
+async fn test_calculate_metrics_requires_an_activity_id() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "calculate_metrics".to_owned(),
+        parameters: json!({
+            // Credential-free, so the dispatch chokepoint stands aside and the
+            // parameter check is what answers.
+            "provider": "synthetic",
+            "activity": {
+                "distance": 5000.0,
+                "duration": 1800,
+                "activity_type": "Run"
+            }
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    match executor.execute_tool(request).await {
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "an inline `activity` is not a documented input and must not be served"
+            );
+            assert!(
+                response
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("activity_id")),
+                "the rejection must name the missing required parameter, got: {:?}",
+                response.error
+            );
+        }
+        Err(e) => {
+            let text = format!("{e:?}");
+            assert!(
+                text.contains("activity_id"),
+                "the rejection must name the missing required parameter, got: {text}"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_performance_trends_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "analyze_performance_trends".to_owned(),
+        parameters: json!({
+            "activities": [
+                {
+                    "date": "2024-01-01",
+                    "distance": 5000.0,
+                    "duration": 1800,
+                    "activity_type": "Run"
+                },
+                {
+                    "date": "2024-01-08",
+                    "distance": 5200.0,
+                    "duration": 1750,
+                    "activity_type": "Run"
+                }
+            ],
+            "metric": "pace"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds, verify the response structure
+        // The handler returns "trend" (not "trend_direction") and may have different formats
+        // based on data availability: "improving"/"stable"/"declining" or "no_data"/"insufficient_data"
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(
+            result["trend"].is_string(),
+            "Expected 'trend' field in result: {result}"
+        );
+        // Only check statistics if there's actual data (not no_data/insufficient_data cases)
+        if result["statistics"].is_object() {
+            assert!(result["statistics"]["percent_change"].is_number());
+        }
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, the handler may expect stored activities
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_compare_activities_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Create tenant and user for testing (user first, then tenant)
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "test@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // Owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "compare_activities".to_owned(),
+        parameters: json!({
+            "activity_id": "test_activity_1",
+            "comparison_type": "similar_activities"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds (with mock data), verify the response structure
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(result["comparison_result"].is_object());
+        assert!(result["performance_ranking"].is_number());
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, could fail due to: missing auth, activity not found, etc.
+        assert!(response.error.is_some());
+        let error_msg = response.error.as_ref().unwrap();
+        // Accept various valid error messages
+        assert!(
+            (error_msg.contains("No valid") && error_msg.contains("token"))
+                || error_msg.contains("Connect")
+                || error_msg.contains("Authentication error")
+                || error_msg.contains("not found"),
+            "Unexpected error message: {error_msg}"
+        );
+    }
+
+    Ok(())
+}
+
+/// A `pattern_type` outside the four the detector answers for is refused,
+/// naming the four, before any provider is read. It used to be answered with
+/// the weekly schedule as though that had been asked for. The credential-free
+/// `synthetic` provider keeps the dispatch chokepoint aside, so the handler's
+/// own check is what answers.
+#[tokio::test]
+async fn test_detect_patterns_refuses_a_pattern_it_does_not_detect() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "detect_patterns".to_owned(),
+        parameters: json!({
+            "provider": "synthetic",
+            "pattern_type": "training_consistency"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("an unknown pattern_type is refused, not answered as another pattern");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("pattern_type 'training_consistency'"),
+        "the refusal names the value it refused: {rendered}"
+    );
+    for pattern in [
+        "weekly_schedule",
+        "training_blocks",
+        "progression",
+        "overtraining",
+    ] {
+        assert!(
+            rendered.contains(pattern),
+            "the refusal lists {pattern}: {rendered}"
+        );
+    }
+
+    Ok(())
+}
+
+/// A `recommendation_type` outside the six the tool generates is refused,
+/// naming the six, before any provider is read. It used to be answered with
+/// every mode at once, as though `all` had been asked for.
+#[tokio::test]
+async fn test_generate_recommendations_refuses_a_type_it_does_not_generate() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "generate_recommendations".to_owned(),
+        parameters: json!({
+            "provider": "synthetic",
+            "recommendation_type": "training"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("an unknown recommendation_type is refused, not answered as 'all'");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("recommendation_type 'training'"),
+        "the refusal names the value it refused: {rendered}"
+    );
+    for mode in [
+        "all",
+        "training_plan",
+        "recovery",
+        "intensity",
+        "goal_specific",
+        "nutrition",
+    ] {
+        assert!(
+            rendered.contains(mode),
+            "the refusal lists {mode}: {rendered}"
+        );
+    }
+
+    Ok(())
+}
+
+/// An unknown `comparison_type`, or a `specific_activity` comparison with no
+/// activity to compare against, is refused before any provider is read. Both
+/// used to be answered as a similar-activities comparison.
+#[tokio::test]
+async fn test_compare_activities_refuses_a_comparison_it_cannot_make() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = |parameters: serde_json::Value| UniversalRequest {
+        tool_name: "compare_activities".to_owned(),
+        parameters,
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let unknown = executor
+        .execute_tool(request(json!({
+            "provider": "synthetic",
+            "activity_id": "a-1",
+            "comparison_type": "best_efforts"
+        })))
+        .await
+        .expect_err("an unknown comparison is refused");
+    let rendered = unknown.to_string();
+    assert!(
+        rendered.contains("comparison_type 'best_efforts'") && rendered.contains("pr_comparison"),
+        "{rendered}"
+    );
+
+    let unanchored = executor
+        .execute_tool(request(json!({
+            "provider": "synthetic",
+            "activity_id": "a-1",
+            "comparison_type": "specific_activity"
+        })))
+        .await
+        .expect_err("a specific comparison needs the activity to compare against");
+    assert!(
+        unanchored.to_string().contains("needs compare_activity_id"),
+        "{unanchored}"
+    );
+
+    Ok(())
+}
+
+/// A `sport_type` that names no sport is refused before Overpass is queried;
+/// it used to be searched as running and answered with running trails.
+#[tokio::test]
+async fn test_discover_routes_refuses_a_sport_it_cannot_name() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = UniversalRequest {
+        tool_name: "discover_routes".to_owned(),
+        parameters: json!({
+            "latitude": 45.87,
+            "longitude": -74.08,
+            "sport_type": "quidditch"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let refused = executor
+        .execute_tool(request)
+        .await
+        .expect_err("a name that is no sport is refused, not searched as running");
+    let rendered = refused.to_string();
+    assert!(
+        rendered.contains("sport_type 'quidditch'") && rendered.contains("trail_running"),
+        "{rendered}"
+    );
+
+    Ok(())
+}
+
+/// A target distance outside the declared domain is refused before Overpass is
+/// queried, in a message that names the parameter and its range.
+#[tokio::test]
+async fn test_discover_routes_refuses_a_target_distance_out_of_range() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    for target in [json!(15), json!(900_000), json!(-5000), json!("15 km")] {
+        let request = UniversalRequest {
+            tool_name: "discover_routes".to_owned(),
+            parameters: json!({
+                "latitude": 45.87,
+                "longitude": -74.08,
+                "sport_type": "run",
+                "target_distance_meters": target
+            }),
+            user_id: Uuid::new_v4().to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: None,
+        };
+
+        let refused = executor
+            .execute_tool(request)
+            .await
+            .expect_err("a target outside 500..=500000 m is refused, not clamped");
+        let rendered = refused.to_string();
+        assert!(
+            rendered.contains(
+                "target_distance_meters must be a number of meters between 500 and 500000"
+            ),
+            "{target}: {rendered}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Race-time prediction is VDOT, which models running; a ride or a swim is
+/// refused before any provider is read instead of answered with running times
+/// labelled as that sport. A running label other than `Run` is accepted.
+#[tokio::test]
+async fn test_predict_performance_refuses_a_sport_it_cannot_model() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let request = |sport: &str| UniversalRequest {
+        tool_name: "predict_performance".to_owned(),
+        parameters: json!({ "provider": "synthetic", "target_sport": sport }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    for sport in ["Ride", "swim"] {
+        let refused = executor
+            .execute_tool(request(sport))
+            .await
+            .expect_err("a sport VDOT does not model is refused");
+        assert!(
+            refused.to_string().contains("models running only"),
+            "{sport}: {refused}"
+        );
+    }
+
+    // A running label passes the sport check and goes on to the provider.
+    if let Err(error) = executor.execute_tool(request("trail_running")).await {
+        assert!(
+            !error.to_string().contains("models running only"),
+            "a trail run is a run: {error}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_track_progress_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "track_progress".to_owned(),
+        parameters: json!({
+            "goal_id": "test_goal_123"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds (with mock data), verify the response structure
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(result["progress_percentage"].is_number());
+        assert!(result["on_track"].is_boolean());
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, it's expected that goal doesn't exist
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_suggest_goals_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "suggest_goals".to_owned(),
+        parameters: json!({
+            "provider": "synthetic",
+            "recent_activities": [
+                {
+                    "distance": 5000.0,
+                    "duration": 1800,
+                    "activity_type": "Run"
+                }
+            ],
+            "user_profile": {
+                "fitness_level": "intermediate",
+                "primary_sport": "running"
+            }
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+    assert!(response.result.is_some());
+
+    let result = response.result.unwrap();
+    assert!(result["suggested_goals"].is_array());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_goal_feasibility_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "analyze_goal_feasibility".to_owned(),
+        parameters: json!({
+            "provider": "synthetic",
+            "goal_type": "distance",
+            "target_value": 1000.0,
+            "timeframe_days": 365,
+            "title": "Run 1000km this year"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+    assert!(response.result.is_some());
+
+    let result = response.result.unwrap();
+    assert!(result["feasibility_score"].is_number());
+    assert!(result["feasible"].is_boolean());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_generate_recommendations_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "generate_recommendations".to_owned(),
+        parameters: json!({
+            "user_profile": {
+                "fitness_level": "intermediate",
+                "goals": ["improve_endurance"]
+            },
+            "recent_activities": [
+                {
+                    "distance": 5000.0,
+                    "duration": 1800,
+                    "activity_type": "Run"
+                }
+            ]
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds, verify the response structure
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(result["recommendations"].is_array());
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, authentication is required
+        assert!(response.error.is_some());
+        let error_msg = response.error.as_ref().unwrap();
+        assert!(
+            (error_msg.contains("No valid") && error_msg.contains("token found"))
+                || error_msg.contains("Connect")
+                || error_msg.contains("Authentication error")
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_calculate_fitness_score_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "calculate_fitness_score".to_owned(),
+        parameters: json!({
+            "activities": [
+                {
+                    "distance": 5000.0,
+                    "duration": 1800,
+                    "activity_type": "Run",
+                    "training_stress_score": 65
+                }
+            ],
+            "timeframe_days": 7
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds, verify the response structure
+        // The handler returns "components" (not "score_components")
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        // fitness_score could be 0 for no activities, which is still a number
+        assert!(
+            result["fitness_score"].is_number() || result["fitness_score"].is_i64(),
+            "Expected 'fitness_score' field in result: {result}"
+        );
+        // components may not exist in minimal response
+        if result.get("components").is_some() {
+            assert!(result["components"].is_object());
+        }
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, the handler may expect stored activities
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_predict_performance_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "predict_performance".to_owned(),
+        parameters: json!({
+            "distance": 21097.5,
+            "activity_type": "run"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    if response.success {
+        // If it succeeds (with mock/real data), verify the response structure
+        // Handler returns "predictions" array and "confidence" (not "predicted_time"/"confidence_level")
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        // predictions is an array (can be empty if no suitable activities)
+        assert!(
+            result["predictions"].is_array() || result["predictions"].is_object(),
+            "Expected 'predictions' field in result: {result}"
+        );
+        // confidence may be present when predictions are available
+        if result.get("confidence").is_some() {
+            assert!(
+                result["confidence"].is_number() || result["confidence"].is_string(),
+                "Expected 'confidence' field to be number or string: {result}"
+            );
+        }
+    } else {
+        println!("Error: {:?}", response.error);
+        // For test data, may fail due to authentication or insufficient data
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_training_load_tool() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "analyze_training_load".to_owned(),
+        parameters: json!({
+            "activities": [
+                {
+                    "date": "2024-01-01",
+                    "duration": 1800,
+                    "intensity": "moderate",
+                    "training_stress_score": 65
+                },
+                {
+                    "date": "2024-01-02",
+                    "duration": 3600,
+                    "intensity": "easy",
+                    "training_stress_score": 45
+                }
+            ]
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+
+    // This fixture is a fresh user id with no provider connection, and the
+    // handler sources activities from the connected provider rather than from
+    // the `activities` parameter above — so the only reachable arm is the error
+    // one. It used to be wrapped in `if response.success`, which made the
+    // payload assertions inside it dead code: `form_band`, `form_assessment` and
+    // `tsb_pct_of_ctl` could all have been deleted with every test still green.
+    // The payload itself is covered by `form_relative_banding_test`, against
+    // `analyze_detailed_training_load` directly.
+    assert!(
+        !response.success,
+        "no provider is connected for this fixture, so the tool must report an \
+         error rather than fabricate a load: {response:?}"
+    );
+    assert!(
+        response.error.is_some(),
+        "an unsuccessful response carries an error"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disconnect_provider_tool() -> Result<()> {
+    common::init_server_config();
+    let database = common::create_test_database().await?;
+    let (user_id, _) = common::create_test_user(&database).await?;
+
+    // Create ActivityIntelligence with proper constructor
+    let _intelligence = Arc::new(ActivityIntelligence::new(
+        "Test intelligence analysis".to_owned(),
+        vec![Insight {
+            insight_type: InsightType::Achievement,
+            message: "Test insight".to_owned(),
+            confidence: 90.0,
+            data: None,
+        }],
+        PerformanceMetrics {
+            relative_effort: Some(85.0),
+            zone_distribution: None,
+            personal_records: vec![],
+            efficiency_score: Some(82.5),
+            trend_indicators: TrendIndicators {
+                pace_trend: TrendDirection::Improving,
+                effort_trend: TrendDirection::Stable,
+                distance_trend: TrendDirection::Improving,
+                consistency_score: 90.0,
+            },
+        },
+        ContextualFactors {
+            weather: None,
+            location: None,
+            time_of_day: TimeOfDay::Morning,
+            days_since_last_activity: Some(1),
+            weekly_load: Some(ContextualWeeklyLoad {
+                total_distance_km: 50.0,
+                total_duration_hours: 5.0,
+                activity_count: 3,
+                load_trend: TrendDirection::Stable,
+            }),
+            seasonal_context: None,
+        },
+    ));
+
+    // Create test config with correct structure
+    let config = Arc::new(ServerConfig {
+        http_port: 4000,
+        log_level: LogLevel::Info,
+        logging: LoggingConfig::default(),
+        http_client: HttpClientConfig::default(),
+        database: DatabaseConfig {
+            url: DatabaseUrl::Memory,
+            auto_migrate: true,
+            backup: BackupConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                retention_count: 7,
+                directory: PathBuf::from("test_backups"),
+            },
+            postgres_pool: PostgresPoolConfig::default(),
+        },
+        auth: AuthConfig {
+            jwt_expiry_hours: 24,
+            refresh_token_expiry_days: 30,
+        },
+        oauth: OAuthConfig {
+            strava: OAuthProviderConfig {
+                client_id: Some("test_client_id".to_owned()),
+                client_secret: Some("test_client_secret".to_owned()),
+                redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
+                scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
+                enabled: true,
+            },
+            garmin: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            whoop: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+            terra: OAuthProviderConfig {
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                scopes: vec![],
+                enabled: false,
+            },
+        },
+        security: SecurityConfig {
+            cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
+            tls: TlsConfig {
+                enabled: false,
+                cert_path: None,
+                key_path: None,
+            },
+            headers: SecurityHeadersConfig {
+                environment: Environment::Development,
+            },
+        },
+        external_services: ExternalServicesConfig {
+            weather: WeatherServiceConfig {
+                api_key: None,
+                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
+                enabled: false,
+            },
+            strava_api: StravaApiConfig {
+                base_url: "https://www.strava.com/api/v3".to_owned(),
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
+                ..Default::default()
+            },
+            garmin_api: GarminApiConfig {
+                base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
+                auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
+                token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
+                revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration"
+                    .to_owned(),
+                ..Default::default()
+            },
+        },
+        app_behavior: AppBehaviorConfig {
+            max_activities_fetch: 100,
+            default_activities_limit: 20,
+            ci_mode: true,
+            auto_approve_users: false,
+            auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
+            protocol: ProtocolConfig {
+                mcp_version: "2024-11-05".to_owned(),
+                server_name: "pierre-mcp-server-test".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+        },
+        sse: SseConfig::default(),
+        oauth2_server: OAuth2ServerConfig::default(),
+        host: "localhost".to_owned(),
+        base_url: "http://localhost:8081".to_owned(),
+        mcp: McpConfig {
+            protocol_version: "2025-06-18".to_owned(),
+            server_name: "pierre-mcp-server-test".to_owned(),
+            session_cache_size: 1000,
+            ..Default::default()
+        },
+        cors: CorsConfig {
+            allowed_origins: "*".to_owned(),
+            allow_localhost_dev: true,
+        },
+        cache: environment::CacheConfig {
+            redis_url: None,
+            max_entries: 10000,
+            cleanup_interval_secs: 300,
+            ..Default::default()
+        },
+        usda_api_key: None,
+        rate_limiting: RateLimitConfig::default(),
+        sleep_tool_params: SleepToolParamsConfig::default(),
+        activity_fetch_limit: 100,
+        goal_management: GoalManagementConfig::default(),
+        training_zones: TrainingZonesConfig::default(),
+        firebase: FirebaseConfig::default(),
+        tokio_runtime: TokioRuntimeConfig::default(),
+        sqlx: SqlxConfig::default(),
+        monitoring: MonitoringConfig::default(),
+        frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
+        website_base_url: "https://dravr.ai".to_owned(),
+    });
+
+    // Create ServerContext for the test
+    let auth_manager = AuthManager::new(24);
+
+    // Create test cache with background cleanup disabled
+    let cache_config = CacheConfig {
+        max_entries: 1000,
+        redis_url: None,
+        cleanup_interval: Duration::from_mins(1),
+        enable_background_cleanup: false,
+        ..Default::default()
+    };
+    let cache = Cache::new(cache_config)
+        .await
+        .expect("Failed to create test cache");
+
+    let server_resources = Arc::new(
+        ServerContext::new(
+            (*database).clone(),
+            auth_manager,
+            "test_secret",
+            config,
+            cache,
+            ServerContextOptions {
+                rsa_key_size_bits: Some(2048),
+                jwks_manager: Some(common::get_shared_test_jwks()),
+                llm_provider: None,
+                chat_provider: None,
+                extra_tools: Vec::new(),
+                billing_provider: None,
+                turn_runner: None,
+            },
+        )
+        .await
+        .unwrap(),
+    );
+    let executor =
+        UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant());
+    let tenant = Tenant::new(
+        "Disconnect Provider Tenant".to_owned(),
+        "disconnect-provider-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "disconnect_provider".to_owned(),
+        parameters: json!({
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant.id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+    assert!(response.result.is_some());
+
+    let result = response.result.unwrap();
+    assert_eq!(result["provider"], "strava");
+    assert_eq!(result["status"], "disconnected");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_activities_async_no_token() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Create tenant and user for testing (user first, then tenant)
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "test@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // Owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // "No token" is the subject, so the athlete must be *connected* and merely
+    // token-less: a user with neither is refused by the dispatch chokepoint
+    // before any token lookup happens, which would test a different thing.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_activities".to_owned(),
+        parameters: json!({
+            "limit": 5,
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    // A token-less provider short-circuits as the typed auth-required error
+    // (the reconnect re-challenge path), not an in-band error payload.
+    let err = executor
+        .execute_tool(request)
+        .await
+        .expect_err("get_activities without an OAuth token must short-circuit as auth-required");
+    assert!(
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        "unexpected error shape: {err:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_athlete_async_no_token() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    // Create tenant and user for testing (user first, then tenant)
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "test@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // Owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_athlete".to_owned(),
+        parameters: json!({
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // get_athlete may fail without proper tenant context or token, which is expected
+    if response.success {
+        assert!(response.result.is_some());
+        let result = response.result.unwrap();
+        assert!(result.is_object());
+    } else {
+        // Failing is also acceptable for this test scenario
+        assert!(response.error.is_some());
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_stats_async_no_token() -> Result<()> {
+    common::init_server_config();
+    // The athlete's own app: over an external transport Strava's terms refuse
+    // the read before any token is looked up (carnet#765).
+    let executor = create_test_executor()
+        .await?
+        .with_transport(Transport::WebApp);
+
+    // Create tenant and user for testing (user first, then tenant)
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "test@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+
+    // Create tenant with user as owner
+    let tenant = Tenant::new(
+        "Test Tenant".to_owned(),
+        "test-tenant".to_owned(),
+        Some("test.example.com".to_owned()),
+        "starter".to_owned(),
+        user_id, // Owner
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    // Connected but token-less: the missing token is the subject, and an athlete
+    // with no connection at all is refused earlier by the dispatch chokepoint.
+    executor
+        .resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant.id, "strava", &ConnectionType::OAuth, None)
+        .await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_stats".to_owned(),
+        parameters: json!({
+            "provider": "strava"
+        }),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    let response = executor.execute_tool(request).await?;
+    // Should fail when no OAuth token is available (no fallbacks)
+    assert!(!response.success);
+    assert!(response.error.is_some());
+    let error_msg = response.error.as_ref().unwrap();
+    assert!(
+        (error_msg.contains("No valid") && error_msg.contains("token found"))
+            || error_msg.contains("deprecated")
+            || error_msg.contains("tenant-aware MCP endpoints")
+            || error_msg.contains("Tool execution failed")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_invalid_protocol_handling() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: "invalid-uuid".to_owned(),
+        protocol: "invalid_protocol".to_owned(),
+        tenant_id: None,
+    };
+
+    // Should handle gracefully and return error response
+    let response = executor.execute_tool(request).await;
+    match response {
+        Ok(response) => {
+            // If it succeeds in creating a response, it should indicate failure
+            assert!(
+                !response.success,
+                "Response should not be successful for invalid UUID"
+            );
+            println!("Error: {:?}", response.error);
+            assert!(response.error.is_some());
+        }
+        Err(err) => {
+            // If execute_tool returns an error, that's also acceptable for invalid UUID
+            println!("Tool execution error: {err:?}");
+            assert!(err.to_string().contains("Invalid user ID format"));
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_empty_parameters() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+    let user_id = Uuid::new_v4();
+    let mut user = User::new(
+        "empty-params@example.com".to_owned(),
+        "password_hash".to_owned(),
+        Some("Empty Params User".to_owned()),
+    );
+    user.id = user_id;
+    executor.resources.repos().users.create(&user).await?;
+    let tenant = Tenant::new(
+        "Empty Params Tenant".to_owned(),
+        "empty-params-tenant".to_owned(),
+        None,
+        "starter".to_owned(),
+        user_id,
+    );
+    executor.resources.repos().tenants.create(&tenant).await?;
+
+    let request = UniversalRequest {
+        tool_name: "get_connection_status".to_owned(),
+        parameters: json!({}),
+        user_id: user_id.to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: Some(tenant.id.to_string()),
+    };
+
+    let response = executor.execute_tool(request).await?;
+    assert!(response.success);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_malformed_parameters() -> Result<()> {
+    common::init_server_config();
+    let executor = create_test_executor().await?;
+
+    let request = UniversalRequest {
+        tool_name: "set_goal".to_owned(),
+        parameters: json!({
+            "invalid_param": "value"
+        }),
+        user_id: Uuid::new_v4().to_string(),
+        protocol: "test".to_owned(),
+        tenant_id: None,
+    };
+
+    // Should handle gracefully and return error response
+    let response = executor.execute_tool(request).await;
+    match response {
+        Ok(response) => {
+            // If it succeeds in creating a response, it should indicate failure
+            assert!(
+                !response.success,
+                "Response should not be successful for invalid parameters"
+            );
+            println!("Error: {:?}", response.error);
+            assert!(response.error.is_some());
+            let error_msg = response.error.as_ref().unwrap();
+            assert!(
+                error_msg.contains("goal_type is required")
+                    || error_msg.contains("missing field `goal_type`")
+            );
+        }
+        Err(err) => {
+            // If execute_tool returns an error, that's also acceptable for missing params
+            println!("Tool execution error: {err:?}");
+            let error_str = err.to_string();
+            assert!(
+                error_str.contains("goal_type is required")
+                    || error_str.contains("missing field `goal_type`")
+            );
+        }
+    }
+
+    Ok(())
+}

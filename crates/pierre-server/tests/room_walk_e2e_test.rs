@@ -312,7 +312,7 @@ mod room_walk_e2e {
         const NORTH_STAR_SAID: &str = "je vise l'ultra de montagne avec mon frere";
         const NORTH_STAR_OBJECT: &str = "finish the Chic-Chocs ultra beside my brother";
         let knee_json = format!(
-            r#"[{{"kind":"injury","predicate_code":"have","object":"{KNEE_OBJECT}","confidence":0.9,"stated_by":"user"}}]"#
+            r#"[{{"kind":"injury","predicate_code":"have","object":"{KNEE_OBJECT}","confidence":0.9,"stated_by":"user","evidence":"mon genou me fait mal"}}]"#
         );
         let north_star_json = format!(
             r#"[{{"kind":"goal","predicate_code":"working_toward","object":"{NORTH_STAR_OBJECT}","confidence":0.9,"stated_by":"user"}}]"#

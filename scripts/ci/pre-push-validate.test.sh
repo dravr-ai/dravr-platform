@@ -71,6 +71,7 @@ make_repo() {
   # The base resolver is not a stub: the validator sources it to pick the base
   # every tier diffs against, so the fixture runs the real rule.
   cp "$SCRIPT_DIR/gate-base-ref.sh" "$dir/scripts/ci/gate-base-ref.sh"
+  cp "$SCRIPT_DIR/server-suites.sh" "$dir/scripts/ci/server-suites.sh"
   # Tier 1-shared runs the .build submodule's validate.sh on every push and
   # fails closed when it is missing, so the fixture carries a no-op in its place.
   mkdir -p "$dir/.build/validation"

@@ -365,8 +365,8 @@ export type { I18nBundle, I18nBundleResult } from './i18n';
 
 export type { PersonaCard, PersonaRule, PersonasResponse } from './personas';
 
-export { MEMORY_FACT_KINDS } from './memory';
-export type { MemoryFactKind } from './memory';
+export { MEMORY_FACT_KINDS, MEMORY_FACT_STATUSES } from './memory';
+export type { MemoryEvidenceSource, MemoryFactKind, MemoryFactStatus } from './memory';
 
 // The quota counters GET /api/usage/status serves
 export type { LimitCheckResult, UsageStatusResponse } from './usage';

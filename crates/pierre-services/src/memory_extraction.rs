@@ -42,10 +42,13 @@ use pierre_database::repositories::{
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatRequest};
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
+use pierre_memory::{
+    FactKind, FactProposal, FactSource, MemoryScope, PredicateCode, ProposedClaim, UserFact,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -105,6 +108,11 @@ struct RawFact {
     /// from a stale prompt; the schedule gate treats absent as not-user.
     #[serde(default)]
     stated_by: Option<String>,
+    /// The words that state the fact, copied from the message of whoever
+    /// stated it. Kept only when that message holds them verbatim; absent on
+    /// responses from a stale prompt, which makes the fact a draft.
+    #[serde(default)]
+    evidence: Option<String>,
     /// The 1-based number of the existing fact this one restates, from the
     /// list the prompt showed (see [`MERGE_ADDENDUM`]).
     ///
@@ -131,6 +139,8 @@ const PROVENANCE_ADDENDUM: &str = r#"
 ## Provenance (required)
 
 Each fact object MUST also carry a "stated_by" field: "user" when the USER stated or confirmed the fact in their own words, "coach" when it originates in the coach's reply (a prescription, suggestion, or plan detail). Training prescriptions the coach makes — what to do on which day, session targets, weekly structure — are stated_by "coach" and are stored elsewhere; still label them honestly.
+
+Each fact object MUST also carry an "evidence" field: the words that state the fact, copied character for character from the message of whoever stated it — the USER message when stated_by is "user", the agent's reply when it is "coach" (the label kept its name). Never paraphrase, translate or shorten words inside it; a fact whose evidence is not found verbatim is held for the athlete to confirm.
 "#;
 
 /// The kinds the base prompt lets the model choose, in the order it lists
@@ -341,14 +351,19 @@ fn is_agent_prescription(
     source: FactSource,
     plan_was_saved: bool,
 ) -> bool {
-    // Case-insensitive / whitespace-tolerant: the extractor is an LLM and may
-    // emit "User"/"USER". A stricter match would silently drop a genuine
-    // user-stated constraint on that drift.
-    let user_stated = stated_by.is_some_and(|s| s.trim().eq_ignore_ascii_case("user"));
+    let user_stated = stated_by_user(stated_by);
     plan_was_saved
         && source == FactSource::Conversation
         && kind == FactKind::Schedule
         && !user_stated
+}
+
+/// Whether the extractor says the athlete stated the fact. Case-insensitive
+/// and whitespace-tolerant: the extractor is an LLM and may emit
+/// "User"/"USER", and a stricter match would treat a genuine statement as the
+/// agent's on that drift.
+fn stated_by_user(stated_by: Option<&str>) -> bool {
+    stated_by.is_some_and(|s| s.trim().eq_ignore_ascii_case("user"))
 }
 
 /// Gate one raw fact: confidence floor + agent-prescription filter. Returns
@@ -575,7 +590,22 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
             source_msg_id: req.source_msg_id,
             transport_policy: req.transport_policy,
         };
-        match repo.upsert_user_fact(&params).await {
+        // What the athlete said in their own words is approved; what the
+        // extractor read into the turn waits for them as a draft.
+        let proposal = FactProposal::from_extraction(
+            ProposedClaim {
+                user_id: req.user_id,
+                kind,
+                predicate_code,
+                object: &object,
+            },
+            stated_by_user(fact.stated_by.as_deref()),
+            req.source == FactSource::Onboarding,
+            fact.evidence.as_deref(),
+            req.user_message,
+            req.assistant_reply,
+        );
+        match repo.propose_user_fact(&params, &proposal).await {
             Ok(row) => out.push(row),
             Err(e) => {
                 error!(error = %e, kind = ?kind, "failed to upsert extracted user fact");
@@ -943,6 +973,51 @@ async fn record_extraction_job(
     }
 }
 
+/// How often a live extraction renews its job's lease.
+///
+/// The lease starts when the row is recorded, before the run waits for one of
+/// [`MAX_CONCURRENT_EXTRACTIONS`] permits; a run queued behind a burst of
+/// turns, or held by a slow model, outlived [`EXTRACTION_JOB_LEASE`] while it
+/// was still alive, and the resume sweep ran it a second time beside it. A
+/// third of the lease leaves two renewals of slack before it can lapse.
+const EXTRACTION_LEASE_RENEWAL: Duration = Duration::from_secs(EXTRACTION_JOB_LEASE.as_secs() / 3);
+
+/// The lease renewal a live extraction keeps running; aborted when dropped.
+pub(crate) struct LeaseRenewal(JoinHandle<()>);
+
+impl Drop for LeaseRenewal {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Renew `job_id`'s lease every [`EXTRACTION_LEASE_RENEWAL`] until the guard
+/// drops. A refused renewal means the row is gone or another runner leased it
+/// past this one: the renewals stop and the run finishes.
+pub(crate) fn keep_extraction_lease(
+    jobs: Arc<dyn MemoryExtractionJobRepository>,
+    job_id: Option<String>,
+) -> Option<LeaseRenewal> {
+    let job_id = job_id?;
+    Some(LeaseRenewal(tokio::spawn(async move {
+        let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
+        loop {
+            sleep(EXTRACTION_LEASE_RENEWAL).await;
+            let until = Utc::now().timestamp_millis().saturating_add(lease_ms);
+            match jobs.renew_extraction_job_lease(&job_id, until).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    warn!(job_id = %job_id, "extraction job is no longer this runner's; letting the run finish");
+                    return;
+                }
+                Err(e) => {
+                    warn!(job_id = %job_id, error = %e, "extraction job lease could not be renewed");
+                }
+            }
+        }
+    })))
+}
+
 /// Delete the job row once nothing is owed on it any more.
 async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, job_id: Option<&str>) {
     let Some(id) = job_id else {
@@ -999,7 +1074,9 @@ pub async fn spawn_extract_for_turn(
             finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await;
             return;
         };
-        match run_extraction_job(
+        // The row stays leased exactly as long as the run is alive.
+        let renewal = keep_extraction_lease(Arc::clone(&jobs), job_id.clone());
+        let run = run_extraction_job(
             memory_repo.as_ref(),
             &usage,
             provider,
@@ -1007,8 +1084,9 @@ pub async fn spawn_extract_for_turn(
             &system_prompt,
             &req,
         )
-        .await
-        {
+        .await;
+        drop(renewal);
+        match run {
             Ok(()) => finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await,
             Err(e) => error!(
                 error = %e,

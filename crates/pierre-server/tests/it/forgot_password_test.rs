@@ -1,0 +1,513 @@
+// ABOUTME: Integration tests for the self-service forgot password flow
+// ABOUTME: Tests code generation, anti-enumeration, rate limiting, and full reset cycle
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+#![allow(clippy::uninlined_format_args)]
+
+//! Integration tests for the self-service password reset flow:
+//! 1. User calls POST /api/auth/forgot-password with their email
+//! 2. Server generates a selector/verifier token, stores the verifier's SHA-256 hash, emails it
+//! 3. User calls POST /api/auth/complete-reset with code + new password
+//! 4. Token is consumed atomically, password updated
+
+use crate::common;
+use crate::helpers;
+
+use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::SignIn;
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
+use pierre_services::link_token::generate_link_token;
+use serde_json::json;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
+
+/// Test setup helper for forgot password testing
+struct ForgotPasswordTestSetup {
+    resources: Arc<ServerContext>,
+}
+
+impl ForgotPasswordTestSetup {
+    async fn new() -> anyhow::Result<Self> {
+        common::init_server_config();
+        let database = common::create_test_database().await?;
+        let auth_manager = common::create_test_auth_manager();
+        let cache = common::create_test_cache().await?;
+
+        let temp_dir = tempfile::tempdir()?;
+        let config = Arc::new(ServerConfig {
+            http_port: 8081,
+            database: DatabaseConfig {
+                url: DatabaseUrl::Memory,
+                backup: BackupConfig {
+                    directory: temp_dir.path().to_path_buf(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            app_behavior: AppBehaviorConfig {
+                ci_mode: true,
+                auto_approve_users: false,
+                ..Default::default()
+            },
+            security: SecurityConfig {
+                headers: SecurityHeadersConfig {
+                    environment: Environment::Testing,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let resources = Arc::new(
+            ServerContext::new(
+                (*database).clone(),
+                (*auth_manager).clone(),
+                "test_jwt_secret",
+                config,
+                cache,
+                ServerContextOptions {
+                    rsa_key_size_bits: Some(2048),
+                    jwks_manager: Some(common::get_shared_test_jwks()),
+                    llm_provider: None,
+                    chat_provider: None,
+                    extra_tools: Vec::new(),
+                    billing_provider: None,
+                    turn_runner: None,
+                },
+            )
+            .await
+            .unwrap(),
+        );
+
+        Ok(Self { resources })
+    }
+
+    fn routes(&self) -> axum::Router {
+        AuthRoutes::routes(self.resources.auth_routes_context())
+    }
+
+    /// Create a test user and return their UUID and email
+    async fn create_user(&self) -> anyhow::Result<(uuid::Uuid, String)> {
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
+        Ok((user.id, user.email))
+    }
+
+    /// Create a test user with a specific email
+    async fn create_user_with_email(&self, email: &str) -> anyhow::Result<(uuid::Uuid, String)> {
+        let (_, user) =
+            common::create_test_user_with_email(&self.resources.agent.database, email).await?;
+        Ok((user.id, user.email))
+    }
+}
+
+// ============================================================================
+// POST /api/auth/forgot-password - Forgot Password Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_forgot_password_existing_email_returns_200() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (_user_id, email) = setup.create_user().await.expect("Failed to create user");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::post("/api/auth/forgot-password")
+        .json(&json!({ "email": email }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Forgot password for existing email should return 200"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["message"].as_str().unwrap().contains("reset code"),
+        "Response should contain anti-enumeration message"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_nonexistent_email_returns_200() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    // Request for an email that doesn't exist — should still return 200
+    let response = AxumTestRequest::post("/api/auth/forgot-password")
+        .json(&json!({ "email": "nonexistent@example.com" }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Forgot password for nonexistent email should return 200 (anti-enumeration)"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["message"].as_str().unwrap().contains("reset code"),
+        "Response should be identical to existing email case"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_invalid_email_format_returns_400() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::post("/api/auth/forgot-password")
+        .json(&json!({ "email": "not-an-email" }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        400,
+        "Invalid email format should return 400"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_rate_limiting() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (_user_id, email) = setup
+        .create_user_with_email("ratelimit@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Send 3 requests (should all succeed)
+    for i in 0..3 {
+        let response = AxumTestRequest::post("/api/auth/forgot-password")
+            .json(&json!({ "email": email }))
+            .send(routes.clone())
+            .await;
+
+        assert_eq!(response.status(), 200, "Request {} should succeed", i + 1);
+    }
+
+    // 4th request should still return 200 (anti-enumeration) but skip silently
+    let response = AxumTestRequest::post("/api/auth/forgot-password")
+        .json(&json!({ "email": email }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "4th request should still return 200 (rate limit is silent)"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_full_flow() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (user_id, email) = setup
+        .create_user_with_email("fullflow@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Step 1: Request forgot password
+    let response = AxumTestRequest::post("/api/auth/forgot-password")
+        .json(&json!({ "email": email }))
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    // Since we can't read the email in tests, we'll simulate by directly creating
+    // a known token and testing the complete-reset flow
+    let generated = generate_link_token();
+
+    // Store a known token via the repository directly
+    setup
+        .resources
+        .common
+        .repos
+        .password_reset
+        .store_token_with_ttl(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            "self_service",
+            15,
+        )
+        .await
+        .expect("Failed to store test token");
+
+    // Step 2: Complete reset with the known token
+    let reset_response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "NewSecurePassword123"
+        }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        reset_response.status(),
+        200,
+        "Complete reset with valid code should succeed"
+    );
+
+    // Step 3: Verify login with new password works
+    let login_response = SignIn::new(&email, "NewSecurePassword123")
+        .run(&setup.resources)
+        .await
+        .token();
+
+    assert_eq!(
+        login_response.status(),
+        200,
+        "Login with new password should succeed after reset"
+    );
+
+    // Step 4: Verify old password no longer works
+    let old_login_response = SignIn::new(&email, "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+
+    assert_eq!(
+        old_login_response.status(),
+        401,
+        "Login with old password should fail after reset"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_code_single_use() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (user_id, _email) = setup
+        .create_user_with_email("singleuse@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Store a known token
+    let generated = generate_link_token();
+    setup
+        .resources
+        .common
+        .repos
+        .password_reset
+        .store_token_with_ttl(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            "self_service",
+            15,
+        )
+        .await
+        .expect("Failed to store test token");
+
+    // First use should succeed
+    let first_response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "FirstPassword123"
+        }))
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(first_response.status(), 200, "First use should succeed");
+
+    // Second use should fail (token already consumed)
+    let second_response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "SecondPassword456"
+        }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        second_response.status(),
+        404,
+        "Second use of same code should fail"
+    );
+}
+
+#[tokio::test]
+async fn test_forgot_password_expired_code_rejected() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (user_id, _email) = setup
+        .create_user_with_email("expired@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Store a token with 0-minute TTL (already expired)
+    let generated = generate_link_token();
+    setup
+        .resources
+        .common
+        .repos
+        .password_reset
+        .store_token_with_ttl(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            "self_service",
+            0,
+        )
+        .await
+        .expect("Failed to store test token");
+
+    // Small delay to ensure expiry is in the past
+    sleep(Duration::from_millis(100)).await;
+
+    let response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "ShouldNotWork123"
+        }))
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 404, "Expired code should be rejected");
+}
+
+#[tokio::test]
+async fn test_complete_reset_locks_out_after_repeated_wrong_verifier() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (user_id, _email) = setup
+        .create_user_with_email("lockout@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Store a valid token for this user.
+    let generated = generate_link_token();
+    setup
+        .resources
+        .common
+        .repos
+        .password_reset
+        .store_token_with_ttl(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            "self_service",
+            15,
+        )
+        .await
+        .expect("Failed to store test token");
+
+    // Build a wrong-verifier token that shares the same selector.
+    let selector = generated.token.split('.').next().unwrap();
+    let wrong = format!("{selector}.{}", "0".repeat(32));
+
+    // Five wrong guesses — each must be rejected (non-200).
+    for attempt in 0..5 {
+        let response = AxumTestRequest::post("/api/auth/complete-reset")
+            .json(&json!({
+                "reset_token": wrong,
+                "new_password": "NewSecurePassword123"
+            }))
+            .send(routes.clone())
+            .await;
+
+        assert_ne!(
+            response.status(),
+            200,
+            "Wrong-verifier guess {} should be rejected",
+            attempt + 1
+        );
+    }
+
+    // After 5 failed attempts the token is locked out, so even the CORRECT
+    // verifier must now be rejected (brute-force lockout, CWE-307).
+    let response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "NewSecurePassword123"
+        }))
+        .send(routes)
+        .await;
+
+    assert_ne!(
+        response.status(),
+        200,
+        "Correct verifier should be locked out after 5 failed attempts"
+    );
+}
+
+#[tokio::test]
+async fn test_complete_reset_succeeds_after_fewer_than_max_wrong_verifier() {
+    let setup = ForgotPasswordTestSetup::new().await.expect("Setup failed");
+    let (user_id, _email) = setup
+        .create_user_with_email("recovery@example.com")
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Store a valid token for this user.
+    let generated = generate_link_token();
+    setup
+        .resources
+        .common
+        .repos
+        .password_reset
+        .store_token_with_ttl(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            "self_service",
+            15,
+        )
+        .await
+        .expect("Failed to store test token");
+
+    // Build a wrong-verifier token that shares the same selector.
+    let selector = generated.token.split('.').next().unwrap();
+    let wrong = format!("{selector}.{}", "0".repeat(32));
+
+    // FOUR wrong guesses — one fewer than LINK_TOKEN_MAX_ATTEMPTS=5. Each must
+    // be rejected, but must NOT consume or invalidate the token (recovery window).
+    for attempt in 0..4 {
+        let response = AxumTestRequest::post("/api/auth/complete-reset")
+            .json(&json!({
+                "reset_token": wrong,
+                "new_password": "NewSecurePassword123"
+            }))
+            .send(routes.clone())
+            .await;
+
+        assert_ne!(
+            response.status(),
+            200,
+            "Wrong-verifier guess {} should be rejected",
+            attempt + 1
+        );
+    }
+
+    // The CORRECT verifier must still succeed — proving the lockout boundary is
+    // exactly 5 (no off-by-one) and that wrong guesses do not consume the token.
+    let response = AxumTestRequest::post("/api/auth/complete-reset")
+        .json(&json!({
+            "reset_token": generated.token,
+            "new_password": "NewSecurePassword123"
+        }))
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Correct verifier should still succeed after 4 failed attempts (below lockout threshold)"
+    );
+}

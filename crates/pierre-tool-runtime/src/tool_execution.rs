@@ -553,17 +553,25 @@ pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
 
 /// Measure a tool's serialized response size and estimated token cost, logging
 /// both for token-efficiency observability.
+///
+/// `response_bytes` is the payload as the tool returned it; `prompt_bytes` is
+/// what [`render_tool_payload_for_prompt`] puts in front
+/// of the model and replays on every later turn. They differ for a projected
+/// payload (`get_activities`), and only the second is a context cost, so a
+/// budget is set from it rather than from the first.
 pub(crate) fn log_tool_response_size(func_response: &FunctionResponse) {
     use pierre_formatters::TokenEfficiencyMetrics;
 
     let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
     let byte_size = serialized.len();
-    let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
+    let prompt = render_tool_payload_for_prompt(&func_response.name, &func_response.response);
+    let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&prompt);
     let name = &func_response.name;
     info!(
         event_type = "tool_response_size",
         tool_name = %name,
         response_bytes = byte_size,
+        prompt_bytes = prompt.len(),
         estimated_tokens = estimated_tokens,
         "Tool response measurement"
     );

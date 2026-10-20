@@ -94,7 +94,7 @@ export type {
 export { createStoreApi } from './domains/store';
 export type { StoreApi, BrowseOptions } from './domains/store';
 
-export { createUserApi } from './domains/user';
+export { createUserApi, isSupersededDraftError } from './domains/user';
 export type {
   UserApi,
   UserStats,
@@ -111,6 +111,7 @@ export type {
   SaveLlmCredentialsResponse,
   MemoryFactRow,
   MemoryFactListResponse,
+  ApproveMemoryFactResponse,
   ForgetMemoryFactResponse,
 } from './domains/user';
 

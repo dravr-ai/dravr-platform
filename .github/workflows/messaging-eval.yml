@@ -50,9 +50,10 @@ on:
       - "crates/pierre-server/src/services/slack_socket.rs"
       - "crates/pierre-server/tests/helpers/messaging_eval.rs"
       - "crates/pierre-server/tests/messaging_eval_*.rs"
+      - "crates/pierre-server/tests/it/messaging_eval_*.rs"
       - "crates/pierre-server/tests/live/messaging_eval_*.rs"
-      - "crates/pierre-server/tests/messaging_rendering_test.rs"
-      - "crates/pierre-server/tests/slack_socket_unit_test.rs"
+      - "crates/pierre-server/tests/it/messaging_rendering_test.rs"
+      - "crates/pierre-server/tests/it/slack_socket_unit_test.rs"
       - ".github/workflows/messaging-eval.yml"
   # The fast-feedback chain after a contremaitre prompt change is a dispatch
   # from contremaitre-bump.yml, not a workflow_run trigger here: that workflow
@@ -109,15 +110,19 @@ jobs:
 
       - name: Run messaging-eval tests
         run: |
+          # Two suites write the environment and stay binaries of their own;
+          # the rest are modules of the `it` binary. A module filter would
+          # deselect every test of a separate binary, so they run apart.
           cargo test \
-            --test messaging_eval_phase_0_test \
             --test messaging_eval_phase_1_integration_test \
             --test messaging_eval_pipeline_tool_loop_test \
-            --test messaging_eval_tool_called_happy_path_test \
-            --test messaging_eval_hallucination_probes_test \
-            --test messaging_rendering_test \
-            --test slack_socket_unit_test \
             -- --nocapture
+          cargo test --test it -- --nocapture \
+            messaging_eval_phase_0_test:: \
+            messaging_eval_tool_called_happy_path_test:: \
+            messaging_eval_hallucination_probes_test:: \
+            messaging_rendering_test:: \
+            slack_socket_unit_test::
 
   real-slack-socket:
     name: Real Slack round trip (Socket Mode)

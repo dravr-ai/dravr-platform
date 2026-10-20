@@ -78,6 +78,33 @@ else
     fail "false positive on resolving targets (status $STATUS): $OUT"
 fi
 
+# 2b. Module filters: `<module>::` after `--` selects a module of a
+#     tests/<dir>/main.rs target, so it must name one; on a single-file target
+#     it selects nothing.
+scaffold
+: > "$WORK/probe/crates/a/tests/suite/present_test.rs"
+workflow filters.yml '          cargo test --test suite -- present_test::'
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -eq 0 ] && echo "$OUT" | grep -q "module filters checked: 1"; then
+    pass "passes a filter that names a module of the target"
+else
+    fail "false positive on a present module filter (status $STATUS): $OUT"
+fi
+workflow filters.yml '          cargo test --test suite -- --nocapture present_test:: moved_test::'
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "filter moved_test:: names no module of --test suite"; then
+    pass "fails on a filter whose module the target no longer has"
+else
+    fail "did not catch a dead module filter (status $STATUS): $OUT"
+fi
+workflow filters.yml '          cargo test --test a_test --test suite -- present_test::'
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "filter present_test:: on --test a_test, a single-file target"; then
+    pass "fails on a module filter that would deselect a single-file target's tests"
+else
+    fail "did not catch a filter applied to a single-file target (status $STATUS): $OUT"
+fi
+
 # 3. Package scope: cargo searches only the -p selection, so a target that
 #    exists in another package is still a dead flag on this command.
 scaffold

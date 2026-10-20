@@ -436,10 +436,11 @@ require_build_warnings() {
 # the server's test targets, so the lint fails 10+ minutes later in CI's
 # full-workspace job (recurrences b2bd18741 on 08-28, the large_futures case
 # on 08-30 — carnet#153). This stays inside the heavy-compilation-lives-in-CI
-# rule by compiling exactly the changed top-level test targets and nothing
-# else: a push touching none pays zero. common.rs / helpers/ changes fan into
-# every target and stay CI-covered on purpose — recompiling 300+ binaries
-# locally is the cost this script exists to avoid.
+# rule by compiling exactly the test targets this push touched and nothing
+# else: a push touching none pays zero. Most suites are modules of the one
+# `it` binary, so a change to any of them, or to common.rs or helpers/, lints
+# `--test it` once; a top-level suite (one that writes the environment) lints
+# its own binary.
 #
 # The filter takes R as well as A and M. git pairs a renamed file with its
 # source and reports it as R, so AM alone skipped every test file a rename
@@ -447,15 +448,13 @@ require_build_warnings() {
 # expect() the full-workspace clippy then caught in CI. A renamed test is a
 # changed test: its body moved with it.
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
-    CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests/*.rs' 2>/dev/null \
-        | grep -E '^crates/pierre-server/tests/[^/]+\.rs$' \
-        | grep -v '/common\.rs$' || true)"
+    CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null \
+        | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets)"
     if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
         echo "Tier 1e: Changed server-test clippy"
         echo "------------------------------------"
         require_build_warnings
-        while IFS= read -r f; do
-            target="$(basename "$f" .rs)"
+        while IFS= read -r target; do
             echo "  cargo clippy -p pierre_mcp_server --test $target"
             if ! CARGO_BUILD_WARNINGS=deny \
                 cargo clippy -p pierre_mcp_server --test "$target" --all-features; then
@@ -1107,11 +1106,7 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
         | sort -u \
         | grep -v '^pierre-server$' \
         || true)
-    ADVISORY_TARGETS=$(echo "$CHANGED_FILES" \
-        | grep '^crates/pierre-server/tests/[^/]*\.rs$' \
-        | sed 's|.*/||; s|\.rs$||' \
-        | sort -u \
-        || true)
+    ADVISORY_TARGETS=$(echo "$CHANGED_FILES" | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets)
 
     if [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; then
         echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; these catch it sooner:"

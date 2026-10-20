@@ -86,6 +86,7 @@ for pattern in workspace.get("members", []):
             member_dirs.append(path)
 
 targets = {}      # package name -> set of test target names
+module_dirs = {}  # package name -> {target name: its tests/<name>/ dir}
 dir_to_pkg = {}
 for pkg_dir in member_dirs:
     manifest = load(os.path.join(pkg_dir, "Cargo.toml"))
@@ -109,6 +110,7 @@ for pkg_dir in member_dirs:
         for path in glob.glob(os.path.join(tests_dir, "*", "main.rs")):
             if os.path.normpath(path) not in claimed:
                 names.add(os.path.basename(os.path.dirname(path)))
+                module_dirs.setdefault(name, {})[os.path.basename(os.path.dirname(path))] = os.path.dirname(path)
     targets[name] = names
 
 all_pkgs = set(targets)
@@ -167,8 +169,9 @@ def tokens(text):
 
 SHELL_BREAK = re.compile(r"^[;&|()<>]+$")
 DYNAMIC = re.compile(r"[$*{}<>\[\]]")
+MODULE_FILTER = re.compile(r"^([a-z0-9_]+)::$")
 
-refs, dynamic = [], []
+refs, dynamic, filters = [], [], []
 for path in workflow_files:
     rel = os.path.relpath(path, root)
     for line_no, text in logical_lines(path):
@@ -215,6 +218,16 @@ for path in workflow_files:
                     dynamic.append(f"{rel}:{line_no} --test {name}")
                 else:
                     refs.append((rel, line_no, name, scope, pkgs))
+            # After `--`, a `<module>::` argument is a libtest filter. It
+            # selects tests of a multi-module target (`tests/<name>/main.rs`),
+            # so the module must exist there.
+            if i < len(toks) and toks[i] == "--":
+                i += 1
+                while i < len(toks) and not SHELL_BREAK.match(toks[i]):
+                    match = MODULE_FILTER.match(toks[i])
+                    if match and names and not any(DYNAMIC.search(n) for n in names):
+                        filters.append((rel, line_no, match.group(1), list(names), scope))
+                    i += 1
 
 unresolved = []
 for rel, line_no, name, scope, pkgs in refs:
@@ -227,9 +240,25 @@ for rel, line_no, name, scope, pkgs in refs:
         where = f"it is in {', '.join(owners)}, outside the -p selection" if owners else "no package has it"
         unresolved.append(f"UNRESOLVED {rel}:{line_no} --test {name} ({where})")
 
+for rel, line_no, module, names, scope in filters:
+    for name in names:
+        dirs = [module_dirs[p][name] for p in scope if name in module_dirs.get(p, {})]
+        if not dirs:
+            unresolved.append(
+                f"UNRESOLVED {rel}:{line_no} filter {module}:: on --test {name}, a single-file target: "
+                "its tests are not under that module, so the filter deselects every one of them"
+            )
+        elif not any(
+            os.path.isfile(os.path.join(d, module + ".rs"))
+            or os.path.isfile(os.path.join(d, module, "mod.rs"))
+            for d in dirs
+        ):
+            unresolved.append(f"UNRESOLVED {rel}:{line_no} filter {module}:: names no module of --test {name}")
+
 print(f"workflows scanned: {len(workflow_files)}")
 print(f"packages: {len(targets)}, test targets: {target_count}")
 print(f"static --test references: {len(refs)}")
+print(f"module filters checked: {len(filters)}")
 print(f"runtime-built --test references (not checkable): {len(dynamic)}")
 for line in dynamic:
     print(f"  dynamic {line}")

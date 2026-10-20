@@ -594,9 +594,12 @@ fn generate_goal_specific_recommendations(
         *sport_counts.entry(sport).or_insert(0) += 1;
     }
 
+    // Ties go to the alphabetically first sport, as in `SportProfile`: a
+    // `HashMap`'s order is random per process, and the primary sport is
+    // shown to the athlete.
     let primary_sport = sport_counts
         .iter()
-        .max_by_key(|(_, count)| *count)
+        .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
         .map_or("Unknown", |(sport, _)| sport.as_str());
 
     // Find best recent performance for predictions
@@ -635,7 +638,11 @@ fn generate_goal_specific_recommendations(
                     PerformancePredictor::format_time(time)
                 ),
                 vdot: predictions.vdot,
-                race_times: predictions.predictions.clone(),
+                race_times: predictions
+                    .predictions
+                    .iter()
+                    .map(|(distance, minutes)| (distance.clone(), *minutes))
+                    .collect(),
             });
 
             recommendations.push(format!(

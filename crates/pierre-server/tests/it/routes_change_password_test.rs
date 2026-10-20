@@ -1,0 +1,386 @@
+// ABOUTME: HTTP integration tests for the change password endpoint
+// ABOUTME: Tests password change flow including auth, validation, and error handling
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+#![allow(clippy::uninlined_format_args)]
+
+//! Integration tests for PUT /api/user/change-password endpoint
+
+use crate::common;
+use crate::helpers;
+
+use helpers::axum_test::AxumTestRequest;
+use helpers::first_party_sign_in::{FirstPartyClient, SignIn};
+use pierre_config::environment::{
+    AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig,
+};
+use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_routes_auth::AuthRoutes;
+use serde_json::json;
+use std::sync::Arc;
+
+/// Test setup helper for change password testing
+struct ChangePasswordTestSetup {
+    resources: Arc<ServerContext>,
+}
+
+impl ChangePasswordTestSetup {
+    async fn new() -> anyhow::Result<Self> {
+        common::init_server_config();
+        let database = common::create_test_database().await?;
+        let auth_manager = common::create_test_auth_manager();
+        let cache = common::create_test_cache().await?;
+
+        let temp_dir = tempfile::tempdir()?;
+        let config = Arc::new(ServerConfig {
+            http_port: 8081,
+            database: DatabaseConfig {
+                url: DatabaseUrl::Memory,
+                backup: BackupConfig {
+                    directory: temp_dir.path().to_path_buf(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            app_behavior: AppBehaviorConfig {
+                ci_mode: true,
+                auto_approve_users: false,
+                ..Default::default()
+            },
+            security: SecurityConfig {
+                headers: SecurityHeadersConfig {
+                    environment: Environment::Testing,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+
+        let resources = Arc::new(
+            ServerContext::new(
+                (*database).clone(),
+                (*auth_manager).clone(),
+                "test_jwt_secret",
+                config,
+                cache,
+                ServerContextOptions {
+                    rsa_key_size_bits: Some(2048),
+                    jwks_manager: Some(common::get_shared_test_jwks()),
+                    llm_provider: None,
+                    chat_provider: None,
+                    extra_tools: Vec::new(),
+                    billing_provider: None,
+                    turn_runner: None,
+                },
+            )
+            .await
+            .unwrap(),
+        );
+
+        Ok(Self { resources })
+    }
+
+    fn routes(&self) -> axum::Router {
+        AuthRoutes::routes(self.resources.auth_routes_context())
+    }
+
+    /// Create a test user and return their JWT token
+    async fn create_user_with_token(&self) -> anyhow::Result<(String, String)> {
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
+        let jwt_token = self
+            .resources
+            .auth
+            .auth_manager
+            .generate_token(&user, &self.resources.auth.jwks_manager)?;
+        Ok((jwt_token, user.email))
+    }
+}
+
+// ============================================================================
+// PUT /api/user/change-password - Change Password Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_change_password_success() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, _email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Change password should succeed with valid credentials"
+    );
+
+    let body: serde_json::Value = response.json();
+    assert!(
+        body["message"].is_string(),
+        "Response should contain a message"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_can_login_with_new_password() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Change the password
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 200);
+
+    // Login with new password should succeed
+    let login_response = SignIn::new(&email, "NewSecurePass456")
+        .run(&setup.resources)
+        .await
+        .token();
+
+    assert_eq!(
+        login_response.status(),
+        200,
+        "Login with new password should succeed"
+    );
+
+    // Login with old password should fail: the hosted login form refuses it
+    let old_login_response = SignIn::new(&email, "password123")
+        .run(&setup.resources)
+        .await
+        .login_refused();
+
+    assert_eq!(
+        old_login_response.status(),
+        401,
+        "Login with old password should fail after change"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_revokes_every_refresh_token() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // A phone logged in under the old password holds a refresh token.
+    let login_body = SignIn::new(&email, "password123")
+        .client(FirstPartyClient::Mobile)
+        .offline_access()
+        .run(&setup.resources)
+        .await
+        .signed_in();
+    let refresh_token = login_body["refresh_token"]
+        .as_str()
+        .expect("offline_access login carries a refresh token")
+        .to_owned();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 200);
+
+    // The password change is how a stolen password gets rotated, so the
+    // session that phone held ends with it.
+    let refresh_request = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token.as_str()),
+    ];
+    let refresh_response = AxumTestRequest::post("/oauth/token")
+        .form(&refresh_request)
+        .send(routes)
+        .await;
+    assert_eq!(refresh_response.status(), 400);
+    let refresh_body: serde_json::Value = refresh_response.json();
+    assert_eq!(refresh_body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_change_password_wrong_current_password() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, _email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    let change_password_request = json!({
+        "current_password": "wrongpassword",
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(
+        response.status(),
+        401,
+        "Should reject wrong current password"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_weak_new_password() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, _email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "weak"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    // Should fail validation (password too short or doesn't meet requirements)
+    assert!(
+        response.status() == 400 || response.status() == 422,
+        "Should reject weak new password, got status {}",
+        response.status()
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_missing_auth() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 401, "Should require authentication");
+}
+
+#[tokio::test]
+async fn test_change_password_invalid_auth() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", "Bearer invalid_token")
+        .json(&change_password_request)
+        .send(routes)
+        .await;
+
+    assert_eq!(response.status(), 401, "Should reject invalid auth token");
+}
+
+#[tokio::test]
+async fn test_change_password_missing_fields() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, _email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // Missing new_password
+    let request_missing_new = json!({
+        "current_password": "password123"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&request_missing_new)
+        .send(routes.clone())
+        .await;
+
+    assert!(
+        response.status() == 400 || response.status() == 422,
+        "Should reject missing new_password field"
+    );
+
+    // Missing current_password
+    let request_missing_current = json!({
+        "new_password": "NewSecurePass456"
+    });
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&request_missing_current)
+        .send(routes)
+        .await;
+
+    assert!(
+        response.status() == 400 || response.status() == 422,
+        "Should reject missing current_password field"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_endpoint_registered() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let routes = setup.routes();
+
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .json(&json!({}))
+        .send(routes)
+        .await;
+
+    // Should not be 404 (method not allowed or auth error, but not not-found)
+    assert_ne!(
+        response.status(),
+        404,
+        "PUT /api/user/change-password should be registered"
+    );
+}

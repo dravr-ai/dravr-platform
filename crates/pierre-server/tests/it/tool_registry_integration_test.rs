@@ -1,0 +1,1141 @@
+// ABOUTME: Integration tests for ToolRegistry execution paths and admin filtering.
+// ABOUTME: Tests real tool execution with ServerContext-backed ToolExecutionContext.
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+//! Integration tests for `ToolRegistry` execution paths.
+//!
+//! These tests verify:
+//! - Tool registration and lookup with real tools
+//! - Admin permission enforcement during execution
+//! - Schema generation with role-based filtering
+//! - Feature-flag-based tool registration
+//! - Capability-based filtering with real tools
+
+use crate::common;
+
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
+use pierre_contremaitre::tool_descriptions::{
+    FetchedOverlay, ParameterOverlay, ToolDescriptionOverlay,
+};
+use pierre_core::models::TenantId;
+use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
+use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use serde_json::json;
+use uuid::Uuid;
+
+use dravr_tronc::mcp::host::ToolDispatcher;
+use dravr_tronc::mcp::schema::{Content, TaskSupport, ToolResponse};
+use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
+
+// ============================================================================
+// Test Helper Functions
+// ============================================================================
+
+/// Create a `ToolExecutionContext` for testing with given user and admin status.
+fn create_test_context(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: Option<TenantId>,
+    is_admin: bool,
+) -> ToolExecutionContext {
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    ToolExecutionContext::new(user_id, tenant_id, runtime, AuthMethod::JwtBearer)
+        .with_admin_status(is_admin)
+}
+
+/// Shared runtime façade handed to `ToolRegistry::execute`.
+fn tool_state(resources: &Arc<ServerContext>) -> Arc<dyn ToolRuntime> {
+    resources.clone()
+}
+
+/// Per-call tronc context the MCP dispatch layer would resolve for a tool call.
+fn tronc_context(user_id: Uuid, tenant_id: Option<TenantId>, is_admin: bool) -> ToolContext {
+    let mut ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_auth_method("jwt_bearer")
+        .as_admin(is_admin);
+    if let Some(tenant_id) = tenant_id {
+        ctx = ctx.with_tenant(tenant_id.to_string());
+    }
+    ctx
+}
+
+/// An admin caller with the user and tenant `tools/list` needs: the call path
+/// refuses a caller with no user or no tenant, so the listing offers such a
+/// caller nothing, and an admin is listed every tool no operator switched off.
+async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create user");
+    let tenant_id = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("tenants of the test user")
+        .first()
+        .expect("the test user owns a tenant")
+        .id;
+    tronc_context(user_id, Some(tenant_id), true)
+}
+
+/// First text content block of a tool response (the in-band error/result text).
+fn response_text(response: &ToolResponse) -> &str {
+    response
+        .content
+        .first()
+        .and_then(Content::as_text)
+        .unwrap_or("")
+}
+
+// ============================================================================
+// Registry Registration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_registry_builtin_tools_registration() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    // Should have registered tools based on enabled features
+    // With all tools features enabled, we expect at least 50 tools
+    assert!(
+        registry.len() >= 50,
+        "Expected at least 50 tools, got {}",
+        registry.len()
+    );
+
+    // Verify well-known tools are registered
+    assert!(
+        registry.contains("list_agents"),
+        "list_agents should be registered"
+    );
+    assert!(
+        registry.contains("get_activities"),
+        "get_activities should be registered"
+    );
+}
+
+/// Every registered tool declares a Guardian security classification. The
+/// `RuntimeTool` supertrait makes this a compile-time guarantee (the registry
+/// stores `Arc<dyn RuntimeTool>`); this asserts the registry accessor surfaces
+/// it for every tool, so a regression is caught loudly rather than silently.
+#[tokio::test]
+async fn test_every_registered_tool_has_security_class() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    for name in registry.tool_names() {
+        assert!(
+            registry.security_class(name).is_some(),
+            "registered tool {name} has no Guardian security_class"
+        );
+    }
+}
+
+/// A stored training plan is agent/LLM/athlete-authored text re-entering the
+/// LLM context, so `get_training_plan` must taint the turn as
+/// `UNTRUSTED_OUTPUT` (like recalled memory); the write tool's small ack is
+/// not untrusted content.
+#[tokio::test]
+async fn test_training_plan_tools_taint_classification() {
+    use pierre_tool_runtime::security::SecurityLabels;
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    assert_eq!(
+        registry.security_class("get_training_plan"),
+        Some(SecurityLabels::UNTRUSTED_OUTPUT),
+        "get_training_plan must taint the turn"
+    );
+    assert_eq!(
+        registry.security_class("save_training_plan"),
+        Some(SecurityLabels::empty()),
+        "save_training_plan output is a plain ack, not untrusted content"
+    );
+}
+
+#[tokio::test]
+async fn test_registry_categories_populated() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let categories = registry.categories();
+
+    // Should have multiple categories
+    assert!(
+        categories.len() >= 5,
+        "Expected at least 5 categories, got {}",
+        categories.len()
+    );
+
+    // Verify expected categories exist
+    let category_names: Vec<&str> = categories.clone();
+    assert!(
+        category_names.contains(&"coaches"),
+        "coaches category should exist"
+    );
+    assert!(
+        category_names.contains(&"data"),
+        "data category should exist"
+    );
+}
+
+#[tokio::test]
+async fn test_registry_tools_in_category() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    // Agent tools category
+    let coach_tools = registry.tools_in_category("coaches");
+    assert!(
+        !coach_tools.is_empty(),
+        "coaches category should have tools"
+    );
+    assert!(
+        coach_tools.contains(&"list_agents"),
+        "coaches category should contain list_agents"
+    );
+}
+
+// ============================================================================
+// Schema Generation Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_list_schemas_for_role_user() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let user_schemas = registry.list_schemas_for_role(false);
+
+    // User should see some tools but not admin-only ones
+    assert!(!user_schemas.is_empty(), "User should see some tools");
+
+    // Verify no admin-only tools are included
+    let admin_tool_names: Vec<String> = registry
+        .filter_by_capabilities(ToolCapabilities::ADMIN_ONLY)
+        .iter()
+        .map(|t| t.definition().name)
+        .collect();
+
+    for schema in &user_schemas {
+        assert!(
+            !admin_tool_names.contains(&schema.name),
+            "User should not see admin-only tool: {}",
+            schema.name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_list_schemas_for_role_admin() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let admin_schemas = registry.list_schemas_for_role(true);
+    let user_schemas = registry.list_schemas_for_role(false);
+
+    // Admin should see more tools than user (admin-only tools included)
+    assert!(
+        admin_schemas.len() >= user_schemas.len(),
+        "Admin should see at least as many tools as user"
+    );
+}
+
+#[tokio::test]
+async fn test_admin_tool_schemas_only_admin() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let admin_only_schemas = registry.admin_tool_schemas();
+
+    // All returned schemas should be from admin-only tools
+    for schema in &admin_only_schemas {
+        let tool = registry.get(&schema.name).expect("Tool should exist");
+        assert!(
+            tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY),
+            "Tool {} should be admin-only",
+            schema.name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_user_visible_schemas_no_admin() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let user_schemas = registry.user_visible_schemas();
+
+    // None of the returned schemas should be admin-only
+    for schema in &user_schemas {
+        let tool = registry.get(&schema.name).expect("Tool should exist");
+        assert!(
+            !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY),
+            "Tool {} should not be admin-only",
+            schema.name
+        );
+    }
+}
+
+// ============================================================================
+// Capability Filtering Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_filter_by_capabilities_reads_data() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let read_tools = registry.filter_by_capabilities(ToolCapabilities::READS_DATA);
+
+    // Should have tools that read data
+    assert!(!read_tools.is_empty(), "Should have tools that read data");
+
+    // All filtered tools should have READS_DATA capability
+    for tool in &read_tools {
+        assert!(
+            tool.capabilities().contains(ToolCapabilities::READS_DATA),
+            "Tool {} should have READS_DATA capability",
+            tool.definition().name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_filter_by_capabilities_writes_data() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let write_tools = registry.filter_by_capabilities(ToolCapabilities::WRITES_DATA);
+
+    // All filtered tools should have WRITES_DATA capability
+    for tool in &write_tools {
+        assert!(
+            tool.capabilities().contains(ToolCapabilities::WRITES_DATA),
+            "Tool {} should have WRITES_DATA capability",
+            tool.definition().name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_read_tools_method() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let read_tool_names = registry.read_tools();
+
+    // Verify all returned tools actually read data
+    for name in &read_tool_names {
+        let tool = registry.get(name).expect("Tool should exist");
+        assert!(
+            tool.capabilities().contains(ToolCapabilities::READS_DATA),
+            "Tool {name} should read data"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_write_tools_method() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let write_tool_names = registry.write_tools();
+
+    // Verify all returned tools actually write data
+    for name in &write_tool_names {
+        let tool = registry.get(name).expect("Tool should exist");
+        assert!(
+            tool.capabilities().contains(ToolCapabilities::WRITES_DATA),
+            "Tool {name} should write data"
+        );
+    }
+}
+
+// ============================================================================
+// Execution Tests with Real Context
+// ============================================================================
+
+#[tokio::test]
+async fn test_execute_nonexistent_tool() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    // Seed a user so the resources fixture matches the sibling execution tests;
+    // this case only inspects the registry, so the ids are intentionally unused.
+    let _ = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    // A tool that doesn't exist does not resolve in the registry; the dispatch
+    // layer (`UniversalExecutor::execute_tool`) returns `ToolNotFound` for it.
+    assert!(
+        registry.get("nonexistent_tool_xyz").is_none(),
+        "nonexistent tool should not resolve in the registry"
+    );
+    assert!(!registry.contains("nonexistent_tool_xyz"));
+}
+
+#[tokio::test]
+async fn test_execute_admin_tool_as_non_admin_denied() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    // Find an admin-only tool
+    let admin_tools = registry.filter_by_capabilities(ToolCapabilities::ADMIN_ONLY);
+    if admin_tools.is_empty() {
+        // No admin tools registered, skip this test
+        return;
+    }
+
+    let admin_tool_name = admin_tools[0].definition().name;
+
+    // Create non-admin context
+    let state = tool_state(&resources);
+    let context = tronc_context(user_id, None, false);
+
+    // Execute admin-only tool as non-admin
+    let response = registry
+        .get(&admin_tool_name)
+        .expect("admin tool registered in registry")
+        .execute(&state, &context, json!({}))
+        .await;
+
+    assert!(
+        response.is_error,
+        "Admin tool should be denied for non-admin user"
+    );
+    let err_msg = response_text(&response).to_lowercase();
+    assert!(
+        err_msg.contains("admin") || err_msg.contains("permission") || err_msg.contains("denied"),
+        "Error should indicate permission denied: {err_msg}"
+    );
+}
+
+#[tokio::test]
+async fn test_execute_admin_tool_as_admin_allowed() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    // No need to update database - context caches admin status via with_admin_status()
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    // Find an admin-only tool
+    let admin_tools = registry.filter_by_capabilities(ToolCapabilities::ADMIN_ONLY);
+    if admin_tools.is_empty() {
+        // No admin tools registered, skip this test
+        return;
+    }
+
+    let admin_tool_name = admin_tools[0].definition().name;
+
+    // Create admin context
+    let state = tool_state(&resources);
+    let context = tronc_context(user_id, None, true);
+
+    // Execute admin-only tool as admin - should pass the permission check
+    // Note: The actual tool execution may still fail due to missing arguments,
+    // but the admin check should pass
+    let response = registry
+        .get(&admin_tool_name)
+        .expect("admin tool registered in registry")
+        .execute(&state, &context, json!({}))
+        .await;
+
+    // If it errors, it should NOT be a permission error
+    if response.is_error {
+        let err_msg = response_text(&response).to_lowercase();
+        assert!(
+            !err_msg.contains("admin") || err_msg.contains("required"),
+            "Admin should pass permission check, got: {err_msg}"
+        );
+    }
+}
+
+// ============================================================================
+// Tool Lookup Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_existing_tool() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let tool = registry.get("list_agents");
+    assert!(tool.is_some(), "list_agents should exist");
+
+    let tool = tool.unwrap();
+    assert_eq!(tool.definition().name, "list_agents");
+}
+
+#[tokio::test]
+async fn test_get_nonexistent_tool() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let tool = registry.get("this_tool_does_not_exist_xyz");
+    assert!(tool.is_none(), "Nonexistent tool should return None");
+}
+
+#[tokio::test]
+async fn test_contains_method() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    assert!(registry.contains("list_agents"));
+    assert!(!registry.contains("nonexistent_tool_xyz"));
+}
+
+#[tokio::test]
+async fn test_tool_names_method() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let names = registry.tool_names();
+
+    assert!(!names.is_empty(), "Should have tool names");
+    assert!(names.contains(&"list_agents"));
+    assert!(names.contains(&"get_activities"));
+}
+
+// ============================================================================
+// Context Requirement Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_context_require_tenant_with_tenant() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let tenant_id = TenantId::generate();
+    let context = create_test_context(&resources, user_id, Some(tenant_id), false);
+
+    let result = context.require_tenant();
+    assert!(result.is_ok(), "Should succeed with tenant context");
+    assert_eq!(result.unwrap(), tenant_id.as_uuid());
+}
+
+#[tokio::test]
+async fn test_context_require_tenant_without_tenant() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let context = create_test_context(&resources, user_id, None, false);
+
+    let result = context.require_tenant();
+    assert!(result.is_err(), "Should fail without tenant context");
+}
+
+#[tokio::test]
+async fn test_context_is_admin_cached() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    // Create context with cached admin status
+    let context = create_test_context(&resources, user_id, None, true);
+
+    // Should return cached value without database query
+    let is_admin = context
+        .is_admin()
+        .await
+        .expect("Should return cached admin status");
+    assert!(is_admin, "Should be admin from cache");
+}
+
+#[tokio::test]
+async fn test_context_require_admin_as_admin() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let context = create_test_context(&resources, user_id, None, true);
+
+    let result = context.require_admin().await;
+    assert!(result.is_ok(), "Admin should pass require_admin check");
+}
+
+#[tokio::test]
+async fn test_context_require_admin_as_non_admin() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let context = create_test_context(&resources, user_id, None, false);
+
+    let result = context.require_admin().await;
+    assert!(result.is_err(), "Non-admin should fail require_admin check");
+}
+
+// ============================================================================
+// Schema Content Validation Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_schema_has_required_fields() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let schemas = registry.all_schemas();
+
+    for schema in &schemas {
+        // Every schema should have a non-empty name
+        assert!(!schema.name.is_empty(), "Schema name should not be empty");
+
+        // Every schema should have a non-empty description
+        assert!(
+            !schema.description.is_empty(),
+            "Schema for {} should have description",
+            schema.name
+        );
+
+        // Input schema should be an object type
+        assert_eq!(
+            schema.input_schema.schema_type, "object",
+            "Input schema for {} should be object type",
+            schema.name
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_no_duplicate_tool_names() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let names = registry.tool_names();
+    let mut seen = HashSet::new();
+
+    for name in names {
+        assert!(seen.insert(name), "Duplicate tool name found: {name}");
+    }
+}
+
+// ============================================================================
+// Multi-User Isolation Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_different_users_separate_contexts() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+
+    let (user1_id, _) = create_test_user_with_email(&resources.agent.database, "user1@test.com")
+        .await
+        .expect("Failed to create user 1");
+    let (user2_id, _) = create_test_user_with_email(&resources.agent.database, "user2@test.com")
+        .await
+        .expect("Failed to create user 2");
+
+    let context1 = create_test_context(&resources, user1_id, None, false);
+    let context2 = create_test_context(&resources, user2_id, None, false);
+
+    assert_ne!(context1.user_id, context2.user_id);
+}
+
+// ============================================================================
+// External Tool Registration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_register_external_tool() {
+    use async_trait::async_trait;
+    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+    use pierre_tool_runtime::runtime::ToolRuntime;
+    use serde_json::Value;
+
+    struct ExternalTestTool;
+
+    #[async_trait]
+    impl McpTool<dyn ToolRuntime> for ExternalTestTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "external_test_tool".to_owned(),
+                description: "Test external tool registration".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
+                output_schema: None,
+                execution: None,
+            }
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities::REQUIRES_AUTH
+        }
+        async fn execute(
+            &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &ToolContext,
+            _args: Value,
+        ) -> ToolResponse {
+            ToolResponse {
+                content: vec![Content::text("{\"external\":true}".to_owned())],
+                is_error: false,
+                structured_content: Some(serde_json::json!({"external": true})),
+            }
+        }
+    }
+
+    pierre_tool_runtime::declare_security!(ExternalTestTool => empty);
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(ExternalTestTool));
+
+    assert!(registry.contains("external_test_tool"));
+    assert_eq!(registry.len(), 1);
+
+    let tool = registry.get("external_test_tool").unwrap();
+    assert_eq!(
+        tool.definition().description,
+        "Test external tool registration"
+    );
+}
+
+#[tokio::test]
+async fn test_external_tool_with_builtin_tools() {
+    use async_trait::async_trait;
+    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+    use pierre_tool_runtime::runtime::ToolRuntime;
+    use serde_json::Value;
+
+    struct CustomTool;
+
+    #[async_trait]
+    impl McpTool<dyn ToolRuntime> for CustomTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "custom_integration_tool".to_owned(),
+                description: "Custom integration tool".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
+                output_schema: None,
+                execution: None,
+            }
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities::READS_DATA
+        }
+        async fn execute(
+            &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &ToolContext,
+            _args: Value,
+        ) -> ToolResponse {
+            ToolResponse {
+                content: vec![Content::text("{\"custom\":true}".to_owned())],
+                is_error: false,
+                structured_content: Some(serde_json::json!({"custom": true})),
+            }
+        }
+    }
+
+    pierre_tool_runtime::declare_security!(CustomTool => empty);
+
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let builtin_count = registry.len();
+
+    registry.register(Arc::new(CustomTool));
+
+    assert_eq!(registry.len(), builtin_count + 1);
+    assert!(registry.contains("custom_integration_tool"));
+    assert!(registry.contains("list_agents")); // Built-in still present
+}
+
+// ============================================================================
+// Declared output schemas on the wire
+// ============================================================================
+
+/// A tool that declares an `outputSchema` obliges itself to answer with
+/// conforming `structuredContent`, and the client can only hold it to that if
+/// the schema actually arrives.
+///
+/// It has to survive two conversions to get there — the registry's
+/// `schema_from_definition` and the dispatcher's `schema_to_tool` — and both
+/// once wrote `output_schema: None`, so every declared schema was dropped
+/// where no unit test could see it: each tool's `definition()` still carried
+/// one, and that is what the per-tool pairing tests read.
+///
+/// So this asserts the wire, not the definition. It also asserts the document
+/// arrives whole: schemas are derived, and a derived schema uses `$defs` and a
+/// union `type` for an optional field, which is the vocabulary a typed
+/// intermediate silently dropped.
+#[tokio::test]
+async fn test_list_tools_carries_every_declared_output_schema() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let context = listing_admin_context(&resources).await;
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher.list_tools(&state, &context).await;
+
+    // What the registry says is declared, read straight off each tool.
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let mut declared: Vec<&str> = registry
+        .tool_names()
+        .into_iter()
+        .filter(|name| {
+            registry
+                .get(name)
+                .is_some_and(|tool| tool.definition().output_schema.is_some())
+        })
+        .collect();
+    declared.sort_unstable();
+    assert!(
+        declared.len() > 100,
+        "the typed set should be nearly every tool, found {}",
+        declared.len()
+    );
+
+    let mut delivered: Vec<&str> = tools
+        .iter()
+        .filter(|tool| tool.output_schema.is_some())
+        .map(|tool| tool.name.as_str())
+        .collect();
+    delivered.sort_unstable();
+
+    assert_eq!(
+        delivered, declared,
+        "every tool that declares an output schema must advertise it in          tools/list — a conversion that drops it leaves the client unable to          validate a reply the tool promised"
+    );
+
+    // And it arrives as the document it was derived as. `list_workout_templates`
+    // returns the training catalogue's template graph, so its schema carries
+    // `$defs` and a nullable-uuid union — both of which a typed intermediate
+    // could not hold.
+    let templates = tools
+        .iter()
+        .find(|tool| tool.name == "list_workout_templates")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_workout_templates declares an output schema");
+
+    assert!(
+        templates
+            .get("$defs")
+            .is_some_and(|defs| defs.as_object().is_some_and(|defs| defs.len() > 5)),
+        "the referenced subschemas must travel with the schema that uses them"
+    );
+    let rendered = serde_json::to_string(templates).expect("serializes");
+    assert!(
+        rendered.contains(r#"["string","null"]"#),
+        "an optional field's union type must reach the client intact"
+    );
+}
+
+// ============================================================================
+// SEP-2663 Task-Support Advertisement
+// ============================================================================
+
+/// `tools/list` carries the task-support declaration a client reads before it
+/// decides to poll, so this asserts the wire shape a real MCP client sees:
+/// long-running tools advertise `taskSupport: optional`, the deliberately
+/// synchronous ones carry no `execution` block at all, and the annotated set
+/// is a strict subset of the registry. A dispatcher that annotated everything,
+/// nothing, or dropped the field entirely fails all three.
+#[tokio::test]
+async fn test_list_tools_advertises_task_support() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let context = listing_admin_context(&resources).await;
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher.list_tools(&state, &context).await;
+
+    let execution_of = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from tools/list"))
+            .execution
+    };
+
+    // Provider-fetching work a client may poll instead of blocking on.
+    for name in ["get_activities", "push_training_plan", "analyze_activity"] {
+        let execution = execution_of(name).unwrap_or_else(|| {
+            panic!("{name} should advertise task support");
+        });
+        assert_eq!(
+            execution.task_support,
+            TaskSupport::Optional,
+            "{name} should be pollable but not force a handle"
+        );
+    }
+
+    // Deterministic or DB-only work answers in band; advertising a handle for
+    // it would make a client poll for a result it already had.
+    for name in ["verify_claim", "set_goal"] {
+        assert!(
+            execution_of(name).is_none(),
+            "{name} is synchronous and must not advertise task support"
+        );
+    }
+
+    let annotated = tools.iter().filter(|t| t.execution.is_some()).count();
+    assert!(
+        annotated > 0 && annotated < tools.len(),
+        "task support should be selective, got {annotated} of {} tools",
+        tools.len()
+    );
+}
+
+/// The advertisement and the dispatch gate read the SAME declaration.
+///
+/// They used to read two: `tools/list` derived `execution` from a
+/// `TASK_CAPABLE_TOOLS` literal beside the registry, and so did the seam that
+/// decides whether a call becomes a handle. Both now read the tool's own
+/// `definition().execution`, which is what `ToolRegistry::task_support`
+/// returns. A tool that advertised a handle and then never returned one — or
+/// returned one it never advertised — fails here (carnet#232).
+#[tokio::test]
+async fn test_task_support_advertised_matches_the_registry_declaration() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+    let context = listing_admin_context(&resources).await;
+
+    let dispatcher = PierreToolDispatcher::new(resources.clone());
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let tools = dispatcher.list_tools(&state, &context).await;
+    assert!(!tools.is_empty(), "the registry serves tools at all");
+
+    let registry = &resources.mcp.tool_registry;
+    let mut declared = Vec::new();
+    for tool in &tools {
+        let advertised = tool.execution.map(|execution| execution.task_support);
+        assert_eq!(
+            registry.task_support(&tool.name),
+            advertised,
+            "{} advertises {advertised:?} on tools/list but the registry reads              {:?} — the wire and the dispatch gate must not disagree",
+            tool.name,
+            registry.task_support(&tool.name),
+        );
+        if advertised == Some(TaskSupport::Optional) {
+            declared.push(tool.name.clone());
+        }
+    }
+
+    // The declaration is real, not a field nothing ever sets: the three
+    // conversions that came first are still the ones that carry it.
+    for name in [
+        "get_activities",
+        "compute_training_history",
+        "push_training_plan",
+    ] {
+        assert!(
+            declared.iter().any(|n| n == name),
+            "{name} declares task support; declared set is {declared:?}"
+        );
+    }
+}
+
+/// `tools/list` must answer in a stable order. The registry was backed by a
+/// `HashMap`, whose iteration order Rust randomizes per process, so the catalog
+/// came back shuffled on every replica and every restart. Three consequences,
+/// only the first of which is cosmetic: the spec asks for a deterministic list;
+/// a cache validator computed over a shuffled list is meaningless; and an LLM
+/// prompt whose tool block is reordered loses the cache prefix it was sharing.
+///
+/// Sorted-ness is the assertion, not merely equality between two calls in one
+/// process: within a single process a `HashMap` yields the *same* arbitrary
+/// order twice, so a two-call comparison would pass against the bug.
+#[tokio::test]
+async fn test_tool_list_is_deterministically_ordered() {
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+
+    let names: Vec<String> = registry
+        .all_schemas()
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect();
+    assert!(
+        names.len() >= 50,
+        "expected the full builtin registry, got {}",
+        names.len()
+    );
+
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(
+        names, sorted,
+        "tools/list must be ordered by name so the catalog is stable across replicas and restarts"
+    );
+
+    // The role-filtered views are the ones clients actually receive, so they
+    // carry the same guarantee rather than relying on the caller to sort.
+    for schemas in [
+        registry.list_schemas_for_role(false),
+        registry.list_schemas_for_role(true),
+    ] {
+        let names: Vec<String> = schemas.into_iter().map(|schema| schema.name).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(
+            names, sorted,
+            "role-filtered tool lists must also be ordered"
+        );
+    }
+}
+
+/// A tool description synced from contremaitre must reach the schema clients
+/// actually receive.
+///
+/// The overlay registry is populated by the contremaitre startup sync, the
+/// hourly poll and the GitHub push webhook, and it is the whole point of
+/// keeping 75 tool YAMLs in that repo: an edit there is supposed to change what
+/// `tools/list`, `GET /mcp/tools` and the chat function-calling surface
+/// advertise within a minute, with no redeploy. That only holds if the shared
+/// `ToolRegistry` is holding the same registry instance the sync writes into,
+/// so this asserts the served text changes — tool description and one
+/// parameter description — after a write that mimics a sync landing.
+#[tokio::test]
+async fn test_contremaitre_tool_overlay_reaches_the_served_schema() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("Failed to create test resources");
+
+    let target = "get_activities";
+    let served = |ctx: &Arc<ServerContext>| -> ToolSchema {
+        ctx.mcp
+            .tool_registry
+            .list_schemas_for_role(false)
+            .into_iter()
+            .find(|schema| schema.name == target)
+            .expect("get_activities is a registered, non-admin tool")
+    };
+
+    let compiled_in = served(&resources);
+
+    let overlaid = "Contremaitre overlay: retrieve the athlete's recorded activities.";
+    let overlaid_limit = "Contremaitre overlay: how many activities to return.";
+    let mut parameters = HashMap::new();
+    parameters.insert(
+        "limit".to_owned(),
+        ParameterOverlay {
+            description: Some(overlaid_limit.to_owned()),
+        },
+    );
+    resources
+        .mcp
+        .tool_description_registry
+        .update_all(vec![fetched(
+            target.to_owned(),
+            ToolDescriptionOverlay {
+                description: Some(overlaid.to_owned()),
+                parameters,
+            },
+            "0000000000000000000000000000000000000000000000000000000000000000".to_owned(),
+        )]);
+
+    let after_sync = served(&resources);
+
+    assert_ne!(
+        compiled_in.description, overlaid,
+        "the fixture must differ from the compiled-in text or the assertion below proves nothing"
+    );
+    assert_eq!(
+        after_sync.description, overlaid,
+        "a synced tool description must replace the compiled-in one on the served schema"
+    );
+
+    let properties = after_sync
+        .input_schema
+        .properties
+        .expect("get_activities declares object properties");
+    assert_eq!(
+        properties
+            .get("limit")
+            .and_then(|property| property.description.clone()),
+        Some(overlaid_limit.to_owned()),
+        "a synced parameter description must replace the compiled-in one"
+    );
+
+    // Parameters the overlay does not mention keep their compiled-in text —
+    // the overlay is a merge, not a replacement of the whole schema.
+    let compiled_offset = compiled_in
+        .input_schema
+        .properties
+        .as_ref()
+        .and_then(|properties| properties.get("offset"))
+        .and_then(|property| property.description.clone())
+        .expect("offset carries a compiled-in description");
+    assert_eq!(
+        properties
+            .get("offset")
+            .and_then(|property| property.description.clone()),
+        Some(compiled_offset),
+        "an unmentioned parameter keeps its compiled-in description"
+    );
+
+    // Removing the overlay reverts to the compiled-in text, which is what a
+    // deleted YAML in contremaitre has to do.
+    assert!(resources.mcp.tool_description_registry.remove(target));
+    assert_eq!(
+        served(&resources).description,
+        compiled_in.description,
+        "removing the overlay reverts the served schema to the compiled-in description"
+    );
+}
+
+/// A fetched overlay for `update_all`.
+fn fetched(tool_name: String, overlay: ToolDescriptionOverlay, sha256: String) -> FetchedOverlay {
+    FetchedOverlay {
+        tool_name,
+        overlay,
+        sha256,
+    }
+}

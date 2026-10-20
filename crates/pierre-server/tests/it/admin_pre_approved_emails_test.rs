@@ -1,0 +1,1037 @@
+// ABOUTME: HTTP coverage for the admin-token pre-approval routes behind pierre-cli user allow
+// ABOUTME: Allow/list/remove, pending promotion, operator attribution, the ManageUsers gate, bad input
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! `/admin/pre-approved-emails` — the transport registre#110 was missing.
+//!
+//! The `pre_approved_emails` table and its repository shipped with
+//! `pierre-cli user allow`, but the verb held a `DATABASE_URL` handle, so it
+//! could only ever write the laptop's local database: a deployed environment's
+//! Cloud SQL is on a private IP, and an operator with a valid super-admin
+//! device login had no way to pre-approve an address there. These tests drive
+//! the real bearer-token routes the CLI now calls, over one in-memory
+//! database.
+//!
+//! Every assertion is on content — the recorded note, the resolved operator,
+//! the promoted account's status and `approved_by`, the emptied list — so a
+//! handler that answered 200 with nothing written would fail them.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use crate::common;
+use crate::helpers;
+
+use anyhow::Result;
+use async_trait::async_trait;
+use helpers::axum_test::AxumTestRequest;
+use pierre_auth::admin::jwks::JwksManager;
+use pierre_config::mcp::AppBehaviorConfig;
+use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
+use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
+use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
+use pierre_core::errors::AppResult;
+use pierre_core::models::{User, UserInvitation, UserStatus};
+use pierre_core::permissions::UserRole;
+use pierre_database::RepositoryRegistry;
+use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_services::invitation::{IssuedInvitation, INVITATIONS_PER_ADDRESS_PER_HOUR};
+use pierre_services::link_token::split_link_token;
+use pierre_services::user_approval::UserApprovalNotifier;
+use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use serde_json::{json, Value};
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use tracing::subscriber::set_default;
+use tracing::Level;
+use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
+use uuid::Uuid;
+
+const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
+
+/// One invitation the handler handed over to be mailed: the address and the
+/// single-use token its link carries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MailedInvitation {
+    email: String,
+    token: String,
+}
+
+/// Records what the handler asked to be sent, so a test can assert on the
+/// notification decision rather than on a 200. `mail_fails` makes every
+/// invitation undeliverable, as an unconfigured or failing mail service does.
+#[derive(Default)]
+struct RecordingNotifier {
+    invited: Arc<Mutex<Vec<MailedInvitation>>>,
+    approved: Arc<Mutex<Vec<String>>>,
+    mail_fails: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl UserApprovalNotifier for RecordingNotifier {
+    async fn notify_user_approved(&self, _user_id: Uuid, email: &str, _display_name: Option<&str>) {
+        self.approved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(email.to_owned());
+    }
+
+    async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool {
+        self.invited
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(MailedInvitation {
+                email: invitation.email.clone(),
+                token: invitation.token.clone(),
+            });
+        !self.mail_fails.load(Ordering::SeqCst)
+    }
+}
+
+/// One in-memory database, its admin router, and the operator identity whose
+/// device-login token the CLI would be carrying.
+struct Harness {
+    router: axum::Router,
+    repos: Arc<RepositoryRegistry>,
+    operator_id: Uuid,
+    operator_email: String,
+    jwks: Arc<JwksManager>,
+    invited: Arc<Mutex<Vec<MailedInvitation>>>,
+    approved: Arc<Mutex<Vec<String>>>,
+    mail_fails: Arc<AtomicBool>,
+}
+
+impl Harness {
+    async fn new() -> Result<Self> {
+        let database = common::create_test_database().await?;
+        let auth_manager = common::create_test_auth_manager();
+        let jwks = common::get_shared_test_jwks();
+
+        let database_arc = Arc::new((*database).clone());
+        let repos = Arc::clone(database_arc.repositories());
+
+        let mut context = AdminApiContext::new(AdminApiContextInit {
+            database: Arc::clone(&database_arc),
+            repos: Arc::clone(&repos),
+            jwt_secret: TEST_ADMIN_JWT_SECRET.to_owned(),
+            auth_manager: auth_manager.clone(),
+            jwks_manager: Arc::clone(&jwks),
+            admin_api_key_monthly_limit: STARTER_MONTHLY_LIMIT,
+            harness_config_registry: Arc::new(HarnessConfigRegistry::bootstrap()),
+            guardian_config_registry: Arc::new(GuardianConfigRegistry::bootstrap()),
+            prompt_registry: Arc::new(pierre_contremaitre::PromptRegistry::new()),
+            tool_description_registry: Arc::new(pierre_contremaitre::ToolDescriptionRegistry::new()),
+            evidence_registry: Arc::new(pierre_contremaitre::EvidenceRegistry::new()),
+            messaging_strings_registry: Arc::new(
+                pierre_contremaitre::MessagingStringsRegistry::new(),
+            ),
+            cageux_config_registry: Arc::new(CageuxConfigRegistry::from_env()),
+            persona_contract_registry: Arc::new(PersonaContractRegistry::new()),
+            training_catalogue_registry: Arc::new(
+                pierre_contremaitre::TrainingCatalogueRegistry::new(),
+            ),
+            contremaitre_config: None,
+            app_behavior: AppBehaviorConfig::default(),
+        });
+
+        // The composition root injects the real notifier here; the test injects
+        // a recorder so "was this person mailed?" is observable.
+        let invited = Arc::new(Mutex::new(Vec::new()));
+        let approved = Arc::new(Mutex::new(Vec::new()));
+        let mail_fails = Arc::new(AtomicBool::new(false));
+        context.approval_notifier = Some(Arc::new(RecordingNotifier {
+            invited: Arc::clone(&invited),
+            approved: Arc::clone(&approved),
+            mail_fails: Arc::clone(&mail_fails),
+        }));
+
+        // The super-admin who approved the device login. `pierre-cli auth
+        // login` mints its token against exactly this account.
+        let operator_email = "device-operator@example.com".to_owned();
+        let operator_id =
+            seed_user(&repos, &operator_email, UserStatus::Active, UserRole::Admin).await?;
+
+        Ok(Self {
+            router: AdminRoutes::routes(context),
+            repos,
+            operator_id,
+            operator_email,
+            jwks,
+            invited,
+            approved,
+            mail_fails,
+        })
+    }
+
+    /// Mint the token the device flow would have handed the CLI: super-admin,
+    /// acting as the approving operator.
+    async fn device_login_token(&self) -> Result<String> {
+        self.mint_operated_token(
+            &format!("device-cli:{}", self.operator_id),
+            None,
+            true,
+            Some(self.operator_id),
+        )
+        .await
+    }
+
+    /// Mint an admin token with an explicit permission set.
+    async fn mint_token(
+        &self,
+        service_name: &str,
+        permissions: Option<Vec<AdminPermission>>,
+        is_super_admin: bool,
+    ) -> Result<String> {
+        self.mint_operated_token(service_name, permissions, is_super_admin, None)
+            .await
+    }
+
+    /// Mint an admin token that acts as `operator_user_id`, as only the device
+    /// grant does.
+    async fn mint_operated_token(
+        &self,
+        service_name: &str,
+        permissions: Option<Vec<AdminPermission>>,
+        is_super_admin: bool,
+        operator_user_id: Option<Uuid>,
+    ) -> Result<String> {
+        let request = CreateAdminTokenRequest {
+            service_name: service_name.to_owned(),
+            service_description: Some("seeded by admin_pre_approved_emails_test".to_owned()),
+            permissions,
+            expires_in_days: Some(30),
+            is_super_admin,
+            tenant_id: None,
+            operator_user_id,
+        };
+        let generated = self
+            .repos
+            .admin
+            .create_token(&request, TEST_ADMIN_JWT_SECRET, &self.jwks)
+            .await?;
+        Ok(generated.jwt_token)
+    }
+
+    async fn allow(&self, token: &str, email: &str, note: Option<&str>) -> (u16, Value) {
+        let response = AxumTestRequest::post("/admin/pre-approved-emails")
+            .header("Authorization", &format!("Bearer {token}"))
+            .json(&json!({ "email": email, "note": note }))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+
+    /// `allow` with the invite flag set, which is what
+    /// `pierre-cli user allow --send-invite` puts on the wire.
+    async fn allow_with_invite(&self, token: &str, email: &str) -> (u16, Value) {
+        let response = AxumTestRequest::post("/admin/pre-approved-emails")
+            .header("Authorization", &format!("Bearer {token}"))
+            .json(&json!({ "email": email, "send_invite": true }))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+
+    /// The addresses an invitation was handed over for, in order.
+    fn invited(&self) -> Vec<String> {
+        self.invitations()
+            .into_iter()
+            .map(|mailed| mailed.email)
+            .collect()
+    }
+
+    fn invitations(&self) -> Vec<MailedInvitation> {
+        self.invited
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Redeem a mailed token at the repository, the way acceptance does.
+    async fn redeem(&self, token: &str) -> AppResult<UserInvitation> {
+        let (selector, verifier_hash) =
+            split_link_token(token).expect("a mailed token is <selector>.<verifier>");
+        self.repos
+            .user_invitations
+            .redeem(&selector, &verifier_hash)
+            .await
+    }
+
+    fn approved(&self) -> Vec<String> {
+        self.approved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    async fn list(&self, token: &str) -> (u16, Value) {
+        let response = AxumTestRequest::get("/admin/pre-approved-emails")
+            .header("Authorization", &format!("Bearer {token}"))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+
+    async fn disallow(&self, token: &str, email: &str) -> (u16, Value) {
+        let path = format!("/admin/pre-approved-emails/{}", urlencoding::encode(email));
+        let response = AxumTestRequest::delete(&path)
+            .header("Authorization", &format!("Bearer {token}"))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+}
+
+/// Create a user row directly; registration itself is covered by
+/// `preapproved_email_registration_test`.
+async fn seed_user(
+    repos: &Arc<RepositoryRegistry>,
+    email: &str,
+    status: UserStatus,
+    role: UserRole,
+) -> Result<Uuid> {
+    let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+    let mut user = User::new(email.to_owned(), password_hash, Some("Seeded".to_owned()));
+    user.user_status = status;
+    user.role = role;
+    user.is_admin = role.is_admin_or_higher();
+    let id = user.id;
+    repos.users.create(&user).await?;
+    Ok(id)
+}
+
+fn entries(body: &Value) -> Vec<Value> {
+    body["data"]["emails"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn allow_list_and_remove_round_trip_over_http() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "alpha-cohort@example.com";
+
+    let (status, body) = harness.allow(&token, email, Some("alpha cohort")).await;
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("recorded"),
+        "an address with no account records a standing allow: {body}"
+    );
+
+    let (status, body) = harness.list(&token).await;
+    assert_eq!(status, 200, "listing must succeed: {body}");
+    let listed = entries(&body);
+    assert_eq!(
+        listed.len(),
+        1,
+        "exactly the one allow must be listed: {body}"
+    );
+    assert_eq!(listed[0]["email"].as_str(), Some(email));
+    assert_eq!(
+        listed[0]["note"].as_str(),
+        Some("alpha cohort"),
+        "the operator note must survive the round trip"
+    );
+    assert!(
+        listed[0]["account_status"].is_null(),
+        "nobody has registered against the address yet: {body}"
+    );
+    assert_eq!(
+        listed[0]["allowed_by_email"].as_str(),
+        Some(harness.operator_email.as_str()),
+        "the device-login token must attribute the allow to its approving operator"
+    );
+    assert_eq!(
+        listed[0]["allowed_by"].as_str(),
+        Some(harness.operator_id.to_string().as_str()),
+        "attribution must carry the operator's real user id"
+    );
+
+    let (status, body) = harness.disallow(&token, email).await;
+    assert_eq!(status, 200, "removal must succeed: {body}");
+    assert_eq!(
+        body["data"]["removed"].as_bool(),
+        Some(true),
+        "removing a standing allow must report the deletion: {body}"
+    );
+
+    let (_, body) = harness.list(&token).await;
+    assert!(
+        entries(&body).is_empty(),
+        "the removed allow must be gone from the listing: {body}"
+    );
+
+    let (status, body) = harness.disallow(&token, email).await;
+    assert_eq!(status, 200, "a second removal is not an error: {body}");
+    assert_eq!(
+        body["data"]["removed"].as_bool(),
+        Some(false),
+        "removing an absent allow must report nothing deleted: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_token_named_like_a_device_login_is_attributed_to_no_one() -> Result<()> {
+    let harness = Harness::new().await?;
+    // What any ManageAdminTokens holder could mint before the operator was
+    // stored on the row: a super-admin token *named* for another operator.
+    let look_alike = harness
+        .mint_token(
+            &format!("device-cli:{}", harness.operator_email),
+            None,
+            true,
+        )
+        .await?;
+    let email = "look-alike@example.com";
+
+    let (status, body) = harness.allow(&look_alike, email, None).await;
+    assert_eq!(status, 200, "allow must succeed: {body}");
+
+    let (_, body) = harness.list(&look_alike).await;
+    let listed = entries(&body);
+    assert_eq!(listed.len(), 1, "{body}");
+    assert!(
+        listed[0]["allowed_by"].is_null(),
+        "a name does not make a token act as the operator it names: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn allow_approves_a_pending_account_and_provisions_its_token() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "waiting-in-the-queue@example.com";
+    let user_id = seed_user(&harness.repos, email, UserStatus::Pending, UserRole::User).await?;
+
+    let (status, body) = harness.allow(&token, email, None).await;
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("pending_approved"),
+        "an address with a pending account is approved on the spot: {body}"
+    );
+    assert_eq!(
+        body["data"]["approved_user_id"].as_str(),
+        Some(user_id.to_string().as_str()),
+        "the response must name the account it promoted: {body}"
+    );
+
+    let user = harness
+        .repos
+        .users
+        .get_by_email(email)
+        .await?
+        .expect("the seeded user must still exist");
+    assert_eq!(
+        user.user_status,
+        UserStatus::Active,
+        "the pending account must be active after the allow"
+    );
+    assert_eq!(
+        user.approved_by,
+        Some(harness.operator_id),
+        "the promotion must be attributed to the acting operator"
+    );
+
+    let tokens = harness.repos.user_mcp_tokens.list_tokens(user_id).await?;
+    assert_eq!(
+        tokens.len(),
+        1,
+        "approval must provision the default MCP token, exactly as user approve does"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn listing_reports_registration_state_per_address() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let registered = "already-here@example.com";
+    let waiting = "not-yet@example.com";
+
+    seed_user(
+        &harness.repos,
+        registered,
+        UserStatus::Active,
+        UserRole::User,
+    )
+    .await?;
+    // Allowing an active account is a no-op on the list, so record the row
+    // directly: the listing must still report the account it found.
+    harness
+        .repos
+        .pre_approved_emails
+        .allow(registered, Some(harness.operator_id), None)
+        .await?;
+    let (status, body) = harness.allow(&token, waiting, None).await;
+    assert_eq!(status, 200, "the second allow must succeed: {body}");
+
+    let (_, body) = harness.list(&token).await;
+    let listed = entries(&body);
+    assert_eq!(listed.len(), 2, "both allows must be listed: {body}");
+
+    let by_email = |wanted: &str| -> Value {
+        listed
+            .iter()
+            .find(|e| e["email"].as_str() == Some(wanted))
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    assert_eq!(
+        by_email(registered)["account_status"].as_str(),
+        Some("active"),
+        "an allow whose person registered must report their account status: {body}"
+    );
+    assert!(
+        by_email(waiting)["account_status"].is_null(),
+        "an allow still waiting must report no account: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn allow_is_denied_without_manage_users_and_writes_nothing() -> Result<()> {
+    let harness = Harness::new().await?;
+    let weak = harness
+        .mint_token(
+            "list-keys-only-service",
+            Some(vec![AdminPermission::ListKeys]),
+            false,
+        )
+        .await?;
+
+    let (status, body) = harness.allow(&weak, "sneaky@example.com", None).await;
+    assert_eq!(
+        status, 403,
+        "a token without ManageUsers must not pre-approve anyone: {body}"
+    );
+
+    let (status, body) = harness.list(&weak).await;
+    assert_eq!(status, 403, "the listing is gated the same way: {body}");
+
+    let stored = harness.repos.pre_approved_emails.list().await?;
+    assert!(
+        stored.is_empty(),
+        "the rejected allow must not have reached the table"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_malformed_address_is_rejected_before_it_is_stored() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+
+    let (status, body) = harness.allow(&token, "not-an-email", None).await;
+    assert_eq!(
+        status, 400,
+        "a malformed address must be rejected, not stored: {body}"
+    );
+
+    let stored = harness.repos.pre_approved_emails.list().await?;
+    assert!(
+        stored.is_empty(),
+        "nothing may be written for a rejected address"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_suspended_account_is_left_alone_by_an_allow() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "suspended-on-purpose@example.com";
+    seed_user(&harness.repos, email, UserStatus::Suspended, UserRole::User).await?;
+
+    let (status, body) = harness.allow(&token, email, None).await;
+    assert_eq!(status, 200, "the call itself succeeds: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("suspended_unchanged"),
+        "suspension is reversed explicitly, never as a side effect of an allow: {body}"
+    );
+
+    let user = harness
+        .repos
+        .users
+        .get_by_email(email)
+        .await?
+        .expect("the suspended user must still exist");
+    assert_eq!(
+        user.user_status,
+        UserStatus::Suspended,
+        "the suspended account must be untouched"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "invited-athlete@example.com";
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("recorded"),
+        "an address with no account records a standing allow: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(true),
+        "the response must report that the invite went out: {body}"
+    );
+    assert_eq!(
+        harness.invited(),
+        vec![email.to_owned()],
+        "exactly the invited address must be mailed"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("invitation sent: its link works once, until")),
+        "the operator must be told the invitation went out: {body}"
+    );
+    let expires_at = body["data"]["invitation_expires_at"]
+        .as_str()
+        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .expect("the response must carry the link's expiry");
+    let ttl = expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now();
+    assert!(
+        ttl > chrono::Duration::days(6) && ttl <= chrono::Duration::days(7),
+        "the link must live about a week: {ttl}"
+    );
+
+    // The mailed token is the one secret that opens the invitation, once, and
+    // it is attributed to the operator behind the device login.
+    let mailed = harness.invitations().remove(0);
+    let redeemed = harness.redeem(&mailed.token).await?;
+    assert_eq!(redeemed.email, email);
+    assert_eq!(redeemed.invited_by, Some(harness.operator_id));
+    assert!(
+        harness.redeem(&mailed.token).await.is_err(),
+        "a mailed token must redeem once"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sending_again_replaces_the_earlier_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "resend-me@example.com";
+
+    harness.allow_with_invite(&token, email).await;
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("already_allowed"),
+        "a re-send finds the allow already recorded: {body}"
+    );
+    assert_eq!(body["data"]["invited"].as_bool(), Some(true), "{body}");
+
+    let mailed = harness.invitations();
+    assert_eq!(mailed.len(), 2, "both sends must be mailed");
+    assert_ne!(
+        mailed[0].token, mailed[1].token,
+        "each send mints its own token"
+    );
+    assert!(
+        harness.redeem(&mailed[0].token).await.is_err(),
+        "the earlier link must stop working once a newer one is sent"
+    );
+    assert_eq!(harness.redeem(&mailed[1].token).await?.email, email);
+    Ok(())
+}
+
+/// The mailed token is the only copy of the secret: when the mail does not go
+/// out, nobody can redeem the invitation, so it is withdrawn and the operator
+/// is told nothing was sent rather than "invitation sent".
+#[tokio::test]
+async fn an_invitation_whose_mail_fails_is_withdrawn_and_not_reported_sent() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "mail-bounced@example.com";
+    harness.mail_fails.store(true, Ordering::SeqCst);
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "the allow itself still succeeds: {body}");
+    assert_eq!(body["data"]["outcome"].as_str(), Some("recorded"), "{body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(false), "{body}");
+    assert!(
+        body["data"]["invitation_expires_at"].is_null(),
+        "an undelivered invitation has no live link to report: {body}"
+    );
+    assert!(
+        body["message"].as_str().is_some_and(|m| m.contains(
+            "no invitation sent: its email could not be delivered, so the link was withdrawn"
+        )),
+        "the operator must be told the invitation did not go out: {body}"
+    );
+
+    let handed_over = harness.invitations().remove(0);
+    assert!(
+        harness.redeem(&handed_over.token).await.is_err(),
+        "an undelivered invitation must not stay redeemable"
+    );
+    let (status, listing) = harness.list(&token).await;
+    assert_eq!(status, 200, "{listing}");
+    let listed = entries(&listing);
+    let entry = listed
+        .iter()
+        .find(|e| e["email"].as_str() == Some(email))
+        .unwrap_or_else(|| panic!("{email} must be listed: {listing}"));
+    assert!(
+        entry["invitation_expires_at"].is_null(),
+        "the listing must not show an invitation nobody received: {listing}"
+    );
+
+    // Once mail works again, asking again sends a fresh link.
+    harness.mail_fails.store(false, Ordering::SeqCst);
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(true), "{body}");
+    let resent = harness.invitations().remove(1);
+    assert_eq!(harness.redeem(&resent.token).await?.email, email);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_listing_shows_an_outstanding_invitation() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    harness
+        .allow_with_invite(&token, "invited-listed@example.com")
+        .await;
+    harness
+        .allow(&token, "allowed-only@example.com", None)
+        .await;
+
+    let (status, body) = harness.list(&token).await;
+    assert_eq!(status, 200, "{body}");
+    let listed = entries(&body);
+    let by_email = |email: &str| {
+        listed
+            .iter()
+            .find(|e| e["email"].as_str() == Some(email))
+            .cloned()
+            .unwrap_or_else(|| panic!("{email} must be listed: {body}"))
+    };
+    assert!(
+        by_email("invited-listed@example.com")["invitation_expires_at"].is_string(),
+        "an outstanding invitation must be listed with its expiry: {body}"
+    );
+    assert!(
+        by_email("allowed-only@example.com")["invitation_expires_at"].is_null(),
+        "an allow with no invitation lists none: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_the_allow_revokes_the_invitation_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "changed-our-mind@example.com";
+    harness.allow_with_invite(&token, email).await;
+
+    let (status, body) = harness.disallow(&token, email).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["invitation_revoked"].as_bool(),
+        Some(true),
+        "{body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("its invitation link no longer works")),
+        "{body}"
+    );
+
+    let mailed = harness.invitations().remove(0);
+    assert!(
+        harness.redeem(&mailed.token).await.is_err(),
+        "a withdrawn allow's invitation must not open"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_address_is_not_mailed_past_its_hourly_budget() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "mailed-a-lot@example.com";
+    for _ in 0..INVITATIONS_PER_ADDRESS_PER_HOUR {
+        harness.allow_with_invite(&token, email).await;
+    }
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    assert_eq!(status, 200, "the allow itself still succeeds: {body}");
+    assert_eq!(body["data"]["invited"].as_bool(), Some(false), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("no invitation sent")),
+        "the operator must be told why nothing went out: {body}"
+    );
+    assert_eq!(
+        harness.invitations().len(),
+        usize::try_from(INVITATIONS_PER_ADDRESS_PER_HOUR)?,
+        "nothing past the budget may be mailed"
+    );
+    Ok(())
+}
+
+/// The operator ping for an invitation names who sent it and nothing that
+/// could open it: the token never reaches a log line.
+#[tokio::test]
+async fn an_invitation_raises_user_invited_without_logging_its_token() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "notified-about@example.com";
+
+    let buffer = LogBuffer::default();
+    let subscriber = log_fmt()
+        .json()
+        .with_max_level(Level::INFO)
+        .with_writer(buffer.clone())
+        .finish();
+    let (status, body) = {
+        let _guard = set_default(subscriber);
+        harness.allow_with_invite(&token, email).await
+    };
+    assert_eq!(status, 200, "{body}");
+
+    let event = buffer
+        .lines()
+        .into_iter()
+        .find(|l| l["fields"]["event"].as_str() == Some("user.invited"))
+        .expect("the invitation must raise the user.invited notify event");
+    assert_eq!(event["target"].as_str(), Some("notify"), "{event}");
+    assert_eq!(
+        event["fields"]["invited_by"].as_str(),
+        Some(format!("device-cli:{}", harness.operator_id).as_str()),
+        "{event}"
+    );
+
+    let mailed = harness.invitations().remove(0);
+    let (selector, verifier) = mailed.token.split_once('.').expect("selector.verifier");
+    let leaked: Vec<Value> = buffer
+        .lines()
+        .into_iter()
+        .filter(|l| {
+            let line = l.to_string();
+            line.contains(verifier) || line.contains(selector) || line.contains(email)
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "neither the token nor the address may reach the log: {leaked:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_allow_is_silent_unless_the_invite_is_asked_for() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "quietly-allowed@example.com";
+
+    let (status, body) = harness.allow(&token, email, Some("no invite")).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "an allow without the flag must not report an invite: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "recording an allow is not by itself a decision to contact the person: {:?}",
+        harness.invited()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_active_account_is_never_sent_a_sign_up_link() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "already-here@example.com";
+    seed_user(&harness.repos, email, UserStatus::Active, UserRole::User).await?;
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("already_active"),
+        "an active account is a no-op: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "a person who already has an account must not be told to create one: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "no invite may be sent to an existing account: {:?}",
+        harness.invited()
+    );
+    Ok(())
+}
+
+/// Every formatted log line, as JSON, captured for one test's thread.
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+impl LogBuffer {
+    fn lines(&self) -> Vec<Value> {
+        let bytes = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        String::from_utf8(bytes)
+            .expect("valid utf8")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_str::<Value>(l).expect("valid json line"))
+            .collect()
+    }
+
+    fn line_with_message(&self, message: &str) -> Option<Value> {
+        self.lines()
+            .into_iter()
+            .find(|l| l["fields"]["message"].as_str() == Some(message))
+    }
+}
+
+impl Write for LogBuffer {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for LogBuffer {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// The deployed server logs at INFO, so an invite that was asked for and not
+/// sent must say so at INFO — naming the recipient masked, never in full.
+#[tokio::test]
+async fn a_skipped_invite_is_logged_at_info_with_the_recipient_masked() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "already-here@example.com";
+    seed_user(&harness.repos, email, UserStatus::Active, UserRole::User).await?;
+
+    let buffer = LogBuffer::default();
+    let subscriber = log_fmt()
+        .json()
+        .with_max_level(Level::INFO)
+        .with_writer(buffer.clone())
+        .finish();
+    let (status, body) = {
+        let _guard = set_default(subscriber);
+        harness.allow_with_invite(&token, email).await
+    };
+    assert_eq!(status, 200, "allow must succeed: {body}");
+
+    let skipped = buffer
+        .line_with_message("Invitation requested but not sent: the address already has an account")
+        .expect("a requested-but-skipped invite must be logged");
+    assert_eq!(skipped["level"].as_str(), Some("INFO"), "{skipped}");
+    assert_eq!(
+        skipped["fields"]["recipient"].as_str(),
+        Some("a***@e***.com"),
+        "{skipped}"
+    );
+
+    let recorded = buffer
+        .line_with_message("Pre-approval allow recorded")
+        .expect("the allow itself must be logged");
+    assert_eq!(
+        recorded["fields"]["send_invite"].as_bool(),
+        Some(true),
+        "{recorded}"
+    );
+    assert_eq!(
+        recorded["fields"]["invited"].as_bool(),
+        Some(false),
+        "{recorded}"
+    );
+
+    let leaked: Vec<Value> = buffer
+        .lines()
+        .into_iter()
+        .filter(|l| l.to_string().contains(email))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "the full address must never reach the log: {leaked:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_pending_account_is_approved_rather_than_invited() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "waiting-in-queue@example.com";
+    seed_user(&harness.repos, email, UserStatus::Pending, UserRole::User).await?;
+
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+
+    assert_eq!(status, 200, "allow must succeed: {body}");
+    assert_eq!(
+        body["data"]["outcome"].as_str(),
+        Some("pending_approved"),
+        "a pending account is promoted: {body}"
+    );
+    assert_eq!(
+        body["data"]["invited"].as_bool(),
+        Some(false),
+        "the approval announcement replaces the invite: {body}"
+    );
+    assert!(
+        harness.invited().is_empty(),
+        "a promoted account must not also be told to create one: {:?}",
+        harness.invited()
+    );
+    assert_eq!(
+        harness.approved(),
+        vec![email.to_owned()],
+        "the promotion must still be announced"
+    );
+    Ok(())
+}

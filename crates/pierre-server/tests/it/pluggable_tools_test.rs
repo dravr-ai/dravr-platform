@@ -1,0 +1,419 @@
+// ABOUTME: Unit tests for the pluggable tools framework (Phase 1 Foundation)
+// ABOUTME: Tests traits, registry, context, result, errors, and decorator implementations
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use async_trait::async_trait;
+use pierre_core::errors::AppError;
+use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tools_core::{NotificationType, ToolError, ToolNotification, ToolResult};
+use serde::Serialize;
+use serde_json::Value;
+use std::sync::Arc;
+
+use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext as TroncToolContext};
+
+// A simple stub tool for testing. The tronc trait keys discovery and gating off
+// the host-agnostic capability set, so the stub stores tronc capabilities.
+struct StubTool {
+    name: &'static str,
+    capabilities: ToolCapabilities,
+}
+
+impl StubTool {
+    const fn new(name: &'static str, capabilities: ToolCapabilities) -> Self {
+        Self { name, capabilities }
+    }
+}
+
+#[async_trait]
+impl McpTool<dyn ToolRuntime> for StubTool {
+    fn definition(&self) -> Tool {
+        Tool {
+            name: self.name.to_owned(),
+            description: "Stub tool for unit testing".to_owned(),
+            input_schema: serde_json::json!({"type": "object"}),
+            annotations: None,
+            output_schema: None,
+            execution: None,
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        self.capabilities
+    }
+
+    async fn execute(
+        &self,
+        _state: &Arc<dyn ToolRuntime>,
+        _ctx: &TroncToolContext,
+        _args: Value,
+    ) -> ToolResponse {
+        ToolResponse {
+            content: vec![Content::text(
+                serde_json::json!({"status": "ok"}).to_string(),
+            )],
+            is_error: false,
+            structured_content: Some(serde_json::json!({"status": "ok"})),
+        }
+    }
+}
+
+// ============================================================================
+// ToolRegistry Tests
+// ============================================================================
+
+mod registry_tests {
+    use super::*;
+    use pierre_contremaitre::tool_descriptions::{
+        FetchedOverlay, ToolDescriptionOverlay, ToolDescriptionRegistry,
+    };
+    use std::collections::HashMap;
+
+    /// Every schema lister a caller can reach `tools/list` through must carry
+    /// the contremaitre description overlay. The name-filtered listers once
+    /// built schemas straight from the compiled-in definition, so a non-admin
+    /// MCP client read the stale description while admins and chat read the
+    /// overlaid one.
+    #[test]
+    fn test_registry_overlay_reaches_every_schema_lister() {
+        const OVERLAID: &str = "Overlaid description from contremaitre";
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(StubTool::new(
+            "catalogued_tool",
+            ToolCapabilities::REQUIRES_AUTH,
+        )));
+        registry.register(Arc::new(StubTool::new(
+            "uncatalogued_tool",
+            ToolCapabilities::REQUIRES_AUTH,
+        )));
+        let descriptions = Arc::new(ToolDescriptionRegistry::new());
+        descriptions.update_all(
+            ["catalogued_tool", "uncatalogued_tool"]
+                .into_iter()
+                .map(|name| FetchedOverlay {
+                    tool_name: name.to_owned(),
+                    overlay: ToolDescriptionOverlay {
+                        description: Some(OVERLAID.to_owned()),
+                        parameters: HashMap::new(),
+                    },
+                    sha256: String::new(),
+                })
+                .collect(),
+        );
+        registry.set_tool_descriptions(descriptions);
+
+        let catalogued = vec!["catalogued_tool".to_owned()];
+        let listers = [
+            (
+                "list_schemas_for_role",
+                registry.list_schemas_for_role(false),
+            ),
+            (
+                "list_schemas_by_names",
+                registry.list_schemas_by_names(&["catalogued_tool"]),
+            ),
+            (
+                "list_schemas_by_name_set",
+                registry.list_schemas_by_name_set(&catalogued),
+            ),
+            (
+                "uncatalogued_user_schemas",
+                registry.uncatalogued_user_schemas(&catalogued),
+            ),
+        ];
+        for (lister, schemas) in listers {
+            assert!(!schemas.is_empty(), "{lister} returned no schema");
+            for schema in schemas {
+                assert_eq!(
+                    schema.description, OVERLAID,
+                    "{lister} dropped the overlay for {}",
+                    schema.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_registry_register() {
+        let mut registry = ToolRegistry::new();
+        let tool = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
+
+        assert!(registry.register(tool));
+        assert!(registry.contains("test_tool"));
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_registry_duplicate_registration() {
+        let mut registry = ToolRegistry::new();
+        let tool1 = Arc::new(StubTool::new("test_tool", ToolCapabilities::REQUIRES_AUTH));
+        let tool2 = Arc::new(StubTool::new("test_tool", ToolCapabilities::READS_DATA));
+
+        assert!(registry.register(tool1));
+        assert!(!registry.register(tool2)); // Should return false for duplicate
+        assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_registry_admin_filtering() {
+        let mut registry = ToolRegistry::new();
+
+        let user_tool = Arc::new(StubTool::new("user_tool", ToolCapabilities::REQUIRES_AUTH));
+        let admin_tool = Arc::new(StubTool::new(
+            "admin_tool",
+            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY,
+        ));
+
+        registry.register(user_tool);
+        registry.register(admin_tool);
+
+        // Non-admin sees only user tools
+        let user_schemas = registry.list_schemas_for_role(false);
+        assert_eq!(user_schemas.len(), 1);
+        assert_eq!(user_schemas[0].name, "user_tool");
+
+        // Admin sees all tools
+        let admin_schemas = registry.list_schemas_for_role(true);
+        assert_eq!(admin_schemas.len(), 2);
+    }
+
+    #[test]
+    fn test_registry_categories() {
+        let mut registry = ToolRegistry::new();
+
+        let data_tool = Arc::new(StubTool::new("get_data", ToolCapabilities::READS_DATA));
+        let analytics_tool = Arc::new(StubTool::new("analyze", ToolCapabilities::READS_DATA));
+
+        registry.register_with_category(data_tool, "data");
+        registry.register_with_category(analytics_tool, "analytics");
+
+        assert_eq!(registry.tools_in_category("data"), vec!["get_data"]);
+        assert_eq!(registry.tools_in_category("analytics"), vec!["analyze"]);
+        assert_eq!(registry.tools_in_category("unknown"), [] as [&str; 0]);
+    }
+
+    #[test]
+    fn test_registry_capability_filtering() {
+        let mut registry = ToolRegistry::new();
+
+        let read_tool = Arc::new(StubTool::new("reader", ToolCapabilities::READS_DATA));
+        let write_tool = Arc::new(StubTool::new("writer", ToolCapabilities::WRITES_DATA));
+
+        registry.register(read_tool);
+        registry.register(write_tool);
+
+        let readers = registry.read_tools();
+        assert_eq!(readers, vec!["reader"]);
+
+        let writers = registry.write_tools();
+        assert_eq!(writers, vec!["writer"]);
+    }
+}
+
+// ============================================================================
+// ToolResult Tests
+// ============================================================================
+
+mod result_tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_result_ok() {
+        let result = ToolResult::ok(serde_json::json!({"status": "success"}));
+
+        assert!(!result.is_error);
+        assert!(!result.has_notifications());
+        assert_eq!(result.content["status"], "success");
+    }
+
+    #[test]
+    fn test_tool_result_error() {
+        let result = ToolResult::error(serde_json::json!({"error": "failed"}));
+
+        assert!(result.is_error);
+        assert!(!result.has_notifications());
+    }
+
+    #[test]
+    fn test_tool_result_with_notifications() {
+        let notification = ToolNotification::oauth_refresh("strava");
+        let result = ToolResult::ok(serde_json::json!({})).add_notification(notification);
+
+        assert!(result.has_notifications());
+        assert_eq!(result.notifications.len(), 1);
+    }
+
+    #[test]
+    fn test_notification_type_method_names() {
+        assert_eq!(
+            NotificationType::OAuthRefresh.method_name(),
+            "notifications/oauth/refresh"
+        );
+        assert_eq!(
+            NotificationType::Progress.method_name(),
+            "notifications/progress"
+        );
+    }
+
+    #[test]
+    fn test_progress_notification() {
+        let notification =
+            ToolNotification::progress("token123", 50.0, Some(100.0), Some("Half done"));
+
+        assert_eq!(notification.notification_type, NotificationType::Progress);
+        assert_eq!(notification.data["progressToken"], "token123");
+        assert_eq!(notification.data["progress"], 50.0);
+        assert_eq!(notification.data["total"], 100.0);
+        assert_eq!(notification.data["message"], "Half done");
+    }
+
+    #[test]
+    fn test_from_serializable() -> Result<(), serde_json::Error> {
+        #[derive(Serialize)]
+        struct TestData {
+            name: String,
+            value: i32,
+        }
+
+        let data = TestData {
+            name: "test".to_owned(),
+            value: 42,
+        };
+
+        let result = ToolResult::from_serializable(&data)?;
+        assert_eq!(result.content["name"], "test");
+        assert_eq!(result.content["value"], 42);
+        Ok(())
+    }
+}
+
+// ============================================================================
+// ToolError Tests
+// ============================================================================
+
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_error_not_found() {
+        let error = ToolError::not_found("unknown_tool");
+        assert_eq!(error.tool_name(), "unknown_tool");
+    }
+
+    #[test]
+    fn test_tool_error_admin_required() {
+        let error = ToolError::admin_required("admin_tool");
+        assert_eq!(error.tool_name(), "admin_tool");
+    }
+
+    #[test]
+    fn test_tool_error_display() {
+        let error = ToolError::not_found("my_tool");
+        let display = format!("{error}");
+        assert!(display.contains("my_tool"));
+    }
+
+    #[test]
+    fn test_tool_error_to_app_error() {
+        let tool_error = ToolError::not_found("test_tool");
+        let app_error: AppError = tool_error.into();
+        let display = format!("{app_error}");
+        assert!(display.contains("test_tool"));
+    }
+}
+
+// ============================================================================
+// AuthMethod Tests
+// ============================================================================
+
+mod auth_method_tests {
+    use pierre_tool_runtime::context::AuthMethod;
+
+    #[test]
+    fn test_auth_method_as_str() {
+        assert_eq!(AuthMethod::JwtBearer.as_str(), "jwt_bearer");
+        assert_eq!(AuthMethod::ApiKey.as_str(), "api_key");
+        assert_eq!(AuthMethod::OAuth2.as_str(), "oauth2");
+        assert_eq!(AuthMethod::McpClient.as_str(), "mcp_client");
+    }
+}
+
+// ============================================================================
+// AuditedTool Decorator Tests
+// ============================================================================
+
+mod audited_tool_tests {
+    use super::*;
+    use pierre_tool_runtime::decorators::AuditedTool;
+
+    struct AdminStubTool;
+
+    #[async_trait]
+    impl McpTool<dyn ToolRuntime> for AdminStubTool {
+        fn definition(&self) -> Tool {
+            Tool {
+                name: "admin_stub_tool".to_owned(),
+                description: "Test tool for unit testing".to_owned(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: None,
+                output_schema: None,
+                execution: None,
+            }
+        }
+
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY
+        }
+
+        async fn execute(
+            &self,
+            _state: &Arc<dyn ToolRuntime>,
+            _ctx: &TroncToolContext,
+            _args: Value,
+        ) -> ToolResponse {
+            ToolResponse::text(serde_json::json!({"status": "ok"}).to_string())
+        }
+    }
+
+    pierre_tool_runtime::declare_security!(AdminStubTool => empty);
+
+    #[test]
+    fn test_audited_tool_creation() {
+        let inner = Arc::new(AdminStubTool);
+        let audited = AuditedTool::new(inner);
+
+        assert_eq!(audited.definition().name, "admin_stub_tool");
+        assert_eq!(
+            audited.definition().description,
+            "Test tool for unit testing"
+        );
+    }
+
+    #[test]
+    fn test_audited_tool_with_argument_logging() {
+        let inner = Arc::new(AdminStubTool);
+        let audited = AuditedTool::with_argument_logging(inner);
+
+        // Just verify it can be created with argument logging enabled
+        assert_eq!(audited.definition().name, "admin_stub_tool");
+    }
+
+    #[test]
+    fn test_audited_tool_capabilities() {
+        let inner = Arc::new(AdminStubTool);
+        let audited = AuditedTool::new(inner);
+
+        let caps = audited.capabilities();
+        assert!(caps.contains(ToolCapabilities::ADMIN_ONLY));
+        assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
+    }
+}
+
+pierre_tool_runtime::declare_security!(StubTool => empty);

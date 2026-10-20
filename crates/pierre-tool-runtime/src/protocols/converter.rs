@@ -158,7 +158,7 @@ impl ProtocolConverter {
     /// in one forges an extra numbered row; markup in one forges interface in
     /// the client that renders it.
     ///
-    /// Only the composed branches need this. The default branch pretty-prints
+    /// Only the composed branches need this. The default branch serializes
     /// JSON, where the same text is a quoted string value and the escaping is
     /// the delimiter — and the machine-readable copy rides `structured_content`
     /// regardless, so nothing that parses the result loses anything here.
@@ -245,8 +245,12 @@ impl ProtocolConverter {
             );
         }
 
-        // Default: pretty-print JSON
-        serde_json::to_string_pretty(data).unwrap_or_else(|_| "{}".into())
+        // Default: the payload's JSON, compact. MCP asks a tool that returns
+        // `structuredContent` to repeat it as serialized JSON in a text block
+        // for clients that read only `content`; those clients put this string
+        // in a model's context, where indentation is paid for in tokens and
+        // carries nothing the structure does not.
+        serde_json::to_string(data).unwrap_or_else(|_| "{}".into())
     }
 
     /// Detect protocol type from request format

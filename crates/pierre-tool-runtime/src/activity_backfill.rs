@@ -592,7 +592,7 @@ pub(crate) async fn backfill_inline_and_serve(
         window,
     )
     .await;
-    InlineHistoricalServe::Served(served)
+    InlineHistoricalServe::Served(served.activities)
 }
 
 /// Outcome of authenticating + paging the provider for a backfill.

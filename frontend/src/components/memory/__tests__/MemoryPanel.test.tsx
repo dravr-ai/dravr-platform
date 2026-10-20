@@ -18,6 +18,9 @@ vi.mock('../../../services/api', async () => ({
   },
 }));
 
+// The drafts section queries the same endpoint; its own suite covers it.
+vi.mock('../MemoryReviewSection', () => ({ default: () => null }));
+
 const { userApi } = await import('../../../services/api');
 
 function sampleFact(overrides: Partial<MemoryFactRow> = {}): MemoryFactRow {
@@ -32,6 +35,9 @@ function sampleFact(overrides: Partial<MemoryFactRow> = {}): MemoryFactRow {
     confidence: 0.85,
     source_msg_id: null,
     updated_at: '2026-04-13T18:00:00Z',
+    status: 'approved',
+    evidence: null,
+    evidence_source: null,
     ...overrides,
   };
 }

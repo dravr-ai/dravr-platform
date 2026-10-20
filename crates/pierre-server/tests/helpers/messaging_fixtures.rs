@@ -42,7 +42,7 @@ use uuid::Uuid;
 // unused in that test binary; the allowance sits on this one line rather than
 // on each includer's whole `mod messaging_fixtures`.
 #[path = "db_fixtures.rs"]
-mod db_fixtures;
+pub mod db_fixtures;
 #[allow(unused_imports)]
 pub use db_fixtures::{create_test_db, seed_user};
 

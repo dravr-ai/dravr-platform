@@ -30,10 +30,16 @@ use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
 
+use crate::schema_canonical::to_canonical_value;
+
 /// Assemble a tronc [`Tool`] definition from the platform's typed pieces.
 ///
 /// The platform builds input schemas as typed [`JsonSchema`] values; tronc's
-/// `Tool::input_schema` is raw JSON, so the schema is serialized here once.
+/// `Tool::input_schema` is raw JSON, so the schema is serialized here once,
+/// with its keys sorted: the properties are a `HashMap`, and `serde_json`
+/// keeps insertion order, so a plain serialization lists them in a different
+/// order on every process and every consumer that forgets to canonicalize
+/// hands a model a different tool block each restart.
 #[must_use]
 pub fn tool_definition(
     name: &str,
@@ -44,7 +50,7 @@ pub fn tool_definition(
     Tool {
         name: name.to_owned(),
         description: description.to_owned(),
-        input_schema: serde_json::to_value(input_schema).unwrap_or_default(),
+        input_schema: to_canonical_value(&serde_json::to_value(input_schema).unwrap_or_default()),
         annotations,
         output_schema: None,
         execution: None,

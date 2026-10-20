@@ -469,6 +469,69 @@ test.describe('Settings Page - User Mode', () => {
     );
   });
 
+  test('memory pane: a draft the agent proposed is kept or discarded from To review', async ({ page }) => {
+    const draft = (id: string, sentence: string, evidence: string) => ({
+      id,
+      agent_id: null,
+      agent_title: null,
+      kind: 'physiology',
+      predicate_code: 'states',
+      object: sentence,
+      sentence,
+      confidence: 0.7,
+      source_msg_id: null,
+      updated_at: '2026-10-19T18:00:00Z',
+      status: 'draft',
+      evidence,
+      evidence_source: 'athlete',
+    });
+    let drafts = [
+      draft('d-ftp', 'Your FTP is around 250 W', 'I held 250 for the whole 20-min test'),
+      draft('d-am', 'You prefer morning sessions', 'mornings are the only time I can ride'),
+    ];
+    const kept: Array<ReturnType<typeof draft>> = [];
+
+    await page.route('**/api/memory/facts**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const approve = url.pathname.match(/\/api\/memory\/facts\/([^/]+)\/approve$/);
+      const single = url.pathname.match(/\/api\/memory\/facts\/([^/]+)$/);
+      const json = (body: unknown) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      if (approve && request.method() === 'POST') {
+        const fact = drafts.find((d) => d.id === approve[1]);
+        drafts = drafts.filter((d) => d.id !== approve[1]);
+        if (fact) kept.push({ ...fact, status: 'approved' });
+        return json({ fact: { ...fact, status: 'approved' } });
+      }
+      if (single && request.method() === 'DELETE') {
+        drafts = drafts.filter((d) => d.id !== single[1]);
+        return json({ deleted: true });
+      }
+      const list = url.searchParams.get('status') === 'draft' ? drafts : kept;
+      return json({ facts: list, total: list.length });
+    });
+
+    await loginAndNavigateToSettings(page);
+    await page.getByRole('button', { name: 'Memory' }).first().click();
+
+    const review = page.getByTestId('memory-review-list');
+    await expect(page.getByText('To review (2)')).toBeVisible();
+    await expect(review.getByTestId('memory-review-evidence').first()).toContainText(
+      'I held 250 for the whole 20-min test',
+    );
+
+    // Keep the FTP draft: it leaves the review list and joins the saved facts.
+    await review.getByTestId('memory-review-item').filter({ hasText: 'FTP' }).getByTestId('memory-review-keep').click();
+    await expect(page.getByText('To review (1)')).toBeVisible();
+    await expect(page.getByText('Your FTP is around 250 W')).toBeVisible();
+
+    // Discard the other: the section goes away with the last draft.
+    await review.getByTestId('memory-review-discard').click();
+    await expect(page.getByTestId('memory-review-list')).toHaveCount(0);
+    await expect(page.getByText('You prefer morning sessions')).toHaveCount(0);
+  });
+
   test('account tab shows member since and change password', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 

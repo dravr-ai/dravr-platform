@@ -1,0 +1,28 @@
+{
+  "protocolVersion": "2025-11-25",
+  "serverInfo": {
+    "name": "pierre-mcp-server",
+    "version": "<redacted>"
+  },
+  "capabilities": {
+    "experimental": {
+      "oauth2": {
+        "discoveryUrl": "<base_url>/.well-known/oauth-authorization-server",
+        "authorizationEndpoint": "<base_url>/oauth2/authorize",
+        "tokenEndpoint": "<base_url>/oauth2/token",
+        "registrationEndpoint": "<base_url>/oauth2/register"
+      }
+    },
+    "prompts": {
+      "listChanged": false
+    },
+    "resources": {
+      "subscribe": false,
+      "listChanged": false
+    },
+    "tools": {
+      "listChanged": false
+    }
+  },
+  "instructions": "This server gives access to an athlete's training and health data and to analytics computed from it. The data comes from the fitness accounts the athlete has connected: call `get_connection_status` to see which are connected, and `connect_provider` to link one. Use `get_activities`, `get_athlete`, and the analytics tools to read and analyse the athlete's own data.\n\nDravr checks the claims in the replies it writes in its own app and messaging. It never sees the reply you write, so check yours: before you state a number about the athlete (a distance, duration, date or session they recorded; their paces, heart rates, FTP or power), call `verify_claim` with that sentence and category `athlete_data`, and correct or qualify the sentence when the verdict is `contradicted` or `unsupported`. A tool result built from the athlete's data carries `_reply_verification` with `reply_checked: false` as a reminder."
+}

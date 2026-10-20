@@ -15,7 +15,7 @@
 //! `sdk/dist/cli.js` to exist. Since `sdk/dist/` is gitignored (build artifacts
 //! shouldn't be committed), local developers would need to manually run:
 //! ```bash
-//! cd sdk && npm install && npm run build
+//! cd sdk && bun install && bun run build
 //! ```
 //!
 //! This build script automates that process, ensuring the SDK is always available.
@@ -24,15 +24,20 @@
 //!
 //! The SDK is built automatically when:
 //! - `sdk/dist/cli.js` doesn't exist (first time setup)
-//! - SDK source files change (`sdk/src/`, `sdk/package.json`, `sdk/tsconfig.json`)
+//! - SDK source files change (`sdk/src/`, `sdk/package.json`, `sdk/tsconfig.json`,
+//!   `sdk/bun.lock`): `sdk/dist/.source-digest` records the sources the bundle
+//!   was built from, and a different digest rebuilds it
 //!
 //! ## CI/CD Integration
 //!
 //! CI workflows (`.github/workflows/ci.yml`) explicitly build the SDK before tests.
 //! This build script serves as a safety net for local development.
 
+use std::collections::hash_map::DefaultHasher;
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -49,108 +54,104 @@ fn main() {
     };
 
     let sdk_path = workspace_root.join("sdk");
+    if !sdk_path.exists() {
+        println!("cargo:warning=SDK directory not found - skipping SDK build");
+        return;
+    }
 
     // Tell Cargo to re-run this script if SDK source files change
-    println!("cargo:rerun-if-changed={}", sdk_path.join("src").display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        sdk_path.join("package.json").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        sdk_path.join("tsconfig.json").display()
-    );
+    for input in SDK_INPUTS {
+        println!("cargo:rerun-if-changed={}", sdk_path.join(input).display());
+    }
     let dist_path = sdk_path.join("dist");
-    let cli_js = dist_path.join("cli.js");
+    let stamp = dist_path.join(SOURCE_DIGEST_STAMP);
+    let digest = sdk_source_digest(&sdk_path);
 
-    // Only build SDK if it doesn't exist or if we're in development
-    // In CI, the SDK should already be built by the workflow
-    let should_build = !cli_js.exists() || env::var("CARGO_FEATURE_DEV").is_ok();
+    // Build when the bundle is missing, when the sources it was built from are
+    // not the sources on disk now, or in development. A bundle that merely
+    // exists proved nothing: once built, it was never rebuilt, and an SDK
+    // change ran its E2E tests against the old bundle.
+    let built_from = fs::read_to_string(&stamp).ok();
+    let current = dist_path.join("cli.js").exists() && built_from.as_deref() == Some(&*digest);
+    if current && env::var("CARGO_FEATURE_DEV").is_err() {
+        return;
+    }
 
-    if should_build && sdk_path.exists() {
-        println!("cargo:warning=Building TypeScript SDK (required for E2E tests)...");
+    println!("cargo:warning=Building TypeScript SDK (required for E2E tests)...");
+    // bun, never npm: a second package manager writes a second lockfile beside
+    // bun.lock and the two drift.
+    if Command::new("bun").arg("--version").output().is_err() {
+        println!("cargo:warning=bun not found - skipping SDK build");
+        println!("cargo:warning=Install bun to enable SDK-dependent tests");
+        return;
+    }
+    if !sdk_path.join("node_modules").exists()
+        && !run_bun(
+            &sdk_path,
+            &["install", "--frozen-lockfile"],
+            "install SDK dependencies",
+        )
+    {
+        return;
+    }
+    if run_bun(&sdk_path, &["run", "build"], "build the SDK") {
+        // The stamp records what this bundle was built from; a failed write
+        // only costs a rebuild next time.
+        let _ = fs::write(&stamp, &digest);
+        println!("cargo:warning=SDK built successfully: sdk/dist/cli.js");
+    }
+}
 
-        // Check if npm is available
-        let npm_check = if cfg!(target_os = "windows") {
-            Command::new("cmd")
-                .args(["/C", "npm", "--version"])
-                .output()
-        } else {
-            Command::new("npm").arg("--version").output()
-        };
+/// The SDK files the bundle is built from, relative to `sdk/`.
+const SDK_INPUTS: [&str; 4] = ["src", "package.json", "tsconfig.json", "bun.lock"];
 
-        if npm_check.is_err() {
-            println!("cargo:warning=npm not found - skipping SDK build");
-            println!("cargo:warning=Install Node.js to enable SDK-dependent tests");
-            return;
+/// The file in `sdk/dist/` that names the sources the bundle was built from.
+const SOURCE_DIGEST_STAMP: &str = ".source-digest";
+
+/// Run `bun <args>` in the SDK, reporting a failure as a build warning.
+fn run_bun(sdk_path: &Path, args: &[&str], what: &str) -> bool {
+    match Command::new("bun")
+        .args(args)
+        .current_dir(sdk_path)
+        .status()
+    {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            println!("cargo:warning=Failed to {what} (exit {status}); some E2E tests may fail");
+            false
         }
-
-        // Install dependencies if node_modules doesn't exist
-        let node_modules = sdk_path.join("node_modules");
-        if !node_modules.exists() {
-            println!("cargo:warning=Installing SDK dependencies...");
-            let install_status = if cfg!(target_os = "windows") {
-                Command::new("cmd")
-                    .args(["/C", "npm", "install"])
-                    .current_dir(&sdk_path)
-                    .status()
-            } else {
-                Command::new("npm")
-                    .arg("install")
-                    .current_dir(&sdk_path)
-                    .status()
-            };
-
-            match install_status {
-                Ok(status) if status.success() => {
-                    println!("cargo:warning=SDK dependencies installed successfully");
-                }
-                Ok(status) => {
-                    println!(
-                        "cargo:warning=SDK dependency installation failed with exit code: {status}"
-                    );
-                    println!("cargo:warning=Some tests may fail without SDK");
-                    return;
-                }
-                Err(e) => {
-                    println!("cargo:warning=Failed to run npm install: {e}");
-                    println!("cargo:warning=Some tests may fail without SDK");
-                    return;
-                }
-            }
+        Err(e) => {
+            println!("cargo:warning=Failed to {what}: {e}; some E2E tests may fail");
+            false
         }
+    }
+}
 
-        // Build the SDK
-        println!("cargo:warning=Compiling TypeScript SDK...");
-        let build_status = if cfg!(target_os = "windows") {
-            Command::new("cmd")
-                .args(["/C", "npm", "run", "build"])
-                .current_dir(&sdk_path)
-                .status()
-        } else {
-            Command::new("npm")
-                .args(["run", "build"])
-                .current_dir(&sdk_path)
-                .status()
-        };
+/// A digest of every SDK input's path and content, in path order.
+///
+/// Compared only with a digest this same script wrote, so the hasher need not
+/// be stable across toolchains: a new one costs a rebuild, nothing more.
+fn sdk_source_digest(sdk_path: &Path) -> String {
+    let mut files = Vec::new();
+    for input in SDK_INPUTS {
+        collect_files(&sdk_path.join(input), &mut files);
+    }
+    files.sort();
+    let mut hasher = DefaultHasher::new();
+    for file in files {
+        file.hash(&mut hasher);
+        fs::read(&file).unwrap_or_default().hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
 
-        match build_status {
-            Ok(status) if status.success() => {
-                println!("cargo:warning=SDK built successfully: sdk/dist/cli.js");
-            }
-            Ok(status) => {
-                println!("cargo:warning=SDK build failed with exit code: {status}");
-                println!("cargo:warning=Some E2E tests may fail");
-            }
-            Err(e) => {
-                println!("cargo:warning=Failed to run npm build: {e}");
-                println!("cargo:warning=Some E2E tests may fail");
-            }
+fn collect_files(path: &Path, out: &mut Vec<PathBuf>) {
+    if path.is_dir() {
+        for entry in fs::read_dir(path).into_iter().flatten().flatten() {
+            collect_files(&entry.path(), out);
         }
-    } else if cli_js.exists() {
-        println!("cargo:warning=SDK already built (sdk/dist/cli.js exists)");
-    } else {
-        println!("cargo:warning=SDK directory not found - skipping SDK build");
+    } else if path.is_file() {
+        out.push(path.to_path_buf());
     }
 }
 

@@ -271,17 +271,12 @@ jobs:
           if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]] || [[ "${{ github.ref }}" == refs/heads/features/* ]] || [[ "${{ github.ref }}" == refs/heads/claude/* ]]; then
             LANE="full suite"
             mapfile -t ALL_TESTS < <(
-              find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \
-                | sed 's/\.rs$//' \
-                | grep -v '^common$' \
-                | sort
+              scripts/ci/server-suites.sh list | cut -f1 | grep -v '_sqlite_test$'
             )
           else
             LANE="PostgreSQL-specific smoke"
             mapfile -t ALL_TESTS < <(
-              find crates/pierre-server/tests -maxdepth 1 -name '*_postgresql_test.rs' -printf '%f\n' \
-                | sed 's/\.rs$//' \
-                | sort
+              scripts/ci/server-suites.sh list | cut -f1 | grep '_postgresql_test$'
             )
           fi
           if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
@@ -317,14 +312,19 @@ jobs:
           )
           # Packed once, for every shard, so there is one implementation of the
           # assignment rather than one per consumer. Output is "<shard>\t<file>".
+          # A suite of the shared `it` binary is a module, not a binary: it adds
+          # no build of its own, so only a top-level suite carries the per-file
+          # build cost below.
+          IT_SUITES="$RUNNER_TEMP/it-suites.txt"
+          scripts/ci/server-suites.sh list | awk -F'\t' '$2 == "it" { print $1 }' > "$IT_SUITES"
           ASSIGNMENTS=$(
-            SHARDS="$SHARDS" DURATIONS="$DURATIONS" P90="$P90" awk '
+            SHARDS="$SHARDS" DURATIONS="$DURATIONS" P90="$P90" IT_SUITES="$IT_SUITES" awk '
               # A file costs its run time PLUS the build of its own binary. Packing
               # on run time alone is what put 259 near-zero files on one shard in
               # run 33917276134 and handed it 148s of extra compilation: fitting
               # build(n) across the four shards of that run gives 212s + 0.608s per
               # file, so every file carries a fixed 0.61s whatever it runs in.
-              function weight(n) { return ((n in w) ? w[n] : p90) + BUILD_PER_FILE }
+              function weight(n) { return ((n in w) ? w[n] : p90) + ((n in it) ? 0 : BUILD_PER_FILE) }
               BEGIN {
                 shards = ENVIRON["SHARDS"] + 0
                 p90 = ENVIRON["P90"] + 0
@@ -334,6 +334,7 @@ jobs:
                   split(line, f, "\t")
                   w[f[1]] = f[2] + 0
                 }
+                while ((getline line < ENVIRON["IT_SUITES"]) > 0) it[line] = 1
               }
               { name[NR] = $0 }
               END {
@@ -360,17 +361,28 @@ jobs:
           # ran, which is the failure mode this lane exists to prevent.
           ASSIGNED=$(printf '%s\n' "$ASSIGNMENTS" | grep -c . || true)
           if [ "$ASSIGNED" -ne "${#ALL_TESTS[@]}" ]; then
-            echo "::error::shard packing assigned $ASSIGNED of ${#ALL_TESTS[@]} test files — refusing to report green over a file that would not run."
+            echo "::error::shard packing assigned $ASSIGNED of ${#ALL_TESTS[@]} suites — refusing to report green over a suite that would not run."
             exit 1
           fi
           mapfile -t SHARD_TESTS < <(printf '%s\n' "$ASSIGNMENTS" | awk -F'\t' -v s="$SHARD" '$1 == s { print $2 }' | sort)
-          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} test files ==="
+          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} suites ==="
           if [ "${#SHARD_TESTS[@]}" -eq 0 ]; then
-            echo "Fewer test files than shards; shard $SHARD has nothing to run."
+            echo "Fewer suites than shards; shard $SHARD has nothing to run."
             exit 0
           fi
           printf '  %s\n' "${SHARD_TESTS[@]}"
-          RUN_TESTS=("${SHARD_TESTS[@]}")
+          # A top-level suite is its own binary, named by `--test`; a suite of
+          # the `it` binary runs as a `<module>::` filter on that one binary.
+          SHARD_BINS=()
+          IT_FILTERS=()
+          for suite in "${SHARD_TESTS[@]}"; do
+            if grep -qxF "$suite" "$IT_SUITES"; then
+              IT_FILTERS+=("${suite}::")
+            else
+              SHARD_BINS+=("$suite")
+            fi
+          done
+          RUN_TESTS=("${SHARD_BINS[@]}")
           DB_TESTS=()
           PKGS=()
           if [ "$SHARD" -eq 1 ]; then
@@ -395,17 +407,16 @@ jobs:
             # selection makes the two resolutions identical, so pierre-database's
             # binaries link the artifacts the shard already needs.
             #
-            # The selection names three packages because a `--test` filter
-            # matches every selected package owning that target name, and three
-            # of these names are multiply owned: smoke_test by ten crates,
-            # dek_versioning_test by pierre-database and pierre-server,
-            # redaction_test by pierre-core and pierre-server. Naming
-            # pierre_mcp_server, pierre-database and pierre-core resolves
-            # smoke_test to pierre-database's alone while keeping both copies of
-            # dek_versioning_test and redaction_test running wherever the
-            # round-robin puts them. No other pierre-server test-file name is
-            # owned by a crate outside these three, so the restriction drops no
-            # binary; the per-owner check below fails the shard if one ever does.
+            # The selection names packages because a `--test` filter matches
+            # every selected package owning that target name, and smoke_test is
+            # owned by ten crates: naming pierre_mcp_server, pierre-database and
+            # pierre-core resolves it to pierre-database's alone. The pierre-server
+            # suites named dek_versioning_test and redaction_test are modules of
+            # the `it` binary, not targets, so only pierre-database's
+            # dek_versioning_test answers to that `--test`. No top-level
+            # pierre-server suite name is owned by a crate outside these three,
+            # so the restriction drops no binary; the per-owner check below fails
+            # the shard if one ever does.
             #
             # A `--test` filter selects integration tests, so the crate's
             # doctests run in ci-backend.yml's `cargo test --workspace --doc`
@@ -430,7 +441,7 @@ jobs:
             )
             COLLIDING=()
             for foreign_name in "${FOREIGN_NAMES[@]}"; do
-              case " ${SHARD_TESTS[*]} " in
+              case " ${SHARD_BINS[*]} it " in
                 *" $foreign_name "*) COLLIDING+=("$foreign_name") ;;
               esac
             done
@@ -449,23 +460,26 @@ jobs:
             fi
             echo "=== plus pierre-database: ${#DB_TESTS[@]} crate test files ==="
             printf '  %s\n' "${DB_TESTS[@]}"
-            # dek_versioning_test exists in both crates, so it can already be in
-            # SHARD_TESTS. Listing it once keeps one --test flag per name; both
+            # A name in both crates' top-level suites would already be in
+            # SHARD_BINS. Listing it once keeps one --test flag per name; both
             # crates' binaries are still built and both still run.
             EXTRA_TESTS=()
             for db_test in "${DB_TESTS[@]}"; do
-              case " ${SHARD_TESTS[*]} " in
+              case " ${SHARD_BINS[*]} " in
                 *" $db_test "*) ;;
                 *) EXTRA_TESTS+=("$db_test") ;;
               esac
             done
-            RUN_TESTS=("${EXTRA_TESTS[@]}" "${SHARD_TESTS[@]}")
+            RUN_TESTS=("${EXTRA_TESTS[@]}" "${SHARD_BINS[@]}")
           fi
           echo "::group::build shard binaries"
           TEST_ARGS=()
           for test_file in "${RUN_TESTS[@]}"; do
             TEST_ARGS+=(--test "$test_file")
           done
+          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
+            TEST_ARGS+=(--test it)
+          fi
           ARTIFACT_JSON="$RUNNER_TEMP/pg-shard-artifacts.json"
           BINARY_MAP="$RUNNER_TEMP/pg-shard-binaries.tsv"
           cargo test "${PKGS[@]}" --features postgresql --no-run \
@@ -488,12 +502,18 @@ jobs:
           # crate's copy alone would otherwise report green over a file that
           # never ran.
           UNMAPPED=()
-          for test_file in "${SHARD_TESTS[@]}"; do
+          for test_file in "${SHARD_BINS[@]}"; do
             case "${TEST_BINARIES[$test_file]:-}" in
               *"/crates/pierre-server"$'\t'*) ;;
               *) UNMAPPED+=("crates/pierre-server/tests/${test_file}.rs") ;;
             esac
           done
+          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
+            case "${TEST_BINARIES[it]:-}" in
+              *"/crates/pierre-server"$'\t'*) ;;
+              *) UNMAPPED+=("crates/pierre-server/tests/it/main.rs") ;;
+            esac
+          fi
           for test_file in "${DB_TESTS[@]}"; do
             case "${TEST_BINARIES[$test_file]:-}" in
               *"/crates/pierre-database"$'\t'*) ;;
@@ -518,6 +538,18 @@ jobs:
             done <<< "${TEST_BINARIES[$test_file]}"
             echo "::endgroup::"
           done
+          if [ "${#IT_FILTERS[@]}" -gt 0 ]; then
+            echo "::group::it (${#IT_FILTERS[@]} suites)"
+            while IFS=$'\t' read -r package_dir executable; do
+              [ -n "$executable" ] || continue
+              echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
+              if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_FILTERS[@]}" ); then
+                echo "::error::PostgreSQL suites in the it binary failed"
+                FAILED=1
+              fi
+            done <<< "${TEST_BINARIES[it]}"
+            echo "::endgroup::"
+          fi
           exit $FAILED
         timeout-minutes: 75
         env:

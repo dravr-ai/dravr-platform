@@ -12,7 +12,9 @@ import type {
   DeleteAccountRequest,
   DeleteAccountResponse,
   McpToken,
+  MemoryEvidenceSource,
   MemoryFactKind,
+  MemoryFactStatus,
   OAuthApp,
   OAuthAppCredentials,
   ThemePreference,
@@ -437,9 +439,12 @@ export function createUserApi(axios: AxiosInstance) {
       agent_id?: string;
       kind?: string;
       limit?: number;
+      /** `draft` lists the facts waiting for the athlete; the default is the kept ones. */
+      status?: MemoryFactStatus;
     }): Promise<MemoryFactListResponse> {
       const query = new URLSearchParams();
       if (params?.agent_id) query.append('agent_id', params.agent_id);
+      if (params?.status) query.append('status', params.status);
       if (params?.kind) query.append('kind', params.kind);
       if (params?.limit !== undefined) query.append('limit', String(params.limit));
       const path = query.toString()
@@ -457,6 +462,18 @@ export function createUserApi(axios: AxiosInstance) {
     async forgetMemoryFact(factId: string): Promise<ForgetMemoryFactResponse> {
       const response = await axios.delete<ForgetMemoryFactResponse>(
         `/api/memory/facts/${encodeURIComponent(factId)}`,
+      );
+      return response.data;
+    },
+
+    /**
+     * Keep a draft fact: from now on the coach reads it. Fails with 409 when
+     * a newer fact about the same thing was saved since the draft was written,
+     * so the draft no longer says what is current.
+     */
+    async approveMemoryFact(factId: string): Promise<ApproveMemoryFactResponse> {
+      const response = await axios.post<ApproveMemoryFactResponse>(
+        `/api/memory/facts/${encodeURIComponent(factId)}/approve`,
       );
       return response.data;
     },
@@ -555,6 +572,12 @@ export interface MemoryFactRow {
   confidence: number;
   source_msg_id: string | null;
   updated_at: string;
+  /** `draft` until the athlete keeps it; only `approved` facts reach the coach. */
+  status: MemoryFactStatus;
+  /** The words the fact was taken from, quoted verbatim; `null` for a form answer. */
+  evidence: string | null;
+  /** Whose words {@link evidence} quotes. */
+  evidence_source: MemoryEvidenceSource | null;
 }
 
 export interface MemoryFactListResponse {
@@ -564,6 +587,19 @@ export interface MemoryFactListResponse {
 
 export interface ForgetMemoryFactResponse {
   deleted: boolean;
+}
+
+export interface ApproveMemoryFactResponse {
+  fact: MemoryFactRow;
+}
+
+/**
+ * True when {@link UserApi.approveMemoryFact} refused a draft because a newer
+ * fact about the same thing was saved after it: the draft can only be discarded.
+ */
+export function isSupersededDraftError(error: unknown): boolean {
+  const response = (error as { response?: { status?: number } } | null)?.response;
+  return response?.status === 409;
 }
 
 export type UserApi = ReturnType<typeof createUserApi>;

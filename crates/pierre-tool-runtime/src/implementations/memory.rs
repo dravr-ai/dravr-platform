@@ -23,7 +23,9 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     InsertAgentFollowupParams, InsertAgentNoteParams, UpsertUserFactParams,
 };
-use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_memory::{
+    FactKind, FactProposal, FactSource, MemoryScope, PredicateCode, ProposedClaim,
+};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -110,6 +112,11 @@ pub struct RememberFactResult {
     pub kind: String,
     /// Extractor confidence, 0.0 to 1.0.
     pub confidence: f32,
+    /// `approved` when the athlete's latest message says it in these words,
+    /// and the agent reads it from now on. `draft` otherwise: it waits for the
+    /// athlete to keep it on their Memory screen, so say it was noted for them
+    /// to confirm, not that it is remembered.
+    pub status: String,
 }
 
 /// One fact as `recall_user_memory` reports it.
@@ -524,11 +531,21 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 source_msg_id: None,
                 transport_policy: ai_scope::derived_policy(),
             };
+            let athlete_message = latest_athlete_message(&context, &user_id, tenant_id).await;
+            let proposal = FactProposal::from_tool_call(
+                ProposedClaim {
+                    user_id: &user_id,
+                    kind,
+                    predicate_code,
+                    object: &object,
+                },
+                athlete_message.as_deref(),
+            );
             let fact = context
                 .resources
                 .repos()
                 .memory
-                .upsert_user_fact(&params)
+                .propose_user_fact(&params, &proposal)
                 .await?;
 
             ok_typed(
@@ -537,12 +554,44 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                     fact_id: fact.id,
                     kind: fact.kind.as_str().to_owned(),
                     confidence: fact.confidence,
+                    status: fact.status.as_str().to_owned(),
                 },
             )
         }
         .await;
         tool_result_to_response(result)
     }
+}
+
+/// How many recent messages are read to find the athlete's latest one.
+const ATHLETE_MESSAGE_PEEK: i64 = 8;
+
+/// The athlete's most recent message in this conversation: what a fact the
+/// agent remembers is checked against. `None` outside a conversation, or when
+/// it cannot be read — the fact is then a draft, never silently approved.
+async fn latest_athlete_message(
+    context: &ToolExecutionContext,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> Option<String> {
+    let conversation_id = context.conversation_id.as_deref()?;
+    context
+        .resources
+        .repos()
+        .chat
+        .get_recent_messages(
+            conversation_id,
+            user_id,
+            tenant_id,
+            ATHLETE_MESSAGE_PEEK,
+            ai_scope::readable_policy(),
+        )
+        .await
+        .ok()?
+        .into_iter()
+        .rev()
+        .find(|message| message.role == "user")
+        .map(|message| message.content)
 }
 
 // ============================================================================

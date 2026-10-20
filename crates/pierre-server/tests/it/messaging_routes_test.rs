@@ -1,0 +1,1439 @@
+// ABOUTME: Integration tests for messaging gateway route handlers (webhook + config CRUD)
+// ABOUTME: Tests authentication, channel config endpoints, and multi-tenant isolation via HTTP
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    missing_docs,
+    clippy::wildcard_in_or_patterns,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::too_many_lines,
+    clippy::similar_names,
+    clippy::uninlined_format_args
+)]
+
+#[cfg(feature = "client-messaging")]
+mod messaging_routes_tests {
+    use crate::common::{
+        create_test_server_resources, create_test_tenant, create_test_user,
+        create_test_user_with_plan, generate_test_token,
+    };
+    use crate::helpers::axum_test::AxumTestRequest;
+    use axum::http::StatusCode;
+    use dravr_canot::channels::descriptor_for;
+    use pierre_core::models::messaging::ChannelType;
+    use pierre_core::models::ConnectionType;
+    use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    // ════════════════════════════════════════════════════════════════
+    // Setup helpers
+    // ════════════════════════════════════════════════════════════════
+
+    async fn setup_messaging_router() -> (axum::Router, String) {
+        let resources = create_test_server_resources().await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let token = generate_test_token(&resources, &user).await;
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        (router, format!("Bearer {token}"))
+    }
+
+    async fn setup_two_tenant_router() -> (axum::Router, String, String) {
+        let resources = create_test_server_resources().await.unwrap();
+
+        let (_user_a, token_a) = create_test_tenant(&resources, "tenant_a@example.com")
+            .await
+            .unwrap();
+        let (_user_b, token_b) = create_test_tenant(&resources, "tenant_b@example.com")
+            .await
+            .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        (
+            router,
+            format!("Bearer {token_a}"),
+            format!("Bearer {token_b}"),
+        )
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Config CRUD endpoint tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_list_channels_empty() {
+        let (router, token) = setup_messaging_router().await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(
+            body["channels"].as_array().unwrap().as_slice(),
+            [] as [serde_json::Value; 0]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_channels_requires_auth() {
+        let (router, _token) = setup_messaging_router().await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels")
+            .send(router)
+            .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "Should reject unauthenticated request"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upsert_channel_config() {
+        let (router, token) = setup_messaging_router().await;
+
+        let response = AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": {
+                    "api_key": "xoxb-test-slack-token",
+                    "webhook_secret": "slack_signing_secret_123"
+                }
+            }))
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["config"]["channel"], "slack");
+        assert_eq!(body["config"]["enabled"], true);
+        assert_eq!(body["config"]["has_credentials"], true);
+        assert_eq!(body["action"], "upserted");
+    }
+
+    /// An empty or whitespace-only `verify_token` is refused where it enters,
+    /// so it is never the value Meta's subscription handshake is checked
+    /// against.
+    #[tokio::test]
+    async fn test_upsert_channel_config_refuses_an_empty_verify_token() {
+        let (router, token) = setup_messaging_router().await;
+
+        for blank in ["", " ", "\n"] {
+            let response = AxumTestRequest::put("/api/messaging/channels/whatsapp")
+                .header("authorization", &token)
+                .json(&json!({
+                    "enabled": true,
+                    "credentials": {
+                        "api_key": "wa_key",
+                        "webhook_secret": "wa_app_secret",
+                        "verify_token": blank
+                    }
+                }))
+                .send(router.clone())
+                .await;
+            assert_eq!(
+                response.status_code(),
+                StatusCode::BAD_REQUEST,
+                "a verify_token of {blank:?} is refused"
+            );
+        }
+
+        let response = AxumTestRequest::get("/api/messaging/channels/whatsapp")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_null(),
+            "the refused request stored nothing: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_channel_config() {
+        let (router, token) = setup_messaging_router().await;
+
+        // First create a config
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": {
+                    "bot_token": "12345:ABC-DEF",
+                    "webhook_secret": "tg_secret"
+                }
+            }))
+            .send(router.clone())
+            .await;
+
+        // Now get it
+        let response = AxumTestRequest::get("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert!(body["config"].is_object(), "Should return config object");
+    }
+
+    #[tokio::test]
+    async fn test_channels_available_lists_only_configured_no_secrets() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Configure Telegram (a deep-link channel); leave the rest unconfigured.
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "bot_token": "12345:ABC-DEF" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        // Telegram is configured → present, deep_link, recommended, and secret-free.
+        let telegram = channels
+            .iter()
+            .find(|c| c["channel"] == "telegram")
+            .expect("telegram must be listed as available");
+        assert_eq!(telegram["method"], "deep_link");
+        assert_eq!(telegram["recommended"], true);
+        assert_eq!(telegram["display_name"], "Telegram");
+        assert!(
+            telegram.get("bot_token").is_none() && telegram.get("credentials").is_none(),
+            "channels/available must never leak credentials"
+        );
+
+        // A never-configured channel must not appear.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "discord"),
+            "unconfigured channels must not appear"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_channels_available_excludes_disabled_channel() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Configure Telegram but DISABLED (enabled:false → stored is_active=false).
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": false,
+                "credentials": { "bot_token": "12345:ABC-DEF" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        // Regression: the filter previously read the wrong JSON key (`enabled` vs
+        // the stored `is_active`), so operator-disabled channels leaked into the
+        // onboarding picker. A disabled channel must NOT be advertised.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "telegram"),
+            "a disabled channel (is_active=false) must not appear in channels/available"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_channels_available_excludes_deep_link_channel_missing_its_credential() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Telegram enabled, but carrying no `bot_token` — the key
+        // `build_linking_url` needs to resolve the bot a pairing code is sent to.
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "webhook_secret": "tg_secret" }
+            }))
+            .send(router.clone())
+            .await;
+
+        // WhatsApp complete, as a positive control: without it this test would
+        // also pass on an empty list, which is the failure it exists to catch.
+        AxumTestRequest::put("/api/messaging/channels/whatsapp")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "phone_number": "1323997520799051", "api_key": "wa-key" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        assert!(
+            channels.iter().any(|c| c["channel"] == "whatsapp"),
+            "a deep-link channel that carries its credential must still be offered"
+        );
+        // The picker used to gate only OAuth channels on credentials, trusting
+        // the deep-link builders' own refuse-to-guess checks — but those run
+        // after the athlete taps, so this config was advertised and then failed
+        // on init. Withholding it is the whole point.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "telegram"),
+            "a Telegram config with no bot_token cannot complete a link, so the \
+             picker must withhold it instead of failing after the athlete taps"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_channels_available_names_every_channel_as_canot_does() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Every channel, each with exactly the credentials its link needs, so
+        // all five reach the picker and each one's display name is read.
+        let configured = [
+            (
+                ChannelType::Telegram,
+                json!({ "bot_token": "12345:ABC-DEF" }),
+            ),
+            (
+                ChannelType::WhatsApp,
+                json!({ "phone_number": "1323997520799051", "api_key": "wa-key" }),
+            ),
+            (ChannelType::Messenger, json!({ "account_id": "page-1" })),
+            (
+                ChannelType::Slack,
+                json!({ "api_key": "slack-id", "api_secret": "slack-secret" }),
+            ),
+            (
+                ChannelType::Discord,
+                json!({ "api_key": "discord-id", "api_secret": "discord-secret" }),
+            ),
+        ];
+        for (channel, credentials) in &configured {
+            AxumTestRequest::put(&format!("/api/messaging/channels/{channel}"))
+                .header("authorization", &token)
+                .json(&json!({ "enabled": true, "credentials": credentials }))
+                .send(router.clone())
+                .await;
+        }
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+        assert_eq!(channels.len(), configured.len(), "every channel is offered");
+
+        // canot's `descriptor_for` is the one ChannelType -> descriptor lookup;
+        // the picker must show the name canot declares, channel for channel.
+        for (channel, _) in &configured {
+            let listed = channels
+                .iter()
+                .find(|c| c["channel"] == channel.to_string())
+                .unwrap_or_else(|| panic!("{channel} must be listed"));
+            let declared = descriptor_for(*channel)
+                .expect("client-messaging compiles every channel")
+                .display_name();
+            assert_eq!(listed["display_name"], declared, "{channel} display name");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_link_init_deep_link_returns_qr_svg() {
+        // Exercised through Messenger. Every deep-link channel shares this
+        // code path, but Telegram's bot handle is resolved by calling getMe
+        // with the stored token and WhatsApp's number by asking the Graph API
+        // for the stored phone-number id — so either would need a live
+        // credential or a network stub, and would be testing the resolver
+        // rather than the QR rendering this test is about. Messenger's
+        // destination is the configured page, which needs neither.
+        let (router, token) = setup_messaging_router().await;
+
+        AxumTestRequest::put("/api/messaging/channels/messenger")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "page-token", "account_id": "page-1" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::post("/api/messaging/link/init/messenger")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["method"], "deep_link");
+        assert!(body["code"].is_string(), "deep-link channels return a code");
+        let qr = body["qr_svg"]
+            .as_str()
+            .expect("deep-link init must include an inline QR SVG");
+        assert!(qr.contains("<svg"), "qr_svg is an inline SVG document");
+    }
+
+    #[tokio::test]
+    async fn test_delete_channel_config() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Create config
+        AxumTestRequest::put("/api/messaging/channels/discord")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "discord_bot_token" }
+            }))
+            .send(router.clone())
+            .await;
+
+        // Delete it
+        let response = AxumTestRequest::delete("/api/messaging/channels/discord")
+            .header("authorization", &token)
+            .send(router.clone())
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["action"], "deleted");
+
+        // Verify it's gone
+        let response = AxumTestRequest::get("/api/messaging/channels/discord")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_null(),
+            "Config should be null after delete"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_channel_name() {
+        let (router, token) = setup_messaging_router().await;
+
+        let response = AxumTestRequest::put("/api/messaging/channels/sms")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": {}
+            }))
+            .send(router)
+            .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "Invalid channel name 'sms' should be rejected"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Multi-tenant isolation tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_config_tenant_isolation() {
+        let (router, token_a, token_b) = setup_two_tenant_router().await;
+
+        // Tenant A configures Slack
+        AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &token_a)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "tenant_a_slack_key" }
+            }))
+            .send(router.clone())
+            .await;
+
+        // Tenant B lists channels — should see nothing
+        let response = AxumTestRequest::get("/api/messaging/channels")
+            .header("authorization", &token_b)
+            .send(router.clone())
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["channels"].as_array().unwrap().is_empty(),
+            "Tenant B must not see Tenant A's channel configs"
+        );
+
+        // Tenant B gets Tenant A's specific config — should be null
+        let response = AxumTestRequest::get("/api/messaging/channels/slack")
+            .header("authorization", &token_b)
+            .send(router)
+            .await;
+
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_null(),
+            "Tenant B must not see Tenant A's Slack config"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Channel-config role gate (owner/admin only) — regression for the
+    // messaging channel-config IDOR: a plain tenant member could read,
+    // overwrite, or delete tenant messaging CREDENTIALS (bot_token,
+    // api_secret, webhook_secret, verify_token, api_key). The get/put/delete
+    // handlers now require the tenant owner or an admin, mirroring the LLM
+    // credential (routes-admin/llm_settings.rs) and fitness tenant-config
+    // (config/routes/fitness.rs) gates.
+    // ════════════════════════════════════════════════════════════════
+
+    /// Build a router plus tokens for the OWNER and a plain MEMBER of the SAME
+    /// tenant. The member holds a valid session scoped to the shared tenant, so
+    /// authentication and tenant resolution pass — the role gate is the only
+    /// thing that stands between them and the credentials.
+    async fn setup_owner_and_member_router() -> (axum::Router, String, String) {
+        let resources = create_test_server_resources().await.unwrap();
+        let db = &resources.agent.database;
+
+        // Owner of the shared tenant (inserted into tenant_users as role `owner`).
+        let (_owner_id, owner_user, shared_tenant) =
+            create_test_user_with_plan(db, "chancfg-owner@example.com", "starter")
+                .await
+                .unwrap();
+
+        // A second user made a plain `member` of the shared tenant:
+        // update_tenant_id upserts a tenant_users row with role `member`.
+        let (member_id, member_user, _member_own_tenant) =
+            create_test_user_with_plan(db, "chancfg-member@example.com", "starter")
+                .await
+                .unwrap();
+        db.repositories()
+            .users
+            .update_tenant_id(member_id, shared_tenant)
+            .await
+            .unwrap();
+
+        let owner_token = resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &owner_user,
+                &resources.auth.jwks_manager,
+                Some(shared_tenant.to_string()),
+            )
+            .unwrap();
+        let member_token = resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &member_user,
+                &resources.auth.jwks_manager,
+                Some(shared_tenant.to_string()),
+            )
+            .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        (
+            router,
+            format!("Bearer {owner_token}"),
+            format!("Bearer {member_token}"),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_get_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not read channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_put_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "member-must-not-set-this" }
+            }))
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not overwrite channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_member_denied_delete_channel_config() {
+        let (router, _owner, member) = setup_owner_and_member_router().await;
+
+        let response = AxumTestRequest::delete("/api/messaging/channels/slack")
+            .header("authorization", &member)
+            .send(router)
+            .await;
+
+        assert_eq!(
+            response.status_code(),
+            StatusCode::FORBIDDEN,
+            "a plain tenant member must not delete channel credentials"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_owner_allowed_channel_config_crud() {
+        let (router, owner, _member) = setup_owner_and_member_router().await;
+
+        // PUT (create) — owner is allowed.
+        let response = AxumTestRequest::put("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "api_key": "owner-slack-key" }
+            }))
+            .send(router.clone())
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "the tenant owner must be allowed to write channel credentials"
+        );
+
+        // GET — owner reads it back.
+        let response = AxumTestRequest::get("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .send(router.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert!(
+            body["config"].is_object(),
+            "owner should read back the config object"
+        );
+
+        // DELETE — owner removes it.
+        let response = AxumTestRequest::delete("/api/messaging/channels/slack")
+            .header("authorization", &owner)
+            .send(router)
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "the tenant owner must be allowed to delete channel credentials"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Webhook endpoint tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_webhook_unknown_channel_rejected() {
+        let (router, _token) = setup_messaging_router().await;
+
+        // Webhooks don't use JWT auth — they use channel signatures
+        let response = AxumTestRequest::post("/api/messaging/webhook/sms")
+            .header("content-type", "application/json")
+            .json(&json!({"test": true}))
+            .send(router)
+            .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "Unknown channel 'sms' should be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_webhook_missing_signature_rejected() {
+        let (router, _token) = setup_messaging_router().await;
+
+        // Telegram webhook without the X-Telegram-Bot-Api-Secret-Token header
+        let response = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .json(&json!({
+                "update_id": 123,
+                "message": {
+                    "message_id": 1,
+                    "chat": { "id": 12345 },
+                    "text": "hello"
+                }
+            }))
+            .send(router)
+            .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "Webhook without signature should be rejected"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Webhook handshake response tests
+    // ════════════════════════════════════════════════════════════════
+
+    /// Compute Slack HMAC-SHA256 signature for webhook verification
+    fn compute_slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let basestring = format!("v0:{timestamp}:{body}");
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(basestring.as_bytes());
+        format!("v0={}", hex::encode(mac.finalize().into_bytes()))
+    }
+
+    #[tokio::test]
+    async fn test_slack_webhook_challenge_response() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        // Look up the test user's tenant_id for the channel config
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Set up Slack channel config with known signing secret
+        let signing_secret = "test_slack_signing_secret_42";
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-test-token"),
+            api_secret: None,
+            webhook_secret: Some(signing_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        // Build url_verification challenge payload
+        let challenge_body = json!({
+            "type": "url_verification",
+            "challenge": "abc123_challenge_token"
+        })
+        .to_string();
+
+        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let signature = compute_slack_sig(signing_secret, &timestamp, &challenge_body);
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let response = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-request-timestamp", &timestamp)
+            .header("x-slack-signature", &signature)
+            .json(&json!({
+                "type": "url_verification",
+                "challenge": "abc123_challenge_token"
+            }))
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(
+            body["challenge"].as_str(),
+            Some("abc123_challenge_token"),
+            "Slack challenge response should echo the challenge value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_discord_webhook_ping_response() {
+        use ed25519_dalek::Signer;
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use rand::RngCore;
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Discord uses Ed25519 for signature verification.
+        // Set up config with the public key as webhook_secret and an application ID.
+        let mut secret_bytes = [0u8; 32];
+        rand::rng().fill_bytes(&mut secret_bytes);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
+        let public_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
+
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "discord",
+            api_key: Some("discord-bot-token"),
+            api_secret: None,
+            webhook_secret: Some(&public_key_hex),
+            verify_token: None,
+            account_id: Some("discord-app-id-123"),
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        // Build Discord PING payload (interaction type 1)
+        let ping_body = json!({"type": 1}).to_string();
+        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let message = format!("{timestamp}{ping_body}");
+        let signature = signing_key.sign(message.as_bytes());
+        let signature_hex = hex::encode(signature.to_bytes());
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let response = AxumTestRequest::post("/api/messaging/webhook/discord")
+            .header("content-type", "application/json")
+            .header("x-signature-ed25519", &signature_hex)
+            .header("x-signature-timestamp", &timestamp)
+            .json(&json!({"type": 1}))
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(
+            body["type"].as_u64(),
+            Some(1),
+            "Discord PING should receive PONG (type 1)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_unlinked_user_webhook_returns_link_url() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Set up Telegram channel config (simple secret-based auth)
+        let secret = "tg_webhook_secret_for_unlinked_test";
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some(secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:FAKE_BOT_TOKEN"),
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        // Send a message from an unlinked user (no channel_link exists for this sender)
+        let body = json!({
+            "update_id": 999,
+            "message": {
+                "message_id": 42,
+                "from": { "id": 98765, "first_name": "UnlinkedUser" },
+                "chat": { "id": 98765 },
+                "text": "Hello bot"
+            }
+        });
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let response = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", secret)
+            .json(&body)
+            .send(router)
+            .await;
+
+        // Webhook should succeed (200 OK)
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let resp_body: serde_json::Value = response.json();
+
+        // The webhook handler stores the inbound message and returns ok.
+        // For unlinked users, a link URL message is dispatched in the background.
+        // We verify the webhook accepted the message.
+        assert_eq!(
+            resp_body["status"].as_str(),
+            Some("ok"),
+            "Webhook should accept message from unlinked user"
+        );
+        assert_eq!(
+            resp_body["messages_received"].as_u64(),
+            Some(1),
+            "Should report 1 message received"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_failure_enqueues_for_retry() {
+        use pierre_database::backends::{
+            CreateSessionParams, EnqueueOutboundParams, InsertMessageParams, MessagingRepository,
+        };
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Create a session and a message (outbound queue requires FK to messages)
+        let session_id = Uuid::new_v4().to_string();
+        let session_params = CreateSessionParams {
+            id: &session_id,
+            user_id: &user.id.to_string(),
+            tenant_id,
+            channel_type: "whatsapp",
+            channel_user_id: "wa-retry-test",
+            channel_conversation_id: None,
+            pierre_conversation_id: None,
+        };
+        db.create_session(&session_params).await.unwrap();
+
+        let msg_id = Uuid::new_v4().to_string();
+        let msg_params = InsertMessageParams {
+            id: &msg_id,
+            tenant_id,
+            session_id: &session_id,
+            direction: "outbound",
+            channel_type: "whatsapp",
+            channel_message_id: "",
+            sender_id: "pierre",
+            content_type: "text",
+            content_body: Some("retry test message"),
+            correlation_id: &Uuid::new_v4().to_string(),
+            raw_payload: None,
+            chat_message_id: None,
+        };
+        db.insert_message(&msg_params).await.unwrap();
+
+        // Enqueue for retry (simulating what enqueue_failed_outbound does)
+        let queue_id = Uuid::new_v4().to_string();
+        db.enqueue_outbound(&EnqueueOutboundParams {
+            id: &queue_id,
+            message_id: Some(msg_id.as_str()),
+            tenant_id,
+            user_id: None,
+            channel_type: "whatsapp",
+            payload: r#"{"messaging_product":"whatsapp","to":"15551234567","type":"text","text":{"body":"retry test message"}}"#,
+            expires_at: None,
+            reauth: None,
+        })
+        .await
+        .unwrap();
+
+        // Verify the message appears in the pending outbound queue
+        let pending = db
+            .get_all_pending_outbound(100)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry["tenant_id"].as_str() == Some(tenant_id.to_string().as_str()))
+            .collect::<Vec<_>>();
+        assert!(
+            pending.iter().any(|e| e["id"].as_str() == Some(&queue_id)),
+            "Failed outbound should be enqueued for retry"
+        );
+        let entry = pending
+            .iter()
+            .find(|e| e["id"].as_str() == Some(&queue_id))
+            .unwrap();
+        assert_eq!(entry["status"].as_str(), Some("pending"));
+        assert_eq!(entry["channel_type"].as_str(), Some("whatsapp"));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // verify_token separation tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_upsert_with_verify_token_roundtrips() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_api_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_signing_secret"),
+            verify_token: Some("meta_verify_token_abc"),
+            account_id: None,
+            phone_number: Some("+15551234567"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let config = db
+            .get_channel_config(tenant_id, "whatsapp")
+            .await
+            .unwrap()
+            .expect("config should exist");
+
+        assert_eq!(
+            config["webhook_secret"].as_str(),
+            Some("hmac_signing_secret"),
+            "webhook_secret should persist"
+        );
+        assert_eq!(
+            config["verify_token"].as_str(),
+            Some("meta_verify_token_abc"),
+            "verify_token should persist separately from webhook_secret"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_meta_verify_prefers_verify_token_over_webhook_secret() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Config with both verify_token and webhook_secret set
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_secret_do_not_leak"),
+            verify_token: Some("my_verify_token"),
+            account_id: None,
+            phone_number: Some("+15550001111"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // GET with verify_token that matches => should succeed
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=my_verify_token&hub.challenge=challenge_123",
+        )
+        .send(router.clone())
+        .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "challenge_123");
+
+        // GET with webhook_secret value should fail (verify_token takes precedence)
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=hmac_secret_do_not_leak&hub.challenge=challenge_456",
+        )
+        .send(router)
+        .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "webhook_secret must not be accepted when verify_token is set"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_meta_verify_falls_back_to_webhook_secret_when_no_verify_token() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Config without verify_token (legacy setup)
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "messenger",
+            api_key: Some("msg_key"),
+            api_secret: None,
+            webhook_secret: Some("legacy_webhook_secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // GET with webhook_secret value should succeed (backward compat)
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=legacy_webhook_secret&hub.challenge=compat_challenge",
+        )
+        .send(router)
+        .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "compat_challenge");
+    }
+
+    /// A stored verify token of "" is no token. Two empty strings are equal,
+    /// so a handshake carrying no token would otherwise pass against it.
+    #[tokio::test]
+    async fn test_meta_verify_refuses_an_empty_stored_verify_token() {
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+
+        let config_id = Uuid::new_v4().to_string();
+        let mut params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_secret_do_not_leak"),
+            verify_token: Some(""),
+            account_id: None,
+            phone_number: Some("+15550002222"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let verify = |token: &'static str| {
+            let router = MessagingRoutes::routes(Arc::clone(&resources));
+            async move {
+                AxumTestRequest::get(&format!(
+                    "/api/messaging/webhook/whatsapp?hub.mode=subscribe\
+                     &hub.verify_token={token}&hub.challenge=challenge_789"
+                ))
+                .send(router)
+                .await
+            }
+        };
+
+        for presented in ["", "hmac_secret_do_not_leak", "anything"] {
+            assert_ne!(
+                verify(presented).await.status_code(),
+                StatusCode::OK,
+                "an empty stored verify token must refuse {presented:?}"
+            );
+        }
+
+        // The same channel with a real token: the right one passes, a wrong
+        // or absent one is refused.
+        params.verify_token = Some("my_verify_token");
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let response = verify("my_verify_token").await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "challenge_789");
+        assert_ne!(verify("wrong_token").await.status_code(), StatusCode::OK);
+        assert_ne!(verify("").await.status_code(), StatusCode::OK);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Conversation self-heal regression
+    // ════════════════════════════════════════════════════════════════
+
+    /// Regression: when the same Telegram chat is rebound from one
+    /// Pierre user to another (e.g. user A `/logout`, user B `/start`),
+    /// the retained session row still carries user A's
+    /// `pierre_conversation_id`. The new linker can't read that
+    /// conversation (`chat_repo.get_conversation` filters by `user_id`),
+    /// so the LLM dispatch used to fail in
+    /// `chat_pipeline::stages::persistence` with a generic
+    /// "Conversation not found" reply. The self-heal in
+    /// `resume_existing_session` now forges a fresh conversation owned
+    /// by the linked user before dispatch runs.
+    #[tokio::test]
+    async fn test_webhook_self_heals_rebound_conversation_id() {
+        use crate::common::create_test_user_with_email;
+        use pierre_database::backends::{
+            CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
+            UpsertChannelConfigParams,
+        };
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let messaging_db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        // user_a is the *previous* linker. user_b is the *current*
+        // linker (the channel link points at user_b after rebind).
+        let (_, user_a) =
+            create_test_user_with_email(&resources.agent.database, "rebind_a@example.com")
+                .await
+                .unwrap();
+        let (_, user_b) =
+            create_test_user_with_email(&resources.agent.database, "rebind_b@example.com")
+                .await
+                .unwrap();
+        let tenants = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user_b.id)
+            .await
+            .unwrap();
+        let tenant_id = tenants[0].id;
+        let user_a_id = user_a.id.to_string();
+        let user_b_id = user_b.id.to_string();
+
+        // Telegram channel config with a known secret for webhook auth
+        let secret = "tg_self_heal_test_secret";
+        let config_id = Uuid::new_v4().to_string();
+        let cfg = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some(secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:FAKE_BOT_TOKEN"),
+            is_active: true,
+        };
+        messaging_db.upsert_channel_config(&cfg).await.unwrap();
+
+        // Channel link: sender 88888 currently routes to user_b
+        let link_id = Uuid::new_v4().to_string();
+        let link = CreateChannelLinkParams {
+            id: &link_id,
+            tenant_id,
+            user_id: &user_b_id,
+            channel_type: "telegram",
+            channel_user_id: "88888",
+            display_name: Some("Self-Heal Test"),
+        };
+        messaging_db.create_channel_link(&link).await.unwrap();
+
+        // Register a synthetic provider for user_b so the inbound webhook
+        // gets past the onboarding gate (c3afc87e). Without this the
+        // chat dispatch silently 403s and the self-heal flow never runs.
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(
+                user_b.id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Real conversation owned by user_a — the prior linker. The FK
+        // resolves; the row exists; but `get_conversation(id, user_b,
+        // tenant)` returns None because of the user_id filter.
+        let prior_conversation = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(&user_a_id, tenant_id, "Telegram coach", "gpt-4", None, None)
+            .await
+            .unwrap();
+        let stale_conversation_id = prior_conversation.id.clone();
+
+        // Session row retained from user_a's earlier link, now reused
+        // because get_session_by_channel_identity matches on (tenant,
+        // channel, sender, chat_id) — not user_id.
+        let session_id = Uuid::new_v4().to_string();
+        let session_params = CreateSessionParams {
+            id: &session_id,
+            user_id: &user_a_id,
+            tenant_id,
+            channel_type: "telegram",
+            channel_user_id: "88888",
+            channel_conversation_id: Some("88888"),
+            pierre_conversation_id: Some(&stale_conversation_id),
+        };
+        messaging_db.create_session(&session_params).await.unwrap();
+
+        // Fire a free-text inbound message — webhook handler runs
+        // `resolve_linked_session` synchronously before spawning the
+        // background dispatch, so the session's `pierre_conversation_id`
+        // has been repointed by the time the response returns.
+        let body = json!({
+            "update_id": 555,
+            "message": {
+                "message_id": 1,
+                "from": { "id": 88888, "first_name": "TestUser" },
+                "chat": { "id": 88888 },
+                "text": "Hello after rebind"
+            }
+        });
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let response = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", secret)
+            .json(&body)
+            .send(router)
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+
+        // The stale id must have been replaced.
+        let resumed = messaging_db
+            .get_session_by_channel_identity(tenant_id, "telegram", "88888", Some("88888"))
+            .await
+            .unwrap()
+            .expect("session must still exist after webhook");
+        let new_conversation_id = resumed["pierre_conversation_id"]
+            .as_str()
+            .expect("pierre_conversation_id should be set after self-heal");
+        assert_ne!(
+            new_conversation_id,
+            stale_conversation_id.as_str(),
+            "stale conversation_id (owned by previous linker) must be replaced"
+        );
+
+        // The forged conversation must be reachable for the *current*
+        // linker (user_b), not user_a.
+        let conv_for_b = resources
+            .common
+            .repos
+            .chat
+            .get_conversation(new_conversation_id, &user_b_id, tenant_id)
+            .await
+            .unwrap();
+        assert!(
+            conv_for_b.is_some(),
+            "newly forged conversation must be reachable for the linked user (user_b)"
+        );
+        let conv_for_a = resources
+            .common
+            .repos
+            .chat
+            .get_conversation(new_conversation_id, &user_a_id, tenant_id)
+            .await
+            .unwrap();
+        assert!(
+            conv_for_a.is_none(),
+            "forged conversation must NOT be visible to the previous linker (user_a)"
+        );
+    }
+}

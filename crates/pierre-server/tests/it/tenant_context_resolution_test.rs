@@ -1,0 +1,60 @@
+// ABOUTME: Integration test for tenant context resolution to verify factory delegation works
+// ABOUTME: Tests that tenant operations work through the factory pattern (critical fix for 0% functional architecture)
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+use chrono::Utc;
+use pierre_core::models::{Tenant, TenantId};
+use pierre_test_support::db::create_test_db_with_key;
+
+use crate::common;
+use common::*;
+
+#[tokio::test]
+async fn test_tenant_operations_work_through_factory() {
+    // Create test database
+    let encryption_key = vec![0u8; 32];
+
+    let database = create_test_db_with_key(encryption_key).await.unwrap();
+
+    // Create owner user first (required for tenant foreign key constraint)
+    let (owner_id, _owner) = create_test_user_with_email(&database, "owner@example.com")
+        .await
+        .unwrap();
+    // Create test tenant
+    let tenant_id = TenantId::generate();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: "Test Tenant".to_owned(),
+        slug: "test-tenant".to_owned(),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: owner_id,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // CRITICAL TEST: This should NOT fail with "Tenant management not yet implemented"
+    let repos = database.repositories();
+    repos.tenants.create(&tenant).await.unwrap();
+
+    // CRITICAL TEST: get_tenant_by_id should work (was previously stubbed)
+    let retrieved_tenant = repos.tenants.get_by_id(tenant_id).await.unwrap();
+    assert_eq!(retrieved_tenant.id, tenant_id);
+    assert_eq!(retrieved_tenant.name, "Test Tenant");
+    assert_eq!(retrieved_tenant.slug, "test-tenant");
+
+    // CRITICAL TEST: get_tenant_by_slug should work (was previously stubbed)
+    let retrieved_by_slug = repos.tenants.get_by_slug("test-tenant").await.unwrap();
+    assert_eq!(retrieved_by_slug.id, tenant_id);
+
+    println!("SUCCESS: Factory delegation is FIXED!");
+    println!("   - create_tenant() works (was stubbed)");
+    println!("   - get_tenant_by_id() works (was stubbed)");
+    println!("   - get_tenant_by_slug() works (was stubbed)");
+    println!("   Tenant-aware MCP architecture is now FUNCTIONAL!");
+}

@@ -161,7 +161,10 @@ pub fn init_test_logging() {
         tracing_subscriber::fmt()
             .with_max_level(log_level)
             .with_test_writer()
-            .init();
+            .try_init()
+            // One test binary hosts every suite, so a suite that installed
+            // its own global subscriber first keeps it.
+            .ok();
     });
 }
 
