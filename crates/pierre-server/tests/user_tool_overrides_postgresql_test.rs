@@ -121,10 +121,12 @@ async fn test_pg_user_tool_override_crud_uuid_binds() {
         .await
         .unwrap();
     assert!(removed);
-    assert!(repos
-        .user_tool_overrides
-        .list_for_user(user_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .user_tool_overrides
+            .list_for_user(user_id)
+            .await
+            .unwrap(),
+        []
+    );
 }

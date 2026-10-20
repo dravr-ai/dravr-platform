@@ -292,10 +292,11 @@ async fn a_row_at_the_cap_is_claimed_once_more_and_past_it_never_again() -> Resu
             .await?,
         TurnClaim::Exhausted
     );
-    assert!(repo
-        .claim_resumable_turns(&sweep("sweeper", 500_000, 400_000))
-        .await?
-        .is_empty());
+    assert_eq!(
+        repo.claim_resumable_turns(&sweep("sweeper", 500_000, 400_000))
+            .await?,
+        []
+    );
 
     // And it no longer blocks a younger sibling.
     let younger = row(tenant, "conv-c", "wamid.younger", 2_000);

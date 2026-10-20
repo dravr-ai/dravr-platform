@@ -119,16 +119,17 @@ async fn exposures_stay_in_their_tenant_and_with_their_athlete() {
         .unwrap();
 
     let exposures = &repos.use_case_exposures;
-    assert!(exposures
-        .use_case_exposures(elsewhere, user)
-        .await
-        .unwrap()
-        .is_empty());
-    assert!(exposures
-        .use_case_exposures(tenant, teammate)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        exposures.use_case_exposures(elsewhere, user).await.unwrap(),
+        []
+    );
+    assert_eq!(
+        exposures
+            .use_case_exposures(tenant, teammate)
+            .await
+            .unwrap(),
+        []
+    );
     assert_eq!(
         exposures
             .use_case_exposures(tenant, user)

@@ -60,7 +60,7 @@ fn build_priors_groups_sums_and_enforces_k_anonymity() {
     // k=4: only 3 distinct users -> below the floor -> not a prior, and the
     // bucket is queued for pruning so a previously-materialized row is deleted.
     let below = build_priors(rows, 4);
-    assert!(below.priors.is_empty());
+    assert_eq!(below.priors, []);
     assert_eq!(below.prune.len(), 1, "sub-K bucket is queued for prune");
 }
 

@@ -64,7 +64,7 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
     assert_eq!(server.strava.scopes, runtime.scopes);
     // Garmin's scope is fixed server-side: none is requested by default.
-    assert!(server.garmin.scopes.is_empty());
+    assert_eq!(server.garmin.scopes, [] as [String; 0]);
     assert_eq!(server.garmin.scopes, get_oauth_config("garmin").scopes);
     assert_eq!(
         server.whoop.scopes,

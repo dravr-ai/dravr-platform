@@ -345,7 +345,7 @@ async fn test_user_registration_success() -> Result<()> {
 
     let response = auth_routes.register(request).await?;
 
-    assert!(!response.user_id.is_empty());
+    assert_ne!(response.user_id, "");
     assert!(response.message.contains("successfully"));
 
     Ok(())
@@ -428,7 +428,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
     };
 
     let response = auth_routes.register(minimal_request).await?;
-    assert!(!response.user_id.is_empty());
+    assert_ne!(response.user_id, "");
 
     // Test with very long valid email
     let long_email_request = RegisterRequest {
@@ -438,7 +438,7 @@ async fn test_user_registration_edge_cases() -> Result<()> {
     };
 
     let response = auth_routes.register(long_email_request).await?;
-    assert!(!response.user_id.is_empty());
+    assert_ne!(response.user_id, "");
 
     Ok(())
 }
@@ -641,7 +641,7 @@ async fn test_user_login_success() -> Result<()> {
     let response = auth_routes.login(login_request).await?;
 
     assert!(response.jwt_token.as_ref().is_some_and(|t| !t.is_empty()));
-    assert!(!response.expires_at.is_empty());
+    assert_ne!(response.expires_at, "");
     assert_eq!(response.user.email, "login@example.com");
     assert_eq!(response.user.display_name, Some("Login User".to_owned()));
 
@@ -947,7 +947,7 @@ async fn test_token_refresh_success() -> Result<()> {
         .jwt_token
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in refresh response"))?;
-    assert!(!renewed_jwt.is_empty());
+    assert_ne!(renewed_jwt, "");
     assert_ne!(renewed_jwt, original_token, "a refresh mints a new JWT");
     // The renewed session still names the client the family was signed in to.
     let renewed_claims = common::create_test_auth_manager()
@@ -1215,8 +1215,8 @@ async fn test_oauth_get_auth_url_strava() -> Result<()> {
 
     assert!(response.authorization_url.contains("strava.com"));
     assert!(response.authorization_url.contains("authorize"));
-    assert!(!response.state.is_empty());
-    assert!(!response.instructions.is_empty());
+    assert_ne!(response.state, "");
+    assert_ne!(response.instructions, "");
     assert!(response.expires_in_minutes > 0);
 
     Ok(())
@@ -1777,13 +1777,13 @@ async fn test_complete_auth_flow() -> Result<()> {
         .await?;
 
     // Verify everything worked
-    assert!(!register_response.user_id.is_empty());
+    assert_ne!(register_response.user_id, "");
     assert!(refresh_response
         .jwt_token
         .as_ref()
         .is_some_and(|t| !t.is_empty()));
     assert!(!connections.is_empty());
-    assert!(!auth_url.authorization_url.is_empty());
+    assert_ne!(auth_url.authorization_url, "");
 
     Ok(())
 }

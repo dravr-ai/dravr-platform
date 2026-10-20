@@ -570,7 +570,7 @@ fn a_partial_fragment_collapses_but_donates_nothing() {
 
     assert_eq!(ids(&merged), vec!["ride-main"]);
     assert_eq!(merged[0].average_heart_rate(), None);
-    assert!(report.groups[0].filled_fields.is_empty());
+    assert_eq!(report.groups[0].filled_fields, []);
 }
 
 #[test]

@@ -1137,7 +1137,7 @@ personas:
             0,
             "a suppressed digest is not sent"
         );
-        assert!(sink.seen().is_empty());
+        assert_eq!(sink.seen(), [] as [String; 0]);
         assert_eq!(
             repos
                 .persona_digest_returns
@@ -1210,7 +1210,7 @@ personas:
                 .unwrap(),
             0
         );
-        assert!(sink.seen().is_empty());
+        assert_eq!(sink.seen(), [] as [String; 0]);
         assert!(
             digests_of(&service, user, tenant, NotificationEvent::PersonaDigest)
                 .await

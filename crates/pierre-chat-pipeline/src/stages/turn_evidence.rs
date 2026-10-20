@@ -120,7 +120,7 @@ mod tests {
         let system = "--- Group Coaching Context ---\n- Phil ran 4h30";
         let turn = vec![ChatMessage::system(system)];
 
-        assert!(collect_turn_evidence(&turn).is_empty());
+        assert_eq!(collect_turn_evidence(&turn), "");
     }
 
     /// A room whose prompt carries no roster section still carries its
@@ -135,7 +135,7 @@ mod tests {
         );
         let turn = vec![ChatMessage::system(system)];
 
-        assert!(collect_turn_evidence(&turn).is_empty());
+        assert_eq!(collect_turn_evidence(&turn), "");
     }
 
     /// carnet#1038: the text tool loop feeds a tool's output back as a `User`

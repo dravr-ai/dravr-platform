@@ -64,7 +64,7 @@ mod agents_tests {
     fn test_list_agents_tool_metadata() {
         let tool = ListAgentsTool;
         assert_eq!(tool.definition().name, "list_agents");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         assert_eq!(schema.schema_type, "object");
@@ -78,7 +78,7 @@ mod agents_tests {
     fn test_create_agent_tool_metadata() {
         let tool = CreateAgentTool;
         assert_eq!(tool.definition().name, "create_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -97,7 +97,7 @@ mod agents_tests {
     fn test_get_agent_tool_metadata() {
         let tool = GetAgentTool;
         assert_eq!(tool.definition().name, "get_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -115,7 +115,7 @@ mod agents_tests {
     fn test_update_agent_tool_metadata() {
         let tool = UpdateAgentTool;
         assert_eq!(tool.definition().name, "update_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -133,7 +133,7 @@ mod agents_tests {
     fn test_delete_agent_tool_metadata() {
         let tool = DeleteAgentTool;
         assert_eq!(tool.definition().name, "delete_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -151,7 +151,7 @@ mod agents_tests {
     fn test_toggle_agent_favorite_tool_metadata() {
         let tool = ToggleAgentFavoriteTool;
         assert_eq!(tool.definition().name, "toggle_agent_favorite");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -169,7 +169,7 @@ mod agents_tests {
     fn test_search_agents_tool_metadata() {
         let tool = SearchAgentsTool;
         assert_eq!(tool.definition().name, "search_agents");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -180,7 +180,7 @@ mod agents_tests {
     fn test_activate_agent_tool_metadata() {
         let tool = ActivateAgentTool;
         assert_eq!(tool.definition().name, "activate_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -198,7 +198,7 @@ mod agents_tests {
     fn test_deactivate_agent_tool_metadata() {
         let tool = DeactivateAgentTool;
         assert_eq!(tool.definition().name, "deactivate_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -209,7 +209,7 @@ mod agents_tests {
     fn test_get_active_agent_tool_metadata() {
         let tool = GetActiveAgentTool;
         assert_eq!(tool.definition().name, "get_active_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -220,7 +220,7 @@ mod agents_tests {
     fn test_hide_agent_tool_metadata() {
         let tool = HideAgentTool;
         assert_eq!(tool.definition().name, "hide_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -238,7 +238,7 @@ mod agents_tests {
     fn test_show_agent_tool_metadata() {
         let tool = ShowAgentTool;
         assert_eq!(tool.definition().name, "show_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -256,7 +256,7 @@ mod agents_tests {
     fn test_list_hidden_agents_tool_metadata() {
         let tool = ListHiddenAgentsTool;
         assert_eq!(tool.definition().name, "list_hidden_agents");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -326,7 +326,7 @@ mod configuration_tests {
     fn test_get_configuration_catalog_tool_metadata() {
         let tool = GetConfigurationCatalogTool;
         assert_eq!(tool.definition().name, "get_configuration_catalog");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -337,7 +337,7 @@ mod configuration_tests {
     fn test_get_configuration_profiles_tool_metadata() {
         let tool = GetConfigurationProfilesTool;
         assert_eq!(tool.definition().name, "get_configuration_profiles");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -348,7 +348,7 @@ mod configuration_tests {
     fn test_get_user_configuration_tool_metadata() {
         let tool = GetUserConfigurationTool;
         assert_eq!(tool.definition().name, "get_user_configuration");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -359,7 +359,7 @@ mod configuration_tests {
     fn test_update_user_configuration_tool_metadata() {
         let tool = UpdateUserConfigurationTool;
         assert_eq!(tool.definition().name, "update_user_configuration");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -370,7 +370,7 @@ mod configuration_tests {
     fn test_calculate_personalized_zones_tool_metadata() {
         let tool = CalculatePersonalizedZonesTool;
         assert_eq!(tool.definition().name, "calculate_personalized_zones");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -381,7 +381,7 @@ mod configuration_tests {
     fn test_validate_configuration_tool_metadata() {
         let tool = ValidateConfigurationTool;
         assert_eq!(tool.definition().name, "validate_configuration");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -443,7 +443,7 @@ mod fitness_config_tests {
     fn test_get_fitness_config_tool_metadata() {
         let tool = GetFitnessConfigTool;
         assert_eq!(tool.definition().name, "get_fitness_config");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -454,7 +454,7 @@ mod fitness_config_tests {
     fn test_set_fitness_config_tool_metadata() {
         let tool = SetFitnessConfigTool;
         assert_eq!(tool.definition().name, "set_fitness_config");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -465,7 +465,7 @@ mod fitness_config_tests {
     fn test_list_fitness_configs_tool_metadata() {
         let tool = ListFitnessConfigsTool;
         assert_eq!(tool.definition().name, "list_fitness_configs");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -476,7 +476,7 @@ mod fitness_config_tests {
     fn test_delete_fitness_config_tool_metadata() {
         let tool = DeleteFitnessConfigTool;
         assert_eq!(tool.definition().name, "delete_fitness_config");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -537,7 +537,7 @@ mod nutrition_tests {
     fn test_calculate_daily_nutrition_tool_metadata() {
         let tool = CalculateDailyNutritionTool;
         assert_eq!(tool.definition().name, "calculate_daily_nutrition");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -560,7 +560,7 @@ mod nutrition_tests {
     fn test_get_nutrient_timing_tool_metadata() {
         let tool = GetNutrientTimingTool;
         assert_eq!(tool.definition().name, "get_nutrient_timing");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -580,7 +580,7 @@ mod nutrition_tests {
     fn test_search_food_tool_metadata() {
         let tool = SearchFoodTool;
         assert_eq!(tool.definition().name, "search_food");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -598,7 +598,7 @@ mod nutrition_tests {
     fn test_get_food_details_tool_metadata() {
         let tool = GetFoodDetailsTool;
         assert_eq!(tool.definition().name, "get_food_details");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -616,7 +616,7 @@ mod nutrition_tests {
     fn test_analyze_meal_nutrition_tool_metadata() {
         let tool = AnalyzeMealNutritionTool;
         assert_eq!(tool.definition().name, "analyze_meal_nutrition");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -684,7 +684,7 @@ mod recipes_tests {
     fn test_get_recipe_constraints_tool_metadata() {
         let tool = GetRecipeConstraintsTool;
         assert_eq!(tool.definition().name, "get_recipe_constraints");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -695,7 +695,7 @@ mod recipes_tests {
     fn test_validate_recipe_tool_metadata() {
         let tool = ValidateRecipeTool;
         assert_eq!(tool.definition().name, "validate_recipe");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -706,7 +706,7 @@ mod recipes_tests {
     fn test_save_recipe_tool_metadata() {
         let tool = SaveRecipeTool;
         assert_eq!(tool.definition().name, "save_recipe");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -717,7 +717,7 @@ mod recipes_tests {
     fn test_list_recipes_tool_metadata() {
         let tool = ListRecipesTool;
         assert_eq!(tool.definition().name, "list_recipes");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -728,7 +728,7 @@ mod recipes_tests {
     fn test_get_recipe_tool_metadata() {
         let tool = GetRecipeTool;
         assert_eq!(tool.definition().name, "get_recipe");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -746,7 +746,7 @@ mod recipes_tests {
     fn test_delete_recipe_tool_metadata() {
         let tool = DeleteRecipeTool;
         assert_eq!(tool.definition().name, "delete_recipe");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let schema = tool_input_schema(&tool);
         let required = schema
@@ -764,7 +764,7 @@ mod recipes_tests {
     fn test_search_recipes_tool_metadata() {
         let tool = SearchRecipesTool;
         assert_eq!(tool.definition().name, "search_recipes");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -828,7 +828,7 @@ mod sleep_tests {
     fn test_analyze_sleep_quality_tool_metadata() {
         let tool = AnalyzeSleepQualityTool;
         assert_eq!(tool.definition().name, "analyze_sleep_quality");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -839,7 +839,7 @@ mod sleep_tests {
     fn test_calculate_recovery_score_tool_metadata() {
         let tool = CalculateRecoveryScoreTool;
         assert_eq!(tool.definition().name, "calculate_recovery_score");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -850,7 +850,7 @@ mod sleep_tests {
     fn test_suggest_rest_day_tool_metadata() {
         let tool = SuggestRestDayTool;
         assert_eq!(tool.definition().name, "suggest_rest_day");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -861,7 +861,7 @@ mod sleep_tests {
     fn test_track_sleep_trends_tool_metadata() {
         let tool = TrackSleepTrendsTool;
         assert_eq!(tool.definition().name, "track_sleep_trends");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -872,7 +872,7 @@ mod sleep_tests {
     fn test_optimize_sleep_schedule_tool_metadata() {
         let tool = OptimizeSleepScheduleTool;
         assert_eq!(tool.definition().name, "optimize_sleep_schedule");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -946,7 +946,7 @@ mod data_tests {
     fn test_get_activities_tool_metadata() {
         let tool = GetActivitiesTool;
         assert_eq!(tool.definition().name, "get_activities");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -957,7 +957,7 @@ mod data_tests {
     fn test_get_athlete_tool_metadata() {
         let tool = GetAthleteTool;
         assert_eq!(tool.definition().name, "get_athlete");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -968,7 +968,7 @@ mod data_tests {
     fn test_get_stats_tool_metadata() {
         let tool = GetStatsTool;
         assert_eq!(tool.definition().name, "get_stats");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1028,7 +1028,7 @@ mod analytics_tests {
     fn test_analyze_training_load_tool_metadata() {
         let tool = AnalyzeTrainingLoadTool;
         assert_eq!(tool.definition().name, "analyze_training_load");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1039,7 +1039,7 @@ mod analytics_tests {
     fn test_detect_patterns_tool_metadata() {
         let tool = DetectPatternsTool;
         assert_eq!(tool.definition().name, "detect_patterns");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         // An unknown pattern_type is refused, so the description must name
         // exactly the values the tool dispatches on.
@@ -1074,7 +1074,7 @@ mod analytics_tests {
     fn test_calculate_fitness_score_tool_metadata() {
         let tool = CalculateFitnessScoreTool;
         assert_eq!(tool.definition().name, "calculate_fitness_score");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1138,7 +1138,7 @@ mod goals_tests {
     fn test_set_goal_tool_metadata() {
         let tool = SetGoalTool;
         assert_eq!(tool.definition().name, "set_goal");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1149,7 +1149,7 @@ mod goals_tests {
     fn test_suggest_goals_tool_metadata() {
         let tool = SuggestGoalsTool;
         assert_eq!(tool.definition().name, "suggest_goals");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1160,7 +1160,7 @@ mod goals_tests {
     fn test_track_progress_tool_metadata() {
         let tool = TrackProgressTool;
         assert_eq!(tool.definition().name, "track_progress");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1171,7 +1171,7 @@ mod goals_tests {
     fn test_analyze_goal_feasibility_tool_metadata() {
         let tool = AnalyzeGoalFeasibilityTool;
         assert_eq!(tool.definition().name, "analyze_goal_feasibility");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1231,7 +1231,7 @@ mod connection_tests {
     fn test_connect_provider_tool_metadata() {
         let tool = ConnectProviderTool;
         assert_eq!(tool.definition().name, "connect_provider");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1242,7 +1242,7 @@ mod connection_tests {
     fn test_get_connection_status_tool_metadata() {
         let tool = GetConnectionStatusTool;
         assert_eq!(tool.definition().name, "get_connection_status");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1253,7 +1253,7 @@ mod connection_tests {
     fn test_disconnect_provider_tool_metadata() {
         let tool = DisconnectProviderTool;
         assert_eq!(tool.definition().name, "disconnect_provider");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1314,7 +1314,7 @@ mod admin_tests {
     fn test_admin_list_system_agents_tool_metadata() {
         let tool = AdminListSystemAgentsTool;
         assert_eq!(tool.definition().name, "admin_list_system_agents");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1325,7 +1325,7 @@ mod admin_tests {
     fn test_admin_create_system_agent_tool_metadata() {
         let tool = AdminCreateSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_create_system_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1336,7 +1336,7 @@ mod admin_tests {
     fn test_admin_get_system_agent_tool_metadata() {
         let tool = AdminGetSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_get_system_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1347,7 +1347,7 @@ mod admin_tests {
     fn test_admin_update_system_agent_tool_metadata() {
         let tool = AdminUpdateSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_update_system_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1358,7 +1358,7 @@ mod admin_tests {
     fn test_admin_delete_system_agent_tool_metadata() {
         let tool = AdminDeleteSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_delete_system_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1369,7 +1369,7 @@ mod admin_tests {
     fn test_admin_assign_agent_tool_metadata() {
         let tool = AdminAssignAgentTool;
         assert_eq!(tool.definition().name, "admin_assign_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1380,7 +1380,7 @@ mod admin_tests {
     fn test_admin_unassign_agent_tool_metadata() {
         let tool = AdminUnassignAgentTool;
         assert_eq!(tool.definition().name, "admin_unassign_agent");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));
@@ -1391,7 +1391,7 @@ mod admin_tests {
     fn test_admin_list_agent_assignments_tool_metadata() {
         let tool = AdminListAgentAssignmentsTool;
         assert_eq!(tool.definition().name, "admin_list_agent_assignments");
-        assert!(!tool.definition().description.is_empty());
+        assert_ne!(tool.definition().description, "");
 
         let caps = tool.capabilities();
         assert!(caps.contains(ToolCapabilities::REQUIRES_AUTH));

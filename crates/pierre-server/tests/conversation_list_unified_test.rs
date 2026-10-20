@@ -440,7 +440,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
         120,
         "cut at 120 characters"
     );
-    assert!(!preview.created_at.is_empty());
+    assert_ne!(preview.created_at, "");
 
     let group_row = &page.conversations[1];
     assert_eq!(

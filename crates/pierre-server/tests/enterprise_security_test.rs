@@ -80,7 +80,7 @@ async fn test_enterprise_security_model() -> Result<()> {
         },
         &jwks_manager,
     )?;
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
 
     println!("Enterprise security model is properly implemented");
     println!("Admin token system is functional");

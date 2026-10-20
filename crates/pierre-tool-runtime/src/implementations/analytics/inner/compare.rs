@@ -614,7 +614,6 @@ fn calculate_average_elevation(activities: &[&Activity]) -> Option<f64> {
 }
 
 /// Handle `compare_activities` tool - compare two activities
-#[must_use]
 pub fn handle_compare_activities(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

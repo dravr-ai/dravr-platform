@@ -129,7 +129,7 @@ async fn test_browse_store_empty() {
     assert!(result.agents.is_empty());
     assert!(!result.has_more);
     assert!(result.next_cursor.is_none());
-    assert!(!result.metadata.timestamp.is_empty());
+    assert_ne!(result.metadata.timestamp, "");
     assert_eq!(result.metadata.api_version, "1.0");
 }
 
@@ -739,7 +739,7 @@ async fn test_get_agent_detail() {
     let detail: StoreAgentDetail = response.json();
     assert_eq!(detail.agent.title, "Detail Test Coach");
     assert_eq!(detail.publish_status, PublishStatus::Published);
-    assert!(!detail.system_prompt.is_empty());
+    assert_ne!(detail.system_prompt, "");
 }
 
 #[tokio::test]

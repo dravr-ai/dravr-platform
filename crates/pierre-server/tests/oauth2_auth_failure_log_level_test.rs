@@ -500,7 +500,7 @@ async fn an_authorize_state_carrying_a_control_character_goes_back_to_the_client
         .check_authorize_request(&authorize_request(&client.client_id, "state-1"))
         .await
         .unwrap();
-    assert!(!scope.scope.is_empty());
+    assert_ne!(scope.scope, "");
 }
 
 // ── Dynamic registration ─────────────────────────────────────────────────────
@@ -710,7 +710,7 @@ async fn a_reused_authorization_state_is_refused_as_the_clients_mistake() {
         )
         .await
         .unwrap();
-    assert!(!first.code.is_empty());
+    assert_ne!(first.code, "");
 
     let captured = Captured::start();
     let refused = fixture

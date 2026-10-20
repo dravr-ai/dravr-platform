@@ -782,7 +782,7 @@ mod tests {
         only.reverse();
         let route = compose(&[stretch("Solo", &only)], false).unwrap();
         assert_eq!(route.coordinates, only);
-        assert!(route.joins_meters.is_empty());
+        assert_eq!(route.joins_meters, [] as [f64; 0]);
         assert_near(route.length_meters, 1_000.0, "length");
     }
 

@@ -36,7 +36,7 @@ fn test_new_registry_is_empty() {
     let registry = ChannelRegistry::new();
     assert!(registry.is_empty());
     assert_eq!(registry.len(), 0);
-    assert!(registry.registered_channels().is_empty());
+    assert_eq!(registry.registered_channels(), []);
 }
 
 #[test]

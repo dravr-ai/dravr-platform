@@ -212,7 +212,9 @@ impl ConfigValidator {
                     // Calculate relative change (guard against zero default)
                     if default_value != 0.0 {
                         let relative_change = (new_value - default_value) / default_value;
-                        impact.effort_score_change += relative_change * 10.0; // Scale for visibility
+                        // Scale for visibility
+                        impact.effort_score_change =
+                            relative_change.mul_add(10.0, impact.effort_score_change);
                     }
                 }
             }

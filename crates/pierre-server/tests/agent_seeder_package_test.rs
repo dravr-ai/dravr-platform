@@ -150,7 +150,7 @@ async fn the_package_beside_the_prompt_is_stored_and_published_with_the_agent() 
         ]
     );
     let bare = agent_id(&repos, BARE, tenant).await;
-    assert!(kinds_and_slugs(&repos, tenant, &bare).await.is_empty());
+    assert_eq!(kinds_and_slugs(&repos, tenant, &bare).await, []);
 
     // The seeder publishes catalogue agents, so the package resolves at once.
     let package = load_agent_package(&repos, tenant, admin, Some(&packaged))
@@ -196,7 +196,7 @@ async fn a_file_removed_from_the_checkout_leaves_the_database_on_the_next_seed()
     )
     .unwrap();
     assert!(seed(&repos, checkout.path(), false).await);
-    assert!(kinds_and_slugs(&repos, tenant, &packaged).await.is_empty());
+    assert_eq!(kinds_and_slugs(&repos, tenant, &packaged).await, []);
 }
 
 #[tokio::test]

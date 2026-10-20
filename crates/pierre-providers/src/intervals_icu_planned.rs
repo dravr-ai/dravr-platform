@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(ride.planned_duration_seconds(), Some(3600));
         assert_eq!(ride.planned_distance_meters(), Some(30000.0));
         assert_eq!(ride.completed_activity_id(), Some("i101"));
-        assert!(ride.steps().is_empty());
+        assert_eq!(ride.steps(), []);
         assert_eq!(ride.start_time(), None);
         assert_eq!(
             ride.planned_training_stress_score(),

@@ -484,10 +484,13 @@ async fn a_coach_reads_only_the_replies_to_the_athletes_who_share_with_them() {
     assert_eq!(first["verdicts"].as_array().unwrap().len(), 3);
     assert_eq!(first["unmatched_figures"], 1);
     assert_eq!(page["replies"][0]["unmatched_figures"], 0);
-    assert!(page["replies"][0]["verdicts"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        page["replies"][0]["verdicts"]
+            .as_array()
+            .unwrap()
+            .as_slice(),
+        [] as [Value; 0]
+    );
 
     // Dana, in the same tenant, reads only Eve's reply; Finn only Gus's.
     let (_, dana_page) = get(&w.router, "/api/coach/replies", &w.dana.auth).await;
@@ -498,8 +501,14 @@ async fn a_coach_reads_only_the_replies_to_the_athletes_who_share_with_them() {
     // An athlete coaches nothing: an empty page, no replies at all.
     let (status, alex_page) = get(&w.router, "/api/coach/replies", &w.alex.auth).await;
     assert_eq!(status, 200);
-    assert!(alex_page["replies"].as_array().unwrap().is_empty());
-    assert!(alex_page["groups"].as_array().unwrap().is_empty());
+    assert_eq!(
+        alex_page["replies"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
+    assert_eq!(
+        alex_page["groups"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 }
 
 #[tokio::test]
@@ -537,7 +546,10 @@ async fn the_page_narrows_by_athlete_and_pages_back() {
         &w.casey.auth,
     )
     .await;
-    assert!(none["replies"].as_array().unwrap().is_empty());
+    assert_eq!(
+        none["replies"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 
     // A cursor naming a reply outside Casey's groups is no position in her
     // review: tenant B's reply, written after Alex's first, pages nothing.
@@ -548,7 +560,10 @@ async fn the_page_narrows_by_athlete_and_pages_back() {
     )
     .await;
     assert_eq!(status, 200);
-    assert!(foreign_cursor["replies"].as_array().unwrap().is_empty());
+    assert_eq!(
+        foreign_cursor["replies"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 
     let (status, _) = get(
         &w.router,
@@ -663,7 +678,10 @@ async fn a_flag_stays_with_the_coach_and_a_correction_reaches_the_athletes_threa
     assert_eq!(row["flags"][0]["note"], FLAG_NOTE);
     assert_eq!(row["corrections"][0]["content"], CORRECTION);
     // The other replies carry none.
-    assert!(page["replies"][0]["flags"].as_array().unwrap().is_empty());
+    assert_eq!(
+        page["replies"][0]["flags"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 
     // Alex reads the room: the correction is there, linked to the reply it
     // corrects, and the flag is nowhere.

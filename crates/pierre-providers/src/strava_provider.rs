@@ -395,7 +395,7 @@ impl StravaProvider {
             keep_timed(s.data, &recorded)
                 .into_iter()
                 .flatten()
-                .map(|pair| (pair[0], pair[1]))
+                .map(<(f64, f64)>::from)
                 .collect()
         });
         let heart_rate = set.heartrate.map(|s| keep_timed(s.data, &recorded));

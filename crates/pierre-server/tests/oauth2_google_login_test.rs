@@ -997,7 +997,7 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
         .await;
     refused_without_session(&callback);
 
-    assert!(f.google.token_requests().is_empty());
+    assert_eq!(f.google.token_requests(), []);
 }
 
 // ── I: account status ────────────────────────────────────────────────────────
@@ -1070,7 +1070,7 @@ async fn a_cancelled_chooser_returns_to_the_login_page() {
     );
     assert!(clears_transaction(&cancelled));
     assert!(session(&cancelled).is_none());
-    assert!(f.google.token_requests().is_empty());
+    assert_eq!(f.google.token_requests(), []);
 
     // Google's error under a state this browser did not start builds nothing.
     let forged = f

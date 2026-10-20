@@ -321,7 +321,7 @@ mod tests {
             None,
         )];
         let volume = volume_from_sessions(today(), zone, &sessions, VolumeCoverage::Whole);
-        assert!(volume.weeks[11].sports.is_empty());
+        assert_eq!(volume.weeks[11].sports, []);
         assert_eq!(volume.weeks[10].sports.len(), 1);
     }
 
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn nothing_stored_answers_no_weeks() {
         let volume = volume_from_sessions(today(), Tz::UTC, &[], VolumeCoverage::Nothing);
-        assert!(volume.weeks.is_empty());
+        assert_eq!(volume.weeks, []);
     }
 
     #[test]

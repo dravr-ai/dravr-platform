@@ -1210,12 +1210,14 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
     assert!(stub.received().is_empty(), "nothing is revocable here");
 
     assert!(repos.users.get_global(user_id).await.unwrap().is_none());
-    assert!(repos
-        .oauth_tokens
-        .list_token_providers(user_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .oauth_tokens
+            .list_token_providers(user_id)
+            .await
+            .unwrap(),
+        []
+    );
     assert!(repos
         .provider_connections
         .get_for_user(user_id, None)
@@ -1228,12 +1230,14 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
         .await
         .unwrap()
         .is_none());
-    assert!(repos
-        .user_onboarding
-        .get_onboarding_steps(&user_id.to_string())
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .user_onboarding
+            .get_onboarding_steps(&user_id.to_string())
+            .await
+            .unwrap(),
+        []
+    );
     assert_eq!(
         repos.short_links.resolve_short_link(&code).await.unwrap(),
         None
@@ -1872,12 +1876,14 @@ async fn delete_clears_a_users_messaging_history() {
         assert_eq!(rows_removed[table], 1, "{table} is cleared: {body}");
     }
     assert!(repos.users.get_global(user_id).await.unwrap().is_none());
-    assert!(repos
-        .messaging
-        .get_session_messages(&session_id, tenant_id, 10, 0)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .messaging
+            .get_session_messages(&session_id, tenant_id, 10, 0)
+            .await
+            .unwrap(),
+        [] as [Value; 0]
+    );
 }
 
 /// An agent its author shares with the tenant, or one another user talks to,
@@ -2439,12 +2445,14 @@ fn the_reference_gate_follows_cascades_from_cleared_tables_and_reads_columns() {
         ),
         vec!["message_marks.message_id -> chat_messages".to_owned()]
     );
-    assert!(unhandled_references(
-        &behind_a_cascade,
-        &["message_marks", "chat_conversations"],
-        DELETION_BLOCKERS_SQL
-    )
-    .is_empty());
+    assert_eq!(
+        unhandled_references(
+            &behind_a_cascade,
+            &["message_marks", "chat_conversations"],
+            DELETION_BLOCKERS_SQL
+        ),
+        [] as [String; 0]
+    );
 
     // The blockers read chat_conversations for its agent, not for any other
     // column: a second reference from it is not refused by that read.
@@ -2881,12 +2889,14 @@ async fn reset_onboarding_clears_what_onboarding_wrote_and_leaves_groups_alone()
         .is_empty());
 
     // Onboarding reads as never walked.
-    assert!(repos
-        .user_onboarding
-        .get_onboarding_steps(&user_id.to_string())
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .user_onboarding
+            .get_onboarding_steps(&user_id.to_string())
+            .await
+            .unwrap(),
+        []
+    );
     assert_eq!(
         facts_of(repos, user_id, tenant_id).await,
         vec![FactKind::Goal]
@@ -2989,7 +2999,7 @@ async fn reset_with_memory_deletes_every_fact_and_only_the_users_own_threads() {
         ]),
         "{body}"
     );
-    assert!(facts_of(repos, user_id, tenant_id).await.is_empty());
+    assert_eq!(facts_of(repos, user_id, tenant_id).await, []);
 
     let user = user_id.to_string();
     for own in [&personal, &phone] {
@@ -3059,12 +3069,14 @@ async fn reset_keeps_trainingpeaks_because_groups_ride_on_it() {
         .map(|c| c.provider)
         .collect();
     assert_eq!(left, vec!["sciotte_trainingpeaks".to_owned()]);
-    assert!(repos
-        .user_onboarding
-        .get_onboarding_steps(&user_id.to_string())
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .user_onboarding
+            .get_onboarding_steps(&user_id.to_string())
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 /// Intervals.icu is a coaching platform too: a coach's key is what their

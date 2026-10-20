@@ -446,7 +446,6 @@ fn calculate_trend(activities: &[Activity]) -> &'static str {
 /// - `provider` (optional): Activity provider (default: configured default)
 /// - `sleep_provider` (optional): Sleep/recovery provider for cross-provider analysis
 /// - `timeframe` (optional): `month` (default), `quarter`, `year`, or `all_time`
-#[must_use]
 pub fn handle_calculate_fitness_score(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

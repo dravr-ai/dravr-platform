@@ -629,8 +629,8 @@ mod tests {
 
     #[test]
     fn relay_rule_then_origin_rule() {
-        assert!(rules_for(&Lookup, "garmin", None).is_empty());
-        assert!(rules_for(&Lookup, "nolio", Some("garmin")).is_empty());
+        assert_eq!(rules_for(&Lookup, "garmin", None), []);
+        assert_eq!(rules_for(&Lookup, "nolio", Some("garmin")), []);
         assert_eq!(rules_for(&Lookup, "nolio", Some("ZEPP")), vec![AiUse::Deny]);
         assert_eq!(
             rules_for(&Lookup, "nolio", Some("whoop")),
@@ -643,7 +643,7 @@ mod tests {
             rules_for(&Lookup, "whoop", Some("whoop")),
             vec![AiUse::Redact(&["recovery_score"])]
         );
-        assert!(rules_for(&Lookup, "unknown", Some("other")).is_empty());
+        assert_eq!(rules_for(&Lookup, "unknown", Some("other")), []);
     }
 
     #[test]

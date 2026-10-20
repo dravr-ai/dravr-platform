@@ -668,7 +668,7 @@ async fn an_ended_link_reads_nothing(w: &World, link: &str) {
         .await
         .err()
         .expect("an ended link reads nothing");
-    assert!(!refused.is_empty());
+    assert_ne!(refused, "");
     assert_eq!(w.seen.built(), built, "nothing was built: {refused}");
 }
 

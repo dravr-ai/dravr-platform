@@ -336,7 +336,7 @@ async fn a_fresh_whatsapp_window_delivers() {
         reporter.report(&commitment).await.as_deref(),
         Some("whatsapp")
     );
-    assert!(!sent_body(&channel).is_empty());
+    assert_ne!(sent_body(&channel), "");
 }
 
 #[tokio::test]

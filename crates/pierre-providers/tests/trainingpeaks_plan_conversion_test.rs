@@ -631,7 +631,7 @@ fn a_day_off_is_a_plan_with_no_steps() {
         workout.sport_type(),
         &SportType::Other("Day Off".to_owned())
     );
-    assert!(workout.steps().is_empty());
+    assert_eq!(workout.steps(), []);
     assert_eq!(workout.description(), Some("Rest. Sleep in if you can."));
     assert_eq!(workout.planned_duration_seconds(), None);
 }

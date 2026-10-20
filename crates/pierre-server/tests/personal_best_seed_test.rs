@@ -691,7 +691,7 @@ async fn no_record_is_told_while_the_walk_is_incomplete() {
     assert_eq!(mock.streams_hits(403), 1, "the walk skips a synced run");
     assert!(walk_complete(&resources, &athlete).await);
     assert_eq!(stored_5k(&resources, &athlete).await, Some(1350.0));
-    assert!(record_notices(&resources, &athlete).await.is_empty());
+    assert_eq!(record_notices(&resources, &athlete).await, []);
 }
 
 /// Once the walk is complete, a synced run faster than the last weeks but
@@ -713,7 +713,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
     walk_to_completion(&resources).await;
     assert!(walk_complete(&resources, &athlete).await);
     assert_eq!(stored_5k(&resources, &athlete).await, Some(1400.0));
-    assert!(record_notices(&resources, &athlete).await.is_empty());
+    assert_eq!(record_notices(&resources, &athlete).await, []);
 
     let recent_best = run(503, 1, 290);
     mock.upload(&athlete.token, recent_best);

@@ -65,13 +65,13 @@ fn inbound_message_webhook_yields_no_statuses() {
     let body = br#"{"entry":[{"changes":[{"value":{"messages":[
         {"id":"wamid.in","from":"14502244753","text":{"body":"salut"}}
     ]}}]}]}"#;
-    assert!(parse_whatsapp_delivery_statuses(body).is_empty());
+    assert_eq!(parse_whatsapp_delivery_statuses(body), []);
 }
 
 #[test]
 fn unparseable_body_yields_no_statuses() {
-    assert!(parse_whatsapp_delivery_statuses(b"not json").is_empty());
-    assert!(parse_whatsapp_delivery_statuses(b"{}").is_empty());
+    assert_eq!(parse_whatsapp_delivery_statuses(b"not json"), []);
+    assert_eq!(parse_whatsapp_delivery_statuses(b"{}"), []);
 }
 
 #[test]

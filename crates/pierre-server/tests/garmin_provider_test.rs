@@ -186,7 +186,7 @@ fn test_garmin_provider_scopes() {
     ensure_http_clients_initialized();
     let provider = GarminProvider::new();
     // Garmin's scope is fixed server-side: the provider requests none.
-    assert!(provider.config().default_scopes.is_empty());
+    assert_eq!(provider.config().default_scopes, [] as [String; 0]);
 }
 
 #[test]

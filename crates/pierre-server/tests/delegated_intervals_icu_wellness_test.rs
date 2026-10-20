@@ -1130,7 +1130,7 @@ async fn an_athlete_off_the_coach_roster_ends_the_link_and_syncs_nothing() {
 
     w.pass(Utc::now().timestamp_millis()).await;
     assert_eq!(w.api.roster_reads(), 1);
-    assert!(w.api.wellness_reads().is_empty());
+    assert_eq!(w.api.wellness_reads(), [] as [String; 0]);
     assert_eq!(w.rows(&member, member.tenant).await, NO_ROWS);
     let ended = w.stored_link(link.id).await;
     assert_eq!(ended.status, DelegationStatus::Revoked);
@@ -1343,7 +1343,7 @@ async fn the_decision_holds_each_exclusion_when_the_sync_asks() {
     assert!(credentials.refresh_token.is_none());
     assert!(credentials.request_gate.is_some(), "the coach key's budget");
     assert_eq!(w.api.roster_reads(), 1);
-    assert!(w.api.wellness_reads().is_empty());
+    assert_eq!(w.api.wellness_reads(), [] as [String; 0]);
 
     repos
         .delegated_connections

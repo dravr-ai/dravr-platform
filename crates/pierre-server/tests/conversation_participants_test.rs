@@ -178,7 +178,7 @@ async fn test_owner_is_written_as_a_participant_on_create() {
     assert_eq!(participants.len(), 1);
     assert_eq!(participants[0].role, ParticipantRole::Owner);
     assert_eq!(participants[0].user_id, participants[0].added_by);
-    assert!(!participants[0].added_at.is_empty());
+    assert_ne!(participants[0].added_at, "");
 }
 
 #[tokio::test]
@@ -236,7 +236,7 @@ async fn test_added_member_reads_lists_renames_and_posts() {
     assert_eq!(resp.status_code(), StatusCode::OK);
     let turn: TurnResponse = resp.json();
     assert_eq!(turn.assistant.finish_reason.as_deref(), Some("command"));
-    assert!(!turn.assistant.message.content.is_empty());
+    assert_ne!(turn.assistant.message.content, "");
 
     // Read the messages and rename the thread.
     let resp = AxumTestRequest::get(&format!("/api/chat/conversations/{}/messages", conv.id))

@@ -448,7 +448,7 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
     .await;
     assert_eq!(f.status("sciotte_garmin").await, ConnectionStatus::Active);
     assert!(f.chat().is_empty(), "nothing reaches a reconnected athlete");
-    assert!(f.app_notices().await.is_empty());
+    assert_eq!(f.app_notices().await, []);
 
     backfill_session_expired(
         &f.runtime,

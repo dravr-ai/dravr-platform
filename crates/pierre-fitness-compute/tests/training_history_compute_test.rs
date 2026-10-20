@@ -81,7 +81,7 @@ fn inverted_window_returns_no_rows() {
         None,
     )
     .expect("training-load series");
-    assert!(rows.is_empty());
+    assert_eq!(rows, []);
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn oversize_window_returns_no_rows() {
     let to = from + Duration::days(MAX_BACKFILL_DAYS + 1);
     let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos(), None)
         .expect("training-load series");
-    assert!(rows.is_empty());
+    assert_eq!(rows, []);
 }
 
 #[test]

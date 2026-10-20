@@ -280,7 +280,7 @@ mod delivered {
             instance.resources.common.turns.is_empty(),
             "the webhook must not spawn the turn when a queue delivers it"
         );
-        assert!(instance.replies().await.is_empty());
+        assert_eq!(instance.replies().await, [] as [String; 0]);
     }
 
     #[tokio::test(flavor = "multi_thread")]

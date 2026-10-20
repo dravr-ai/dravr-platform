@@ -831,7 +831,7 @@ async fn test_list_workout_templates_filters_by_phase() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let rows = list_templates(&executor, user_id, &tenant, json!({ "phase": "taper" })).await?;
-    assert!(!rows.is_empty());
+    assert_ne!(rows, [] as [Value; 0]);
     for row in &rows {
         let phases: Vec<&str> = row["fit"]["phases"]
             .as_array()

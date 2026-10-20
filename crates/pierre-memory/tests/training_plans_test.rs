@@ -99,7 +99,7 @@ fn rest_day_detection_and_optional_fields() {
     // duration_min: None must not serialize a null (schema hygiene for
     // the LLM-facing tool payloads).
     let json = serde_json::to_string(&rest).unwrap_or_default();
-    assert!(!json.is_empty());
+    assert_ne!(json, "");
     assert!(!json.contains("duration_min"));
 
     let ride = serde_json::from_str::<PlannedDay>(

@@ -491,7 +491,7 @@ async fn catalogue_fields_written_at_default_read_back_as_default() {
         .expect("the row exists");
 
     assert_eq!(row.purpose, WorkoutPurpose::Endurance);
-    assert!(row.sport_variants.is_empty());
+    assert_eq!(row.sport_variants, []);
     assert_eq!(row.evidence_tier, EvidenceTier::CoachJudgement);
     assert_eq!(row.caveat, None);
     assert_eq!(row.params, WorkoutParams::default());
@@ -499,7 +499,7 @@ async fn catalogue_fields_written_at_default_read_back_as_default() {
     assert_eq!(row.fit, PhaseFit::default());
     assert_eq!(row.fit.readiness_min, ReadinessLevel::P2);
     assert_eq!(row.fit.max_per_week, 7);
-    assert!(row.evidence_refs.is_empty());
+    assert_eq!(row.evidence_refs, [] as [String; 0]);
 }
 
 #[tokio::test]

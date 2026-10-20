@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn an_entry_no_read_could_address_is_left_off_the_roster() {
         let roster = coach_roster("i1", vec![entry("../i2", Some("Odd"), None)]);
-        assert!(roster.athletes.is_empty());
+        assert_eq!(roster.athletes, []);
         assert!(roster.account_email.is_none());
     }
 

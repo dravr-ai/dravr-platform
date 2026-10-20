@@ -194,7 +194,7 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
         &FuelingDisclosure::Shown,
     )
     .unwrap();
-    assert!(prose.steps.is_empty());
+    assert_eq!(prose.steps, []);
     assert_eq!(prose.duration_seconds, Some(3600));
     assert_eq!(prose.name, "Intervals", "the title is the first clause");
 
@@ -206,7 +206,7 @@ fn a_zoned_day_becomes_one_timed_step_and_a_prose_day_stays_prose() {
         &FuelingDisclosure::Shown,
     )
     .unwrap();
-    assert!(untimed.steps.is_empty());
+    assert_eq!(untimed.steps, []);
     assert_eq!(untimed.duration_seconds, None);
     assert!(plan_day_session(user, &rest("2026-09-10"), 0, &FuelingDisclosure::Shown).is_none());
 }

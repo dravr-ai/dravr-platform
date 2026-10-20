@@ -1470,7 +1470,7 @@ async fn a_future_window_or_an_empty_plan_spends_no_pairing_request() {
         .await
         .expect("an empty calendar reads");
     stub.await.expect("stub task joins");
-    assert!(planned.is_empty());
+    assert_eq!(planned, []);
 }
 
 #[tokio::test]

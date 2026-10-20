@@ -633,7 +633,7 @@ async fn posting_rejected_credentials_reshows_the_form_and_stores_nothing() {
     );
 
     assert!(stored_token(&fixture).await.is_none(), "nothing is stored");
-    assert!(intervals_connections(&fixture).await.is_empty());
+    assert_eq!(intervals_connections(&fixture).await, []);
 
     stub.await.expect("stub task joins");
     let lines = logs.lock().unwrap();
@@ -704,7 +704,7 @@ async fn posting_with_a_bad_token_is_rejected_and_stores_nothing() {
     }
 
     assert!(stored_token(&fixture).await.is_none(), "nothing is stored");
-    assert!(intervals_connections(&fixture).await.is_empty());
+    assert_eq!(intervals_connections(&fixture).await, []);
     assert!(!stub.is_finished(), "Intervals.icu is never called");
     stub.abort();
 }

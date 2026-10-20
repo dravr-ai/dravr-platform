@@ -363,7 +363,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     };
 
     let register_response = auth_routes.register(register_request).await?;
-    assert!(!register_response.user_id.is_empty());
+    assert_ne!(register_response.user_id, "");
     assert_eq!(
         register_response.message,
         "User registered successfully. Your account is pending admin approval."

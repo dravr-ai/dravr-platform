@@ -870,7 +870,7 @@ async fn test_version_has_content_hash() {
         .unwrap();
 
     // Content hash should be non-empty
-    assert!(!version.content_hash.is_empty());
+    assert_ne!(version.content_hash, "");
     // Content hash should be hex string
     assert!(version.content_hash.chars().all(|c| c.is_ascii_hexdigit()));
 }

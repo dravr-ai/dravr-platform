@@ -21,11 +21,11 @@ same run, and cargo fails once at the end. Only a hard error — a compile
 failure or a lint the workspace sets to ``deny`` — still blocks a dependent,
 and that is what this report names.
 
-Cargo 1.98 does not apply ``build.warnings`` to its exit status when the
-output is ``--message-format=json``: the run exits 0 over any number of
-warnings, while the same run in human format exits 101. This wrapper reads the
-JSON stream, so it enforces the setting itself — a warning from a workspace
-package fails the run whatever status cargo returns.
+Cargo (1.98 and 1.99 alike) does not apply ``build.warnings`` to its exit
+status when the output is ``--message-format=json``: the run exits 0 over any
+number of warnings, while the same run in human format exits 101. This wrapper
+reads the JSON stream, so it enforces the setting itself — a warning from a
+workspace package fails the run whatever status cargo returns.
 
 That reading cost three sessions an evening on 2026-08-26. A single
 ``too_long_first_doc_paragraph`` in ``pierre-services`` was the only error the

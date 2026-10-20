@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn an_interrupted_head_carries_no_answer() {
         let interrupted: ToolLoopResult = tally(&["get_activities"], None, "w").interrupted(None);
-        assert!(interrupted.content.is_empty());
+        assert_eq!(interrupted.content, "");
         assert!(interrupted.finish_reason.is_none());
         assert_eq!(interrupted.tools_called, ["get_activities"]);
     }

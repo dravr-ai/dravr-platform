@@ -171,7 +171,7 @@ async fn test_agent_card_discovery_route() {
     let card: serde_json::Value = response.json();
     assert_eq!(card["name"], "Dravr AI");
     let interfaces = card["supportedInterfaces"].as_array().unwrap();
-    assert!(!interfaces.is_empty());
+    assert_ne!(interfaces.as_slice(), [] as [serde_json::Value; 0]);
     assert_eq!(interfaces[0]["protocolBinding"], "JSONRPC");
     assert_eq!(interfaces[0]["protocolVersion"], "1.0");
     assert_eq!(card["capabilities"]["streaming"], true);

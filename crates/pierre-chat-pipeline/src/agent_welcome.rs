@@ -677,7 +677,7 @@ mod tests {
         let after_two_ranked = example_starters(&authored, 2, 1);
         assert_eq!(labels(&after_two_ranked), ["One?"]);
         assert_eq!(after_two_ranked[0].postback.encode(), "ex:2:0");
-        assert!(example_starters(&authored, 3, 0).is_empty());
+        assert_eq!(example_starters(&authored, 3, 0), []);
     }
 
     #[test]
@@ -739,9 +739,9 @@ mod tests {
     fn no_starters_means_no_actions_and_no_title() {
         let text =
             WelcomeText::compose(&templates(), "Agent", Some("Role."), None, examples(&[" "]));
-        assert!(text.starters.is_empty());
+        assert_eq!(text.starters, []);
         assert!(text.starters_title.is_none());
-        assert!(text.actions().is_empty());
+        assert_eq!(text.actions(), []);
         assert_eq!(
             actions_content_blocks(None, &text.actions()).ok().flatten(),
             None

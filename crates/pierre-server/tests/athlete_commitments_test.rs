@@ -205,12 +205,14 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
         .await
         .unwrap());
 
-    assert!(repos
-        .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .commitments
+            .due_commitments(Utc::now().timestamp(), 50)
+            .await
+            .unwrap(),
+        []
+    );
 
     let pending = repos.commitments.unreported_commitments(50).await.unwrap();
     assert_eq!(pending.len(), 1);
@@ -305,12 +307,10 @@ async fn reporting_is_single_shot_and_recorded() {
         "a second reporter pass over the same row delivers nothing"
     );
 
-    assert!(repos
-        .commitments
-        .unreported_commitments(50)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos.commitments.unreported_commitments(50).await.unwrap(),
+        []
+    );
     assert_eq!(
         repos
             .commitments
@@ -345,18 +345,22 @@ async fn cancelling_removes_it_from_every_scan() {
         "double-cancel returns false"
     );
 
-    assert!(repos
-        .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
-        .await
-        .unwrap()
-        .is_empty());
-    assert!(repos
-        .commitments
-        .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .commitments
+            .due_commitments(Utc::now().timestamp(), 50)
+            .await
+            .unwrap(),
+        []
+    );
+    assert_eq!(
+        repos
+            .commitments
+            .list_open_commitments("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -384,12 +388,10 @@ async fn expiring_closes_a_verdict_that_never_landed() {
         .expire_commitment("t1", &c.id)
         .await
         .unwrap());
-    assert!(repos
-        .commitments
-        .unreported_commitments(50)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos.commitments.unreported_commitments(50).await.unwrap(),
+        []
+    );
     assert!(
         repos
             .commitments
@@ -433,12 +435,14 @@ async fn every_write_is_tenant_scoped() {
         .await
         .unwrap());
 
-    assert!(repos
-        .commitments
-        .list_open_commitments("t2", "u1", 10, TransportPolicy::FirstPartyOnly)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .commitments
+            .list_open_commitments("t2", "u1", 10, TransportPolicy::FirstPartyOnly)
+            .await
+            .unwrap(),
+        []
+    );
     assert_eq!(
         repos
             .commitments

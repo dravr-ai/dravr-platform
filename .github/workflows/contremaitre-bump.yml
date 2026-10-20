@@ -73,7 +73,7 @@ jobs:
 
       # Everything below runs only when the pin moves, so the ten-minute poll
       # pays one API call and no toolchain when contremaitre has not moved.
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.99.1
         if: steps.target.outputs.move == 'true'
 
       - name: Configure auth for private git deps

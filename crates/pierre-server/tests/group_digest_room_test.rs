@@ -552,7 +552,7 @@ mod group_digest_room_tests {
             posts[0].2, "-100222",
             "the off group's chat is never posted to"
         );
-        assert!(h.sink.recipients().is_empty());
+        assert_eq!(h.sink.recipients(), [] as [Uuid; 0]);
         for person in [quiet_owner, quiet_member] {
             assert!(
                 h.digest_rows(person, tenant).await.is_empty(),
@@ -630,7 +630,7 @@ mod group_digest_room_tests {
                 rows[0]
             );
         }
-        assert!(h.digest_rows(member, tenant).await.is_empty());
+        assert_eq!(h.digest_rows(member, tenant).await, [] as [String; 0]);
     }
 
     /// A group with no chat, or bound where a proactive message bounces, keeps
@@ -771,7 +771,7 @@ mod group_digest_room_tests {
 
         let before = next_monday_utc(11, 59);
         assert_eq!(h.tick(before).await.groups_reported, 0);
-        assert!(h.poster.posts().is_empty());
+        assert_eq!(h.poster.posts(), []);
 
         let noon = next_monday_utc(12, 0);
         assert_eq!(h.tick(noon).await.room_posts, 1);

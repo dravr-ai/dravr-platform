@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn a_digit_inside_a_word_is_not_a_figure() {
-        assert!(lower_figures("your vo2max is fine").is_empty());
+        assert_eq!(lower_figures("your vo2max is fine"), []);
     }
 
     #[test]

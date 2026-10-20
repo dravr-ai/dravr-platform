@@ -317,7 +317,7 @@ async fn test_list_tenants_success() {
     let body: serde_json::Value = response.json();
     assert!(body["tenants"].is_array());
     let tenants = body["tenants"].as_array().unwrap();
-    assert!(!tenants.is_empty());
+    assert_ne!(tenants.as_slice(), [] as [serde_json::Value; 0]);
 
     // Verify tenant structure
     assert!(tenants[0]["tenant_id"].is_string());

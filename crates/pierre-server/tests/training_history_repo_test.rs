@@ -338,5 +338,5 @@ async fn empty_history_returns_no_rows() {
         )
         .await
         .expect("read");
-    assert!(latest.is_empty());
+    assert_eq!(latest, []);
 }

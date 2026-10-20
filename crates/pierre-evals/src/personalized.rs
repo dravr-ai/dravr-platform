@@ -820,7 +820,7 @@ fn parse_first_pace(s: &str) -> Option<f64> {
 fn fmt_pace(sec_per_km: f64) -> String {
     let total = sec_per_km.max(0.0).round();
     let minutes = (total / 60.0).floor();
-    let seconds = total - minutes * 60.0;
+    let seconds = total % 60.0;
     format!("{minutes:.0}:{seconds:02.0}/km")
 }
 

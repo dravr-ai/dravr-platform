@@ -218,7 +218,7 @@ async fn test_user_model_comprehensive() -> Result<()> {
         // Test password hashing (should not be plaintext)
         assert_ne!(user.password_hash, password);
         assert_eq!(user.password_hash, password_hash);
-        assert!(!user.password_hash.is_empty());
+        assert_ne!(user.password_hash, "");
     }
 
     Ok(())

@@ -310,7 +310,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
         weeks[0].days[1].steps, days[1].steps,
         "every step field survives the days_json column"
     );
-    assert!(weeks[0].days[2].steps.is_empty());
+    assert_eq!(weeks[0].days[2].steps, []);
 
     // A row stored before the field existed carries no `steps` key; it reads
     // back as a day with none, not as a deserialization failure — and a
@@ -319,7 +319,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
     let stored: PlannedDay = serde_json::from_str(
         r#"{"date":"2026-07-14","sport":"gravel","workout":"tempo 3x8min","duration_min":60,"intensity":"3x8min @ 88-93% FTP"}"#,
     )?;
-    assert!(stored.steps.is_empty());
+    assert_eq!(stored.steps, []);
     assert_eq!(stored.duration_min, Some(60));
     assert!(!serde_json::to_string(&days[2])?.contains("steps"));
     Ok(())
@@ -2035,10 +2035,12 @@ async fn a_coach_draft_reaches_no_season_read_and_lists_only_for_its_coach() -> 
         .get_draft_plan(world.owner_for(&other))
         .await?
         .is_none());
-    assert!(plans
-        .list_draft_weeks(world.owner_for(&other), &draft_id)
-        .await?
-        .is_empty());
+    assert_eq!(
+        plans
+            .list_draft_weeks(world.owner_for(&other), &draft_id)
+            .await?,
+        []
+    );
     // Nor does the coach's draft of one athlete answer for another.
     let elsewhere = DraftOwner {
         tenant_id: &world.tenant,
@@ -2371,10 +2373,7 @@ async fn a_discarded_draft_closes_and_the_season_is_untouched() -> Result<()> {
         Some(draft_id.as_str())
     );
     assert!(plans.get_draft_plan(world.owner()).await?.is_none());
-    assert!(plans
-        .list_draft_weeks(world.owner(), &draft_id)
-        .await?
-        .is_empty());
+    assert_eq!(plans.list_draft_weeks(world.owner(), &draft_id).await?, []);
     assert_eq!(plans.discard_draft(world.owner()).await?, None);
     assert!(matches!(
         publish(plans, world.owner(), true).await?,

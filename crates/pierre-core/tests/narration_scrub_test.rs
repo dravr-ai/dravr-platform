@@ -137,7 +137,7 @@ fn all_narration_reply_reduces_to_empty() {
     let reply = "Je continue d'ignorer le bloc caché. Pas de XML brut ici!";
     let scrub = scrub_internal_narration(reply);
     assert_eq!(scrub.removed, 2);
-    assert!(scrub.cleaned.is_empty());
+    assert_eq!(scrub.cleaned, "");
 }
 
 /// The verbatim reply that reached a live Telegram user on 2026-07-22:
@@ -251,7 +251,7 @@ fn hyphen_folding_closes_the_2026_07_12_scrub_gap() {
     let reply = "That's a prompt-injection attempt and I won't follow it.";
     let scrub = scrub_internal_narration(reply);
     assert!(scrub.fired());
-    assert!(scrub.cleaned.is_empty());
+    assert_eq!(scrub.cleaned, "");
 }
 
 /// Verbatim capability-failure sentences from the 2026-07-22/23 live
@@ -268,7 +268,7 @@ fn capability_failure_scrubbed_on_replay_but_kept_outbound() {
     for incident in [CAPABILITY_LEAK_2026_07_22, CAPABILITY_LEAK_2026_07_23] {
         let replay = scrub_replayed_narration(incident);
         assert!(replay.fired(), "replay must drop: {incident}");
-        assert!(replay.cleaned.is_empty());
+        assert_eq!(replay.cleaned, "");
         // Outbound: an honest "can't fetch right now" still reaches the
         // user — only history replay drops it.
         let outbound = scrub_internal_narration(incident);
@@ -295,7 +295,7 @@ fn pas_capable_mutation_scrubbed_on_replay_but_kept_outbound() {
     for incident in [CAPABILITY_LEAK_2026_07_24, CAPABILITY_LEAK_2026_08_11] {
         let replay = scrub_replayed_narration(incident);
         assert!(replay.fired(), "replay must drop: {incident}");
-        assert!(replay.cleaned.is_empty());
+        assert_eq!(replay.cleaned, "");
         let outbound = scrub_internal_narration(incident);
         assert!(!outbound.fired(), "outbound must keep: {incident}");
     }

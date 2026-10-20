@@ -178,6 +178,9 @@ async fn empty_rows_yield_empty_breakdown() {
     assert_eq!(body["summary"]["total_invocations"], 0);
     assert_eq!(body["summary"]["unique_tools"], 0);
     assert_eq!(body["summary"]["turns_with_tools"], 0);
-    assert!(body["breakdown"].as_array().unwrap().is_empty());
+    assert_eq!(
+        body["breakdown"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert_eq!(body["days"], 7);
 }

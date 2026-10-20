@@ -74,7 +74,7 @@ fn an_overview_track_is_trimmed_at_both_ends_and_carries_no_vertical() {
     assert!(track.coordinates.len() < recorded.len());
     assert!(track.elevation_meters.is_none());
     assert!(track.distances_meters.is_none());
-    assert!(track.climbs.is_empty());
+    assert_eq!(track.climbs, []);
     assert!(track.bounds.min_latitude <= first.0 && first.0 <= track.bounds.max_latitude);
 }
 

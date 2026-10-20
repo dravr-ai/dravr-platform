@@ -1287,7 +1287,7 @@ mod tests {
         let turn = json!({ "turn_id": "x", "total_tokens": 0_i64 });
         let err = assert_tool_called(&turn, "get_activities")
             .expect_err("missing tools_called must not silently pass");
-        assert!(err.actual.is_empty());
+        assert_eq!(err.actual, [] as [String; 0]);
     }
 
     #[test]

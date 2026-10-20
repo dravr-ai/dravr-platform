@@ -140,9 +140,10 @@ fn a_coach_directory_yields_its_artefacts_in_order() {
 fn a_directory_with_only_prompts_yields_nothing() {
     let dir = coach_dir("bare");
     fs::remove_dir_all(dir.join("workouts")).unwrap();
-    assert!(read_package_artefacts(&dir)
-        .expect("no package is fine")
-        .is_empty());
+    assert_eq!(
+        read_package_artefacts(&dir).expect("no package is fine"),
+        []
+    );
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -268,11 +269,13 @@ async fn the_repository_replaces_the_set_and_lists_it_in_order() -> Result<()> {
         .agent_artefacts
         .replace_agent_artefacts(&tenant.to_string(), &agent_id.to_string(), &[])
         .await?;
-    assert!(repos
-        .agent_artefacts
-        .list_agent_artefacts(&tenant.to_string(), &agent_id.to_string())
-        .await?
-        .is_empty());
+    assert_eq!(
+        repos
+            .agent_artefacts
+            .list_agent_artefacts(&tenant.to_string(), &agent_id.to_string())
+            .await?,
+        []
+    );
     Ok(())
 }
 

@@ -801,7 +801,6 @@ fn generate_comprehensive_recommendations(
 }
 
 /// Handle `generate_recommendations` tool - generate training recommendations
-#[must_use]
 pub fn handle_generate_recommendations(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

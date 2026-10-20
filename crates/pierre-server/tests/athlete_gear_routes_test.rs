@@ -708,7 +708,7 @@ async fn another_athlete_can_neither_read_nor_attribute_a_pair() {
     )
     .await;
 
-    assert!(ledger(&resources, &other).await.is_empty());
+    assert_eq!(ledger(&resources, &other).await, [] as [Value; 0]);
     let pair_uri = format!("/api/me/gear/{id}");
     for (method, uri, body) in [
         (

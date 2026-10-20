@@ -209,7 +209,7 @@ async fn sdk_tool_calling_provider_routes_through_the_planned_loop() {
     // never entered (it would have failed: no copilot binary in tests).
     assert_eq!(result.content, "PLANNED_OK");
     assert_eq!(result.tool_calls_count, 0);
-    assert!(result.tools_called.is_empty());
+    assert_eq!(result.tools_called, [] as [String; 0]);
     assert!(result.guardian_denied.is_none());
 
     // Exactly two completions: plan + synthesis; and the FIRST carried the

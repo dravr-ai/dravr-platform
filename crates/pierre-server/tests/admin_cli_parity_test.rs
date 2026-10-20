@@ -252,12 +252,14 @@ async fn test_feature_flag_user_and_tenant_round_trip() {
         .clear_user_override(user_id, key)
         .await
         .unwrap());
-    assert!(repos
-        .feature_flags
-        .list_user_overrides(user_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .feature_flags
+            .list_user_overrides(user_id)
+            .await
+            .unwrap(),
+        []
+    );
 
     // Tenant-default round trip.
     let tenant_uuid = tenant_id.as_uuid();

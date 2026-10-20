@@ -741,7 +741,7 @@ mod tests {
         assert_eq!(past, subjects(&["rt_4"]));
 
         let (read_now, past) = within_budget(subjects(&["rt_5"]), 6);
-        assert!(read_now.is_empty());
+        assert_eq!(read_now, []);
         assert_eq!(past, subjects(&["rt_5"]));
     }
 }

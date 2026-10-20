@@ -563,7 +563,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
         .as_str()
         .expect("goal-fact write-back must link a fact id")
         .to_owned();
-    assert!(!goal_fact_id.is_empty());
+    assert_ne!(goal_fact_id, "");
 
     let get = executor
         .execute_tool(make_request(

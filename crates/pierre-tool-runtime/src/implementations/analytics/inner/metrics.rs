@@ -297,7 +297,6 @@ async fn fetch_and_calculate_metrics(
 ///
 /// # Errors
 /// Returns `ProtocolError` if activity parameter is missing or calculation fails
-#[must_use]
 pub fn handle_calculate_metrics(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

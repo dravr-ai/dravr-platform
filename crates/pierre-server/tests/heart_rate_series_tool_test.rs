@@ -355,7 +355,10 @@ async fn each_metric_reads_only_its_own_series() -> Result<()> {
     )
     .await?;
     assert_eq!(sdnn["count"], 0);
-    assert!(sdnn["sources"].as_array().unwrap().is_empty());
+    assert_eq!(
+        sdnn["sources"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     Ok(())
 }
 
@@ -414,7 +417,10 @@ async fn another_tenant_reads_none_of_the_series() -> Result<()> {
     // their tenant, so the read finds nothing.
     let result = call(&executor, (athlete.0, other.1), morning_range()).await?;
     assert_eq!(result["count"], 0);
-    assert!(result["sources"].as_array().unwrap().is_empty());
+    assert_eq!(
+        result["sources"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 
     // Under their own tenant the same read finds the whole hour.
     let own = call(&executor, athlete, morning_range()).await?;
@@ -432,7 +438,10 @@ async fn a_whoop_series_stays_off_external_transports() -> Result<()> {
     // none of the series the athlete's app reads in full.
     let external = call_over(Transport::McpHttp, &executor, athlete, morning_range()).await?;
     assert_eq!(external["count"], 0);
-    assert!(external["sources"].as_array().unwrap().is_empty());
+    assert_eq!(
+        external["sources"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
 
     let own = call(&executor, athlete, morning_range()).await?;
     assert_eq!(own["count"], SAMPLES);
@@ -449,7 +458,10 @@ async fn a_whoop_series_is_withheld_from_the_model_without_consent() -> Result<(
     // the model's reach and the answer says data was held back.
     let result = call(&executor, athlete, morning_range()).await?;
     assert_eq!(result["count"], 0);
-    assert!(result["sources"].as_array().unwrap().is_empty());
+    assert_eq!(
+        result["sources"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert_eq!(result["_withheld"]["items_dropped"], 1);
     assert_eq!(result["_withheld"]["sources"], json!(["whoop"]));
     Ok(())

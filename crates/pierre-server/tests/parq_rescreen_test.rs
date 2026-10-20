@@ -273,7 +273,7 @@ async fn a_repeated_yes_refreshes_its_flag_instead_of_stacking_a_second() -> Res
 
     // One "no" is then enough to retire it.
     athlete.screen(&[("dizziness", false)]).await;
-    assert!(athlete.medical().await?.is_empty());
+    assert_eq!(athlete.medical().await?, []);
     Ok(())
 }
 

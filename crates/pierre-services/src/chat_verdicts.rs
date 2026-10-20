@@ -213,8 +213,8 @@ Heavy strength training improves cycling and running economy.
     #[test]
     fn a_verdict_without_references_names_no_study() {
         let registry = registry_with_named_study();
-        assert!(evidence_citations(None, &registry).is_empty());
-        assert!(evidence_citations(Some(" , "), &registry).is_empty());
+        assert_eq!(evidence_citations(None, &registry), []);
+        assert_eq!(evidence_citations(Some(" , "), &registry), []);
     }
 
     /// An empty registry (first boot, contremaitre unreachable) resolves

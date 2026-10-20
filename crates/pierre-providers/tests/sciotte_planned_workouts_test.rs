@@ -303,7 +303,7 @@ async fn the_trainingpeaks_provider_reads_and_converts_the_plan(
         day_off.sport_type(),
         &SportType::Other("Day Off".to_owned())
     );
-    assert!(day_off.steps().is_empty());
+    assert_eq!(day_off.steps(), []);
     assert_eq!(day_off.completed_activity_id(), Some("900001:910007"));
 
     // The platform reads the signed-in account's own calendar: no athlete.

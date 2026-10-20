@@ -248,7 +248,7 @@ fn boot_loader_owned_variables_are_not_read_by_the_config_layer() {
         (name == "FITNESS_ZONE_RECOVERY_MAX").then(|| "55.0".to_owned())
     });
 
-    assert!(errors.is_empty());
+    assert_eq!(errors, []);
     assert!(
         pins.is_empty(),
         "a boot-loader-owned variable must stay invisible to the config layer"

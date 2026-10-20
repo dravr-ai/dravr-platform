@@ -331,7 +331,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
     };
 
     let register_response = auth_routes.register(register_request).await?;
-    assert!(!register_response.user_id.is_empty());
+    assert_ne!(register_response.user_id, "");
     assert!(register_response.message.contains("pending admin approval"));
 
     // Test 2: Verify user is created with pending status
@@ -415,7 +415,7 @@ async fn test_sdk_oauth_credentials_storage() -> Result<()> {
     assert!(auth_url_response
         .authorization_url
         .contains("test_client_id")); // From tenant credentials
-    assert!(!auth_url_response.state.is_empty());
+    assert_ne!(auth_url_response.state, "");
 
     Ok(())
 }
@@ -443,7 +443,7 @@ async fn test_sdk_api_key_management() -> Result<()> {
     database.repositories().api_keys.create(&api_key).await?;
 
     // Test 2: Verify API key is created
-    assert!(!api_key_string.is_empty());
+    assert_ne!(api_key_string, "");
     assert!(api_key_string.starts_with("pk_"));
     assert_eq!(api_key.name, "SDK Test Key");
     assert_eq!(api_key.user_id, user_id);

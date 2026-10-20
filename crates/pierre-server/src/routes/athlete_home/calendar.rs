@@ -280,7 +280,7 @@ mod tests {
             date(2026, 9, 21),
             date(2026, 9, 27),
         );
-        assert!(days.is_empty());
+        assert_eq!(days, []);
     }
 
     #[test]

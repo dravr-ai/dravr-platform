@@ -182,7 +182,7 @@ async fn test_intelligence_analysis_integration() -> Result<()> {
     let analysis = analyzer.analyze_activity(&activity, None)?;
 
     // Verify analysis results
-    assert!(!analysis.summary.is_empty());
+    assert_ne!(analysis.summary, "");
     assert!(!analysis.key_insights.is_empty());
     assert!(
         analysis
@@ -289,7 +289,7 @@ async fn test_concurrent_analysis() -> Result<()> {
         assert!(result.is_ok(), "Concurrent analysis should succeed");
 
         let analysis = result.unwrap();
-        assert!(!analysis.summary.is_empty());
+        assert_ne!(analysis.summary, "");
     }
 
     Ok(())

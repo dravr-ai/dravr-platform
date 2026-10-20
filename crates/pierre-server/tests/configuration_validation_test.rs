@@ -40,7 +40,7 @@ fn test_valid_parameter() {
 
     let result = validator.validate(&changes, None);
     assert!(result.is_valid);
-    assert!(result.errors.is_empty());
+    assert_eq!(result.errors, [] as [String; 0]);
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn test_invalid_parameter_range() {
 
     let result = validator.validate(&changes, None);
     assert!(!result.is_valid);
-    assert!(!result.errors.is_empty());
+    assert_ne!(result.errors, [] as [String; 0]);
 }
 
 #[test]

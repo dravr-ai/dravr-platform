@@ -335,7 +335,7 @@ async fn an_unknown_code_never_reaches_google() {
 
     assert_eq!(error_of(refused), (400, "invalid_grant".to_owned()));
     assert_eq!(decodes.load(Ordering::SeqCst), 0);
-    assert!(recorded(&spans, "app_attest").is_empty());
+    assert_eq!(recorded(&spans, "app_attest"), [] as [String; 0]);
 }
 
 /// A real code with a verifier that fails PKCE never reaches Google either.

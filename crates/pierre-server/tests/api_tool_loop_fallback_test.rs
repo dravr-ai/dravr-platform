@@ -326,7 +326,7 @@ impl HeadlessTurnProvider for ScriptedSdk {
         self.conversed.lock().unwrap().push(request.clone());
         let refused = self
             .refusals_left
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok();

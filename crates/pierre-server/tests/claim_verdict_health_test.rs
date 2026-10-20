@@ -428,11 +428,11 @@ async fn health_of_an_empty_window_is_all_zeros() -> Result<()> {
         .await?;
     assert_eq!(stats.totals, VerdictHealthTotals::default());
     assert_eq!(stats.false_positive_rate, 0.0);
-    assert!(stats.by_layer.is_empty());
-    assert!(stats.by_category.is_empty());
-    assert!(stats.by_agent.is_empty());
-    assert!(stats.by_reason.is_empty());
-    assert!(stats.daily.is_empty());
+    assert_eq!(stats.by_layer, []);
+    assert_eq!(stats.by_category, []);
+    assert_eq!(stats.by_agent, []);
+    assert_eq!(stats.by_reason, []);
+    assert_eq!(stats.daily, []);
     Ok(())
 }
 

@@ -263,7 +263,7 @@ fn test_tools_list_response_format() {
     assert!(tools_response["result"]["tools"].is_array());
 
     let tools_array = tools_response["result"]["tools"].as_array().unwrap();
-    assert!(!tools_array.is_empty());
+    assert_ne!(tools_array.as_slice(), [] as [serde_json::Value; 0]);
 
     // Check first tool structure
     let first_tool = &tools_array[0];

@@ -635,7 +635,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     let user_id = client
         .register_and_approve_user(&database_for_approval, email, password, display_name)
         .await?;
-    assert!(!user_id.is_empty());
+    assert_ne!(user_id, "");
     assert!(Uuid::parse_str(&user_id).is_ok());
 
     // Test 2: User Login
@@ -662,7 +662,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     assert_eq!(tools_response["jsonrpc"], "2.0");
 
     let tools = tools_response["result"]["tools"].as_array().unwrap();
-    assert!(!tools.is_empty());
+    assert_ne!(tools.as_slice(), [] as [Value; 0]);
 
     // Verify essential tools are available
     let tool_names: Vec<&str> = tools

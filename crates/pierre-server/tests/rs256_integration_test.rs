@@ -27,7 +27,7 @@ async fn test_jwks_manager_initialization() -> Result<()> {
 
     // Verify active key exists
     let active_key = jwks_manager.get_active_key()?;
-    assert!(!active_key.kid.is_empty());
+    assert_ne!(active_key.kid, "");
     assert_eq!(active_key.kid, "test_key_1");
 
     // Verify key rotation works
@@ -59,9 +59,9 @@ async fn test_jwks_endpoint_format() -> Result<()> {
     assert_eq!(first_key.kty, "RSA");
     assert_eq!(first_key.alg, "RS256");
     assert_eq!(first_key.key_use, "sig");
-    assert!(!first_key.kid.is_empty());
-    assert!(!first_key.n.is_empty());
-    assert!(!first_key.e.is_empty());
+    assert_ne!(first_key.kid, "");
+    assert_ne!(first_key.n, "");
+    assert_ne!(first_key.e, "");
 
     Ok(())
 }
@@ -82,7 +82,7 @@ async fn test_rs256_user_session_tokens() -> Result<()> {
     // Generate RS256 user session token
     let token = auth_manager.generate_token(&user, &jwks_manager_arc)?;
 
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
     assert!(token.starts_with("eyJ")); // JWT format
 
     // Validate token using RS256
@@ -117,7 +117,7 @@ async fn test_rs256_admin_tokens() -> Result<()> {
         &jwks_manager_arc,
     )?;
 
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
     assert!(token.starts_with("eyJ")); // JWT format
 
     // Validate token using RS256

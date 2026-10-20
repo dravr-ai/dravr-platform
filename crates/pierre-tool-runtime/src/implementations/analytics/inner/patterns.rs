@@ -344,7 +344,6 @@ fn format_overtraining_signals(signals: &OvertrainingSignals) -> PatternsResult 
 }
 
 /// Handle `detect_patterns` tool - detect patterns in activity data
-#[must_use]
 pub fn handle_detect_patterns(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

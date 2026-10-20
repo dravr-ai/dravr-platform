@@ -199,12 +199,14 @@ async fn user_override_round_trips_then_clears() {
         .clear_user_override(user_id, FeatureKey::ApiTokens)
         .await
         .unwrap());
-    assert!(repos
-        .feature_flags
-        .list_user_overrides(user_id)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .feature_flags
+            .list_user_overrides(user_id)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]

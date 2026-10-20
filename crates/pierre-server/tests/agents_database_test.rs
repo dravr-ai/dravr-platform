@@ -201,7 +201,7 @@ async fn test_create_agent_minimal() {
     assert_eq!(agent.title, "Simple Coach");
     assert!(agent.description.is_none());
     assert_eq!(agent.category, AgentCategory::Custom);
-    assert!(agent.tags.is_empty());
+    assert_eq!(agent.tags, [] as [String; 0]);
 }
 
 // ============================================================================

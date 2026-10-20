@@ -596,24 +596,21 @@ async fn one_athlete_never_reads_or_writes_anothers_ledger() {
         .await
         .unwrap();
 
-    assert!(repos
-        .athlete_gear
-        .list_gear(other)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(repos.athlete_gear.list_gear(other).await.unwrap(), []);
     assert!(repos
         .athlete_gear
         .get_gear(other, id)
         .await
         .unwrap()
         .is_none());
-    assert!(repos
-        .athlete_gear
-        .list_gear_attributions(other, day(0), day(5))
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .athlete_gear
+            .list_gear_attributions(other, day(0), day(5))
+            .await
+            .unwrap(),
+        []
+    );
     let mut renamed = shoe("Taken", SportType::Run);
     renamed.pinned = true;
     assert!(!repos

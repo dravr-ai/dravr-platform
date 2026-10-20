@@ -402,6 +402,6 @@ async fn test_declared_tools_call_handle_resolves_then_fast_path_answers_inline(
     let content = body["result"]["content"]
         .as_array()
         .expect("inline tool result carries its content array");
-    assert!(!content.is_empty());
+    assert_ne!(content.as_slice(), [] as [Value; 0]);
     Ok(())
 }

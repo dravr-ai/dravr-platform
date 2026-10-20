@@ -52,7 +52,7 @@ fn synthesized_answer_survives_strip() {
                   Keep the long_run_z2 on Sunday and we'll add a vo2_5x3 midweek.";
 
     assert_eq!(strip_simulation_artifacts(answer), answer);
-    assert!(!strip_simulation_artifacts(answer).is_empty());
+    assert_ne!(strip_simulation_artifacts(answer), "");
 }
 
 /// A reply that mixes real prose with a trailing echoed `<tool_result>`

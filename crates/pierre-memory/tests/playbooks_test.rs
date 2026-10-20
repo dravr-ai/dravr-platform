@@ -105,7 +105,7 @@ fn outcome_metric_kind_str() {
 fn outcome_metric_serde_roundtrip() {
     let m = OutcomeMetric::HrvDelta { window_days: 7 };
     let json = serde_json::to_string(&m).unwrap_or_default();
-    assert!(!json.is_empty());
+    assert_ne!(json, "");
     let back = serde_json::from_str::<OutcomeMetric>(&json).ok();
     assert_eq!(back, Some(m));
 }

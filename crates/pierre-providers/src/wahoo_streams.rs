@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn a_file_without_records_recorded_no_samples() {
         let series = time_series_from_fit(&fit_file(&[])).unwrap_or_else(|e| panic!("{e}"));
-        assert!(series.timestamps.is_empty());
+        assert_eq!(series.timestamps, [] as [u32; 0]);
     }
 
     #[test]

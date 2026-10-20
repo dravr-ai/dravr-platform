@@ -480,21 +480,21 @@ async fn a_key_whose_account_is_not_the_users_own_files_nothing() {
         !w.live_read(&mismatched).await,
         "an unbound key reads no roster"
     );
-    assert!(w.requests(&mismatched).await.is_empty());
+    assert_eq!(w.requests(&mismatched).await, []);
 
     // The same email, never verified on Dravr, proves no one.
     let unverified = w.person("unverified@coach-access.test", false).await;
     w.connect(&unverified).await;
     w.api.serve(&unverified.email, vec![coached("i201")]);
     assert!(!w.live_read(&unverified).await);
-    assert!(w.requests(&unverified).await.is_empty());
+    assert_eq!(w.requests(&unverified).await, []);
 
     // The account lists no email at all.
     let missing = w.person("missing@coach-access.test", true).await;
     w.connect(&missing).await;
     w.api.serve("", vec![coached("i201")]);
     assert!(!w.live_read(&missing).await);
-    assert!(w.requests(&missing).await.is_empty());
+    assert_eq!(w.requests(&missing).await, []);
     assert_eq!(w.api.roster_reads(), 3, "each roster was read");
 }
 
@@ -610,7 +610,7 @@ async fn a_rejected_key_is_still_400_and_reads_no_roster() {
         .unwrap()
         .is_none());
     assert_eq!(w.api.roster_reads(), 0, "no probe runs for a failed link");
-    assert!(w.requests(&coach).await.is_empty());
+    assert_eq!(w.requests(&coach).await, []);
 }
 
 #[tokio::test]
@@ -621,14 +621,14 @@ async fn a_roster_the_cache_serves_files_nothing() {
     // The first live read lists nobody the key coaches and fills the cache.
     w.api.serve(&coach.email, Vec::new());
     assert!(w.live_read(&coach).await);
-    assert!(w.requests(&coach).await.is_empty());
+    assert_eq!(w.requests(&coach).await, []);
 
     // The account now coaches an active athlete, but a read the cache serves
     // never reaches Intervals.icu, so it is no evidence.
     w.api.serve(&coach.email, vec![coached("i201")]);
     assert!(w.cached_read(&coach).await);
     assert_eq!(w.api.roster_reads(), 1, "the cache served the second read");
-    assert!(w.requests(&coach).await.is_empty());
+    assert_eq!(w.requests(&coach).await, []);
 
     // The next live read files it.
     assert!(w.live_read(&coach).await);
@@ -665,7 +665,7 @@ async fn the_link_probe_reads_nothing_for_a_user_who_could_not_get_a_request() {
     }
     assert_eq!(w.api.roster_reads(), 0, "neither probe read a roster");
     assert_eq!(w.requests(&asked).await.len(), 1);
-    assert!(w.requests(&earned).await.is_empty());
+    assert_eq!(w.requests(&earned).await, []);
 }
 
 #[tokio::test]

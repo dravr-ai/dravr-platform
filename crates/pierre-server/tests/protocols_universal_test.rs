@@ -253,7 +253,10 @@ async fn test_universal_executor_creation() -> Result<()> {
     let executor = create_test_executor().await?;
 
     // Verify basic functionality
-    assert!(!executor.resources.tool_registry().tool_names().is_empty());
+    assert_ne!(
+        executor.resources.tool_registry().tool_names(),
+        [] as [&str; 0]
+    );
 
     // Check that core tools are registered
     assert!(executor.has_tool("get_connection_status"));
@@ -1822,12 +1825,11 @@ async fn test_invalid_protocol_handling() -> Result<()> {
     match response {
         Ok(response) => {
             // If it succeeds in creating a response, it should indicate failure
-            if response.success {
-                panic!("Response should not be successful for invalid UUID");
-            } else {
-                println!("Error: {:?}", response.error);
-            }
-            assert!(!response.success);
+            assert!(
+                !response.success,
+                "Response should not be successful for invalid UUID"
+            );
+            println!("Error: {:?}", response.error);
             assert!(response.error.is_some());
         }
         Err(err) => {
@@ -1895,12 +1897,11 @@ async fn test_malformed_parameters() -> Result<()> {
     match response {
         Ok(response) => {
             // If it succeeds in creating a response, it should indicate failure
-            if response.success {
-                panic!("Response should not be successful for invalid parameters");
-            } else {
-                println!("Error: {:?}", response.error);
-            }
-            assert!(!response.success);
+            assert!(
+                !response.success,
+                "Response should not be successful for invalid parameters"
+            );
+            println!("Error: {:?}", response.error);
             assert!(response.error.is_some());
             let error_msg = response.error.as_ref().unwrap();
             assert!(

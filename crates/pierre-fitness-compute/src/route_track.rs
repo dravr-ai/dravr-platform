@@ -678,7 +678,7 @@ mod tests {
         assert_eq!(track.coordinates.first(), path.first());
         assert_eq!(track.coordinates.last(), path.last());
         assert_eq!(track.elevation_meters, None);
-        assert!(track.climbs.is_empty());
+        assert_eq!(track.climbs, []);
         // The overview of the same line loses its first and last stretches.
         let overview = RouteTrack::from_overview(&path).unwrap();
         assert_ne!(overview.coordinates.first(), path.first());

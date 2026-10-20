@@ -289,11 +289,12 @@ async fn a_proposal_round_trips_every_column_to_both_participants() {
         repo.list_live_for_member(member).await.unwrap(),
         vec![stored]
     );
-    assert!(repo
-        .list_live_for_member_in_group(group, stranger)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repo.list_live_for_member_in_group(group, stranger)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -781,11 +782,12 @@ async fn a_member_is_shown_only_the_links_the_group_relation_backs() {
         .map(|link| link.id)
         .collect();
     assert_eq!(backed, [confirmed.id, asked.id], "the confirmed link first");
-    assert!(repo
-        .list_backed_for_member(member, oauth_providers::STRAVA)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repo.list_backed_for_member(member, oauth_providers::STRAVA)
+            .await
+            .unwrap(),
+        []
+    );
 
     // The confirmed link the list leads with is the one the read path finds.
     assert_eq!(
@@ -839,11 +841,12 @@ async fn a_scheduled_pass_lists_every_confirmed_link_the_group_relation_backs() 
     assert_eq!(listed, [first.clone(), second.clone()]);
     assert_eq!(listed[0].member_tenant_id, Some(first_tenant));
     assert_eq!(listed[1].member_tenant_id, Some(second_tenant));
-    assert!(repo
-        .list_confirmed_for_provider(oauth_providers::INTERVALS_ICU)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repo.list_confirmed_for_provider(oauth_providers::INTERVALS_ICU)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -920,11 +923,12 @@ async fn ends_return_exactly_the_rows_they_ended() {
         ended_proposal.confirmed_at, None,
         "a proposal ended before confirming reads as never confirmed"
     );
-    assert!(repo
-        .list_live_for_coach_in_group(group, f.coach)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repo.list_live_for_coach_in_group(group, f.coach)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -1054,11 +1058,12 @@ async fn deleting_the_member_takes_their_links_with_them() {
         .await
         .unwrap()
         .is_none());
-    assert!(repo
-        .list_live_for_coach_in_group(group, f.coach)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repo.list_live_for_coach_in_group(group, f.coach)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]

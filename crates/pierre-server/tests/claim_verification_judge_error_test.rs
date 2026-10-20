@@ -279,7 +279,7 @@ async fn a_blocking_agent_gets_its_block_fallback_when_the_judge_fails() {
         .mcp
         .messaging_strings_registry
         .get(KEY_VERIFICATION_BLOCK_FALLBACK, "en");
-    assert!(!block_fallback.is_empty());
+    assert_ne!(block_fallback, "");
     assert_eq!(
         outcome.content, block_fallback,
         "a blocking coach must not deliver a reply it could not check"

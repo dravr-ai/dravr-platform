@@ -57,7 +57,7 @@ async fn test_insert_llm_usage() {
 
     let record = repos.llm_usage.insert_llm_usage(&params).await.unwrap();
 
-    assert!(!record.id.is_empty());
+    assert_ne!(record.id, "");
     assert_eq!(record.tenant_id, "tenant-1");
     assert_eq!(record.user_id, "user-1");
     assert_eq!(record.conversation_id, Some("conv-1".to_owned()));
@@ -71,7 +71,7 @@ async fn test_insert_llm_usage() {
     assert_eq!(record.tool_calls_count, 2);
     assert_eq!(record.tools_called, "[\"get_activities\"]");
     assert_eq!(record.execution_time_ms, Some(1500));
-    assert!(!record.created_at.is_empty());
+    assert_ne!(record.created_at, "");
 }
 
 #[tokio::test]

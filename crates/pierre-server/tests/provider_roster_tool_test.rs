@@ -755,7 +755,10 @@ async fn a_coach_with_no_group_reads_their_roster_and_how_coach_access_is_grante
     let (payload, refused) = w.roster(newcomer, json!({})).await;
     assert!(!refused, "{payload:#}");
     let intervals = platform(&payload, "intervals_icu");
-    assert!(intervals["members"].as_array().unwrap().is_empty());
+    assert_eq!(
+        intervals["members"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert_eq!(
         intervals["others"],
         json!([{ "state": "not_in_your_groups", "access": "coach", "athletes": 2 }])
@@ -903,7 +906,7 @@ async fn a_group_s_room_is_refused_before_any_roster_is_read() {
     assert!(refused);
     assert_eq!(payload["reason"], "group_room", "{payload:#}");
     assert_eq!(w.roster.reads(), 0, "no roster is read for a room");
-    assert!(w.live_links(sam).await.is_empty());
+    assert_eq!(w.live_links(sam).await, []);
 
     // The coach's own conversation reads it.
     let own = chat
@@ -960,7 +963,10 @@ async fn trainingpeaks_is_refused_over_mcp_before_its_roster_is_read_while_inter
         trainingpeaks.get("roster_size").is_none(),
         "the cached TrainingPeaks roster is not read over MCP: {payload:#}"
     );
-    assert!(trainingpeaks["members"].as_array().unwrap().is_empty());
+    assert_eq!(
+        trainingpeaks["members"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     let intervals = platform(&payload, "intervals_icu");
     assert!(intervals.get("refusal").is_none(), "{payload:#}");
     assert_eq!(
@@ -1114,7 +1120,7 @@ async fn a_proposal_is_refused_when_no_one_member_or_roster_entry_binds() {
         }
     }
     assert!(w.live_links(blake).await.is_empty(), "nothing was stored");
-    assert!(w.live_links(nora).await.is_empty());
+    assert_eq!(w.live_links(nora).await, []);
     assert_eq!(w.live_links(alex).await.len(), 1);
 }
 
@@ -1157,7 +1163,7 @@ async fn over_mcp_a_coach_on_both_platforms_proposes_through_intervals_only() {
         "{payload:#}"
     );
     assert_eq!(w.roster.reads(), 0);
-    assert!(w.live_links(alex).await.is_empty());
+    assert_eq!(w.live_links(alex).await, []);
 
     // In the app both rosters list Alex: the coach is asked which.
     let (payload, refused) = serve_over(
@@ -1167,7 +1173,7 @@ async fn over_mcp_a_coach_on_both_platforms_proposes_through_intervals_only() {
     .await;
     assert!(refused);
     assert_eq!(payload["reason"], "provider_ambiguous", "{payload:#}");
-    assert!(w.live_links(alex).await.is_empty());
+    assert_eq!(w.live_links(alex).await, []);
 
     // Unnamed over MCP, only Intervals.icu is considered.
     let (payload, refused) = serve_over(

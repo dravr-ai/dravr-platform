@@ -52,7 +52,7 @@ async fn test_admin_jwt_manager_basic_operations() -> Result<()> {
         &jwks_manager,
     )?;
 
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
     assert!(token.starts_with("eyJ")); // JWT format
 
     // Test token validation
@@ -155,7 +155,7 @@ async fn test_admin_token_database_operations() -> Result<()> {
     assert_eq!(generated_token.service_name, "test_service");
     assert!(!generated_token.is_super_admin);
     assert!(generated_token.expires_at.is_some());
-    assert!(!generated_token.jwt_token.is_empty());
+    assert_ne!(generated_token.jwt_token, "");
 
     // Retrieve admin token by ID
     let retrieved_token = repos
@@ -334,12 +334,12 @@ async fn test_admin_token_security_features() -> Result<()> {
     )?;
 
     let prefix = AdminJwtManager::generate_token_prefix(&token);
-    assert!(!prefix.is_empty());
+    assert_ne!(prefix, "");
     assert!(prefix.len() >= 8); // Should be at least 8 characters
 
     // Test token hashing for storage
     let hash = AdminJwtManager::hash_token_for_storage(&token)?;
-    assert!(!hash.is_empty());
+    assert_ne!(hash, "");
     assert_ne!(hash, token); // Hash should be different from token
 
     // Test secret hashing
@@ -347,7 +347,7 @@ async fn test_admin_token_security_features() -> Result<()> {
     assert_eq!(secret.len(), 64); // 512 bits = 64 bytes
 
     let secret_hash = AdminJwtManager::hash_secret(&secret);
-    assert!(!secret_hash.is_empty());
+    assert_ne!(secret_hash, "");
     assert_ne!(secret_hash.len(), 0); // Hash should have content
 
     Ok(())
@@ -365,7 +365,7 @@ async fn test_admin_permissions_serialization() -> Result<()> {
 
     // Serialize to JSON
     let json_str = permissions.to_json()?;
-    assert!(!json_str.is_empty());
+    assert_ne!(json_str, "");
 
     // Deserialize from JSON
     let deserialized = AdminPermissions::from_json(&json_str)?;

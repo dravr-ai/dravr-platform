@@ -257,8 +257,8 @@ fn test_logging_config_from_env() {
 
     // Test environment-based configuration (would need actual env vars set)
     let env_config = LoggingConfig::from_env();
-    assert!(!env_config.service_name.is_empty());
-    assert!(!env_config.service_version.is_empty());
+    assert_ne!(env_config.service_name, "");
+    assert_ne!(env_config.service_version, "");
 }
 
 /// Test GCP-optimized logging configuration

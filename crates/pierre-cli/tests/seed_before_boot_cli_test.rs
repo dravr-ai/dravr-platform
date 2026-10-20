@@ -79,7 +79,7 @@ async fn a_database_seeded_with_ciphertext_before_its_first_boot_boots() {
         .await
         .unwrap();
     let security = database.as_security_repository();
-    assert!(security.load_rsa_keypairs().await.unwrap().is_empty());
+    assert_eq!(security.load_rsa_keypairs().await.unwrap(), []);
     assert_eq!(security.count_encrypted_rows().await.unwrap(), 0);
 
     let out = Command::new(cli_binary())

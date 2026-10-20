@@ -57,7 +57,7 @@ fn empty_document_resolves_to_compiled_defaults() {
     let sources = snapshot.field_sources;
     assert_eq!(sources.mode, GuardianFieldSource::Default);
     assert_eq!(sources.tainted_destructive, GuardianFieldSource::Default);
-    assert!(sources.env_pinned().is_empty());
+    assert_eq!(sources.env_pinned(), [] as [&str; 0]);
     assert_eq!(snapshot.source, GuardianConfigSource::Defaults);
 }
 
@@ -245,7 +245,7 @@ async fn env_capture_validation_and_database_load() {
     assert_eq!(bad[0].0, "GUARDIAN_EXTERNAL_SEND_TENANTS");
 
     env::set_var("GUARDIAN_EXTERNAL_SEND_TENANTS", "all");
-    assert!(validate_env().is_empty());
+    assert_eq!(validate_env(), []);
 
     env::remove_var("GUARDIAN_MODE");
     env::remove_var("GUARDIAN_MAX_WRITES_PER_TURN");

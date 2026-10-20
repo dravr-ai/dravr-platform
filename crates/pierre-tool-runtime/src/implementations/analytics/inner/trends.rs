@@ -358,7 +358,6 @@ fn generate_trend_insights(
 }
 
 /// Handle `analyze_performance_trends` tool - analyze performance over time
-#[must_use]
 pub fn handle_analyze_performance_trends(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

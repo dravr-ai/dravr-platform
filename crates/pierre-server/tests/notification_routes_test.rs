@@ -132,7 +132,7 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: Vec<serde_json::Value> = response.json();
-        assert!(body.is_empty());
+        assert_eq!(body, [] as [serde_json::Value; 0]);
     }
 
     #[tokio::test]
@@ -194,7 +194,7 @@ mod notification_routes_tests {
             .await;
 
         let body: Vec<serde_json::Value> = list_response.json();
-        assert!(body.is_empty());
+        assert_eq!(body, [] as [serde_json::Value; 0]);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -212,7 +212,10 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert!(body["preferences"].as_array().unwrap().is_empty());
+        assert_eq!(
+            body["preferences"].as_array().unwrap().as_slice(),
+            [] as [serde_json::Value; 0]
+        );
     }
 
     #[tokio::test]
@@ -274,7 +277,10 @@ mod notification_routes_tests {
             .await;
         assert_eq!(list_response.status_code(), StatusCode::OK);
         let list_body: serde_json::Value = list_response.json();
-        assert!(list_body["preferences"].as_array().unwrap().is_empty());
+        assert_eq!(
+            list_body["preferences"].as_array().unwrap().as_slice(),
+            [] as [serde_json::Value; 0]
+        );
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -292,7 +298,10 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert!(body["data"].as_array().unwrap().is_empty());
+        assert_eq!(
+            body["data"].as_array().unwrap().as_slice(),
+            [] as [serde_json::Value; 0]
+        );
         assert_eq!(body["total"], 0);
         assert_eq!(body["unread_count"], 0);
     }

@@ -24,7 +24,7 @@ fn test_analyze_weather_impact_cold() {
         impact.difficulty_level,
         WeatherDifficulty::Difficult | WeatherDifficulty::Extreme
     ));
-    assert!(!impact.impact_factors.is_empty());
+    assert_ne!(impact.impact_factors, [] as [String; 0]);
     assert!(impact.performance_adjustment < 0.0);
 }
 

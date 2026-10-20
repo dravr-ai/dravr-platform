@@ -132,7 +132,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
     let intelligence = analyzer.analyze_activity(&activity, Some(&context))?;
 
     // Verify intelligence analysis results
-    assert!(!intelligence.summary.is_empty());
+    assert_ne!(intelligence.summary, "");
     assert!(!intelligence.key_insights.is_empty());
 
     // Check that performance indicators are calculated
@@ -184,7 +184,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
     let analysis_result = analyzer.analyze_activity(&activity, Some(&context2))?;
 
     // Verify the analysis includes all expected components
-    assert!(!analysis_result.summary.is_empty());
+    assert_ne!(analysis_result.summary, "");
     assert!(!analysis_result.key_insights.is_empty());
     assert!(
         analysis_result
@@ -299,7 +299,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
     let intelligence = analyzer.analyze_activity(&activity, Some(&context))?;
 
     // Verify analysis is generated
-    assert!(!intelligence.summary.is_empty());
+    assert_ne!(intelligence.summary, "");
     assert!(!intelligence.key_insights.is_empty());
     assert!(
         intelligence
@@ -398,7 +398,7 @@ async fn test_goal_tracking_integration() -> Result<()> {
     let intelligence = analyzer.analyze_activity(&activities[0], Some(&context))?;
 
     // Verify analysis is generated and includes relevant insights
-    assert!(!intelligence.summary.is_empty());
+    assert_ne!(intelligence.summary, "");
     assert!(!intelligence.key_insights.is_empty());
     assert!(
         intelligence

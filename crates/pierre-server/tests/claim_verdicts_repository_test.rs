@@ -56,7 +56,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
     assert_eq!(saved.category, ClaimCategory::Nutrition);
     assert_eq!(saved.evidence_strength, EvidenceStrength::Strong);
     assert_eq!(saved.layer_fired, VerdictLayer::Evidence);
-    assert!(!saved.id.is_empty());
+    assert_ne!(saved.id, "");
 
     let recent = repos
         .claim_verdicts

@@ -772,7 +772,7 @@ async fn a_queued_identity_a_new_account_signed_in_with_is_left_until_that_accou
     let calls = setup.firebase.calls();
     assert_eq!(calls.len(), 4, "{calls:?}");
     assert_eq!(calls[3].local_id, uid);
-    assert!(setup.queued().await.is_empty());
+    assert_eq!(setup.queued().await, []);
 }
 
 #[tokio::test]

@@ -1163,7 +1163,10 @@ async fn a_join_reads_the_roster_in_the_group_s_tenant_and_stands_when_it_cannot
     // the group's picker could not read it either, so nothing is read.
     let first = person(&w.res, "first@link-states.test", true).await;
     w.join_by_code(&squad, first, None).await;
-    assert!(w.links_of(&squad, first).await.is_empty());
+    assert_eq!(
+        w.links_of(&squad, first).await,
+        [] as [DelegatedConnection; 0]
+    );
     assert_eq!(w.roster.reads(), 0, "no roster is read for the group");
 
     // The platform is down: the member is still let in, and nothing is
@@ -1172,7 +1175,10 @@ async fn a_join_reads_the_roster_in_the_group_s_tenant_and_stands_when_it_cannot
     w.roster.set_down(true);
     let second = person(&w.res, "second@link-states.test", true).await;
     w.join_by_code(&squad, second, None).await;
-    assert!(w.links_of(&squad, second).await.is_empty());
+    assert_eq!(
+        w.links_of(&squad, second).await,
+        [] as [DelegatedConnection; 0]
+    );
     assert_eq!(w.roster.reads(), 1, "the roster was asked for");
 
     // Back up, the next join reads it afresh and is proposed.
@@ -1197,7 +1203,10 @@ async fn a_join_reads_a_cached_roster_live_once_more_when_it_binds_no_one() {
     // binds no one is not read again.
     let stranger = person(&w.res, "stranger@link-states.test", true).await;
     w.join_by_code(&squad, stranger, None).await;
-    assert!(w.links_of(&squad, stranger).await.is_empty());
+    assert_eq!(
+        w.links_of(&squad, stranger).await,
+        [] as [DelegatedConnection; 0]
+    );
     assert_eq!(w.roster.reads(), 1);
 
     // The cached roster binds the next member: nothing is read.

@@ -112,8 +112,8 @@ mod tests {
 
     #[test]
     fn satellite_resources_are_trimmed_deduplicated_and_kept_in_order() {
-        assert!(resolve_satellite_resources(None).is_empty());
-        assert!(resolve_satellite_resources(Some(" , ")).is_empty());
+        assert_eq!(resolve_satellite_resources(None), [] as [String; 0]);
+        assert_eq!(resolve_satellite_resources(Some(" , ")), [] as [String; 0]);
         assert_eq!(
             resolve_satellite_resources(Some(
                 " https://commere.dravr.ai/mcp/ ,https://enforme.dravr.ai/mcp,\

@@ -169,7 +169,7 @@ jobs:
       - name: Install Rust
         # No rust-cache and no mold: the experiment builds cold, and the shipped
         # build sets RUSTFLAGS, which takes the linker flags out of play anyway.
-        uses: dtolnay/rust-toolchain@1.98.1
+        uses: dtolnay/rust-toolchain@1.99.1
 
       - name: Fetch dependencies
         # Downloaded once, outside every timed step, so neither cold build pays

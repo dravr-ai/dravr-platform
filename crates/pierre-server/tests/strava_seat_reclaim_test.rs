@@ -708,8 +708,8 @@ mod strava_seat_reclaim_tests {
         let pass = sweeper.tick(t0 + Duration::hours(1)).await.unwrap();
         assert_eq!(action_of(&pass, first), Some(ReclaimAction::AwaitLead));
         assert_eq!(warned_users(&pass), vec![second.user_id]);
-        assert!(pass.reclaimed.is_empty());
-        assert!(stub.received().is_empty());
+        assert_eq!(pass.reclaimed, []);
+        assert_eq!(stub.received(), [] as [String; 0]);
         assert_eq!(
             notifications_of(&resources, first).await.len(),
             1,
@@ -821,7 +821,7 @@ mod strava_seat_reclaim_tests {
         for kept in [returning, back_for_good] {
             assert!(holds_strava_token(&resources, kept).await);
         }
-        assert!(stub.received().is_empty());
+        assert_eq!(stub.received(), [] as [String; 0]);
     }
 
     /// An athlete who uses Dravr only from an MCP client — a connector's
@@ -1090,7 +1090,7 @@ mod strava_seat_reclaim_tests {
             action_of(&observed, reconnected),
             Some(ReclaimAction::Reclaim)
         );
-        assert!(observed.reclaimed.is_empty());
+        assert_eq!(observed.reclaimed, []);
         set_policy_ok(
             &resources,
             &admin_id,
@@ -1111,7 +1111,7 @@ mod strava_seat_reclaim_tests {
             Some((stale_at.timestamp_millis(), true))
         );
         assert_eq!(notifications_of(&resources, reconnected).await.len(), 3);
-        assert!(stub.received().is_empty());
+        assert_eq!(stub.received(), [] as [String; 0]);
     }
 
     /// Activity is read again right before each disconnect. An athlete who
@@ -1328,8 +1328,8 @@ mod strava_seat_reclaim_tests {
         let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
         assert_eq!(action_of(&pass, web_only), Some(ReclaimAction::Unreached));
         assert_eq!(action_of(&pass, next), Some(ReclaimAction::Unreached));
-        assert!(pass.reclaimed.is_empty());
-        assert!(stub.received().is_empty());
+        assert_eq!(pass.reclaimed, []);
+        assert_eq!(stub.received(), [] as [String; 0]);
         assert!(holds_strava_token(&resources, web_only).await);
         assert_eq!(
             notifications_of(&resources, web_only).await.len(),
@@ -1373,12 +1373,12 @@ mod strava_seat_reclaim_tests {
             let pass = sweeper.tick(t0 + Duration::hours(hours)).await.unwrap();
             assert_eq!(action_of(&pass, muted), Some(ReclaimAction::Warn));
             assert!(pass.warned.is_empty() && pass.warned_unreached.is_empty());
-            assert!(pass.reclaimed.is_empty());
+            assert_eq!(pass.reclaimed, []);
         }
         assert!(warning_of(&resources, muted).await.is_none());
         assert!(notifications_of(&resources, muted).await.is_empty());
-        assert!(channel.lock_sent().is_empty());
-        assert!(stub.received().is_empty());
+        assert_eq!(channel.lock_sent(), []);
+        assert_eq!(stub.received(), [] as [String; 0]);
 
         notifications
             .upsert_notification_preference(&preference(true))
@@ -1519,7 +1519,7 @@ mod strava_seat_reclaim_tests {
         .await;
         let pass = sweeper.tick(t0).await.unwrap();
         assert_eq!(pass.policy.mode, ReclaimMode::Off);
-        assert!(pass.candidates.is_empty());
+        assert_eq!(pass.candidates, []);
     }
 
     /// `pierre-cli config reset` is held to the same ordering as `config set`:

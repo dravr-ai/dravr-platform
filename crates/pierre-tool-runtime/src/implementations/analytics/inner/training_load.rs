@@ -330,7 +330,6 @@ fn generate_load_recommendations(ctl: f64, band: FormBand, form_pct: Option<f64>
 }
 
 /// Handle `analyze_training_load` tool - analyze training load metrics (CTL/ATL/TSB)
-#[must_use]
 pub fn handle_analyze_training_load(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

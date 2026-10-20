@@ -128,8 +128,12 @@ fn generate_sleep_data(count: usize) -> Vec<SleepData> {
             SleepData {
                 date: sleep_date,
                 duration_hours,
-                deep_sleep_hours: Some(duration_hours * 0.2 + ((index * 3) % 30) as f64 / 100.0),
-                rem_sleep_hours: Some(duration_hours * 0.2 + ((index * 5) % 30) as f64 / 100.0),
+                deep_sleep_hours: Some(
+                    duration_hours.mul_add(0.2, ((index * 3) % 30) as f64 / 100.0),
+                ),
+                rem_sleep_hours: Some(
+                    duration_hours.mul_add(0.2, ((index * 5) % 30) as f64 / 100.0),
+                ),
                 light_sleep_hours: Some(duration_hours * 0.5),
                 awake_hours: Some(0.3 + ((index * 2) % 30) as f64 / 100.0),
                 efficiency_percent: Some(85.0 + ((index * 7) % 15) as f64),

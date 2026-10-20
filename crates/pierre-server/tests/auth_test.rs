@@ -45,7 +45,7 @@ fn test_generate_and_validate_token() {
     // Generate token using shared test JWKS
     let jwks_manager = common::get_shared_test_jwks();
     let token = auth_manager.generate_token(&user, &jwks_manager).unwrap();
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
 
     // Validate token
     let claims = auth_manager.validate_token(&token, &jwks_manager).unwrap();
@@ -64,7 +64,7 @@ fn test_create_session() {
     let session = auth_manager.create_session(&user, &jwks_manager).unwrap();
     assert_eq!(session.user_id, user.id);
     assert_eq!(session.email, "test@example.com");
-    assert!(!session.jwt_token.is_empty());
+    assert_ne!(session.jwt_token, "");
     assert!(session.expires_at > Utc::now());
 }
 
@@ -314,7 +314,7 @@ fn test_generate_token_success() {
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
     assert!(token.contains('.'));
 
     // JWT should have 3 parts separated by dots
@@ -423,7 +423,7 @@ fn test_validate_token_detailed_malformed() {
     let error = claims_result.unwrap_err();
     match error {
         JwtValidationError::TokenMalformed { details } => {
-            assert!(!details.is_empty());
+            assert_ne!(details, "");
         }
         _ => panic!("Expected TokenMalformed error, got {error:?}"),
     }
@@ -448,7 +448,7 @@ fn test_generate_oauth_access_token() {
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
 
     // Validate the token: it acts for the athlete, through the client the
     // grant was issued to (RFC 9068 §2.2).
@@ -477,7 +477,7 @@ fn test_generate_client_credentials_token() {
     assert!(token_result.is_ok());
 
     let token = token_result.unwrap();
-    assert!(!token.is_empty());
+    assert_ne!(token, "");
 
     // Validate the token structure
     assert_eq!(token.split('.').count(), 3);

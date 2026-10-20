@@ -18,7 +18,7 @@ use serde_json::json;
 
 #[test]
 fn parse_allowed_bot_ids_empty_string() {
-    assert!(parse_allowed_bot_ids("").is_empty());
+    assert_eq!(parse_allowed_bot_ids(""), [] as [String; 0]);
 }
 
 #[test]
@@ -64,8 +64,8 @@ fn parse_allowed_bot_ids_drops_empty_entries() {
 
 #[test]
 fn parse_allowed_bot_ids_only_commas_yields_empty() {
-    assert!(parse_allowed_bot_ids(",,,").is_empty());
-    assert!(parse_allowed_bot_ids("  ,  ,  ").is_empty());
+    assert_eq!(parse_allowed_bot_ids(",,,"), [] as [String; 0]);
+    assert_eq!(parse_allowed_bot_ids("  ,  ,  "), [] as [String; 0]);
 }
 
 /// Slack Events API envelope shape that Socket Mode delivers under the

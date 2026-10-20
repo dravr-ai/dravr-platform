@@ -110,7 +110,7 @@ async fn device_flow_mints_admin_token_after_super_admin_approval() {
     let body = body_json(resp).await;
     let device_code = body["device_code"].as_str().unwrap().to_owned();
     let user_code = body["user_code"].as_str().unwrap().to_owned();
-    assert!(!device_code.is_empty());
+    assert_ne!(device_code, "");
     assert!(user_code.contains('-'), "user_code is grouped: {user_code}");
 
     // 2. Poll before approval → authorization_pending.

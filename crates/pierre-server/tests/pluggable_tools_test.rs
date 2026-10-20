@@ -128,7 +128,7 @@ mod registry_tests {
 
         assert_eq!(registry.tools_in_category("data"), vec!["get_data"]);
         assert_eq!(registry.tools_in_category("analytics"), vec!["analyze"]);
-        assert!(registry.tools_in_category("unknown").is_empty());
+        assert_eq!(registry.tools_in_category("unknown"), [] as [&str; 0]);
     }
 
     #[test]

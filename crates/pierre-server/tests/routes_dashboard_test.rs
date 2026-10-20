@@ -537,9 +537,9 @@ async fn test_get_usage_analytics_success() -> Result<()> {
     // Note: Top tools might be empty in test environment due to data setup limitations
     // This is acceptable as we're testing the API interface and authentication
     for tool in &analytics.top_tools {
-        assert!(!tool.tool_name.is_empty());
+        assert_ne!(tool.tool_name, "");
         // Verify tool structure (removing redundant >= 0 check for unsigned type)
-        assert!(!tool.tool_name.is_empty());
+        assert_ne!(tool.tool_name, "");
         assert!(tool.success_rate >= 0.0 && tool.success_rate <= 100.0);
         assert!(tool.average_response_time >= 0.0);
     }

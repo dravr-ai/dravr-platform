@@ -447,7 +447,7 @@ async fn test_list_user_channel_links_empty() {
         .list_user_channel_links(tenant_id, &Uuid::new_v4().to_string())
         .await
         .unwrap();
-    assert!(links.is_empty());
+    assert_eq!(links, [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -736,7 +736,7 @@ async fn test_full_linking_flow() {
         .list_user_channel_links(tenant_id, &seeded_user_id)
         .await
         .unwrap();
-    assert!(links.is_empty());
+    assert_eq!(links, [] as [serde_json::Value; 0]);
 }
 
 // ════════════════════════════════════════════════════════════════

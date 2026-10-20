@@ -1121,12 +1121,14 @@ async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
         sleep_sources(&world, world.athlete).await,
         ["garmin", "whoop"]
     );
-    assert!(repos
-        .provider_data
-        .list_provider_data_purges("whoop", 10)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos
+            .provider_data
+            .list_provider_data_purges("whoop", 10)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -1154,7 +1156,7 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
     // The athlete's Garmin copies carry no cap and stay.
     assert_eq!(sleep_sources(&world, world.athlete).await, ["garmin"]);
     for other in [world.teammate, world.stranger, world.athlete_elsewhere] {
-        assert!(sleep_sources(&world, other).await.is_empty());
+        assert_eq!(sleep_sources(&world, other).await, [] as [String; 0]);
     }
     assert!(repos
         .sync_cursors
@@ -1256,7 +1258,10 @@ async fn a_copy_re_synced_inside_the_window_stays() {
         ["garmin", "whoop"],
         "the re-synced night carries its new sync time"
     );
-    assert!(sleep_sources(&world, world.teammate).await.is_empty());
+    assert_eq!(
+        sleep_sources(&world, world.teammate).await,
+        [] as [String; 0]
+    );
 }
 
 #[tokio::test]

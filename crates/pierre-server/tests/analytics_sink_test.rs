@@ -50,7 +50,7 @@ fn operational_event_captures_without_consent_at_tenant_level() {
 
     // distinct_id is the hashed tenant, never the raw value.
     assert_ne!(capture.distinct_id, "tenant-abc");
-    assert!(!capture.distinct_id.is_empty());
+    assert_ne!(capture.distinct_id, "");
 
     let props = capture.properties.as_object().expect("object properties");
     // Identity + request plumbing stripped; no user dimension on operational.
@@ -156,7 +156,7 @@ fn enricher_injects_sender_host_without_clobbering_explicit_value() {
     // host_identity() resolves K_REVISION or the machine hostname; either
     // way a test process always has one.
     let resolved = pierre_logging::host_identity().expect("host identity resolves on test hosts");
-    assert!(!resolved.is_empty());
+    assert_ne!(resolved, "");
 
     let mut f = HashMap::new();
     PierreNotifyEnricher::new(None).enrich("provider.fetch_started", &mut f);

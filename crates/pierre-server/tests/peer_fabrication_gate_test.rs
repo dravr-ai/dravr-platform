@@ -100,10 +100,10 @@ fn short_or_unrelated_tokens_match_nobody() {
     let roster = vec![member("Philippe Tremblay"), member("Raphael Couturier")];
     let requester = Uuid::new_v4();
 
-    assert!(mentioned_peers("on y va?", &roster, requester).is_empty());
-    assert!(mentioned_peers("mon vélo est prêt", &roster, requester).is_empty());
+    assert_eq!(mentioned_peers("on y va?", &roster, requester), []);
+    assert_eq!(mentioned_peers("mon vélo est prêt", &roster, requester), []);
     // "Ph" is below both the exact and prefix thresholds.
-    assert!(mentioned_peers("Ph a roulé", &roster, requester).is_empty());
+    assert_eq!(mentioned_peers("Ph a roulé", &roster, requester), []);
 }
 
 /// A clean verdict, a verdict wrapped in prose, and an empty verdict all
@@ -120,17 +120,29 @@ fn verdicts_parse_with_and_without_surrounding_prose() {
         ),
         vec!["4h30".to_owned(), "pas de distance".to_owned()]
     );
-    assert!(parse_unsupported_verdict(r#"{"unsupported": []}"#).is_empty());
+    assert_eq!(
+        parse_unsupported_verdict(r#"{"unsupported": []}"#),
+        [] as [String; 0]
+    );
 }
 
 /// Garbage fails OPEN — a flaky verifier must never cost the athlete a
 /// legitimate reply, so an unparseable verdict reads as "supported".
 #[test]
 fn unparseable_verdicts_fail_open() {
-    assert!(parse_unsupported_verdict("").is_empty());
-    assert!(parse_unsupported_verdict("I could not check that.").is_empty());
-    assert!(parse_unsupported_verdict("{not json at all]").is_empty());
-    assert!(parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#).is_empty());
+    assert_eq!(parse_unsupported_verdict(""), [] as [String; 0]);
+    assert_eq!(
+        parse_unsupported_verdict("I could not check that."),
+        [] as [String; 0]
+    );
+    assert_eq!(
+        parse_unsupported_verdict("{not json at all]"),
+        [] as [String; 0]
+    );
+    assert_eq!(
+        parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#),
+        [] as [String; 0]
+    );
 }
 
 /// The repair prompt is chat-shaped: no tool-result framing (which routed

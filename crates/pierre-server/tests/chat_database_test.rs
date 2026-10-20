@@ -291,7 +291,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
     let newest = coached_row.last_message.as_ref().unwrap();
     assert_eq!(newest.role, "assistant");
     assert_eq!(newest.content_head, "Repos demain.");
-    assert!(!newest.created_at.is_empty());
+    assert_ne!(newest.created_at, "");
 
     let group_row = &page.items[1];
     assert_eq!(group_row.group_id.as_deref(), Some(group_id.as_str()));
@@ -483,7 +483,7 @@ async fn test_create_conversation() {
         .await
         .unwrap();
 
-    assert!(!conv.id.is_empty());
+    assert_ne!(conv.id, "");
     assert_eq!(conv.user_id, fx.athlete());
     assert_eq!(conv.tenant_id, tenant_id.to_string());
     assert_eq!(conv.title, "Test Chat");
@@ -870,7 +870,7 @@ async fn test_add_message() {
         .await
         .unwrap();
 
-    assert!(!msg.id.is_empty());
+    assert_ne!(msg.id, "");
     assert_eq!(msg.conversation_id, conv.id);
     assert_eq!(msg.role, "user");
     assert_eq!(msg.content, "Hello, world!");
@@ -2340,13 +2340,16 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
         vec![ids[1].clone(), ids[2].clone()]
     );
     assert_eq!(walk(Some(before), None, 10).await.len(), 2);
-    assert!(walk(Some(Utc::now() + Duration::hours(1)), None, 10)
-        .await
-        .is_empty());
+    assert_eq!(
+        walk(Some(Utc::now() + Duration::hours(1)), None, 10).await,
+        [] as [String; 0]
+    );
     assert_eq!(walk(None, None, 1).await, vec![ids[1].clone()]);
-    assert!(manager
-        .list_assistant_messages_after(TenantId::generate(), None, None, 10)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        manager
+            .list_assistant_messages_after(TenantId::generate(), None, None, 10)
+            .await
+            .unwrap(),
+        []
+    );
 }

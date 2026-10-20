@@ -164,9 +164,12 @@ fn a_parameter_the_handler_defaults_is_not_required() {
         assert_eq!(required(&tool), vec!["activity_id"], "{}", tool.name);
         assert!(description(&tool, "provider").contains("Defaults to configured provider"));
     }
-    assert!(required(&def!(AnalyzePerformanceTrendsTool)).is_empty());
+    assert_eq!(
+        required(&def!(AnalyzePerformanceTrendsTool)),
+        [] as [String; 0]
+    );
     assert!(description(&def!(AnalyzePerformanceTrendsTool), "metric").contains("'pace' (default)"));
-    assert!(required(&def!(RefreshProviderDataTool)).is_empty());
+    assert_eq!(required(&def!(RefreshProviderDataTool)), [] as [String; 0]);
     assert!(description(&def!(RefreshProviderDataTool), "provider").contains("'all' (the default)"));
 }
 

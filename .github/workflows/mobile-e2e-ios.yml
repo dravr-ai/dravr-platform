@@ -82,7 +82,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.98.1
+        uses: dtolnay/rust-toolchain@1.99.1
 
       # Restored on every run, saved only by the nightly scheduled run on main
       # (see .github/actions/rust-setup for why a cache is saved once a day).
@@ -94,9 +94,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.98.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-mobile-server-1.98.1-
+            ${{ runner.os }}-cargo-mobile-server-1.99.1-
             ${{ runner.os }}-cargo-
 
       - name: Build Pierre server (release)
@@ -113,7 +113,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-mobile-server-1.98.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Upload server binaries
         uses: actions/upload-artifact@v4

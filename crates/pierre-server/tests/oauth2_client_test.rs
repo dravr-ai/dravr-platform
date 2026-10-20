@@ -19,11 +19,11 @@ fn test_pkce_params_generation() {
     let pkce = PkceParams::generate();
 
     // Code verifier should be 128 characters (from OAUTH_CODE_VERIFIER_LENGTH constant)
-    assert!(!pkce.code_verifier.is_empty());
+    assert_ne!(pkce.code_verifier, "");
     assert!(pkce.code_verifier.len() >= 43); // Minimum PKCE spec requirement
 
     // Code challenge should be non-empty base64url encoded
-    assert!(!pkce.code_challenge.is_empty());
+    assert_ne!(pkce.code_challenge, "");
 
     // Code challenge method should be S256
     assert_eq!(pkce.code_challenge_method, "S256");

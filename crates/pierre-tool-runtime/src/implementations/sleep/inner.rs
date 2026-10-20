@@ -74,7 +74,6 @@ pub(super) const MAX_TREND_DAYS: u32 = 366;
 ///
 /// # Errors
 /// Returns `ProtocolError` if sleep data is missing or invalid
-#[must_use]
 // Long function: Protocol handler with async data fetching, HRV analysis, response formatting
 pub fn handle_analyze_sleep_quality(
     executor: &UniversalToolExecutor,
@@ -217,7 +216,6 @@ pub fn handle_analyze_sleep_quality(
 ///
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or calculation fails
-#[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
 pub fn handle_calculate_recovery_score(
     executor: &UniversalToolExecutor,
@@ -452,7 +450,6 @@ pub fn handle_calculate_recovery_score(
 ///
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or analysis fails
-#[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
 pub fn handle_suggest_rest_day(
     executor: &UniversalToolExecutor,
@@ -686,7 +683,6 @@ pub fn handle_suggest_rest_day(
 ///
 /// # Errors
 /// Returns `ProtocolError` if data is insufficient or analysis fails
-#[must_use]
 // Long function: Protocol handler inherently long due to trend calculation, statistics aggregation, response formatting
 pub fn handle_track_sleep_trends(
     executor: &UniversalToolExecutor,
@@ -895,7 +891,6 @@ pub fn handle_track_sleep_trends(
 ///
 /// # Errors
 /// Returns `ProtocolError` if required parameters are missing
-#[must_use]
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
 pub fn handle_optimize_sleep_schedule(
     executor: &UniversalToolExecutor,

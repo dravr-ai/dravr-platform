@@ -284,7 +284,6 @@ async fn fetch_and_analyze_activity(
 ///
 /// # Errors
 /// Returns `ProtocolError` if `activity_id` parameter is missing or validation fails
-#[must_use]
 pub fn handle_get_activity_intelligence(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,

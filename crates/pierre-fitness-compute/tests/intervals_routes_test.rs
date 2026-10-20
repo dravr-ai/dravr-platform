@@ -264,7 +264,7 @@ fn route_summary_parses_gpx_and_finds_terrain_buckets() {
     assert!(summary.terrain.total_distance_meters > 0.0);
     assert!(summary.terrain.elevation_gain_meters >= 150.0);
     assert!(summary.terrain.elevation_loss_meters >= 50.0);
-    assert!(!summary.gpx_hash.is_empty());
+    assert_ne!(summary.gpx_hash, "");
 }
 
 #[test]

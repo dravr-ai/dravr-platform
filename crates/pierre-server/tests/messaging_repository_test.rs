@@ -312,7 +312,7 @@ async fn test_tenant_isolation_channel_config() {
         .list_channel_configs(tenant_b)
         .await
         .unwrap();
-    assert!(configs_b.is_empty());
+    assert_eq!(configs_b, [] as [serde_json::Value; 0]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -276,7 +276,7 @@ fn test_visual_blocks_hot_reload() {
     let registry = PromptRegistry::new();
 
     let compiled_visual = registry.visual_blocks_prompt();
-    assert!(!compiled_visual.is_empty());
+    assert_ne!(compiled_visual, "");
 
     registry.update_system_prompt(
         "visual_blocks",
@@ -404,7 +404,7 @@ fn test_sha256_tracking() {
 
     let sha = registry.system_prompt_sha256("pierre_system");
     assert!(sha.is_some());
-    assert!(!sha.unwrap().is_empty());
+    assert_ne!(sha.unwrap(), "");
 
     assert!(registry
         .agent_prompt_sha256("marathon-coach", "en")

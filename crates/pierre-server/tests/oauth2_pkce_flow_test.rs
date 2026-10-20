@@ -188,7 +188,7 @@ async fn test_pkce_valid_s256_flow() {
         .authorize(auth_request, Some(user.id), None)
         .await
         .unwrap();
-    assert!(!auth_response.code.is_empty());
+    assert_ne!(auth_response.code, "");
 
     // Token exchange with valid code_verifier
     let token_request = TokenRequest {

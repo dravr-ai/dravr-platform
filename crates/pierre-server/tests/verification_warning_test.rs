@@ -91,7 +91,7 @@ fn supported_and_rhetorical_claims_are_not_flagged() {
             outcome(ClaimStatus::Rhetorical),
         ),
     ];
-    assert!(actionable_problems(&verdicts).is_empty());
+    assert_eq!(actionable_problems(&verdicts), []);
 }
 
 #[test]

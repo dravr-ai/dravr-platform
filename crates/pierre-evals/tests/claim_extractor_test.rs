@@ -92,5 +92,5 @@ fn extract_heuristic_returns_multiple_claims() {
 #[test]
 fn extract_heuristic_empty_on_motivation() {
     let reply = "You're crushing it! Keep going! Amazing work!";
-    assert!(extract_heuristic(reply).is_empty());
+    assert_eq!(extract_heuristic(reply), []);
 }

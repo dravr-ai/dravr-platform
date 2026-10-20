@@ -592,7 +592,7 @@ async fn a_named_provider_that_does_not_write_a_calendar_is_refused() -> Result<
         .refused("push_training_plan", json!({ "provider": READ_ONLY }))
         .await;
     assert!(refusal.contains("calendar_write"), "{refusal}");
-    assert!(events_of(READ_ONLY, fx.user_id).is_empty());
+    assert_eq!(events_of(READ_ONLY, fx.user_id), []);
     Ok(())
 }
 

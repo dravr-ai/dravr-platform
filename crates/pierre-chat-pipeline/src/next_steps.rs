@@ -513,7 +513,10 @@ mod tests {
 
     #[test]
     fn the_season_leads_to_the_fortnight_only_once_it_is_laid_out() {
-        assert!(picked(StepsAfter::SeasonWalk, &pillars_done()).is_empty());
+        assert_eq!(
+            picked(StepsAfter::SeasonWalk, &pillars_done()),
+            [] as [String; 0]
+        );
         assert_eq!(picked(StepsAfter::SeasonWalk, &planned()), ["fortnight"]);
     }
 
@@ -540,7 +543,10 @@ mod tests {
             weeks_of_data: 1,
             ..pillars_done()
         };
-        assert!(picked(StepsAfter::FirstAnalysis, &one_week).is_empty());
+        assert_eq!(
+            picked(StepsAfter::FirstAnalysis, &one_week),
+            [] as [String; 0]
+        );
     }
 
     #[test]
@@ -666,7 +672,7 @@ mod tests {
         for (action, entry) in actions.iter().zip(&entries) {
             assert_eq!(action.kind, ActionKind::Postback);
             assert_eq!(action.label, strings.get(&entry.label_key(), "en"));
-            assert!(!action.label.is_empty());
+            assert_ne!(action.label, "");
         }
     }
 

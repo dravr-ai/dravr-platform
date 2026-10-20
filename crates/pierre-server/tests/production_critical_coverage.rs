@@ -117,7 +117,7 @@ async fn test_model_serialization_coverage() -> Result<()> {
 
     // Test serialization
     let serialized = serde_json::to_string(&user)?;
-    assert!(!serialized.is_empty());
+    assert_ne!(serialized, "");
 
     // Test deserialization
     let deserialized: User = serde_json::from_str(&serialized)?;
@@ -171,7 +171,7 @@ async fn test_admin_auth_flow() -> Result<()> {
     // Test token generation for admin
     let jwks_manager = common::get_shared_test_jwks();
     let admin_token = auth_manager.generate_token(&admin_user, &jwks_manager)?;
-    assert!(!admin_token.is_empty());
+    assert_ne!(admin_token, "");
 
     // Test token validation
     let validation_result = auth_manager.validate_token(&admin_token, &jwks_manager);
@@ -228,7 +228,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
     for user in &users {
         let token = server.auth_manager().generate_token(user, &jwks_manager)?;
-        assert!(!token.is_empty());
+        assert_ne!(token, "");
 
         // Validate token belongs to correct user
         let validation = server

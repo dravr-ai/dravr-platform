@@ -356,13 +356,15 @@ async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
 
     assert_eq!(outcome.expired, 1);
     assert_eq!(outcome.labeled, 0);
-    assert!(reporter.delivered().is_empty());
-    assert!(repos
-        .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(reporter.delivered(), []);
+    assert_eq!(
+        repos
+            .commitments
+            .due_commitments(Utc::now().timestamp(), 50)
+            .await
+            .unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -466,12 +468,10 @@ async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
         .await
         .unwrap();
     assert_eq!(stale.expired, 1);
-    assert!(repos
-        .commitments
-        .unreported_commitments(50)
-        .await
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        repos.commitments.unreported_commitments(50).await.unwrap(),
+        []
+    );
 }
 
 #[tokio::test]
@@ -502,7 +502,7 @@ async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
     assert_eq!(first.deferred, 1, "the cold window was not read as a miss");
     assert_eq!(first.refreshes, 1, "and a refresh was started for it");
     assert_eq!(first.labeled, 0);
-    assert!(reporter.delivered().is_empty());
+    assert_eq!(reporter.delivered(), []);
 
     let requests = refresher.requests();
     assert_eq!(requests.len(), 1);
@@ -589,7 +589,7 @@ async fn a_fresh_met_count_requests_no_refresh() {
 
     assert_eq!(outcome.labeled, 1);
     assert_eq!(outcome.refreshes, 0, "the sessions were already here");
-    assert!(refresher.requests().is_empty());
+    assert_eq!(refresher.requests(), []);
     assert_eq!(
         reporter.delivered()[0].outcome,
         Some(CommitmentOutcome::Met)
@@ -612,5 +612,5 @@ async fn a_future_window_is_left_alone() {
 
     assert_eq!(outcome.scanned, 0, "the week is not over yet");
     assert_eq!(outcome.labeled, 0);
-    assert!(reporter.delivered().is_empty());
+    assert_eq!(reporter.delivered(), []);
 }

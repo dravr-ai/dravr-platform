@@ -194,7 +194,7 @@ async fn a_solo_provider_has_no_tiers_to_probe() {
     let (solo, calls) = Scripted::tier("solo", Behaviour::Answers("pong"));
     let provider = ChatProvider::Embacle(solo);
 
-    assert!(provider.probe_chain_tiers(&ping()).await.is_empty());
+    assert_eq!(provider.probe_chain_tiers(&ping()).await, []);
     assert_eq!(
         calls.load(Ordering::SeqCst),
         0,

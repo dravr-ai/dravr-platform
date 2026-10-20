@@ -101,7 +101,7 @@ impl ScriptedChannel {
     /// Take one scripted failure from `counter`, reporting whether there was one.
     fn take_failure(counter: &AtomicUsize) -> bool {
         counter
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok()

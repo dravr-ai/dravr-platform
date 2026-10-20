@@ -327,7 +327,7 @@ async fn a_complete_interview_names_no_gaps() {
         wrap_up.starts_with(&a.calibration_header(6, CORE_ASKED)),
         "all six core topics produced a fact: {wrap_up}"
     );
-    assert!(a.named_missing(&wrap_up).is_empty());
+    assert_eq!(a.named_missing(&wrap_up), []);
 }
 
 #[tokio::test]

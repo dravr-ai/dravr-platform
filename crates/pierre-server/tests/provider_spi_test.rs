@@ -94,14 +94,14 @@ fn test_garmin_oauth_params() {
         assert_eq!(params.scope_separator, ",");
         // Garmin's OAuth2 PKCE specification requires an S256 challenge.
         assert!(params.use_pkce);
-        assert!(params.additional_auth_params.is_empty());
+        assert_eq!(params.additional_auth_params, []);
     }
 
     // Garmin's refresh grant: no field beyond the standard ones.
     let refresh = desc
         .oauth_refresh()
         .expect("Garmin declares its refresh grant");
-    assert!(refresh.extra_form.is_empty());
+    assert_eq!(refresh.extra_form, []);
     assert!(
         desc.owner_id_from_api(),
         "Garmin's token response names no user"
@@ -122,7 +122,7 @@ fn test_provider_descriptor_to_config() {
     if let Some(ref revoke_url) = config.revoke_url {
         assert_eq!(revoke_url, "https://www.strava.com/oauth/revoke");
     }
-    assert!(!config.default_scopes.is_empty());
+    assert_ne!(config.default_scopes, [] as [String; 0]);
     assert!(config
         .default_scopes
         .contains(&"activity:read_all".to_owned()));
@@ -223,5 +223,5 @@ fn test_garmin_full_descriptor() {
     }
 
     // Garmin's scope is fixed server-side: its authorization requests none.
-    assert!(desc.default_scopes().is_empty());
+    assert_eq!(desc.default_scopes(), [] as [&str; 0]);
 }

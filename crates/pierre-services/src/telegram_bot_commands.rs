@@ -464,7 +464,7 @@ mod tests {
             }
         }
 
-        assert!(telegram_description_calls(&strings, &LOCALES).is_empty());
+        assert_eq!(telegram_description_calls(&strings, &LOCALES), []);
     }
 
     #[test]

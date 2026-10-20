@@ -993,7 +993,7 @@ async fn test_create_admin_token() -> Result<()> {
     assert_eq!(body["success"], true);
     assert_eq!(body["data"]["service_name"], "new_admin_service");
     assert!(!body["data"]["is_super_admin"].as_bool().unwrap());
-    assert!(!body["data"]["jwt_token"].as_str().unwrap().is_empty());
+    assert_ne!(body["data"]["jwt_token"].as_str().unwrap(), "");
 
     Ok(())
 }

@@ -463,7 +463,10 @@ mod tests {
             },
             ..newcomer()
         };
-        assert!(rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], 5).is_empty());
+        assert_eq!(
+            rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], 5),
+            [] as [&UseCase; 0]
+        );
     }
 
     #[test]

@@ -32,14 +32,14 @@ fn test_agent_card_structure() {
 
     // Required A2A 1.0 fields
     assert_eq!(card.name, "Dravr AI");
-    assert!(!card.description.is_empty());
-    assert!(!card.version.is_empty());
+    assert_ne!(card.description, "");
+    assert_ne!(card.version, "");
     assert!(
         !card.supported_interfaces.is_empty(),
         "Agent card must declare at least one interface"
     );
-    assert!(!card.default_input_modes.is_empty());
-    assert!(!card.default_output_modes.is_empty());
+    assert_ne!(card.default_input_modes, [] as [String; 0]);
+    assert_ne!(card.default_output_modes, [] as [String; 0]);
     assert!(!card.skills.is_empty());
 
     // Interfaces are preference-ordered; JSONRPC is preferred, HTTP+JSON is
@@ -81,9 +81,9 @@ fn test_agent_card_skills() {
 
     // AgentSkill required fields: id, name, description, tags.
     for skill in &card.skills {
-        assert!(!skill.id.is_empty());
-        assert!(!skill.name.is_empty());
-        assert!(!skill.description.is_empty());
+        assert_ne!(skill.id, "");
+        assert_ne!(skill.name, "");
+        assert_ne!(skill.description, "");
         assert!(!skill.tags.is_empty(), "skill {} needs tags", skill.id);
     }
 }

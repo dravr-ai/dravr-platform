@@ -396,7 +396,7 @@ turns:
         assert_eq!(s.name, "Smoke test");
         assert_eq!(s.locales, vec!["en"]);
         assert_eq!(s.turns.len(), 1);
-        assert!(s.turns[0].assertions.is_empty());
+        assert_eq!(s.turns[0].assertions, []);
         // A turn is language-checked unless it says otherwise. The default
         // has to be the strict one: an author who omits the field is the
         // author carnet#162 exists for.

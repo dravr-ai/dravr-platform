@@ -222,7 +222,10 @@ async fn test_admin_list_system_agents_empty() -> Result<()> {
     assert!(resp.success, "list should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert!(result["agents"].as_array().unwrap().is_empty());
+    assert_eq!(
+        result["agents"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     Ok(())
 }
 

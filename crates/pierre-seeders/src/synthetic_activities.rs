@@ -653,7 +653,7 @@ fn start_point(
     let step = f64::from(index);
     let angle = step * GOLDEN_ANGLE;
     let reach = MAX_OFFSET_DEGREES * (f64::from(index % 10) + 1.0) / 10.0;
-    let latitude = MONTREAL.0 + reach * angle.sin();
+    let latitude = reach.mul_add(angle.sin(), MONTREAL.0);
     // A degree of longitude is shorter than one of latitude at 45°N.
     let longitude = MONTREAL.1 + reach * angle.cos() / MONTREAL.0.to_radians().cos();
     (Some(latitude), Some(longitude))

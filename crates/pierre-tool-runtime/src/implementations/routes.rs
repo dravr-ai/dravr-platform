@@ -946,8 +946,8 @@ mod tests {
 
         assert_eq!(drawable[0].connects_to, vec![ref_of(3)]);
         assert_eq!(drawable[3].connects_to, vec![ref_of(0)]);
-        assert!(drawable[1].connects_to.is_empty());
-        assert!(drawable[2].connects_to.is_empty());
+        assert_eq!(drawable[1].connects_to, [] as [String; 0]);
+        assert_eq!(drawable[2].connects_to, [] as [String; 0]);
     }
 
     /// A line the store refuses leaves that route without a reference, and
@@ -963,7 +963,7 @@ mod tests {
 
         assert_eq!(drawable[3], DrawableRoute::default());
         assert!(drawable[0].route_ref.is_some());
-        assert!(drawable[0].connects_to.is_empty());
+        assert_eq!(drawable[0].connects_to, [] as [String; 0]);
     }
 
     /// The entry says nothing of a reference or links it does not have, and

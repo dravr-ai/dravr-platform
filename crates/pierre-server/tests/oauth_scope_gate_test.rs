@@ -76,12 +76,14 @@ fn capability_flags_derive_their_scope() {
     // Runtime requirements are not permissions and must not become scopes: a
     // vocabulary that published `requires_tenant` would ask an athlete to
     // consent to an implementation detail.
-    assert!(required_scopes(
-        ToolCapabilities::REQUIRES_AUTH
-            | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::REQUIRES_PROVIDER
-    )
-    .is_empty());
+    assert_eq!(
+        required_scopes(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::REQUIRES_PROVIDER
+        ),
+        []
+    );
 }
 
 /// The missing scope is *named*, because RFC 6750 §3.1 requires the challenge
