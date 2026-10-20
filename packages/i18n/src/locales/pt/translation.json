@@ -847,9 +847,9 @@
     "pendingApprovalBody": "A tua conta foi criada com sucesso e aguarda a aprovação de um administrador. Vais receber um e-mail assim que a tua conta for aprovada.",
     "pendingApprovalMessage": "O teu registo está a ser analisado. Vais receber um e-mail assim que for aprovado.",
     "pendingApprovalTitle": "Conta a aguardar aprovação",
-    "pendingEmailTombstoned": "Este e-mail pertencia a uma conta Dravr excluída em {{date}}. Confirme que quer recomeçar com ele para continuar.",
+    "pendingEmailTombstoned": "Este e-mail pertencia a uma conta Dravr eliminada a {{date}}. Confirma que queres recomeçar com ele para continuar.",
     "pendingEmailTombstonedClear": "Recomeçar",
-    "pendingEmailTombstonedVerifyFirst": "Confirme primeiro seu endereço de e-mail e depois recomece.",
+    "pendingEmailTombstonedVerifyFirst": "Confirma primeiro o teu endereço de e-mail e depois recomeça.",
     "registrationFailed": "Não conseguimos criar a conta. Tenta de novo dentro de momentos.",
     "registrationSuccess": "Conta criada",
     "rememberMe": "Manter sessão iniciada",
@@ -2236,7 +2236,7 @@
       "rejected": "O Intervals.icu recusou essas credenciais. Verifica o teu ID de atleta e a tua chave de API e tenta de novo.",
       "unavailable": "De momento não é possível ligar o Intervals.icu. Tenta mais tarde.",
       "saveFailed": "Não conseguimos guardar a tua ligação ao Intervals.icu. Tenta de novo daqui a pouco.",
-      "tombstoned": "Esta conta Intervals.icu pertencia a uma conta Dravr excluída. Recomece com ela pelo app Dravr antes de conectá-la aqui."
+      "tombstoned": "Esta conta Intervals.icu pertencia a uma conta Dravr eliminada. Recomeça com ela na app Dravr antes de a ligares aqui."
     },
     "success": {
       "pageTitle": "Ligado - Dravr",
@@ -3036,8 +3036,8 @@
       "allowed": "Uso pela IA permitido. Seu agente volta a ler os dados de {{provider}}.",
       "failed": "Não foi possível atualizar seu consentimento de IA. Tente novamente."
     },
-    "connectTombstoned": "Esta conta {{provider}} pertencia a uma conta Dravr excluída em {{date}}. Os dados continuam excluídos até você decidir recomeçar com ela.",
-    "connectTombstonedClear": "Recomeçar e conectar"
+    "connectTombstoned": "Esta conta {{provider}} pertencia a uma conta Dravr eliminada a {{date}}. Os dados continuam eliminados até decidires recomeçar com ela.",
+    "connectTombstonedClear": "Recomeçar e ligar"
   },
   "settings": {
     "account": "Conta",
