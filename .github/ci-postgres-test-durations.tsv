@@ -11,7 +11,8 @@
 # A top-level suite weighs its own binary's run; the packer adds a per-file
 # BUILD cost to it (0.61s, fitted from run 33917276134). An `it` module weighs
 # its share of the shared `it` run's wall clock and carries no build cost of its
-# own. Refresh with: scripts/ci/refresh-pg-shard-weights.sh <run-id>
+# own; one whose filter completed no test in that run weighs 0.0.
+# Refresh with: scripts/ci/refresh-pg-shard-weights.sh <run-id>
 a2a_client_credentials_token_test	2.7
 a2a_compliance_test	0.1
 a2a_cross_user_isolation_test	3.1
@@ -221,6 +222,7 @@ conversation_quota_test	7.7
 conversation_turn_e2e_test	3.6
 conversation_turn_endpoint_test	6.5
 copilot_sdk_provider_test	4.8
+coros_provider_test	0.0
 cors_middleware_test	0.0
 crypto_keys_test	0.0
 current_date_epoch_anchor_test	0.0
@@ -720,6 +722,7 @@ tenant_context_resolution_test	0.1
 tenant_data_isolation	1.2
 tenant_membership_verification_test	0.9
 tenant_middleware_test	0.0
+terra_provider_test	0.0
 test_all_tools	1.6
 test_layout_test	0.0
 text_guardrails_test	0.4
