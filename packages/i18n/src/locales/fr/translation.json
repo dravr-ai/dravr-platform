@@ -847,6 +847,9 @@
     "pendingApprovalBody": "Ton compte a bien été créé et attend l’approbation d’un administrateur. Tu recevras un e-mail dès qu’il sera approuvé.",
     "pendingApprovalMessage": "Ton inscription est en cours d’examen. Tu recevras un e-mail dès qu’elle sera approuvée.",
     "pendingApprovalTitle": "Compte en attente d’approbation",
+    "pendingEmailTombstoned": "Cette adresse appartenait à un compte Dravr supprimé le {{date}}. Confirmez que vous voulez repartir de zéro avec elle pour continuer.",
+    "pendingEmailTombstonedClear": "Repartir de zéro",
+    "pendingEmailTombstonedVerifyFirst": "Confirmez d'abord votre adresse e-mail, puis repartez de zéro.",
     "registrationFailed": "Impossible de créer le compte. Réessaie dans un moment.",
     "registrationSuccess": "Compte créé",
     "rememberMe": "Rester connecté",
@@ -2232,7 +2235,8 @@
       "apiKeyRequired": "Saisis ta clé API.",
       "rejected": "Intervals.icu a refusé ces identifiants. Vérifie ton identifiant athlète et ta clé API, puis réessaie.",
       "unavailable": "Intervals.icu ne peut pas être connecté pour le moment. Réessaie plus tard.",
-      "saveFailed": "Nous n’avons pas pu enregistrer ta connexion Intervals.icu. Réessaie dans un instant."
+      "saveFailed": "Nous n’avons pas pu enregistrer ta connexion Intervals.icu. Réessaie dans un instant.",
+      "tombstoned": "Ce compte Intervals.icu appartenait à un compte Dravr supprimé. Repartez de zéro avec lui depuis l'app Dravr avant de le connecter ici."
     },
     "success": {
       "pageTitle": "Connecté - Dravr",
@@ -3031,7 +3035,9 @@
       "withdrawn": "Accès de l’IA retiré. Votre agent ne lit plus les données {{provider}}.",
       "allowed": "Accès de l’IA autorisé. Votre agent lit de nouveau les données {{provider}}.",
       "failed": "Impossible de mettre à jour votre consentement IA. Veuillez réessayer."
-    }
+    },
+    "connectTombstoned": "Ce compte {{provider}} appartenait à un compte Dravr supprimé le {{date}}. Ses données restent supprimées tant que vous ne choisissez pas de repartir de zéro avec lui.",
+    "connectTombstonedClear": "Repartir de zéro et connecter"
   },
   "settings": {
     "account": "Compte",

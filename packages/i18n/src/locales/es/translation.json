@@ -847,6 +847,9 @@
     "pendingApprovalBody": "Tu cuenta se ha creado correctamente y está pendiente de la aprobación de un administrador. Recibirás un correo en cuanto se apruebe.",
     "pendingApprovalMessage": "Estamos revisando tu registro. Recibirás un correo en cuanto se apruebe.",
     "pendingApprovalTitle": "Cuenta pendiente de aprobación",
+    "pendingEmailTombstoned": "Este correo pertenecía a una cuenta de Dravr eliminada el {{date}}. Confirma que quieres empezar de cero con él para continuar.",
+    "pendingEmailTombstonedClear": "Empezar de cero",
+    "pendingEmailTombstonedVerifyFirst": "Confirma primero tu dirección de correo y luego empieza de cero.",
     "registrationFailed": "No pudimos crear la cuenta. Inténtalo de nuevo en un momento.",
     "registrationSuccess": "Cuenta creada",
     "rememberMe": "Mantener la sesión iniciada",
@@ -2232,7 +2235,8 @@
       "apiKeyRequired": "Introduce tu clave de API.",
       "rejected": "Intervals.icu ha rechazado esas credenciales. Comprueba tu ID de atleta y tu clave de API e inténtalo de nuevo.",
       "unavailable": "Ahora mismo no se puede conectar Intervals.icu. Inténtalo más tarde.",
-      "saveFailed": "No hemos podido guardar tu conexión con Intervals.icu. Inténtalo de nuevo en un momento."
+      "saveFailed": "No hemos podido guardar tu conexión con Intervals.icu. Inténtalo de nuevo en un momento.",
+      "tombstoned": "Esta cuenta de Intervals.icu pertenecía a una cuenta de Dravr eliminada. Empieza de cero con ella desde la app de Dravr antes de conectarla aquí."
     },
     "success": {
       "pageTitle": "Conectado - Dravr",
@@ -3031,7 +3035,9 @@
       "withdrawn": "Uso por la IA retirado. Tu agente ya no lee los datos de {{provider}}.",
       "allowed": "Uso por la IA permitido. Tu agente vuelve a leer los datos de {{provider}}.",
       "failed": "No se pudo actualizar tu consentimiento de IA. Inténtalo de nuevo."
-    }
+    },
+    "connectTombstoned": "Esta cuenta de {{provider}} pertenecía a una cuenta de Dravr eliminada el {{date}}. Sus datos siguen eliminados hasta que decidas empezar de cero con ella.",
+    "connectTombstonedClear": "Empezar de cero y conectar"
   },
   "settings": {
     "account": "Cuenta",

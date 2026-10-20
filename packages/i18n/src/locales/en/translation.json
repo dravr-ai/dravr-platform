@@ -847,6 +847,9 @@
     "pendingApprovalBody": "Your account has been created successfully and is awaiting approval by an administrator. You'll receive an email notification once your account is approved.",
     "pendingApprovalMessage": "Your registration is being reviewed. You'll get an email once it's approved.",
     "pendingApprovalTitle": "Account Pending Approval",
+    "pendingEmailTombstoned": "This email belonged to a Dravr account deleted on {{date}}. Confirm you want to start fresh with it to continue.",
+    "pendingEmailTombstonedClear": "Start fresh",
+    "pendingEmailTombstonedVerifyFirst": "Confirm your email address first, then start fresh.",
     "registrationFailed": "We couldn't create the account. Try again in a moment.",
     "registrationSuccess": "Account created",
     "rememberMe": "Remember me",
@@ -2232,7 +2235,8 @@
       "apiKeyRequired": "Enter your API key.",
       "rejected": "Intervals.icu rejected those credentials. Check your Athlete ID and API key, then try again.",
       "unavailable": "Intervals.icu can't be connected right now. Please try again later.",
-      "saveFailed": "We could not save your Intervals.icu connection. Please try again in a moment."
+      "saveFailed": "We could not save your Intervals.icu connection. Please try again in a moment.",
+      "tombstoned": "This Intervals.icu account belonged to a deleted Dravr account. Start fresh with it from the Dravr app before connecting it here."
     },
     "success": {
       "pageTitle": "Connected - Dravr",
@@ -3031,7 +3035,9 @@
       "withdrawn": "AI use withdrawn. Your agent no longer reads {{provider}} data.",
       "allowed": "AI use allowed. Your agent reads {{provider}} data again.",
       "failed": "Could not update your AI consent. Please try again."
-    }
+    },
+    "connectTombstoned": "This {{provider}} account belonged to a Dravr account deleted on {{date}}. Its data stays deleted until you choose to start fresh with it.",
+    "connectTombstonedClear": "Start fresh and connect"
   },
   "settings": {
     "account": "Account",

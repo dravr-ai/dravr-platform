@@ -847,6 +847,9 @@
     "pendingApprovalBody": "Dein Konto wurde erfolgreich angelegt und wartet auf die Freigabe durch einen Administrator. Du bekommst eine E-Mail, sobald dein Konto freigegeben ist.",
     "pendingApprovalMessage": "Deine Registrierung wird geprüft. Du bekommst eine E-Mail, sobald sie freigegeben ist.",
     "pendingApprovalTitle": "Konto wartet auf Freigabe",
+    "pendingEmailTombstoned": "Diese E-Mail-Adresse gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Bestätige, dass du damit neu anfangen möchtest, um fortzufahren.",
+    "pendingEmailTombstonedClear": "Neu anfangen",
+    "pendingEmailTombstonedVerifyFirst": "Bestätige zuerst deine E-Mail-Adresse und fang dann neu an.",
     "registrationFailed": "Wir konnten das Konto nicht anlegen. Versuch es gleich noch einmal.",
     "registrationSuccess": "Konto angelegt",
     "rememberMe": "Angemeldet bleiben",
@@ -2232,7 +2235,8 @@
       "apiKeyRequired": "Gib deinen API-Schlüssel ein.",
       "rejected": "Intervals.icu hat diese Zugangsdaten abgelehnt. Prüfe deine Athleten-ID und deinen API-Schlüssel und versuche es erneut.",
       "unavailable": "Intervals.icu kann gerade nicht verbunden werden. Versuche es später erneut.",
-      "saveFailed": "Wir konnten deine Intervals.icu-Verbindung nicht speichern. Versuche es gleich noch einmal."
+      "saveFailed": "Wir konnten deine Intervals.icu-Verbindung nicht speichern. Versuche es gleich noch einmal.",
+      "tombstoned": "Dieses Intervals.icu-Konto gehörte zu einem gelöschten Dravr-Konto. Fang in der Dravr-App damit neu an, bevor du es hier verbindest."
     },
     "success": {
       "pageTitle": "Verbunden - Dravr",
@@ -3031,7 +3035,9 @@
       "withdrawn": "KI-Nutzung widerrufen. Dein Agent liest keine {{provider}}-Daten mehr.",
       "allowed": "KI-Nutzung erlaubt. Dein Agent liest wieder {{provider}}-Daten.",
       "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut."
-    }
+    },
+    "connectTombstoned": "Dieses {{provider}}-Konto gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Seine Daten bleiben gelöscht, bis du dich entscheidest, damit neu anzufangen.",
+    "connectTombstonedClear": "Neu anfangen und verbinden"
   },
   "settings": {
     "account": "Konto",
