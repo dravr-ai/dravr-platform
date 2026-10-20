@@ -52,8 +52,10 @@ if [ -z "$SINCE" ]; then
 fi
 
 # The footer with its leading `---` rule and the blank lines around it, literal
-# or JSON-escaped, in either wording Claude Code has used.
-STRIP='def footer: "(\\s|\\\\n)*(-{3,})?(\\s|\\\\n)*_?(🤖\\s*)?Generated (by|with) \\[Claude Code\\]\\(https://claude\\.(ai|com)/(code|claude-code)\\)_?";
+# or JSON-escaped, in either wording Claude Code has used. It is only ever
+# appended, so it must end the body or the marker's JSON string: a body that
+# quotes the footer mid-text keeps the quote.
+STRIP='def footer: "(\\s|\\\\n)*(-{3,})?(\\s|\\\\n)*_?(🤖\\s*)?Generated (by|with) \\[Claude Code\\]\\(https://claude\\.(ai|com)/(code|claude-code)\\)_?(?=\\s*$|\\s*\")";
 def strip: gsub(footer; "") | sub("\\s*$"; "\n");
 def signed: test(footer);'
 
@@ -83,8 +85,15 @@ while IFS= read -r row; do
         failed=$((failed + 1))
         continue
     fi
-    if jq -e "$STRIP"'.body // "" | signed' <<<"$stored" >/dev/null; then
-        echo "an edited entry still carries the footer: the write path re-appends it" >&2
+    # Only an explicit `false` counts as clean: a response jq cannot read is
+    # an edit nobody verified, not a stripped body.
+    if ! verdict=$(jq "$STRIP"'.body // "" | signed' <<<"$stored" 2>/dev/null) \
+        || [ "$verdict" != false ]; then
+        if [ "${verdict:-}" = true ]; then
+            echo "an edited entry still carries the footer: the write path re-appends it" >&2
+        else
+            echo "an edit's response was not a readable entry: the stored body is unverified" >&2
+        fi
         failed=$((failed + 1))
         continue
     fi
