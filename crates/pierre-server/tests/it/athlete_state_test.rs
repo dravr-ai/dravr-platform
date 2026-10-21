@@ -11,7 +11,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use pierre_contremaitre::use_case_catalogue::{Predicate, Stage};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
+    ActivityBuilder, CheckInCadence, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
@@ -295,5 +295,40 @@ async fn a_season_with_a_week_covering_today_is_an_active_plan() {
         policy,
         TransportPolicy::FirstPartyOnly,
         "a season derived from first-party-only data stamps what is read from it"
+    );
+}
+
+#[tokio::test]
+async fn check_in_on_follows_the_cadence_the_athlete_chose() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let who @ (user_id, tenant) = athlete(repos, Duration::days(2)).await;
+
+    let (never_chose, _) = read(repos, who).await;
+    assert!(!never_chose.check_in_on, "no cadence row");
+    assert!(!never_chose.holds(Predicate::CheckInOn));
+
+    let set = |cadence| {
+        repos
+            .check_in_preferences
+            .set_check_in_cadence(tenant, user_id, cadence, Utc::now())
+    };
+    set(CheckInCadence::ThreePerWeek).await.unwrap();
+    let (armed, _) = read(repos, who).await;
+    assert!(armed.holds(Predicate::CheckInOn));
+
+    set(CheckInCadence::Off).await.unwrap();
+    let (off, _) = read(repos, who).await;
+    assert!(
+        !off.holds(Predicate::CheckInOn),
+        "off is a choice not to be checked in on"
+    );
+
+    let other = athlete(repos, Duration::days(2)).await;
+    set(CheckInCadence::Daily).await.unwrap();
+    let (stranger, _) = read(repos, other).await;
+    assert!(
+        !stranger.holds(Predicate::CheckInOn),
+        "another athlete's cadence is not theirs"
     );
 }

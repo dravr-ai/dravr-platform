@@ -753,7 +753,9 @@ fi
 # pin. contremaitre's pre-push runs this script against platform origin/main, so
 # the typo fails on the author's machine instead. The predicates are listed in
 # scripts/ci/use-case-predicates.txt, which the platform's predicate enum is
-# held to as well.
+# held to as well. An entry's optional `first_run:` order (carnet#1099) is null
+# or a whole number in 1..=9, unique, and the orders run 1 to their count
+# without a gap, as the platform's parser requires.
 if [[ -z "$CM_ROOT" ]]; then
     echo -e "${YELLOW}⚠️  contremaitre corpus could not be resolved (offline?) — skipping the use-case check.${NC}"
 else
@@ -796,6 +798,7 @@ def flow_items(text):
     return [item.strip().strip(QUOTES) for item in text.strip()[1:-1].split(",") if item.strip()]
 
 problems, entries, requires_seen = [], 0, 0
+first_runs = []
 lines = catalogue.read_text(encoding="utf-8").splitlines()
 i = 0
 while i < len(lines):
@@ -821,12 +824,31 @@ while i < len(lines):
                     problems.append(f"{catalogue}:{i + 1}: unknown predicate '{name}'")
                 elif vocabulary[name] != bool(has_threshold) or (has_threshold and not value.strip().isdigit()):
                     problems.append(f"{catalogue}:{i + 1}: '{predicate}' — {name} takes {'a >=N threshold' if vocabulary[name] else 'no threshold'}")
+    # A comment may name the field (the header documents it); only data counts.
+    data = "" if line.lstrip().startswith("#") else line
+    for m in re.finditer(r"(?:^|[\s{,])first_run:\s*([^\s,}#]+)", data):
+        order = m.group(1).strip(QUOTES)
+        if order in ("null", "~"):
+            continue
+        if not order.isdigit() or not 1 <= int(order) <= 9:
+            problems.append(f"{catalogue}:{i + 1}: first_run {order} is not null or a whole number in 1..=9")
+        else:
+            first_runs.append((int(order), i + 1))
     m = re.match(r"^\s*command:\s*(\S+)", line)
     if m and m.group(1) not in ("null", "~"):
         command = m.group(1).strip(QUOTES)
         if command not in commands:
             problems.append(f"{catalogue}:{i + 1}: command '{command}' is not a platform command")
     i += 1
+
+seen_orders = {}
+for order, at in first_runs:
+    if order in seen_orders:
+        problems.append(f"{catalogue}:{at}: first_run {order} repeats line {seen_orders[order]}")
+    seen_orders.setdefault(order, at)
+missing = [n for n in range(1, len(seen_orders) + 1) if n not in seen_orders]
+if missing:
+    problems.append(f"{catalogue}: first_run skips {missing[0]}: the flows are numbered 1 to {len(seen_orders)} without a gap")
 
 if entries == 0 or requires_seen == 0:
     problems.append(f"{catalogue}: no entries with 'requires:' were read — the check judged nothing")
@@ -849,7 +871,7 @@ PYUSECASE
         echo -e "${RED}❌ The use-case catalogue names something the platform does not know:${NC}"
         printf '%s\n' "$USE_CASE_REPORT" | sed 's/^/   /'
         echo -e "${YELLOW}   A new predicate lands in the platform first (scripts/ci/use-case-predicates.txt and the${NC}"
-        echo -e "${YELLOW}   ranker), then contremaitre may name it.${NC}"
+        echo -e "${YELLOW}   ranker), then contremaitre may name it; first_run orders count 1, 2, 3… once each.${NC}"
         FAILED=true
     fi
 fi

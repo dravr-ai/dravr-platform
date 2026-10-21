@@ -45,6 +45,10 @@ static PINNED: LazyLock<UseCaseCatalogue> = LazyLock::new(|| {
 /// `uc:<position>:<id>` with a one-digit position.
 const MAX_POSTBACK_BYTES: usize = 64;
 
+/// The highest `first_run:` order an entry may carry: the first-run flows are
+/// numbered from 1 without a gap, and Getting started lists them on one screen.
+const MAX_FIRST_RUN: u8 = 9;
+
 /// One athlete-state condition a starter can require.
 ///
 /// The vocabulary is [`Predicate::VOCABULARY`], which a unit test holds to
@@ -55,6 +59,8 @@ const MAX_POSTBACK_BYTES: usize = 64;
 pub enum Predicate {
     /// A connected provider can take a pushed training plan.
     CalendarWritable,
+    /// The athlete chose a check-in cadence, and not `off`.
+    CheckInOn,
     /// The athlete has told us nothing yet: no pillar covered, no physiology, no goals.
     DossierEmpty,
     /// The athlete has activities, or a connected provider nobody has read yet.
@@ -79,8 +85,9 @@ pub enum Predicate {
 
 impl Predicate {
     /// Every predicate name, and whether it takes a `>=N` threshold.
-    pub const VOCABULARY: [(&'static str, bool); 11] = [
+    pub const VOCABULARY: [(&'static str, bool); 12] = [
         ("calendar_writable", false),
+        ("check_in_on", false),
         ("dossier_empty", false),
         ("has_activities", false),
         ("has_recovery_source", false),
@@ -98,6 +105,7 @@ impl Predicate {
     pub const fn name(self) -> &'static str {
         match self {
             Self::CalendarWritable => "calendar_writable",
+            Self::CheckInOn => "check_in_on",
             Self::DossierEmpty => "dossier_empty",
             Self::HasActivities => "has_activities",
             Self::HasRecoverySource => "has_recovery_source",
@@ -124,6 +132,7 @@ impl Predicate {
         };
         let simple = match name {
             "calendar_writable" => Some(Self::CalendarWritable),
+            "check_in_on" => Some(Self::CheckInOn),
             "dossier_empty" => Some(Self::DossierEmpty),
             "has_activities" => Some(Self::HasActivities),
             "has_recovery_source" => Some(Self::HasRecoverySource),
@@ -248,6 +257,9 @@ pub struct UseCase {
     pub domains: Domains,
     /// Whether a tap retires it.
     pub repeat: Repeat,
+    /// Its place among the first-run flows (carnet#1099), counted from 1, or
+    /// `None` for a starter that is not one.
+    pub first_run: Option<u8>,
 }
 
 impl UseCase {
@@ -285,7 +297,8 @@ impl UseCaseCatalogue {
     /// Returns [`ContremaitreError::ManifestParse`] naming the entry when the
     /// text is not a list of well-formed entries, an id repeats or is not
     /// `snake_case`, a postback would exceed 64 bytes, `run` and `command`
-    /// disagree, or a predicate or domain is unknown.
+    /// disagree, a predicate or domain is unknown, or the `first_run:` orders
+    /// are out of `1..=9`, repeat, or skip a number.
     pub fn parse(yaml: &str) -> Result<Self, ContremaitreError> {
         let raw: Vec<RawUseCase> = serde_saphyr::from_str_with_options(
             yaml,
@@ -302,6 +315,8 @@ impl UseCaseCatalogue {
                 entry.validate()
             })
             .collect::<Result<Vec<_>, String>>()
+            .map_err(|e| ContremaitreError::ManifestParse(format!("use-case catalogue: {e}")))?;
+        check_first_run_orders(&entries)
             .map_err(|e| ContremaitreError::ManifestParse(format!("use-case catalogue: {e}")))?;
         Ok(Self { entries })
     }
@@ -328,6 +343,49 @@ impl UseCaseCatalogue {
     pub fn get(&self, id: &str) -> Option<&UseCase> {
         self.entries.iter().find(|e| e.id == id)
     }
+
+    /// The first-run flows, in flow order.
+    #[must_use]
+    pub fn first_run(&self) -> Vec<&UseCase> {
+        let mut flows: Vec<&UseCase> = self
+            .entries
+            .iter()
+            .filter(|e| e.first_run.is_some())
+            .collect();
+        flows.sort_by_key(|e| e.first_run);
+        flows
+    }
+
+    /// The flow after the first-run flow `id`: `None` when `id` is the last
+    /// one or not a first-run flow.
+    #[must_use]
+    pub fn next_first_run(&self, id: &str) -> Option<&UseCase> {
+        let next = self.get(id)?.first_run?.checked_add(1)?;
+        self.entries.iter().find(|e| e.first_run == Some(next))
+    }
+}
+
+/// Hold the `first_run:` orders to one numbering: unique, and 1 to the count
+/// without a gap, so "the next flow" is always the next number.
+fn check_first_run_orders(entries: &[UseCase]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for entry in entries {
+        if let Some(order) = entry.first_run {
+            if !seen.insert(order) {
+                return Err(format!(
+                    "{}: first_run {order} repeats another entry's",
+                    entry.id
+                ));
+            }
+        }
+    }
+    let count = u8::try_from(seen.len()).unwrap_or(u8::MAX);
+    if let Some(missing) = (1..=count).find(|order| !seen.contains(order)) {
+        return Err(format!(
+            "first_run skips {missing}: the flows are numbered 1 to {count} without a gap"
+        ));
+    }
+    Ok(())
 }
 
 /// An entry as the file writes it, before validation.
@@ -341,6 +399,8 @@ struct RawUseCase {
     stage: Stage,
     domains: Vec<String>,
     repeat: Repeat,
+    #[serde(default)]
+    first_run: Option<u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -389,6 +449,13 @@ impl RawUseCase {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let domains = parse_domains(&self.domains).map_err(|e| format!("{id}: {e}"))?;
+        if let Some(order) = self.first_run {
+            if !(1..=MAX_FIRST_RUN).contains(&order) {
+                return Err(format!(
+                    "{id}: first_run {order} is out of 1..={MAX_FIRST_RUN}"
+                ));
+            }
+        }
         Ok(UseCase {
             id,
             run,
@@ -396,6 +463,7 @@ impl RawUseCase {
             stage: self.stage,
             domains,
             repeat: self.repeat,
+            first_run: self.first_run,
         })
     }
 }
@@ -438,6 +506,7 @@ mod tests {
   stage: any
   domains: [recovery, training]
   repeat: recurring
+  first_run: null
 - id: about_me
   run: command
   command: /pillars
@@ -445,6 +514,16 @@ mod tests {
   stage: first_session
   domains: [any]
   repeat: once
+";
+
+    /// Three first-run flows written out of file order, beside a starter
+    /// that is not one and one that leaves the field out.
+    const FLOWS: &str = "
+- {id: check_in, run: prompt, command: null, requires: [check_in_on], stage: any, domains: [any], repeat: recurring, first_run: 3}
+- {id: season, run: command, command: /season, requires: [], stage: first_week, domains: [training], repeat: once, first_run: null}
+- {id: meet_team, run: prompt, command: null, requires: [], stage: first_session, domains: [any], repeat: once, first_run: 1}
+- {id: last_workout, run: prompt, command: null, requires: [has_activities], stage: first_session, domains: [analysis], repeat: recurring, first_run: 2}
+- {id: zone2, run: prompt, command: null, requires: [], stage: any, domains: [training], repeat: recurring}
 ";
 
     fn rejects(yaml: &str, why: &str) {
@@ -528,6 +607,63 @@ mod tests {
             .get("about_me")
             .expect("about_me")
             .eligible(|_| false));
+    }
+
+    #[test]
+    fn the_first_run_flows_read_in_flow_order_and_each_names_the_next() {
+        let catalogue = UseCaseCatalogue::parse(FLOWS).expect("parses");
+        let flows: Vec<&str> = catalogue
+            .first_run()
+            .iter()
+            .map(|e| e.id.as_str())
+            .collect();
+        assert_eq!(flows, ["meet_team", "last_workout", "check_in"]);
+        let next = |id| catalogue.next_first_run(id).map(|e| e.id.as_str());
+        assert_eq!(next("meet_team"), Some("last_workout"));
+        assert_eq!(next("last_workout"), Some("check_in"));
+        assert_eq!(next("check_in"), None, "the last flow has no next");
+        assert_eq!(next("season"), None, "null is not a flow");
+        assert_eq!(next("zone2"), None, "an absent field is not a flow");
+        assert_eq!(next("unknown"), None);
+        assert_eq!(
+            catalogue.get("check_in").expect("check_in").requires[0].0,
+            [Predicate::CheckInOn]
+        );
+    }
+
+    #[test]
+    fn a_catalogue_without_first_run_has_no_flows() {
+        let catalogue = UseCaseCatalogue::parse(ENTRY).expect("parses");
+        assert_eq!(catalogue.first_run().len(), 0);
+        assert_eq!(catalogue.get("about_me").expect("about_me").first_run, None);
+    }
+
+    #[test]
+    fn first_run_orders_are_unique_and_count_from_one_without_a_gap() {
+        rejects(
+            &FLOWS.replace("first_run: 3}", "first_run: 2}"),
+            "first_run 2 repeats",
+        );
+        rejects(
+            &FLOWS.replace("first_run: 1}", "first_run: 0}"),
+            "first_run 0 is out of 1..=9",
+        );
+        rejects(
+            &FLOWS.replace("first_run: 3}", "first_run: 10}"),
+            "first_run 10 is out of 1..=9",
+        );
+        rejects(
+            &FLOWS.replace("first_run: 3}", "first_run: 4}"),
+            "first_run skips 3",
+        );
+        rejects(
+            &FLOWS.replace("first_run: 1}", "first_run: null}"),
+            "first_run skips 1",
+        );
+        rejects(
+            &FLOWS.replace("first_run: 3}", "first_run: three}"),
+            "use-case catalogue",
+        );
     }
 
     #[test]

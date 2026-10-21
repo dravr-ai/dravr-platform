@@ -336,6 +336,7 @@ mod tests {
             plan_active: false,
             recovery_source: false,
             calendar_writable: false,
+            check_in_on: false,
         }
     }
 

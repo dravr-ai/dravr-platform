@@ -10,8 +10,9 @@
 //! (carnet#828): whether a provider is connected, whether activities exist and
 //! over how many weeks, what the dossier holds, whether a season and a current
 //! plan week exist, whether a connection reports recovery or takes a pushed
-//! plan, and how old the account is. [`AthleteState::holds`] answers each
-//! catalogue [`Predicate`] from it.
+//! plan, whether the athlete chose to be checked in on, and how old the
+//! account is. [`AthleteState::holds`] answers each catalogue [`Predicate`]
+//! from it.
 //!
 //! Every read is one the product already makes elsewhere, called the same way,
 //! so a starter is offered exactly when the surface it leads to has something
@@ -30,7 +31,7 @@ use std::collections::BTreeSet;
 use chrono::{DateTime, Datelike, Duration, Utc};
 use pierre_contremaitre::use_case_catalogue::{Predicate, Stage};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, ConnectionType, CoverageMap, TenantId};
+use pierre_core::models::{Activity, CheckInCadence, ConnectionType, CoverageMap, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
@@ -133,6 +134,8 @@ pub struct AthleteState {
     /// A provider the athlete connected themselves takes their pushed
     /// training plan; one read only through a human coach's link does not.
     pub calendar_writable: bool,
+    /// The athlete chose a check-in cadence, and not `off`.
+    pub check_in_on: bool,
 }
 
 impl AthleteState {
@@ -159,6 +162,7 @@ impl AthleteState {
     pub const fn holds(&self, predicate: Predicate) -> bool {
         match predicate {
             Predicate::CalendarWritable => self.calendar_writable,
+            Predicate::CheckInOn => self.check_in_on,
             Predicate::DossierEmpty => self.dossier.empty,
             Predicate::HasActivities => !matches!(self.activities, ActivityHistory::Absent),
             Predicate::HasRecoverySource => self.recovery_source,
@@ -289,6 +293,12 @@ async fn read_untracked(
         None => false,
     };
 
+    let check_in_on = repos
+        .check_in_preferences
+        .check_in_cadence(tenant, user_id)
+        .await?
+        .is_some_and(|cadence| cadence != CheckInCadence::Off);
+
     Ok(AthleteState {
         stage: stage_at(created_at, now),
         has_provider: !real.is_empty(),
@@ -299,6 +309,7 @@ async fn read_untracked(
         plan_active,
         recovery_source,
         calendar_writable,
+        check_in_on,
     })
 }
 
@@ -321,6 +332,7 @@ mod tests {
             plan_active: false,
             recovery_source: false,
             calendar_writable: false,
+            check_in_on: false,
         }
     }
 
@@ -391,6 +403,16 @@ mod tests {
             !with(7, true, false).holds(Predicate::PillarsOpen),
             "a complete one"
         );
+    }
+
+    #[test]
+    fn check_in_on_holds_only_for_a_chosen_cadence() {
+        let armed = AthleteState {
+            check_in_on: true,
+            ..state()
+        };
+        assert!(armed.holds(Predicate::CheckInOn));
+        assert!(!state().holds(Predicate::CheckInOn));
     }
 
     #[test]

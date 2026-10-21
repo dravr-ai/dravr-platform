@@ -5,6 +5,7 @@
 # threshold (`weeks_of_data>=4`); every other predicate takes none. A `requires:`
 # entry may join predicates with ` | ` for "any of" (carnet#828).
 calendar_writable
+check_in_on
 dossier_empty
 has_activities
 has_recovery_source
