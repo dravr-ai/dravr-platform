@@ -171,7 +171,7 @@ jobs:
       - name: Configure git for private deps
         run: |
           git config --global \
-            url."https://${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
+            url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
             "https://github.com/"
 
       - uses: dtolnay/rust-toolchain@1.99.1
