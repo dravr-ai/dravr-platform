@@ -463,8 +463,8 @@ jobs:
     timeout-minutes: 25  # per-crate clippy on changed leaf crates, ~3-5 min
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with fast-gate / clippy.
-    # Mirrors scripts/ci/pre-push-validate.sh Tier 2: per-crate clippy on the leaf
-    # crates that actually changed in this push, skipping pierre-server (whose
+    # Per-crate clippy on the leaf crates this push changed (pre-push-validate.sh
+    # leaves per-crate clippy to CI), skipping pierre-server (whose
     # per-crate clippy is as slow as the full-workspace run and is handled by the
     # `clippy` job). Designed to fail in 3–5 min on the most common error class.
 
@@ -477,14 +477,43 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      # origin/main cannot be the base here: actions/checkout fetches only the
+      # pushed ref, so on main origin/main IS HEAD (an empty diff skips the job)
+      # and on a branch origin/main does not exist. A pull request diffs against
+      # its base, main against the push's before-sha, and a branch push against
+      # where it forked from main (the "Merge-Risk one-way doors" rule), which is
+      # the base pre-push-validate.sh resolves locally: merge-base(origin/main,
+      # HEAD). A schedule or dispatch run, or a base the runner cannot fetch,
+      # lints the tip commit (HEAD~1); the full `clippy` job lints everything.
       - name: Detect changed leaf crates
         id: detect
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
         run: |
-          if git rev-parse --verify "origin/main" &>/dev/null; then
-              BASE=$(git merge-base "origin/main" HEAD 2>/dev/null || echo "origin/main")
-          else
+          ZERO=0000000000000000000000000000000000000000
+          BASE=""
+          if [ -n "$PR_BASE" ]; then
+              BASE="$PR_BASE"
+          elif [ "$EVENT_NAME" = push ] && [ "$PUSHED_REF" = refs/heads/main ]; then
+              [ -n "$BEFORE" ] && [ "$BEFORE" != "$ZERO" ] && BASE="$BEFORE"
+          elif [ "$EVENT_NAME" = push ]; then
+              git fetch --no-tags --depth=200 origin "$(git rev-parse HEAD)" || true
+              git fetch --no-tags --depth=200 origin main \
+                  && BASE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || true)"
+          fi
+          # A diff needs both trees, not the history between them, so a base
+          # deeper than the 50-commit checkout is fetched on its own.
+          if [ -n "$BASE" ] && ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE" || true
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+              echo "::warning::preflight-clippy: no usable base for this ${EVENT_NAME} run; linting the tip commit only (HEAD~1). The full clippy job still lints everything."
               BASE="HEAD~1"
           fi
+          echo "Preflight base: $BASE"
           CRATES=$(git diff --name-only "$BASE" HEAD 2>/dev/null \
               | grep '^crates/' \
               | sed 's|^crates/||; s|/.*||' \
