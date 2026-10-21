@@ -184,14 +184,7 @@ async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_short
     let (resources, user_id, tenant) = setup().await?;
     // Every starter a newcomer's state admits is a `once` starter, retired by
     // its tap whatever the agent's domain — Meet your team included.
-    for id in [
-        "meet_team",
-        "connect",
-        "about_me",
-        "can_see",
-        "zone2",
-        "fuel",
-    ] {
+    for id in ["meet_team", "connect", "can_see", "zone2", "fuel"] {
         resources
             .common
             .repos

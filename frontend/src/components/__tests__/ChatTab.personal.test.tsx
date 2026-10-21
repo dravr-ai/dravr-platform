@@ -101,7 +101,7 @@ function renderHome(
 /** The three starters the server ranked for a new athlete, as it words them. */
 const STARTERS: UseCaseStarter[] = [
   { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
-  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'about_me_more', label: 'Finish my profile', postback: 'uc:1:about_me_more' },
   { id: 'can_see', label: 'What can you see?', postback: 'uc:2:can_see' },
 ];
 
@@ -283,7 +283,7 @@ describe('Home — the personal surface', () => {
     );
     expect(listStarters).toHaveBeenCalledTimes(1);
 
-    await user.click(within(empty).getByTestId('chat-empty-starter-about_me'));
+    await user.click(within(empty).getByTestId('chat-empty-starter-about_me_more'));
 
     // The athlete speaks first: the topic opens in the personal thread without
     // a welcome, so the same starters are not offered again over the answer.
@@ -293,10 +293,10 @@ describe('Home — the personal surface', () => {
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
     const [conversationId, content] = sendTurn.mock.calls[0];
     expect(conversationId).toBe('conv-new');
-    expect(content).toBe('uc:1:about_me');
+    expect(content).toBe('uc:1:about_me_more');
     // The bubble shows the label, never the postback.
-    expect(await screen.findByText('Get to know me')).toBeInTheDocument();
-    expect(screen.queryByText('uc:1:about_me')).toBeNull();
+    expect(await screen.findByText('Finish my profile')).toBeInTheDocument();
+    expect(screen.queryByText('uc:1:about_me_more')).toBeNull();
   });
 
   it('asks for no starters while a thread is open', async () => {

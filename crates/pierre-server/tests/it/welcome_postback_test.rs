@@ -459,7 +459,7 @@ async fn three_untapped_showings_retire_a_starter() {
     let values = offered(&fx, &fourth).await;
     assert_eq!(
         ranked(&values),
-        ["about_me"],
+        ["can_see"],
         "connect and fuel were ignored three times; the next setup starter leads"
     );
     assert_eq!(&values[1..], ["ex:1:0", "ex:2:1"]);
@@ -770,7 +770,7 @@ async fn the_empty_threads_starters_follow_what_the_athlete_has_connected() {
     assert!(!ids.contains(&"fuel".to_owned()), "{ids:?}");
     assert_eq!(
         ids,
-        ["last_workout", "about_me"],
+        ["last_workout", "can_see"],
         "a connection makes the analysis flow the next one, whatever the agent's domain"
     );
 }
@@ -807,7 +807,7 @@ async fn three_untapped_reads_retire_my_starters_and_no_one_elses() {
         .collect();
     assert_eq!(
         retired_to,
-        ["about_me"],
+        ["can_see"],
         "three showings without a tap retire connect and fuel"
     );
 

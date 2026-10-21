@@ -41,7 +41,7 @@ jest.mock('../src/components/OAuthCredentialsSection', () => ({ OAuthCredentials
 
 const STARTERS: UseCaseStarter[] = [
   { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
-  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'about_me_more', label: 'Finish my profile', postback: 'uc:1:about_me_more' },
 ];
 
 function renderThread(sendText: ChatThreadProps['sendText'], starters?: UseCaseStarter[]) {
@@ -82,10 +82,10 @@ describe('ChatThread — the empty thread\'s starters', () => {
     const sendText = jest.fn().mockResolvedValue(undefined);
     renderThread(sendText, STARTERS);
 
-    fireEvent.press(screen.getByText('Get to know me'));
+    fireEvent.press(screen.getByText('Finish my profile'));
 
     expect(sendText).toHaveBeenCalledTimes(1);
-    expect(sendText).toHaveBeenCalledWith('uc:1:about_me', { display: 'Get to know me' });
+    expect(sendText).toHaveBeenCalledWith('uc:1:about_me_more', { display: 'Finish my profile' });
   });
 
   it('draws none when the host has none to offer', () => {

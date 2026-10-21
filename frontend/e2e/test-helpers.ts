@@ -256,7 +256,7 @@ export async function fulfillCalendar(route: Route, mock: CalendarMock) {
 }
 
 /** The use cases every mocked dashboard is offered, in rank order. */
-const MOCK_STARTER_IDS = ['connect', 'about_me', 'can_see'];
+const MOCK_STARTER_IDS = ['connect', 'about_me_more', 'can_see'];
 
 /**
  * The starters `GET /api/chat/starters` answers, worded in `language` as the

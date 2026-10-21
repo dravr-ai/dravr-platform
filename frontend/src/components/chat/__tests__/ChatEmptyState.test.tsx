@@ -12,7 +12,7 @@ import ChatEmptyState from '../ChatEmptyState';
 
 const STARTERS: UseCaseStarter[] = [
   { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
-  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'about_me_more', label: 'Finish my profile', postback: 'uc:1:about_me_more' },
   { id: 'zone2', label: 'What is Zone 2?', postback: 'uc:2:zone2' },
 ];
 
@@ -42,7 +42,7 @@ describe('ChatEmptyState', () => {
     const links = screen.getAllByTestId(/^chat-empty-starter-/);
     expect(links.map((link) => link.textContent)).toEqual([
       'Connect my watch',
-      'Get to know me',
+      'Finish my profile',
       'What is Zone 2?',
     ]);
   });
@@ -65,7 +65,7 @@ describe('ChatEmptyState', () => {
     const user = userEvent.setup();
     const { onStarter } = renderEmptyState();
 
-    await user.click(screen.getByTestId('chat-empty-starter-about_me'));
+    await user.click(screen.getByTestId('chat-empty-starter-about_me_more'));
 
     expect(onStarter).toHaveBeenCalledExactlyOnceWith(STARTERS[1]);
   });

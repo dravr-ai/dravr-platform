@@ -319,12 +319,12 @@ test.describe('Chat-first shell', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
     await openHome(page);
 
-    await page.getByTestId('chat-empty-starter-about_me').click();
+    await page.getByTestId('chat-empty-starter-about_me_more').click();
 
     await expect.poll(() => topics.length).toBe(1);
     expect(topics[0].body).toMatchObject({ athlete_speaks_first: true });
     expect(created).toHaveLength(0);
-    await expect.poll(() => sent, { timeout: 10000 }).toEqual(['uc:1:about_me']);
+    await expect.poll(() => sent, { timeout: 10000 }).toEqual(['uc:1:about_me_more']);
   });
 
   test('the list row carries its unread count, preview and time', async ({ page }) => {

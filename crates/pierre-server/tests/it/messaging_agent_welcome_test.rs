@@ -264,7 +264,7 @@ mod messaging_welcome {
     }
 
     /// A tapped starter that runs a command is answered by the command on the
-    /// channel's own road, before the turn: `uc:<slot>:about_me` runs
+    /// channel's own road, before the turn: `uc:<slot>:about_me_more` runs
     /// `/pillars` — the walk opens, no model runs, nothing is stored for the
     /// pipeline — and the tap is counted, for the starter it was.
     #[tokio::test(flavor = "multi_thread")]
@@ -284,7 +284,7 @@ mod messaging_welcome {
         let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
         let (events, _guard) = capture_notify();
 
-        let outcome = e2e.send_dm(&member, "uc:1:about_me").await;
+        let outcome = e2e.send_dm(&member, "uc:1:about_me_more").await;
 
         assert_eq!(
             outcome.messages_stored(),
@@ -302,7 +302,7 @@ mod messaging_welcome {
             "no model ran"
         );
         let tapped = only(&events, "suggestion.tapped");
-        assert_eq!(tapped.field("use_case"), "about_me");
+        assert_eq!(tapped.field("use_case"), "about_me_more");
         assert_eq!(tapped.field("position"), "1");
         assert_eq!(tapped.field("source"), "state");
         assert_eq!(tapped.field("channel"), "telegram");
@@ -327,8 +327,8 @@ mod messaging_welcome {
         assert!(
             exposures
                 .iter()
-                .any(|e| e.use_case_id == "about_me" && e.tapped_at.is_some()),
-            "the tap retires a once-only starter: {exposures:?}"
+                .any(|e| e.use_case_id == "about_me_more" && e.tapped_at.is_some()),
+            "the tap is recorded against the starter: {exposures:?}"
         );
     }
 

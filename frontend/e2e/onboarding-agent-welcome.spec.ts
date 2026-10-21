@@ -19,7 +19,7 @@ const CONVERSATION_ID = 'conv-welcome';
  * only ever sees the label.
  */
 const STARTERS = [
-  { label: 'Get to know me', postback: 'uc:0:about_me', resolved: '/pillars' },
+  { label: 'Finish my profile', postback: 'uc:0:about_me_more', resolved: '/pillars' },
   { label: 'What should I eat before a 6am run?', postback: 'ex:1:0', resolved: 'What should I eat before a 6am run?' },
   { label: 'How do I carb load for a marathon?', postback: 'ex:2:1', resolved: 'How do I carb load for a marathon?' },
 ];

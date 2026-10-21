@@ -414,10 +414,10 @@ async fn creating_an_agent_thread_posts_one_localized_welcome() {
     let offered = starters(welcome);
     // Meet your team, the first-run flow still open, takes the first slot
     // whatever the agent's domain (carnet#1099).
-    assert_eq!(offered.ranked, ["about_me", "meet_team"]);
+    assert_eq!(offered.ranked, ["can_see", "meet_team"]);
     assert_eq!(
-        offered.labels["about_me"],
-        render(&resources, "use_cases.about_me.label", "fr", &[])
+        offered.labels["can_see"],
+        render(&resources, "use_cases.can_see.label", "fr", &[])
     );
     assert_eq!(offered.examples, first(&FUELLING_SAMPLES_FR, 1));
     assert!(
@@ -468,7 +468,7 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
         )
     );
     let offered = starters(&rows[0]);
-    assert_eq!(offered.ranked, ["about_me", "meet_team"]);
+    assert_eq!(offered.ranked, ["can_see", "meet_team"]);
     assert_eq!(offered.examples, first(&FUELLING_SAMPLES, 1));
 
     let bare = own_agent(&resources, &bea, "Bare Agent", None, &[]).await;
@@ -489,7 +489,7 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
         )
     );
     let offered = starters(&rows[0]);
-    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
+    assert_eq!(offered.ranked, ["can_see", "last_workout", "meet_team"]);
     assert!(
         offered.examples.is_empty(),
         "no examples to fill the slot left"
@@ -556,7 +556,7 @@ async fn agent_add_welcomes_after_the_command_rows() {
     let offered = starters(carried);
     // Meet your team, the first-run flow still open, takes the first slot
     // whatever the agent's domain (carnet#1099).
-    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
+    assert_eq!(offered.ranked, ["can_see", "last_workout", "meet_team"]);
     assert!(
         offered.examples.is_empty(),
         "three ranked starters leave no slot"
@@ -1015,7 +1015,7 @@ async fn reset_reopens_the_fresh_thread_with_the_agent_welcome() {
         )
     );
     let offered = starters(posted[0]);
-    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
+    assert_eq!(offered.ranked, ["can_see", "last_workout", "meet_team"]);
     assert!(
         offered.examples.is_empty(),
         "three ranked starters leave no slot"

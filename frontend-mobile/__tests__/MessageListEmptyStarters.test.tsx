@@ -20,7 +20,7 @@ import { MessageList } from '../src/screens/chat/MessageList';
 
 const STARTERS: UseCaseStarter[] = [
   { id: 'connect', label: 'Connect my watch', postback: 'uc:0:connect' },
-  { id: 'about_me', label: 'Get to know me', postback: 'uc:1:about_me' },
+  { id: 'about_me_more', label: 'Finish my profile', postback: 'uc:1:about_me_more' },
   { id: 'can_see', label: 'What can you see?', postback: 'uc:2:can_see' },
 ];
 
@@ -54,10 +54,10 @@ describe('MessageList empty thread starters', () => {
     const links = getAllByTestId(/^chat-empty-starter-/);
     expect(links.map((link) => link.props.testID)).toEqual([
       'chat-empty-starter-connect',
-      'chat-empty-starter-about_me',
+      'chat-empty-starter-about_me_more',
       'chat-empty-starter-can_see',
     ]);
-    fireEvent.press(getByTestId('chat-empty-starter-about_me'));
+    fireEvent.press(getByTestId('chat-empty-starter-about_me_more'));
 
     expect(onStarter).toHaveBeenCalledTimes(1);
     expect(onStarter).toHaveBeenCalledWith(STARTERS[1]);
